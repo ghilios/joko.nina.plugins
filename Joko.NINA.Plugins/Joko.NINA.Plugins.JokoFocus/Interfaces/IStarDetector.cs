@@ -6,6 +6,6 @@ using System.Threading.Tasks;
 
 namespace Joko.NINA.Plugins.JokoFocus.Interfaces {
     public interface IStarDetector {
-        Task<List<Star>> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token);
+        // Task<List<Star>> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token);
     }
 }
