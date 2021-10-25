@@ -62,7 +62,10 @@ using System.Runtime.InteropServices;
 * Advanced control over star detection parameters
 * Sophisticated star annotation to simplify parameter tuning
 * Can use the new Star Detector or Annotator without requiring both. Keep what you like
-* Faster AutoFocus on its way soon")]
+* Faster AutoFocus on its way soon
+
+To enable these features, go to Options -> Imaging -> Image Options. After this plugin is installed, there will be Star Detector and Star Annotator dropdown boxes you can select ""Hocus Focus"" for.
+")]
 
 
 // Setting ComVisible to false makes the types in this assembly not visible

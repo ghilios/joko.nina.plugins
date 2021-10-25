@@ -31,7 +31,8 @@ using System.Windows.Input;
 using static NINA.WPF.Base.ViewModel.Imaging.AutoFocusToolVM;
 
 namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
-    [Export(typeof(IDockableVM))]
+    // TODO: Remove when ready
+    // [Export(typeof(IDockableVM))]
     public class HocusFocusToolVM : DockableVM, ICameraConsumer, IFocuserConsumer, IAutoFocusToolVM {
         private CancellationTokenSource _autoFocusCancelToken;
         private AsyncObservableCollection<Chart> _chartList;
@@ -59,7 +60,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector
         ) : base(profileService) {
             // TODO: Get a new logo?
-            Title = "Joko AutoFocus";
+            Title = "Hocus Focus";
             ImageGeometry = (System.Windows.Media.GeometryGroup)System.Windows.Application.Current?.Resources["AutoFocusSVG"];
 
             this.cameraMediator = cameraMediator;

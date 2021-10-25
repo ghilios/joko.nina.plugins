@@ -13,7 +13,8 @@ using System.Threading.Tasks;
 
 namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
-    [Export(typeof(IPluggableBehavior))]
+    // TODO: Add this back when ready
+    // [Export(typeof(IPluggableBehavior))]
     public class HocusFocusVMFactory : IAutoFocusVMFactory {
         private readonly IProfileService profileService;
         private readonly ICameraMediator cameraMediator;
@@ -45,7 +46,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             this.starAnnotatorSelector = starAnnotatorSelector;
         }
 
-        public string Name => "Joko AutoFocus";
+        public string Name => "Hocus Focus";
 
         public string ContentId => this.GetType().FullName;
 

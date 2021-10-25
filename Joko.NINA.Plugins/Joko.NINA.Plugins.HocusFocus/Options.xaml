@@ -18,12 +18,29 @@
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition />
+                <RowDefinition />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
+            <StackPanel
+                    Grid.Row="1"
+                    Orientation="Horizontal">
+                <Path
+                    Width="25"
+                    Margin="5"
+                    Data="{StaticResource ExclamationCircledSVG}"
+                    Fill="{StaticResource ButtonForegroundBrush}"
+                    Stretch="Uniform" />
+                <TextBlock VerticalAlignment="Center">
+                    <TextBlock.Text>
+                        These settings can also be changed in the Imaging tab in their own docks
+                    </TextBlock.Text>
+                </TextBlock>
+            </StackPanel>
             <TabControl
-                Grid.Row="1"
+                Grid.Row="2"
                 Style="{StaticResource SecondLevelTabControl}"
                 TabStripPlacement="Left">
+                <!--
                 <TabItem>
                     <TabItem.Header>
                         <Grid>
@@ -57,6 +74,7 @@
                         </Grid>
                     </TabItem.Content>
                 </TabItem>
+                -->
                 <TabItem>
                     <TabItem.Header>
                         <Grid>

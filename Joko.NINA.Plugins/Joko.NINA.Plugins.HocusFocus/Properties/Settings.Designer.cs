@@ -205,7 +205,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
         public bool ShowHFR {
             get {
                 return ((bool)(this["ShowHFR"]));

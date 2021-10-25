@@ -1,5 +1,5 @@
 ﻿<?xml version='1.0' encoding='utf-8'?>
-<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="Joko.NINA.Plugins.JokoFocus.Properties" GeneratedClassName="Settings">
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="Joko.NINA.Plugins.HocusFocus.Properties" GeneratedClassName="Settings">
   <Profiles />
   <Settings>
     <Setting Name="UpdateSettings" Type="System.Boolean" Scope="User">
@@ -48,7 +48,7 @@
       <Value Profile="(Default)">#80FF0000</Value>
     </Setting>
     <Setting Name="ShowHFR" Type="System.Boolean" Scope="User">
-      <Value Profile="(Default)">False</Value>
+      <Value Profile="(Default)">True</Value>
     </Setting>
     <Setting Name="HFRColor" Type="System.Windows.Media.Color" Scope="User">
       <Value Profile="(Default)">#FFFFFF00</Value>
