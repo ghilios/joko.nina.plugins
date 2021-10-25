@@ -1,0 +1,34 @@
+﻿<ResourceDictionary
+    x:Class="Joko.NINA.Plugins.JokoFocus.StarDetection.DataTemplates"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:behavior="clr-namespace:NINA.WPF.Base.Behaviors;assembly=NINA.WPF.Base"
+    xmlns:converter="clr-namespace:NINA.Core.Utility.Converters;assembly=NINA.Core"
+    xmlns:filter="clr-namespace:NINA.Core.Model;assembly=NINA.Core"
+    xmlns:mini="clr-namespace:NINA.View.Sequencer.MiniSequencer;assembly=NINA.Sequencer"
+    xmlns:nina="clr-namespace:NINA.View.Sequencer;assembly=NINA.Sequencer"
+    xmlns:i="http://schemas.microsoft.com/expression/2010/interactivity"
+    xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary"
+    xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
+    xmlns:oxy="clr-namespace:OxyPlot.Wpf;assembly=OxyPlot.Wpf"
+    xmlns:s="clr-namespace:System;assembly=mscorlib"
+    xmlns:properties="clr-namespace:Joko.NINA.Plugins.JokoFocus.Properties"
+    xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
+    xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
+    xmlns:local="clr-namespace:Joko.NINA.Plugins.JokoFocus.AutoFocus">
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="../Resources/OptionsDataTemplates.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
+    <DataTemplate x:Key="Joko.NINA.Plugins.JokoFocus.StarDetection.StarDetectionOptionsVM_Dockable">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ContentControl Content="{Binding StarDetectionOptions}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
+        </ScrollViewer>
+    </DataTemplate>
+
+    <DataTemplate x:Key="Joko.NINA.Plugins.JokoFocus.StarDetection.StarAnnotatorOptionsVM_Dockable">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ContentControl Content="{Binding StarAnnotatorOptions}" ContentTemplate="{StaticResource HocusFocus_StarAnnotator_Options}" />
+        </ScrollViewer>
+    </DataTemplate>
+</ResourceDictionary>

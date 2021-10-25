@@ -11,7 +11,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyFileVersion("1.0.0.1")]
 
 // [MANDATORY] The name of your plugin
-[assembly: AssemblyTitle("JokoFocus")]
+[assembly: AssemblyTitle("Hocus Focus")]
 // [MANDATORY] A short description of your plugin
 [assembly: AssemblyDescription("New Star Detection, Star Annotation, and Auto Focus algorithms that offer more granular control and additional capabilities.")]
 
@@ -19,13 +19,13 @@ using System.Runtime.InteropServices;
 // The following attributes are not required for the plugin per se, but are required by the official manifest meta data
 
 // Your name
-[assembly: AssemblyCompany("MyCompanyOrName")]
+[assembly: AssemblyCompany("George Hilios (jokogeo)")]
 // The product name that this plugin is part of
-[assembly: AssemblyProduct("MyPluginProduct")]
+[assembly: AssemblyProduct("Hocus Focus")]
 [assembly: AssemblyCopyright("Copyright ©  2021")]
 
 // The minimum Version of N.I.N.A. that this plugin is compatible with
-[assembly: AssemblyMetadata("MinimumApplicationVersion", "1.11.0.1104")]
+[assembly: AssemblyMetadata("MinimumApplicationVersion", "1.11.0.1167")]
 
 // The license your plugin code is using
 [assembly: AssemblyMetadata("License", "MPL-2.0")]

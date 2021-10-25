@@ -20,7 +20,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 
-namespace MyPluginNamespace {
+namespace Joko.NINA.Plugins.JokoFocus {
 
     [Export(typeof(ResourceDictionary))]
     partial class Options : ResourceDictionary {
