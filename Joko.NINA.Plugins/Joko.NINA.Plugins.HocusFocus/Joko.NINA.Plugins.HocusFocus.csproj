@@ -329,6 +329,7 @@
     <Compile Include="StarDetection\StarAnnotatorOptions.cs" />
     <Compile Include="StarDetection\StarDetectionOptions.cs" />
     <Compile Include="StarDetection\StarAnnotatorOptionsVM.cs" />
+    <Compile Include="StarDetection\StarDetectionResultsVM.cs" />
     <Compile Include="StarDetection\StarDetector.cs" />
     <Compile Include="StarDetection\StarDetectionOptionsVM.cs" />
     <Compile Include="Utility\CvImageUtility.cs" />

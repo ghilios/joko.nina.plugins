@@ -7,6 +7,7 @@ using NINA.Core.Utility;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.ImageData;
 using NINA.Image.Interfaces;
+using NINA.WPF.Base.Interfaces.ViewModel;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
@@ -19,19 +20,27 @@ using System.Windows.Media;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
+    public class HocusFocusStarDetectionAnalysis : StarDetectionAnalysis {
+        public StarDetectorMetrics Metrics { get; set; }
+        public double Eccentricity { get; set; } = double.NaN;
+    }
+
     [Export(typeof(IPluggableBehavior))]
     class HocusFocusStarDetection : IStarDetection {
         private readonly IStarDetector starDetector;
         private readonly StarDetectionOptions starDetectionOptions;
+
+        public IImageStatisticsVM ImageStatisticsVM { get; private set; }
 
         public string Name => "Hocus Focus";
 
         public string ContentId => GetType().FullName;
 
         [ImportingConstructor]
-        public HocusFocusStarDetection() {
+        public HocusFocusStarDetection(IImageStatisticsVM imageStatisticsVM) {
             this.starDetector = new StarDetector();
             this.starDetectionOptions = HocusFocusPlugin.StarDetectionOptions;
+            ImageStatisticsVM = imageStatisticsVM;
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
@@ -52,9 +61,9 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             };
 
             var result = new StarDetectionResult() { Params = p };
-            var detectedStars = await this.starDetector.Detect(image, detectorParams, progress, token);
+            var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
-            var starList = detectedStars;
+            var starList = starDetectorResult.DetectedStars;
             if (p.UseROI) {
                 starList = starList.Where(s => InROI(s, imageSize, p)).ToList();
             }
@@ -104,8 +113,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         public IStarDetectionAnalysis CreateAnalysis() {
-            // TODO: Create a custom type that includes Eccentricity
-            return new StarDetectionAnalysis();
+            return new HocusFocusStarDetectionAnalysis();
         }
     }
 }

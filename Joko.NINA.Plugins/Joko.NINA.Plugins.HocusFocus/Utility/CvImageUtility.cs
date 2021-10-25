@@ -1,4 +1,5 @@
-﻿using Joko.NINA.Plugins.HocusFocus.StarDetection;
+﻿using Joko.NINA.Plugins.HocusFocus.Interfaces;
+using Joko.NINA.Plugins.HocusFocus.StarDetection;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using OpenCvSharp;

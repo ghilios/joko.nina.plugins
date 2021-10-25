@@ -60,29 +60,6 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         public double MinHFR { get; set; } = 1.5d;
     }
 
-    public class Star {
-        public Point2d Center;
-        public Rect StarBoundingBox;
-        public double Background;
-        public double MeanBrightness;
-        public double HFR;
-    }
-
-    public class StarDetectorMetrics {
-        public int StructureCandidates;
-        public int TotalDetected;
-        public int TooSmall;
-        public int OnBorder;
-        public int TooDistorted;
-        public int Degenerate;
-        public int Saturated;
-        public int LowSensitivity;
-        public int Uneven;
-        public int TooFlat;
-        public int TooLowHFR;
-        public int HFRAnalysisFailed;
-    }
-
     public class StarDetector : IStarDetector {
         private class StarCandidate {
             public Point2d Center;
@@ -96,7 +73,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             public CvImageStatistics StarBoundingBoxStats;
         }
 
-        public Task<List<Star>> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        public Task<StarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
                 throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
             }
@@ -183,7 +160,10 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
                         Logger.Trace($"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, Uneven={metrics.Uneven}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}");
 
-                        return stars;
+                        return new StarDetectorResult() {
+                            DetectedStars = stars,
+                            Metrics = metrics
+                        };
                     }
                 } finally {
                     // Cleanup
