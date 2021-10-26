@@ -27,7 +27,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
             MinHFR = 1.5;
-            StructureDilationSize = 3;
+            StructureDilationSize = 5;
             StructureDilationCount = 2;
         }
 

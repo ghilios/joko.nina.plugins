@@ -6,6 +6,7 @@ using NINA.Image.Interfaces;
 using OpenCvSharp;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MultiStopWatch = Joko.NINA.Plugins.HocusFocus.Utility.MultiStopWatch;
@@ -20,7 +21,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
         // Number of noise standard deviations above the median to binarize the structure map containing star candidates. Increasing this is useful for noisy images to reduce
         // spurious detected stars in combination with light noise reduction
-        public double NoiseClippingMultiplier { get; set; } = 3.0;
+        public double NoiseClippingMultiplier { get; set; } = 5.0;
 
         // Half size of a median box filter, used for hotpixel removal if HotpixelFiltering is enabled. Only 1 is supported for now, since OpenCV has native support for
         // a median box filter but not a general circular one
@@ -30,7 +31,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         public int StructureLayers { get; set; } = 5;
 
         // Size of the circle used to dilate the structure map
-        public int StructureDilationSize { get; set; } = 3;
+        public int StructureDilationSize { get; set; } = 5;
 
         // Number of times to perform dilation on the structure map
         public int StructureDilationCount { get; set; } = 2;
@@ -47,7 +48,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
         // Stretch factor for the barycenter search algorithm in sigma units. Increasing this makes it more robust against nearby structures,
         // but can be detrimental if too large
-        public double BarycenterStretchSigmaUnits { get; set; } = 1.5;
+        public double BarycenterStretchSigmaUnits { get; set; } = 0;
 
         // The background is estimated by looking in an area around the star bounding box, increased on each side by this number of pixels
         public int BackgroundBoxExpansion { get; set; } = 3;
@@ -58,6 +59,9 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
         // Minimum HFR for a star to be considered viable
         public double MinHFR { get; set; } = 1.5d;
+
+        // Amount of the image to crop before analysis
+        public double CenterROICropRatio { get; set; } = 1.0d;
     }
 
     public class StarDetector : IStarDetector {
@@ -77,6 +81,9 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
                 throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
             }
+            if (p.CenterROICropRatio <= 0.0) {
+                throw new ArgumentException("CenterROICropRatio cannot be negative", "p.CenterROICropRatio");
+            }
 
             return Task.Run(() => {
                 var resourceTracker = new ResourcesTracker();
@@ -84,6 +91,20 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                     var metrics = new StarDetectorMetrics();
                     using (var stopWatch = MultiStopWatch.Measure()) {
                         var srcImage = CvImageUtility.ToOpenCVMat(image);
+                        Rect? roiRect = null;
+                        if (p.CenterROICropRatio < 1.0) {
+                            var startFactor = (1.0 - p.CenterROICropRatio) / 2.0;
+                            roiRect = new Rect(
+                                (int)Math.Floor(srcImage.Cols * startFactor),
+                                (int)Math.Floor(srcImage.Rows * startFactor),
+                                (int)(srcImage.Cols * p.CenterROICropRatio),
+                                (int)(srcImage.Rows * p.CenterROICropRatio));
+
+                            var roiImage = srcImage.SubMat(roiRect.Value).Clone();
+                            srcImage.Dispose();
+                            srcImage = roiImage;
+                        }
+
                         stopWatch.RecordEntry("LoadImage");
 
                         // Step 1: Perform initial noise reduction and hotpixel filtering
@@ -159,6 +180,10 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                         stopWatch.RecordEntry("StarAnalysis");
 
                         Logger.Trace($"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, Uneven={metrics.Uneven}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}");
+                        if (roiRect.HasValue) {
+                            // Apply correction for the ROI
+                            stars = stars.Select(s => s.AddOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top)).ToList();
+                        }
 
                         return new StarDetectorResult() {
                             DetectedStars = stars,
@@ -236,8 +261,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                         var value = *p - background;
                         double distance = 0.0f;
                         if (value > 0.0f) {
-                            var dx = x + 0.5d - star.Center.X;
-                            var dy = y + 0.5d - star.Center.Y;
+                            var dx = x - star.Center.X;
+                            var dy = y - star.Center.Y;
                             distance = Math.Sqrt(dx * dx + dy * dy);
                             if (distance <= largestRadius) {
                                 totalWeightedDistance += value * distance;
@@ -543,7 +568,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             }
 
             var meanFlux = totalFlux / starPoints.Count;
-            var center = new Point2d(sx / sz + 0.5, sy / sz + 0.5);
+            var center = new Point2d(sx / sz, sy / sz);
             var centerBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: center.Y, x: center.X);
             return new StarCandidate() {
                 Center = center,

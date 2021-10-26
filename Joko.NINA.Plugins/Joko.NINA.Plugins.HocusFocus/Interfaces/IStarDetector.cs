@@ -20,18 +20,19 @@ namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
     }
 
     public class StarDetectorMetrics {
-        public int StructureCandidates;
-        public int TotalDetected;
-        public int TooSmall;
-        public int OnBorder;
-        public int TooDistorted;
-        public int Degenerate;
-        public int Saturated;
-        public int LowSensitivity;
-        public int Uneven;
-        public int TooFlat;
-        public int TooLowHFR;
-        public int HFRAnalysisFailed;
+        public int StructureCandidates { get; set; } = -1;
+        public int TotalDetected { get; set; } = -1;
+        public int TooSmall { get; set; } = -1;
+        public int OnBorder { get; set; } = -1;
+        public int TooDistorted { get; set; } = -1;
+        public int Degenerate { get; set; } = -1;
+        public int Saturated { get; set; } = -1;
+        public int LowSensitivity { get; set; } = -1;
+        public int Uneven { get; set; } = -1;
+        public int TooFlat { get; set; } = -1;
+        public int TooLowHFR { get; set; } = -1;
+        public int HFRAnalysisFailed { get; set; } = -1;
+        public int OutsideROI { get; set; } = -1;
     }
 
     public class StarDetectorResult {

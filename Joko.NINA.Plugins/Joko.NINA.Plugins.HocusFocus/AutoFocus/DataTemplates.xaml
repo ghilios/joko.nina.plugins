@@ -22,7 +22,6 @@
     
     <DataTemplate x:Key="Joko.NINA.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <StackPanel Orientation="Vertical">
-            <TextBlock>JOKO AUTOFOCUS!!!</TextBlock>
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition MinHeight="150" />
@@ -438,14 +437,238 @@
                 </ComboBox>
 
                 <ninactrl:CancellableButton
-                Grid.Row="3"
-                Height="25"
-                Margin="10,0,2,0"
-                ButtonText="{ns:Loc LblStartAutoFocus}"
-                CancelButtonImage="{StaticResource CancelSVG}"
-                CancelCommand="{Binding CancelAutoFocusCommand}"
-                CancelToolTip="{ns:Loc LblCancel}"
-                Command="{Binding StartAutoFocusCommand}" />
+                    Grid.Row="3"
+                    Height="25"
+                    Margin="10,0,2,0"
+                    ButtonText="{ns:Loc LblStartAutoFocus}"
+                    CancelButtonImage="{StaticResource CancelSVG}"
+                    CancelCommand="{Binding CancelAutoFocusCommand}"
+                    CancelToolTip="{ns:Loc LblCancel}"
+                    Command="{Binding StartAutoFocusCommand}" />
+            </Grid>
+        </ScrollViewer>
+    </DataTemplate>
+    <DataTemplate x:Key="Joko.NINA.Plugins.HocusFocus.StarDetection.StarDetectionResultsVM_Dockable">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <Grid Margin="5">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+                <StackPanel>
+                    <StackPanel Margin="5" VerticalAlignment="Top">
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="70"
+                                    VerticalAlignment="Center"
+                                    Text="{ns:Loc LblNrStars}" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Statistics.StarDetectionAnalysis.DetectedStars, StringFormat=\{0:0\}, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                Width="70"
+                                VerticalAlignment="Center"
+                                Text="{ns:Loc LblHFR}" />
+                                <TextBlock
+                                Width="70"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Text="{Binding Statistics.StarDetectionAnalysis.HFR, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                Width="70"
+                                VerticalAlignment="Center"
+                                Text="Eccentricity" />
+                                <TextBlock
+                                Width="70"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Text="{Binding Eccentricity, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                Width="70"
+                                VerticalAlignment="Center"
+                                Text="{ns:Loc LblHFRStDev}" />
+                                <TextBlock
+                                Width="70"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Text="{Binding Statistics.StarDetectionAnalysis.HFRStDev, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                    </StackPanel>
+                </StackPanel>
+                <GroupBox Header="Detection Metrics" Grid.Row="1">
+                    <StackPanel Margin="0,5,0,5" VerticalAlignment="Top">
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Total Detected" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.TotalDetected, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Structure Candidates" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.StructureCandidates, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Too Small" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.TooSmall, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="On Border" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.OnBorder, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Too Distorted" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.TooDistorted, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Degenerate" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.Degenerate, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Saturated" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.Saturated, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Low Sensitivity" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.LowSensitivity, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Uneven Brightness" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.Uneven, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Too Flat" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.TooFlat, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="HFR Too Low" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.TooLowHFR, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Failed Star Analysis" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.HFRAnalysisFailed, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Outside ROI" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.OutsideROI, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                    </StackPanel>
+                </GroupBox>
             </Grid>
         </ScrollViewer>
     </DataTemplate>

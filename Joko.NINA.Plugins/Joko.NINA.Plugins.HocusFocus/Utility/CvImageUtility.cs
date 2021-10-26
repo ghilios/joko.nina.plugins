@@ -498,6 +498,16 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
             };
         }
 
+        public static Star AddOffset(this Star star, int xOffset, int yOffset) {
+            return new Star() {
+                Center = star.Center.Add(new Point2d(xOffset, yOffset)),
+                StarBoundingBox = star.StarBoundingBox.Add(new Point(xOffset, yOffset)),
+                Background = star.Background,
+                MeanBrightness = star.MeanBrightness,
+                HFR = star.HFR
+            };
+        }
+
         public static System.Drawing.Color ToDrawingColor(this System.Windows.Media.Color color) {
             return System.Drawing.Color.FromArgb(color.A, color.R, color.G, color.B);
         }

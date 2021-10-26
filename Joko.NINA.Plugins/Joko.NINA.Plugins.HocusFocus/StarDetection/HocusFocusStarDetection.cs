@@ -21,6 +21,30 @@ using System.Windows.Media;
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
     public class HocusFocusStarDetectionAnalysis : StarDetectionAnalysis {
+        private StarDetectorMetrics metrics;
+        public StarDetectorMetrics Metrics {
+            get => metrics;
+            set {
+                if (metrics != value) {
+                    metrics = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double eccentricity = double.NaN;
+        public double Eccentricity {
+            get => eccentricity;
+            set {
+                if (eccentricity != value) {
+                    eccentricity = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+    }
+
+    public class HocusFocusStarDetectionResult : StarDetectionResult {
         public StarDetectorMetrics Metrics { get; set; }
         public double Eccentricity { get; set; } = double.NaN;
     }
@@ -43,6 +67,9 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             ImageStatisticsVM = imageStatisticsVM;
         }
 
+        // TODO: FIXME
+        private int eccentricity = 0;
+
         public async Task<StarDetectionResult> Detect(IRenderedImage image, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var detectorParams = new StarDetectorParams() {
                 HotpixelFiltering = starDetectionOptions.HotpixelFiltering,
@@ -60,12 +87,21 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 StructureDilationCount = starDetectionOptions.StructureDilationCount
             };
 
-            var result = new StarDetectionResult() { Params = p };
+            if (p.UseROI && p.InnerCropRatio < 1.0) {
+                detectorParams.CenterROICropRatio = p.OuterCropRatio >= 1.0 ? p.InnerCropRatio : p.OuterCropRatio;
+            }
+
+            var result = new HocusFocusStarDetectionResult() { Params = p };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var starList = starDetectorResult.DetectedStars;
             if (p.UseROI) {
+                var before = starList.Count;
                 starList = starList.Where(s => InROI(s, imageSize, p)).ToList();
+                var outsideRoi = before - starList.Count;
+                if (outsideRoi > 0) {
+                    starDetectorResult.Metrics.OutsideROI = outsideRoi;
+                }
             }
 
             if (p.NumberOfAFStars > 0) {
@@ -105,6 +141,9 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}");
             }
             result.DetectedStars = result.StarList.Count;
+            result.Metrics = starDetectorResult.Metrics;
+            // TODO: TESTING
+            result.Eccentricity = ++eccentricity;
             return result;
         }
 
@@ -114,6 +153,16 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
         public IStarDetectionAnalysis CreateAnalysis() {
             return new HocusFocusStarDetectionAnalysis();
+        }
+
+        public void UpdateAnalysis(IStarDetectionAnalysis analysis, StarDetectionParams p, StarDetectionResult result) {
+            var hocusFocusAnalysis = (HocusFocusStarDetectionAnalysis)analysis;
+            var hocusFocusResult = (HocusFocusStarDetectionResult)result;
+            hocusFocusAnalysis.HFR = result.AverageHFR;
+            hocusFocusAnalysis.HFRStDev = result.HFRStdDev;
+            hocusFocusAnalysis.DetectedStars = result.DetectedStars;
+            hocusFocusAnalysis.Eccentricity = hocusFocusResult.Eccentricity;
+            hocusFocusAnalysis.Metrics = hocusFocusResult.Metrics;
         }
     }
 }
