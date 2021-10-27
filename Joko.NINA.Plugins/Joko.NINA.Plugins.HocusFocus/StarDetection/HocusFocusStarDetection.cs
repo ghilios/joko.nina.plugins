@@ -31,22 +31,12 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 }
             }
         }
-
-        private double eccentricity = double.NaN;
-        public double Eccentricity {
-            get => eccentricity;
-            set {
-                if (eccentricity != value) {
-                    eccentricity = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
     }
 
     public class HocusFocusStarDetectionResult : StarDetectionResult {
         public StarDetectorMetrics Metrics { get; set; }
-        public double Eccentricity { get; set; } = double.NaN;
+        // TODO: Add new fields here
+        // public double Eccentricity { get; set; } = double.NaN;
     }
 
     [Export(typeof(IPluggableBehavior))]
@@ -67,19 +57,17 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             ImageStatisticsVM = imageStatisticsVM;
         }
 
-        // TODO: FIXME
-        private int eccentricity = 0;
-
         public async Task<StarDetectionResult> Detect(IRenderedImage image, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var detectorParams = new StarDetectorParams() {
                 HotpixelFiltering = starDetectionOptions.HotpixelFiltering,
                 NoiseReductionRadius = starDetectionOptions.NoiseReductionRadius,
                 NoiseClippingMultiplier = starDetectionOptions.NoiseClippingMultiplier,
+                StarClippingMultiplier = starDetectionOptions.StarClippingMultiplier,
                 StructureLayers = starDetectionOptions.StructureLayers,
                 Sensitivity = starDetectionOptions.BrightnessSensitivity,
                 PeakResponse = starDetectionOptions.StarPeakResponse,
                 MaxDistortion = starDetectionOptions.MaxDistortion,
-                BarycenterStretchSigmaUnits = starDetectionOptions.BarycenterStretchMultiplier,
+                StarCenterTolerance = starDetectionOptions.StarCenterTolerance,
                 BackgroundBoxExpansion = starDetectionOptions.StarBackgroundBoxExpansion,
                 MinimumStarBoundingBoxSize = starDetectionOptions.MinStarBoundingBoxSize,
                 MinHFR = starDetectionOptions.MinHFR,
@@ -138,12 +126,11 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 result.AverageHFR = starList.Average(s => s.HFR);
                 var hfrVariance = starList.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (starList.Count - 1);
                 result.HFRStdDev = Math.Sqrt(hfrVariance);
+
                 Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}");
             }
             result.DetectedStars = result.StarList.Count;
             result.Metrics = starDetectorResult.Metrics;
-            // TODO: TESTING
-            result.Eccentricity = ++eccentricity;
             return result;
         }
 
@@ -161,7 +148,6 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             hocusFocusAnalysis.HFR = result.AverageHFR;
             hocusFocusAnalysis.HFRStDev = result.HFRStdDev;
             hocusFocusAnalysis.DetectedStars = result.DetectedStars;
-            hocusFocusAnalysis.Eccentricity = hocusFocusResult.Eccentricity;
             hocusFocusAnalysis.Metrics = hocusFocusResult.Metrics;
         }
     }

@@ -56,17 +56,21 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             } 
         }
 
+        // TODO: When extending fields, include them like this
+        /*
         public double Eccentricity {
             get {
                 return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.Eccentricity ?? double.NaN;
             }
         }
+        */
 
         private void Statistics_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
             this.ChildChanged(sender, e);
             RaisePropertyChanged(nameof(Statistics));
             RaisePropertyChanged(nameof(Metrics));
-            RaisePropertyChanged(nameof(Eccentricity));
+            // TODO: When extending fields, include them like this
+            // RaisePropertyChanged(nameof(Eccentricity));
         }
     }
 }

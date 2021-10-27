@@ -70,6 +70,10 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             using (var hfrFont = new Font(StarAnnotatorOptions.TextFontFamily.ToDrawingFontFamily(), StarAnnotatorOptions.TextFontSizePoints, FontStyle.Regular, GraphicsUnit.Point))
             using (var starCenterBrush = new SolidBrush(StarAnnotatorOptions.StarCenterColor.ToDrawingColor()))
             using (var starCenterPen = new Pen(starCenterBrush))
+            using (var saturatedBrush = new SolidBrush(StarAnnotatorOptions.SaturatedColor.ToDrawingColor()))
+            using (var lowSensitivityBrush = new SolidBrush(StarAnnotatorOptions.LowSensitivityColor.ToDrawingColor()))
+            using (var notCenteredBrush = new SolidBrush(StarAnnotatorOptions.NotCenteredColor.ToDrawingColor()))
+            using (var tooFlatBrush = new SolidBrush(StarAnnotatorOptions.TooFlatColor.ToDrawingColor()))
             using (MyStopWatch.Measure()) {
                 using (var bmp = ImageUtility.Convert16BppTo8Bpp(imageToAnnotate)) {
                     using (var newBitmap = new Bitmap(bmp.Width, bmp.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb)) {
@@ -110,6 +114,48 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                                         starCenterPen, star.Position.X - xLength, star.Position.Y, star.Position.X + xLength, star.Position.Y);
                                     graphics.DrawLine(
                                         starCenterPen, star.Position.X, star.Position.Y - yLength, star.Position.X, star.Position.Y + yLength);
+                                }
+                            }
+                        }
+
+                        var metrics = (result as HocusFocusStarDetectionResult)?.Metrics;
+                        if (StarAnnotatorOptions.ShowDegenerate && metrics?.DegenerateBounds != null) {
+                            using (var brush = new SolidBrush(StarAnnotatorOptions.DegenerateColor.ToDrawingColor()))
+                            using (var pen = new Pen(brush)) {
+                                foreach (var rect in metrics.DegenerateBounds) {
+                                    graphics.DrawRectangle(pen, rect.ToDrawingRectangle());
+                                }
+                            }
+                        }
+                        if (StarAnnotatorOptions.ShowSaturated && metrics?.SaturatedBounds != null) {
+                            using (var brush = new SolidBrush(StarAnnotatorOptions.SaturatedColor.ToDrawingColor()))
+                            using (var pen = new Pen(brush)) {
+                                foreach (var rect in metrics.SaturatedBounds) {
+                                    graphics.DrawRectangle(pen, rect.ToDrawingRectangle());
+                                }
+                            }
+                        }
+                        if (StarAnnotatorOptions.ShowLowSensitivity && metrics?.LowSensitivityBounds != null) {
+                            using (var brush = new SolidBrush(StarAnnotatorOptions.LowSensitivityColor.ToDrawingColor()))
+                            using (var pen = new Pen(brush)) {
+                                foreach (var rect in metrics.LowSensitivityBounds) {
+                                    graphics.DrawRectangle(pen, rect.ToDrawingRectangle());
+                                }
+                            }
+                        }
+                        if (StarAnnotatorOptions.ShowNotCentered && metrics?.NotCenteredBounds != null) {
+                            using (var brush = new SolidBrush(StarAnnotatorOptions.NotCenteredColor.ToDrawingColor()))
+                            using (var pen = new Pen(brush)) {
+                                foreach (var rect in metrics.NotCenteredBounds) {
+                                    graphics.DrawRectangle(pen, rect.ToDrawingRectangle());
+                                }
+                            }
+                        }
+                        if (StarAnnotatorOptions.ShowTooFlat && metrics?.TooFlatBounds != null) {
+                            using (var brush = new SolidBrush(StarAnnotatorOptions.TooFlatColor.ToDrawingColor()))
+                            using (var pen = new Pen(brush)) {
+                                foreach (var rect in metrics.TooFlatBounds) {
+                                    graphics.DrawRectangle(pen, rect.ToDrawingRectangle());
                                 }
                             }
                         }

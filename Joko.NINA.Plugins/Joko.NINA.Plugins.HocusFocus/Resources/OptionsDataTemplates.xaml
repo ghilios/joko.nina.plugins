@@ -32,6 +32,8 @@
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -91,10 +93,30 @@
                 Grid.Row="3"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
+                Text="Star Clipping Multiplier"
+                ToolTip="Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis. Decrease this if there are a large number of stars excluded for being degenerate and you can see many clear dim stars that are not detected." />
+            <ninactrl:UnitTextBox
+                Grid.Row="3"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Unit="x">
+                <Binding Path="StarClippingMultiplier" UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:GreaterZeroRule />
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+            <TextBlock
+                Grid.Row="4"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
                 Text="Structure Layers"
                 ToolTip="The number of dyadic (power of 2) layers to include in structure detection. At the default of 5 (2⁵=32), structures larger than 32 pixels in size are excluded from structure detection" />
             <ninactrl:UnitTextBox
-                Grid.Row="3"
+                Grid.Row="4"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -108,18 +130,18 @@
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="4"
+                Grid.Row="5"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Brightness Sensitivity">
                 <TextBlock.ToolTip>
                     <TextBlock>
-                        Given a star with a normalized brightness measure of <Bold>S</Bold> and a local background of <Bold>B</Bold>, star sensitivity is measured as the ratio of the difference between them to the background <Bold>(S-B)/B</Bold>. The default value of 0.1 works well for most cases, but if you find a large number of rejections due to low sensitivity, smaller values can increase sensitivity
+                        Given a star with a normalized brightness measure of <Bold>s</Bold>, a local background of <Bold>b</Bold>, and a background noise level of <Bold>n</Bold>, star sensitivity is measured as the ratio of the star brightness above the background relative to the background noise <Bold>(s-b)/n</Bold>. The default value of 5x the noise level seems to works well, but if you find a large number of rejections due to low sensitivity, smaller values can increase sensitivity
                     </TextBlock>
                 </TextBlock.ToolTip>
             </TextBlock>
             <ninactrl:UnitTextBox
-                Grid.Row="4"
+                Grid.Row="5"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -129,13 +151,13 @@
                 <Binding Path="BrightnessSensitivity" UpdateSourceTrigger="LostFocus" />
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="5"
+                Grid.Row="6"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Star Peak Response"
-                ToolTip="TODO" />
+                ToolTip="The ratio of the star median relative to the star peak. It provides a measure of flatness, since median values close to the peak indicate low dispersion. Consider decreasing if too many stars are rejected with &quot;Too Flat&quot;" />
             <ninactrl:UnitTextBox
-                Grid.Row="5"
+                Grid.Row="6"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -153,13 +175,13 @@
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="6"
+                Grid.Row="7"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Max Distortion"
-                ToolTip="TODO" />
+                ToolTip="The ratio of star pixels to the size of a perfect square bounding box. A perfect circule has a distortion of PI/4, which is approximately 0.7. The default value of 0.5 allows for some distortion and measurement error and should work for most cases." />
             <ninactrl:UnitTextBox
-                Grid.Row="6"
+                Grid.Row="7"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -177,33 +199,37 @@
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="7"
+                Grid.Row="8"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
-                Text="Barycenter Stretch Multiplier"
-                ToolTip="TODO" />
+                Text="Star Center Tolerance"
+                ToolTip="Size (as a percentage) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star" />
             <ninactrl:UnitTextBox
-                Grid.Row="7"
+                Grid.Row="8"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="x">
-                <Binding Path="BarycenterStretchMultiplier" UpdateSourceTrigger="LostFocus">
+                Unit="%">
+                <Binding Path="StarCenterTolerance" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
                     <Binding.ValidationRules>
-                        <rules:GreaterThanZeroRule />
+                        <rules:FloatRangeRule>
+                            <rules:FloatRangeRule.ValidRange>
+                                <rules:FloatRangeChecker Maximum="1.0" Minimum="0" />
+                            </rules:FloatRangeRule.ValidRange>
+                        </rules:FloatRangeRule>
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="8"
+                Grid.Row="9"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Background Box Expansion"
-                ToolTip="" />
+                ToolTip="The background is estimated by looking in an area around the star bounding box, increased on each side by this number of pixels. The default value of 3 should work for most cases, but you can consider increasing it if stars are very spare, or even decreasing it if the star field is very crowded with stars less than 3 pixels from one another." />
             <ninactrl:UnitTextBox
-                Grid.Row="8"
+                Grid.Row="9"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -217,13 +243,13 @@
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="9"
+                Grid.Row="10"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Min Bounding Box Size"
-                ToolTip="TODO" />
+                ToolTip="The minimum allowed size (length of either side) of a star candidate's bounding box. Increasing this can be helpful at very high focal lengths if too many small structures are detected" />
             <ninactrl:UnitTextBox
-                Grid.Row="9"
+                Grid.Row="10"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -237,13 +263,13 @@
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="10"
+                Grid.Row="11"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Min HFR"
-                ToolTip="TODO" />
+                ToolTip="Minimum HFR for a star to be considered viable" />
             <ninactrl:UnitTextBox
-                Grid.Row="10"
+                Grid.Row="11"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -257,13 +283,13 @@
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="11"
+                Grid.Row="12"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Structure Dilation Size"
-                ToolTip="TODO" />
+                ToolTip="During star detection a structure map is generated containing potential star pixels that are above the background noise threshold. This parameter defines the size of gaussian morphology filter used to dilate the structure map. Consider increasing this value if bounding boxes are not large enough around stars, which may be more likely at very high focal lengths." />
             <ninactrl:UnitTextBox
-                Grid.Row="11"
+                Grid.Row="12"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -281,13 +307,13 @@
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="12"
+                Grid.Row="13"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Structure Dilation Iterations"
-                ToolTip="TODO" />
+                ToolTip="This parameter is related to Structure Dilation Size. It specifies the number of times the morphological dilation is performed. Consider increasing this value if bounding boxes are not large enough around stars, which may be more likely at very high focal lengths." />
             <ninactrl:UnitTextBox
-                Grid.Row="12"
+                Grid.Row="13"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -310,6 +336,16 @@
                 <ColumnDefinition />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
+                <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
@@ -545,6 +581,156 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding StarCenterColor}" />
+            <TextBlock
+                Grid.Row="12"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="Show Degenerate"
+                ToolTip="Whether to show the failed degenerate stars" />
+            <CheckBox
+                Grid.Row="12"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding ShowDegenerate}" />
+            <TextBlock
+                Grid.Row="13"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Text="Degenerate Box Color"
+                ToolTip="The color of the failed star bounding box" />
+            <xceed:ColorPicker
+                Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Grid.Row="13"
+                Grid.Column="1"
+                Width="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectedColor="{Binding DegenerateColor}" />
+            <TextBlock
+                Grid.Row="14"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="Show Saturated"
+                ToolTip="Whether to show the failed saturated stars" />
+            <CheckBox
+                Grid.Row="14"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding ShowSaturated}" />
+            <TextBlock
+                Grid.Row="15"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Text="Saturated Box Color"
+                ToolTip="The color of the failed star bounding box" />
+            <xceed:ColorPicker
+                Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Grid.Row="15"
+                Grid.Column="1"
+                Width="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectedColor="{Binding SaturatedColor}" />
+            <TextBlock
+                Grid.Row="16"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="Show Low Sensitivity"
+                ToolTip="Whether to show the failed low sensitivity stars" />
+            <CheckBox
+                Grid.Row="16"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding ShowLowSensitivity}" />
+            <TextBlock
+                Grid.Row="17"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Text="Low Sensitivity Box Color"
+                ToolTip="The color of the failed star bounding box" />
+            <xceed:ColorPicker
+                Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Grid.Row="17"
+                Grid.Column="1"
+                Width="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectedColor="{Binding LowSensitivityColor}" />
+            <TextBlock
+                Grid.Row="18"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="Show Not Centered"
+                ToolTip="Whether to show the failed not centered stars" />
+            <CheckBox
+                Grid.Row="18"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding ShowNotCentered}" />
+            <TextBlock
+                Grid.Row="19"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Text="Not Centered Box Color"
+                ToolTip="The color of the failed star bounding box" />
+            <xceed:ColorPicker
+                Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Grid.Row="19"
+                Grid.Column="1"
+                Width="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectedColor="{Binding NotCenteredColor}" />
+            <TextBlock
+                Grid.Row="20"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="Show Too Flat"
+                ToolTip="Whether to show the failed too flat stars" />
+            <CheckBox
+                Grid.Row="20"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding ShowTooFlat}" />
+            <TextBlock
+                Grid.Row="21"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Text="Too Flat Box Color"
+                ToolTip="The color of the failed star bounding box" />
+            <xceed:ColorPicker
+                Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Grid.Row="21"
+                Grid.Column="1"
+                Width="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectedColor="{Binding TooFlatColor}" />
         </Grid>
     </DataTemplate>
 </ResourceDictionary>

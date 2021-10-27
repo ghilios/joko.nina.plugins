@@ -9,11 +9,12 @@ namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
         bool HotpixelFiltering { get; set; }
         int NoiseReductionRadius { get; set; }
         double NoiseClippingMultiplier { get; set; }
+        double StarClippingMultiplier { get; set; }
         int StructureLayers { get; set; }
         double BrightnessSensitivity { get; set; }
         double StarPeakResponse { get; set; }
         double MaxDistortion { get; set; }
-        double BarycenterStretchMultiplier { get; set; }
+        double StarCenterTolerance { get; set; }
         int StarBackgroundBoxExpansion { get; set; }
         int MinStarBoundingBoxSize { get; set; }
         double MinHFR { get; set; }

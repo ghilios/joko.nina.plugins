@@ -611,12 +611,12 @@
                                 <TextBlock
                                     Width="120"
                                     VerticalAlignment="Center"
-                                    Text="Uneven Brightness" />
+                                    Text="Not Centered" />
                                 <TextBlock
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding Metrics.Uneven, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                                    Text="{Binding Metrics.NotCentered, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock

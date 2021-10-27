@@ -85,7 +85,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("0.1")]
+        [global::System.Configuration.DefaultSettingValueAttribute("5")]
         public double BrightnessSensitivity {
             get {
                 return ((double)(this["BrightnessSensitivity"]));
@@ -97,7 +97,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("0.85")]
+        [global::System.Configuration.DefaultSettingValueAttribute("0.5")]
         public double StarPeakResponse {
             get {
                 return ((double)(this["StarPeakResponse"]));
@@ -121,13 +121,13 @@ namespace Joko.NINA.Plugins.HocusFocus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("0")]
-        public double BarycenterStretchMultiplier {
+        [global::System.Configuration.DefaultSettingValueAttribute("0.3")]
+        public double StarCenterTolerance {
             get {
-                return ((double)(this["BarycenterStretchMultiplier"]));
+                return ((double)(this["StarCenterTolerance"]));
             }
             set {
-                this["BarycenterStretchMultiplier"] = value;
+                this["StarCenterTolerance"] = value;
             }
         }
         
@@ -301,7 +301,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("3")]
+        [global::System.Configuration.DefaultSettingValueAttribute("7")]
         public int StructureDilationSize {
             get {
                 return ((int)(this["StructureDilationSize"]));
@@ -313,7 +313,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("2")]
+        [global::System.Configuration.DefaultSettingValueAttribute("1")]
         public int StructureDilationCount {
             get {
                 return ((int)(this["StructureDilationCount"]));
@@ -344,6 +344,138 @@ namespace Joko.NINA.Plugins.HocusFocus.Properties {
             }
             set {
                 this["StarCenterColor"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("1")]
+        public double StarClippingMultiplier {
+            get {
+                return ((double)(this["StarClippingMultiplier"]));
+            }
+            set {
+                this["StarClippingMultiplier"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool ShowDegenerate {
+            get {
+                return ((bool)(this["ShowDegenerate"]));
+            }
+            set {
+                this["ShowDegenerate"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("#8000FF00")]
+        public global::System.Windows.Media.Color DegenerateColor {
+            get {
+                return ((global::System.Windows.Media.Color)(this["DegenerateColor"]));
+            }
+            set {
+                this["DegenerateColor"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool ShowSaturated {
+            get {
+                return ((bool)(this["ShowSaturated"]));
+            }
+            set {
+                this["ShowSaturated"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("#8000FF00")]
+        public global::System.Windows.Media.Color SaturatedColor {
+            get {
+                return ((global::System.Windows.Media.Color)(this["SaturatedColor"]));
+            }
+            set {
+                this["SaturatedColor"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool ShowLowSensitivity {
+            get {
+                return ((bool)(this["ShowLowSensitivity"]));
+            }
+            set {
+                this["ShowLowSensitivity"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("#8000FF00")]
+        public global::System.Windows.Media.Color LowSensitivityColor {
+            get {
+                return ((global::System.Windows.Media.Color)(this["LowSensitivityColor"]));
+            }
+            set {
+                this["LowSensitivityColor"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool ShowNotCentered {
+            get {
+                return ((bool)(this["ShowNotCentered"]));
+            }
+            set {
+                this["ShowNotCentered"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("#8000FF00")]
+        public global::System.Windows.Media.Color NotCenteredColor {
+            get {
+                return ((global::System.Windows.Media.Color)(this["NotCenteredColor"]));
+            }
+            set {
+                this["NotCenteredColor"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool ShowTooFlat {
+            get {
+                return ((bool)(this["ShowTooFlat"]));
+            }
+            set {
+                this["ShowTooFlat"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("#8000FF00")]
+        public global::System.Windows.Media.Color TooFlatColor {
+            get {
+                return ((global::System.Windows.Media.Color)(this["TooFlatColor"]));
+            }
+            set {
+                this["TooFlatColor"] = value;
             }
         }
     }

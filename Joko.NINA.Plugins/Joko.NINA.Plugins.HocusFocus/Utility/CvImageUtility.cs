@@ -165,7 +165,22 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
             return result;
         }
 
-        public static CvImageStatistics CalculateStatistics_Histogram(Mat image, bool useLogHistogram = true, Rect? rect = null, CvImageStatisticsFlags flags = CvImageStatisticsFlags.All) {
+        public struct Ranged {
+            public Ranged(double start, double end) {
+                Start = start;
+                End = end;
+            }
+
+            public double Start;
+            public double End;
+        }
+
+        public static CvImageStatistics CalculateStatistics_Histogram(
+            Mat image, 
+            bool useLogHistogram = true, 
+            Ranged? valueRange = null,
+            Rect? rect = null, 
+            CvImageStatisticsFlags flags = CvImageStatisticsFlags.All) {
             if (image.Type() != MatType.CV_32F) {
                 throw new ArgumentException("Only CV_32F supported");
             }
@@ -190,6 +205,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
                 }
             }
 
+            long numPixels = 0L;
             var height = rect.HasValue ? rect.Value.Height : image.Height;
             var width = rect.HasValue ? rect.Value.Width : image.Width;
             unsafe {
@@ -200,25 +216,50 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
                 var startX = rect.HasValue ? rect.Value.X : 0;
                 var startY = rect.HasValue ? rect.Value.Y : 0;
                 var p = data + startY * image.Width + startX;
-                for (int row = 0; row < height; ++row) {
-                    for (int col = 0; col < width; ++col) {
-                        var pixelValue = (double)*(p++);
-                        int bucketIndex;
-                        if (useLogHistogram) {
-                            var logValue = Math.Log(pixelValue);
-                            bucketIndex = (int)Math.Ceiling((logValue - firstLogValue) / logBucketSize);
-                        } else {
-                            bucketIndex = (int)Math.Floor(pixelValue * numBuckets);
+                if (valueRange.HasValue) {
+                    var valueRangeValue = valueRange.Value;
+                    for (int row = 0; row < height; ++row) {
+                        for (int col = 0; col < width; ++col) {
+                            var pixelValue = (double)*(p++);
+                            if (pixelValue < valueRangeValue.Start || pixelValue >= valueRangeValue.End) {
+                                continue;
+                            }
+                            int bucketIndex;
+                            if (useLogHistogram) {
+                                var logValue = Math.Log(pixelValue);
+                                bucketIndex = (int)Math.Ceiling((logValue - firstLogValue) / logBucketSize);
+                            } else {
+                                bucketIndex = (int)Math.Floor(pixelValue * numBuckets);
+                            }
+                            if (bucketIndex < 0) bucketIndex = 0;
+                            if (bucketIndex >= numBuckets) bucketIndex = numBuckets - 1;
+                            ++histogram[bucketIndex];
+                            ++numPixels;
                         }
-                        if (bucketIndex < 0) bucketIndex = 0;
-                        if (bucketIndex >= numBuckets) bucketIndex = numBuckets - 1;
-                        ++histogram[bucketIndex];
+                        p += rowStride;
                     }
-                    p += rowStride;
+                } else {
+                    // Keep the hot path for computing statistics without bounds fast
+                    for (int row = 0; row < height; ++row) {
+                        for (int col = 0; col < width; ++col) {
+                            var pixelValue = (double)*(p++);
+                            int bucketIndex;
+                            if (useLogHistogram) {
+                                var logValue = Math.Log(pixelValue);
+                                bucketIndex = (int)Math.Ceiling((logValue - firstLogValue) / logBucketSize);
+                            } else {
+                                bucketIndex = (int)Math.Floor(pixelValue * numBuckets);
+                            }
+                            if (bucketIndex < 0) bucketIndex = 0;
+                            if (bucketIndex >= numBuckets) bucketIndex = numBuckets - 1;
+                            ++histogram[bucketIndex];
+                        }
+                        p += rowStride;
+                    }
+                    numPixels = height * width;
                 }
             }
 
-            var numPixels = height * width;
             if (flags.HasFlag(CvImageStatisticsFlags.MAD) || flags.HasFlag(CvImageStatisticsFlags.Median)) {
                 var targetMedianCount = numPixels / 2.0d;
                 uint currentCount = 0;
@@ -411,7 +452,13 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
             return interpolatedX0 + yRatio * (interpolatedX1 - interpolatedX0);
         }
 
-        public static double KappaSigmaNoiseEstimate(Mat image, out long numBackgroundPixels, double clippingMultipler = 3.0d, double allowedError = 0.001, int maxIterations = 10) {
+        public class KappSigmaNoiseEstimateResult {
+            public double Sigma { get; set; }
+            public double BackgroundMean { get; set; }
+            public long BackgroundPixels { get; set; }
+        }
+
+        public static KappSigmaNoiseEstimateResult KappaSigmaNoiseEstimate(Mat image, double clippingMultipler = 3.0d, double allowedError = 0.001, int maxIterations = 10) {
             // NOTE: This algorithm could be sped up by building a log histogram. Consider this if performance becomes problematic
             if (image.Type() != MatType.CV_32F) {
                 throw new ArgumentException("Only CV_32F supported");
@@ -422,6 +469,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
                 int numPixels = image.Rows * image.Cols;
                 var threshold = float.MaxValue;
                 var lastSigma = 1.0d;
+                var lastBackgroundMean = 1.0d;
                 var backgroundPixels = 0L;
                 int numIterations = 0;
                 while (numIterations < maxIterations) {
@@ -458,10 +506,14 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
                     }
                     threshold = (float)(mean + clippingMultipler * sigma);
                     lastSigma = sigma;
+                    lastBackgroundMean = mean;
                 }
 
-                numBackgroundPixels = backgroundPixels;
-                return lastSigma;
+                return new KappSigmaNoiseEstimateResult() {
+                    Sigma = lastSigma,
+                    BackgroundMean = lastBackgroundMean,
+                    BackgroundPixels = backgroundPixels
+                };
             }
         }
 

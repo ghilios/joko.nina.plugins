@@ -3,10 +3,6 @@ using Joko.NINA.Plugins.HocusFocus.Properties;
 using NINA.Core.Utility;
 using NINA.Profile.Interfaces;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
     public class StarDetectionOptions : BaseINPC, IStarDetectionOptions {
@@ -20,15 +16,15 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             NoiseReductionRadius = 0;
             NoiseClippingMultiplier = 5.0;
             StructureLayers = 5;
-            BrightnessSensitivity = 0.1;
-            StarPeakResponse = 0.85;
+            BrightnessSensitivity = 5.0;
+            StarPeakResponse = 0.5;
             MaxDistortion = 0.5;
-            BarycenterStretchMultiplier = 0.0;
+            StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
             MinHFR = 1.5;
-            StructureDilationSize = 5;
-            StructureDilationCount = 2;
+            StructureDilationSize = 7;
+            StructureDilationCount = 1;
         }
 
         public bool HotpixelFiltering {
@@ -76,6 +72,22 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        public double StarClippingMultiplier {
+            get {
+                return Settings.Default.StarClippingMultiplier;
+            }
+            set {
+                if (Settings.Default.StarClippingMultiplier != value) {
+                    if (value < 0) {
+                        throw new ArgumentException("StarClippingMultiplier must be non-negative", "StarClippingMultiplier");
+                    }
+                    Settings.Default.StarClippingMultiplier = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         public int StructureLayers {
             get {
                 return Settings.Default.StructureLayers;
@@ -92,17 +104,18 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        public double BrightnessSensitivity {
+        public double StarCenterTolerance {
             get {
-                return Settings.Default.BrightnessSensitivity;
+                return Settings.Default.StarCenterTolerance;
             }
             set {
-                if (Settings.Default.BrightnessSensitivity != value) {
-                    if (Settings.Default.NoiseReductionRadius != value) {
-                        Settings.Default.BrightnessSensitivity = value;
-                        Settings.Default.Save();
-                        RaisePropertyChanged();
+                if (Settings.Default.StarCenterTolerance != value) {
+                    if (value <= 0.0 || value > 1.0) {
+                        throw new ArgumentException("StarCenterTolerance must be positive and <= 1.0", "StarCenterTolerance");
                     }
+                    Settings.Default.StarCenterTolerance = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
                 }
             }
         }
@@ -129,8 +142,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             }
             set {
                 if (Settings.Default.MaxDistortion != value) {
-                    if (value <= 0.0 || value > 1.0) {
-                        throw new ArgumentException("MaxDistortion must be within [0, 1)", "MaxDistortion");
+                    if (value < 0.0 || value > 1.0) {
+                        throw new ArgumentException("MaxDistortion must be within [0, 1]", "MaxDistortion");
                     }
                     Settings.Default.MaxDistortion = value;
                     Settings.Default.Save();
@@ -139,16 +152,16 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        public double BarycenterStretchMultiplier {
+        public double BrightnessSensitivity {
             get {
-                return Settings.Default.BarycenterStretchMultiplier;
+                return Settings.Default.BrightnessSensitivity;
             }
             set {
-                if (Settings.Default.BarycenterStretchMultiplier != value) {
+                if (Settings.Default.BrightnessSensitivity != value) {
                     if (value < 0) {
-                        throw new ArgumentException("BarycenterStretchMultiplier must be non-negative", "BarycenterStretchMultiplier");
+                        throw new ArgumentException("BrightnessSensitivity must be non-negative", "BrightnessSensitivity");
                     }
-                    Settings.Default.BarycenterStretchMultiplier = value;
+                    Settings.Default.BrightnessSensitivity = value;
                     Settings.Default.Save();
                     RaisePropertyChanged();
                 }

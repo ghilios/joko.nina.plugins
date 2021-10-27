@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using static Joko.NINA.Plugins.HocusFocus.Utility.CvImageUtility;
 using MultiStopWatch = Joko.NINA.Plugins.HocusFocus.Utility.MultiStopWatch;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
@@ -23,6 +24,9 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         // spurious detected stars in combination with light noise reduction
         public double NoiseClippingMultiplier { get; set; } = 5.0;
 
+        // Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis
+        public double StarClippingMultiplier { get; set; } = 1.0;
+
         // Half size of a median box filter, used for hotpixel removal if HotpixelFiltering is enabled. Only 1 is supported for now, since OpenCV has native support for
         // a median box filter but not a general circular one
         public int HotpixelFilterRadius { get; set; } = 1;
@@ -36,7 +40,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         // Number of times to perform dilation on the structure map
         public int StructureDilationCount { get; set; } = 2;
 
-        // Sensitivity is the minimum value of a star's brightness with respect to its background (s - b)/b. Smaller values increase sensitivity
+        // Sensitivity is the minimum value of a star's brightness (with the background n subtracted out) above the noise floor (s - b)/n. Smaller values increase sensitivity
         public double Sensitivity { get; set; } = 0.1;
 
         // Maximum ratio of median pixel value to the peak for a candidate pixel to be rejected. Large values are more tolerant of flat structures
@@ -46,9 +50,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         // circle has distortion PI/4 which is about 0.8. Smaller values are more distorted
         public double MaxDistortion { get; set; } = 0.5;
 
-        // Stretch factor for the barycenter search algorithm in sigma units. Increasing this makes it more robust against nearby structures,
-        // but can be detrimental if too large
-        public double BarycenterStretchSigmaUnits { get; set; } = 0;
+        // Size (as a ratio) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star
+        public double StarCenterTolerance { get; set; } = 0.2;
 
         // The background is estimated by looking in an area around the star bounding box, increased on each side by this number of pixels
         public int BackgroundBoxExpansion { get; set; } = 3;
@@ -62,6 +65,9 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
         // Amount of the image to crop before analysis
         public double CenterROICropRatio { get; set; } = 1.0d;
+
+        // Granularity to sample star bounding boxes when computing star measurements
+        public float AnalysisSamplingSize { get; set; } = 0.5f;
     }
 
     public class StarDetector : IStarDetector {
@@ -74,7 +80,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             public double Peak;
             public int PixelCount;
             public Rect StarBoundingBox;
-            public CvImageStatistics StarBoundingBoxStats;
+            public double StarMedian;
         }
 
         public Task<StarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
@@ -159,9 +165,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                         // Step 5: Binarize foreground structures based on noise estimates
                         progress.Report(new ApplicationStatus() { Status = "Structure Detection" });
 
-                        long numBackgroundPixels;
-                        var ksigmaNoise = CvImageUtility.KappaSigmaNoiseEstimate(structureMap, out numBackgroundPixels, clippingMultipler: p.NoiseClippingMultiplier);
-                        Logger.Trace($"K-Sigma Noise Estimate: {ksigmaNoise}, Background Percentage: {(double)numBackgroundPixels / (structureMap.Rows * structureMap.Cols)}");
+                        var ksigmaNoiseResult = CvImageUtility.KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
+                        Logger.Trace($"K-Sigma Noise Estimate: {ksigmaNoiseResult.Sigma}, Background Mean: {ksigmaNoiseResult.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResult.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}");
                         stopWatch.RecordEntry("KSigmaNoiseCalculation");
 
                         // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
@@ -169,17 +174,17 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                         var structureMapStats = CvImageUtility.CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
                         stopWatch.RecordEntry("BinarizationStatistics");
 
-                        double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * ksigmaNoise;
+                        double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * ksigmaNoiseResult.Sigma;
                         Logger.Trace($"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}");
                         CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
                         stopWatch.RecordEntry("Binarization");
 
                         // Step 6: Scan structure map for stars
                         progress.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
-                        var stars = ScanStars(srcImage, structureMap, p, metrics);
+                        var stars = ScanStars(srcImage, structureMap, p, ksigmaNoiseResult.Sigma, metrics);
                         stopWatch.RecordEntry("StarAnalysis");
 
-                        Logger.Trace($"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, Uneven={metrics.Uneven}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}");
+                        Logger.Trace($"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}");
                         if (roiRect.HasValue) {
                             // Apply correction for the ROI
                             stars = stars.Select(s => s.AddOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top)).ToList();
@@ -241,49 +246,38 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private bool ComputeHFR(Mat srcImage, Star star) {
-            int width = srcImage.Width;
-            int height = srcImage.Height;
-            unsafe {
-                var imageData = (float*)srcImage.DataPointer;
-                var background = star.Background;
-                var starRowStride = width - star.StarBoundingBox.Width;
-                double totalBrightness = 0.0;
-                double totalWeightedDistance = 0.0;
-                double largestRadius = star.Center.X - star.StarBoundingBox.Left;
-                largestRadius = Math.Max(largestRadius, star.StarBoundingBox.Right - star.Center.X - 1);
-                largestRadius = Math.Max(largestRadius, star.Center.Y - star.StarBoundingBox.Top);
-                largestRadius = Math.Max(largestRadius, star.StarBoundingBox.Bottom - star.Center.Y - 1);
+        private bool MeasureStar(Mat srcImage, Star star, StarDetectorParams p) {
+            var background = star.Background;
+            double totalBrightness = 0.0;
+            double totalWeightedDistance = 0.0;
 
-                float* p = imageData + (star.StarBoundingBox.Y * width + star.StarBoundingBox.X);
-                for (int y = star.StarBoundingBox.Top; y < star.StarBoundingBox.Bottom; ++y) {
-                    for (int x = star.StarBoundingBox.Left; x < star.StarBoundingBox.Right; ++x) {
-                        var value = *p - background;
-                        double distance = 0.0f;
-                        if (value > 0.0f) {
-                            var dx = x - star.Center.X;
-                            var dy = y - star.Center.Y;
-                            distance = Math.Sqrt(dx * dx + dy * dy);
-                            if (distance <= largestRadius) {
-                                totalWeightedDistance += value * distance;
-                                totalBrightness += value;
-                            }
-                        }
-
-                        ++p;
+            // Determine the start position to sample from the star bounding box so that we stay within the box *and* the center point is one of the samples. This ensures
+            // we're sampling in a balanced manner around the center
+            var startX = star.Center.X - p.AnalysisSamplingSize * Math.Floor((star.Center.X - star.StarBoundingBox.Left) / p.AnalysisSamplingSize);
+            var startY = star.Center.Y - p.AnalysisSamplingSize * Math.Floor((star.Center.Y - star.StarBoundingBox.Top) / p.AnalysisSamplingSize);
+            var endX = star.StarBoundingBox.Right;
+            var endY = star.StarBoundingBox.Bottom;
+            for (var y = startY; y < endY; y += p.AnalysisSamplingSize) {
+                for (var x = startX; x < endX; x += p.AnalysisSamplingSize) {
+                    var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x) - background;
+                    if (value > 0.0f) {
+                        var dx = x - star.Center.X;
+                        var dy = y - star.Center.Y;
+                        var distance = Math.Sqrt(dx * dx + dy * dy);
+                        totalWeightedDistance += value * distance;
+                        totalBrightness += value;
                     }
-                    p += starRowStride;
                 }
-
-                if (totalBrightness > 0.0f) {
-                    star.HFR = totalWeightedDistance / totalBrightness;
-                    return true;
-                }
-                return false;
             }
+
+            if (totalBrightness > 0.0f) {
+                star.HFR = totalWeightedDistance / totalBrightness;
+                return true;
+            }
+            return false;
         }
 
-        private List<Star> ScanStars(Mat srcImage, Mat structureMap, StarDetectorParams p, StarDetectorMetrics metrics) {
+        private List<Star> ScanStars(Mat srcImage, Mat structureMap, StarDetectorParams p, double noiseSigma, StarDetectorMetrics metrics) {
             const float ZERO_THRESHOLD = 0.001f;
 
             var stars = new List<Star>();
@@ -365,7 +359,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                         }
 
                         ++metrics.StructureCandidates;
-                        var star = EvaluateStarCandidate(srcImage, p, starBounds, starPoints, metrics);
+                        var star = EvaluateStarCandidate(srcImage, p, starBounds, starPoints, noiseSigma, metrics);
                         if (star != null) {
                             ++metrics.TotalDetected;
                             stars.Add(star);
@@ -382,7 +376,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             return stars;
         }
 
-        private Star EvaluateStarCandidate(Mat srcImage, StarDetectorParams p, Rect starBounds, List<Point> starPoints, StarDetectorMetrics metrics) {
+        private Star EvaluateStarCandidate(Mat srcImage, StarDetectorParams p, Rect starBounds, List<Point> starPoints, double noiseSigma, StarDetectorMetrics metrics) {
             // Now we have a potential star bounding box as well as the coordinates of every star pixel. If this is a reliable star,
             // we compute its barycenter and include it.
             //
@@ -390,7 +384,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             //  1) Peak values fully saturated
             //  2) Touching the border. We assume the star is clipped
             //  3) Elongated stars
-            //  4) Center too far away from the peak pixel
+            //  4) Star center too far away from the center of the bounding box
             //  5) Too flat
 
             // Too small
@@ -412,34 +406,34 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 return null;
             }
 
-            var starCandidate = ComputeStarParameters(srcImage, starBounds, p, starPoints);
+            var starCandidate = ComputeStarParameters(srcImage, starBounds, p, noiseSigma, starPoints);
             // Full saturated
             if (starCandidate == null) {
-                ++metrics.Degenerate;
+                metrics.DegenerateBounds.Add(starBounds);
                 return null;
             }
 
             if (starCandidate.Peak >= 1.0f) {
-                ++metrics.Saturated;
+                metrics.SaturatedBounds.Add(starBounds);
                 return null;
             }
 
-            // Not bright enough relative to background
-            var sensitivity = (starCandidate.NormalizedBrightness - starCandidate.Background) / starCandidate.Background;
+            // Not bright enough (background already subtracted out) relative to noise level
+            var sensitivity = starCandidate.NormalizedBrightness / noiseSigma;
             if (sensitivity <= p.Sensitivity) {
-                ++metrics.LowSensitivity;
+                metrics.LowSensitivityBounds.Add(starBounds);
                 return null;
             }
 
             // Measured center too far away from being the peak
-            if (starCandidate.CenterBrightness < (0.85 * starCandidate.Peak)) {
-                ++metrics.Uneven;
+            if (!IsStarCentered(starCandidate, p)) {
+                metrics.NotCenteredBounds.Add(starBounds);
                 return null;
             }
 
             // Too flat
-            if (starCandidate.StarBoundingBoxStats.Median >= (p.PeakResponse * starCandidate.Peak)) {
-                ++metrics.TooFlat;
+            if (starCandidate.StarMedian >= (p.PeakResponse * starCandidate.Peak)) {
+                metrics.TooFlatBounds.Add(starBounds);
                 return null;
             }
 
@@ -452,7 +446,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             };
 
             // Measure HFR, and discard if we couldn't calculate it
-            if (!ComputeHFR(srcImage, star)) {
+            if (!MeasureStar(srcImage, star, p)) {
                 ++metrics.HFRAnalysisFailed;
                 return null;
             }
@@ -466,7 +460,18 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             return star;
         }
 
-        private StarCandidate ComputeStarParameters(Mat srcImage, Rect starBounds, StarDetectorParams p, List<Point> starPoints) {
+        private static bool IsStarCentered(StarCandidate starCandidate, StarDetectorParams p) {
+            var box = starCandidate.StarBoundingBox;
+            var centerThresholdBoxWidth = box.Width * p.StarCenterTolerance;
+            var centerThresholdBoxHeight = box.Height * p.StarCenterTolerance;
+            var minX = box.X + (box.Width - centerThresholdBoxWidth) / 2.0;
+            var maxX = minX + centerThresholdBoxWidth;
+            var minY = box.Y + (box.Height - centerThresholdBoxHeight) / 2.0;
+            var maxY = minY + centerThresholdBoxHeight;
+            return starCandidate.Center.X >= minX && starCandidate.Center.X <= maxX && starCandidate.Center.Y >= minY && starCandidate.Center.Y <= maxY;
+        }
+
+        private StarCandidate ComputeStarParameters(Mat srcImage, Rect starBounds, StarDetectorParams p, double noiseSigma, List<Point> starPoints) {
             var expandedWidth = starBounds.Width + p.BackgroundBoxExpansion * 2;
             var expandedHeight = starBounds.Height + p.BackgroundBoxExpansion * 2;
             var surroundingPixels = new float[(expandedWidth * expandedHeight) - (starBounds.Width * starBounds.Height)];
@@ -527,20 +532,21 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             Array.Sort(surroundingPixels, 0, surroundingPixelCount);
             var backgroundMedian = surroundingPixels[surroundingPixelCount >> 1];
 
-            var starRectStats = CvImageUtility.CalculateStatistics(srcImage, starBounds, flags: CvImageStatisticsFlags.Median | CvImageStatisticsFlags.StdDev);
-            var barycenterLowerBound = Math.Min(1.0f, starRectStats.Median + p.BarycenterStretchSigmaUnits * starRectStats.StdDev);
+            var backgroundThreshold = backgroundMedian + p.StarClippingMultiplier * noiseSigma;
             double sx = 0, sy = 0, sz = 0;
             double totalFlux = 0d, peak = 0d;
             int numUnclippedPixels = 0;
+            double[] starPixels;
             unsafe {
                 var imageData = (float*)srcImage.DataPointer;
-                var barycenterStretchFactor = 1.0d - barycenterLowerBound;
                 float minPixel = 1.0f, maxPixel = 0.0f;
                 foreach (var starPoint in starPoints) {
                     var pixel = imageData[starPoint.Y * srcImage.Width + starPoint.X];
-                    if (pixel <= barycenterLowerBound) {
+                    if (pixel <= backgroundThreshold) {
                         continue;
                     }
+
+                    pixel -= backgroundMedian;
 
                     ++numUnclippedPixels;
                     if (pixel < minPixel) minPixel = pixel;
@@ -552,24 +558,35 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                     return null;
                 }
 
+                starPixels = new double[numUnclippedPixels];
+                int pixelCount = 0;
                 foreach (var starPoint in starPoints) {
                     var pixel = imageData[starPoint.Y * srcImage.Width + starPoint.X];
-                    if (pixel <= barycenterLowerBound) {
+                    if (pixel <= backgroundThreshold) {
                         continue;
                     }
 
-                    var barycenterStretchedPixel = (pixel - minPixel) / (maxPixel - minPixel);
-                    sx += barycenterStretchedPixel * starPoint.X;
-                    sy += barycenterStretchedPixel * starPoint.Y;
-                    sz += barycenterStretchedPixel;
+                    pixel -= backgroundMedian;
+                    sx += pixel * starPoint.X;
+                    sy += pixel * starPoint.Y;
+                    sz += pixel;
                     totalFlux += pixel;
                     peak = pixel > peak ? pixel : peak;
+                    starPixels[pixelCount++] = pixel;
                 }
+            }
+
+            Array.Sort(starPixels);
+            double starMedian;
+            if (starPixels.Length % 2 == 1) {
+                starMedian = starPixels[starPixels.Length >> 1];
+            } else {
+                starMedian = (starPixels[starPixels.Length >> 1 + 1] + starPixels[starPixels.Length >> 1]) / 2.0;
             }
 
             var meanFlux = totalFlux / starPoints.Count;
             var center = new Point2d(sx / sz, sy / sz);
-            var centerBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: center.Y, x: center.X);
+            var centerBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: center.Y, x: center.X) - backgroundMedian;
             return new StarCandidate() {
                 Center = center,
                 CenterBrightness = (float)centerBrightness,
@@ -579,7 +596,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 // Detection level for the star's brightness corrected for the peak response
                 NormalizedBrightness = (float)(peak - (1 - p.PeakResponse) * meanFlux),
                 StarBoundingBox = starBounds,
-                StarBoundingBoxStats = starRectStats,
+                StarMedian = starMedian,
                 PixelCount = starPoints.Count
             };
         }

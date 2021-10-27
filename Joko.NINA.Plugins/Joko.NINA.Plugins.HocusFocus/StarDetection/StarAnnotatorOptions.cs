@@ -31,6 +31,16 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             ROIColor = Color.FromArgb(255, 255, 255, 0); // Yellow
             ShowStarCenter = true;
             StarCenterColor = Color.FromArgb(128, 0, 0, 255); // Blue half transparency
+            ShowDegenerate = false;
+            DegenerateColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
+            ShowSaturated = false;
+            SaturatedColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
+            ShowLowSensitivity = false;
+            LowSensitivityColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
+            ShowNotCentered = false;
+            NotCenteredColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
+            ShowTooFlat = false;
+            TooFlatColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
         }
 
         public int MaxStars {
@@ -199,6 +209,136 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (Settings.Default.StarCenterColor != value) {
                     Settings.Default.StarCenterColor = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public bool ShowDegenerate {
+            get {
+                return Settings.Default.ShowDegenerate;
+            }
+            set {
+                if (Settings.Default.ShowDegenerate != value) {
+                    Settings.Default.ShowDegenerate = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public Color DegenerateColor {
+            get {
+                return Settings.Default.DegenerateColor;
+            }
+            set {
+                if (Settings.Default.DegenerateColor != value) {
+                    Settings.Default.DegenerateColor = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public bool ShowSaturated {
+            get {
+                return Settings.Default.ShowSaturated;
+            }
+            set {
+                if (Settings.Default.ShowSaturated != value) {
+                    Settings.Default.ShowSaturated = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public Color SaturatedColor {
+            get {
+                return Settings.Default.SaturatedColor;
+            }
+            set {
+                if (Settings.Default.SaturatedColor != value) {
+                    Settings.Default.SaturatedColor = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public bool ShowLowSensitivity {
+            get {
+                return Settings.Default.ShowLowSensitivity;
+            }
+            set {
+                if (Settings.Default.ShowLowSensitivity != value) {
+                    Settings.Default.ShowLowSensitivity = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public Color LowSensitivityColor {
+            get {
+                return Settings.Default.LowSensitivityColor;
+            }
+            set {
+                if (Settings.Default.LowSensitivityColor != value) {
+                    Settings.Default.LowSensitivityColor = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public bool ShowNotCentered {
+            get {
+                return Settings.Default.ShowNotCentered;
+            }
+            set {
+                if (Settings.Default.ShowNotCentered != value) {
+                    Settings.Default.ShowNotCentered = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public Color NotCenteredColor {
+            get {
+                return Settings.Default.NotCenteredColor;
+            }
+            set {
+                if (Settings.Default.NotCenteredColor != value) {
+                    Settings.Default.NotCenteredColor = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public bool ShowTooFlat {
+            get {
+                return Settings.Default.ShowTooFlat;
+            }
+            set {
+                if (Settings.Default.ShowTooFlat != value) {
+                    Settings.Default.ShowTooFlat = value;
+                    Settings.Default.Save();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public Color TooFlatColor {
+            get {
+                return Settings.Default.TooFlatColor;
+            }
+            set {
+                if (Settings.Default.TooFlatColor != value) {
+                    Settings.Default.TooFlatColor = value;
                     Settings.Default.Save();
                     RaisePropertyChanged();
                 }
