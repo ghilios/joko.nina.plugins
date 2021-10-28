@@ -313,6 +313,7 @@
     <Compile Include="StarDetection\StarDetectionOptionsVM.cs" />
     <Compile Include="Utility\CvImageUtility.cs" />
     <Compile Include="Utility\MultiStopWatch.cs" />
+    <Compile Include="Utility\PluginOptionsAccessor.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Accord.dll.config" />

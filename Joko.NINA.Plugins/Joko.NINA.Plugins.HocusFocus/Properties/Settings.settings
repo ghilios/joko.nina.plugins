@@ -21,7 +21,7 @@
       <Value Profile="(Default)">5</Value>
     </Setting>
     <Setting Name="StarPeakResponse" Type="System.Double" Scope="User">
-      <Value Profile="(Default)">0.5</Value>
+      <Value Profile="(Default)">0.6</Value>
     </Setting>
     <Setting Name="MaxDistortion" Type="System.Double" Scope="User">
       <Value Profile="(Default)">0.5</Value>
@@ -84,7 +84,7 @@
       <Value Profile="(Default)">#800000FF</Value>
     </Setting>
     <Setting Name="StarClippingMultiplier" Type="System.Double" Scope="User">
-      <Value Profile="(Default)">1</Value>
+      <Value Profile="(Default)">0.5</Value>
     </Setting>
     <Setting Name="ShowDegenerate" Type="System.Boolean" Scope="User">
       <Value Profile="(Default)">False</Value>
@@ -115,6 +115,12 @@
     </Setting>
     <Setting Name="TooFlatColor" Type="System.Windows.Media.Color" Scope="User">
       <Value Profile="(Default)">#8000FF00</Value>
+    </Setting>
+    <Setting Name="UseAutoFocusCrop" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">True</Value>
+    </Setting>
+    <Setting Name="PixelSampleSize" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">0.5</Value>
     </Setting>
   </Settings>
 </SettingsFile>

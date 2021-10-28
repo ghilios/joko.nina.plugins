@@ -56,13 +56,13 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyMetadata("LongDescription", @"This plugin improved Star Detection and Star Annotation for NINA. Faster Auto Focus is on the way as well 
 
 *Features*:
-* Calculates Eccentricity
 * Faster for large sensors, particularly APS-C and Full Frame
 * Higher accuracy (lower HFR Standard Deviation) if parameters are set properly
 * Advanced control over star detection parameters
 * Sophisticated star annotation to simplify parameter tuning
 * Can use the new Star Detector or Annotator without requiring both. Keep what you like
 * Faster AutoFocus on its way soon
+* Eccentricity on its way soon
 
 To enable these features, go to Options -> Imaging -> Image Options. After this plugin is installed, there will be Star Detector and Star Annotator dropdown boxes you can select ""Hocus Focus"" for.
 ")]

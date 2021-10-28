@@ -1,5 +1,6 @@
 ﻿using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using Joko.NINA.Plugins.HocusFocus.Properties;
+using Joko.NINA.Plugins.HocusFocus.Utility;
 using NINA.Core.Utility;
 using NINA.Profile.Interfaces;
 using System;
@@ -12,9 +13,41 @@ using System.Windows.Media;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
     public class StarAnnotatorOptions : BaseINPC, IStarAnnotatorOptions {
-        private readonly IProfileService profileService;
+        private readonly PluginOptionsAccessor optionsAccessor;
+
         public StarAnnotatorOptions(IProfileService profileService) {
-            this.profileService = profileService;
+            var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions));
+            if (guid == null) {
+                throw new Exception($"Guid not found in assembly metadata");
+            }
+
+            this.optionsAccessor = new PluginOptionsAccessor(profileService, guid.Value);
+            InitializeOptions();
+        }
+        private void InitializeOptions() {
+            showAllStars = optionsAccessor.GetValueBool("ShowAllStars", true);
+            maxStars = optionsAccessor.GetValueInt("MaxStars", 200);
+            showStarBounds = optionsAccessor.GetValueBool("ShowStarBounds", true);
+            starBoundsColor = optionsAccessor.GetValueColor("StarBoundsColor", Color.FromArgb(128, 255, 0, 0));
+            showHFR = optionsAccessor.GetValueBool("ShowHFR", true);
+            textFontFamily = new FontFamily(optionsAccessor.GetValueString("TextFontFamily", "Arial"));
+            textFontSizePoints = optionsAccessor.GetValueFloat("TextFontSizePoints", 18);
+            hfrColor = optionsAccessor.GetValueColor("HFRColor", Color.FromArgb(255, 255, 255, 0));
+            starBoundsType = optionsAccessor.GetValueEnum<StarBoundsTypeEnum>("StarBoundsType", StarBoundsTypeEnum.Box);
+            showROI = optionsAccessor.GetValueBool("ShowROI", true);
+            roiColor = optionsAccessor.GetValueColor("ROIColor", Color.FromArgb(255, 255, 255, 0));
+            showStarCenter = optionsAccessor.GetValueBool("ShowStarCenter", true);
+            starCenterColor = optionsAccessor.GetValueColor("StarCenterColor", Color.FromArgb(128, 0, 0, 255));
+            showDegenerate = optionsAccessor.GetValueBool("ShowDegenerate", false);
+            degenerateColor = optionsAccessor.GetValueColor("DegenerateColor", Color.FromArgb(128, 0, 255, 0));
+            showSaturated = optionsAccessor.GetValueBool("ShowSaturated", false);
+            saturatedColor = optionsAccessor.GetValueColor("SaturatedColor", Color.FromArgb(128, 0, 255, 0));
+            showLowSensitivity = optionsAccessor.GetValueBool("ShowLowSensitivity", false);
+            lowSensitivityColor = optionsAccessor.GetValueColor("LowSensitivityColor", Color.FromArgb(128, 0, 255, 0));
+            showNotCentered = optionsAccessor.GetValueBool("ShowNotCentered", false);
+            notCenteredColor = optionsAccessor.GetValueColor("NotCenteredColor", Color.FromArgb(128, 0, 255, 0));
+            showTooFlat = optionsAccessor.GetValueBool("ShowTooFlat", false);
+            tooFlatColor = optionsAccessor.GetValueColor("TooFlatColor", Color.FromArgb(128, 0, 255, 0));
         }
 
         public void ResetDefaults() {
@@ -43,303 +76,277 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             TooFlatColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
         }
 
-        public int MaxStars {
-            get {
-                return Settings.Default.MaxStars;
-            }
-            set {
-                if (Settings.Default.MaxStars != value) {
-                    Settings.Default.MaxStars = value;
-                    Settings.Default.Save();
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        public bool ShowStarBounds {
-            get {
-                return Settings.Default.ShowStarBounds;
-            }
-            set {
-                if (Settings.Default.ShowStarBounds != value) {
-                    Settings.Default.ShowStarBounds = value;
-                    Settings.Default.Save();
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        public Color StarBoundsColor {
-            get {
-                return Settings.Default.StarBoundsColor;
-            }
-            set {
-                if (Settings.Default.StarBoundsColor != value) {
-                    Settings.Default.StarBoundsColor = value;
-                    Settings.Default.Save();
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        public bool ShowHFR {
-            get {
-                return Settings.Default.ShowHFR;
-            }
-            set {
-                if (Settings.Default.ShowHFR != value) {
-                    Settings.Default.ShowHFR = value;
-                    Settings.Default.Save();
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        public FontFamily TextFontFamily {
-            get {
-                return Settings.Default.TextFontFamily;
-            }
-            set {
-                if (value != Settings.Default.TextFontFamily) {
-                    Settings.Default.TextFontFamily = value;
-                    Settings.Default.Save();
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        public float TextFontSizePoints {
-            get {
-                return Settings.Default.TextFontSizePoints;
-            } set {
-                if (value != Settings.Default.TextFontSizePoints) {
-                    Settings.Default.TextFontSizePoints = value;
-                    Settings.Default.Save();
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        public Color HFRColor {
-            get {
-                return Settings.Default.HFRColor;
-            }
-            set {
-                if (Settings.Default.HFRColor != value) {
-                    Settings.Default.HFRColor = value;
-                    Settings.Default.Save();
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
+        private bool showAllStars;
         public bool ShowAllStars {
-            get {
-                return Settings.Default.ShowAllStars;
-            }
+            get => showAllStars;
             set {
-                if (Settings.Default.ShowAllStars != value) {
-                    Settings.Default.ShowAllStars = value;
-                    Settings.Default.Save();
+                if (showAllStars != value) {
+                    showAllStars = value;
+                    optionsAccessor.SetValueBool("ShowAllStars", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private int maxStars;
+        public int MaxStars {
+            get => maxStars;
+            set {
+                if (maxStars != value) {
+                    maxStars = value;
+                    optionsAccessor.SetValueInt("MaxStars", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool showStarBounds;
+        public bool ShowStarBounds {
+            get => showStarBounds;
+            set {
+                if (showStarBounds != value) {
+                    showStarBounds = value;
+                    optionsAccessor.SetValueBool("ShowStarBounds", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private Color starBoundsColor;
+        public Color StarBoundsColor {
+            get => starBoundsColor;
+            set {
+                if (starBoundsColor != value) {
+                    starBoundsColor = value;
+                    optionsAccessor.SetValueColor("StarBoundsColor", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool showHFR;
+        public bool ShowHFR {
+            get => showHFR;
+            set {
+                if (showHFR != value) {
+                    showHFR = value;
+                    optionsAccessor.SetValueBool("ShowHFR", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private FontFamily textFontFamily; 
+        public FontFamily TextFontFamily {
+            get => textFontFamily;
+            set {
+                if (textFontFamily != value) {
+                    textFontFamily = value;
+                    optionsAccessor.SetValueString("TextFontFamily", value.FamilyNames.First().Value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private float textFontSizePoints;
+        public float TextFontSizePoints {
+            get => textFontSizePoints;
+            set {
+                if (textFontSizePoints != value) {
+                    textFontSizePoints = value;
+                    optionsAccessor.SetValueFloat("TextFontSizePoints", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private Color hfrColor;
+        public Color HFRColor {
+            get => hfrColor;
+            set {
+                if (hfrColor != value) {
+                    hfrColor = value;
+                    optionsAccessor.SetValueColor("HFRColor", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private StarBoundsTypeEnum starBoundsType;
         public StarBoundsTypeEnum StarBoundsType {
-            get {
-                if (Enum.TryParse<StarBoundsTypeEnum>(Settings.Default.StarBoundsType, out var result)) {
-                    return result;
-                }
-                return StarBoundsTypeEnum.Box;
-            }
+            get => starBoundsType;
             set {
-                var valueString = Enum.GetName(typeof(StarBoundsTypeEnum), value);
-                if (Settings.Default.StarBoundsType != valueString) {
-                    Settings.Default.StarBoundsType = valueString;
-                    Settings.Default.Save();
+                if (starBoundsType != value) {
+                    starBoundsType = value;
+                    optionsAccessor.SetValueEnum<StarBoundsTypeEnum>("StarBoundsType", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private bool showROI;
         public bool ShowROI {
-            get {
-                return Settings.Default.ShowROI;
-            }
+            get => showROI;
             set {
-                if (Settings.Default.ShowROI != value) {
-                    Settings.Default.ShowROI = value;
-                    Settings.Default.Save();
+                if (showROI != value) {
+                    showROI = value;
+                    optionsAccessor.SetValueBool("ShowROI", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private Color roiColor;
         public Color ROIColor {
-            get {
-                return Settings.Default.ROIColor;
-            }
+            get => roiColor;
             set {
-                if (Settings.Default.ROIColor != value) {
-                    Settings.Default.ROIColor = value;
-                    Settings.Default.Save();
+                if (roiColor != value) {
+                    roiColor = value;
+                    optionsAccessor.SetValueColor("ROIColor", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private bool showStarCenter;
         public bool ShowStarCenter {
-            get {
-                return Settings.Default.ShowStarCenter;
-            }
+            get => showStarCenter;
             set {
-                if (Settings.Default.ShowStarCenter != value) {
-                    Settings.Default.ShowStarCenter = value;
-                    Settings.Default.Save();
+                if (showStarCenter != value) {
+                    showStarCenter = value;
+                    optionsAccessor.SetValueBool("ShowStarCenter", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private Color starCenterColor;
         public Color StarCenterColor {
-            get {
-                return Settings.Default.StarCenterColor;
-            }
+            get => starCenterColor;
             set {
-                if (Settings.Default.StarCenterColor != value) {
-                    Settings.Default.StarCenterColor = value;
-                    Settings.Default.Save();
+                if (starCenterColor != value) {
+                    starCenterColor = value;
+                    optionsAccessor.SetValueColor("StarCenterColor", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private bool showDegenerate;
         public bool ShowDegenerate {
-            get {
-                return Settings.Default.ShowDegenerate;
-            }
+            get => showDegenerate;
             set {
-                if (Settings.Default.ShowDegenerate != value) {
-                    Settings.Default.ShowDegenerate = value;
-                    Settings.Default.Save();
+                if (showDegenerate != value) {
+                    showDegenerate = value;
+                    optionsAccessor.SetValueBool("ShowDegenerate", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private Color degenerateColor;
         public Color DegenerateColor {
-            get {
-                return Settings.Default.DegenerateColor;
-            }
+            get => degenerateColor;
             set {
-                if (Settings.Default.DegenerateColor != value) {
-                    Settings.Default.DegenerateColor = value;
-                    Settings.Default.Save();
+                if (degenerateColor != value) {
+                    degenerateColor = value;
+                    optionsAccessor.SetValueColor("DegenerateColor", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private bool showSaturated;
         public bool ShowSaturated {
-            get {
-                return Settings.Default.ShowSaturated;
-            }
+            get => showSaturated;
             set {
-                if (Settings.Default.ShowSaturated != value) {
-                    Settings.Default.ShowSaturated = value;
-                    Settings.Default.Save();
+                if (showSaturated != value) {
+                    showSaturated = value;
+                    optionsAccessor.SetValueBool("ShowSaturated", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private Color saturatedColor;
         public Color SaturatedColor {
-            get {
-                return Settings.Default.SaturatedColor;
-            }
+            get => saturatedColor;
             set {
-                if (Settings.Default.SaturatedColor != value) {
-                    Settings.Default.SaturatedColor = value;
-                    Settings.Default.Save();
+                if (saturatedColor != value) {
+                    saturatedColor = value;
+                    optionsAccessor.SetValueColor("SaturatedColor", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private bool showLowSensitivity;
         public bool ShowLowSensitivity {
-            get {
-                return Settings.Default.ShowLowSensitivity;
-            }
+            get => showLowSensitivity;
             set {
-                if (Settings.Default.ShowLowSensitivity != value) {
-                    Settings.Default.ShowLowSensitivity = value;
-                    Settings.Default.Save();
+                if (showLowSensitivity != value) {
+                    showLowSensitivity = value;
+                    optionsAccessor.SetValueBool("ShowLowSensitivity", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private Color lowSensitivityColor;
         public Color LowSensitivityColor {
-            get {
-                return Settings.Default.LowSensitivityColor;
-            }
+            get => lowSensitivityColor;
             set {
-                if (Settings.Default.LowSensitivityColor != value) {
-                    Settings.Default.LowSensitivityColor = value;
-                    Settings.Default.Save();
+                if (lowSensitivityColor != value) {
+                    lowSensitivityColor = value;
+                    optionsAccessor.SetValueColor("LowSensitivityColor", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private bool showNotCentered;
         public bool ShowNotCentered {
-            get {
-                return Settings.Default.ShowNotCentered;
-            }
+            get => showNotCentered;
             set {
-                if (Settings.Default.ShowNotCentered != value) {
-                    Settings.Default.ShowNotCentered = value;
-                    Settings.Default.Save();
+                if (showNotCentered != value) {
+                    showNotCentered = value;
+                    optionsAccessor.SetValueBool("ShowNotCentered", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private Color notCenteredColor;
         public Color NotCenteredColor {
-            get {
-                return Settings.Default.NotCenteredColor;
-            }
+            get => notCenteredColor;
             set {
-                if (Settings.Default.NotCenteredColor != value) {
-                    Settings.Default.NotCenteredColor = value;
-                    Settings.Default.Save();
+                if (notCenteredColor != value) {
+                    notCenteredColor = value;
+                    optionsAccessor.SetValueColor("NotCenteredColor", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private bool showTooFlat;
         public bool ShowTooFlat {
-            get {
-                return Settings.Default.ShowTooFlat;
-            }
+            get => showTooFlat;
             set {
-                if (Settings.Default.ShowTooFlat != value) {
-                    Settings.Default.ShowTooFlat = value;
-                    Settings.Default.Save();
+                if (showTooFlat != value) {
+                    showTooFlat = value;
+                    optionsAccessor.SetValueBool("ShowTooFlat", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private Color tooFlatColor;
         public Color TooFlatColor {
-            get {
-                return Settings.Default.TooFlatColor;
-            }
+            get => tooFlatColor;
             set {
-                if (Settings.Default.TooFlatColor != value) {
-                    Settings.Default.TooFlatColor = value;
-                    Settings.Default.Save();
+                if (tooFlatColor != value) {
+                    tooFlatColor = value;
+                    optionsAccessor.SetValueColor("TooFlatColor", value);
                     RaisePropertyChanged();
                 }
             }

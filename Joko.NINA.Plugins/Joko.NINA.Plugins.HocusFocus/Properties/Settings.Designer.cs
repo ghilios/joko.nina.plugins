@@ -97,7 +97,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("0.5")]
+        [global::System.Configuration.DefaultSettingValueAttribute("0.6")]
         public double StarPeakResponse {
             get {
                 return ((double)(this["StarPeakResponse"]));
@@ -349,7 +349,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("1")]
+        [global::System.Configuration.DefaultSettingValueAttribute("0.5")]
         public double StarClippingMultiplier {
             get {
                 return ((double)(this["StarClippingMultiplier"]));
@@ -476,6 +476,30 @@ namespace Joko.NINA.Plugins.HocusFocus.Properties {
             }
             set {
                 this["TooFlatColor"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool UseAutoFocusCrop {
+            get {
+                return ((bool)(this["UseAutoFocusCrop"]));
+            }
+            set {
+                this["UseAutoFocusCrop"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0.5")]
+        public double PixelSampleSize {
+            get {
+                return ((double)(this["PixelSampleSize"]));
+            }
+            set {
+                this["PixelSampleSize"] = value;
             }
         }
     }

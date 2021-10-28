@@ -72,7 +72,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 MinimumStarBoundingBoxSize = starDetectionOptions.MinStarBoundingBoxSize,
                 MinHFR = starDetectionOptions.MinHFR,
                 StructureDilationSize = starDetectionOptions.StructureDilationSize,
-                StructureDilationCount = starDetectionOptions.StructureDilationCount
+                StructureDilationCount = starDetectionOptions.StructureDilationCount,
+                AnalysisSamplingSize = (float)starDetectionOptions.PixelSampleSize
             };
 
             if (p.UseROI && p.InnerCropRatio < 1.0 && p.OuterCropRatio > 0.0) {
@@ -83,6 +84,10 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var starList = starDetectorResult.DetectedStars;
+            if (!starDetectionOptions.UseAutoFocusCrop && !p.IsAutoFocus) {
+                p.UseROI = false;
+            }
+
             if (p.UseROI) {
                 var before = starList.Count;
                 starList = starList.Where(s => InROI(s, imageSize, p)).ToList();

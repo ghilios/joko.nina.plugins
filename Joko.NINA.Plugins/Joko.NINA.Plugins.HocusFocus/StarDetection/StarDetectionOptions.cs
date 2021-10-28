@@ -1,23 +1,52 @@
 ﻿using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using Joko.NINA.Plugins.HocusFocus.Properties;
+using Joko.NINA.Plugins.HocusFocus.Utility;
 using NINA.Core.Utility;
 using NINA.Profile.Interfaces;
 using System;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
     public class StarDetectionOptions : BaseINPC, IStarDetectionOptions {
-        private readonly IProfileService profileService;
+        private readonly PluginOptionsAccessor optionsAccessor;
+
         public StarDetectionOptions(IProfileService profileService) {
-            this.profileService = profileService;
+            var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions));
+            if (guid == null) {
+                throw new Exception($"Guid not found in assembly metadata");
+            }
+
+            this.optionsAccessor = new PluginOptionsAccessor(profileService, guid.Value);
+            InitializeOptions();
+        }
+
+        private void InitializeOptions() {
+            hotpixelFiltering = optionsAccessor.GetValueBool("HotpixelFiltering", true);
+            useAutoFocusCrop = optionsAccessor.GetValueBool("UseAutoFocusCrop", true);
+            noiseReductionRadius = optionsAccessor.GetValueInt("NoiseReductionRadius", 0);
+            noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 5.0);
+            starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 0.5);
+            structureLayers = optionsAccessor.GetValueInt("StructureLayers", 5);
+            brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 3.0);
+            starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.6);
+            maxDistortion = optionsAccessor.GetValueDouble("MaxDistortion", 0.5);
+            starCenterTolerance = optionsAccessor.GetValueDouble("StarCenterTolerance", 0.3);
+            starBackgroundBoxExpansion = optionsAccessor.GetValueInt("StarBackgroundBoxExpansion", 3);
+            minStarBoundingBoxSize = optionsAccessor.GetValueInt("MinStarBoundingBoxSize", 5);
+            minHFR = optionsAccessor.GetValueDouble("MinHFR", 1.5);
+            structureDilationSize = optionsAccessor.GetValueInt("StructureDilationSize", 7);
+            structureDilationCount = optionsAccessor.GetValueInt("StructureDilationCount", 1);
+            pixelSampleSize = optionsAccessor.GetValueDouble("PixelSampleSize", 0.5);
         }
 
         public void ResetDefaults() {
             HotpixelFiltering = true;
+            UseAutoFocusCrop = true;
             NoiseReductionRadius = 0;
             NoiseClippingMultiplier = 5.0;
+            StarClippingMultiplier = 0.5;
             StructureLayers = 5;
-            BrightnessSensitivity = 5.0;
-            StarPeakResponse = 0.5;
+            BrightnessSensitivity = 3.0;
+            StarPeakResponse = 0.6;
             MaxDistortion = 0.5;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
@@ -25,224 +54,238 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             MinHFR = 1.5;
             StructureDilationSize = 7;
             StructureDilationCount = 1;
+            PixelSampleSize = 0.5;
         }
 
+        private bool hotpixelFiltering;
         public bool HotpixelFiltering {
-            get {
-                return Settings.Default.HotpixelFiltering;
-            }
+            get => hotpixelFiltering;
             set {
-                if (Settings.Default.HotpixelFiltering != value) {
-                    Settings.Default.HotpixelFiltering = value;
-                    Settings.Default.Save();
+                if (hotpixelFiltering != value) {
+                    hotpixelFiltering = value;
+                    optionsAccessor.SetValueBool("HotpixelFiltering", hotpixelFiltering);
                     RaisePropertyChanged();
                 }
             }
         }
 
-        public int NoiseReductionRadius {
-            get {
-                return Settings.Default.NoiseReductionRadius;
-            }
+        private bool useAutoFocusCrop;
+        public bool UseAutoFocusCrop {
+            get => useAutoFocusCrop;
             set {
-                if (Settings.Default.NoiseReductionRadius != value) {
+                if (useAutoFocusCrop != value) {
+                    useAutoFocusCrop = value;
+                    optionsAccessor.SetValueBool("UseAutoFocusCrop", hotpixelFiltering);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int noiseReductionRadius;
+        public int NoiseReductionRadius {
+            get => noiseReductionRadius;
+            set {
+                if (noiseReductionRadius != value) {
                     if (value < 0) {
                         throw new ArgumentException("NoiseReductionRadius must be non-negative", "NoiseReductionRadius");
                     }
-                    Settings.Default.NoiseReductionRadius = value;
-                    Settings.Default.Save();
+                    noiseReductionRadius = value;
+                    optionsAccessor.SetValueInt("NoiseReductionRadius", noiseReductionRadius);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private double noiseClippingMultiplier;
         public double NoiseClippingMultiplier {
-            get {
-                return Settings.Default.NoiseClippingMultiplier;
-            }
+            get => noiseClippingMultiplier;
             set {
-                if (Settings.Default.NoiseClippingMultiplier != value) {
+                if (noiseClippingMultiplier != value) {
                     if (value < 0) {
                         throw new ArgumentException("NoiseClippingMultiplier must be non-negative", "NoiseClippingMultiplier");
                     }
-                    Settings.Default.NoiseClippingMultiplier = value;
-                    Settings.Default.Save();
+                    noiseClippingMultiplier = value;
+                    optionsAccessor.SetValueDouble("NoiseClippingMultiplier", noiseClippingMultiplier);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private double starClippingMultiplier;
         public double StarClippingMultiplier {
-            get {
-                return Settings.Default.StarClippingMultiplier;
-            }
+            get => starClippingMultiplier;
             set {
-                if (Settings.Default.StarClippingMultiplier != value) {
+                if (starClippingMultiplier != value) {
                     if (value < 0) {
                         throw new ArgumentException("StarClippingMultiplier must be non-negative", "StarClippingMultiplier");
                     }
-                    Settings.Default.StarClippingMultiplier = value;
-                    Settings.Default.Save();
+                    starClippingMultiplier = value;
+                    optionsAccessor.SetValueDouble("StarClippingMultiplier", starClippingMultiplier);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private int structureLayers;
         public int StructureLayers {
-            get {
-                return Settings.Default.StructureLayers;
-            }
+            get => structureLayers;
             set {
-                if (Settings.Default.StructureLayers != value) {
+                if (structureLayers != value) {
                     if (value <= 0) {
                         throw new ArgumentException("StructureLayers must be positive", "StructureLayers");
                     }
-                    Settings.Default.StructureLayers = value;
-                    Settings.Default.Save();
+                    structureLayers = value;
+                    optionsAccessor.SetValueInt("StructureLayers", structureLayers);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private double starCenterTolerance;
         public double StarCenterTolerance {
-            get {
-                return Settings.Default.StarCenterTolerance;
-            }
+            get => starCenterTolerance;
             set {
-                if (Settings.Default.StarCenterTolerance != value) {
+                if (starCenterTolerance != value) {
                     if (value <= 0.0 || value > 1.0) {
                         throw new ArgumentException("StarCenterTolerance must be positive and <= 1.0", "StarCenterTolerance");
                     }
-                    Settings.Default.StarCenterTolerance = value;
-                    Settings.Default.Save();
+                    starCenterTolerance = value;
+                    optionsAccessor.SetValueDouble("StarCenterTolerance", starCenterTolerance);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private double starPeakResponse;
         public double StarPeakResponse {
-            get {
-                return Settings.Default.StarPeakResponse;
-            }
+            get => starPeakResponse;
             set {
-                if (Settings.Default.StarPeakResponse != value) {
+                if (starPeakResponse != value) {
                     if (value <= 0) {
                         throw new ArgumentException("StarPeakResponse must be positive", "StarPeakResponse");
                     }
-                    Settings.Default.StarPeakResponse = value;
-                    Settings.Default.Save();
+                    starPeakResponse = value;
+                    optionsAccessor.SetValueDouble("StarPeakResponse", starPeakResponse);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private double maxDistortion;
         public double MaxDistortion {
-            get {
-                return Settings.Default.MaxDistortion;
-            }
+            get => maxDistortion;
             set {
-                if (Settings.Default.MaxDistortion != value) {
+                if (maxDistortion != value) {
                     if (value < 0.0 || value > 1.0) {
                         throw new ArgumentException("MaxDistortion must be within [0, 1]", "MaxDistortion");
                     }
-                    Settings.Default.MaxDistortion = value;
-                    Settings.Default.Save();
+                    maxDistortion = value;
+                    optionsAccessor.SetValueDouble("MaxDistortion", maxDistortion);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private double brightnessSensitivity;
         public double BrightnessSensitivity {
-            get {
-                return Settings.Default.BrightnessSensitivity;
-            }
+            get => brightnessSensitivity;
             set {
-                if (Settings.Default.BrightnessSensitivity != value) {
+                if (brightnessSensitivity != value) {
                     if (value < 0) {
                         throw new ArgumentException("BrightnessSensitivity must be non-negative", "BrightnessSensitivity");
                     }
-                    Settings.Default.BrightnessSensitivity = value;
-                    Settings.Default.Save();
+                    brightnessSensitivity = value;
+                    optionsAccessor.SetValueDouble("BrightnessSensitivity", brightnessSensitivity);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private int starBackgroundBoxExpansion;
         public int StarBackgroundBoxExpansion {
-            get {
-                return Settings.Default.StarBackgroundBoxExpansion;
-            }
+            get => starBackgroundBoxExpansion;
             set {
-                if (Settings.Default.StarBackgroundBoxExpansion != value) {
+                if (starBackgroundBoxExpansion != value) {
                     if (value < 1) {
                         throw new ArgumentException("StarBackgroundBoxExpansion must be at least 1", "StarBackgroundBoxExpansion");
                     }
-                    Settings.Default.StarBackgroundBoxExpansion = value;
-                    Settings.Default.Save();
+                    starBackgroundBoxExpansion = value;
+                    optionsAccessor.SetValueInt("StarBackgroundBoxExpansion", starBackgroundBoxExpansion);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private int minStarBoundingBoxSize;
         public int MinStarBoundingBoxSize {
-            get {
-                return Settings.Default.MinStarBoundingBoxSize;
-            }
+            get => minStarBoundingBoxSize;
             set {
-                if (Settings.Default.MinStarBoundingBoxSize != value) {
+                if (minStarBoundingBoxSize != value) {
                     if (value < 1) {
                         throw new ArgumentException("MinStarBoundingBoxSize must be at least 1", "MinStarBoundingBoxSize");
                     }
-                    Settings.Default.MinStarBoundingBoxSize = value;
-                    Settings.Default.Save();
+                    minStarBoundingBoxSize = value;
+                    optionsAccessor.SetValueInt("MinStarBoundingBoxSize", minStarBoundingBoxSize);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private double minHFR;
         public double MinHFR {
-            get {
-                return Settings.Default.MinHFR;
-            }
+            get => minHFR;
             set {
-                if (Settings.Default.MinHFR != value) {
+                if (minHFR != value) {
                     if (value < 0) {
                         throw new ArgumentException("MinHFR must be non-negative", "MinHFR");
                     }
-                    Settings.Default.MinHFR = value;
-                    Settings.Default.Save();
+                    minHFR = value;
+                    optionsAccessor.SetValueDouble("MinHFR", minHFR);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private int structureDilationSize;
         public int StructureDilationSize {
-            get {
-                return Settings.Default.StructureDilationSize;
-            }
+            get => structureDilationSize;
             set {
-                if (Settings.Default.StructureDilationSize != value) {
+                if (structureDilationSize != value) {
                     if (value < 3) {
                         throw new ArgumentException("StructureDilationSize must be at least 3", "StructureDilationSize");
                     }
-                    Settings.Default.StructureDilationSize = value;
-                    Settings.Default.Save();
+                    structureDilationSize = value;
+                    optionsAccessor.SetValueInt("StructureDilationSize", structureDilationSize);
                     RaisePropertyChanged();
                 }
             }
         }
 
+        private int structureDilationCount;
         public int StructureDilationCount {
-            get {
-                return Settings.Default.StructureDilationCount;
-            }
+            get => structureDilationCount;
             set {
-                if (Settings.Default.StructureDilationCount != value) {
+                if (structureDilationCount != value) {
                     if (value < 0) {
                         throw new ArgumentException("StructureDilationCount must be non-negative", "StructureDilationCount");
                     }
-                    Settings.Default.StructureDilationCount = value;
-                    Settings.Default.Save();
+                    structureDilationCount = value;
+                    optionsAccessor.SetValueInt("StructureDilationCount", structureDilationCount);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double pixelSampleSize;
+        public double PixelSampleSize {
+            get => pixelSampleSize;
+            set {
+                if (pixelSampleSize != value) {
+                    if (value <= 0.0 || value > 1.0) {
+                        throw new ArgumentException("PixelSampleSize must be within (0, 1]", "PixelSampleSize");
+                    }
+                    pixelSampleSize = value;
+                    optionsAccessor.SetValueDouble("PixelSampleSize", pixelSampleSize);
                     RaisePropertyChanged();
                 }
             }

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
     public interface IStarDetectionOptions {
         bool HotpixelFiltering { get; set; }
+        bool UseAutoFocusCrop { get; set; }
         int NoiseReductionRadius { get; set; }
         double NoiseClippingMultiplier { get; set; }
         double StarClippingMultiplier { get; set; }
@@ -20,5 +21,6 @@ namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
         double MinHFR { get; set; }
         int StructureDilationSize { get; set; }
         int StructureDilationCount { get; set; }
+        double PixelSampleSize { get; set; }
     }
 }
