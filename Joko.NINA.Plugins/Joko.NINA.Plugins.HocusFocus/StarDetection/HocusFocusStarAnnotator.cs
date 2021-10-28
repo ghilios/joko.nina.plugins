@@ -62,6 +62,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         public string ContentId => GetType().FullName;
 
         private BitmapSource GenerateAnnotatedImage(StarDetectionParams p, StarDetectionResult result, BitmapSource imageToAnnotate, CancellationToken token) {
+            token.ThrowIfCancellationRequested();
             using (var starBoundsBrush = new SolidBrush(StarAnnotatorOptions.StarBoundsColor.ToDrawingColor()))
             using (var starBoundsPen = new Pen(starBoundsBrush))
             using (var hfrBrush = new SolidBrush(StarAnnotatorOptions.HFRColor.ToDrawingColor()))

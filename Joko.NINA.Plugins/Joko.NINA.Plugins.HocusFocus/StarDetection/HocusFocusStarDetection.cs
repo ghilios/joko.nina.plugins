@@ -75,7 +75,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 StructureDilationCount = starDetectionOptions.StructureDilationCount
             };
 
-            if (p.UseROI && p.InnerCropRatio < 1.0) {
+            if (p.UseROI && p.InnerCropRatio < 1.0 && p.OuterCropRatio > 0.0) {
                 detectorParams.CenterROICropRatio = p.OuterCropRatio >= 1.0 ? p.InnerCropRatio : p.OuterCropRatio;
             }
 

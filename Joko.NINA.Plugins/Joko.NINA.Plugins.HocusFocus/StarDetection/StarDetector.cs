@@ -87,7 +87,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
                 throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
             }
-            if (p.CenterROICropRatio <= 0.0) {
+            if (p.CenterROICropRatio < 0.0) {
                 throw new ArgumentException("CenterROICropRatio cannot be negative", "p.CenterROICropRatio");
             }
 
