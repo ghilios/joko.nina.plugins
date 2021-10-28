@@ -22,7 +22,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         private void InitializeOptions() {
             hotpixelFiltering = optionsAccessor.GetValueBool("HotpixelFiltering", true);
             useAutoFocusCrop = optionsAccessor.GetValueBool("UseAutoFocusCrop", true);
-            noiseReductionRadius = optionsAccessor.GetValueInt("NoiseReductionRadius", 0);
+            noiseReductionRadius = optionsAccessor.GetValueInt("NoiseReductionRadius", 3);
             noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 5.0);
             starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 0.5);
             structureLayers = optionsAccessor.GetValueInt("StructureLayers", 5);
@@ -33,7 +33,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             starBackgroundBoxExpansion = optionsAccessor.GetValueInt("StarBackgroundBoxExpansion", 3);
             minStarBoundingBoxSize = optionsAccessor.GetValueInt("MinStarBoundingBoxSize", 5);
             minHFR = optionsAccessor.GetValueDouble("MinHFR", 1.5);
-            structureDilationSize = optionsAccessor.GetValueInt("StructureDilationSize", 7);
+            structureDilationSize = optionsAccessor.GetValueInt("StructureDilationSize", 5);
             structureDilationCount = optionsAccessor.GetValueInt("StructureDilationCount", 1);
             pixelSampleSize = optionsAccessor.GetValueDouble("PixelSampleSize", 0.5);
         }
@@ -41,7 +41,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         public void ResetDefaults() {
             HotpixelFiltering = true;
             UseAutoFocusCrop = true;
-            NoiseReductionRadius = 0;
+            NoiseReductionRadius = 3;
             NoiseClippingMultiplier = 5.0;
             StarClippingMultiplier = 0.5;
             StructureLayers = 5;
@@ -52,7 +52,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
             MinHFR = 1.5;
-            StructureDilationSize = 7;
+            StructureDilationSize = 5;
             StructureDilationCount = 1;
             PixelSampleSize = 0.5;
         }

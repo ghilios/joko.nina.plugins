@@ -12,6 +12,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
     }
 
     public interface IStarAnnotatorOptions {
+        bool ShowAnnotations { get; set; }
         bool ShowAllStars { get; set; }
         int MaxStars { get; set; }
         bool ShowStarBounds { get; set; }

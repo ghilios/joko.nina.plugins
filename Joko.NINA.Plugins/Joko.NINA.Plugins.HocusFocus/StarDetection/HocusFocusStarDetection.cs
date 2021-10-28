@@ -97,18 +97,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            if (p.NumberOfAFStars > 0) {
-                if (starList.Count != 0 && (p.MatchStarPositions == null || p.MatchStarPositions.Count == 0)) {
-                    if (starList.Count > p.NumberOfAFStars) {
-                        starList = starList.OrderByDescending(s => s.HFR * 0.3 + s.MeanBrightness * 0.7).Take(p.NumberOfAFStars).ToList<Star>();
-                    }
-                    result.BrightestStarPositions = starList.Select(s => s.Center.ToAccordPoint()).ToList();
-                } else { // find the closest stars to the brightest stars previously identified
-                    var topStars = new List<Star>();
-                    p.MatchStarPositions.ForEach(pos => topStars.Add(starList.Aggregate((min, next) => min.Center.ToAccordPoint().DistanceTo(pos) < next.Center.ToAccordPoint().DistanceTo(pos) ? min : next)));
-                    starList = topStars;
-                }
-            } else if (starList.Count > 1) {
+            if (starList.Count > 1) {
                 int countBefore = starList.Count;
 
                 // Now that we have a properly filtered star list, let's compute stats and further filter out from the mean
@@ -126,6 +115,20 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 Logger.Trace($"Discarded {countBefore - countAfter} outlier stars");
             }
 
+            result.DetectedStars = starList.Count;
+            if (p.NumberOfAFStars > 0) {
+                if (starList.Count != 0 && (p.MatchStarPositions == null || p.MatchStarPositions.Count == 0)) {
+                    if (starList.Count > p.NumberOfAFStars) {
+                        starList = starList.OrderByDescending(s => s.HFR * 0.3 + s.MeanBrightness * 0.7).Take(p.NumberOfAFStars).ToList<Star>();
+                    }
+                    result.BrightestStarPositions = starList.Select(s => s.Center.ToAccordPoint()).ToList();
+                } else { // find the closest stars to the brightest stars previously identified
+                    var topStars = new List<Star>();
+                    p.MatchStarPositions.ForEach(pos => topStars.Add(starList.Aggregate((min, next) => min.Center.ToAccordPoint().DistanceTo(pos) < next.Center.ToAccordPoint().DistanceTo(pos) ? min : next)));
+                    starList = topStars;
+                }
+            } 
+
             result.StarList = starList.Select(s => s.ToDetectedStar()).ToList();
             if (starList.Count > 1) {
                 result.AverageHFR = starList.Average(s => s.HFR);
@@ -134,7 +137,6 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
                 Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}");
             }
-            result.DetectedStars = result.StarList.Count;
             result.Metrics = starDetectorResult.Metrics;
             return result;
         }

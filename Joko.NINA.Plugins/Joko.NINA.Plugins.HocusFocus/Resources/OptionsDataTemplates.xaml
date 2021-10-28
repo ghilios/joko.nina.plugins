@@ -164,7 +164,7 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="(s-b)/b">
+                Unit="(s-b)/n">
                 <Binding Path="BrightnessSensitivity" UpdateSourceTrigger="LostFocus" />
             </ninactrl:UnitTextBox>
             <TextBlock
@@ -399,13 +399,14 @@
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
+                <RowDefinition />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
-                Text="Show All Stars"
-                ToolTip="Whether to annotate all stars" />
+                Text="Show Annotations"
+                ToolTip="Toggles the annotations on/off" />
             <CheckBox
                 Grid.Row="0"
                 Grid.Column="1"
@@ -413,16 +414,30 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                IsChecked="{Binding ShowAllStars}" />
+                IsChecked="{Binding ShowAnnotations}" />
             <TextBlock
                 Grid.Row="1"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="Show All Stars"
+                ToolTip="Whether to annotate all stars" />
+            <CheckBox
+                Grid.Row="1"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding ShowAllStars}" />
+            <TextBlock
+                Grid.Row="2"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowAllStars, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}"
                 Text="Maximum Stars"
                 ToolTip="The maximum number of stars to annotate (the brightest ones)" />
             <ninactrl:UnitTextBox
-                Grid.Row="1"
+                Grid.Row="2"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -437,13 +452,13 @@
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="2"
+                Grid.Row="3"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Show Star Bounds"
                 ToolTip="Whether to draw the bounding box or ellipse around the star" />
             <CheckBox
-                Grid.Row="2"
+                Grid.Row="3"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -451,14 +466,14 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding ShowStarBounds}" />
             <TextBlock
-                Grid.Row="3"
+                Grid.Row="4"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Star Bounds Type"
                 ToolTip="The type of boundary surrounding the star. Star detection internally uses a box, but an ellipse can be more aesthetically pleasing" />
             <ComboBox
-                Grid.Row="3"
+                Grid.Row="4"
                 Grid.Column="1"
                 Name="PART_StarBoundsTypeList"
                 MinWidth="80"
@@ -469,14 +484,14 @@
                 ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:StarBoundsTypeEnum}}}"
                 SelectedItem="{Binding StarBoundsType}" />
             <TextBlock
-                Grid.Row="4"
+                Grid.Row="5"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Star Bounds Color"
                 ToolTip="The color of the bounding box or ellipse around the star" />
             <xceed:ColorPicker
-                Grid.Row="4"
+                Grid.Row="5"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -485,12 +500,12 @@
                 Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 SelectedColor="{Binding StarBoundsColor}" />
             <TextBlock
-                Grid.Row="5"
+                Grid.Row="6"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Font" />
             <ComboBox
-                Grid.Row="5"
+                Grid.Row="6"
                 Grid.Column="1"
                 xmlns:ComponentModel="clr-namespace:System.ComponentModel;assembly=WindowsBase"
                 Margin="5,5,0,0"
@@ -519,7 +534,7 @@
                 </ComboBox.ItemsSource>
             </ComboBox>
             <ninactrl:UnitTextBox
-                Grid.Row="5"
+                Grid.Row="6"
                 Grid.Column="2"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -533,13 +548,13 @@
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
-                Grid.Row="6"
+                Grid.Row="7"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Show HFR"
                 ToolTip="Whether to show the HFR measurement for each star" />
             <CheckBox
-                Grid.Row="6"
+                Grid.Row="7"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -547,7 +562,7 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding ShowHFR}" />
             <TextBlock
-                Grid.Row="7"
+                Grid.Row="8"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowHFR, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -555,7 +570,7 @@
                 ToolTip="The color of the bounding box or ellipse around the star" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowHFR, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="7"
+                Grid.Row="8"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -563,13 +578,13 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding HFRColor}" />
             <TextBlock
-                Grid.Row="8"
+                Grid.Row="9"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Show ROI"
                 ToolTip="Whether to show the region of interest" />
             <CheckBox
-                Grid.Row="8"
+                Grid.Row="9"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -577,7 +592,7 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding ShowROI}" />
             <TextBlock
-                Grid.Row="9"
+                Grid.Row="10"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowROI, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -585,7 +600,7 @@
                 ToolTip="The color of the region of interest boxes" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowROI, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="9"
+                Grid.Row="10"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -593,13 +608,13 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding ROIColor}" />
             <TextBlock
-                Grid.Row="10"
+                Grid.Row="11"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Show Star Center"
                 ToolTip="Whether to show the a reticule on each star center" />
             <CheckBox
-                Grid.Row="10"
+                Grid.Row="11"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -607,7 +622,7 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding ShowStarCenter}" />
             <TextBlock
-                Grid.Row="11"
+                Grid.Row="12"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowStarCenter, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -615,7 +630,7 @@
                 ToolTip="The color of the reticule on each star center" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowStarCenter, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="11"
+                Grid.Row="12"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -623,13 +638,13 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding StarCenterColor}" />
             <TextBlock
-                Grid.Row="12"
+                Grid.Row="13"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Show Degenerate"
                 ToolTip="Whether to show the failed degenerate stars" />
             <CheckBox
-                Grid.Row="12"
+                Grid.Row="13"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -637,7 +652,7 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding ShowDegenerate}" />
             <TextBlock
-                Grid.Row="13"
+                Grid.Row="14"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -645,7 +660,7 @@
                 ToolTip="The color of the failed star bounding box" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="13"
+                Grid.Row="14"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -653,13 +668,13 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding DegenerateColor}" />
             <TextBlock
-                Grid.Row="14"
+                Grid.Row="15"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Show Saturated"
                 ToolTip="Whether to show the failed saturated stars" />
             <CheckBox
-                Grid.Row="14"
+                Grid.Row="15"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -667,7 +682,7 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding ShowSaturated}" />
             <TextBlock
-                Grid.Row="15"
+                Grid.Row="16"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -675,7 +690,7 @@
                 ToolTip="The color of the failed star bounding box" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="15"
+                Grid.Row="16"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -683,13 +698,13 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding SaturatedColor}" />
             <TextBlock
-                Grid.Row="16"
+                Grid.Row="17"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Show Low Sensitivity"
                 ToolTip="Whether to show the failed low sensitivity stars" />
             <CheckBox
-                Grid.Row="16"
+                Grid.Row="17"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -697,7 +712,7 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding ShowLowSensitivity}" />
             <TextBlock
-                Grid.Row="17"
+                Grid.Row="18"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -705,7 +720,7 @@
                 ToolTip="The color of the failed star bounding box" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="17"
+                Grid.Row="18"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -713,13 +728,13 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding LowSensitivityColor}" />
             <TextBlock
-                Grid.Row="18"
+                Grid.Row="19"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Show Not Centered"
                 ToolTip="Whether to show the failed not centered stars" />
             <CheckBox
-                Grid.Row="18"
+                Grid.Row="19"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -727,7 +742,7 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding ShowNotCentered}" />
             <TextBlock
-                Grid.Row="19"
+                Grid.Row="20"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -735,7 +750,7 @@
                 ToolTip="The color of the failed star bounding box" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="19"
+                Grid.Row="20"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -743,13 +758,13 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding NotCenteredColor}" />
             <TextBlock
-                Grid.Row="20"
+                Grid.Row="21"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Text="Show Too Flat"
                 ToolTip="Whether to show the failed too flat stars" />
             <CheckBox
-                Grid.Row="20"
+                Grid.Row="21"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -757,7 +772,7 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding ShowTooFlat}" />
             <TextBlock
-                Grid.Row="21"
+                Grid.Row="22"
                 Grid.Column="0"
                 VerticalAlignment="Center" 
                 Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -765,7 +780,7 @@
                 ToolTip="The color of the failed star bounding box" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="21"
+                Grid.Row="22"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"

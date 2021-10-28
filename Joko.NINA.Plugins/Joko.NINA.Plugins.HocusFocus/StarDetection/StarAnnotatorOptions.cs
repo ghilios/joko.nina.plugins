@@ -25,6 +25,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             InitializeOptions();
         }
         private void InitializeOptions() {
+            showAnnotations = optionsAccessor.GetValueBool("ShowAnnotations", true);
             showAllStars = optionsAccessor.GetValueBool("ShowAllStars", true);
             maxStars = optionsAccessor.GetValueInt("MaxStars", 200);
             showStarBounds = optionsAccessor.GetValueBool("ShowStarBounds", true);
@@ -51,6 +52,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         public void ResetDefaults() {
+            ShowAnnotations = true;
             ShowAllStars = false;
             MaxStars = 200;
             ShowStarBounds = true;
@@ -74,6 +76,18 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             NotCenteredColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
             ShowTooFlat = false;
             TooFlatColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
+        }
+
+        private bool showAnnotations;
+        public bool ShowAnnotations {
+            get => showAnnotations;
+            set {
+                if (showAnnotations != value) {
+                    showAnnotations = value;
+                    optionsAccessor.SetValueBool("ShowAnnotations", showAnnotations);
+                    RaisePropertyChanged();
+                }
+            }
         }
 
         private bool showAllStars;

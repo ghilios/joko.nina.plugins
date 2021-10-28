@@ -1,4 +1,5 @@
-﻿using Joko.NINA.Plugins.HocusFocus.Utility;
+﻿using Accord.Imaging.Filters;
+using Joko.NINA.Plugins.HocusFocus.Utility;
 using NINA.Core.Interfaces;
 using NINA.Core.Utility;
 using NINA.Equipment.Interfaces.ViewModel;
@@ -63,6 +64,19 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
         private BitmapSource GenerateAnnotatedImage(StarDetectionParams p, StarDetectionResult result, BitmapSource imageToAnnotate, CancellationToken token) {
             token.ThrowIfCancellationRequested();
+            if (!StarAnnotatorOptions.ShowAnnotations) {
+                return imageToAnnotate;
+            }
+
+            if (imageToAnnotate.Format == System.Windows.Media.PixelFormats.Rgb48) {
+                using (var source = ImageUtility.BitmapFromSource(imageToAnnotate, System.Drawing.Imaging.PixelFormat.Format48bppRgb)) {
+                    using (var img = new Grayscale(0.2125, 0.7154, 0.0721).Apply(source)) {
+                        imageToAnnotate = ImageUtility.ConvertBitmap(img, System.Windows.Media.PixelFormats.Gray16);
+                        imageToAnnotate.Freeze();
+                    }
+                }
+            }
+
             using (var starBoundsBrush = new SolidBrush(StarAnnotatorOptions.StarBoundsColor.ToDrawingColor()))
             using (var starBoundsPen = new Pen(starBoundsBrush))
             using (var hfrBrush = new SolidBrush(StarAnnotatorOptions.HFRColor.ToDrawingColor()))
@@ -83,7 +97,6 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                         var starList = result.StarList;
 
                         if (starList.Count > 0) {
-                            int offset = 5;
                             float textposx, textposy;
 
                             var maxStars = StarAnnotatorOptions.MaxStars;
