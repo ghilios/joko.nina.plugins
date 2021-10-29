@@ -8,6 +8,7 @@ using System.ComponentModel.Composition;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
     [Export(typeof(IDockableVM))]
@@ -18,9 +19,14 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             : base(profileService) {
             this.StarAnnotatorOptions = HocusFocusPlugin.StarAnnotatorOptions;
             this.Title = "Star Annotation Options";
+
+            var dict = new ResourceDictionary();
+            dict.Source = new Uri("Joko.NINA.Plugins.HocusFocus;component/StarDetection/DataTemplates.xaml", UriKind.RelativeOrAbsolute);
+            ImageGeometry = (System.Windows.Media.GeometryGroup)dict["HocusFocusAnnotateStarsSVG"];
+            ImageGeometry.Freeze();
         }
 
-        public override bool IsTool { get; } = false;
+        public override bool IsTool { get; } = true;
 
         public StarAnnotatorOptions StarAnnotatorOptions { get; private set; }
     }
