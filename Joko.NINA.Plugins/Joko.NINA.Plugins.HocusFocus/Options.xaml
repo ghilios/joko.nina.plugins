@@ -75,6 +75,7 @@
                     </TabItem.Content>
                 </TabItem>
                 -->
+                <!--
                 <TabItem>
                     <TabItem.Header>
                         <Grid>
@@ -124,6 +125,7 @@
                         </Grid>
                     </TabItem.Content>
                 </TabItem>
+                -->
                 <TabItem>
                     <TabItem.Header>
                         <Grid>

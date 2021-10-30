@@ -11,7 +11,8 @@ using System.Threading.Tasks;
 using System.Windows;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
-    [Export(typeof(IDockableVM))]
+    // TODO: Add star detection back after updating the approach
+    // [Export(typeof(IDockableVM))]
     public class StarDetectionOptionsVM : DockableVM {
 
         [ImportingConstructor]

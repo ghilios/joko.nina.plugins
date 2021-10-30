@@ -46,7 +46,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         public DebugData DebugData { get; set; }
     }
 
-    [Export(typeof(IPluggableBehavior))]
+    // TODO: Add star detection back after updating the approach
+    // [Export(typeof(IPluggableBehavior))]
     class HocusFocusStarDetection : IStarDetection {
         private readonly IStarDetector starDetector;
         private readonly StarDetectionOptions starDetectionOptions;

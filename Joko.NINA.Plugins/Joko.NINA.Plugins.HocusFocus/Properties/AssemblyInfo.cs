@@ -13,7 +13,7 @@ using System.Runtime.InteropServices;
 // [MANDATORY] The name of your plugin
 [assembly: AssemblyTitle("Hocus Focus")]
 // [MANDATORY] A short description of your plugin
-[assembly: AssemblyDescription("Improved Star Detection and Star Annotation for NINA")]
+[assembly: AssemblyDescription("Improved Star Annotation for NINA")]
 
 
 // The following attributes are not required for the plugin per se, but are required by the official manifest meta data
@@ -53,18 +53,30 @@ using System.Runtime.InteropServices;
 //[Optional] An additional url to an example example screenshot of your plugin in action
 [assembly: AssemblyMetadata("AltScreenshotURL", "")]
 //[Optional] An in-depth description of your plugin
-[assembly: AssemblyMetadata("LongDescription", @"This plugin improved Star Detection and Star Annotation for NINA. Faster Auto Focus is on the way as well 
+[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Annotation for NINA. Improved star detection and a faster Auto Focus is on the way as well 
 
-*Features*:
+**Features**
+
+* Customizable colors and fonts for star annotations
+* Dynamic reloading of star annotations without needing to re-run star detection
+
+**Features coming soon**
+
+*Improved star detection*
+
 * Faster for large sensors, particularly APS-C and Full Frame
 * Higher accuracy (lower HFR Standard Deviation) if parameters are set properly
 * Advanced control over star detection parameters
-* Sophisticated star annotation to simplify parameter tuning
 * Can use the new Star Detector or Annotator without requiring both. Keep what you like
-* Faster AutoFocus on its way soon
-* Eccentricity on its way soon
+* Eccentricity calculation
 
-To enable these features, go to Options -> Imaging -> Image Options. After this plugin is installed, there will be Star Detector and Star Annotator dropdown boxes you can select ""Hocus Focus"" for.
+*AutoFocus*
+
+* Much faster during image acquisition by utilizing a fast 2nd pass that doesn't wait for star detection and processing in between exposures when already close to focus
+* Incorporation of measurement error into quality measurement of focusing results
+* Focusing individual color channels instead of just luminance for OSC, since that is skewed towards green focus
+
+To enable these features, go to Options -> Imaging -> Image Options. After this plugin is installed, there will be a Star Annotator dropdown box you can select ""Hocus Focus"" for.
 ")]
 
 
