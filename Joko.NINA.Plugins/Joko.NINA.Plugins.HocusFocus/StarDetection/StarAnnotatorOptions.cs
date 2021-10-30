@@ -49,6 +49,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             notCenteredColor = optionsAccessor.GetValueColor("NotCenteredColor", Color.FromArgb(128, 0, 255, 0));
             showTooFlat = optionsAccessor.GetValueBool("ShowTooFlat", false);
             tooFlatColor = optionsAccessor.GetValueColor("TooFlatColor", Color.FromArgb(128, 0, 255, 0));
+            showStructureMap = optionsAccessor.GetValueEnum<ShowStructureMapEnum>("ShowStructureMap", ShowStructureMapEnum.None);
+            structureMapColor = optionsAccessor.GetValueColor("StructureMapColor", Color.FromArgb(128, 255, 0, 255));
         }
 
         public void ResetDefaults() {
@@ -76,6 +78,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             NotCenteredColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
             ShowTooFlat = false;
             TooFlatColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
+            ShowStructureMap = ShowStructureMapEnum.None;
+            StructureMapColor = Color.FromArgb(128, 255, 0, 255); // Purple half transparency
         }
 
         private bool showAnnotations;
@@ -364,6 +368,35 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                     RaisePropertyChanged();
                 }
             }
+        }
+
+        private ShowStructureMapEnum showStructureMap;
+        public ShowStructureMapEnum ShowStructureMap {
+            get => showStructureMap;
+            set {
+                if (showStructureMap != value) {
+                    showStructureMap = value;
+                    optionsAccessor.SetValueEnum<ShowStructureMapEnum>("ShowStructureMap", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private Color structureMapColor;
+        public Color StructureMapColor {
+            get => structureMapColor;
+            set {
+                if (structureMapColor != value) {
+                    structureMapColor = value;
+                    optionsAccessor.SetValueColor("StructureMapColor", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public IStarDetectionOptions DetectorOptions {
+            get => HocusFocusPlugin.StarDetectionOptions; 
+            set => throw new NotImplementedException(); 
         }
     }
 }

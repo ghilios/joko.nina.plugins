@@ -4,6 +4,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:behavior="clr-namespace:NINA.WPF.Base.Behaviors;assembly=NINA.WPF.Base"
     xmlns:converter="clr-namespace:NINA.Core.Utility.Converters;assembly=NINA.Core"
+    xmlns:hfconverters="clr-namespace:Joko.NINA.Plugins.HocusFocus.Converters"
+    xmlns:hfenum="clr-namespace:Joko.NINA.Plugins.HocusFocus.Interfaces"
     xmlns:local="clr-namespace:Joko.NINA.Plugins.HocusFocus"
     xmlns:interfaces="clr-namespace:Joko.NINA.Plugins.HocusFocus.Interfaces"
     xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary"
@@ -12,6 +14,7 @@
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
     xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit">
+    <hfconverters:ShowStructureMapToVisibilityConverter x:Key="ShowStructureMapToVisibilityConverter" />
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">
         <Grid Margin="5" VerticalAlignment="Top">
             <Grid.ColumnDefinitions>
@@ -19,6 +22,7 @@
                 <ColumnDefinition />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
+                <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
@@ -367,6 +371,20 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+            <TextBlock
+                Grid.Row="16"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="Debug Mode"
+                ToolTip="Enables debug mode, which saves additional data useful for debugging. Keep this off unless you're tuning star detection and want to view structure maps." />
+            <CheckBox
+                Grid.Row="16"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding DebugMode}" />
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarAnnotator_Options">
@@ -377,6 +395,8 @@
                 <ColumnDefinition />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
+                <RowDefinition />
+                <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
@@ -787,6 +807,49 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding TooFlatColor}" />
+            <TextBlock
+                Grid.Row="23"
+                Grid.Column="0"
+                Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}"
+                VerticalAlignment="Center" 
+                Text="Show Structure Map"
+                ToolTip="Overlays the structure map to aide debugging. Original shows the initial structure map after noise clipping and binarization, and Dilated shows it after dilation has been performed" />
+            <ComboBox
+                Grid.Row="23"
+                Grid.Column="1"
+                Name="PART_ShowStructureMapList"
+                Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}"
+                MinWidth="150"
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type hfenum:ShowStructureMapEnum}}}"
+                SelectedItem="{Binding ShowStructureMap}" />
+            <TextBlock
+                Grid.Row="24"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="Structure Map Color"
+                ToolTip="The color of the overlayed structure map">                
+                <TextBlock.Visibility>
+                    <MultiBinding Converter="{StaticResource ShowStructureMapToVisibilityConverter}">
+                        <Binding Path="DetectorOptions.DebugMode"/>
+                        <Binding ElementName="PART_ShowStructureMapList" Path="SelectedItem" />
+                    </MultiBinding>                
+                </TextBlock.Visibility>
+            </TextBlock>
+            <xceed:ColorPicker
+                Grid.Row="24"
+                Grid.Column="1"
+                Width="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectedColor="{Binding StructureMapColor}">
+                <xceed:ColorPicker.Visibility>
+                    <MultiBinding Converter="{StaticResource ShowStructureMapToVisibilityConverter}">
+                        <Binding Path="DetectorOptions.DebugMode"/>
+                        <Binding ElementName="PART_ShowStructureMapList" Path="SelectedItem" />
+                    </MultiBinding>                
+                </xceed:ColorPicker.Visibility>
+            </xceed:ColorPicker>
         </Grid>
     </DataTemplate>
 </ResourceDictionary>

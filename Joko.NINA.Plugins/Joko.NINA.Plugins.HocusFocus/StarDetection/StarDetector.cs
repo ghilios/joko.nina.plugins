@@ -68,6 +68,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
         // Granularity to sample star bounding boxes when computing star measurements
         public float AnalysisSamplingSize { get; set; } = 0.5f;
+
+        public bool StoreStructureMap { get; set; } = false;
     }
 
     public class StarDetector : IStarDetector {
@@ -97,6 +99,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                     var metrics = new StarDetectorMetrics();
                     using (var stopWatch = MultiStopWatch.Measure()) {
                         var srcImage = CvImageUtility.ToOpenCVMat(image);
+                        var debugData = new DebugData();
+
                         Rect? roiRect = null;
                         if (p.CenterROICropRatio < 1.0) {
                             var startFactor = (1.0 - p.CenterROICropRatio) / 2.0;
@@ -105,10 +109,17 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                                 (int)Math.Floor(srcImage.Rows * startFactor),
                                 (int)(srcImage.Cols * p.CenterROICropRatio),
                                 (int)(srcImage.Rows * p.CenterROICropRatio));
+                            debugData.DetectionROI = roiRect.Value.ToDrawingRectangle();
 
                             var roiImage = srcImage.SubMat(roiRect.Value).Clone();
                             srcImage.Dispose();
                             srcImage = roiImage;
+                        } else {
+                            debugData.DetectionROI = new System.Drawing.Rectangle(0, 0, srcImage.Width, srcImage.Height);
+                        }
+
+                        if (p.StoreStructureMap) {
+                            debugData.StructureMap = new byte[debugData.DetectionROI.Width * debugData.DetectionROI.Height];
                         }
 
                         stopWatch.RecordEntry("LoadImage");
@@ -138,7 +149,12 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                         }
                         stopWatch.RecordEntry("InitialNoiseReduction");
 
-                        // Step 3: Subtract a blur to emphasize edges, and rescale the clipped result to [0, 1)
+                        // Step 3: Compute noise estimates and structure map statistics
+                        var ksigmaNoiseResult = CvImageUtility.KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
+                        Logger.Trace($"K-Sigma Noise Estimate: {ksigmaNoiseResult.Sigma}, Background Mean: {ksigmaNoiseResult.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResult.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}");
+                        stopWatch.RecordEntry("KSigmaNoiseCalculation");
+
+                        // Step 4: Subtract a blur to emphasize edges, and rescale the clipped result to [0, 1)
                         using (var structureMapSrcBlurred = new Mat()) {
                             CvImageUtility.ConvolveGaussian(structureMap, structureMapSrcBlurred, 1 + (1 << p.StructureLayers));
                             CvImageUtility.SubtractInPlace(structureMap, structureMapSrcBlurred);
@@ -146,28 +162,13 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                         CvImageUtility.RescaleInPlace(structureMap);
 
                         // TODO: Consider whether doing this at multiple scales is worth the cost, particularly when out of focus
-                        // Step 3: Subtract a blur to emphasize edges at multiple scales, and rescale the clipped result to [0, 1)
+                        // Step 5: Subtract a blur to emphasize edges at multiple scales, and rescale the clipped result to [0, 1)
                         /*
                         var structureMapEmphasized = resourceTracker.T(MultiScaleEmphasizeEdges(structureMap, 4, 3));
                         structureMap.Dispose();
                         structureMap = structureMapEmphasized;
                         */
                         stopWatch.RecordEntry("EmphasizeEdges");
-
-                        // Step 4: Boost small structures with a dilation box filter
-                        if (p.StructureDilationCount > 0) {
-                            using (var dilationStructure = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(p.StructureDilationSize, p.StructureDilationSize))) {
-                                Cv2.MorphologyEx(structureMap, structureMap, MorphTypes.Dilate, dilationStructure, iterations: p.StructureDilationCount, borderType: BorderTypes.Reflect);
-                            }
-                            stopWatch.RecordEntry("StructureDilation");
-                        }
-
-                        // Step 5: Binarize foreground structures based on noise estimates
-                        progress.Report(new ApplicationStatus() { Status = "Structure Detection" });
-
-                        var ksigmaNoiseResult = CvImageUtility.KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
-                        Logger.Trace($"K-Sigma Noise Estimate: {ksigmaNoiseResult.Sigma}, Background Mean: {ksigmaNoiseResult.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResult.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}");
-                        stopWatch.RecordEntry("KSigmaNoiseCalculation");
 
                         // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
                         // The difference doesn't seem worth it based on tests done so far
@@ -176,10 +177,30 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
                         double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * ksigmaNoiseResult.Sigma;
                         Logger.Trace($"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}");
+
+                        if (p.StoreStructureMap) {
+                            UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 2);
+                        }
+
+                        // Step 6: Boost small structures with a dilation box filter
+                        if (p.StructureDilationCount > 0) {
+                            using (var dilationStructure = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(p.StructureDilationSize, p.StructureDilationSize))) {
+                                Cv2.MorphologyEx(structureMap, structureMap, MorphTypes.Dilate, dilationStructure, iterations: p.StructureDilationCount, borderType: BorderTypes.Reflect);
+                            }
+                            stopWatch.RecordEntry("StructureDilation");
+                        }
+
+                        if (p.StoreStructureMap) {
+                            UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 1);
+                        }
+
+                        progress.Report(new ApplicationStatus() { Status = "Structure Detection" });                        
+
+                        // Step 7: Binarize foreground structures based on noise estimates
                         CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
                         stopWatch.RecordEntry("Binarization");
 
-                        // Step 6: Scan structure map for stars
+                        // Step 8: Scan structure map for stars
                         progress.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
                         var stars = ScanStars(srcImage, structureMap, p, ksigmaNoiseResult.Sigma, metrics);
                         stopWatch.RecordEntry("StarAnalysis");
@@ -192,7 +213,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
                         return new StarDetectorResult() {
                             DetectedStars = stars,
-                            Metrics = metrics
+                            Metrics = metrics,
+                            DebugData = debugData
                         };
                     }
                 } finally {
@@ -201,6 +223,26 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                     progress.Report(new ApplicationStatus() { });
                 }
             }, token);
+        }
+
+        /// <summary>
+        /// Updates a byte array containing debug information about a structure map. All pixels exceeding the binarization threshold are set to value in the debug data
+        /// </summary>
+        /// <param name="structureMap">The image representing the structure map</param>
+        /// <param name="structureMapDebugData">The debug data to update</param>
+        /// <param name="binarizationThreshold">Binarization threshold</param>
+        /// <param name="value">The value to set when pixels exceed the binarization threshold</param>
+        private void UpdateStructureMapDebugData(Mat structureMap, byte[] structureMapDebugData, double binarizationThreshold, byte value) {
+            var numPixels = structureMap.Rows * structureMap.Cols;
+            unsafe {
+                var structureData = (float*)structureMap.DataPointer;
+                for (int i = 0; i < numPixels; ++i) {
+                    var pixel = *(structureData++);
+                    if (pixel >= binarizationThreshold && structureMapDebugData[i] == 0) {
+                        structureMapDebugData[i] = value;
+                    }
+                }
+            }
         }
 
         // TODO: Consider whether doing this at multiple scales is worth the cost, particularly when out of focus

@@ -43,6 +43,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
     public class StarDetectorResult {
         public List<Star> DetectedStars { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
+        public DebugData DebugData { get; set; }
     }
 
     public interface IStarDetector {

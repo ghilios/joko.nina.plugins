@@ -181,6 +181,24 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                             }
                         }
 
+                        if (StarAnnotatorOptions.ShowStructureMap != Interfaces.ShowStructureMapEnum.None) {
+                            var hfResult = result as HocusFocusStarDetectionResult;
+                            var structureMapData = hfResult?.DebugData?.StructureMap;
+                            if (structureMapData != null) {
+                                var minStructureMapValue = StarAnnotatorOptions.ShowStructureMap == Interfaces.ShowStructureMapEnum.Dilated ? 1 : 2;
+                                var structureMapColor = StarAnnotatorOptions.StructureMapColor.ToDrawingColor();
+                                int i = 0;
+                                for (int y = 0; y < hfResult.DebugData.DetectionROI.Height; ++y) {
+                                    for (int x = 0; x < hfResult.DebugData.DetectionROI.Width; ++x) {
+                                        var structureMapPixel = structureMapData[i++];
+                                        if (structureMapPixel >= minStructureMapValue) {
+                                            newBitmap.BlendPixel(x, y, structureMapColor);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         var img = ImageUtility.ConvertBitmap(newBitmap, System.Windows.Media.PixelFormats.Bgr24);
                         img.Freeze();
                         return img;

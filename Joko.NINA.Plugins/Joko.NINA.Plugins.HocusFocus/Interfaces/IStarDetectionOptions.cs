@@ -22,5 +22,6 @@ namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
         int StructureDilationSize { get; set; }
         int StructureDilationCount { get; set; }
         double PixelSampleSize { get; set; }
+        bool DebugMode { get; set; }
     }
 }

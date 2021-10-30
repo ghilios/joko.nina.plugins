@@ -11,6 +11,12 @@ namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
         Box
     }
 
+    public enum ShowStructureMapEnum {
+        None,
+        Original,
+        Dilated
+    }
+
     public interface IStarAnnotatorOptions {
         bool ShowAnnotations { get; set; }
         bool ShowAllStars { get; set; }
@@ -26,5 +32,8 @@ namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
         Color ROIColor { get; set; }
         bool ShowStarCenter { get; set; }
         Color StarCenterColor { get; set; }
+        ShowStructureMapEnum ShowStructureMap { get; set; }
+        Color StructureMapColor { get; set; }
+        IStarDetectionOptions DetectorOptions { get; set; }
     }
 }

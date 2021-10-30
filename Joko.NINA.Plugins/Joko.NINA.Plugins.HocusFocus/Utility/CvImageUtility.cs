@@ -458,7 +458,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
             public long BackgroundPixels { get; set; }
         }
 
-        public static KappSigmaNoiseEstimateResult KappaSigmaNoiseEstimate(Mat image, double clippingMultipler = 3.0d, double allowedError = 0.001, int maxIterations = 10) {
+        public static KappSigmaNoiseEstimateResult KappaSigmaNoiseEstimate(Mat image, double clippingMultipler = 3.0d, double allowedError = 0.00001, int maxIterations = 10) {
             // NOTE: This algorithm could be sped up by building a log histogram. Consider this if performance becomes problematic
             if (image.Type() != MatType.CV_32F) {
                 throw new ArgumentException("Only CV_32F supported");
@@ -566,6 +566,29 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
 
         public static System.Drawing.FontFamily ToDrawingFontFamily(this System.Windows.Media.FontFamily fontFamily) {
             return new System.Drawing.FontFamily(fontFamily.FamilyNames.Select(fn => fn.Value).First());
+        }
+
+        public static System.Drawing.Color Blend(this System.Drawing.Color color1, System.Drawing.Color color2) {
+            if (color2.A == byte.MaxValue) {
+                return color2;
+            }
+
+            var r1 = (int)color1.R * color1.A / byte.MaxValue;
+            var g1 = (int)color1.G * color1.A / byte.MaxValue;
+            var b1 = (int)color1.B * color1.A / byte.MaxValue;
+            var a2 = color2.A;
+            var a1 = byte.MaxValue - a2;
+            var blendR = (byte)((r1 * a1 + (int)color2.R * a2) / byte.MaxValue);
+            var blendG = (byte)((g1 * a1 + (int)color2.G * a2) / byte.MaxValue);
+            var blendB = (byte)((b1 * a1 + (int)color2.B * a2) / byte.MaxValue);
+            var blendA = Math.Max(color1.A, color2.A);
+            return System.Drawing.Color.FromArgb(blendA, blendR, blendG, blendB);
+        }
+
+        public static void BlendPixel(this System.Drawing.Bitmap bmp, int x, int y, System.Drawing.Color color) {
+            var currentColor = bmp.GetPixel(x, y);
+            var blendedColor = currentColor.Blend(color);
+            bmp.SetPixel(x, y, blendedColor);
         }
     }
 }

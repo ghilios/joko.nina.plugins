@@ -33,10 +33,17 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
     }
 
+    public class DebugData {
+        // 0 = No structure map at that pixel
+        // 1 = Original
+        // 2 = Dilated
+        public byte[] StructureMap;
+        public Rectangle DetectionROI;
+    }
+
     public class HocusFocusStarDetectionResult : StarDetectionResult {
         public StarDetectorMetrics Metrics { get; set; }
-        // TODO: Add new fields here
-        // public double Eccentricity { get; set; } = double.NaN;
+        public DebugData DebugData { get; set; }
     }
 
     [Export(typeof(IPluggableBehavior))]
@@ -73,7 +80,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                 MinHFR = starDetectionOptions.MinHFR,
                 StructureDilationSize = starDetectionOptions.StructureDilationSize,
                 StructureDilationCount = starDetectionOptions.StructureDilationCount,
-                AnalysisSamplingSize = (float)starDetectionOptions.PixelSampleSize
+                AnalysisSamplingSize = (float)starDetectionOptions.PixelSampleSize,
+                StoreStructureMap = starDetectionOptions.DebugMode
             };
 
             if (p.UseROI && p.InnerCropRatio < 1.0 && p.OuterCropRatio > 0.0) {
@@ -137,6 +145,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
                 Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}");
             }
+            result.DebugData = starDetectorResult.DebugData;
             result.Metrics = starDetectorResult.Metrics;
             return result;
         }

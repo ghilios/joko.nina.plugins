@@ -280,6 +280,7 @@
     <Compile Include="AutoFocus\HocusFocusToolVM.cs" />
     <Compile Include="AutoFocus\HocusFocusVM.cs" />
     <Compile Include="AutoFocus\HocusFocusVMFactory.cs" />
+    <Compile Include="Converters\StructureMapTypeToVisibilityConverter.cs" />
     <Compile Include="Interfaces\IStarAnnotatorOptions.cs" />
     <Compile Include="Interfaces\IStarDetectionOptions.cs" />
     <Compile Include="Interfaces\IStarDetector.cs" />

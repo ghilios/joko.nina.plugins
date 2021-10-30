@@ -20,6 +20,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private void InitializeOptions() {
+            debugMode = optionsAccessor.GetValueBool("DetectionDebugMode", false);
             hotpixelFiltering = optionsAccessor.GetValueBool("HotpixelFiltering", true);
             useAutoFocusCrop = optionsAccessor.GetValueBool("UseAutoFocusCrop", true);
             noiseReductionRadius = optionsAccessor.GetValueInt("NoiseReductionRadius", 3);
@@ -55,6 +56,18 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             StructureDilationSize = 5;
             StructureDilationCount = 1;
             PixelSampleSize = 0.5;
+        }
+
+        private bool debugMode;
+        public bool DebugMode {
+            get => debugMode;
+            set {
+                if (debugMode != value) {
+                    debugMode = value;
+                    optionsAccessor.SetValueBool("DetectionDebugMode", hotpixelFiltering);
+                    RaisePropertyChanged();
+                }
+            }
         }
 
         private bool hotpixelFiltering;
