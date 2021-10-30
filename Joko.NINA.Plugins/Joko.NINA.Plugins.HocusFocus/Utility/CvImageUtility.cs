@@ -68,12 +68,8 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
             Mat result = null;
             try {
                 var props = image.RawImageData.Properties;
-                if (image is IDebayeredImage) {
+                if ((image as IDebayeredImage)?.SaveLumChannel == true) {
                     var debayeredImage = (IDebayeredImage)image;
-                    if (!debayeredImage.SaveLumChannel) {
-                        throw new ArgumentException("No Luminance channel saved");
-                    }
-
                     result = ToOpenCVMat(debayeredImage.DebayeredData.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
                 } else {
                     result = ToOpenCVMat(image.RawImageData.Data.FlatArray, bpp: props.BitDepth, width: props.Width, height: props.Height);
