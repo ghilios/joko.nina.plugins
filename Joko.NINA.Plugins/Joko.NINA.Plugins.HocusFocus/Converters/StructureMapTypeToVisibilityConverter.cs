@@ -15,11 +15,11 @@ namespace Joko.NINA.Plugins.HocusFocus.Converters {
                 throw new ArgumentException("Exactly 2 values required for StructureMapToVisibilityConverter");
             }
             if (!(values[0] is bool) || !(values[1] is ShowStructureMapEnum)) {
-                throw new ArgumentException("First parameter should be bool (DebugMode) and the second should be ShowStructureMapEnum");
+                return System.Windows.Visibility.Collapsed;
             }
 
             var debugMode = (bool)values[0];
-            var showStructureMap = (ShowStructureMapEnum)values[1];
+            var showStructureMap = values[1] != null ? (ShowStructureMapEnum)values[1] : ShowStructureMapEnum.None;
             if (debugMode && showStructureMap != ShowStructureMapEnum.None) {
                 return System.Windows.Visibility.Visible;
             } else {
