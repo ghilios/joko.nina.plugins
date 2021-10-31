@@ -14,13 +14,13 @@ namespace Joko.NINA.Plugins.HocusFocus.Converters {
             if (values.Length != 2) {
                 throw new ArgumentException("Exactly 2 values required for StructureMapToVisibilityConverter");
             }
-            if (!(values[0] is bool) || !(values[1] is ShowStructureMapEnum)) {
+            if (!(values[0] is bool) || (values != null && !(values[1] is ShowStructureMapEnum))) {
                 throw new ArgumentException("First parameter should be bool (DebugMode) and the second should be ShowStructureMapEnum");
             }
 
             var debugMode = (bool)values[0];
             var showStructureMap = (ShowStructureMapEnum)values[1];
-            if (debugMode && showStructureMap != ShowStructureMapEnum.None) {
+            if (debugMode && showStructureMap != null && showStructureMap != ShowStructureMapEnum.None) {
                 return System.Windows.Visibility.Visible;
             } else {
                 return System.Windows.Visibility.Collapsed;
