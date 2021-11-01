@@ -13,8 +13,7 @@ using System.Threading.Tasks;
 
 namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
-    // TODO: Add this back when ready
-    // [Export(typeof(IPluggableBehavior))]
+    [Export(typeof(IPluggableBehavior))]
     public class HocusFocusVMFactory : IAutoFocusVMFactory {
         private readonly IProfileService profileService;
         private readonly ICameraMediator cameraMediator;
@@ -23,7 +22,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         private readonly IGuiderMediator guiderMediator;
         private readonly IImagingMediator imagingMediator;
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
-        private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
 
         [ImportingConstructor]
         public HocusFocusVMFactory(
@@ -33,8 +31,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 IFocuserMediator focuserMediator,
                 IGuiderMediator guiderMediator,
                 IImagingMediator imagingMediator,
-                IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
-                IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector) {
+                IPluggableBehaviorSelector<IStarDetection> starDetectionSelector) {
             this.profileService = profileService;
             this.cameraMediator = cameraMediator;
             this.filterWheelMediator = filterWheelMediator;
@@ -43,7 +40,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
             this.imagingMediator = imagingMediator;
             this.starDetectionSelector = starDetectionSelector;
-            this.starAnnotatorSelector = starAnnotatorSelector;
         }
 
         public string Name => "Hocus Focus";
@@ -51,7 +47,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         public string ContentId => this.GetType().FullName;
 
         public IAutoFocusVM Create() {
-            return new HocusFocusVM(profileService, cameraMediator, filterWheelMediator, focuserMediator, guiderMediator, imagingMediator, starDetectionSelector, starAnnotatorSelector);
+            return new HocusFocusVM(profileService, cameraMediator, filterWheelMediator, focuserMediator, guiderMediator, imagingMediator, starDetectionSelector);
         }
     }
 }

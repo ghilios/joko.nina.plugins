@@ -31,8 +31,7 @@ using System.Windows.Input;
 using static NINA.WPF.Base.ViewModel.Imaging.AutoFocusToolVM;
 
 namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
-    // TODO: Remove when ready
-    // [Export(typeof(IDockableVM))]
+    [Export(typeof(IDockableVM))]
     public class HocusFocusToolVM : DockableVM, ICameraConsumer, IFocuserConsumer, IAutoFocusToolVM {
         private CancellationTokenSource _autoFocusCancelToken;
         private AsyncObservableCollection<Chart> _chartList;
@@ -53,7 +52,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 IFilterWheelMediator filterWheelMediator,
                 IFocuserMediator focuserMediator,
                 IApplicationStatusMediator applicationStatusMediator,
-                // JokoAutoFocusVMFactory autoFocusVMFactory
                 IGuiderMediator guiderMediator,
                 IImagingMediator imagingMediator,
                 IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
@@ -73,7 +71,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
             this.applicationStatusMediator = applicationStatusMediator;
 
-            this.AutoFocusVM = new HocusFocusVMFactory(profileService, cameraMediator, filterWheelMediator, focuserMediator, guiderMediator, imagingMediator, starDetectionSelector, starAnnotatorSelector).Create();
+            this.AutoFocusVM = new HocusFocusVMFactory(profileService, cameraMediator, filterWheelMediator, focuserMediator, guiderMediator, imagingMediator, starDetectionSelector).Create();
 
             ChartList = new AsyncObservableCollection<Chart>();
             ChartListSelectable = true;

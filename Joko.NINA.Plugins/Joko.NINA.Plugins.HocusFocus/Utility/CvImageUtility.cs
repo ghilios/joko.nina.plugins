@@ -2,8 +2,10 @@
 using Joko.NINA.Plugins.HocusFocus.StarDetection;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
+using NINA.WPF.Base.ViewModel.AutoFocus;
 using OpenCvSharp;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Joko.NINA.Plugins.HocusFocus.Utility {
@@ -585,6 +587,38 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
             var currentColor = bmp.GetPixel(x, y);
             var blendedColor = currentColor.Blend(color);
             bmp.SetPixel(x, y, blendedColor);
+        }
+
+        public static MeasureAndError AverageMeasurement(this List<MeasureAndError> measurement) {
+            int total = 0;
+            double sum = 0.0d;
+            double sumVariance = 0.0d;
+            bool invalidStdDev = false;
+            foreach (var measure in measurement) {
+                if (measure.Measure > 0) {
+                    sum += measure.Measure;
+                    ++total;
+
+                    if (measure.Stdev <= 0.0 || double.IsNaN(measure.Stdev)) {
+                        invalidStdDev = true;
+                    }
+                    if (!invalidStdDev) {
+                        sumVariance += measure.Stdev * measure.Stdev;
+                    }
+                }
+            }
+
+            if (total == 0) {
+                return new MeasureAndError() {
+                    Measure = 0.0,
+                    Stdev = double.NaN
+                };
+            } else {
+                return new MeasureAndError() {
+                    Measure = sum / total,
+                    Stdev = Math.Sqrt(sumVariance / total)
+                };
+            }
         }
     }
 }
