@@ -20,5 +20,8 @@ namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
         int FastThreshold_Seconds { get; set; }
         int FastThreshold_Celcius { get; set; }
         int FastThreshold_FocuserPosition { get; set; }
+        bool ValidateHfrImprovement { get; set; }
+        double HFRImprovementThreshold { get; set; }
+        int AutoFocusTimeoutSeconds { get; set; }
     }
 }

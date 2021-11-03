@@ -54,7 +54,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             public AutoFocusState(FilterInfo imagingFilter, int framesPerPoint, int maxConcurrency) {
                 this.ImagingFilter = imagingFilter;
                 this.FramesPerPoint = framesPerPoint;
-                this.ExposureSemaphore = new SemaphoreSlim(0, maxConcurrency);
+                this.ExposureSemaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
                 this.MeasurementCompleteEvent = new AsyncAutoResetEvent(false);
             }
 
@@ -62,8 +62,9 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             public object SubMeasurementsLock { get; private set; } = new object();
             public SemaphoreSlim ExposureSemaphore { get; private set; }
             public int FramesPerPoint { get; private set; }
-            public MeasureAndError InitialHFR { get; set; }
-            public MeasureAndError FinalHFR { get; set; }
+            public MeasureAndError? InitialHFR { get; set; }
+            public MeasureAndError? FinalHFR { get; set; }
+            public List<Task> InitialHFRTasks { get; private set; } = new List<Task>();
             public List<Task> AnalysisTasks { get; private set; } = new List<Task>();
             public List<MeasureAndError> InitialHFRSubMeasurements { get; private set; } = new List<MeasureAndError>();
             public List<MeasureAndError> FinalHFRSubMeasurements { get; private set; } = new List<MeasureAndError>();
@@ -81,6 +82,17 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             public void MeasurementCompleted() {
                 Interlocked.Decrement(ref measurementsInProgress);
                 MeasurementCompleteEvent.Set();
+            }
+
+            public void ResetFocusMeasurements() {
+                lock (SubMeasurementsLock) {
+                    this.MeasurementsByFocuserPoint.Clear();
+                    this.SubMeasurementsByFocuserPoints.Clear();
+                    this.FinalHFRSubMeasurements.Clear();
+                    this.AnalysisTasks.Clear();
+                    this.FinalHFR = null;
+                    this.TrendLineFitting = new TrendlineFitting();
+                }
             }
         }
 
@@ -133,12 +145,45 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        private int initialFocuserPosition = -1;
+        public int InitialFocuserPosition {
+            get => initialFocuserPosition;
+            set {
+                if (initialFocuserPosition != value) {
+                    initialFocuserPosition = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int finalFocuserPosition = -1;
+        public int FinalFocuserPosition {
+            get => finalFocuserPosition;
+            set {
+                if (finalFocuserPosition != value) {
+                    finalFocuserPosition = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private double initialHFR = 0.0d;
         public double InitialHFR {
             get => initialHFR;
             set {
                 if (initialHFR != value) {
                     initialHFR = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double finalHFR = 0.0d;
+        public double FinalHFR {
+            get => finalHFR;
+            set {
+                if (finalHFR != value) {
+                    finalHFR = value;
                     RaisePropertyChanged();
                 }
             }
@@ -235,6 +280,9 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
         private void ClearCharts() {
             InitialHFR = 0.0d;
+            FinalHFR = 0.0d;
+            InitialFocuserPosition = -1;
+            FinalFocuserPosition = -1;
             AutoFocusChartMethod = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod;
             AutoFocusChartCurveFitting = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
             FocusPoints.Clear();
@@ -291,7 +339,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private async Task<MeasureAndError> EvaluateExposure(int focuserPosition, IRenderedImage image, CancellationToken token) {
-            Logger.Trace("Evaluating Exposure");
+            Logger.Trace($"Evaluating auto focus exposure at position {focuserPosition}");
 
             var imageProperties = image.RawImageData.Properties;
 
@@ -323,7 +371,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 var starDetection = starDetectionSelector.GetBehavior();
                 var analysisResult = await starDetection.Detect(image, pixelFormat, analysisParams, progress: null, token);
 
-                Logger.Debug($"Current Focus: Position: {focuserPosition}, HFR: {analysisResult.AverageHFR}");
+                Logger.Debug($"Current Focus - Position: {focuserPosition}, HFR: {analysisResult.AverageHFR}");
                 return new MeasureAndError() { Measure = analysisResult.AverageHFR, Stdev = analysisResult.HFRStdDev };
             } else {
                 var analysis = new ContrastDetection();
@@ -411,11 +459,11 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             return null;
         }
 
-        private async Task<IExposureData> TakeExposure(FilterInfo filter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+        private async Task<IExposureData> TakeExposure(FilterInfo filter, int focuserPosition, CancellationToken token, IProgress<ApplicationStatus> progress) {
             IExposureData image;
             var retries = 0;
             do {
-                Logger.Trace("Starting Exposure for autofocus");
+                Logger.Trace($"Starting exposure for autofocus at position {focuserPosition}");
                 double expTime = profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime;
                 if (filter != null && filter.AutoFocusExposureTime > -1) {
                     expTime = filter.AutoFocusExposureTime;
@@ -471,9 +519,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
         private async Task<bool> ValidateCalculatedFocusPosition(
             AutoFocusState autoFocusState,
-            double initialHFR,
             DataPoint focusPoint,
-            FilterInfo imagingFilter, 
             CancellationToken token, 
             IProgress<ApplicationStatus> progress) {
             var rSquaredThreshold = profileService.ActiveProfile.FocuserSettings.RSquaredThreshold;
@@ -517,42 +563,68 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             }
 
             var finalFocusPosition = (int)Math.Round(focusPoint.X);
-            await focuserMediator.MoveFocuser((int)focusPoint.X, token);
+            await focuserMediator.MoveFocuser(finalFocusPosition, token);
             token.ThrowIfCancellationRequested();
 
-            await StartAutoFocusPoint(finalFocusPosition, autoFocusState, FinalHFRMeasurementAction, token, progress);
-            token.ThrowIfCancellationRequested();
+            if (autoFocusOptions.ValidateHfrImprovement) {
+                Logger.Info($"Validating HFR at final focus position {finalFocusPosition}");
+                await StartAutoFocusPoint(finalFocusPosition, autoFocusState, FinalHFRMeasurementAction, token, progress);
+                token.ThrowIfCancellationRequested();
+            }
 
-            // TODO: How to ensure we use the cancellation token?
             await Task.WhenAll(autoFocusState.AnalysisTasks);
             token.ThrowIfCancellationRequested();
 
             // TODO: Put this on the VM to view it
-            var finalHfr = autoFocusState.FinalHFR.Measure;
-            if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR && rSquaredThreshold <= 0) {
-                if (initialHFR != 0 && finalHfr > (initialHFR * 1.15)) {
-                    Logger.Warning(string.Format("New focus point HFR {0} is significantly worse than original HFR {1}", finalHfr, initialHFR));
-                    Notification.ShowWarning(string.Format(Loc.Instance["LblAutoFocusNewWorseThanOriginal"], finalHfr, initialHFR));
-                    return false;
+            var finalHfr = autoFocusState.FinalHFR.Value.Measure;
+            if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR && autoFocusOptions.ValidateHfrImprovement) {
+                lock (autoFocusState.SubMeasurementsLock) {
+                    if (!autoFocusState.FinalHFR.HasValue || autoFocusState.FinalHFR.Value.Measure == 0.0) {
+                        Logger.Warning("Failed assessing HFR at the final focus point");
+                        Notification.ShowWarning("Failed assessing HFR at the final focus point");
+                        return false;
+                    }
+                    if (!autoFocusState.InitialHFR.HasValue || autoFocusState.InitialHFR.Value.Measure == 0.0) {
+                        Logger.Warning("Failed assessing HFR at the initial position");
+                        Notification.ShowWarning("Failed assessing HFR at the initial position");
+                        return false;
+                    }
+
+                    var finalHFR = autoFocusState.FinalHFR?.Measure;
+                    var initialHFR = autoFocusState.InitialHFR?.Measure;
+                    if (finalHFR > (initialHFR * (1.0 + autoFocusOptions.HFRImprovementThreshold))) {
+                        Logger.Warning($"New focus point HFR {finalHFR} is significantly worse than original HFR {initialHFR}");
+                        Notification.ShowWarning(string.Format(Loc.Instance["LblAutoFocusNewWorseThanOriginal"], finalHfr, initialHFR));
+                        return false;
+                    }
                 }
             }
             return true;
         }
 
         public void SetCurveFittings(string method, string fitting) {
-            TrendlineFitting = new TrendlineFitting().Calculate(FocusPoints, method);
+            var validFocusPoints = FocusPoints.Where(fp => fp.Y > 0.0).ToList();
+            SetCurveFittingsInternal(validFocusPoints, method, fitting);
+        }
 
+        private void SetCurveFittingsInternal(List<ScatterErrorPoint> validFocusPoints,  string method, string fitting) {
             if (AFMethodEnum.STARHFR.ToString() == method) {
-                if (FocusPoints.Count() >= 3
-                    && (AFCurveFittingEnum.PARABOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDPARABOLIC.ToString() == fitting)) {
-                    QuadraticFitting = new QuadraticFitting().Calculate(FocusPoints);
+                if (validFocusPoints.Count() >= 3) {
+                    if (AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDPARABOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDLINES.ToString() == fitting) {
+                        TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method);
+                    }
+
+                    if (AFCurveFittingEnum.PARABOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDPARABOLIC.ToString() == fitting) {
+                        QuadraticFitting = new QuadraticFitting().Calculate(validFocusPoints);
+                    }
+
+                    if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
+                        HyperbolicFitting = new HyperbolicFitting().Calculate(validFocusPoints);
+                    }
                 }
-                if (FocusPoints.Count() >= 3
-                    && (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting)) {
-                    HyperbolicFitting = new HyperbolicFitting().Calculate(FocusPoints);
-                }
-            } else if (FocusPoints.Count() >= 3) {
-                GaussianFitting = new GaussianFitting().Calculate(FocusPoints);
+            } else if (validFocusPoints.Count() >= 3) {
+                TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method);
+                GaussianFitting = new GaussianFitting().Calculate(validFocusPoints);
             }
         }
 
@@ -572,9 +644,15 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     var averageMeasurement = values.AverageMeasurement();
                     state.MeasurementsByFocuserPoint.Add(focuserPosition, averageMeasurement);
 
+                    var validFocusPoints = state.MeasurementsByFocuserPoint.Where(fp => fp.Value.Measure > 0.0).Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, Math.Max(0.001, fp.Value.Stdev))).ToList();
+                    if (validFocusPoints.Count >= 3) {
+                        var autoFocusMethod = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod.ToString();
+                        state.TrendLineFitting = new TrendlineFitting().Calculate(validFocusPoints, autoFocusMethod);
+                    }
+
                     FocusPoints.AddSorted(new ScatterErrorPoint(focuserPosition, measurement.Measure, 0, Math.Max(0.001, measurement.Stdev)), focusPointComparer);
                     PlotFocusPoints.AddSorted(new DataPoint(focuserPosition, measurement.Measure), plotPointComparer);
-                    SetCurveFittings(profileService.ActiveProfile.FocuserSettings.AutoFocusMethod.ToString(), profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting.ToString());
+                    SetCurveFittingsInternal(validFocusPoints, profileService.ActiveProfile.FocuserSettings.AutoFocusMethod.ToString(), profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting.ToString());
                 }
                 return Task.CompletedTask;
             } finally {
@@ -591,7 +669,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     }
 
                     state.InitialHFR = state.InitialHFRSubMeasurements.AverageMeasurement();
-                    this.InitialHFR = state.InitialHFR.Measure;
+                    this.InitialHFR = state.InitialHFR.Value.Measure;
                 }
                 return Task.CompletedTask;
             } finally {
@@ -608,6 +686,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     }
 
                     state.FinalHFR = state.FinalHFRSubMeasurements.AverageMeasurement();
+                    this.FinalHFR = state.InitialHFR.Value.Measure;
                 }
                 return Task.CompletedTask;
             } finally {
@@ -623,9 +702,16 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 autoStretch = false;
             }
 
-            var prepareParameters = new PrepareImageParameters(autoStretch: autoStretch, detectStars: false);
-            var preparedImage = await imagingMediator.PrepareImage(exposureData, prepareParameters, token);
-            var partialMeasurement = await EvaluateExposure(focuserPosition, preparedImage, token);
+            MeasureAndError partialMeasurement;
+            try {
+                var prepareParameters = new PrepareImageParameters(autoStretch: autoStretch, detectStars: false);
+                var preparedImage = await imagingMediator.PrepareImage(exposureData, prepareParameters, token);
+                partialMeasurement = await EvaluateExposure(focuserPosition, preparedImage, token);
+            } catch (Exception e) {
+                Logger.Error(e, $"Error while preparing and analyzing exposure at {focuserPosition}");
+                // Setting a partial measurement representing a failure to ensure the action is executed
+                partialMeasurement = new MeasureAndError() { Measure = 0.0d, Stdev = double.NaN };
+            }
             await action(focuserPosition, partialMeasurement, state);
         }
 
@@ -639,7 +725,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 await state.ExposureSemaphore.WaitAsync(token);
                 token.ThrowIfCancellationRequested();
 
-                var exposureData = await TakeExposure(state.ImagingFilter, token, progress);
+                var exposureData = await TakeExposure(state.ImagingFilter, focuserPosition, token, progress);
                 state.MeasurementStarted();
                 try {
                     var analysisTask = PrepareAndAnalyzeExposure(exposureData, focuserPosition, state, action, token);
@@ -655,7 +741,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private async Task StartInitialFocusPoints(int initialFocusPosition, AutoFocusState autoFocusState, CancellationToken token, IProgress<ApplicationStatus> progress) {
-            if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR) {
+            if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR && autoFocusOptions.ValidateHfrImprovement) {
                 await StartAutoFocusPoint(initialFocusPosition, autoFocusState, InitialHFRMeasurementAction, token, progress);
             }
         }
@@ -672,32 +758,32 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                 leftMostPosition = Math.Min(leftMostPosition, targetFocuserPosition);
                 rightMostPosition = Math.Max(rightMostPosition, targetFocuserPosition);
-                await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, InitialHFRMeasurementAction, token, progress);
+                await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, token, progress);
             }
 
             while (true) {
-                // TODO: Add check for initial HFR failed cancelation
-
                 token.ThrowIfCancellationRequested();
-                var trendlineFit = autoFocusState.TrendLineFitting;
-                var focusPoints = autoFocusState.MeasurementsByFocuserPoint;
-                var currentPosition = focuserMediator.GetInfo().Position;
 
+                TrendlineFitting trendlineFit;
+                Dictionary<int, MeasureAndError> focusPoints;
+                lock (autoFocusState.SubMeasurementsLock) {
+                    trendlineFit = autoFocusState.TrendLineFitting;
+                    focusPoints = autoFocusState.MeasurementsByFocuserPoint;
+                    if (autoFocusOptions.ValidateHfrImprovement && autoFocusState.InitialHFR.HasValue && autoFocusState.InitialHFR.Value.Measure == 0.0) {
+                        throw new InitialHFRFailedException();
+                    }
+                }
+
+                var currentPosition = focuserMediator.GetInfo().Position;
                 var failureCount = focusPoints.Count(fp => fp.Value.Measure == 0.0);
                 if (failureCount >= offsetSteps) {
-                    // Too many failed points. Abort
-                    Logger.Error($"Too many failed points ({failureCount}). Aborting auto focus");
-                    Notification.ShowWarning(Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"]);
-                    progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
-                    // Reattempting in this situation is very likely meaningless - just move back to initial focus position and call it a day
-                    await focuserMediator.MoveFocuser(initialFocusPosition, token);
                     throw new TooManyFailedMeasurementsException(failureCount);
                 }
 
                 // When we've reached a limit on either end of the potential minimum based on trends, then we can queue up the remaining points
                 // and execute the loop
-                var leftTrendCount = trendlineFit.LeftTrend.DataPoints.Count();
-                var rightTrendCount = trendlineFit.RightTrend.DataPoints.Count();
+                var leftTrendCount = trendlineFit.LeftTrend != null ? trendlineFit.LeftTrend.DataPoints.Count() : 0;
+                var rightTrendCount = trendlineFit.RightTrend != null ? trendlineFit.RightTrend.DataPoints.Count() : 0;
                 if (leftTrendCount >= offsetSteps && rightTrendCount > 0) {
                     var failedRightPoints = focusPoints.Where(fp => fp.Key > trendlineFit.Minimum.X && fp.Value.Measure == 0).Count();
                     var targetMaxFocuserPosition = trendlineFit.Minimum.X + (failedRightPoints + offsetSteps) * stepSize;
@@ -744,13 +830,13 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
                 // Ensure we don't have too many measurements in flight, since we need completed analyses to determine stopping conditions
                 while (autoFocusState.MeasurementsInProgress >= offsetSteps) {
-                    Logger.Trace($"Waiting for measurements in progress {autoFocusState.MeasurementsInProgress} to get below {offsetSteps}");
+                    Logger.Info($"Waiting for measurements in progress {autoFocusState.MeasurementsInProgress} to get below {offsetSteps}");
                     await autoFocusState.MeasurementCompleteEvent.WaitAsync(token);
                     token.ThrowIfCancellationRequested();
                 }
             }
 
-            // TODO: Add cancelation
+            Logger.Info("Waiting on remaining AutoFocus analysis tasks");
             await Task.WhenAll(autoFocusState.AnalysisTasks);
             token.ThrowIfCancellationRequested();
         }
@@ -772,11 +858,13 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 await StartInitialFocusPoints(initialFocusPosition, autoFocusState, token, progress);
 
                 do {
-                    // TODO: Reset aub-measurement state in between loops
                     reattempt = false;
                     ++numberOfAttempts;
-                    await pointGenerationAction(initialFocusPosition, autoFocusState, token, progress);
 
+                    var iterationTaskCts = new CancellationTokenSource();
+                    var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(token, iterationTaskCts.Token);
+
+                    await pointGenerationAction(initialFocusPosition, autoFocusState, iterationCts.Token, progress);
                     token.ThrowIfCancellationRequested();
 
                     var finalFocusPoint = DetermineFinalFocusPoint();
@@ -786,32 +874,36 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                         Timestamp = DateTime.Now,
                         Filter = autofocusFilter?.Name
                     };
+                    var duration = stopWatch.Elapsed;
                     var report = GenerateReport(
                         initialFocusPosition, 
                         initialHFR, 
                         autofocusFilter?.Name ?? string.Empty, 
                         finalFocusPoint,
                         lastAutoFocusPoint,
-                        stopWatch.Elapsed);
-                    bool goodAutoFocus = await ValidateCalculatedFocusPosition(autoFocusState, initialHFR, finalFocusPoint, imagingFilter, token, progress);
+                        duration);
+                    bool goodAutoFocus = await ValidateCalculatedFocusPosition(autoFocusState, finalFocusPoint, iterationCts.Token, progress);
                     token.ThrowIfCancellationRequested();
                     if (!goodAutoFocus) {
+                        // Ensure we cancel any remaining tasks from this iteration so we can start the next
+                        iterationTaskCts.Cancel();
                         if (numberOfAttempts < profileService.ActiveProfile.FocuserSettings.AutoFocusTotalNumberOfAttempts) {
                             Notification.ShowWarning(Loc.Instance["LblAutoFocusReattempting"]);
+                            Logger.Warning($"Potentially bad auto-focus. Setting focuser back to {initialFocusPosition} and re-attempting.");
                             await focuserMediator.MoveFocuser(initialFocusPosition, token);
-                            Logger.Warning("Potentially bad auto-focus. Reattempting.");
                             FocusPoints.Clear();
                             PlotFocusPoints.Clear();
                             TrendlineFitting = null;
                             QuadraticFitting = null;
                             HyperbolicFitting = null;
                             GaussianFitting = null;
-                            FinalFocusPoint = new DataPoint(0, 0);
                             reattempt = true;
                         }
                     } else {
                         FinalFocusPoint = finalFocusPoint;
                         LastAutoFocusPoint = lastAutoFocusPoint;
+                        AutoFocusDuration = duration;
+                        FinalFocuserPosition = (int)Math.Round(finalFocusPoint.X);
                         return report;
                     }
                 } while (reattempt);
@@ -852,6 +944,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
             // Restore the temperature compensation of the focuser
             if (focuserMediator.GetInfo().TempCompAvailable && restoreTempComp) {
+                Logger.Info("Re-enabling temperature compensation after AutoFocus");
                 focuserMediator.ToggleTempComp(true);
             }
 
@@ -859,6 +952,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 var completionTimeoutCts = new CancellationTokenSource(completionOperationTimeout);
                 var startGuiding = await this.guiderMediator.StartGuiding(false, progress, completionTimeoutCts.Token);
                 if (completionTimeoutCts.IsCancellationRequested || !startGuiding) {
+                    Logger.Warning("Failed to resume guiding after AutoFocus");
                     Notification.ShowWarning(Loc.Instance["LblStartGuidingFailed"]);
                 }
             }
@@ -890,10 +984,18 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     AutoFocusInfo info = new AutoFocusInfo(report.Temperature, report.CalculatedFocusPoint.Position, report.Filter, report.Timestamp);
                     focuserMediator.BroadcastSuccessfulAutoFocusRun(info);
                 }
+            } catch (TooManyFailedMeasurementsException e) {
+                Logger.Error($"Too many failed points ({e.NumFailures}). Aborting auto focus");
+                Notification.ShowWarning(Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"]);
+                progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
+            } catch (InitialHFRFailedException) {
+                Logger.Error($"Initial HFR calculation failed. Aborting auto focus");
+                Notification.ShowWarning("Calculating initial HFR failed. Aborting auto focus");
+                progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
             } catch (OperationCanceledException) {
                 Logger.Warning("AutoFocus cancelled");
             } catch (Exception ex) {
-                Notification.ShowError(ex.Message);
+                Notification.ShowError($"Auto Focus Failure. {ex.Message}");
                 Logger.Error("Failure during AutoFocus", ex);
             } finally {
                 await PerformPostAutoFocusActions(

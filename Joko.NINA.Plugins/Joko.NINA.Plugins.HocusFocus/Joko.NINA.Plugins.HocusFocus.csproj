@@ -282,6 +282,9 @@
     <Compile Include="AutoFocus\HocusFocusToolVM.cs" />
     <Compile Include="AutoFocus\HocusFocusVM.cs" />
     <Compile Include="AutoFocus\HocusFocusVMFactory.cs" />
+    <Compile Include="Converters\TimeSpanZeroToVisibilityConverter.cs" />
+    <Compile Include="Converters\TimeSpanToStringConverter.cs" />
+    <Compile Include="Converters\DoubleZeroToVisibilityConverter.cs" />
     <Compile Include="Converters\StructureMapTypeToVisibilityConverter.cs" />
     <Compile Include="Interfaces\IAutoFocusOptions.cs" />
     <Compile Include="Interfaces\IStarAnnotatorOptions.cs" />

@@ -12,4 +12,8 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             this.NumFailures = numFailures;
         }
     }
+    public class InitialHFRFailedException : Exception {
+        public InitialHFRFailedException() : base("Calculating initial HFR failed") {
+        }
+    }
 }

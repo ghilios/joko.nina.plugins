@@ -30,6 +30,9 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             fastThreshold_Celcius = optionsAccessor.GetValueInt("FastThreshold_Celcius", 5);
             fastThreshold_FocuserPosition = optionsAccessor.GetValueInt("FastThreshold_FocuserPosition", 100);
             fastThreshold_Seconds = optionsAccessor.GetValueInt("FastThreshold_Seconds", (int)TimeSpan.FromMinutes(60).TotalSeconds);
+            autoFocusTimeoutSeconds = optionsAccessor.GetValueInt("AutoFocusTimeoutSeconds", (int)TimeSpan.FromMinutes(5).TotalSeconds);
+            validateHfrImprovement = optionsAccessor.GetValueBool("ValidateHfrImprovement", true);
+            hfrImprovementThreshold = optionsAccessor.GetValueDouble("HFRImprovementThreshold", 0.15);
         }
 
 
@@ -41,6 +44,9 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             FastThreshold_Celcius = 5;
             FastThreshold_FocuserPosition = 100;
             FastThreshold_Seconds = (int)TimeSpan.FromMinutes(60).TotalSeconds;
+            AutoFocusTimeoutSeconds = (int)TimeSpan.FromMinutes(5).TotalSeconds;
+            ValidateHfrImprovement = true;
+            HFRImprovementThreshold = 0.15;
         }
 
         private int maxConcurrent;
@@ -84,6 +90,10 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             get => fastOffsetSteps;
             set {
                 if (fastOffsetSteps != value) {
+                    if (value <= 1) {
+                        throw new ArgumentException("FastOffsetSteps must be at least 2", "FastOffsetSteps");
+                    }
+
                     fastOffsetSteps = value;
                     optionsAccessor.SetValueInt("FastOffsetSteps", fastOffsetSteps);
                     RaisePropertyChanged();
@@ -96,6 +106,10 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             get => fastThreshold_Seconds;
             set {
                 if (fastThreshold_Seconds != value) {
+                    if (value < 0) {
+                        throw new ArgumentException("FastThreshold_Seconds must be non-negative", "FastThreshold_Seconds");
+                    }
+
                     fastThreshold_Seconds = value;
                     optionsAccessor.SetValueInt("FastThreshold_Seconds", fastThreshold_Seconds);
                     RaisePropertyChanged();
@@ -108,6 +122,10 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             get => fastThreshold_Celcius;
             set {
                 if (fastThreshold_Celcius != value) {
+                    if (value < 0) {
+                        throw new ArgumentException("FastThreshold_Celcius must be non-negative", "FastThreshold_Celcius");
+                    }
+
                     fastThreshold_Celcius = value;
                     optionsAccessor.SetValueInt("FastThreshold_Celcius", fastThreshold_Celcius);
                     RaisePropertyChanged();
@@ -120,8 +138,56 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             get => fastThreshold_FocuserPosition;
             set {
                 if (fastThreshold_FocuserPosition != value) {
+                    if (value < 0) {
+                        throw new ArgumentException("FastThreshold_FocuserPosition must be non-negative", "FastThreshold_FocuserPosition");
+                    }
+
                     fastThreshold_FocuserPosition = value;
                     optionsAccessor.SetValueInt("FastThreshold_FocuserPosition", fastThreshold_FocuserPosition);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool validateHfrImprovement;
+        public bool ValidateHfrImprovement {
+            get => validateHfrImprovement;
+            set {
+                if (validateHfrImprovement != value) {
+                    validateHfrImprovement = value;
+                    optionsAccessor.SetValueBool("ValidateHfrImprovement", validateHfrImprovement);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double hfrImprovementThreshold;
+        public double HFRImprovementThreshold {
+            get => hfrImprovementThreshold;
+            set {
+                if (hfrImprovementThreshold != value) {
+                    if (double.IsNaN(value) || double.IsInfinity(value)) {
+                        throw new ArgumentException("HFRImprovementThreshold must be real, finite number", "HFRImprovementThreshold");
+                    }
+
+                    hfrImprovementThreshold = value;
+                    optionsAccessor.SetValueDouble("HFRImprovementThreshold", hfrImprovementThreshold);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int autoFocusTimeoutSeconds;
+        public int AutoFocusTimeoutSeconds {
+            get => autoFocusTimeoutSeconds;
+            set {
+                if (autoFocusTimeoutSeconds != value) {
+                    if (value <= 0) {
+                        throw new ArgumentException("AutoFocusTimeoutSeconds must be positive", "AutoFocusTimeoutSeconds");
+                    }
+
+                    autoFocusTimeoutSeconds = value;
+                    optionsAccessor.SetValueInt("AutoFocusTimeoutSeconds", autoFocusTimeoutSeconds);
                     RaisePropertyChanged();
                 }
             }

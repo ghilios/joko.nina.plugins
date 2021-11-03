@@ -15,6 +15,9 @@
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
     xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit">
     <hfconverters:ShowStructureMapToVisibilityConverter x:Key="ShowStructureMapToVisibilityConverter" />
+    <hfconverters:DoubleZeroToVisibilityConverter x:Key="DoubleZeroToVisibilityConverter" />
+    <hfconverters:TimeSpanZeroToVisibilityConverter x:Key="TimeSpanZeroToVisibilityConverter" />
+    <hfconverters:TimeSpanToStringConverter x:Key="TimeSpanToStringConverter" />
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">
         <Grid Margin="5" VerticalAlignment="Top">
             <Grid.ColumnDefinitions>
