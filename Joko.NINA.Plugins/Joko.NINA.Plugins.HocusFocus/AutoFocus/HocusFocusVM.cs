@@ -965,6 +965,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             AutoFocusReport report = null;
             int initialFocusPosition = focuserMediator.GetInfo().Position;
 
+            var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(autoFocusOptions.AutoFocusTimeoutSeconds));
             bool tempComp = false;
             bool guidingStopped = false;
             bool completed = false;
@@ -978,7 +979,8 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     guidingStopped = await this.guiderMediator.StopGuiding(token);
                 }
 
-                report = await RunAutoFocus(imagingFilter, StartBlindFocusPoints, token, progress);
+                var autofocusCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+                report = await RunAutoFocus(imagingFilter, StartBlindFocusPoints, autofocusCts.Token, progress);
                 if (report != null) {
                     completed = true;
                     AutoFocusInfo info = new AutoFocusInfo(report.Temperature, report.CalculatedFocusPoint.Position, report.Filter, report.Timestamp);
@@ -992,8 +994,13 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 Logger.Error($"Initial HFR calculation failed. Aborting auto focus");
                 Notification.ShowWarning("Calculating initial HFR failed. Aborting auto focus");
                 progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
-            } catch (OperationCanceledException) {
-                Logger.Warning("AutoFocus cancelled");
+            } catch (OperationCanceledException e) {
+                if (e.CancellationToken == timeoutCts.Token) {
+                    Notification.ShowWarning($"AutoFocus timed out after {autoFocusOptions.AutoFocusTimeoutSeconds} seconds");
+                    Logger.Warning($"AutoFocus timed out after {autoFocusOptions.AutoFocusTimeoutSeconds} seconds");
+                } else {
+                    Logger.Warning("AutoFocus cancelled");
+                }
             } catch (Exception ex) {
                 Notification.ShowError($"Auto Focus Failure. {ex.Message}");
                 Logger.Error("Failure during AutoFocus", ex);
