@@ -39,7 +39,6 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
-
     public class HocusFocusVM : BaseVM, IAutoFocusVM {
         private AFCurveFittingEnum autoFocusChartCurveFitting;
         private AFMethodEnum autoFocusChartMethod;
@@ -64,7 +63,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         public static readonly string ReportDirectory = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "AutoFocus");
 
         private class AutoFocusState {
-
             public AutoFocusState(FilterInfo imagingFilter, int framesPerPoint, int maxConcurrency) {
                 this.ImagingFilter = imagingFilter;
                 this.FramesPerPoint = framesPerPoint;
@@ -719,23 +717,27 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
         private async Task PrepareAndAnalyzeExposure(IExposureData exposureData, int focuserPosition, AutoFocusState state, Func<int, MeasureAndError, AutoFocusState, Task> action, CancellationToken token) {
             // TODO: Add whether auto stretch is required to IStarDetection. For now, just set to true
-            var autoStretch = true;
-            // If using contrast based statistics, no need to stretch
-            if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.CONTRASTDETECTION && profileService.ActiveProfile.FocuserSettings.ContrastDetectionMethod == ContrastDetectionMethodEnum.Statistics) {
-                autoStretch = false;
-            }
-
-            MeasureAndError partialMeasurement;
             try {
-                var prepareParameters = new PrepareImageParameters(autoStretch: autoStretch, detectStars: false);
-                var preparedImage = await imagingMediator.PrepareImage(exposureData, prepareParameters, token);
-                partialMeasurement = await EvaluateExposure(focuserPosition, preparedImage, token);
-            } catch (Exception e) {
-                Logger.Error(e, $"Error while preparing and analyzing exposure at {focuserPosition}");
-                // Setting a partial measurement representing a failure to ensure the action is executed
-                partialMeasurement = new MeasureAndError() { Measure = 0.0d, Stdev = double.NaN };
+                var autoStretch = true;
+                // If using contrast based statistics, no need to stretch
+                if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.CONTRASTDETECTION && profileService.ActiveProfile.FocuserSettings.ContrastDetectionMethod == ContrastDetectionMethodEnum.Statistics) {
+                    autoStretch = false;
+                }
+
+                MeasureAndError partialMeasurement;
+                try {
+                    var prepareParameters = new PrepareImageParameters(autoStretch: autoStretch, detectStars: false);
+                    var preparedImage = await imagingMediator.PrepareImage(exposureData, prepareParameters, token);
+                    partialMeasurement = await EvaluateExposure(focuserPosition, preparedImage, token);
+                } catch (Exception e) {
+                    Logger.Error(e, $"Error while preparing and analyzing exposure at {focuserPosition}");
+                    // Setting a partial measurement representing a failure to ensure the action is executed
+                    partialMeasurement = new MeasureAndError() { Measure = 0.0d, Stdev = double.NaN };
+                }
+                await action(focuserPosition, partialMeasurement, state);
+            } finally {
+                state.ExposureSemaphore.Release();
             }
-            await action(focuserPosition, partialMeasurement, state);
         }
 
         private async Task StartAutoFocusPoint(
@@ -745,7 +747,9 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             CancellationToken token,
             IProgress<ApplicationStatus> progress) {
             for (int i = 0; i < state.FramesPerPoint; ++i) {
-                await state.ExposureSemaphore.WaitAsync(token);
+                using (MyStopWatch.Measure("Waiting on ExposureSemaphore")) {
+                    await state.ExposureSemaphore.WaitAsync(token);
+                }
                 token.ThrowIfCancellationRequested();
 
                 var exposureData = await TakeExposure(state.ImagingFilter, focuserPosition, token, progress);
@@ -1027,7 +1031,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 Notification.ShowWarning("Calculating initial HFR failed. Aborting auto focus");
                 progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
             } catch (OperationCanceledException e) {
-                if (e.CancellationToken == timeoutCts.Token) {
+                if (timeoutCts.IsCancellationRequested) {
                     Notification.ShowWarning($"AutoFocus timed out after {autoFocusOptions.AutoFocusTimeoutSeconds} seconds");
                     Logger.Warning($"AutoFocus timed out after {autoFocusOptions.AutoFocusTimeoutSeconds} seconds");
                 } else {
