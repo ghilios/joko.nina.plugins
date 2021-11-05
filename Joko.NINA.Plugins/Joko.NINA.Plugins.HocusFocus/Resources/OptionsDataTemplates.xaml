@@ -481,7 +481,6 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition />
-                <ColumnDefinition />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition />
@@ -613,49 +612,50 @@
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Font" />
-            <ComboBox
+            <StackPanel 
+                Orientation="Horizontal"
                 Grid.Row="6"
-                Grid.Column="1"
-                xmlns:ComponentModel="clr-namespace:System.ComponentModel;assembly=WindowsBase"
-                Margin="5,5,0,0"
-                ItemTemplate="{DynamicResource FontTemplate}"
-                SelectedItem="{Binding TextFontFamily}">
-                <ComboBox.Resources>
-                    <CollectionViewSource x:Key="OrderedSystemFonts" Source="{Binding Source={x:Static Fonts.SystemFontFamilies}}">
-                        <CollectionViewSource.SortDescriptions>
-                            <ComponentModel:SortDescription PropertyName="Source" />
-                        </CollectionViewSource.SortDescriptions>
-                    </CollectionViewSource>
-                    <DataTemplate x:Key="FontTemplate">
-                        <StackPanel VirtualizingStackPanel.IsVirtualizing="True">
-                            <TextBlock
-                                FontFamily="{Binding Source}"
-                                FontStretch="Normal"
-                                FontStyle="Normal"
-                                FontWeight="Normal"
-                                Text="{Binding Source}"
-                                ToolTip="{Binding Source}" />
-                        </StackPanel>
-                    </DataTemplate>
-                </ComboBox.Resources>
-                <ComboBox.ItemsSource>
-                    <Binding Source="{StaticResource OrderedSystemFonts}" />
-                </ComboBox.ItemsSource>
-            </ComboBox>
-            <ninactrl:UnitTextBox
-                Grid.Row="6"
-                Grid.Column="2"
-                MinWidth="80"
-                Margin="5,5,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                Unit="pt">
-                <Binding Path="TextFontSizePoints" UpdateSourceTrigger="LostFocus">
-                    <Binding.ValidationRules>
-                        <rules:GreaterThanZeroRule />
-                    </Binding.ValidationRules>
-                </Binding>
-            </ninactrl:UnitTextBox>
+                Grid.Column="1">
+                <ComboBox
+                    xmlns:ComponentModel="clr-namespace:System.ComponentModel;assembly=WindowsBase"
+                    Margin="5,5,0,0"
+                    ItemTemplate="{DynamicResource FontTemplate}"
+                    SelectedItem="{Binding TextFontFamily}">
+                    <ComboBox.Resources>
+                        <CollectionViewSource x:Key="OrderedSystemFonts" Source="{Binding Source={x:Static Fonts.SystemFontFamilies}}">
+                            <CollectionViewSource.SortDescriptions>
+                                <ComponentModel:SortDescription PropertyName="Source" />
+                            </CollectionViewSource.SortDescriptions>
+                        </CollectionViewSource>
+                        <DataTemplate x:Key="FontTemplate">
+                            <StackPanel VirtualizingStackPanel.IsVirtualizing="True">
+                                <TextBlock
+                                    FontFamily="{Binding Source}"
+                                    FontStretch="Normal"
+                                    FontStyle="Normal"
+                                    FontWeight="Normal"
+                                    Text="{Binding Source}"
+                                    ToolTip="{Binding Source}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ComboBox.Resources>
+                    <ComboBox.ItemsSource>
+                        <Binding Source="{StaticResource OrderedSystemFonts}" />
+                    </ComboBox.ItemsSource>
+                </ComboBox>
+                <ninactrl:UnitTextBox
+                    MinWidth="80"
+                    Margin="5,5,0,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    Unit="pt">
+                    <Binding Path="TextFontSizePoints" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:GreaterThanZeroRule />
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+            </StackPanel>
             <TextBlock
                 Grid.Row="7"
                 Grid.Column="0"
@@ -908,7 +908,10 @@
                 Grid.Column="1"
                 Name="PART_ShowStructureMapList"
                 Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}"
-                MinWidth="150"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
                 ItemsSource="{Binding Source={util:EnumBindingSource {x:Type hfenum:ShowStructureMapEnum}}}"
                 SelectedItem="{Binding ShowStructureMap}" />
             <TextBlock
@@ -916,7 +919,8 @@
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Structure Map Color"
-                ToolTip="The color of the overlayed structure map">
+                ToolTip="The color of the overlayed structure map"
+                Margin="5,5,0,0">
                 <TextBlock.Visibility>
                     <MultiBinding Converter="{StaticResource ShowStructureMapToVisibilityConverter}">
                         <Binding Path="DetectorOptions.DebugMode" />
