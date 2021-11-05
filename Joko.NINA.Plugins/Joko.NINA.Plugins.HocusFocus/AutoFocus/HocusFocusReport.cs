@@ -1,0 +1,84 @@
+﻿using Newtonsoft.Json;
+using NINA.Core.Enum;
+using NINA.Profile.Interfaces;
+using NINA.WPF.Base.Utility.AutoFocus;
+using OxyPlot;
+using OxyPlot.Series;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
+    public class HocusFocusReport : AutoFocusReport {
+
+        [JsonProperty]
+        public double FinalHFR { get; set; } = 0.0d;
+
+        public static HocusFocusReport GenerateReport(
+            IProfileService profileService,
+            ICollection<ScatterErrorPoint> FocusPoints,
+            double initialFocusPosition,
+            double initialHFR,
+            double finalHFR,
+            DataPoint focusPoint,
+            ReportAutoFocusPoint lastFocusPoint,
+            TrendlineFitting trendlineFitting,
+            QuadraticFitting quadraticFitting,
+            HyperbolicFitting hyperbolicFitting,
+            GaussianFitting gaussianFitting,
+            double temperature,
+            string filter,
+            TimeSpan duration) {
+            var report = new HocusFocusReport() {
+                Filter = filter,
+                Timestamp = DateTime.Now,
+                Temperature = temperature,
+                InitialFocusPoint = new FocusPoint() {
+                    Position = initialFocusPosition,
+                    Value = initialHFR
+                },
+                CalculatedFocusPoint = new FocusPoint() {
+                    Position = focusPoint.X,
+                    Value = focusPoint.Y
+                },
+                PreviousFocusPoint = new FocusPoint() {
+                    Position = lastFocusPoint?.Focuspoint.X ?? double.NaN,
+                    Value = lastFocusPoint?.Focuspoint.Y ?? double.NaN
+                },
+                FinalHFR = finalHFR,
+                Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod.ToString(),
+                Fitting = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR ? profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting.ToString() : "GAUSSIAN",
+                MeasurePoints = FocusPoints.Select(x => new FocusPoint() { Position = x.X, Value = x.Y, Error = x.ErrorY }),
+                Intersections = new Intersections() {
+                    TrendLineIntersection = new FocusPoint() { Position = trendlineFitting.Intersection.X, Value = trendlineFitting.Intersection.Y },
+                    GaussianMaximum = new FocusPoint() { Position = gaussianFitting.Maximum.X, Value = gaussianFitting.Maximum.Y },
+                    HyperbolicMinimum = new FocusPoint() { Position = hyperbolicFitting.Minimum.X, Value = hyperbolicFitting.Minimum.Y },
+                    QuadraticMinimum = new FocusPoint() { Position = quadraticFitting.Minimum.X, Value = quadraticFitting.Minimum.Y }
+                },
+                Fittings = new Fittings() {
+                    Gaussian = gaussianFitting.Expression,
+                    Hyperbolic = hyperbolicFitting.Expression,
+                    Quadratic = quadraticFitting.Expression,
+                    LeftTrend = trendlineFitting.LeftExpression,
+                    RightTrend = trendlineFitting.RightExpression
+                },
+                RSquares = new RSquares() {
+                    Hyperbolic = hyperbolicFitting.RSquared,
+                    Quadratic = quadraticFitting.RSquared,
+                    LeftTrend = trendlineFitting.LeftTrend?.RSquared ?? double.NaN,
+                    RightTrend = trendlineFitting.RightTrend?.RSquared ?? double.NaN
+                },
+                BacklashCompensation = new BacklashCompensation() {
+                    BacklashCompensationModel = profileService.ActiveProfile.FocuserSettings.BacklashCompensationModel.ToString(),
+                    BacklashIN = profileService.ActiveProfile.FocuserSettings.BacklashIn,
+                    BacklashOUT = profileService.ActiveProfile.FocuserSettings.BacklashOut,
+                },
+                Duration = duration
+            };
+
+            return report;
+        }
+    }
+}

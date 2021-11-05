@@ -31,8 +31,7 @@ using System.Windows.Input;
 using static NINA.WPF.Base.ViewModel.Imaging.AutoFocusToolVM;
 
 namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
-    // TODO: Remove when ready
-    // [Export(typeof(IDockableVM))]
+    [Export(typeof(IDockableVM))]
     public class HocusFocusToolVM : DockableVM, ICameraConsumer, IFocuserConsumer, IAutoFocusToolVM {
         private CancellationTokenSource _autoFocusCancelToken;
         private AsyncObservableCollection<Chart> _chartList;
@@ -53,7 +52,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 IFilterWheelMediator filterWheelMediator,
                 IFocuserMediator focuserMediator,
                 IApplicationStatusMediator applicationStatusMediator,
-                // JokoAutoFocusVMFactory autoFocusVMFactory
                 IGuiderMediator guiderMediator,
                 IImagingMediator imagingMediator,
                 IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
@@ -73,7 +71,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
             this.applicationStatusMediator = applicationStatusMediator;
 
-            this.AutoFocusVM = new HocusFocusVMFactory(profileService, cameraMediator, filterWheelMediator, focuserMediator, guiderMediator, imagingMediator, starDetectionSelector, starAnnotatorSelector).Create();
+            this.HocusFocusVM = (HocusFocusVM)new HocusFocusVMFactory(profileService, cameraMediator, filterWheelMediator, focuserMediator, guiderMediator, imagingMediator, starDetectionSelector).Create();
 
             ChartList = new AsyncObservableCollection<Chart>();
             ChartListSelectable = true;
@@ -109,7 +107,9 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
         public override bool IsTool { get; } = true;
 
-        public IAutoFocusVM AutoFocusVM { get; }
+        public IAutoFocusVM AutoFocusVM { get => HocusFocusVM; }
+
+        public HocusFocusVM HocusFocusVM { get; }
 
         public ICommand CancelAutoFocusCommand { get; private set; }
 
@@ -193,25 +193,29 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 ListCharts();
                 var comparer = new FocusPointComparer();
                 var plotComparer = new PlotPointComparer();
-                AutoFocusVM.FocusPoints.Clear();
-                AutoFocusVM.PlotFocusPoints.Clear();
+                HocusFocusVM.FocusPoints.Clear();
+                HocusFocusVM.PlotFocusPoints.Clear();
 
                 using (var reader = File.OpenText(SelectedChart.FilePath)) {
                     var text = await reader.ReadToEndAsync();
-                    var report = JsonConvert.DeserializeObject<AutoFocusReport>(text);
+                    var report = JsonConvert.DeserializeObject<HocusFocusReport>(text);
 
                     if (Enum.TryParse<AFCurveFittingEnum>(report.Fitting, out var afCurveFittingEnum)) {
-                        AutoFocusVM.FinalFocusPoint = new DataPoint(report.CalculatedFocusPoint.Position, report.CalculatedFocusPoint.Value);
-                        AutoFocusVM.LastAutoFocusPoint = new ReportAutoFocusPoint { Focuspoint = AutoFocusVM.FinalFocusPoint, Temperature = report.Temperature, Timestamp = report.Timestamp, Filter = report.Filter };
+                        HocusFocusVM.FinalFocusPoint = new DataPoint(report.CalculatedFocusPoint.Position, report.CalculatedFocusPoint.Value);
+                        HocusFocusVM.LastAutoFocusPoint = new ReportAutoFocusPoint { Focuspoint = AutoFocusVM.FinalFocusPoint, Temperature = report.Temperature, Timestamp = report.Timestamp, Filter = report.Filter };
+                        HocusFocusVM.InitialFocuserPosition = (int)Math.Round(report.InitialFocusPoint.Position);
+                        HocusFocusVM.InitialHFR = report.InitialFocusPoint.Value;
+                        HocusFocusVM.FinalHFR = report.FinalHFR;
+                        HocusFocusVM.FinalFocuserPosition = (int)Math.Round(report.CalculatedFocusPoint.Position);
 
                         foreach (FocusPoint fp in report.MeasurePoints) {
-                            AutoFocusVM.FocusPoints.AddSorted(new ScatterErrorPoint(Convert.ToInt32(fp.Position), fp.Value, 0, fp.Error), comparer);
-                            AutoFocusVM.PlotFocusPoints.AddSorted(new DataPoint(Convert.ToInt32(fp.Position), fp.Value), plotComparer);
+                            HocusFocusVM.FocusPoints.AddSorted(new ScatterErrorPoint(Convert.ToInt32(fp.Position), fp.Value, 0, fp.Error), comparer);
+                            HocusFocusVM.PlotFocusPoints.AddSorted(new DataPoint(Convert.ToInt32(fp.Position), fp.Value), plotComparer);
                         }
 
-                        AutoFocusVM.AutoFocusChartMethod = report.Method == AFMethodEnum.STARHFR.ToString() ? AFMethodEnum.STARHFR : AFMethodEnum.CONTRASTDETECTION;
-                        AutoFocusVM.AutoFocusChartCurveFitting = afCurveFittingEnum;
-                        AutoFocusVM.SetCurveFittings(report.Method, report.Fitting);
+                        HocusFocusVM.AutoFocusChartMethod = report.Method == AFMethodEnum.STARHFR.ToString() ? AFMethodEnum.STARHFR : AFMethodEnum.CONTRASTDETECTION;
+                        HocusFocusVM.AutoFocusChartCurveFitting = afCurveFittingEnum;
+                        HocusFocusVM.SetCurveFittings(report.Method, report.Fitting);
                     }
 
                     return true;

@@ -7,8 +7,8 @@ using System.Runtime.InteropServices;
 
 // [MANDATORY] The assembly versioning
 //Should be incremented for each new release build of a plugin
-[assembly: AssemblyVersion("1.11.0.5")]
-[assembly: AssemblyFileVersion("1.11.0.5")]
+[assembly: AssemblyVersion("1.11.0.6")]
+[assembly: AssemblyFileVersion("1.11.0.6")]
 
 // [MANDATORY] The name of your plugin
 [assembly: AssemblyTitle("Hocus Focus")]
@@ -53,12 +53,19 @@ using System.Runtime.InteropServices;
 //[Optional] An additional url to an example example screenshot of your plugin in action
 [assembly: AssemblyMetadata("AltScreenshotURL", "")]
 //[Optional] An in-depth description of your plugin
-[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Annotation for NINA. Improved star detection and a faster Auto Focus is on the way as well 
+[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Annotation and Auto Focus for NINA. Improved star detection and additional Auto Focus features are on the way as well 
 
 **Features**
 
+*AutoFocus*
+
+* Substantially faster by analyzing exposures while next focus points are being exposed
+
+*Customizable Star Annotation*
 * Customizable colors and fonts for star annotations
 * Dynamic reloading of star annotations without needing to re-run star detection
+
+To enable these features, go to Options -> Imaging -> Image Options. After this plugin is installed, there will be Star Annotator and Auto Focus dropdown boxes you can select ""Hocus Focus"" for.
 
 **Features coming soon**
 
@@ -72,11 +79,9 @@ using System.Runtime.InteropServices;
 
 *AutoFocus*
 
-* Much faster during image acquisition by utilizing a fast 2nd pass that doesn't wait for star detection and processing in between exposures when already close to focus
+* Fast focus mode when still close to a recent auto focus that can utilize fewer steps, smaller step sizes, and a different fitting as the regular ""blind"" focus
 * Incorporation of measurement error into quality measurement of focusing results
 * Focusing individual color channels instead of just luminance for OSC, since that is skewed towards green focus
-
-To enable these features, go to Options -> Imaging -> Image Options. After this plugin is installed, there will be a Star Annotator dropdown box you can select ""Hocus Focus"" for.
 ")]
 
 

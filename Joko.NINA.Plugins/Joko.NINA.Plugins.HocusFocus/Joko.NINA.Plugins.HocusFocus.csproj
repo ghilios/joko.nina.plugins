@@ -274,13 +274,21 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AutoFocus\AutoFocusOptions.cs" />
     <Compile Include="AutoFocus\DataTemplates.xaml.cs">
       <DependentUpon>DataTemplates.xaml</DependentUpon>
     </Compile>
+    <Compile Include="AutoFocus\Exceptions.cs" />
+    <Compile Include="AutoFocus\HocusFocusReport.cs" />
     <Compile Include="AutoFocus\HocusFocusToolVM.cs" />
     <Compile Include="AutoFocus\HocusFocusVM.cs" />
     <Compile Include="AutoFocus\HocusFocusVMFactory.cs" />
+    <Compile Include="Converters\AutoFocusFittingToVisibilityConverter.cs" />
+    <Compile Include="Converters\InverseDoubleZeroToVisibilityConverter.cs" />
+    <Compile Include="Converters\DoubleZeroToVisibilityConverter.cs" />
+    <Compile Include="Converters\IntNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\StructureMapTypeToVisibilityConverter.cs" />
+    <Compile Include="Interfaces\IAutoFocusOptions.cs" />
     <Compile Include="Interfaces\IStarAnnotatorOptions.cs" />
     <Compile Include="Interfaces\IStarDetectionOptions.cs" />
     <Compile Include="Interfaces\IStarDetector.cs" />
@@ -356,13 +364,13 @@
       )
 
       echo "Copying $(PlatformName) $(TargetFileName)"
-      xcopy "$(TargetPath)" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/c/k/r/y
+      xcopy "$(TargetPath)" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
 
       echo "Copying $(PlatformName) $(TargetFileName) Dependencies"
-      xcopy "$(TargetDir)OpenCVSharp.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/c/k/r/y
-      xcopy "$(TargetDir)OpenCVSharp.Extensions.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/c/k/r/y
-      xcopy "$(TargetDir)dll\x86\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\x86" /h/c/k/r/y
-      xcopy "$(TargetDir)dll\x64\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\x64" /h/c/k/r/y</PostBuildEvent>
+      xcopy "$(TargetDir)OpenCVSharp.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
+      xcopy "$(TargetDir)OpenCVSharp.Extensions.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
+      xcopy "$(TargetDir)dll\x86\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\x86" /h/k/r/y
+      xcopy "$(TargetDir)dll\x64\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\x64" /h/k/r/y</PostBuildEvent>
   </PropertyGroup>
   <Import Project="..\packages\Accord.3.8.0\build\Accord.targets" Condition="Exists('..\packages\Accord.3.8.0\build\Accord.targets')" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
@@ -372,15 +380,15 @@
     <Error Condition="!Exists('..\packages\Accord.3.8.0\build\Accord.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Accord.3.8.0\build\Accord.targets'))" />
     <Error Condition="!Exists('..\packages\EntityFramework.6.4.4\build\EntityFramework.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\EntityFramework.6.4.4\build\EntityFramework.props'))" />
     <Error Condition="!Exists('..\packages\EntityFramework.6.4.4\build\EntityFramework.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\EntityFramework.6.4.4\build\EntityFramework.targets'))" />
-    <Error Condition="!Exists('..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets'))" />
-    <Error Condition="!Exists('..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets'))" />
-    <Error Condition="!Exists('..\packages\OpenCvSharp4.runtime.win.4.5.3.20210817\build\net\OpenCvSharp4.runtime.win.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\OpenCvSharp4.runtime.win.4.5.3.20210817\build\net\OpenCvSharp4.runtime.win.props'))" />
     <Error Condition="!Exists('..\packages\Google.Protobuf.Tools.3.18.1\build\Google.Protobuf.Tools.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Google.Protobuf.Tools.3.18.1\build\Google.Protobuf.Tools.targets'))" />
+    <Error Condition="!Exists('..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets'))" />
+    <Error Condition="!Exists('..\packages\OpenCvSharp4.runtime.win.4.5.3.20210817\build\net\OpenCvSharp4.runtime.win.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\OpenCvSharp4.runtime.win.4.5.3.20210817\build\net\OpenCvSharp4.runtime.win.props'))" />
     <Error Condition="!Exists('..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets'))" />
+    <Error Condition="!Exists('..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets'))" />
   </Target>
   <Import Project="..\packages\EntityFramework.6.4.4\build\EntityFramework.targets" Condition="Exists('..\packages\EntityFramework.6.4.4\build\EntityFramework.targets')" />
-  <Import Project="..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets" Condition="Exists('..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets')" />
-  <Import Project="..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets" Condition="Exists('..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets')" />
   <Import Project="..\packages\Google.Protobuf.Tools.3.18.1\build\Google.Protobuf.Tools.targets" Condition="Exists('..\packages\Google.Protobuf.Tools.3.18.1\build\Google.Protobuf.Tools.targets')" />
+  <Import Project="..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets" Condition="Exists('..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets')" />
   <Import Project="..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets" Condition="Exists('..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets')" />
+  <Import Project="..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets" Condition="Exists('..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets')" />
 </Project>

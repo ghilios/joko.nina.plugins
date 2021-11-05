@@ -15,6 +15,100 @@
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
     xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit">
     <hfconverters:ShowStructureMapToVisibilityConverter x:Key="ShowStructureMapToVisibilityConverter" />
+    <hfconverters:DoubleZeroToVisibilityConverter x:Key="DoubleZeroToVisibilityConverter" />
+    <hfconverters:IntNegativeToVisibilityConverter x:Key="IntNegativeToVisibilityConverter" />
+    <hfconverters:InverseDoubleZeroToVisibilityConverter x:Key="InverseDoubleZeroToVisibilityConverter" />
+    <hfconverters:AutoFocusFittingToVisibilityConverter x:Key="AutoFocusFittingToVisibilityConverter" />
+    <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
+        <Grid Margin="5" VerticalAlignment="Top">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
+            </Grid.RowDefinitions>
+            <TextBlock
+                Grid.Row="0"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="Max Concurrency"
+                ToolTip="The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." />
+            <ninactrl:UnitTextBox
+                Grid.Row="0"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Unit="images">
+                <Binding Path="MaxConcurrent" UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:GreaterZeroRule />
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+            <TextBlock
+                Grid.Row="1"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="AutoFocus Timeout"
+                ToolTip="How long an Auto Focus operation can take before we cancel it and move on." />
+            <ninactrl:UnitTextBox
+                Grid.Row="1"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Unit="seconds">
+                <Binding Path="AutoFocusTimeoutSeconds" UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:GreaterThanZeroRule />
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+            <TextBlock
+                Grid.Row="2"
+                Grid.Column="0"
+                VerticalAlignment="Center" 
+                Text="Validate HFR Improvement"
+                ToolTip="If enabled, takes an extra exposure before and after to ensure HFR improved. This check may be done in addition to the R² validation configured in NINA's Auto Focus options." />
+            <CheckBox
+                Grid.Row="2"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding ValidateHfrImprovement}" />
+            <TextBlock
+                Grid.Row="3"
+                Grid.Column="0"
+                Visibility="{Binding ValidateHfrImprovement, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                VerticalAlignment="Center" 
+                Text="HFR Improvement Tolerance"
+                ToolTip="How much wiggle room when validating HFR improvements. The default value of 15% means that the Auto Focus fails if the initial HFR is 15% or more better than the final HFR" />
+            <ninactrl:UnitTextBox
+                Grid.Row="3"
+                Grid.Column="1"
+                Visibility="{Binding ValidateHfrImprovement, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Unit="%">
+                <Binding Path="HFRImprovementThreshold" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
+                    <Binding.ValidationRules>
+                        <rules:GreaterZeroRule />
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+        </Grid>
+    </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">
         <Grid Margin="5" VerticalAlignment="Top">
             <Grid.ColumnDefinitions>
