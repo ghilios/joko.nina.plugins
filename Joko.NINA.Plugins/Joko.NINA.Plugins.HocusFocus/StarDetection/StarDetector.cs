@@ -1,4 +1,16 @@
-﻿using Joko.NINA.Plugins.HocusFocus.Interfaces;
+﻿#region "copyright"
+
+/*
+    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using Joko.NINA.Plugins.HocusFocus.Utility;
 using NINA.Core.Model;
 using NINA.Core.Utility;
@@ -13,6 +25,7 @@ using static Joko.NINA.Plugins.HocusFocus.Utility.CvImageUtility;
 using MultiStopWatch = Joko.NINA.Plugins.HocusFocus.Utility.MultiStopWatch;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+
     public class StarDetectorParams {
         public bool HotpixelFiltering { get; set; } = true;
 
@@ -73,6 +86,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
     }
 
     public class StarDetector : IStarDetector {
+
         private class StarCandidate {
             public Point2d Center;
             public double CenterBrightness;
@@ -194,7 +208,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                             UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 1);
                         }
 
-                        progress.Report(new ApplicationStatus() { Status = "Structure Detection" });                        
+                        progress.Report(new ApplicationStatus() { Status = "Structure Detection" });
 
                         // Step 7: Binarize foreground structures based on noise estimates
                         CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
@@ -367,7 +381,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                             for (rowEndX = x; rowEndX < xRight;) {
                                 if (structureData[y * width + (rowEndX + 1)] < ZERO_THRESHOLD) {
                                     if (rowPointsAdded > 0 || rowEndX >= starBounds.Right) {
-                                        // We're expanding the star search area down and to the right. If we haven't encountered any star pixels on 
+                                        // We're expanding the star search area down and to the right. If we haven't encountered any star pixels on
                                         // this row yet, we should keep iterating until we find the first one or we've hit the current right boundary of
                                         // star bounds
                                         break;

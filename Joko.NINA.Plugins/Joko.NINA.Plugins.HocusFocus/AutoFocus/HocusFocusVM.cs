@@ -1,4 +1,16 @@
-﻿using Joko.NINA.Plugins.HocusFocus.Utility;
+﻿#region "copyright"
+
+/*
+    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using Joko.NINA.Plugins.HocusFocus.Utility;
 using Newtonsoft.Json;
 using NINA.Core.Enum;
 using NINA.Core.Interfaces;
@@ -27,6 +39,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
+
     public class HocusFocusVM : BaseVM, IAutoFocusVM {
         private AFCurveFittingEnum autoFocusChartCurveFitting;
         private AFMethodEnum autoFocusChartMethod;
@@ -51,6 +64,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         public static readonly string ReportDirectory = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "AutoFocus");
 
         private class AutoFocusState {
+
             public AutoFocusState(FilterInfo imagingFilter, int framesPerPoint, int maxConcurrency) {
                 this.ImagingFilter = imagingFilter;
                 this.FramesPerPoint = framesPerPoint;
@@ -75,6 +89,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
             private volatile int measurementsInProgress;
             public int MeasurementsInProgress { get => measurementsInProgress; }
+
             public void MeasurementStarted() {
                 Interlocked.Increment(ref measurementsInProgress);
             }
@@ -147,6 +162,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private int initialFocuserPosition = -1;
+
         public int InitialFocuserPosition {
             get => initialFocuserPosition;
             set {
@@ -158,6 +174,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private int finalFocuserPosition = -1;
+
         public int FinalFocuserPosition {
             get => finalFocuserPosition;
             set {
@@ -169,6 +186,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private double initialHFR = 0.0d;
+
         public double InitialHFR {
             get => initialHFR;
             set {
@@ -180,6 +198,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private double finalHFR = 0.0d;
+
         public double FinalHFR {
             get => finalHFR;
             set {
@@ -399,10 +418,10 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         /// <param name="initialFocusPosition"></param>
         /// <param name="initialHFR"></param>
         private AutoFocusReport GenerateReport(
-            double initialFocusPosition, 
-            double initialHFR, 
+            double initialFocusPosition,
+            double initialHFR,
             double finalHFR,
-            string filter, 
+            string filter,
             DataPoint finalFocusPoint,
             ReportAutoFocusPoint lastAutoFocusPoint,
             TimeSpan duration) {
@@ -526,7 +545,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         private async Task<bool> ValidateCalculatedFocusPosition(
             AutoFocusState autoFocusState,
             DataPoint focusPoint,
-            CancellationToken token, 
+            CancellationToken token,
             IProgress<ApplicationStatus> progress) {
             var rSquaredThreshold = profileService.ActiveProfile.FocuserSettings.RSquaredThreshold;
             if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR) {
@@ -611,7 +630,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             SetCurveFittingsInternal(validFocusPoints, method, fitting);
         }
 
-        private void SetCurveFittingsInternal(List<ScatterErrorPoint> validFocusPoints,  string method, string fitting) {
+        private void SetCurveFittingsInternal(List<ScatterErrorPoint> validFocusPoints, string method, string fitting) {
             if (AFMethodEnum.STARHFR.ToString() == method) {
                 if (validFocusPoints.Count() >= 3) {
                     if (AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDPARABOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDLINES.ToString() == fitting) {
@@ -720,10 +739,10 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private async Task StartAutoFocusPoint(
-            int focuserPosition, 
-            AutoFocusState state, 
-            Func<int, MeasureAndError, AutoFocusState, Task> action, 
-            CancellationToken token, 
+            int focuserPosition,
+            AutoFocusState state,
+            Func<int, MeasureAndError, AutoFocusState, Task> action,
+            CancellationToken token,
             IProgress<ApplicationStatus> progress) {
             for (int i = 0; i < state.FramesPerPoint; ++i) {
                 await state.ExposureSemaphore.WaitAsync(token);
@@ -846,9 +865,9 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private async Task<AutoFocusReport> RunAutoFocus(
-            FilterInfo imagingFilter, 
+            FilterInfo imagingFilter,
             Func<int, AutoFocusState, CancellationToken, IProgress<ApplicationStatus>, Task> pointGenerationAction,
-            CancellationToken token, 
+            CancellationToken token,
             IProgress<ApplicationStatus> progress) {
             int initialFocusPosition = focuserMediator.GetInfo().Position;
             var maxConcurrent = autoFocusOptions.MaxConcurrent > 0 ? autoFocusOptions.MaxConcurrent : int.MaxValue;
@@ -918,8 +937,8 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private async Task PerformPostAutoFocusActions(
-            bool successfulAutoFocus, 
-            int initialFocusPosition, 
+            bool successfulAutoFocus,
+            int initialFocusPosition,
             FilterInfo imagingFilter,
             bool restoreTempComp,
             bool restoreGuiding,
@@ -1019,7 +1038,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Failure during AutoFocus", ex);
             } finally {
                 await PerformPostAutoFocusActions(
-                    successfulAutoFocus: completed, initialFocusPosition: initialFocusPosition, imagingFilter: imagingFilter, restoreTempComp: tempComp, 
+                    successfulAutoFocus: completed, initialFocusPosition: initialFocusPosition, imagingFilter: imagingFilter, restoreTempComp: tempComp,
                     restoreGuiding: guidingStopped, progress: progress);
                 progress.Report(new ApplicationStatus() { Status = string.Empty });
             }

@@ -1,11 +1,23 @@
-﻿using Joko.NINA.Plugins.HocusFocus.Interfaces;
-using Joko.NINA.Plugins.HocusFocus.Properties;
+﻿#region "copyright"
+
+/*
+    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using Joko.NINA.Plugins.HocusFocus.Utility;
 using NINA.Core.Utility;
 using NINA.Profile.Interfaces;
 using System;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+
     public class StarDetectionOptions : BaseINPC, IStarDetectionOptions {
         private readonly PluginOptionsAccessor optionsAccessor;
 
@@ -59,6 +71,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool debugMode;
+
         public bool DebugMode {
             get => debugMode;
             set {
@@ -71,6 +84,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool hotpixelFiltering;
+
         public bool HotpixelFiltering {
             get => hotpixelFiltering;
             set {
@@ -83,6 +97,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool useAutoFocusCrop;
+
         public bool UseAutoFocusCrop {
             get => useAutoFocusCrop;
             set {
@@ -95,6 +110,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private int noiseReductionRadius;
+
         public int NoiseReductionRadius {
             get => noiseReductionRadius;
             set {
@@ -110,6 +126,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private double noiseClippingMultiplier;
+
         public double NoiseClippingMultiplier {
             get => noiseClippingMultiplier;
             set {
@@ -125,6 +142,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private double starClippingMultiplier;
+
         public double StarClippingMultiplier {
             get => starClippingMultiplier;
             set {
@@ -140,6 +158,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private int structureLayers;
+
         public int StructureLayers {
             get => structureLayers;
             set {
@@ -155,6 +174,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private double starCenterTolerance;
+
         public double StarCenterTolerance {
             get => starCenterTolerance;
             set {
@@ -170,6 +190,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private double starPeakResponse;
+
         public double StarPeakResponse {
             get => starPeakResponse;
             set {
@@ -185,6 +206,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private double maxDistortion;
+
         public double MaxDistortion {
             get => maxDistortion;
             set {
@@ -200,6 +222,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private double brightnessSensitivity;
+
         public double BrightnessSensitivity {
             get => brightnessSensitivity;
             set {
@@ -215,6 +238,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private int starBackgroundBoxExpansion;
+
         public int StarBackgroundBoxExpansion {
             get => starBackgroundBoxExpansion;
             set {
@@ -230,6 +254,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private int minStarBoundingBoxSize;
+
         public int MinStarBoundingBoxSize {
             get => minStarBoundingBoxSize;
             set {
@@ -245,6 +270,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private double minHFR;
+
         public double MinHFR {
             get => minHFR;
             set {
@@ -260,6 +286,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private int structureDilationSize;
+
         public int StructureDilationSize {
             get => structureDilationSize;
             set {
@@ -275,6 +302,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private int structureDilationCount;
+
         public int StructureDilationCount {
             get => structureDilationCount;
             set {
@@ -290,6 +318,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private double pixelSampleSize;
+
         public double PixelSampleSize {
             get => pixelSampleSize;
             set {

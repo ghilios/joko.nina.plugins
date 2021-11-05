@@ -1,7 +1,18 @@
-﻿using Joko.NINA.Plugins.HocusFocus.Interfaces;
+﻿#region "copyright"
+
+/*
+    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using Joko.NINA.Plugins.HocusFocus.Utility;
 using NINA.Core.Enum;
-using NINA.Core.Interfaces;
 using NINA.Core.Model;
 using NINA.Core.Utility;
 using NINA.Image.ImageAnalysis;
@@ -13,7 +24,6 @@ using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Drawing;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media;
@@ -22,6 +32,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
     public class HocusFocusStarDetectionAnalysis : StarDetectionAnalysis {
         private StarDetectorMetrics metrics;
+
         public StarDetectorMetrics Metrics {
             get => metrics;
             set {
@@ -34,10 +45,12 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
     }
 
     public class DebugData {
+
         // 0 = No structure map at that pixel
         // 1 = Original
         // 2 = Dilated
         public byte[] StructureMap;
+
         public Rectangle DetectionROI;
     }
 
@@ -48,7 +61,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
 
     // TODO: Add star detection back after updating the approach
     // [Export(typeof(IPluggableBehavior))]
-    class HocusFocusStarDetection : IStarDetection {
+    internal class HocusFocusStarDetection : IStarDetection {
         private readonly IStarDetector starDetector;
         private readonly StarDetectionOptions starDetectionOptions;
 
@@ -136,7 +149,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
                     p.MatchStarPositions.ForEach(pos => topStars.Add(starList.Aggregate((min, next) => min.Center.ToAccordPoint().DistanceTo(pos) < next.Center.ToAccordPoint().DistanceTo(pos) ? min : next)));
                     starList = topStars;
                 }
-            } 
+            }
 
             result.StarList = starList.Select(s => s.ToDetectedStar()).ToList();
             if (starList.Count > 1) {

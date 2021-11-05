@@ -1,5 +1,16 @@
-﻿using Joko.NINA.Plugins.HocusFocus.Interfaces;
-using Joko.NINA.Plugins.HocusFocus.StarDetection;
+﻿#region "copyright"
+
+/*
+    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.WPF.Base.ViewModel.AutoFocus;
@@ -9,6 +20,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 namespace Joko.NINA.Plugins.HocusFocus.Utility {
+
     [Flags]
     public enum CvImageStatisticsFlags {
         None = 0,
@@ -29,6 +41,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
     }
 
     public static class CvImageUtility {
+
         public static Mat ToOpenCVMat(ushort[] imageArray, int bpp, int width, int height) {
             var data = new Mat(new Size(width, height), MatType.CV_32F);
             var scalingRatio = (float)(1 << bpp);
@@ -164,6 +177,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
         }
 
         public struct Ranged {
+
             public Ranged(double start, double end) {
                 Start = start;
                 End = end;
@@ -174,10 +188,10 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
         }
 
         public static CvImageStatistics CalculateStatistics_Histogram(
-            Mat image, 
-            bool useLogHistogram = true, 
+            Mat image,
+            bool useLogHistogram = true,
             Ranged? valueRange = null,
-            Rect? rect = null, 
+            Rect? rect = null,
             CvImageStatisticsFlags flags = CvImageStatisticsFlags.All) {
             if (image.Type() != MatType.CV_32F) {
                 throw new ArgumentException("Only CV_32F supported");
@@ -331,7 +345,7 @@ namespace Joko.NINA.Plugins.HocusFocus.Utility {
              *   3.0/128, 3.0/32, 9.0/64,  3.0/32, 3.0/128,
              *   1.0/64,  1.0/16, 3.0/32,  1.0/16, 1.0/64,
              *   1.0/256, 1.0/64, 3.0/128, 1.0/64, 1.0/256
-             *   
+             *
              * Separated 1D filter
              *   0.0625,  0.25,   0.375,   0.25,   0.0625
              */

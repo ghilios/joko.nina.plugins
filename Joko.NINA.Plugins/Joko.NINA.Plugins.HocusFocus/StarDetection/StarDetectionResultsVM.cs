@@ -1,17 +1,25 @@
-﻿using Joko.NINA.Plugins.HocusFocus.Interfaces;
+﻿#region "copyright"
+
+/*
+    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Image.ImageData;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.ViewModel;
 using NINA.WPF.Base.ViewModel;
-using System;
-using System.Collections.Generic;
 using System.ComponentModel.Composition;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+
     [Export(typeof(IDockableVM))]
     public class StarDetectionResultsVM : DockableVM {
         private readonly IImageStatisticsVM imageStatisticsVM;
@@ -34,6 +42,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         public override bool IsTool { get; } = false;
 
         private AllImageStatistics statistics;
+
         public AllImageStatistics Statistics {
             get => statistics;
             private set {
@@ -53,7 +62,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         public StarDetectorMetrics Metrics {
             get {
                 return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.Metrics;
-            } 
+            }
         }
 
         // TODO: When extending fields, include them like this

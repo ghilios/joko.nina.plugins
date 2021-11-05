@@ -2,18 +2,13 @@
     x:Class="Joko.NINA.Plugins.HocusFocus.Resources.OptionsDataTemplates"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:behavior="clr-namespace:NINA.WPF.Base.Behaviors;assembly=NINA.WPF.Base"
-    xmlns:converter="clr-namespace:NINA.Core.Utility.Converters;assembly=NINA.Core"
+    xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit"
     xmlns:hfconverters="clr-namespace:Joko.NINA.Plugins.HocusFocus.Converters"
     xmlns:hfenum="clr-namespace:Joko.NINA.Plugins.HocusFocus.Interfaces"
-    xmlns:local="clr-namespace:Joko.NINA.Plugins.HocusFocus"
     xmlns:interfaces="clr-namespace:Joko.NINA.Plugins.HocusFocus.Interfaces"
-    xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary"
-    xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
-    xmlns:properties="clr-namespace:Joko.NINA.Plugins.HocusFocus.Properties"
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
-    xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit">
+    xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary">
     <hfconverters:ShowStructureMapToVisibilityConverter x:Key="ShowStructureMapToVisibilityConverter" />
     <hfconverters:DoubleZeroToVisibilityConverter x:Key="DoubleZeroToVisibilityConverter" />
     <hfconverters:IntNegativeToVisibilityConverter x:Key="IntNegativeToVisibilityConverter" />
@@ -34,7 +29,7 @@
             <TextBlock
                 Grid.Row="0"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Max Concurrency"
                 ToolTip="The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." />
             <ninactrl:UnitTextBox
@@ -54,7 +49,7 @@
             <TextBlock
                 Grid.Row="1"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="AutoFocus Timeout"
                 ToolTip="How long an Auto Focus operation can take before we cancel it and move on." />
             <ninactrl:UnitTextBox
@@ -74,7 +69,7 @@
             <TextBlock
                 Grid.Row="2"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Validate HFR Improvement"
                 ToolTip="If enabled, takes an extra exposure before and after to ensure HFR improved. This check may be done in addition to the R² validation configured in NINA's Auto Focus options." />
             <CheckBox
@@ -89,7 +84,7 @@
                 Grid.Row="3"
                 Grid.Column="0"
                 Visibility="{Binding ValidateHfrImprovement, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="HFR Improvement Tolerance"
                 ToolTip="How much wiggle room when validating HFR improvements. The default value of 15% means that the Auto Focus fails if the initial HFR is 15% or more better than the final HFR" />
             <ninactrl:UnitTextBox
@@ -139,7 +134,7 @@
             <TextBlock
                 Grid.Row="0"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Hotpixel Filtering"
                 ToolTip="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
             <CheckBox
@@ -153,7 +148,7 @@
             <TextBlock
                 Grid.Row="1"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Use AutoFocus Crop"
                 ToolTip="Uses the inner and outer crop from the Auto Focus options for regular exposures (ie, those that aren't done during focusing)" />
             <CheckBox
@@ -167,7 +162,7 @@
             <TextBlock
                 Grid.Row="2"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Noise Reduction Radius"
                 ToolTip="Blurs the image with a NxN gaussian convolution and a sigma automatically chosen to match this radius. Larger values blur the image further. If this is enabled, hotpixel filtering is automatically performed before to prevent the hotpixels from bleeding into the surrounding pixels" />
             <ninactrl:UnitTextBox
@@ -187,7 +182,7 @@
             <TextBlock
                 Grid.Row="3"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Noise Clipping Multiplier"
                 ToolTip="Structure map generation binarizes pixels above the noise floor after noise detection and before star detection. This floor is calculated based on the background (median of the whole image) + this multiplier times the noise standard deviation, as calculated using the Kappa-Sigma algorithm. Increasing this value more aggressively clips the background, which can be useful if star bounding boxes include too much background data." />
             <ninactrl:UnitTextBox
@@ -207,7 +202,7 @@
             <TextBlock
                 Grid.Row="4"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Star Clipping Multiplier"
                 ToolTip="Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis. Decrease this if there are a large number of stars excluded for being degenerate and you can see many clear dim stars that are not detected." />
             <ninactrl:UnitTextBox
@@ -227,7 +222,7 @@
             <TextBlock
                 Grid.Row="5"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Structure Layers"
                 ToolTip="The number of dyadic (power of 2) layers to include in structure detection. At the default of 5 (2⁵=32), structures larger than 32 pixels in size are excluded from structure detection" />
             <ninactrl:UnitTextBox
@@ -247,7 +242,7 @@
             <TextBlock
                 Grid.Row="6"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Brightness Sensitivity">
                 <TextBlock.ToolTip>
                     <TextBlock>
@@ -268,7 +263,7 @@
             <TextBlock
                 Grid.Row="7"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Star Peak Response"
                 ToolTip="The ratio of the star median relative to the star peak. It provides a measure of flatness, since median values close to the peak indicate low dispersion. Consider increasing if too many stars are rejected with &quot;Too Flat&quot;" />
             <ninactrl:UnitTextBox
@@ -292,7 +287,7 @@
             <TextBlock
                 Grid.Row="8"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Max Distortion"
                 ToolTip="The ratio of star pixels to the size of a perfect square bounding box. A perfect circule has a distortion of PI/4, which is approximately 0.7. The default value of 0.5 allows for some distortion and measurement error and should work for most cases." />
             <ninactrl:UnitTextBox
@@ -316,7 +311,7 @@
             <TextBlock
                 Grid.Row="9"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Star Center Tolerance"
                 ToolTip="Size (as a percentage) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star" />
             <ninactrl:UnitTextBox
@@ -340,7 +335,7 @@
             <TextBlock
                 Grid.Row="10"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Background Box Expansion"
                 ToolTip="The background is estimated by looking in an area around the star bounding box, increased on each side by this number of pixels. The default value of 3 should work for most cases, but you can consider increasing it if stars are very spare, or even decreasing it if the star field is very crowded with stars less than 3 pixels from one another." />
             <ninactrl:UnitTextBox
@@ -360,7 +355,7 @@
             <TextBlock
                 Grid.Row="11"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Min Bounding Box Size"
                 ToolTip="The minimum allowed size (length of either side) of a star candidate's bounding box. Increasing this can be helpful at very high focal lengths if too many small structures are detected" />
             <ninactrl:UnitTextBox
@@ -380,7 +375,7 @@
             <TextBlock
                 Grid.Row="12"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Min HFR"
                 ToolTip="Minimum HFR for a star to be considered viable" />
             <ninactrl:UnitTextBox
@@ -400,7 +395,7 @@
             <TextBlock
                 Grid.Row="13"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Structure Dilation Size"
                 ToolTip="During star detection a structure map is generated containing potential star pixels that are above the background noise threshold. This parameter defines the size of gaussian morphology filter used to dilate the structure map. Consider increasing this value if bounding boxes are not large enough around stars, which may be more likely at very high focal lengths." />
             <ninactrl:UnitTextBox
@@ -424,7 +419,7 @@
             <TextBlock
                 Grid.Row="14"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Structure Dilation Iterations"
                 ToolTip="This parameter is related to Structure Dilation Size. It specifies the number of times the morphological dilation is performed. Consider increasing this value if bounding boxes are not large enough around stars, which may be more likely at very high focal lengths." />
             <ninactrl:UnitTextBox
@@ -444,7 +439,7 @@
             <TextBlock
                 Grid.Row="15"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Pixel Sample Size"
                 ToolTip="When calculating star centers and HFR, we sample values between pixels using bilinear interpolation to improve accuracy. The optimal sample size depends on whether and how much your optical system is undersampling. Increase to 1 if you are perfectly- or over-sampled, and consider lowering it below 0.5 if you are more than 2x undersampled." />
             <ninactrl:UnitTextBox
@@ -468,7 +463,7 @@
             <TextBlock
                 Grid.Row="16"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Debug Mode"
                 ToolTip="Enables debug mode, which saves additional data useful for debugging. Keep this off unless you're tuning star detection and want to view structure maps." />
             <CheckBox
@@ -518,7 +513,7 @@
             <TextBlock
                 Grid.Row="0"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show Annotations"
                 ToolTip="Toggles the annotations on/off" />
             <CheckBox
@@ -532,7 +527,7 @@
             <TextBlock
                 Grid.Row="1"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show All Stars"
                 ToolTip="Whether to annotate all stars" />
             <CheckBox
@@ -546,7 +541,7 @@
             <TextBlock
                 Grid.Row="2"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowAllStars, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}"
                 Text="Maximum Stars"
                 ToolTip="The maximum number of stars to annotate (the brightest ones)" />
@@ -568,7 +563,7 @@
             <TextBlock
                 Grid.Row="3"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show Star Bounds"
                 ToolTip="Whether to draw the bounding box or ellipse around the star" />
             <CheckBox
@@ -582,7 +577,7 @@
             <TextBlock
                 Grid.Row="4"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Star Bounds Type"
                 ToolTip="The type of boundary surrounding the star. Star detection internally uses a box, but an ellipse can be more aesthetically pleasing" />
@@ -600,7 +595,7 @@
             <TextBlock
                 Grid.Row="5"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Star Bounds Color"
                 ToolTip="The color of the bounding box or ellipse around the star" />
@@ -616,7 +611,7 @@
             <TextBlock
                 Grid.Row="6"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Font" />
             <ComboBox
                 Grid.Row="6"
@@ -664,7 +659,7 @@
             <TextBlock
                 Grid.Row="7"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show HFR"
                 ToolTip="Whether to show the HFR measurement for each star" />
             <CheckBox
@@ -678,7 +673,7 @@
             <TextBlock
                 Grid.Row="8"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowHFR, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="HFR Color"
                 ToolTip="The color of the bounding box or ellipse around the star" />
@@ -694,7 +689,7 @@
             <TextBlock
                 Grid.Row="9"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show ROI"
                 ToolTip="Whether to show the region of interest" />
             <CheckBox
@@ -708,7 +703,7 @@
             <TextBlock
                 Grid.Row="10"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowROI, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="ROI Color"
                 ToolTip="The color of the region of interest boxes" />
@@ -724,7 +719,7 @@
             <TextBlock
                 Grid.Row="11"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show Star Center"
                 ToolTip="Whether to show the a reticule on each star center" />
             <CheckBox
@@ -738,7 +733,7 @@
             <TextBlock
                 Grid.Row="12"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowStarCenter, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Star Center Color"
                 ToolTip="The color of the reticule on each star center" />
@@ -754,7 +749,7 @@
             <TextBlock
                 Grid.Row="13"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show Degenerate"
                 ToolTip="Whether to show the failed degenerate stars" />
             <CheckBox
@@ -768,7 +763,7 @@
             <TextBlock
                 Grid.Row="14"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Degenerate Box Color"
                 ToolTip="The color of the failed star bounding box" />
@@ -784,7 +779,7 @@
             <TextBlock
                 Grid.Row="15"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show Saturated"
                 ToolTip="Whether to show the failed saturated stars" />
             <CheckBox
@@ -798,7 +793,7 @@
             <TextBlock
                 Grid.Row="16"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Saturated Box Color"
                 ToolTip="The color of the failed star bounding box" />
@@ -814,7 +809,7 @@
             <TextBlock
                 Grid.Row="17"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show Low Sensitivity"
                 ToolTip="Whether to show the failed low sensitivity stars" />
             <CheckBox
@@ -828,7 +823,7 @@
             <TextBlock
                 Grid.Row="18"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Low Sensitivity Box Color"
                 ToolTip="The color of the failed star bounding box" />
@@ -844,7 +839,7 @@
             <TextBlock
                 Grid.Row="19"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show Not Centered"
                 ToolTip="Whether to show the failed not centered stars" />
             <CheckBox
@@ -858,7 +853,7 @@
             <TextBlock
                 Grid.Row="20"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Not Centered Box Color"
                 ToolTip="The color of the failed star bounding box" />
@@ -874,7 +869,7 @@
             <TextBlock
                 Grid.Row="21"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show Too Flat"
                 ToolTip="Whether to show the failed too flat stars" />
             <CheckBox
@@ -888,7 +883,7 @@
             <TextBlock
                 Grid.Row="22"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Too Flat Box Color"
                 ToolTip="The color of the failed star bounding box" />
@@ -905,7 +900,7 @@
                 Grid.Row="23"
                 Grid.Column="0"
                 Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Show Structure Map"
                 ToolTip="Overlays the structure map to aide debugging. Original shows the initial structure map after noise clipping and binarization, and Dilated shows it after dilation has been performed" />
             <ComboBox
@@ -919,14 +914,14 @@
             <TextBlock
                 Grid.Row="24"
                 Grid.Column="0"
-                VerticalAlignment="Center" 
+                VerticalAlignment="Center"
                 Text="Structure Map Color"
-                ToolTip="The color of the overlayed structure map">                
+                ToolTip="The color of the overlayed structure map">
                 <TextBlock.Visibility>
                     <MultiBinding Converter="{StaticResource ShowStructureMapToVisibilityConverter}">
-                        <Binding Path="DetectorOptions.DebugMode"/>
+                        <Binding Path="DetectorOptions.DebugMode" />
                         <Binding ElementName="PART_ShowStructureMapList" Path="SelectedItem" />
-                    </MultiBinding>                
+                    </MultiBinding>
                 </TextBlock.Visibility>
             </TextBlock>
             <xceed:ColorPicker
@@ -939,9 +934,9 @@
                 SelectedColor="{Binding StructureMapColor}">
                 <xceed:ColorPicker.Visibility>
                     <MultiBinding Converter="{StaticResource ShowStructureMapToVisibilityConverter}">
-                        <Binding Path="DetectorOptions.DebugMode"/>
+                        <Binding Path="DetectorOptions.DebugMode" />
                         <Binding ElementName="PART_ShowStructureMapList" Path="SelectedItem" />
-                    </MultiBinding>                
+                    </MultiBinding>
                 </xceed:ColorPicker.Visibility>
             </xceed:ColorPicker>
         </Grid>

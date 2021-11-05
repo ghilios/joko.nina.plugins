@@ -1,17 +1,25 @@
-﻿using Joko.NINA.Plugins.HocusFocus.Interfaces;
-using Joko.NINA.Plugins.HocusFocus.Properties;
+﻿#region "copyright"
+
+/*
+    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using Joko.NINA.Plugins.HocusFocus.Utility;
 using NINA.Core.Utility;
 using NINA.Profile.Interfaces;
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows;
 using System.Windows.Media;
 
 namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+
     public class StarAnnotatorOptions : BaseINPC, IStarAnnotatorOptions {
         private readonly PluginOptionsAccessor optionsAccessor;
 
@@ -24,6 +32,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             this.optionsAccessor = new PluginOptionsAccessor(profileService, guid.Value);
             InitializeOptions();
         }
+
         private void InitializeOptions() {
             showAnnotations = optionsAccessor.GetValueBool("ShowAnnotations", true);
             showAllStars = optionsAccessor.GetValueBool("ShowAllStars", true);
@@ -83,6 +92,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showAnnotations;
+
         public bool ShowAnnotations {
             get => showAnnotations;
             set {
@@ -95,6 +105,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showAllStars;
+
         public bool ShowAllStars {
             get => showAllStars;
             set {
@@ -107,6 +118,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private int maxStars;
+
         public int MaxStars {
             get => maxStars;
             set {
@@ -119,6 +131,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showStarBounds;
+
         public bool ShowStarBounds {
             get => showStarBounds;
             set {
@@ -131,6 +144,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private Color starBoundsColor;
+
         public Color StarBoundsColor {
             get => starBoundsColor;
             set {
@@ -143,6 +157,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showHFR;
+
         public bool ShowHFR {
             get => showHFR;
             set {
@@ -154,7 +169,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private FontFamily textFontFamily; 
+        private FontFamily textFontFamily;
+
         public FontFamily TextFontFamily {
             get => textFontFamily;
             set {
@@ -167,6 +183,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private float textFontSizePoints;
+
         public float TextFontSizePoints {
             get => textFontSizePoints;
             set {
@@ -179,6 +196,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private Color hfrColor;
+
         public Color HFRColor {
             get => hfrColor;
             set {
@@ -191,6 +209,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private StarBoundsTypeEnum starBoundsType;
+
         public StarBoundsTypeEnum StarBoundsType {
             get => starBoundsType;
             set {
@@ -203,6 +222,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showROI;
+
         public bool ShowROI {
             get => showROI;
             set {
@@ -215,6 +235,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private Color roiColor;
+
         public Color ROIColor {
             get => roiColor;
             set {
@@ -227,6 +248,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showStarCenter;
+
         public bool ShowStarCenter {
             get => showStarCenter;
             set {
@@ -239,6 +261,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private Color starCenterColor;
+
         public Color StarCenterColor {
             get => starCenterColor;
             set {
@@ -251,6 +274,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showDegenerate;
+
         public bool ShowDegenerate {
             get => showDegenerate;
             set {
@@ -263,6 +287,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private Color degenerateColor;
+
         public Color DegenerateColor {
             get => degenerateColor;
             set {
@@ -275,6 +300,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showSaturated;
+
         public bool ShowSaturated {
             get => showSaturated;
             set {
@@ -287,6 +313,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private Color saturatedColor;
+
         public Color SaturatedColor {
             get => saturatedColor;
             set {
@@ -299,6 +326,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showLowSensitivity;
+
         public bool ShowLowSensitivity {
             get => showLowSensitivity;
             set {
@@ -311,6 +339,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private Color lowSensitivityColor;
+
         public Color LowSensitivityColor {
             get => lowSensitivityColor;
             set {
@@ -323,6 +352,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showNotCentered;
+
         public bool ShowNotCentered {
             get => showNotCentered;
             set {
@@ -335,6 +365,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private Color notCenteredColor;
+
         public Color NotCenteredColor {
             get => notCenteredColor;
             set {
@@ -347,6 +378,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private bool showTooFlat;
+
         public bool ShowTooFlat {
             get => showTooFlat;
             set {
@@ -359,6 +391,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private Color tooFlatColor;
+
         public Color TooFlatColor {
             get => tooFlatColor;
             set {
@@ -371,6 +404,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private ShowStructureMapEnum showStructureMap;
+
         public ShowStructureMapEnum ShowStructureMap {
             get => showStructureMap;
             set {
@@ -383,6 +417,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private Color structureMapColor;
+
         public Color StructureMapColor {
             get => structureMapColor;
             set {
@@ -395,8 +430,8 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         public IStarDetectionOptions DetectorOptions {
-            get => HocusFocusPlugin.StarDetectionOptions; 
-            set => throw new NotImplementedException(); 
+            get => HocusFocusPlugin.StarDetectionOptions;
+            set => throw new NotImplementedException();
         }
     }
 }

@@ -1,5 +1,16 @@
-﻿using System.Reflection;
-using System.Runtime.CompilerServices;
+﻿#region "copyright"
+
+/*
+    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using System.Reflection;
 using System.Runtime.InteropServices;
 
 // [MANDATORY] The following GUID is used as a unique identifier of the plugin
@@ -14,7 +25,6 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyTitle("Hocus Focus")]
 // [MANDATORY] A short description of your plugin
 [assembly: AssemblyDescription("Improved Star Annotation for NINA")]
-
 
 // The following attributes are not required for the plugin per se, but are required by the official manifest meta data
 
@@ -34,7 +44,6 @@ using System.Runtime.InteropServices;
 // The repository where your pluggin is hosted
 [assembly: AssemblyMetadata("Repository", "https://github.com/ghilios/joko.nina.plugins")]
 
-
 // The following attributes are optional for the official manifest meta data
 
 //[Optional] Your plugin homepage URL - omit if not applicaple
@@ -53,7 +62,7 @@ using System.Runtime.InteropServices;
 //[Optional] An additional url to an example example screenshot of your plugin in action
 [assembly: AssemblyMetadata("AltScreenshotURL", "")]
 //[Optional] An in-depth description of your plugin
-[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Annotation and Auto Focus for NINA. Improved star detection and additional Auto Focus features are on the way as well 
+[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Annotation and Auto Focus for NINA. Improved star detection and additional Auto Focus features are on the way as well
 
 **Features**
 
@@ -83,7 +92,6 @@ To enable these features, go to Options -> Imaging -> Image Options. After this 
 * Incorporation of measurement error into quality measurement of focusing results
 * Focusing individual color channels instead of just luminance for OSC, since that is skewed towards green focus
 ")]
-
 
 // Setting ComVisible to false makes the types in this assembly not visible
 // to COM components.  If you need to access a type in this assembly from

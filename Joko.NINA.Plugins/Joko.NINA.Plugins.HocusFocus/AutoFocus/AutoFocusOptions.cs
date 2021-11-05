@@ -1,14 +1,23 @@
-﻿using Joko.NINA.Plugins.HocusFocus.Interfaces;
+﻿#region "copyright"
+
+/*
+    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using Joko.NINA.Plugins.HocusFocus.Utility;
 using NINA.Core.Utility;
 using NINA.Profile.Interfaces;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
+
     public class AutoFocusOptions : BaseINPC, IAutoFocusOptions {
         private readonly PluginOptionsAccessor optionsAccessor;
 
@@ -35,7 +44,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             hfrImprovementThreshold = optionsAccessor.GetValueDouble("HFRImprovementThreshold", 0.15);
         }
 
-
         public void ResetDefaults() {
             maxConcurrent = 0;
             FastFocusModeEnabled = false;
@@ -50,6 +58,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private int maxConcurrent;
+
         public int MaxConcurrent {
             get => maxConcurrent;
             set {
@@ -62,6 +71,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private bool fastFocusModeEnabled;
+
         public bool FastFocusModeEnabled {
             get => fastFocusModeEnabled;
             set {
@@ -74,6 +84,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private int fastStepSize;
+
         public int FastStepSize {
             get => fastStepSize;
             set {
@@ -86,6 +97,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private int fastOffsetSteps;
+
         public int FastOffsetSteps {
             get => fastOffsetSteps;
             set {
@@ -102,6 +114,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private int fastThreshold_Seconds;
+
         public int FastThreshold_Seconds {
             get => fastThreshold_Seconds;
             set {
@@ -118,6 +131,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private int fastThreshold_Celcius;
+
         public int FastThreshold_Celcius {
             get => fastThreshold_Celcius;
             set {
@@ -134,6 +148,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private int fastThreshold_FocuserPosition;
+
         public int FastThreshold_FocuserPosition {
             get => fastThreshold_FocuserPosition;
             set {
@@ -150,6 +165,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private bool validateHfrImprovement;
+
         public bool ValidateHfrImprovement {
             get => validateHfrImprovement;
             set {
@@ -162,6 +178,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private double hfrImprovementThreshold;
+
         public double HFRImprovementThreshold {
             get => hfrImprovementThreshold;
             set {
@@ -178,6 +195,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private int autoFocusTimeoutSeconds;
+
         public int AutoFocusTimeoutSeconds {
             get => autoFocusTimeoutSeconds;
             set {
