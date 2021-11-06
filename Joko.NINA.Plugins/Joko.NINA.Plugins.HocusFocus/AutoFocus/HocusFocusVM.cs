@@ -63,14 +63,14 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         public static readonly string ReportDirectory = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "AutoFocus");
 
         private class AutoFocusState {
-            public AutoFocusState(FilterInfo imagingFilter, int framesPerPoint, int maxConcurrency) {
-                this.ImagingFilter = imagingFilter;
+            public AutoFocusState(FilterInfo autoFocusFilter, int framesPerPoint, int maxConcurrency) {
+                this.AutoFocusFilter = autoFocusFilter;
                 this.FramesPerPoint = framesPerPoint;
                 this.ExposureSemaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
                 this.MeasurementCompleteEvent = new AsyncAutoResetEvent(false);
             }
 
-            public FilterInfo ImagingFilter { get; private set; }
+            public FilterInfo AutoFocusFilter { get; private set; }
             public object SubMeasurementsLock { get; private set; } = new object();
             public SemaphoreSlim ExposureSemaphore { get; private set; }
             public int FramesPerPoint { get; private set; }
@@ -752,7 +752,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 }
                 token.ThrowIfCancellationRequested();
 
-                var exposureData = await TakeExposure(state.ImagingFilter, focuserPosition, token, progress);
+                var exposureData = await TakeExposure(state.AutoFocusFilter, focuserPosition, token, progress);
                 state.MeasurementStarted();
                 try {
                     var analysisTask = PrepareAndAnalyzeExposure(exposureData, focuserPosition, state, action, token);
@@ -881,7 +881,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
             using (var stopWatch = MyStopWatch.Measure()) {
                 var autofocusFilter = await SetAutofocusFilter(imagingFilter, token, progress);
-                var autoFocusState = new AutoFocusState(imagingFilter, framesPerPoint, maxConcurrent);
+                var autoFocusState = new AutoFocusState(autofocusFilter, framesPerPoint, maxConcurrent);
                 await StartInitialFocusPoints(initialFocusPosition, autoFocusState, token, progress);
 
                 do {
