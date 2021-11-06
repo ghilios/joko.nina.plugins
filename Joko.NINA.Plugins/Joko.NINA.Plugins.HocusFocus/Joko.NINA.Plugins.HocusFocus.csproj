@@ -288,6 +288,7 @@
     <Compile Include="Converters\DoubleZeroToVisibilityConverter.cs" />
     <Compile Include="Converters\IntNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\StructureMapTypeToVisibilityConverter.cs" />
+    <Compile Include="Converters\ZeroToInfinityConverter.cs" />
     <Compile Include="Interfaces\IAutoFocusOptions.cs" />
     <Compile Include="Interfaces\IStarAnnotatorOptions.cs" />
     <Compile Include="Interfaces\IStarDetectionOptions.cs" />
