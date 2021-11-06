@@ -39,7 +39,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             fastThreshold_Celcius = optionsAccessor.GetValueInt("FastThreshold_Celcius", 5);
             fastThreshold_FocuserPosition = optionsAccessor.GetValueInt("FastThreshold_FocuserPosition", 100);
             fastThreshold_Seconds = optionsAccessor.GetValueInt("FastThreshold_Seconds", (int)TimeSpan.FromMinutes(60).TotalSeconds);
-            autoFocusTimeoutSeconds = optionsAccessor.GetValueInt("AutoFocusTimeoutSeconds", (int)TimeSpan.FromMinutes(5).TotalSeconds);
+            autoFocusTimeoutSeconds = optionsAccessor.GetValueInt("AutoFocusTimeoutSeconds", (int)TimeSpan.FromMinutes(10).TotalSeconds);
             validateHfrImprovement = optionsAccessor.GetValueBool("ValidateHfrImprovement", true);
             hfrImprovementThreshold = optionsAccessor.GetValueDouble("HFRImprovementThreshold", 0.15);
         }
@@ -52,7 +52,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             FastThreshold_Celcius = 5;
             FastThreshold_FocuserPosition = 100;
             FastThreshold_Seconds = (int)TimeSpan.FromMinutes(60).TotalSeconds;
-            AutoFocusTimeoutSeconds = (int)TimeSpan.FromMinutes(5).TotalSeconds;
+            AutoFocusTimeoutSeconds = (int)TimeSpan.FromMinutes(10).TotalSeconds;
             ValidateHfrImprovement = true;
             HFRImprovementThreshold = 0.15;
         }
