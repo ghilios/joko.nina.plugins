@@ -320,6 +320,7 @@
     <Compile Include="Utility\CvImageUtility.cs" />
     <Compile Include="Utility\MultiStopWatch.cs" />
     <Compile Include="Utility\PluginOptionsAccessor.cs" />
+    <Compile Include="ValidationRules\PositiveIntegerOrInfiniteRule.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />

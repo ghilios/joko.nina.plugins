@@ -5,6 +5,7 @@
     xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit"
     xmlns:hfconverters="clr-namespace:Joko.NINA.Plugins.HocusFocus.Converters"
     xmlns:hfenum="clr-namespace:Joko.NINA.Plugins.HocusFocus.Interfaces"
+    xmlns:hfrules="clr-namespace:Joko.NINA.Plugins.HocusFocus.ValidationRules"
     xmlns:interfaces="clr-namespace:Joko.NINA.Plugins.HocusFocus.Interfaces"
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
@@ -41,11 +42,9 @@
                 HorizontalAlignment="Left"
                 Unit="images">
                 <Binding Path="MaxConcurrent" UpdateSourceTrigger="LostFocus" Converter="{StaticResource ZeroToInfinityConverter}">
-                    <!--
                     <Binding.ValidationRules>
-                        <rules:GreaterZeroRule />
+                        <hfrules:PositiveIntegerOrInfiniteRule />
                     </Binding.ValidationRules>
-                    -->
                 </Binding>
             </ninactrl:UnitTextBox>
             <TextBlock
