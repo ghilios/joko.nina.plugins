@@ -30,6 +30,7 @@ using NINA.WPF.Base.ViewModel.AutoFocus;
 using OxyPlot;
 using OxyPlot.Series;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.IO;
 using System.Linq;
@@ -53,6 +54,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         private readonly IFilterWheelMediator filterWheelMediator;
         private FocuserInfo focuserInfo;
         private readonly IFocuserMediator focuserMediator;
+        private readonly FileSystemWatcher reportFileWatcher;
 
         [ImportingConstructor]
         public HocusFocusToolVM(
@@ -84,7 +86,18 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
             ChartList = new AsyncObservableCollection<Chart>();
             ChartListSelectable = true;
-            Task.Run(() => { ListCharts(); });
+
+            reportFileWatcher = new FileSystemWatcher() {
+                Path = HocusFocusVM.ReportDirectory,
+                NotifyFilter = NotifyFilters.FileName,
+                Filter = "*.json",
+                EnableRaisingEvents = true,
+                IncludeSubdirectories = false
+            };
+            reportFileWatcher.Created += ReportFileWatcher_Created;
+            reportFileWatcher.Deleted += ReportFileWatcher_Deleted;
+
+            Task.Run(() => { InitializeChartList(); });
 
             StartAutoFocusCommand = new AsyncCommand<AutoFocusReport>(
                 () =>
@@ -182,14 +195,49 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             return filter;
         }
 
-        private AsyncObservableCollection<Chart> ListCharts() {
-            var files = Directory.GetFiles(Path.Combine(global::NINA.WPF.Base.ViewModel.AutoFocus.AutoFocusVM.ReportDirectory));
-            foreach (String file in files) {
+        private object lockobj = new object();
+
+        private void InitializeChartList() {
+            var files = Directory.GetFiles(Path.Combine(HocusFocusVM.ReportDirectory));
+            var l = new SortedSet<Chart>(new ChartComparer());
+
+            foreach (string file in files) {
                 var item = new Chart(Path.GetFileName(file), file);
-                if (!ChartList.Any(x => x.Name == item.Name))
-                    ChartList.Add(item);
+                l.Add(item);
             }
-            return ChartList;
+            lock (lockobj) {
+                ChartList = new AsyncObservableCollection<Chart>(l);
+                SelectedChart = ChartList.FirstOrDefault();
+            }
+            _ = LoadChart();
+        }
+
+        private void ReportFileWatcher_Created(object sender, FileSystemEventArgs e) {
+            var item = new Chart(Path.GetFileName(e.FullPath), e.FullPath);
+
+            lock (lockobj) {
+                ChartList.Insert(0, item);
+                // If an AutoFocus in this instance is in progress, we'll skip reloading the chart later but at least show the new item here
+                // If multiple AFs are happening within NINA, there are bigger problems
+                SelectedChart = item;
+            }
+
+            if (!HocusFocusVM.AutoFocusInProgress) {
+                _ = LoadChart();
+            }
+        }
+
+        private void ReportFileWatcher_Deleted(object sender, FileSystemEventArgs e) {
+            lock (lockobj) {
+                var toRemove = ChartList.FirstOrDefault(x => x.FilePath == e.FullPath);
+                if (toRemove != null) {
+                    ChartList.Remove(toRemove);
+                    if (SelectedChart == null && !HocusFocusVM.AutoFocusInProgress) {
+                        SelectedChart = ChartList.FirstOrDefault();
+                        _ = LoadChart();
+                    }
+                }
+            }
         }
 
         public void Dispose() {
@@ -199,7 +247,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
 
         public async Task<bool> LoadChart() {
             if (SelectedChart != null) {
-                ListCharts();
                 var comparer = new FocusPointComparer();
                 var plotComparer = new PlotPointComparer();
                 HocusFocusVM.FocusPoints.Clear();

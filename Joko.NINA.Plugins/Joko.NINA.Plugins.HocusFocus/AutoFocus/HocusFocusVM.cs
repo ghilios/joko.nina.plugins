@@ -295,6 +295,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 }
             }
         }
+        public bool AutoFocusInProgress { get; private set; } = false;
 
         private void ClearCharts() {
             InitialHFR = 0.0d;
@@ -873,7 +874,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             Func<int, AutoFocusState, CancellationToken, IProgress<ApplicationStatus>, Task> pointGenerationAction,
             CancellationToken token,
             IProgress<ApplicationStatus> progress) {
-            int initialFocusPosition = focuserMediator.GetInfo().Position;
             var maxConcurrent = autoFocusOptions.MaxConcurrent > 0 ? autoFocusOptions.MaxConcurrent : int.MaxValue;
             var framesPerPoint = profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint;
             int numberOfAttempts = 0;
@@ -882,6 +882,11 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             using (var stopWatch = MyStopWatch.Measure()) {
                 var autofocusFilter = await SetAutofocusFilter(imagingFilter, token, progress);
                 var autoFocusState = new AutoFocusState(autofocusFilter, framesPerPoint, maxConcurrent);
+
+                // Make sure this is set after changing the filter, in case offsets are used
+                int initialFocusPosition = focuserMediator.GetInfo().Position;
+                this.InitialFocuserPosition = initialFocusPosition;
+
                 await StartInitialFocusPoints(initialFocusPosition, autoFocusState, token, progress);
 
                 do {
@@ -949,7 +954,8 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             IProgress<ApplicationStatus> progress) {
             var completionOperationTimeout = TimeSpan.FromMinutes(1);
 
-            if (!successfulAutoFocus) {
+            // If this fails before the initial focuser position is even set, then there's no need to restore
+            if (!successfulAutoFocus && this.InitialFocuserPosition >= 0) {
                 Logger.Warning($"AutoFocus did not complete successfully, so restoring the focuser position to {initialFocusPosition}");
                 try {
                     var completionTimeoutCts = new CancellationTokenSource(completionOperationTimeout);
@@ -988,12 +994,15 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         public async Task<AutoFocusReport> StartAutoFocus(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            if (AutoFocusInProgress) {
+                Notification.ShowError("Another AutoFocus is already in progress");
+                return null;
+            }
+
             Logger.Trace("Starting Autofocus");
             ClearCharts();
 
             AutoFocusReport report = null;
-            int initialFocusPosition = focuserMediator.GetInfo().Position;
-            this.InitialFocuserPosition = initialFocusPosition;
             this.LastAutoFocusPoint = new ReportAutoFocusPoint() {
                 Focuspoint = new DataPoint(-1.0d, 0.0d),
                 Temperature = focuserMediator.GetInfo().Temperature,
@@ -1004,6 +1013,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             bool tempComp = false;
             bool guidingStopped = false;
             bool completed = false;
+            AutoFocusInProgress = true;
             try {
                 if (focuserMediator.GetInfo().TempCompAvailable && focuserMediator.GetInfo().TempComp) {
                     tempComp = true;
@@ -1014,7 +1024,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     guidingStopped = await this.guiderMediator.StopGuiding(token);
                 }
 
-                this.InitialFocuserPosition = initialFocusPosition;
                 var autofocusCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
                 report = await RunAutoFocus(imagingFilter, StartBlindFocusPoints, autofocusCts.Token, progress);
                 if (report != null) {
@@ -1042,9 +1051,10 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Failure during AutoFocus", ex);
             } finally {
                 await PerformPostAutoFocusActions(
-                    successfulAutoFocus: completed, initialFocusPosition: initialFocusPosition, imagingFilter: imagingFilter, restoreTempComp: tempComp,
+                    successfulAutoFocus: completed, initialFocusPosition: this.InitialFocuserPosition, imagingFilter: imagingFilter, restoreTempComp: tempComp,
                     restoreGuiding: guidingStopped, progress: progress);
                 progress.Report(new ApplicationStatus() { Status = string.Empty });
+                AutoFocusInProgress = false;
             }
             return report;
         }
