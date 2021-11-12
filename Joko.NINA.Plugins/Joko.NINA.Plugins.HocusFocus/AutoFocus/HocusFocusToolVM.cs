@@ -112,7 +112,9 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                                                     orderby f.LastWriteTime descending
                                                     select f).FirstOrDefault();
                                 if (latestReport != null) {
-                                    ChartList.Add(new Chart(latestReport.Name, latestReport.FullName));
+                                    lock (lockobj) {
+                                        ChartList.Add(new Chart(latestReport.Name, latestReport.FullName));
+                                    }
                                 }
                                 return result;
                             } finally {
@@ -209,7 +211,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 ChartList = new AsyncObservableCollection<Chart>(l);
                 SelectedChart = ChartList.FirstOrDefault();
             }
-            _ = LoadChart();
         }
 
         private void ReportFileWatcher_Created(object sender, FileSystemEventArgs e) {
@@ -221,10 +222,6 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 // If multiple AFs are happening within NINA, there are bigger problems
                 SelectedChart = item;
             }
-
-            if (!HocusFocusVM.AutoFocusInProgress) {
-                _ = LoadChart();
-            }
         }
 
         private void ReportFileWatcher_Deleted(object sender, FileSystemEventArgs e) {
@@ -232,9 +229,8 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 var toRemove = ChartList.FirstOrDefault(x => x.FilePath == e.FullPath);
                 if (toRemove != null) {
                     ChartList.Remove(toRemove);
-                    if (SelectedChart == null && !HocusFocusVM.AutoFocusInProgress) {
+                    if (SelectedChart == null) {
                         SelectedChart = ChartList.FirstOrDefault();
-                        _ = LoadChart();
                     }
                 }
             }
@@ -246,36 +242,41 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         public async Task<bool> LoadChart() {
-            if (SelectedChart != null) {
+            Chart selectedChart;
+            lock (lockobj) {
+                selectedChart = SelectedChart;
+            }
+
+            if (selectedChart != null && !HocusFocusVM.AutoFocusInProgress) {
+                HocusFocusReport report;
+                using (var reader = File.OpenText(selectedChart.FilePath)) {
+                    var text = await reader.ReadToEndAsync();
+                    report = JsonConvert.DeserializeObject<HocusFocusReport>(text);
+                }
+
                 var comparer = new FocusPointComparer();
                 var plotComparer = new PlotPointComparer();
                 HocusFocusVM.FocusPoints.Clear();
                 HocusFocusVM.PlotFocusPoints.Clear();
 
-                using (var reader = File.OpenText(SelectedChart.FilePath)) {
-                    var text = await reader.ReadToEndAsync();
-                    var report = JsonConvert.DeserializeObject<HocusFocusReport>(text);
+                if (Enum.TryParse<AFCurveFittingEnum>(report.Fitting, out var afCurveFittingEnum)) {
+                    HocusFocusVM.FinalFocusPoint = new DataPoint(report.CalculatedFocusPoint.Position, report.CalculatedFocusPoint.Value);
+                    HocusFocusVM.LastAutoFocusPoint = new ReportAutoFocusPoint { Focuspoint = AutoFocusVM.FinalFocusPoint, Temperature = report.Temperature, Timestamp = report.Timestamp, Filter = report.Filter };
+                    HocusFocusVM.InitialFocuserPosition = (int)Math.Round(report.InitialFocusPoint.Position);
+                    HocusFocusVM.InitialHFR = report.InitialFocusPoint.Value;
+                    HocusFocusVM.FinalHFR = report.FinalHFR;
+                    HocusFocusVM.FinalFocuserPosition = (int)Math.Round(report.CalculatedFocusPoint.Position);
 
-                    if (Enum.TryParse<AFCurveFittingEnum>(report.Fitting, out var afCurveFittingEnum)) {
-                        HocusFocusVM.FinalFocusPoint = new DataPoint(report.CalculatedFocusPoint.Position, report.CalculatedFocusPoint.Value);
-                        HocusFocusVM.LastAutoFocusPoint = new ReportAutoFocusPoint { Focuspoint = AutoFocusVM.FinalFocusPoint, Temperature = report.Temperature, Timestamp = report.Timestamp, Filter = report.Filter };
-                        HocusFocusVM.InitialFocuserPosition = (int)Math.Round(report.InitialFocusPoint.Position);
-                        HocusFocusVM.InitialHFR = report.InitialFocusPoint.Value;
-                        HocusFocusVM.FinalHFR = report.FinalHFR;
-                        HocusFocusVM.FinalFocuserPosition = (int)Math.Round(report.CalculatedFocusPoint.Position);
-
-                        foreach (FocusPoint fp in report.MeasurePoints) {
-                            HocusFocusVM.FocusPoints.AddSorted(new ScatterErrorPoint(Convert.ToInt32(fp.Position), fp.Value, 0, fp.Error), comparer);
-                            HocusFocusVM.PlotFocusPoints.AddSorted(new DataPoint(Convert.ToInt32(fp.Position), fp.Value), plotComparer);
-                        }
-
-                        HocusFocusVM.AutoFocusChartMethod = report.Method == AFMethodEnum.STARHFR.ToString() ? AFMethodEnum.STARHFR : AFMethodEnum.CONTRASTDETECTION;
-                        HocusFocusVM.AutoFocusChartCurveFitting = afCurveFittingEnum;
-                        HocusFocusVM.SetCurveFittings(report.Method, report.Fitting);
+                    foreach (FocusPoint fp in report.MeasurePoints) {
+                        HocusFocusVM.FocusPoints.AddSorted(new ScatterErrorPoint(Convert.ToInt32(fp.Position), fp.Value, 0, fp.Error), comparer);
+                        HocusFocusVM.PlotFocusPoints.AddSorted(new DataPoint(Convert.ToInt32(fp.Position), fp.Value), plotComparer);
                     }
 
-                    return true;
+                    HocusFocusVM.AutoFocusChartMethod = report.Method == AFMethodEnum.STARHFR.ToString() ? AFMethodEnum.STARHFR : AFMethodEnum.CONTRASTDETECTION;
+                    HocusFocusVM.AutoFocusChartCurveFitting = afCurveFittingEnum;
+                    HocusFocusVM.SetCurveFittings(report.Method, report.Fitting);
                 }
+                return true;
             }
             return false;
         }
