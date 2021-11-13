@@ -15,7 +15,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows.Media;
 
-namespace Joko.NINA.Plugins.HocusFocus.Utility {
+namespace Joko.NINA.Plugins.Common.Utility {
 
     public class PluginOptionsAccessor {
         private readonly IProfileService profileService;
