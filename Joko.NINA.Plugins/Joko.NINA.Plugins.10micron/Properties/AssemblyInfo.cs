@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using System;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -79,3 +80,5 @@ TODO
 [assembly: AssemblyTrademark("")]
 // [Unused]
 [assembly: AssemblyCulture("")]
+
+[assembly: CLSCompliant(false)]

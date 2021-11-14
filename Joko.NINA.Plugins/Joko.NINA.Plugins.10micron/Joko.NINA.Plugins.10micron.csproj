@@ -1,5 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\packages\Antlr4.CodeGenerator.4.6.6\build\Antlr4.CodeGenerator.props" Condition="Exists('..\packages\Antlr4.CodeGenerator.4.6.6\build\Antlr4.CodeGenerator.props')" />
   <Import Project="..\packages\EntityFramework.6.4.4\build\EntityFramework.props" Condition="Exists('..\packages\EntityFramework.6.4.4\build\EntityFramework.props')" />
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -51,6 +52,42 @@
     </Reference>
     <Reference Include="Accord.Statistics, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
       <HintPath>..\packages\Accord.Statistics.3.8.0\lib\net462\Accord.Statistics.dll</HintPath>
+    </Reference>
+    <Reference Include="Antlr4.Runtime, Version=4.6.0.0, Culture=neutral, PublicKeyToken=09abb75b9ed49849, processorArchitecture=MSIL">
+      <HintPath>..\packages\Antlr4.Runtime.4.6.6\lib\net45\Antlr4.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.Astrometry, Version=6.0.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.Astrometry.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.Attributes, Version=6.0.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.Attributes.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.Cache, Version=6.0.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.Cache.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.Controls, Version=6.0.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.Controls.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.DeviceInterfaces, Version=6.0.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.DeviceInterfaces.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.DriverAccess, Version=6.0.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.DriverAccess.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.Exceptions, Version=6.0.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.Exceptions.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.Internal.Extensions, Version=6.0.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.Internal.Extensions.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.SettingsProvider, Version=6.0.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.SettingsProvider.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.Utilities, Version=6.0.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.Utilities.dll</HintPath>
+    </Reference>
+    <Reference Include="ASCOM.Utilities.Video, Version=6.1.0.0, Culture=neutral, PublicKeyToken=565de7938946fba7, processorArchitecture=MSIL">
+      <HintPath>..\packages\ASCOM.Platform.6.5.2\lib\net40\ASCOM.Utilities.Video.dll</HintPath>
     </Reference>
     <Reference Include="AsyncEnumerable, Version=4.0.2.0, Culture=neutral, PublicKeyToken=0426b068161bd1d1, processorArchitecture=MSIL">
       <HintPath>..\packages\AsyncEnumerator.4.0.2\lib\net461\AsyncEnumerable.dll</HintPath>
@@ -268,8 +305,37 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="10MicronPlugin.cs" />
+    <Compile Include="Exceptions\ParseCancellationException.cs" />
+    <Compile Include="Grammars\AlignmentModelInfo.g4.lexer.cs">
+      <DependentUpon>AlignmentModelInfo.g4</DependentUpon>
+    </Compile>
+    <Compile Include="Grammars\AlignmentModelInfo.g4.parser.cs">
+      <DependentUpon>AlignmentModelInfo.g4</DependentUpon>
+    </Compile>
+    <Compile Include="Grammars\AlignmentStarInfo.g4.lexer.cs">
+      <DependentUpon>AlignmentStarInfo.g4</DependentUpon>
+    </Compile>
+    <Compile Include="Grammars\AlignmentStarInfo.g4.parser.cs">
+      <DependentUpon>AlignmentStarInfo.g4</DependentUpon>
+    </Compile>
+    <Compile Include="Grammars\Angle.g4.lexer.cs">
+      <DependentUpon>Angle.g4</DependentUpon>
+    </Compile>
+    <Compile Include="Grammars\Angle.g4.parser.cs">
+      <DependentUpon>Angle.g4</DependentUpon>
+    </Compile>
+    <Compile Include="Grammars\Time.g4.lexer.cs">
+      <DependentUpon>Time.g4</DependentUpon>
+    </Compile>
+    <Compile Include="Grammars\Time.g4.parser.cs">
+      <DependentUpon>Time.g4</DependentUpon>
+    </Compile>
     <Compile Include="Interfaces\IModelBuilderOptions.cs" />
+    <Compile Include="Interfaces\IMountCommander.cs" />
+    <Compile Include="ModelBuilder\AscomMountCommander.cs" />
     <Compile Include="ModelBuilder\ModelBuilderOptions.cs" />
+    <Compile Include="ModelBuilder\Mount.cs" />
+    <Compile Include="ModelBuilder\MountCommandResponses.cs" />
     <Compile Include="Options.xaml.cs">
       <DependentUpon>Options.xaml</DependentUpon>
     </Compile>
@@ -282,9 +348,26 @@
     <Compile Include="Resources\OptionsDataTemplates.xaml.cs">
       <DependentUpon>OptionsDataTemplates.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Utility\ThrowingErrorListener.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
+    <Antlr4 Include="Grammars\Angle.g4">
+      <Generator>MSBuild:Compile</Generator>
+      <CustomToolNamespace>Joko.NINA.Plugins.TenMicron.Grammars</CustomToolNamespace>
+    </Antlr4>
+    <Antlr4 Include="Grammars\Time.g4">
+      <Generator>MSBuild:Compile</Generator>
+      <CustomToolNamespace>Joko.NINA.Plugins.TenMicron.Grammars</CustomToolNamespace>
+    </Antlr4>
+    <Antlr4 Include="Grammars\AlignmentStarInfo.g4">
+      <Generator>MSBuild:Compile</Generator>
+      <CustomToolNamespace>Joko.NINA.Plugins.TenMicron.Grammars</CustomToolNamespace>
+    </Antlr4>
+    <Antlr4 Include="Grammars\AlignmentModelInfo.g4">
+      <Generator>MSBuild:Compile</Generator>
+      <CustomToolNamespace>Joko.NINA.Plugins.TenMicron.Grammars</CustomToolNamespace>
+    </Antlr4>
     <None Include="packages.config" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
@@ -310,6 +393,7 @@
       <Name>Joko.NINA.Plugins.Common</Name>
     </ProjectReference>
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>
@@ -340,10 +424,13 @@
     <Error Condition="!Exists('..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets'))" />
     <Error Condition="!Exists('..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets'))" />
     <Error Condition="!Exists('..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets'))" />
+    <Error Condition="!Exists('..\packages\Antlr4.CodeGenerator.4.6.6\build\Antlr4.CodeGenerator.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Antlr4.CodeGenerator.4.6.6\build\Antlr4.CodeGenerator.props'))" />
+    <Error Condition="!Exists('..\packages\Antlr4.CodeGenerator.4.6.6\build\Antlr4.CodeGenerator.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Antlr4.CodeGenerator.4.6.6\build\Antlr4.CodeGenerator.targets'))" />
   </Target>
   <Import Project="..\packages\EntityFramework.6.4.4\build\EntityFramework.targets" Condition="Exists('..\packages\EntityFramework.6.4.4\build\EntityFramework.targets')" />
   <Import Project="..\packages\Google.Protobuf.Tools.3.18.1\build\Google.Protobuf.Tools.targets" Condition="Exists('..\packages\Google.Protobuf.Tools.3.18.1\build\Google.Protobuf.Tools.targets')" />
   <Import Project="..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets" Condition="Exists('..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets')" />
   <Import Project="..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets" Condition="Exists('..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.0\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets')" />
   <Import Project="..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets" Condition="Exists('..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets')" />
+  <Import Project="..\packages\Antlr4.CodeGenerator.4.6.6\build\Antlr4.CodeGenerator.targets" Condition="Exists('..\packages\Antlr4.CodeGenerator.4.6.6\build\Antlr4.CodeGenerator.targets')" />
 </Project>
