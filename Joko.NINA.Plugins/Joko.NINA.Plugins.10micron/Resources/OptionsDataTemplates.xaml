@@ -4,9 +4,15 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit"
     xmlns:interfaces="clr-namespace:Joko.NINA.Plugins.TenMicron.Interfaces"
+    xmlns:jgconverters="clr-namespace:Joko.NINA.Plugins.Common.Converters;assembly=Joko.NINA.Plugins.Common"
+    xmlns:jgrules="clr-namespace:Joko.NINA.Plugins.Common.ValidationRules;assembly=Joko.NINA.Plugins.Common"
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
     xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary">
+    <jgconverters:DoubleZeroToVisibilityConverter x:Key="DoubleZeroToVisibilityConverter" />
+    <jgconverters:IntNegativeToVisibilityConverter x:Key="IntNegativeToVisibilityConverter" />
+    <jgconverters:InverseDoubleZeroToVisibilityConverter x:Key="InverseDoubleZeroToVisibilityConverter" />
+    <jgconverters:ZeroToInfinityConverter x:Key="ZeroToInfinityConverter" />
     <TextBlock x:Key="Placeholder_Tooltip" Text="Placeholder text" />
     <DataTemplate x:Key="TenMicron_ModelBuilder_Options">
         <Grid Margin="5" VerticalAlignment="Top">

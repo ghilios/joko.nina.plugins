@@ -100,14 +100,14 @@
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>..\packages\Newtonsoft.Json.13.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Astrometry, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Astrometry.2.0.0.2001-beta\lib\net48\NINA.Astrometry.dll</HintPath>
+    <Reference Include="NINA.Astrometry, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Astrometry.2.0.0.2004-beta\lib\net48\NINA.Astrometry.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Core, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Core.2.0.0.2001-beta\lib\net48\NINA.Core.dll</HintPath>
+    <Reference Include="NINA.Core, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Core.2.0.0.2004-beta\lib\net48\NINA.Core.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Profile, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Profile.2.0.0.2001-beta\lib\net48\NINA.Profile.dll</HintPath>
+    <Reference Include="NINA.Profile, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Profile.2.0.0.2004-beta\lib\net48\NINA.Profile.dll</HintPath>
     </Reference>
     <Reference Include="Nito.AsyncEx.Context, Version=5.1.2.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\Nito.AsyncEx.Context.5.1.2\lib\net461\Nito.AsyncEx.Context.dll</HintPath>

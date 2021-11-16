@@ -26,6 +26,13 @@ namespace Joko.NINA.Plugins.Common.Converters {
                 } else {
                     return System.Windows.Visibility.Visible;
                 }
+            } else if (value is decimal) {
+                var d = (decimal)value;
+                if (d == decimal.Zero) {
+                    return System.Windows.Visibility.Collapsed;
+                } else {
+                    return System.Windows.Visibility.Visible;
+                }
             } else if (value is float) {
                 var d = (float)value;
                 if (Math.Abs(d) < 0.00001f) {

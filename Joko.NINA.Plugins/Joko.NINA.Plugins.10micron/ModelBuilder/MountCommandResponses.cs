@@ -40,6 +40,7 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
     }
 
     public class CoordinateAngle {
+        public static CoordinateAngle ZERO = new CoordinateAngle(true, 0, 0, 0, 0);
 
         public CoordinateAngle(bool positive, int degrees, int minutes, int seconds, int hundredthSeconds) {
             this.Positive = positive;
@@ -87,6 +88,7 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
     }
 
     public class AstrometricTime {
+        public static AstrometricTime ZERO = new AstrometricTime(0, 0, 0, 0);
 
         public AstrometricTime(int hours, int minutes, int seconds, int hundredthSeconds) {
             this.Hours = hours;
@@ -193,6 +195,7 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
     }
 
     public class ProductFirmware {
+
         public ProductFirmware(string productName, DateTime timestamp, Version version) {
             this.ProductName = productName;
             this.Timestamp = timestamp;

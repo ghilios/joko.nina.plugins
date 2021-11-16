@@ -82,6 +82,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Converters\DoubleZeroToVisibilityConverter.cs" />
+    <Compile Include="Converters\EnumStaticDescriptionConverter.cs" />
     <Compile Include="Converters\IntNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\InverseDoubleZeroToVisibilityConverter.cs" />
     <Compile Include="Converters\ZeroToInfinityConverter.cs" />

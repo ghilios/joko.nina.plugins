@@ -10,29 +10,29 @@
 
 #endregion "copyright"
 
-using ASCOM.DriverAccess;
 using Joko.NINA.Plugins.TenMicron.Exceptions;
 using Joko.NINA.Plugins.TenMicron.Interfaces;
+using NINA.Equipment.Interfaces.Mediator;
 
 namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
 
-    public class AscomMountCommander : IMountCommander {
-        private readonly Telescope ascomTelescope;
+    public class TelescopeMediatorMountCommander : IMountCommander {
+        private readonly ITelescopeMediator telescopeMediator;
 
-        public AscomMountCommander(Telescope ascomTelescope) {
-            this.ascomTelescope = ascomTelescope;
+        public TelescopeMediatorMountCommander(ITelescopeMediator telescopeMediator) {
+            this.telescopeMediator = telescopeMediator;
         }
 
         public void SendCommandBlind(string command, bool raw) {
-            ascomTelescope.CommandBlind(command, raw);
+            telescopeMediator.SendCommandBlind(command, raw);
         }
 
         public bool SendCommandBool(string command, bool raw) {
-            return ascomTelescope.CommandBool(command, raw);
+            return telescopeMediator.SendCommandBool(command, raw);
         }
 
         public string SendCommandString(string command, bool raw) {
-            var result = ascomTelescope.CommandString(command, raw);
+            var result = telescopeMediator.SendCommandString(command, raw);
             if (result == null) {
                 throw new CommandFailedException(command);
             }

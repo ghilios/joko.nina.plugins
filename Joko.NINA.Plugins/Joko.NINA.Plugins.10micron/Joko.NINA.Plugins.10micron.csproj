@@ -147,41 +147,49 @@
       <HintPath>..\packages\Newtonsoft.Json.13.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="nikoncswrapper, Version=1.8.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Equipment.2.0.0.2004-beta\lib\net48\nikoncswrapper.dll</HintPath>
+    </Reference>
+    <Reference Include="NINA.Astrometry, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Astrometry.2.0.0.2004-beta\lib\net48\NINA.Astrometry.dll</HintPath>
+    </Reference>
+    <Reference Include="NINA.Core, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Core.2.0.0.2004-beta\lib\net48\NINA.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="NINA.Equipment, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Equipment.2.0.0.2004-beta\lib\net48\NINA.Equipment.dll</HintPath>
+    </Reference>
+    <Reference Include="NINA.Image, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Image.2.0.0.2004-beta\lib\net48\NINA.Image.dll</HintPath>
+    </Reference>
+    <Reference Include="NINA.MGEN, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.MGEN.2.0.0.2004-beta\lib\net48\NINA.MGEN.dll</HintPath>
+    </Reference>
+    <Reference Include="NINA.PlateSolving, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.PlateSolving.2.0.0.2004-beta\lib\net48\NINA.PlateSolving.dll</HintPath>
+    </Reference>
+    <Reference Include="NINA.Plugin, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Plugin.2.0.0.2004-beta\lib\net48\NINA.Plugin.dll</HintPath>
+    </Reference>
+    <Reference Include="NINA.Profile, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Profile.2.0.0.2004-beta\lib\net48\NINA.Profile.dll</HintPath>
+    </Reference>
+    <Reference Include="NINA.Sequencer, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Sequencer.2.0.0.2004-beta\lib\net48\NINA.Sequencer.dll</HintPath>
+    </Reference>
+    <Reference Include="NINA.WPF.Base, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.WPF.Base.2.0.0.2004-beta\lib\net48\NINA.WPF.Base.dll</HintPath>
+    </Reference>
+    <Reference Include="NINACustomControlLibrary, Version=2.0.0.2004, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINACustomControlLibrary.2.0.0.2004-beta\lib\net48\NINACustomControlLibrary.dll</HintPath>
+    </Reference>
+    <!--
+    <Reference Include="nikoncswrapper, Version=1.8.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\NINA.Equipment.2.0.0.2001-beta\lib\net48\nikoncswrapper.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Astrometry, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Astrometry.2.0.0.2001-beta\lib\net48\NINA.Astrometry.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Core, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Core.2.0.0.2001-beta\lib\net48\NINA.Core.dll</HintPath>
     </Reference>
     <Reference Include="NINA.Equipment, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\NINA.Equipment.2.0.0.2001-beta\lib\net48\NINA.Equipment.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Image, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Image.2.0.0.2001-beta\lib\net48\NINA.Image.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.MGEN, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.MGEN.2.0.0.2001-beta\lib\net48\NINA.MGEN.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.PlateSolving, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.PlateSolving.2.0.0.2001-beta\lib\net48\NINA.PlateSolving.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Plugin, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Plugin.2.0.0.2001-beta\lib\net48\NINA.Plugin.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Profile, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Profile.2.0.0.2001-beta\lib\net48\NINA.Profile.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Sequencer, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Sequencer.2.0.0.2001-beta\lib\net48\NINA.Sequencer.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.WPF.Base, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.WPF.Base.2.0.0.2001-beta\lib\net48\NINA.WPF.Base.dll</HintPath>
-    </Reference>
-    <Reference Include="NINACustomControlLibrary, Version=2.0.0.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINACustomControlLibrary.2.0.0.2001-beta\lib\net48\NINACustomControlLibrary.dll</HintPath>
-    </Reference>
+    -->
     <Reference Include="Nito.AsyncEx.Context, Version=5.1.2.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\Nito.AsyncEx.Context.5.1.2\lib\net461\Nito.AsyncEx.Context.dll</HintPath>
     </Reference>
@@ -305,6 +313,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="10MicronPlugin.cs" />
+    <Compile Include="Equipment\MountInfo.cs" />
+    <Compile Include="Exceptions\CommandFailedException.cs" />
     <Compile Include="Exceptions\ParseCancellationException.cs" />
     <Compile Include="Grammars\AlignmentModelInfo.g4.lexer.cs">
       <DependentUpon>AlignmentModelInfo.g4</DependentUpon>
@@ -331,11 +341,16 @@
       <DependentUpon>Time.g4</DependentUpon>
     </Compile>
     <Compile Include="Interfaces\IModelBuilderOptions.cs" />
+    <Compile Include="Interfaces\IMount.cs" />
     <Compile Include="Interfaces\IMountCommander.cs" />
     <Compile Include="ModelBuilder\AscomMountCommander.cs" />
     <Compile Include="ModelBuilder\ModelBuilderOptions.cs" />
+    <Compile Include="ModelBuilder\ModelPoint.cs" />
+    <Compile Include="ModelBuilder\ModelRunner.cs" />
     <Compile Include="ModelBuilder\Mount.cs" />
+    <Compile Include="ModelBuilder\MountAscomConfig.cs" />
     <Compile Include="ModelBuilder\MountCommandResponses.cs" />
+    <Compile Include="ModelBuilder\TelescopeMediatorMountCommander.cs" />
     <Compile Include="Options.xaml.cs">
       <DependentUpon>Options.xaml</DependentUpon>
     </Compile>
@@ -345,10 +360,18 @@
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
       <DependentUpon>Settings.settings</DependentUpon>
     </Compile>
+    <Compile Include="Resources\DataTemplates.xaml.cs">
+      <DependentUpon>DataTemplates.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Resources\OptionsDataTemplates.xaml.cs">
       <DependentUpon>OptionsDataTemplates.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Utility\MountUtility.cs" />
     <Compile Include="Utility\ThrowingErrorListener.cs" />
+    <Compile Include="ViewModels\MountVM.cs" />
+    <Compile Include="View\MountView.xaml.cs">
+      <DependentUpon>MountView.xaml</DependentUpon>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
@@ -379,7 +402,15 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="Resources\DataTemplates.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="Resources\OptionsDataTemplates.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="View\MountView.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -410,7 +441,8 @@
       xcopy "$(TargetPath)" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
 
       echo "Copying $(PlatformName) $(TargetFileName) Dependencies"
-      xcopy "$(TargetDir)Joko.NINA.Plugins.Common.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y</PostBuildEvent>
+      xcopy "$(TargetDir)Joko.NINA.Plugins.Common.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
+      xcopy "$(TargetDir)Antlr4.Runtime.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y</PostBuildEvent>
   </PropertyGroup>
   <Import Project="..\packages\Accord.3.8.0\build\Accord.targets" Condition="Exists('..\packages\Accord.3.8.0\build\Accord.targets')" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">

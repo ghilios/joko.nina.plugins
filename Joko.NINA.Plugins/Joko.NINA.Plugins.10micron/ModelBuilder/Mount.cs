@@ -11,12 +11,15 @@
 #endregion "copyright"
 
 using Antlr4.Runtime;
+using Joko.NINA.Plugins.Common.Converters;
 using Joko.NINA.Plugins.TenMicron.Grammars;
 using Joko.NINA.Plugins.TenMicron.Interfaces;
 using Joko.NINA.Plugins.TenMicron.Utility;
 using NINA.Astrometry;
 using NINA.Core.Enum;
+using NINA.Core.Utility;
 using System;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Text;
@@ -47,6 +50,52 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
             var constructor = Expression.Lambda<Func<ITokenStream, T>>(body, paramExpr);
             return constructor.Compile();
         }
+    }
+
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum MountStatusEnum {
+
+        [Description("Tracking")]
+        Tracking = 0,
+
+        [Description("Stopped")]
+        Stopped = 1,
+
+        [Description("Slewing to Park")]
+        SlewingToPark = 2,
+
+        [Description("Unparking")]
+        Unparking = 3,
+
+        [Description("Slewing to Home")]
+        SlewingToHome = 4,
+
+        [Description("Parked")]
+        Parked = 5,
+
+        [Description("Slewing")]
+        Slewing = 6,
+
+        [Description("Not Tracking")]
+        TrackingOff = 7,
+
+        [Description("Motors Inhibited by Low Temperature")]
+        MotorsInhibitedLowTemp = 8,
+
+        [Description("Tracking, but outside of mount limits")]
+        TrackingOnOutsideLimits = 9,
+
+        [Description("Following Satellite")]
+        FollowingSatellite = 10,
+
+        [Description("Needs User Intervention")]
+        NeedsUserIntervention = 11,
+
+        [Description("Unknown")]
+        Unknown = 98,
+
+        [Description("Error")]
+        Error = 99
     }
 
     public static class MountResponseParser {
@@ -140,7 +189,7 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
         }
     }
 
-    public class Mount {
+    public class Mount : IMount {
         private readonly IMountCommander mountCommander;
 
         public Mount(IMountCommander mountCommander) {
@@ -300,9 +349,11 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
                 case PierSide.pierEast:
                     commandBuilder.Append("E,");
                     break;
+
                 case PierSide.pierWest:
                     commandBuilder.Append("W,");
                     break;
+
                 default:
                     throw new ArgumentException($"Unexpected side of pier {sideOfPier}", "sideOfPier");
             }
@@ -329,6 +380,82 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
         public void SetUltraPrecisionMode() {
             const string command = ":U2#";
             this.mountCommander.SendCommandBlind(command, true);
+        }
+
+        public Response<int> GetMeridianSlewLimitDegrees() {
+            const string command = ":Glms#";
+
+            // Returns limit followed by #
+            var rawResponse = this.mountCommander.SendCommandString(command, true);
+            var result = int.Parse(rawResponse.TrimEnd('#'));
+            return new Response<int>(result, rawResponse);
+        }
+
+        public Response<bool> SetMeridianSlewLimit(int degrees) {
+            string command = $":Slms{degrees:00}#";
+
+            var result = this.mountCommander.SendCommandBool(command, true);
+            return new Response<bool>(result, "");
+        }
+
+        public Response<decimal> GetSlewSettleTimeSeconds() {
+            const string command = ":Gstm#";
+
+            var rawResponse = this.mountCommander.SendCommandString(command, true);
+            var result = decimal.Parse(rawResponse.TrimEnd('#'));
+            return new Response<decimal>(result, rawResponse);
+        }
+
+        public Response<bool> SetSlewSettleTime(decimal seconds) {
+            if (seconds < 0 || seconds > 99999) {
+                return new Response<bool>(false, "");
+            }
+
+            var command = $":Sstm{seconds:00000.000}#";
+            var result = this.mountCommander.SendCommandBool(command, true);
+            return new Response<bool>(result, "");
+        }
+
+        public Response<MountStatusEnum> GetStatus() {
+            const string command = ":Gstat#";
+
+            var rawResponse = this.mountCommander.SendCommandString(command, true);
+            var result = int.Parse(rawResponse.TrimEnd('#'));
+            return new Response<MountStatusEnum>((MountStatusEnum)result, rawResponse);
+        }
+
+        public Response<bool> GetUnattendedFlipEnabled() {
+            const string command = ":Guaf#";
+
+            var result = this.mountCommander.SendCommandBool(command, true);
+            return new Response<bool>(result, "");
+        }
+
+        public Response<decimal> GetTrackingRateArcsecsPerSec() {
+            const string command = ":GT#";
+
+            // Needs to be divided by 4 to get arcsecs/sec, according to spec
+            var rawResponse = this.mountCommander.SendCommandString(command, true);
+            var result = decimal.Parse(rawResponse.TrimEnd('#'));
+            return new Response<decimal>(result / 4, rawResponse);
+        }
+
+        public void SetUnattendedFlip(bool enabled) {
+            var command = $":Suaf{(enabled ? 1 : 0)}#";
+
+            this.mountCommander.SendCommandBlind(command, true);
+        }
+
+        private static readonly Version ultraPrecisionMinimumVersion = new Version(2, 10, 0);
+
+        public void SetMaximumPrecision(ProductFirmware productFirmware) {
+            if (productFirmware.Version > ultraPrecisionMinimumVersion) {
+                this.SetUltraPrecisionMode();
+            } else {
+                // The 10u ASCOM driver uses this logic
+                Logger.Warning($"Firmware {productFirmware.Version} too old to support ultra precision. Falling back to AP emulation mode");
+                this.mountCommander.SendCommandBlind(":EMUAP#:U#", true);
+            }
         }
 
         public Response<ProductFirmware> GetProductFirmware() {

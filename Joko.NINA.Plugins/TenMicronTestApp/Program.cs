@@ -18,6 +18,10 @@ namespace TenMicronTestApp {
 
     internal class Program {
 
+        // TODO List:
+        //  * Add trigger to push refraction updates. The built in source is at:
+        //         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Temp\\10micronRefraction.txt";
+        //         Path.GetTempPath() + "\\10micronRefraction.txt";
         private static void Main(string[] args) {
             /*
             string id = ASCOM.DriverAccess.Telescope.Choose("");
