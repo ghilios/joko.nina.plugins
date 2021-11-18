@@ -160,26 +160,6 @@
                         </UniformGrid>
                     </UniformGrid>
                 </Border>
-                <!--
-                <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0">
-                    <UniformGrid Columns="2">
-                        <UniformGrid
-                            Margin="0,6,0,6"
-                            VerticalAlignment="Center"
-                            Columns="2">
-                            <TextBlock Text="Mount" />
-                            <TextBlock Margin="5,0,0,0" Text="{Binding MountInfo.ProductFirmware.ProductName}" />
-                        </UniformGrid>
-                        <UniformGrid
-                            Margin="0,6,0,6"
-                            VerticalAlignment="Center"
-                            Columns="2">
-                            <TextBlock Text="{ns:Loc LblMaxExpTime}" />
-                            <TextBlock Margin="5,0,0,0" Text="{Binding Cam.ExposureMax}" />
-                        </UniformGrid>
-                    </UniformGrid>
-                </Border>
-                -->
             </StackPanel>
         </GroupBox>
     </Grid>

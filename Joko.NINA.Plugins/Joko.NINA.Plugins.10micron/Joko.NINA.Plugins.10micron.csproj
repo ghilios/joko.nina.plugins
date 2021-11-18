@@ -343,6 +343,9 @@
     <Compile Include="Interfaces\IModelBuilderOptions.cs" />
     <Compile Include="Interfaces\IMount.cs" />
     <Compile Include="Interfaces\IMountCommander.cs" />
+    <Compile Include="Interfaces\IMountConsumer.cs" />
+    <Compile Include="Interfaces\IMountMediator.cs" />
+    <Compile Include="Interfaces\IMountVM.cs" />
     <Compile Include="ModelBuilder\AscomMountCommander.cs" />
     <Compile Include="ModelBuilder\ModelBuilderOptions.cs" />
     <Compile Include="ModelBuilder\ModelPoint.cs" />
@@ -350,6 +353,7 @@
     <Compile Include="ModelBuilder\Mount.cs" />
     <Compile Include="ModelBuilder\MountAscomConfig.cs" />
     <Compile Include="ModelBuilder\MountCommandResponses.cs" />
+    <Compile Include="ModelBuilder\MountMediator.cs" />
     <Compile Include="ModelBuilder\TelescopeMediatorMountCommander.cs" />
     <Compile Include="Options.xaml.cs">
       <DependentUpon>Options.xaml</DependentUpon>
@@ -368,7 +372,11 @@
     </Compile>
     <Compile Include="Utility\MountUtility.cs" />
     <Compile Include="Utility\ThrowingErrorListener.cs" />
+    <Compile Include="ViewModels\MountModelVM.cs" />
     <Compile Include="ViewModels\MountVM.cs" />
+    <Compile Include="View\MountModelView.xaml.cs">
+      <DependentUpon>MountModelView.xaml</DependentUpon>
+    </Compile>
     <Compile Include="View\MountView.xaml.cs">
       <DependentUpon>MountView.xaml</DependentUpon>
     </Compile>
@@ -407,6 +415,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Resources\OptionsDataTemplates.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="View\MountModelView.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

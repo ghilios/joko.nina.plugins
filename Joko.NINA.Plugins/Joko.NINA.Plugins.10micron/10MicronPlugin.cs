@@ -43,6 +43,7 @@ namespace Joko.NINA.Plugins.TenMicron {
 
             MountCommander = new TelescopeMediatorMountCommander(telescopeMediator);
             Mount = new Mount(MountCommander);
+            MountMediator = new MountMediator();
         }
 
         public static ModelBuilderOptions ModelBuilderOptions { get; private set; }
@@ -52,5 +53,7 @@ namespace Joko.NINA.Plugins.TenMicron {
         public static IMountCommander MountCommander { get; private set; }
 
         public static IMount Mount { get; private set; }
+
+        public static IMountMediator MountMediator { get; private set; }
     }
 }

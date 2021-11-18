@@ -34,9 +34,10 @@ using System.Windows.Input;
 namespace Joko.NINA.Plugins.TenMicron.ViewModels {
 
     [Export(typeof(IDockableVM))]
-    public class MountVM : DockableVM, ITelescopeConsumer {
+    public class MountVM : DockableVM, IMountVM, ITelescopeConsumer {
         private readonly IMount mount;
         private readonly ITelescopeMediator telescopeMediator;
+        private readonly IMountMediator mountMediator;
         private DeviceUpdateTimer updateTimer;
         private bool disposed = false;
         private bool supportedMountConnected = false;
@@ -44,21 +45,28 @@ namespace Joko.NINA.Plugins.TenMicron.ViewModels {
 
         [ImportingConstructor]
         public MountVM(IProfileService profileService, ITelescopeMediator telescopeMediator) :
-            this(profileService, telescopeMediator, TenMicronPlugin.Mount) {
+            this(profileService, telescopeMediator, TenMicronPlugin.Mount, TenMicronPlugin.MountMediator) {
         }
 
         public MountVM(
             IProfileService profileService,
             ITelescopeMediator telescopeMediator,
-            IMount mount) : base(profileService) {
+            IMount mount,
+            IMountMediator mountMediator) : base(profileService) {
             this.Title = "10u Mount Info";
             this.mount = mount;
             this.telescopeMediator = telescopeMediator;
+            this.mountMediator = mountMediator;
 
             this.telescopeMediator.RegisterConsumer(this);
+            this.mountMediator.RegisterHandler(this);
 
             ResetMeridianSlewLimitCommand = new RelayCommand(ResetMeridianSlewLimit);
             ResetSlewSettleLimitCommand = new RelayCommand(ResetSlewSettleTime);
+        }
+
+        private void BroadcastMountInfo() {
+            this.mountMediator.Broadcast(MountInfo);
         }
 
         private void ResetMeridianSlewLimit(object o) {
@@ -171,10 +179,16 @@ namespace Joko.NINA.Plugins.TenMicron.ViewModels {
             }
         }
 
-        private void Disconnect() {
+        public async Task Disconnect() {
+            if (updateTimer != null) {
+                await updateTimer.Stop();
+            }
+
             MountInfo = DeviceInfo.CreateDefaultInstance<MountInfo>();
             MountInfo.Status = MountStatusEnum.Unknown;
             supportedMountConnected = false;
+
+            BroadcastMountInfo();
         }
 
         private void UpdateMountValues(Dictionary<string, object> mountValues) {
@@ -208,6 +222,8 @@ namespace Joko.NINA.Plugins.TenMicron.ViewModels {
 
             mountValues.TryGetValue(nameof(MountInfo.MeridianLimitDegrees), out o);
             MountInfo.MeridianLimitDegrees = (int)(o ?? 0);
+
+            BroadcastMountInfo();
         }
 
         private Dictionary<string, object> GetMountValues() {
@@ -261,6 +277,115 @@ namespace Joko.NINA.Plugins.TenMicron.ViewModels {
                 Logger.Error(ex);
                 Notification.ShowError($"Failed to disable unattended flip: {ex.Message}");
             }
+        }
+
+        public Task<IList<string>> Rescan() {
+            throw new NotImplementedException();
+        }
+
+        public Task<bool> Connect() {
+            throw new NotImplementedException();
+        }
+
+        public MountInfo GetDeviceInfo() {
+            return MountInfo;
+        }
+
+        public string GetModelName(int modelIndex) {
+            if (supportedMountConnected) {
+                return mount.GetModelName(modelIndex);
+            }
+            return "";
+        }
+
+        public int GetModelCount() {
+            if (supportedMountConnected) {
+                return mount.GetModelCount();
+            }
+            return 0;
+        }
+
+        public bool LoadModel(string name) {
+            if (supportedMountConnected) {
+                return mount.LoadModel(name);
+            }
+            return false;
+        }
+
+        public bool SaveModel(string name) {
+            if (supportedMountConnected) {
+                return mount.SaveModel(name);
+            }
+            return false;
+        }
+
+        public bool DeleteModel(string name) {
+            if (supportedMountConnected) {
+                return mount.DeleteModel(name);
+            }
+            return false;
+        }
+
+        public void DeleteAlignment() {
+            if (supportedMountConnected) {
+                mount.DeleteAlignment();
+            }
+        }
+
+        public int GetAlignmentStarCount() {
+            if (supportedMountConnected) {
+                return mount.GetAlignmentStarCount();
+            }
+            return 0;
+        }
+
+        public AlignmentStarInfo GetAlignmentStarInfo(int alignmentStarIndex) {
+            if (supportedMountConnected) {
+                return mount.GetAlignmentStarInfo(alignmentStarIndex);
+            }
+            return null;
+        }
+
+        public AlignmentModelInfo GetAlignmentModelInfo() {
+            if (supportedMountConnected) {
+                return mount.GetAlignmentModelInfo();
+            }
+            return null;
+        }
+
+        public bool StartNewAlignmentSpec() {
+            if (supportedMountConnected) {
+                return mount.StartNewAlignmentSpec();
+            }
+            return false;
+        }
+
+        public bool FinishAlignmentSpec() {
+            if (supportedMountConnected) {
+                return mount.FinishAlignmentSpec();
+            }
+            return false;
+        }
+
+        public CoordinateAngle GetMountReportedDeclination() {
+            if (supportedMountConnected) {
+                return mount.GetDeclination();
+            }
+            return null;
+        }
+
+        public AstrometricTime GetMountReportedRightAscension() {
+            if (supportedMountConnected) {
+                return mount.GetRightAscension();
+            }
+            return null;
+        }
+
+        public AstrometricTime GetMountReportedLocalSiderealTime() {
+            if (supportedMountConnected) {
+                return mount.GetLocalSiderealTime();
+            }
+            return null;
         }
     }
 }

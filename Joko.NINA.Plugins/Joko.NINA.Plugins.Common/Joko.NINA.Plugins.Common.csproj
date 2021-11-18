@@ -81,6 +81,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Converters\DecimalMinToDoubleDashConverter.cs" />
     <Compile Include="Converters\DoubleZeroToVisibilityConverter.cs" />
     <Compile Include="Converters\EnumStaticDescriptionConverter.cs" />
     <Compile Include="Converters\IntNegativeToVisibilityConverter.cs" />

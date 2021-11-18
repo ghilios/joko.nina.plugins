@@ -158,6 +158,17 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
 
     public class AlignmentModelInfo {
 
+        public static readonly AlignmentModelInfo Default = new AlignmentModelInfo(
+            rightAscensionAzimuth: decimal.MinValue,
+            rightAscensionAltitude: decimal.MinValue,
+            polarAlignErrorDegrees: decimal.MinValue,
+            rightAscensionPolarPositionAngleDegrees: decimal.MinValue,
+            orthogonalityErrorDegrees: decimal.MinValue,
+            azimuthAdjustmentTurns: decimal.MinValue,
+            altitudeAdjustmentTurns: decimal.MinValue,
+            modelTerms: -1,
+            rmsError: decimal.MinValue);
+
         public AlignmentModelInfo(
             decimal rightAscensionAzimuth,
             decimal rightAscensionAltitude,

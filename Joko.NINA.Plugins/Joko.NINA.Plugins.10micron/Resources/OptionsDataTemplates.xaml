@@ -13,6 +13,7 @@
     <jgconverters:IntNegativeToVisibilityConverter x:Key="IntNegativeToVisibilityConverter" />
     <jgconverters:InverseDoubleZeroToVisibilityConverter x:Key="InverseDoubleZeroToVisibilityConverter" />
     <jgconverters:ZeroToInfinityConverter x:Key="ZeroToInfinityConverter" />
+    <jgconverters:DecimalMinToDoubleDashConverter x:Key="DecimalMinToDoubleDashConverter" />
     <TextBlock x:Key="Placeholder_Tooltip" Text="Placeholder text" />
     <DataTemplate x:Key="TenMicron_ModelBuilder_Options">
         <Grid Margin="5" VerticalAlignment="Top">
