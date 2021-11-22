@@ -340,6 +340,7 @@
     <Compile Include="Grammars\Time.g4.parser.cs">
       <DependentUpon>Time.g4</DependentUpon>
     </Compile>
+    <Compile Include="Interfaces\IModelAccessor.cs" />
     <Compile Include="Interfaces\IModelBuilderOptions.cs" />
     <Compile Include="Interfaces\IMount.cs" />
     <Compile Include="Interfaces\IMountCommander.cs" />
@@ -347,6 +348,7 @@
     <Compile Include="Interfaces\IMountMediator.cs" />
     <Compile Include="Interfaces\IMountVM.cs" />
     <Compile Include="ModelBuilder\AscomMountCommander.cs" />
+    <Compile Include="ModelBuilder\ModelAccessor.cs" />
     <Compile Include="ModelBuilder\ModelBuilderOptions.cs" />
     <Compile Include="ModelBuilder\ModelPoint.cs" />
     <Compile Include="ModelBuilder\ModelRunner.cs" />
@@ -355,6 +357,8 @@
     <Compile Include="ModelBuilder\MountCommandResponses.cs" />
     <Compile Include="ModelBuilder\MountMediator.cs" />
     <Compile Include="ModelBuilder\TelescopeMediatorMountCommander.cs" />
+    <Compile Include="Model\AlignmentStarPoint.cs" />
+    <Compile Include="Model\LoadedAlignmentModel.cs" />
     <Compile Include="Options.xaml.cs">
       <DependentUpon>Options.xaml</DependentUpon>
     </Compile>
@@ -370,6 +374,7 @@
     <Compile Include="Resources\OptionsDataTemplates.xaml.cs">
       <DependentUpon>OptionsDataTemplates.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Utility\ConstantDateTime.cs" />
     <Compile Include="Utility\MountUtility.cs" />
     <Compile Include="Utility\ThrowingErrorListener.cs" />
     <Compile Include="ViewModels\MountModelVM.cs" />

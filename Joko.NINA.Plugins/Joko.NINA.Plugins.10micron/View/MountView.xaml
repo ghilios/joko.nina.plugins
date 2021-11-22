@@ -90,7 +90,7 @@
                                 Margin="5,0,0,0"
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Center"
-                                Command="{Binding ResetSlewSettleTimeCommand}">
+                                Command="{Binding ResetSlewSettleLimitCommand}">
                                 <TextBlock
                                     Margin="5,5,5,5"
                                     Foreground="{StaticResource ButtonForegroundBrush}"

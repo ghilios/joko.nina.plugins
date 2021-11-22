@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Astrometry;
+using NINA.Core.Utility;
 using System;
 
 namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
@@ -151,23 +152,17 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
         public CoordinateAngle Declination { get; private set; }
         public decimal ErrorArcseconds { get; private set; }
 
+        // TODO: Use a converter for this? Hack for now
+        public double Altitude { get; private set; }
+
+        public double Azimuth { get; private set; }
+
         public override string ToString() {
             return $"RA: {RightAscension}, DEC: {Declination}. Error={ErrorArcseconds:.0} arcseconds";
         }
     }
 
-    public class AlignmentModelInfo {
-
-        public static readonly AlignmentModelInfo Default = new AlignmentModelInfo(
-            rightAscensionAzimuth: decimal.MinValue,
-            rightAscensionAltitude: decimal.MinValue,
-            polarAlignErrorDegrees: decimal.MinValue,
-            rightAscensionPolarPositionAngleDegrees: decimal.MinValue,
-            orthogonalityErrorDegrees: decimal.MinValue,
-            azimuthAdjustmentTurns: decimal.MinValue,
-            altitudeAdjustmentTurns: decimal.MinValue,
-            modelTerms: -1,
-            rmsError: decimal.MinValue);
+    public class AlignmentModelInfo : BaseINPC {
 
         public AlignmentModelInfo(
             decimal rightAscensionAzimuth,
@@ -190,15 +185,138 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
             this.RMSError = rmsError;
         }
 
-        public decimal RightAscensionAzimuth { get; private set; }
-        public decimal RightAscensionAltitude { get; private set; }
-        public decimal PolarAlignErrorDegrees { get; private set; }
-        public decimal RightAscensionPolarPositionAngleDegrees { get; private set; }
-        public decimal OrthogonalityErrorDegrees { get; private set; }
-        public decimal AzimuthAdjustmentTurns { get; private set; }
-        public decimal AltitudeAdjustmentTurns { get; private set; }
-        public int ModelTerms { get; private set; }
-        public decimal RMSError { get; private set; }
+        private decimal rightAscensionAzimuth;
+
+        public decimal RightAscensionAzimuth {
+            get => rightAscensionAzimuth;
+            private set {
+                if (rightAscensionAzimuth != value) {
+                    rightAscensionAzimuth = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private decimal rightAscensionAltitude;
+
+        public decimal RightAscensionAltitude {
+            get => rightAscensionAltitude;
+            private set {
+                if (rightAscensionAltitude != value) {
+                    rightAscensionAltitude = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private decimal polarAlignErrorDegrees;
+
+        public decimal PolarAlignErrorDegrees {
+            get => polarAlignErrorDegrees;
+            private set {
+                if (polarAlignErrorDegrees != value) {
+                    polarAlignErrorDegrees = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private decimal rightAscensionPolarPositionAngleDegrees;
+
+        public decimal RightAscensionPolarPositionAngleDegrees {
+            get => rightAscensionPolarPositionAngleDegrees;
+            private set {
+                if (rightAscensionPolarPositionAngleDegrees != value) {
+                    rightAscensionPolarPositionAngleDegrees = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private decimal orthogonalityErrorDegrees;
+
+        public decimal OrthogonalityErrorDegrees {
+            get => orthogonalityErrorDegrees;
+            private set {
+                if (orthogonalityErrorDegrees != value) {
+                    orthogonalityErrorDegrees = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private decimal azimuthAdjustmentTurns;
+
+        public decimal AzimuthAdjustmentTurns {
+            get => azimuthAdjustmentTurns;
+            private set {
+                if (azimuthAdjustmentTurns != value) {
+                    azimuthAdjustmentTurns = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private decimal altitudeAdjustmentTurns;
+
+        public decimal AltitudeAdjustmentTurns {
+            get => altitudeAdjustmentTurns;
+            private set {
+                if (altitudeAdjustmentTurns != value) {
+                    altitudeAdjustmentTurns = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int modelTerms;
+
+        public int ModelTerms {
+            get => modelTerms;
+            private set {
+                if (modelTerms != value) {
+                    modelTerms = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private decimal rmsError;
+
+        public decimal RMSError {
+            get => rmsError;
+            private set {
+                if (rmsError != value) {
+                    rmsError = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public static AlignmentModelInfo Empty() {
+            return new AlignmentModelInfo(
+                rightAscensionAzimuth: decimal.MinValue,
+                rightAscensionAltitude: decimal.MinValue,
+                polarAlignErrorDegrees: decimal.MinValue,
+                rightAscensionPolarPositionAngleDegrees: decimal.MinValue,
+                orthogonalityErrorDegrees: decimal.MinValue,
+                azimuthAdjustmentTurns: decimal.MinValue,
+                altitudeAdjustmentTurns: decimal.MinValue,
+                modelTerms: -1,
+                rmsError: decimal.MinValue);
+        }
+
+        public void CopyFrom(AlignmentModelInfo other) {
+            this.RightAscensionAzimuth = other.RightAscensionAzimuth;
+            this.RightAscensionAltitude = other.RightAscensionAltitude;
+            this.PolarAlignErrorDegrees = other.PolarAlignErrorDegrees;
+            this.RightAscensionPolarPositionAngleDegrees = other.RightAscensionPolarPositionAngleDegrees;
+            this.OrthogonalityErrorDegrees = other.OrthogonalityErrorDegrees;
+            this.AzimuthAdjustmentTurns = other.AzimuthAdjustmentTurns;
+            this.AltitudeAdjustmentTurns = other.AltitudeAdjustmentTurns;
+            this.ModelTerms = other.ModelTerms;
+            this.RMSError = other.RMSError;
+        }
 
         public override string ToString() {
             return $"RA Azimuth={RightAscensionAzimuth}, RA Altitude={RightAscensionAltitude}, PA Error={PolarAlignErrorDegrees}°, RA Polar Angle={RightAscensionPolarPositionAngleDegrees}°, Azimuth Knob Turns={Math.Abs(AzimuthAdjustmentTurns)} {(AzimuthAdjustmentTurns > 0 ? "left" : "right")}, Altitude Knob Turns={Math.Abs(AltitudeAdjustmentTurns)} {(AltitudeAdjustmentTurns > 0 ? "left" : "right")}, Model Terms={ModelTerms}, RMS Error={RMSError}";

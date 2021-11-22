@@ -12,8 +12,10 @@
 
 using Joko.NINA.Plugins.TenMicron.Equipment;
 using Joko.NINA.Plugins.TenMicron.Interfaces;
+using Joko.NINA.Plugins.TenMicron.Model;
 using Joko.NINA.Plugins.TenMicron.ModelBuilder;
 using NINA.Core.Utility;
+using NINA.Core.Utility.Notification;
 using NINA.Equipment.Equipment;
 using NINA.Equipment.Equipment.MyTelescope;
 using NINA.Equipment.Interfaces.Mediator;
@@ -23,6 +25,7 @@ using NINA.WPF.Base.ViewModel;
 using System;
 using System.ComponentModel.Composition;
 using System.Threading.Tasks;
+using System.Timers;
 
 namespace Joko.NINA.Plugins.TenMicron.ViewModels {
 
@@ -30,20 +33,25 @@ namespace Joko.NINA.Plugins.TenMicron.ViewModels {
     public class MountModelVM : DockableVM, ITelescopeConsumer, IMountConsumer {
         private readonly IMountMediator mountMediator;
         private readonly ITelescopeMediator telescopeMediator;
+        private readonly IModelAccessor modelAccessor;
         private bool disposed = false;
+
+        private Timer timer;
 
         [ImportingConstructor]
         public MountModelVM(IProfileService profileService, ITelescopeMediator telescopeMediator) :
-            this(profileService, telescopeMediator, TenMicronPlugin.MountMediator) {
+            this(profileService, telescopeMediator, TenMicronPlugin.MountMediator, new ModelAccessor(telescopeMediator, TenMicronPlugin.MountMediator, new SystemDateTime())) {
         }
 
         public MountModelVM(
             IProfileService profileService,
             ITelescopeMediator telescopeMediator,
-            IMountMediator mountMediator) : base(profileService) {
+            IMountMediator mountMediator,
+            IModelAccessor modelAccessor) : base(profileService) {
             this.Title = "10u Model";
             this.mountMediator = mountMediator;
             this.telescopeMediator = telescopeMediator;
+            this.modelAccessor = modelAccessor;
 
             this.telescopeMediator.RegisterConsumer(this);
             this.mountMediator.RegisterConsumer(this);
@@ -102,42 +110,47 @@ namespace Joko.NINA.Plugins.TenMicron.ViewModels {
             }
         }
 
-        private AlignmentModelInfo alignmentModelInfo = AlignmentModelInfo.Default;
+        private readonly LoadedAlignmentModel loadedAlignmentModel = LoadedAlignmentModel.Empty();
 
-        public AlignmentModelInfo AlignmentModelInfo {
-            get => alignmentModelInfo;
-            private set {
-                alignmentModelInfo = value;
-                RaisePropertyChanged();
-            }
-        }
-
-        private int alignmentStarCount = -1;
-
-        public int AlignmentStarCount {
-            get => alignmentStarCount;
-            private set {
-                if (alignmentStarCount != value) {
-                    alignmentStarCount = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
+        public LoadedAlignmentModel LoadedAlignmentModel => loadedAlignmentModel;
 
         private void Connect() {
             if (Connected) {
                 return;
             }
 
-            try {
-                AlignmentStarCount = mountMediator.GetAlignmentStarCount();
-                AlignmentModelInfo = mountMediator.GetAlignmentModelInfo();
-            } catch (Exception ex) {
-                Logger.Error("Failed to get alignment model", ex);
-                AlignmentModelInfo = AlignmentModelInfo.Default;
-                AlignmentStarCount = -1;
-            }
+            _ = LoadAlignmentModel();
             Connected = true;
+        }
+
+        private Task alignmentModelLoadTask;
+
+        private async Task LoadAlignmentModel() {
+            if (alignmentModelLoadTask != null) {
+                await alignmentModelLoadTask;
+            }
+
+            this.alignmentModelLoadTask = Task.Run(() => {
+                try {
+                    LoadedAlignmentModel.CopyFrom(modelAccessor.LoadActiveModel());
+                } catch (Exception ex) {
+                    Notification.ShowError("Failed to get 10u alignment model");
+                    Logger.Error("Failed to get alignment model", ex);
+                    LoadedAlignmentModel.Clear();
+                }
+            });
+
+            await this.alignmentModelLoadTask;
+            this.alignmentModelLoadTask = null;
+
+            this.timer = new Timer();
+            this.timer.Elapsed += Timer_Elapsed;
+            this.timer.Interval = TimeSpan.FromMilliseconds(100).TotalMilliseconds;
+            // this.timer.Start();
+        }
+
+        private void Timer_Elapsed(object sender, ElapsedEventArgs e) {
+            this.LoadedAlignmentModel.ModelCreationTime -= TimeSpan.FromMinutes(6);
         }
 
         private void Disconnect() {
@@ -145,9 +158,10 @@ namespace Joko.NINA.Plugins.TenMicron.ViewModels {
                 return;
             }
 
-            AlignmentModelInfo = AlignmentModelInfo.Default;
-            AlignmentStarCount = -1;
+            LoadedAlignmentModel.Clear();
             Connected = false;
+            this.timer?.Stop();
+            this.timer = null;
         }
     }
 }

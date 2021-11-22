@@ -147,7 +147,7 @@ namespace Joko.NINA.Plugins.TenMicron.ViewModels {
                         Notification.ShowError($"Failed to connect 10u utilities. {e.Message}");
                     }
                 } else {
-                    _ = updateTimer.Stop();
+                    _ = updateTimer?.Stop();
 
                     MountInfo = DeviceInfo.CreateDefaultInstance<MountInfo>();
                     supportedMountConnected = false;

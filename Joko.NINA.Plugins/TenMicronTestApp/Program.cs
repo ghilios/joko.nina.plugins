@@ -30,6 +30,7 @@ namespace TenMicronTestApp {
             */
 
             // create this device
+            /*
             ASCOM.DriverAccess.Telescope device = new ASCOM.DriverAccess.Telescope("ASCOM.tenmicron_mount.Telescope");
             device.Connected = true;
 
@@ -47,6 +48,25 @@ namespace TenMicronTestApp {
             var alignmentStarCount = mount.GetAlignmentStarCount();
             var alignmentStars = Enumerable.Range(1, alignmentStarCount).Select(i => mount.GetAlignmentStarInfo(i)).ToList();
             Console.WriteLine("Complete");
+            */
+            /*
+            string id = ASCOM.DriverAccess.Camera.Choose("");
+            if (string.IsNullOrEmpty(id))
+                return;
+            */
+
+            string id = "ASCOM.NINA.SBIGTracker.Camera";
+            // create this device
+            try {
+                ASCOM.DriverAccess.Camera device = new ASCOM.DriverAccess.Camera(id);
+                Console.WriteLine(id);
+                device.Connected = true;
+
+                var offset = device.Offset;
+                Console.WriteLine(offset);
+            } catch (Exception ex) {
+                Console.WriteLine(ex);
+            }
         }
     }
 }
