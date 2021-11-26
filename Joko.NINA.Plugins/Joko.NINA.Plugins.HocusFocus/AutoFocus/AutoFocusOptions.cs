@@ -10,8 +10,8 @@
 
 #endregion "copyright"
 
+using Joko.NINA.Plugins.Common.Utility;
 using Joko.NINA.Plugins.HocusFocus.Interfaces;
-using Joko.NINA.Plugins.HocusFocus.Utility;
 using NINA.Core.Utility;
 using NINA.Profile.Interfaces;
 using System;

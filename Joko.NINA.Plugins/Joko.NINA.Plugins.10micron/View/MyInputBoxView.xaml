@@ -1,0 +1,129 @@
+﻿<Window
+    x:Class="Joko.NINA.Plugins.TenMicron.View.MyInputBoxView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
+    xmlns:local="clr-namespace:Joko.NINA.Plugins.TenMicron.View"
+    xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
+    mc:Ignorable="d"
+    Title="{Binding Title}"
+    MinWidth="250"
+    MinHeight="155"
+    util:DialogCloser.DialogResult="{Binding DialogResult}"
+    Background="{StaticResource BackgroundBrush}"
+    ContentRendered="Window_ContentRendered"
+    SizeToContent="WidthAndHeight">
+    <Window.Style>
+        <Style TargetType="{x:Type Window}">
+            <Setter Property="ResizeMode" Value="NoResize" />
+
+            <Setter Property="WindowChrome.WindowChrome">
+                <Setter.Value>
+                    <WindowChrome
+                        CaptionHeight="20"
+                        GlassFrameThickness="-1"
+                        UseAeroCaptionButtons="False" />
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Window}">
+                        <Border
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
+                            BorderBrush="Transparent"
+                            BorderThickness="0">
+                            <Grid Background="{StaticResource SecondaryBackgroundBrush}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="30" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <StackPanel
+                                    Margin="2.5,0,0,0"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Orientation="Horizontal">
+                                    <Image
+                                        Width="25"
+                                        Height="20"
+                                        Margin="5,0,0,0"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center"
+                                        Source="/NINA;component/Resources/Logo_Nina.png" />
+                                    <TextBlock
+                                        Margin="4,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Foreground="{StaticResource ButtonForegroundDisabledBrush}"
+                                        Text="{Binding Title}" />
+                                </StackPanel>
+
+                                <StackPanel
+                                    Margin="0,0,2.5,0"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    Orientation="Horizontal">
+                                    <Button
+                                        Width="45"
+                                        Margin="5,0,0,0"
+                                        HorizontalAlignment="Right"
+                                        Click="Button_Cancel_Click"
+                                        Style="{StaticResource CloseWindowButton}"
+                                        WindowChrome.IsHitTestVisibleInChrome="True">
+                                        <Path
+                                            Margin="10"
+                                            Data="{StaticResource CancelSVG}"
+                                            Stretch="Uniform"
+                                            Style="{StaticResource WindowCloseButtonPath}" />
+                                    </Button>
+                                </StackPanel>
+
+                                <Border Grid.Row="1" Background="{StaticResource BackgroundBrush}">
+                                    <ContentPresenter Content="{TemplateBinding Content}" />
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Style>
+    <Grid
+        x:Name="TheContent"
+        Margin="15"
+        HorizontalAlignment="Stretch"
+        Background="{StaticResource BackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBox
+            Grid.Row="0"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Margin="10,0,10,0"
+            MinWidth="120"
+            TextAlignment="Center"
+            Text="{Binding InputText}" />
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Button
+                Click="Button_Cancel_Click"
+                IsCancel="True">
+                <TextBlock Foreground="{StaticResource ButtonForegroundBrush}" Text="{ns:Loc LblCancel}" />
+            </Button>
+            <Button
+                Grid.Column="1"
+                Margin="1,0,0,0"
+                Click="Button_OK_Click"
+                IsDefault="True">
+                <TextBlock Foreground="{StaticResource ButtonForegroundBrush}" Text="{ns:Loc LblOK}" />
+            </Button>
+        </Grid>
+    </Grid>
+</Window>

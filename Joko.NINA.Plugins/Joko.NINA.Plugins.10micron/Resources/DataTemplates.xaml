@@ -1,0 +1,17 @@
+﻿<ResourceDictionary
+    x:Class="Joko.NINA.Plugins.TenMicron.Resources.DataTemplates"
+    xmlns:view="clr-namespace:Joko.NINA.Plugins.TenMicron.View"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="OptionsDataTemplates.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
+    <DataTemplate x:Key="Joko.NINA.Plugins.TenMicron.ViewModels.MountVM_Dockable">
+        <view:MountView />
+    </DataTemplate>
+
+    <DataTemplate x:Key="Joko.NINA.Plugins.TenMicron.ViewModels.MountModelVM_Dockable">
+        <view:MountModelView />
+    </DataTemplate>
+</ResourceDictionary>

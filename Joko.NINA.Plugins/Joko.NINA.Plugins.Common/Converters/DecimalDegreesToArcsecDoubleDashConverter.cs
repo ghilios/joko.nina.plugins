@@ -9,6 +9,7 @@
 */
 
 #endregion "copyright"
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -17,28 +18,35 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.HocusFocus.Converters {
-    public class ZeroToInfinityConverter : IValueConverter {
+namespace Joko.NINA.Plugins.Common.Converters {
+
+    public class DecimalDegreesToArcsecDoubleDashConverter : IValueConverter {
+        private static readonly decimal ArcsecPerDegree = 3600;
+
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
-            if (value is int) {
-                var d = (int)value;
-                if (d <= 0) {
-                    return "unlimited";
-                }
-                return d.ToString();
+            switch (value) {
+                case decimal i when i == decimal.MinValue:
+                    return "--";
+
+                case decimal i:
+                    return i * ArcsecPerDegree;
+
+                default:
+                    return value;
             }
-            throw new ArgumentException("Invalid Type for Converter");
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) {
-            if (value is string) {
-                var s = (string)value;
-                if (s == "unlimited") {
-                    return 0;
-                }
-                return int.Parse(s);
+            switch (value) {
+                case string s when s == "--":
+                    return decimal.MinValue;
+
+                case string s:
+                    return decimal.Parse(s) / ArcsecPerDegree;
+
+                default:
+                    return value;
             }
-            throw new ArgumentException("Invalid Type for Converter");
         }
     }
 }
