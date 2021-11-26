@@ -18,10 +18,6 @@ namespace TenMicronTestApp {
 
     internal class Program {
 
-        // TODO List:
-        //  * Add trigger to push refraction updates. The built in source is at:
-        //         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Temp\\10micronRefraction.txt";
-        //         Path.GetTempPath() + "\\10micronRefraction.txt";
         private static void Main(string[] args) {
             /*
             string id = ASCOM.DriverAccess.Telescope.Choose("");
@@ -30,7 +26,6 @@ namespace TenMicronTestApp {
             */
 
             // create this device
-            /*
             ASCOM.DriverAccess.Telescope device = new ASCOM.DriverAccess.Telescope("ASCOM.tenmicron_mount.Telescope");
             device.Connected = true;
 
@@ -48,25 +43,6 @@ namespace TenMicronTestApp {
             var alignmentStarCount = mount.GetAlignmentStarCount();
             var alignmentStars = Enumerable.Range(1, alignmentStarCount).Select(i => mount.GetAlignmentStarInfo(i)).ToList();
             Console.WriteLine("Complete");
-            */
-            /*
-            string id = ASCOM.DriverAccess.Camera.Choose("");
-            if (string.IsNullOrEmpty(id))
-                return;
-            */
-
-            string id = "ASCOM.NINA.SBIGTracker.Camera";
-            // create this device
-            try {
-                ASCOM.DriverAccess.Camera device = new ASCOM.DriverAccess.Camera(id);
-                Console.WriteLine(id);
-                device.Connected = true;
-
-                var offset = device.Offset;
-                Console.WriteLine(offset);
-            } catch (Exception ex) {
-                Console.WriteLine(ex);
-            }
         }
     }
 }

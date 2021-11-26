@@ -146,15 +146,15 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
             var parser = GetParser<AlignmentStarInfoLexer, AlignmentStarInfoParser>(s);
             var context = parser.alignmentStarInfo();
 
-            var rightAscensionContext = context.time();
+            var localHourContext = context.time();
             var declinationAngleContext = context.angle();
             var errorContext = context.error();
 
-            var raHours = int.Parse(rightAscensionContext.hours().GetText());
-            var raMinutes = int.Parse(rightAscensionContext.minutes().GetText());
-            var raSeconds = int.Parse(rightAscensionContext.seconds().GetText());
-            var raHundredthSeconds = int.Parse(rightAscensionContext.hundredthSeconds().GetText());
-            var rightAscension = new AstrometricTime(raHours, raMinutes, raSeconds, raHundredthSeconds);
+            var localHours = int.Parse(localHourContext.hours().GetText());
+            var localMinutes = int.Parse(localHourContext.minutes().GetText());
+            var localSeconds = int.Parse(localHourContext.seconds().GetText());
+            var raHundredthSeconds = int.Parse(localHourContext.hundredthSeconds().GetText());
+            var rightAscension = new AstrometricTime(localHours, localMinutes, localSeconds, raHundredthSeconds);
 
             var decSign = declinationAngleContext.sign().GetText();
             var decDegrees = int.Parse(declinationAngleContext.degrees().GetText());
@@ -488,6 +488,15 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
                 new ProductFirmware(productName, firmwareTimestamp.ToUniversalTime(), firmwareVersion),
                 $"{productRawResponse}\n{firmwareDateRawResponse}\n{firmwareTimeRawResponse}\n{firmwareVersionResponse}"
             );
+        }
+
+        public Response<bool> DeleteAlignmentStar(int alignmentStarIndex) {
+            var command = $":delalst{alignmentStarIndex}#";
+
+            // returns 1# on success, and 0# on failure
+            var rawResponse = this.mountCommander.SendCommandString(command, true);
+            var result = rawResponse == "1#";
+            return new Response<bool>(result, rawResponse);
         }
     }
 }

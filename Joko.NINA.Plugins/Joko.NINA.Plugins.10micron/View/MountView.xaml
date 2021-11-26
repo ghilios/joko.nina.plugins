@@ -14,8 +14,6 @@
         <Grid.RowDefinitions>
             <RowDefinition />
             <RowDefinition />
-            <RowDefinition />
-            <RowDefinition />
         </Grid.RowDefinitions>
         <GroupBox Grid.Row="0">
             <GroupBox.Header>
@@ -25,9 +23,9 @@
                 <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0">
                     <UniformGrid Columns="2">
                         <UniformGrid
-                        Margin="0,6,0,6"
-                        VerticalAlignment="Center"
-                        Columns="2">
+                            Margin="0,6,0,6"
+                            VerticalAlignment="Center"
+                            Columns="2">
                             <TextBlock Text="Mount" />
                             <TextBlock Margin="5,0,0,0" Text="{Binding MountInfo.ProductFirmware.ProductName}" />
                         </UniformGrid>
@@ -36,9 +34,9 @@
                 <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0">
                     <UniformGrid Columns="2">
                         <UniformGrid
-                        Margin="0,6,0,6"
-                        VerticalAlignment="Center"
-                        Columns="2">
+                            Margin="0,6,0,6"
+                            VerticalAlignment="Center"
+                            Columns="2">
                             <TextBlock Text="Firmware Version" />
                             <TextBlock Margin="5,0,0,0" Text="{Binding MountInfo.ProductFirmware.Version}" />
                         </UniformGrid>
@@ -47,9 +45,9 @@
                 <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0">
                     <UniformGrid Columns="2">
                         <UniformGrid
-                        Margin="0,6,0,6"
-                        VerticalAlignment="Center"
-                        Columns="2">
+                            Margin="0,6,0,6"
+                            VerticalAlignment="Center"
+                            Columns="2">
                             <TextBlock Text="Firmware Date" />
                             <TextBlock Margin="5,0,0,0" Text="{Binding MountInfo.ProductFirmware.Timestamp}" />
                         </UniformGrid>

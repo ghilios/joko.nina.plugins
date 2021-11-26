@@ -377,13 +377,18 @@
     <Compile Include="Utility\ConstantDateTime.cs" />
     <Compile Include="Utility\MountUtility.cs" />
     <Compile Include="Utility\ThrowingErrorListener.cs" />
+    <Compile Include="Utility\WPFExtensions.cs" />
     <Compile Include="ViewModels\MountModelVM.cs" />
     <Compile Include="ViewModels\MountVM.cs" />
+    <Compile Include="ViewModels\MyInputBox.cs" />
     <Compile Include="View\MountModelView.xaml.cs">
       <DependentUpon>MountModelView.xaml</DependentUpon>
     </Compile>
     <Compile Include="View\MountView.xaml.cs">
       <DependentUpon>MountView.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="View\MyInputBoxView.xaml.cs">
+      <DependentUpon>MyInputBoxView.xaml</DependentUpon>
     </Compile>
   </ItemGroup>
   <ItemGroup>
@@ -428,6 +433,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="View\MountView.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="View\MyInputBoxView.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

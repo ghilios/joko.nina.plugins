@@ -143,22 +143,17 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
     public class AlignmentStarInfo {
 
         public AlignmentStarInfo(AstrometricTime rightAscension, CoordinateAngle declination, decimal errorArcseconds) {
-            this.RightAscension = rightAscension;
+            this.LocalHour = rightAscension;
             this.Declination = declination;
             this.ErrorArcseconds = errorArcseconds;
         }
 
-        public AstrometricTime RightAscension { get; private set; }
+        public AstrometricTime LocalHour { get; private set; }
         public CoordinateAngle Declination { get; private set; }
         public decimal ErrorArcseconds { get; private set; }
 
-        // TODO: Use a converter for this? Hack for now
-        public double Altitude { get; private set; }
-
-        public double Azimuth { get; private set; }
-
         public override string ToString() {
-            return $"RA: {RightAscension}, DEC: {Declination}. Error={ErrorArcseconds:.0} arcseconds";
+            return $"RA: {LocalHour}, DEC: {Declination}. Error={ErrorArcseconds:.0} arcseconds";
         }
     }
 

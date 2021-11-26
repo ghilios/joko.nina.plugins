@@ -30,6 +30,8 @@ namespace Joko.NINA.Plugins.TenMicron.Interfaces {
 
         void DeleteAlignment();
 
+        bool DeleteAlignmentStar(int alignmentStarIndex);
+
         int GetAlignmentStarCount();
 
         AlignmentStarInfo GetAlignmentStarInfo(int alignmentStarIndex);

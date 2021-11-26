@@ -35,14 +35,13 @@ namespace Joko.NINA.Plugins.TenMicron.Model {
             double modelMaxErrorArcsec,
             Angle latitude,
             Angle longitude,
-            double siteElevation,
-            DateTime modelCreationTime) {
-            var lst = AstroUtil.GetLocalSiderealTime(modelCreationTime, longitude.Degree);
-            // TODO: Rename this to LocalHour
-            var alignmentStarRA = Angle.ByHours(AstroUtil.EuclidianModulus(lst - alignmentStarInfo.RightAscension.ToAngle().Hours, 24));
+            double siteElevation) {
+            var now = DateTime.Now;
+            var lst = AstroUtil.GetLocalSiderealTime(now, longitude.Degree);
+            var alignmentStarRA = Angle.ByHours(AstroUtil.EuclidianModulus(lst - alignmentStarInfo.LocalHour.ToAngle().Hours, 24));
             var alignmentStarDec = alignmentStarInfo.Declination.ToAngle();
 
-            var coordinates = new Coordinates(ra: alignmentStarRA, dec: alignmentStarDec, epoch: Epoch.JNOW, referenceDate: modelCreationTime, dateTime: new ConstantDateTime(modelCreationTime));
+            var coordinates = new Coordinates(ra: alignmentStarRA, dec: alignmentStarDec, epoch: Epoch.JNOW, referenceDate: now, dateTime: new ConstantDateTime(now));
             var topocentricCoordinates = coordinates.Transform(latitude: latitude, longitude: longitude, elevation: siteElevation);
             var errorRatio = (double)alignmentStarInfo.ErrorArcseconds / modelMaxErrorArcsec;
             return new AlignmentStarPoint() {

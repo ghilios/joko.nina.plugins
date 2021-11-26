@@ -9,244 +9,395 @@
     xmlns:swm="clr-namespace:System.Windows.Media;assembly=PresentationCore"
     x:Name="UC"
     mc:Ignorable="d">
-    <Grid Visibility="{Binding MountInfo.Connected, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition />
-            <ColumnDefinition />
-        </Grid.ColumnDefinitions>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="2*" />
-        </Grid.RowDefinitions>
-        <GroupBox Grid.Column="0" VerticalAlignment="Top">
-            <GroupBox.Header>
-                <Grid Height="40" Margin="5">
-                    <TextBlock
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Visibility="{Binding MountInfo.Connected, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="2*" />
+            </Grid.RowDefinitions>
+            <GroupBox Grid.Column="0" VerticalAlignment="Top">
+                <GroupBox.Header>
+                    <Grid Height="40" Margin="5">
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontSize="20"
+                            Text="Alignment Information" />
+                    </Grid>
+                </GroupBox.Header>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="200" />
+                        <ColumnDefinition />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel
+                        Grid.ColumnSpan="2"
+                        HorizontalAlignment="Left"
                         VerticalAlignment="Center"
-                        FontSize="20"
-                        Text="Alignment Information" />
+                        Orientation="Vertical">
+                        <UniformGrid Columns="2">
+                            <UniformGrid
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center"
+                                Columns="2">
+                                <TextBlock
+                                    MinWidth="200"
+                                    VerticalAlignment="Center"
+                                    Text="Stars" />
+                                <TextBlock
+                                    Margin="5,0,0,0"
+                                    HorizontalAlignment="Left"
+                                    Text="{Binding LoadedAlignmentModel.AlignmentStarCount, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </UniformGrid>
+                            <UniformGrid
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center"
+                                Columns="2">
+                                <TextBlock
+                                    MinWidth="200"
+                                    VerticalAlignment="Center"
+                                    Text="Polar Altitude" />
+                                <StackPanel
+                                    HorizontalAlignment="Left"
+                                    Orientation="Horizontal"
+                                    Margin="5,0,0,0">
+                                    <TextBlock Text="{Binding LoadedAlignmentModel.RightAscensionAltitude, Converter={StaticResource DecimalMinToDoubleDashConverter}}" />
+                                    <TextBlock Margin="1,0,0,0" Text="°" Opacity="0.4" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center"
+                                Columns="2">
+                                <TextBlock
+                                    MinWidth="200"
+                                    VerticalAlignment="Center"
+                                    Text="RMS Error" />
+                                <StackPanel
+                                    HorizontalAlignment="Left"
+                                    Orientation="Horizontal"
+                                    Margin="5,0,0,0">
+                                    <TextBlock Text="{Binding LoadedAlignmentModel.RMSError, Converter={StaticResource DecimalMinToDoubleDashConverter}}" />
+                                    <TextBlock Margin="1,0,0,0" Text="arcsec" Opacity="0.4" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center"
+                                Columns="2">
+                                <TextBlock
+                                    MinWidth="200"
+                                    VerticalAlignment="Center"
+                                    Text="Polar Azimuth" />
+                                <StackPanel
+                                    HorizontalAlignment="Left"
+                                    Orientation="Horizontal"
+                                    Margin="5,0,0,0">
+                                    <TextBlock Text="{Binding LoadedAlignmentModel.RightAscensionAzimuth, Converter={StaticResource DecimalMinToDoubleDashConverter}}" />
+                                    <TextBlock Margin="1,0,0,0" Text="°" Opacity="0.4" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center"
+                                Columns="2">
+                                <TextBlock
+                                    MinWidth="200"
+                                    VerticalAlignment="Center"
+                                    Text="Model Terms" />
+                                <TextBlock
+                                    Margin="5,0,0,0"
+                                    HorizontalAlignment="Left"
+                                    Text="{Binding LoadedAlignmentModel.ModelTerms, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </UniformGrid>
+                            <UniformGrid
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center"
+                                Columns="2">
+                                <TextBlock
+                                    MinWidth="200"
+                                    VerticalAlignment="Center"
+                                    Text="Cone Error" />
+                                <StackPanel
+                                    HorizontalAlignment="Left"
+                                    Orientation="Horizontal"
+                                    Margin="5,0,0,0">
+                                    <TextBlock Text="{Binding LoadedAlignmentModel.OrthogonalityErrorDegrees, StringFormat=\{0:.##\}, Converter={StaticResource DecimalDegreesToArcsecDoubleDashConverter}}" />
+                                    <TextBlock Margin="1,0,0,0" Text="arcsec" Opacity="0.4" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center"
+                                Columns="2">
+                                <TextBlock
+                                    MinWidth="200"
+                                    VerticalAlignment="Center"
+                                    Text="PA Error Angle" />
+                                <StackPanel
+                                    HorizontalAlignment="Left"
+                                    Orientation="Horizontal"
+                                    Margin="5,0,0,0">
+                                    <TextBlock Text="{Binding LoadedAlignmentModel.RightAscensionPolarPositionAngleDegrees, Converter={StaticResource DecimalMinToDoubleDashConverter}}" />
+                                    <TextBlock Margin="1,0,0,0" Text="°" Opacity="0.4" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center"
+                                Columns="2">
+                                <TextBlock
+                                    MinWidth="200"
+                                    VerticalAlignment="Center"
+                                    Text="PA Error" />
+                                <StackPanel
+                                    HorizontalAlignment="Left"
+                                    Orientation="Horizontal"
+                                    Margin="5,0,0,0">
+                                    <TextBlock Text="{Binding LoadedAlignmentModel.PolarAlignErrorDegrees, StringFormat=\{0:.##\}, Converter={StaticResource DecimalDegreesToArcsecDoubleDashConverter}}" />
+                                    <TextBlock Margin="1,0,0,0" Text="arcsec" Opacity="0.4" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center"
+                                Columns="2">
+                                <TextBlock
+                                    MinWidth="200"
+                                    VerticalAlignment="Center"
+                                    Text="PA Alt Error" />
+                                <StackPanel
+                                    HorizontalAlignment="Left"
+                                    Orientation="Horizontal"
+                                    Margin="5,0,0,0">
+                                    <TextBlock Text="{Binding LoadedAlignmentModel.PAErrorAltitudeDegrees, StringFormat=\{0:.##\}, Converter={StaticResource DecimalDegreesToArcsecDoubleDashConverter}}" />
+                                    <TextBlock Margin="1,0,0,0" Text="arcsec" Opacity="0.4" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid
+                                Margin="0,5,0,0"
+                                VerticalAlignment="Center"
+                                Columns="2">
+                                <TextBlock
+                                    MinWidth="200"
+                                    VerticalAlignment="Center"
+                                    Text="PA Az Error" />
+                                <StackPanel
+                                    HorizontalAlignment="Left"
+                                    Orientation="Horizontal"
+                                    Margin="5,0,0,0">
+                                    <TextBlock Text="{Binding LoadedAlignmentModel.PAErrorAzimuthDegrees, StringFormat=\{0:.##\}, Converter={StaticResource DecimalDegreesToArcsecDoubleDashConverter}}" />
+                                    <TextBlock Margin="1,0,0,0" Text="arcsec" Opacity="0.4" />
+                                </StackPanel>
+                            </UniformGrid>
+                        </UniformGrid>
+                    </StackPanel>
                 </Grid>
-            </GroupBox.Header>
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="200" />
-                    <ColumnDefinition />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel
-                    Grid.ColumnSpan="2"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Center"
-                    Orientation="Vertical">
-                    <UniformGrid Columns="2">
-                        <UniformGrid
-                            Margin="0,5,0,0"
+            </GroupBox>
+            <GroupBox Grid.Column="0" Grid.Row="1" VerticalAlignment="Top">
+                <GroupBox.Header>
+                    <Grid Height="40" Margin="5">
+                        <TextBlock
                             VerticalAlignment="Center"
-                            Columns="2">
-                            <TextBlock
-                                MinWidth="200"
-                                VerticalAlignment="Center"
-                                Text="Stars" />
-                            <TextBlock
-                                Margin="5,0,0,0"
-                                HorizontalAlignment="Left"
-                                Text="{Binding LoadedAlignmentModel.AlignmentStarCount, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
-                        </UniformGrid>
-                        <UniformGrid
-                            Margin="0,5,0,0"
-                            VerticalAlignment="Center"
-                            Columns="2">
-                            <TextBlock
-                                MinWidth="200"
-                                VerticalAlignment="Center"
-                                Text="Polar Altitude" />
-                            <StackPanel
-                                HorizontalAlignment="Left"
-                                Orientation="Horizontal"
-                                Margin="5,0,0,0">
-                                <TextBlock Text="{Binding LoadedAlignmentModel.AlignmentModelInfo.RightAscensionAltitude, Converter={StaticResource DecimalMinToDoubleDashConverter}}" />
-                                <TextBlock Margin="1,0,0,0" Text="°" Opacity="0.4" />
-                            </StackPanel>
-                        </UniformGrid>
-                        <UniformGrid
-                            Margin="0,5,0,0"
-                            VerticalAlignment="Center"
-                            Columns="2">
-                            <TextBlock
-                                MinWidth="200"
-                                VerticalAlignment="Center"
-                                Text="RMS Error" />
-                            <StackPanel
-                                HorizontalAlignment="Left"
-                                Orientation="Horizontal"
-                                Margin="5,0,0,0">
-                                <TextBlock Text="{Binding LoadedAlignmentModel.AlignmentModelInfo.RMSError, Converter={StaticResource DecimalMinToDoubleDashConverter}}" />
-                                <TextBlock Margin="1,0,0,0" Text="arcsec" Opacity="0.4" />
-                            </StackPanel>
-                        </UniformGrid>
-                        <UniformGrid
-                            Margin="0,5,0,0"
-                            VerticalAlignment="Center"
-                            Columns="2">
-                            <TextBlock
-                                MinWidth="200"
-                                VerticalAlignment="Center"
-                                Text="Polar Azimuth" />
-                            <StackPanel
-                                HorizontalAlignment="Left"
-                                Orientation="Horizontal"
-                                Margin="5,0,0,0">
-                                <TextBlock Text="{Binding LoadedAlignmentModel.AlignmentModelInfo.RightAscensionAzimuth, Converter={StaticResource DecimalMinToDoubleDashConverter}}" />
-                                <TextBlock Margin="1,0,0,0" Text="°" Opacity="0.4" />
-                            </StackPanel>
-                        </UniformGrid>
-                        <UniformGrid
-                            Margin="0,5,0,0"
-                            VerticalAlignment="Center"
-                            Columns="2">
-                            <TextBlock
-                                MinWidth="200"
-                                VerticalAlignment="Center"
-                                Text="Model Terms" />
-                            <TextBlock
-                                Margin="5,0,0,0"
-                                HorizontalAlignment="Left"
-                                Text="{Binding LoadedAlignmentModel.AlignmentModelInfo.ModelTerms, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
-                        </UniformGrid>
-                        <UniformGrid
-                            Margin="0,5,0,0"
-                            VerticalAlignment="Center"
-                            Columns="2">
-                            <TextBlock
-                                MinWidth="200"
-                                VerticalAlignment="Center"
-                                Text="Cone Error" />
-                            <StackPanel
-                                HorizontalAlignment="Left"
-                                Orientation="Horizontal"
-                                Margin="5,0,0,0">
-                                <TextBlock Text="{Binding LoadedAlignmentModel.AlignmentModelInfo.OrthogonalityErrorDegrees, Converter={StaticResource DecimalDegreesToArcsecDoubleDashConverter}}" />
-                                <TextBlock Margin="1,0,0,0" Text="arcsec" Opacity="0.4" />
-                            </StackPanel>
-                        </UniformGrid>
-                        <UniformGrid
-                            Margin="0,5,0,0"
-                            VerticalAlignment="Center"
-                            Columns="2">
-                            <TextBlock
-                                MinWidth="200"
-                                VerticalAlignment="Center"
-                                Text="PA Error Angle" />
-                            <StackPanel
-                                HorizontalAlignment="Left"
-                                Orientation="Horizontal"
-                                Margin="5,0,0,0">
-                                <TextBlock Text="{Binding LoadedAlignmentModel.AlignmentModelInfo.RightAscensionPolarPositionAngleDegrees, Converter={StaticResource DecimalMinToDoubleDashConverter}}" />
-                                <TextBlock Margin="1,0,0,0" Text="°" Opacity="0.4" />
-                            </StackPanel>
-                        </UniformGrid>
-                        <UniformGrid
-                            Margin="0,5,0,0"
-                            VerticalAlignment="Center"
-                            Columns="2">
-                            <TextBlock
-                                MinWidth="200"
-                                VerticalAlignment="Center"
-                                Text="PA Error" />
-                            <StackPanel
-                                HorizontalAlignment="Left"
-                                Orientation="Horizontal"
-                                Margin="5,0,0,0">
-                                <TextBlock Text="{Binding LoadedAlignmentModel.AlignmentModelInfo.PolarAlignErrorDegrees, Converter={StaticResource DecimalDegreesToArcsecDoubleDashConverter}}" />
-                                <TextBlock Margin="1,0,0,0" Text="arcsec" Opacity="0.4" />
-                            </StackPanel>
-                        </UniformGrid>
-                    </UniformGrid>
-                </StackPanel>
-            </Grid>
-        </GroupBox>
-        <GroupBox Grid.Column="0" Grid.Row="1" VerticalAlignment="Top">
-            <GroupBox.Header>
-                <Grid Height="40" Margin="5">
-                    <TextBlock
-                        VerticalAlignment="Center"
-                        FontSize="20"
-                        Text="Alignment Model" />
+                            FontSize="20"
+                            Text="Alignment Model" />
+                    </Grid>
+                </GroupBox.Header>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="*" MinWidth="200" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition />
+                        <RowDefinition />
+                    </Grid.RowDefinitions>
+
+                    <oxy:Plot
+                        Grid.Row="0"
+                        Grid.Column="0"
+                        Grid.RowSpan="2"
+                        MinWidth="300"
+                        MinHeight="300"
+                        Width="Auto"
+                        Height="{Binding ActualWidth, RelativeSource={RelativeSource Self}}"
+                        VerticalAlignment="Stretch"
+                        HorizontalAlignment="Stretch"
+                        Background="{StaticResource BackgroundBrush}"
+                        PlotAreaBackground="{StaticResource BackgroundBrush}"
+                        PlotAreaBorderColor="Transparent">
+                        <oxy:Plot.Axes>
+                            <oxy:MagnitudeAxis
+                                AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                                IntervalLength="9"
+                                IsPanEnabled="False"
+                                IsZoomEnabled="False"
+                                MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
+                                MajorGridlineStyle="LongDash"
+                                MajorStep="30"
+                                Maximum="90"
+                                Minimum="0"
+                                StartPosition="0"
+                                EndPosition="1"
+                                TextColor="Transparent"
+                                TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" />
+                            <oxy:AngleAxis
+                                AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                                IntervalLength="15"
+                                IsPanEnabled="False"
+                                IsZoomEnabled="False"
+                                MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
+                                MajorGridlineStyle="LongDash"
+                                MajorStep="30"
+                                StartAngle="0"
+                                EndAngle="360"
+                                StartPosition="0"
+                                EndPosition="1"
+                                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                                TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" />
+                            <oxy:LinearColorAxis
+                                Key="ErrorColorAxis"
+                                Minimum="0.0"
+                                Maximum="{Binding LoadedAlignmentModel.MaxRMSError}"
+                                HighColor="Transparent"
+                                LowColor="Transparent"
+                                InvalidNumberColor="Black"
+                                PaletteSize="200"
+                                Position="Right"
+                                AxisDistance="50"
+                                IsAxisVisible="{Binding LoadedAlignmentModel.AlignmentStars, UpdateSourceTrigger=PropertyChanged, Converter={StaticResource CollectionContainsItemsToBooleanConverter}}">
+                                <oxy:LinearColorAxis.GradientStops>
+                                    <swm:GradientStopCollection>
+                                        <swm:GradientStop Color="Green" Offset="0.0" />
+                                        <swm:GradientStop Color="#80FF00" Offset="0.5" />
+                                        <swm:GradientStop Color="Red" Offset="1.0" />
+                                    </swm:GradientStopCollection>
+                                </oxy:LinearColorAxis.GradientStops>
+                            </oxy:LinearColorAxis>
+                        </oxy:Plot.Axes>
+                        <oxy:Plot.Series>
+                            <oxy:ScatterSeries
+                                MarkerType="Circle"
+                                ColorAxisKey="ErrorColorAxis"
+                                ItemsSource="{Binding LoadedAlignmentModel.AlignmentStars, UpdateSourceTrigger=PropertyChanged}"
+                                DataFieldX="InvertedAltitude"
+                                DataFieldY="Azimuth"
+                                DataFieldSize="ErrorPointRadius"
+                                DataFieldValue="ErrorArcsec"
+                                TrackerFormatString="{}Altitude: {Altitude:###.####}&#176;&#x0a;Azimuth: {Azimuth:###.####}&#176;&#x0a;RMS Error: {ErrorArcsec:###.##} arcsec" />
+                        </oxy:Plot.Series>
+                    </oxy:Plot>
+                    <StackPanel
+                        Grid.Row="0"
+                        Grid.Column="1"
+                        Orientation="Vertical"
+                        Margin="0,10,0,0">
+                        <Button
+                            Width="Auto"
+                            Height="30"
+                            Margin="5,0,5,5"
+                            Command="{Binding DeleteWorstStarCommand}">
+                            <Button.IsEnabled>
+                                <MultiBinding Converter="{StaticResource BooleanAndConverter}">
+                                    <Binding Path="LoadedAlignmentModel.AlignmentStarCount" Converter="{StaticResource PositiveToBooleanConverter}" />
+                                    <Binding Path="ModelLoaded" />
+                                </MultiBinding>
+                            </Button.IsEnabled>
+                            <TextBlock Foreground="{StaticResource ButtonForegroundBrush}" Text="Remove Worst Star" ToolTip="Delete star with the largest RMS error" />
+                        </Button>
+                        <Separator Margin="0,10,0,15" Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" />
+                        <Grid Grid.Row="0" Margin="5,0,5,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition />
+                            </Grid.RowDefinitions>
+                            <ComboBox
+                                Grid.Column="0"
+                                Grid.Row="0"
+                                Name="ModelName_List"
+                                ItemsSource="{Binding ModelNames}"
+                                SelectedIndex="{Binding SelectedModelIndex}"
+                                SelectedItem="{Binding SelectedModelName}"
+                                Height="30" Width="Auto" />
+                            <Button
+                                Grid.Column="1"
+                                Grid.Row="0"
+                                Width="30"
+                                Height="30"
+                                Margin="1,0,0,0"
+                                Command="{Binding LoadModelNamesCommand}"
+                                IsEnabled="{Binding ModelNamesLoaded}">
+                                <Button.ToolTip>
+                                    <ToolTip ToolTipService.ShowOnDisabled="False">
+                                        <TextBlock Text="Refresh Model List" />
+                                    </ToolTip>
+                                </Button.ToolTip>
+                                <Grid>
+                                    <Path
+                                        Margin="5"
+                                        Data="{StaticResource LoopSVG}"
+                                        Fill="{StaticResource ButtonForegroundBrush}"
+                                        Stretch="Uniform" />
+                                </Grid>
+                            </Button>
+                        </Grid>
+                        <Button
+                            Width="Auto"
+                            Height="30"
+                            Margin="5,0,5,5"
+                            Command="{Binding DeleteSelectedModelCommand}">
+                            <Button.IsEnabled>
+                                <MultiBinding Converter="{StaticResource BooleanAndConverter}">
+                                    <Binding Path="SelectedIndex" ElementName="ModelName_List" Converter="{StaticResource PositiveToBooleanConverter}" />
+                                    <Binding Path="ModelNamesLoaded" />
+                                </MultiBinding>
+                            </Button.IsEnabled>
+                            <TextBlock Foreground="{StaticResource ButtonForegroundBrush}" Text="Delete" />
+                        </Button>
+                        <Button
+                            Width="Auto"
+                            Height="30"
+                            Margin="5,0,5,5"
+                            Command="{Binding LoadSelectedModelCommand}">
+                            <Button.IsEnabled>
+                                <MultiBinding Converter="{StaticResource BooleanAndConverter}">
+                                    <Binding Path="SelectedIndex" ElementName="ModelName_List" Converter="{StaticResource PositiveToBooleanConverter}" />
+                                    <Binding Path="ModelNamesLoaded" />
+                                </MultiBinding>
+                            </Button.IsEnabled>
+                            <TextBlock Foreground="{StaticResource ButtonForegroundBrush}" Text="Load" />
+                        </Button>
+                        <Button
+                            Width="Auto"
+                            Height="30"
+                            Margin="5,0,5,5"
+                            Command="{Binding SaveSelectedModelCommand}">
+                            <Button.IsEnabled>
+                                <MultiBinding Converter="{StaticResource BooleanAndConverter}">
+                                    <Binding Path="SelectedIndex" ElementName="ModelName_List" Converter="{StaticResource PositiveToBooleanConverter}" />
+                                    <Binding Path="ModelLoaded" />
+                                </MultiBinding>
+                            </Button.IsEnabled>
+                            <TextBlock Foreground="{StaticResource ButtonForegroundBrush}" Text="Save" />
+                        </Button>
+                        <Button
+                            Width="Auto"
+                            Height="30"
+                            Margin="5,0,5,5"
+                            Command="{Binding SaveAsModelCommand}"
+                            IsEnabled="{Binding ModelLoaded}">
+                            <TextBlock Foreground="{StaticResource ButtonForegroundBrush}" Text="Save As" />
+                        </Button>
+                    </StackPanel>
                 </Grid>
-            </GroupBox.Header>
-            <StackPanel Orientation="Vertical">
-                <oxy:Plot
-                    MinHeight="500"
-                    Height="Auto"
-                    VerticalAlignment="Stretch"
-                    HorizontalAlignment="Stretch"
-                    Background="{StaticResource BackgroundBrush}"
-                    PlotAreaBackground="{StaticResource BackgroundBrush}"
-                    PlotAreaBorderColor="Transparent">
-                    <oxy:Plot.Axes>
-                        <oxy:MagnitudeAxis
-                            AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                            IntervalLength="9"
-                            IsPanEnabled="False"
-                            IsZoomEnabled="False"
-                            MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
-                            MajorGridlineStyle="LongDash"
-                            MajorStep="30"
-                            Maximum="150"
-                            Minimum="0"
-                            StartPosition="0"
-                            EndPosition="1"
-                            TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" />
-                        <oxy:AngleAxis
-                            AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                            IntervalLength="15"
-                            IsPanEnabled="False"
-                            IsZoomEnabled="False"
-                            MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
-                            MajorGridlineStyle="LongDash"
-                            MajorStep="30"
-                            StartAngle="0"
-                            EndAngle="360"
-                            StartPosition="0"
-                            EndPosition="1"
-                            TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                            TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" />
-                        <oxy:LinearColorAxis
-                            Key="ErrorColorAxis"
-                            Minimum="0.0"
-                            Maximum="{Binding LoadedAlignmentModel.MaxRMSError}"
-                            HighColor="Black"
-                            LowColor="Black"
-                            InvalidNumberColor="Black"
-                            PaletteSize="200"
-                            Position="Right"
-                            PositionTier="1">
-                            <oxy:LinearColorAxis.GradientStops>
-                                <swm:GradientStopCollection>
-                                    <swm:GradientStop Color="Green" Offset="0.0" />
-                                    <swm:GradientStop Color="#80FF00" Offset="0.5" />
-                                    <swm:GradientStop Color="Red" Offset="1.0" />
-                                    <!--
-                                    <swm:GradientStop Color="#80FF00" Offset="{Binding LoadedAlignmentModel.AlignmentModelInfo.RMSError}" />
-                                    <swm:GradientStop Color="Red" Offset="" />
-                                    -->
-                                </swm:GradientStopCollection>
-                            </oxy:LinearColorAxis.GradientStops>
-                        </oxy:LinearColorAxis>
-                    </oxy:Plot.Axes>
-                    <oxy:Plot.Series>
-                        <oxy:ScatterSeries
-                            MarkerType="Circle"
-                            ColorAxisKey="ErrorColorAxis"
-                            ItemsSource="{Binding LoadedAlignmentModel.AlignmentStars, UpdateSourceTrigger=PropertyChanged}"
-                            DataFieldX="InvertedAltitude"
-                            DataFieldY="Azimuth"
-                            DataFieldSize="ErrorPointRadius"
-                            DataFieldValue="ErrorArcsec"
-                            TrackerFormatString="{}{2:###.####}, {4:###.####}, {6}" />
-                    </oxy:Plot.Series>
-                </oxy:Plot>
-            </StackPanel>
-        </GroupBox>
-    </Grid>
+            </GroupBox>
+        </Grid>
+    </ScrollViewer>
 </UserControl>

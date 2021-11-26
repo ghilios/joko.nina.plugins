@@ -387,5 +387,12 @@ namespace Joko.NINA.Plugins.TenMicron.ViewModels {
             }
             return null;
         }
+
+        public bool DeleteAlignmentStar(int alignmentStarIndex) {
+            if (supportedMountConnected) {
+                return mount.DeleteAlignmentStar(alignmentStarIndex);
+            }
+            return false;
+        }
     }
 }

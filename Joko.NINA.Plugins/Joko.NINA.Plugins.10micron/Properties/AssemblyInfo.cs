@@ -32,11 +32,11 @@ using System.Runtime.InteropServices;
 // Your name
 [assembly: AssemblyCompany("George Hilios (jokogeo)")]
 // The product name that this plugin is part of
-[assembly: AssemblyProduct("10 Micron Utilities")]
+[assembly: AssemblyProduct("10 Micron Tools")]
 [assembly: AssemblyCopyright("Copyright ©  2021")]
 
 // The minimum Version of N.I.N.A. that this plugin is compatible with
-[assembly: AssemblyMetadata("MinimumApplicationVersion", "1.11.0.1184")]
+[assembly: AssemblyMetadata("MinimumApplicationVersion", "2.0.0.2006")]
 
 // The license your plugin code is using
 [assembly: AssemblyMetadata("License", "MPL-2.0")]
@@ -63,11 +63,27 @@ using System.Runtime.InteropServices;
 //[Optional] An additional url to an example example screenshot of your plugin in action
 [assembly: AssemblyMetadata("AltScreenshotURL", "")]
 //[Optional] An in-depth description of your plugin
-[assembly: AssemblyMetadata("LongDescription", @"This plugin provides utilities for 10 micron mounts, with an initial emphasis on model building
+[assembly: AssemblyMetadata("LongDescription", @"This plugin provides tools for 10 micron mounts, such as building pointing models.
 
-**Features**
+* NOTE: This plugin is still in early development, and doesn't yet support building models *
 
-TODO
+# Features #
+
+* View and save loaded alignment models
+* Load and Delete existing alignment models
+* Remove the worst alignment star from a loaded alignment model
+
+# Coming Soon #
+
+* An Imaging pane to build full sky models
+* An Imaging pane to build DSO Track models that focus alignment stars along a DSO's sidereal path through the sky
+* Advanced Sequencer items to build models as part of a sequence
+
+# Getting Help #
+
+If you have questions, come ask in the **#plugin-discussions** channel on the NINA [Discord chat server](https://discord.com/invite/rWRbVbw).
+* 10 Micron Tools is provided 'as is' under the terms of the [Mozilla Public License 2.0](https://github.com/ghilios/joko.nina.plugins/blob/develop/LICENSE.txt)
+* Source code for this plugin is available at this plugin's [source code repository](https://github.com/ghilios/joko.nina.plugins)
 ")]
 
 // Setting ComVisible to false makes the types in this assembly not visible
@@ -80,5 +96,4 @@ TODO
 [assembly: AssemblyTrademark("")]
 // [Unused]
 [assembly: AssemblyCulture("")]
-
 [assembly: CLSCompliant(false)]

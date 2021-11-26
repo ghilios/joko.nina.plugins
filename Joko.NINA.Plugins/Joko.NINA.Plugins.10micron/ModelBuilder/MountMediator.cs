@@ -22,6 +22,10 @@ namespace Joko.NINA.Plugins.TenMicron.ModelBuilder {
             handler.DeleteAlignment();
         }
 
+        public bool DeleteAlignmentStar(int alignmentStarIndex) {
+            return handler.DeleteAlignmentStar(alignmentStarIndex);
+        }
+
         public bool DeleteModel(string name) {
             return handler.DeleteModel(name);
         }

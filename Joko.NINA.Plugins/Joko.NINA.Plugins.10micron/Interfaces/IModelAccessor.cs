@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using Joko.NINA.Plugins.TenMicron.Model;
+using NINA.Core.Model;
 using System;
 using System.Threading;
 
@@ -18,6 +19,8 @@ namespace Joko.NINA.Plugins.TenMicron.Interfaces {
 
     public interface IModelAccessor {
 
-        LoadedAlignmentModel LoadActiveModel(string modelName = null, DateTime? modelCreationTime = null, CancellationToken ct = default);
+        LoadedAlignmentModel LoadActiveModel(string modelName = null, IProgress<ApplicationStatus> progress = null, CancellationToken ct = default);
+
+        void LoadActiveModelInto(LoadedAlignmentModel alignmentModel, string modelName = null, IProgress<ApplicationStatus> progress = null, CancellationToken ct = default);
     }
 }
