@@ -14,7 +14,7 @@ using System;
 using System.Globalization;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.HocusFocus.Converters {
+namespace NINA.Joko.Plugins.HocusFocus.Converters {
 
     public class IntNegativeToVisibilityConverter : IValueConverter {
 

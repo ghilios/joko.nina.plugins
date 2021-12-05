@@ -12,7 +12,7 @@
 
 using System;
 
-namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
+namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     public class TooManyFailedMeasurementsException : Exception {
         public int NumFailures { get; private set; }

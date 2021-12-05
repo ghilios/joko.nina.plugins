@@ -12,7 +12,7 @@
 
 using System.Windows.Media;
 
-namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
+namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public enum StarBoundsTypeEnum {
         Ellipse,

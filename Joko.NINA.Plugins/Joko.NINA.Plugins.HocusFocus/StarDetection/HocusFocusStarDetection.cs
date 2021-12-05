@@ -10,8 +10,8 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.HocusFocus.Interfaces;
-using Joko.NINA.Plugins.HocusFocus.Utility;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Utility;
@@ -28,7 +28,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media;
 
-namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class HocusFocusStarDetectionAnalysis : StarDetectionAnalysis {
         private StarDetectorMetrics metrics;

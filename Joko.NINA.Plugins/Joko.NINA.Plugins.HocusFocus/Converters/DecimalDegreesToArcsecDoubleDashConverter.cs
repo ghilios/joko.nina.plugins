@@ -18,7 +18,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.HocusFocus.Converters {
+namespace NINA.Joko.Plugins.HocusFocus.Converters {
 
     public class DecimalDegreesToArcsecDoubleDashConverter : IValueConverter {
         private static readonly decimal ArcsecPerDegree = 3600;

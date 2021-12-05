@@ -13,7 +13,7 @@
 using System.ComponentModel.Composition;
 using System.Windows;
 
-namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
+namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     /// <summary>
     /// Interaction logic for DataTemplates.xaml

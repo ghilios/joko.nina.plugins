@@ -20,7 +20,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
+namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     public class HocusFocusReport : AutoFocusReport {
 

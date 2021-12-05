@@ -10,8 +10,8 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.HocusFocus.Interfaces;
-using Joko.NINA.Plugins.HocusFocus.Utility;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Core.Model;
 using NINA.Core.Utility;
 using NINA.Image.Interfaces;
@@ -21,10 +21,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using static Joko.NINA.Plugins.HocusFocus.Utility.CvImageUtility;
-using MultiStopWatch = Joko.NINA.Plugins.HocusFocus.Utility.MultiStopWatch;
+using static NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility;
+using MultiStopWatch = NINA.Joko.Plugins.HocusFocus.Utility.MultiStopWatch;
 
-namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class StarDetectorParams {
         public bool HotpixelFiltering { get; set; } = true;

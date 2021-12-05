@@ -17,7 +17,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace Joko.NINA.Plugins.HocusFocus.Utility {
+namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
     public class MultiStopWatch : IDisposable {
         private Stopwatch stopWatch;

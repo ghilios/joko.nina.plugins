@@ -10,7 +10,7 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.WPF.Base.ViewModel.AutoFocus;
@@ -19,7 +19,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Joko.NINA.Plugins.HocusFocus.Utility {
+namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
     [Flags]
     public enum CvImageStatisticsFlags {

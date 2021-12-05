@@ -17,7 +17,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.HocusFocus.Converters {
+namespace NINA.Joko.Plugins.HocusFocus.Converters {
 
     public class AutoFocusFittingToVisibilityConverter : IMultiValueConverter {
 

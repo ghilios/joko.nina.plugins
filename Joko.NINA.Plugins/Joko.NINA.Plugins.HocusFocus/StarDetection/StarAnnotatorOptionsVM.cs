@@ -17,7 +17,7 @@ using System;
 using System.ComponentModel.Composition;
 using System.Windows;
 
-namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     [Export(typeof(IDockableVM))]
     public class StarAnnotatorOptionsVM : DockableVM {
@@ -29,7 +29,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             this.Title = "Star Annotation Options";
 
             var dict = new ResourceDictionary();
-            dict.Source = new Uri("Joko.NINA.Plugins.HocusFocus;component/StarDetection/DataTemplates.xaml", UriKind.RelativeOrAbsolute);
+            dict.Source = new Uri("NINA.Joko.Plugins.HocusFocus;component/StarDetection/DataTemplates.xaml", UriKind.RelativeOrAbsolute);
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["HocusFocusAnnotateStarsSVG"];
             ImageGeometry.Freeze();
         }

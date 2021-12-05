@@ -11,7 +11,7 @@
 #endregion "copyright"
 
 using Accord.Imaging.Filters;
-using Joko.NINA.Plugins.HocusFocus.Utility;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Core.Interfaces;
 using NINA.Core.Utility;
 using NINA.Equipment.Interfaces.ViewModel;
@@ -25,7 +25,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
 
-namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     [Export(typeof(IPluggableBehavior))]
     public class HocusFocusStarAnnotator : IStarAnnotator {

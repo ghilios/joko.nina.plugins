@@ -10,12 +10,12 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
 using System.Globalization;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.HocusFocus.Converters {
+namespace NINA.Joko.Plugins.HocusFocus.Converters {
 
     public class ShowStructureMapToVisibilityConverter : IMultiValueConverter {
 

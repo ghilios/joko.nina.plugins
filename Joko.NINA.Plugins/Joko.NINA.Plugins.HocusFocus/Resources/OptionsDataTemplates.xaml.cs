@@ -12,7 +12,7 @@
 
 using System.Windows;
 
-namespace Joko.NINA.Plugins.HocusFocus.Resources {
+namespace NINA.Joko.Plugins.HocusFocus.Resources {
 
     /// <summary>
     /// Interaction logic for OptionsDataTemplates.xaml

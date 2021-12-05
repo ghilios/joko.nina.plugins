@@ -10,13 +10,13 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Core.Utility;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
 
-namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class StarDetectionOptions : BaseINPC, IStarDetectionOptions {
         private readonly PluginOptionsAccessor optionsAccessor;

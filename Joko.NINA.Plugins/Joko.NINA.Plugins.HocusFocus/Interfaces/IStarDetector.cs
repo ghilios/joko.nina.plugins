@@ -10,7 +10,7 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Core.Model;
 using NINA.Image.Interfaces;
 using OpenCvSharp;
@@ -19,7 +19,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
+namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public class Star {
         public Point2d Center;

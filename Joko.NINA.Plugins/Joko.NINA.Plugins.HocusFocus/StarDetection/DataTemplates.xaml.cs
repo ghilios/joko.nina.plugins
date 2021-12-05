@@ -13,7 +13,7 @@
 using System.ComponentModel.Composition;
 using System.Windows;
 
-namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     /// <summary>
     /// Interaction logic for DataTemplates.xaml

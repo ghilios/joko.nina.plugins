@@ -18,7 +18,7 @@ using NINA.WPF.Base.Interfaces;
 using NINA.WPF.Base.Interfaces.ViewModel;
 using System.ComponentModel.Composition;
 
-namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
+namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     [Export(typeof(IPluggableBehavior))]
     public class HocusFocusVMFactory : IAutoFocusVMFactory {

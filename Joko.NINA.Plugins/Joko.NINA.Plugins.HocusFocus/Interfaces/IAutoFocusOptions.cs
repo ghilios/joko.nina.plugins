@@ -10,7 +10,7 @@
 
 #endregion "copyright"
 
-namespace Joko.NINA.Plugins.HocusFocus.Interfaces {
+namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public interface IAutoFocusOptions {
         int MaxConcurrent { get; set; }

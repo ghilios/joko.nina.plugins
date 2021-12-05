@@ -10,14 +10,14 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.ViewModel;
 using System;
 using System.ComponentModel.Composition;
 using System.Windows;
 
-namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     // TODO: Add star detection back after updating the approach
     // [Export(typeof(IDockableVM))]
@@ -30,7 +30,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             this.Title = "Star Detection Options";
 
             var dict = new ResourceDictionary();
-            dict.Source = new Uri("Joko.NINA.Plugins.HocusFocus;component/StarDetection/DataTemplates.xaml", UriKind.RelativeOrAbsolute);
+            dict.Source = new Uri("NINA.Joko.Plugins.HocusFocus;component/StarDetection/DataTemplates.xaml", UriKind.RelativeOrAbsolute);
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["HocusFocusDetectStarsSVG"];
             ImageGeometry.Freeze();
         }

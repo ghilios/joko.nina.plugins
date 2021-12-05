@@ -39,7 +39,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using static NINA.WPF.Base.ViewModel.Imaging.AutoFocusToolVM;
 
-namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
+namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     [Export(typeof(IDockableVM))]
     public class HocusFocusToolVM : DockableVM, ICameraConsumer, IFocuserConsumer, IAutoFocusToolVM {

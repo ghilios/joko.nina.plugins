@@ -1,9 +1,9 @@
 ﻿<ResourceDictionary
-    x:Class="Joko.NINA.Plugins.HocusFocus.AutoFocus.DataTemplates"
+    x:Class="NINA.Joko.Plugins.HocusFocus.AutoFocus.DataTemplates"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:i="http://schemas.microsoft.com/expression/2010/interactivity"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="clr-namespace:Joko.NINA.Plugins.HocusFocus.AutoFocus"
+    xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus"
     xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
     xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary"
     xmlns:oxy="clr-namespace:OxyPlot.Wpf;assembly=OxyPlot.Wpf"
@@ -12,7 +12,7 @@
         <ResourceDictionary Source="../Resources/OptionsDataTemplates.xaml" />
     </ResourceDictionary.MergedDictionaries>
 
-    <DataTemplate x:Key="Joko.NINA.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
+    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition MinHeight="150" />
@@ -419,12 +419,12 @@
         </Grid>
     </DataTemplate>
     <DataTemplate DataType="{x:Type local:HocusFocusVM}">
-        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource Joko.NINA.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable}" />
+        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable}" />
     </DataTemplate>
-    <DataTemplate x:Key="Joko.NINA.Plugins.HocusFocus.StarDetection.StarDetectorDockable_Dockable">
+    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectorDockable_Dockable">
         <ContentControl Content="{Binding StarDetectionOptions}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
     </DataTemplate>
-    <DataTemplate x:Key="Joko.NINA.Plugins.HocusFocus.AutoFocus.HocusFocusToolVM_Dockable">
+    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusToolVM_Dockable">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <Grid Margin="5,0,5,0">
                 <Grid.RowDefinitions>
@@ -434,7 +434,7 @@
                     <RowDefinition Height="30" />
                     <RowDefinition Height="30" />
                 </Grid.RowDefinitions>
-                <ContentControl Content="{Binding HocusFocusVM}" ContentTemplate="{StaticResource Joko.NINA.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable}" />
+                <ContentControl Content="{Binding HocusFocusVM}" ContentTemplate="{StaticResource NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable}" />
 
                 <ComboBox
                     Name="PART_FocusChartComboBox"
@@ -469,7 +469,7 @@
             </Grid>
         </ScrollViewer>
     </DataTemplate>
-    <DataTemplate x:Key="Joko.NINA.Plugins.HocusFocus.StarDetection.StarDetectionResultsVM_Dockable">
+    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionResultsVM_Dockable">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <Grid Margin="5">
                 <Grid.RowDefinitions>

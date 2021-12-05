@@ -10,7 +10,7 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.HocusFocus.Utility;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using Newtonsoft.Json;
 using NINA.Core.Enum;
 using NINA.Core.Interfaces;
@@ -38,7 +38,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
+namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
+
     public class HocusFocusVM : BaseVM, IAutoFocusVM {
         private AFCurveFittingEnum autoFocusChartCurveFitting;
         private AFMethodEnum autoFocusChartMethod;
@@ -63,6 +64,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         public static readonly string ReportDirectory = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "AutoFocus");
 
         private class AutoFocusState {
+
             public AutoFocusState(FilterInfo autoFocusFilter, int framesPerPoint, int maxConcurrency) {
                 this.AutoFocusFilter = autoFocusFilter;
                 this.FramesPerPoint = framesPerPoint;
@@ -295,6 +297,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                 }
             }
         }
+
         public bool AutoFocusInProgress { get; private set; } = false;
 
         private void ClearCharts() {

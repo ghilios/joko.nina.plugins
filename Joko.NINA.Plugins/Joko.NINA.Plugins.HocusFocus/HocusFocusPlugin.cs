@@ -10,9 +10,9 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.HocusFocus.AutoFocus;
-using Joko.NINA.Plugins.HocusFocus.Properties;
-using Joko.NINA.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Properties;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Core.Utility;
 using NINA.Plugin;
 using NINA.Plugin.Interfaces;
@@ -20,7 +20,7 @@ using NINA.Profile.Interfaces;
 using System.ComponentModel.Composition;
 using System.Windows.Input;
 
-namespace Joko.NINA.Plugins.HocusFocus {
+namespace NINA.Joko.Plugins.HocusFocus {
 
     [Export(typeof(IPluginManifest))]
     public class HocusFocusPlugin : PluginBase {

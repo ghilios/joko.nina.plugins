@@ -10,7 +10,7 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Image.ImageData;
 using NINA.Profile.Interfaces;
@@ -18,7 +18,7 @@ using NINA.WPF.Base.Interfaces.ViewModel;
 using NINA.WPF.Base.ViewModel;
 using System.ComponentModel.Composition;
 
-namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     [Export(typeof(IDockableVM))]
     public class StarDetectionResultsVM : DockableVM {
