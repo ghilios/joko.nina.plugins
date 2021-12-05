@@ -893,6 +893,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 await StartInitialFocusPoints(initialFocusPosition, autoFocusState, token, progress);
 
                 do {
+                    autoFocusState.ResetFocusMeasurements();
+
                     reattempt = false;
                     ++numberOfAttempts;
 
