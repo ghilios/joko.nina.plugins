@@ -14,7 +14,7 @@ using System;
 using System.Globalization;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.Common.Converters {
+namespace Joko.NINA.Plugins.HocusFocus.Converters {
 
     public class InverseDoubleZeroToVisibilityConverter : IValueConverter {
 

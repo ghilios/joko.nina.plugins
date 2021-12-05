@@ -10,9 +10,9 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.Common.Utility;
 using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using NINA.Core.Utility;
+using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
 using System.Linq;
@@ -34,29 +34,29 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
         }
 
         private void InitializeOptions() {
-            showAnnotations = optionsAccessor.GetValueBool("ShowAnnotations", true);
-            showAllStars = optionsAccessor.GetValueBool("ShowAllStars", true);
-            maxStars = optionsAccessor.GetValueInt("MaxStars", 200);
-            showStarBounds = optionsAccessor.GetValueBool("ShowStarBounds", true);
+            showAnnotations = optionsAccessor.GetValueBoolean("ShowAnnotations", true);
+            showAllStars = optionsAccessor.GetValueBoolean("ShowAllStars", true);
+            maxStars = optionsAccessor.GetValueInt32("MaxStars", 200);
+            showStarBounds = optionsAccessor.GetValueBoolean("ShowStarBounds", true);
             starBoundsColor = optionsAccessor.GetValueColor("StarBoundsColor", Color.FromArgb(128, 255, 0, 0));
-            showHFR = optionsAccessor.GetValueBool("ShowHFR", true);
+            showHFR = optionsAccessor.GetValueBoolean("ShowHFR", true);
             textFontFamily = new FontFamily(optionsAccessor.GetValueString("TextFontFamily", "Arial"));
-            textFontSizePoints = optionsAccessor.GetValueFloat("TextFontSizePoints", 18);
+            textFontSizePoints = optionsAccessor.GetValueSingle("TextFontSizePoints", 18);
             hfrColor = optionsAccessor.GetValueColor("HFRColor", Color.FromArgb(255, 255, 255, 0));
             starBoundsType = optionsAccessor.GetValueEnum<StarBoundsTypeEnum>("StarBoundsType", StarBoundsTypeEnum.Box);
-            showROI = optionsAccessor.GetValueBool("ShowROI", true);
+            showROI = optionsAccessor.GetValueBoolean("ShowROI", true);
             roiColor = optionsAccessor.GetValueColor("ROIColor", Color.FromArgb(255, 255, 255, 0));
-            showStarCenter = optionsAccessor.GetValueBool("ShowStarCenter", true);
+            showStarCenter = optionsAccessor.GetValueBoolean("ShowStarCenter", true);
             starCenterColor = optionsAccessor.GetValueColor("StarCenterColor", Color.FromArgb(128, 0, 0, 255));
-            showDegenerate = optionsAccessor.GetValueBool("ShowDegenerate", false);
+            showDegenerate = optionsAccessor.GetValueBoolean("ShowDegenerate", false);
             degenerateColor = optionsAccessor.GetValueColor("DegenerateColor", Color.FromArgb(128, 0, 255, 0));
-            showSaturated = optionsAccessor.GetValueBool("ShowSaturated", false);
+            showSaturated = optionsAccessor.GetValueBoolean("ShowSaturated", false);
             saturatedColor = optionsAccessor.GetValueColor("SaturatedColor", Color.FromArgb(128, 0, 255, 0));
-            showLowSensitivity = optionsAccessor.GetValueBool("ShowLowSensitivity", false);
+            showLowSensitivity = optionsAccessor.GetValueBoolean("ShowLowSensitivity", false);
             lowSensitivityColor = optionsAccessor.GetValueColor("LowSensitivityColor", Color.FromArgb(128, 0, 255, 0));
-            showNotCentered = optionsAccessor.GetValueBool("ShowNotCentered", false);
+            showNotCentered = optionsAccessor.GetValueBoolean("ShowNotCentered", false);
             notCenteredColor = optionsAccessor.GetValueColor("NotCenteredColor", Color.FromArgb(128, 0, 255, 0));
-            showTooFlat = optionsAccessor.GetValueBool("ShowTooFlat", false);
+            showTooFlat = optionsAccessor.GetValueBoolean("ShowTooFlat", false);
             tooFlatColor = optionsAccessor.GetValueColor("TooFlatColor", Color.FromArgb(128, 0, 255, 0));
             showStructureMap = optionsAccessor.GetValueEnum<ShowStructureMapEnum>("ShowStructureMap", ShowStructureMapEnum.None);
             structureMapColor = optionsAccessor.GetValueColor("StructureMapColor", Color.FromArgb(128, 255, 0, 255));
@@ -98,7 +98,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showAnnotations != value) {
                     showAnnotations = value;
-                    optionsAccessor.SetValueBool("ShowAnnotations", showAnnotations);
+                    optionsAccessor.SetValueBoolean("ShowAnnotations", showAnnotations);
                     RaisePropertyChanged();
                 }
             }
@@ -111,7 +111,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showAllStars != value) {
                     showAllStars = value;
-                    optionsAccessor.SetValueBool("ShowAllStars", value);
+                    optionsAccessor.SetValueBoolean("ShowAllStars", value);
                     RaisePropertyChanged();
                 }
             }
@@ -124,7 +124,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (maxStars != value) {
                     maxStars = value;
-                    optionsAccessor.SetValueInt("MaxStars", value);
+                    optionsAccessor.SetValueInt32("MaxStars", value);
                     RaisePropertyChanged();
                 }
             }
@@ -137,7 +137,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showStarBounds != value) {
                     showStarBounds = value;
-                    optionsAccessor.SetValueBool("ShowStarBounds", value);
+                    optionsAccessor.SetValueBoolean("ShowStarBounds", value);
                     RaisePropertyChanged();
                 }
             }
@@ -163,7 +163,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showHFR != value) {
                     showHFR = value;
-                    optionsAccessor.SetValueBool("ShowHFR", value);
+                    optionsAccessor.SetValueBoolean("ShowHFR", value);
                     RaisePropertyChanged();
                 }
             }
@@ -189,7 +189,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (textFontSizePoints != value) {
                     textFontSizePoints = value;
-                    optionsAccessor.SetValueFloat("TextFontSizePoints", value);
+                    optionsAccessor.SetValueSingle("TextFontSizePoints", value);
                     RaisePropertyChanged();
                 }
             }
@@ -228,7 +228,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showROI != value) {
                     showROI = value;
-                    optionsAccessor.SetValueBool("ShowROI", value);
+                    optionsAccessor.SetValueBoolean("ShowROI", value);
                     RaisePropertyChanged();
                 }
             }
@@ -254,7 +254,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showStarCenter != value) {
                     showStarCenter = value;
-                    optionsAccessor.SetValueBool("ShowStarCenter", value);
+                    optionsAccessor.SetValueBoolean("ShowStarCenter", value);
                     RaisePropertyChanged();
                 }
             }
@@ -280,7 +280,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showDegenerate != value) {
                     showDegenerate = value;
-                    optionsAccessor.SetValueBool("ShowDegenerate", value);
+                    optionsAccessor.SetValueBoolean("ShowDegenerate", value);
                     RaisePropertyChanged();
                 }
             }
@@ -306,7 +306,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showSaturated != value) {
                     showSaturated = value;
-                    optionsAccessor.SetValueBool("ShowSaturated", value);
+                    optionsAccessor.SetValueBoolean("ShowSaturated", value);
                     RaisePropertyChanged();
                 }
             }
@@ -332,7 +332,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showLowSensitivity != value) {
                     showLowSensitivity = value;
-                    optionsAccessor.SetValueBool("ShowLowSensitivity", value);
+                    optionsAccessor.SetValueBoolean("ShowLowSensitivity", value);
                     RaisePropertyChanged();
                 }
             }
@@ -358,7 +358,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showNotCentered != value) {
                     showNotCentered = value;
-                    optionsAccessor.SetValueBool("ShowNotCentered", value);
+                    optionsAccessor.SetValueBoolean("ShowNotCentered", value);
                     RaisePropertyChanged();
                 }
             }
@@ -384,7 +384,7 @@ namespace Joko.NINA.Plugins.HocusFocus.StarDetection {
             set {
                 if (showTooFlat != value) {
                     showTooFlat = value;
-                    optionsAccessor.SetValueBool("ShowTooFlat", value);
+                    optionsAccessor.SetValueBoolean("ShowTooFlat", value);
                     RaisePropertyChanged();
                 }
             }

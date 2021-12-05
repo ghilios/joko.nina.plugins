@@ -18,17 +18,17 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.Common.Converters {
+namespace Joko.NINA.Plugins.HocusFocus.Converters {
 
-    public class DoubleDegreesToArcsecDoubleDashConverter : IValueConverter {
-        private static readonly double ArcsecPerDegree = 3600d;
+    public class DecimalDegreesToArcsecDoubleDashConverter : IValueConverter {
+        private static readonly decimal ArcsecPerDegree = 3600;
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
             switch (value) {
-                case double i when i == double.NaN:
+                case decimal i when i == decimal.MinValue:
                     return "--";
 
-                case double i:
+                case decimal i:
                     return i * ArcsecPerDegree;
 
                 default:
@@ -39,10 +39,10 @@ namespace Joko.NINA.Plugins.Common.Converters {
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) {
             switch (value) {
                 case string s when s == "--":
-                    return double.NaN;
+                    return decimal.MinValue;
 
                 case string s:
-                    return double.Parse(s) / ArcsecPerDegree;
+                    return decimal.Parse(s) / ArcsecPerDegree;
 
                 default:
                     return value;

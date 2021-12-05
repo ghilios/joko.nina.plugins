@@ -18,18 +18,14 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.Common.Converters {
+namespace Joko.NINA.Plugins.HocusFocus.Converters {
 
-    public class DecimalDegreesToArcsecDoubleDashConverter : IValueConverter {
-        private static readonly decimal ArcsecPerDegree = 3600;
+    public class DecimalMinToDoubleDashConverter : IValueConverter {
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
             switch (value) {
                 case decimal i when i == decimal.MinValue:
                     return "--";
-
-                case decimal i:
-                    return i * ArcsecPerDegree;
 
                 default:
                     return value;
@@ -40,9 +36,6 @@ namespace Joko.NINA.Plugins.Common.Converters {
             switch (value) {
                 case string s when s == "--":
                     return decimal.MinValue;
-
-                case string s:
-                    return decimal.Parse(s) / ArcsecPerDegree;
 
                 default:
                     return value;

@@ -18,28 +18,22 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.Common.Converters {
+namespace Joko.NINA.Plugins.HocusFocus.Converters {
 
-    public class DecimalMinToDoubleDashConverter : IValueConverter {
+    public class PositiveToBooleanConverter : IValueConverter {
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
             switch (value) {
-                case decimal i when i == decimal.MinValue:
-                    return "--";
+                case int i:
+                    return i > 0;
 
                 default:
-                    return value;
+                    return false;
             }
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) {
-            switch (value) {
-                case string s when s == "--":
-                    return decimal.MinValue;
-
-                default:
-                    return value;
-            }
+            throw new NotImplementedException();
         }
     }
 }

@@ -13,7 +13,7 @@
 using System.Globalization;
 using System.Windows.Controls;
 
-namespace Joko.NINA.Plugins.Common.ValidationRules {
+namespace Joko.NINA.Plugins.HocusFocus.ValidationRules {
 
     public class PositiveIntegerOrInfiniteRule : ValidationRule {
 

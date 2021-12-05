@@ -18,7 +18,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Joko.NINA.Plugins.Common.Converters {
+namespace Joko.NINA.Plugins.HocusFocus.Converters {
 
     public class EnumStaticDescriptionConverter : EnumConverter {
 

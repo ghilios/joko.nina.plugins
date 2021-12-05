@@ -18,22 +18,30 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.Common.Converters {
+namespace Joko.NINA.Plugins.HocusFocus.Converters {
 
-    public class PositiveToBooleanConverter : IValueConverter {
+    public class ZeroToInfinityConverter : IValueConverter {
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
-            switch (value) {
-                case int i:
-                    return i > 0;
-
-                default:
-                    return false;
+            if (value is int) {
+                var d = (int)value;
+                if (d <= 0) {
+                    return "unlimited";
+                }
+                return d.ToString();
             }
+            throw new ArgumentException("Invalid Type for Converter");
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) {
-            throw new NotImplementedException();
+            if (value is string) {
+                var s = (string)value;
+                if (s == "unlimited") {
+                    return 0;
+                }
+                return int.Parse(s);
+            }
+            throw new ArgumentException("Invalid Type for Converter");
         }
     }
 }

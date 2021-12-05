@@ -18,30 +18,35 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Data;
 
-namespace Joko.NINA.Plugins.Common.Converters {
+namespace Joko.NINA.Plugins.HocusFocus.Converters {
 
-    public class ZeroToInfinityConverter : IValueConverter {
+    public class DoubleDegreesToArcsecDoubleDashConverter : IValueConverter {
+        private static readonly double ArcsecPerDegree = 3600d;
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
-            if (value is int) {
-                var d = (int)value;
-                if (d <= 0) {
-                    return "unlimited";
-                }
-                return d.ToString();
+            switch (value) {
+                case double i when i == double.NaN:
+                    return "--";
+
+                case double i:
+                    return i * ArcsecPerDegree;
+
+                default:
+                    return value;
             }
-            throw new ArgumentException("Invalid Type for Converter");
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) {
-            if (value is string) {
-                var s = (string)value;
-                if (s == "unlimited") {
-                    return 0;
-                }
-                return int.Parse(s);
+            switch (value) {
+                case string s when s == "--":
+                    return double.NaN;
+
+                case string s:
+                    return double.Parse(s) / ArcsecPerDegree;
+
+                default:
+                    return value;
             }
-            throw new ArgumentException("Invalid Type for Converter");
         }
     }
 }

@@ -10,9 +10,9 @@
 
 #endregion "copyright"
 
-using Joko.NINA.Plugins.Common.Utility;
 using Joko.NINA.Plugins.HocusFocus.Interfaces;
 using NINA.Core.Utility;
+using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
 
@@ -32,15 +32,15 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
         }
 
         private void InitializeOptions() {
-            maxConcurrent = optionsAccessor.GetValueInt("MaxConcurrent", 0);
-            fastFocusModeEnabled = optionsAccessor.GetValueBool("FastFocusModeEnabled", false);
-            fastStepSize = optionsAccessor.GetValueInt("FastStepSize", 1);
-            fastOffsetSteps = optionsAccessor.GetValueInt("FastOffsetSteps", 4);
-            fastThreshold_Celcius = optionsAccessor.GetValueInt("FastThreshold_Celcius", 5);
-            fastThreshold_FocuserPosition = optionsAccessor.GetValueInt("FastThreshold_FocuserPosition", 100);
-            fastThreshold_Seconds = optionsAccessor.GetValueInt("FastThreshold_Seconds", (int)TimeSpan.FromMinutes(60).TotalSeconds);
-            autoFocusTimeoutSeconds = optionsAccessor.GetValueInt("AutoFocusTimeoutSeconds", (int)TimeSpan.FromMinutes(10).TotalSeconds);
-            validateHfrImprovement = optionsAccessor.GetValueBool("ValidateHfrImprovement", true);
+            maxConcurrent = optionsAccessor.GetValueInt32("MaxConcurrent", 0);
+            fastFocusModeEnabled = optionsAccessor.GetValueBoolean("FastFocusModeEnabled", false);
+            fastStepSize = optionsAccessor.GetValueInt32("FastStepSize", 1);
+            fastOffsetSteps = optionsAccessor.GetValueInt32("FastOffsetSteps", 4);
+            fastThreshold_Celcius = optionsAccessor.GetValueInt32("FastThreshold_Celcius", 5);
+            fastThreshold_FocuserPosition = optionsAccessor.GetValueInt32("FastThreshold_FocuserPosition", 100);
+            fastThreshold_Seconds = optionsAccessor.GetValueInt32("FastThreshold_Seconds", (int)TimeSpan.FromMinutes(60).TotalSeconds);
+            autoFocusTimeoutSeconds = optionsAccessor.GetValueInt32("AutoFocusTimeoutSeconds", (int)TimeSpan.FromMinutes(10).TotalSeconds);
+            validateHfrImprovement = optionsAccessor.GetValueBoolean("ValidateHfrImprovement", true);
             hfrImprovementThreshold = optionsAccessor.GetValueDouble("HFRImprovementThreshold", 0.15);
         }
 
@@ -64,7 +64,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             set {
                 if (maxConcurrent != value) {
                     maxConcurrent = value;
-                    optionsAccessor.SetValueInt("MaxConcurrent", maxConcurrent);
+                    optionsAccessor.SetValueInt32("MaxConcurrent", maxConcurrent);
                     RaisePropertyChanged();
                 }
             }
@@ -77,7 +77,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             set {
                 if (fastFocusModeEnabled != value) {
                     fastFocusModeEnabled = value;
-                    optionsAccessor.SetValueBool("FastFocusModeEnabled", value);
+                    optionsAccessor.SetValueBoolean("FastFocusModeEnabled", value);
                     RaisePropertyChanged();
                 }
             }
@@ -90,7 +90,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             set {
                 if (fastStepSize != value) {
                     fastStepSize = value;
-                    optionsAccessor.SetValueInt("FastStepSize", fastStepSize);
+                    optionsAccessor.SetValueInt32("FastStepSize", fastStepSize);
                     RaisePropertyChanged();
                 }
             }
@@ -107,7 +107,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     }
 
                     fastOffsetSteps = value;
-                    optionsAccessor.SetValueInt("FastOffsetSteps", fastOffsetSteps);
+                    optionsAccessor.SetValueInt32("FastOffsetSteps", fastOffsetSteps);
                     RaisePropertyChanged();
                 }
             }
@@ -124,7 +124,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     }
 
                     fastThreshold_Seconds = value;
-                    optionsAccessor.SetValueInt("FastThreshold_Seconds", fastThreshold_Seconds);
+                    optionsAccessor.SetValueInt32("FastThreshold_Seconds", fastThreshold_Seconds);
                     RaisePropertyChanged();
                 }
             }
@@ -141,7 +141,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     }
 
                     fastThreshold_Celcius = value;
-                    optionsAccessor.SetValueInt("FastThreshold_Celcius", fastThreshold_Celcius);
+                    optionsAccessor.SetValueInt32("FastThreshold_Celcius", fastThreshold_Celcius);
                     RaisePropertyChanged();
                 }
             }
@@ -158,7 +158,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     }
 
                     fastThreshold_FocuserPosition = value;
-                    optionsAccessor.SetValueInt("FastThreshold_FocuserPosition", fastThreshold_FocuserPosition);
+                    optionsAccessor.SetValueInt32("FastThreshold_FocuserPosition", fastThreshold_FocuserPosition);
                     RaisePropertyChanged();
                 }
             }
@@ -171,7 +171,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
             set {
                 if (validateHfrImprovement != value) {
                     validateHfrImprovement = value;
-                    optionsAccessor.SetValueBool("ValidateHfrImprovement", validateHfrImprovement);
+                    optionsAccessor.SetValueBoolean("ValidateHfrImprovement", validateHfrImprovement);
                     RaisePropertyChanged();
                 }
             }
@@ -205,7 +205,7 @@ namespace Joko.NINA.Plugins.HocusFocus.AutoFocus {
                     }
 
                     autoFocusTimeoutSeconds = value;
-                    optionsAccessor.SetValueInt("AutoFocusTimeoutSeconds", autoFocusTimeoutSeconds);
+                    optionsAccessor.SetValueInt32("AutoFocusTimeoutSeconds", autoFocusTimeoutSeconds);
                     RaisePropertyChanged();
                 }
             }
