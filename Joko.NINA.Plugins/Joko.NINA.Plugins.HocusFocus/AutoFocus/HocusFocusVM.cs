@@ -517,6 +517,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     seq.Gain = filter.AutoFocusGain;
                 }
 
+                // TODO: Make sure OperationCancelled propagates everywhere
                 try {
                     image = await imagingMediator.CaptureImage(seq, token, progress);
                 } catch (Exception e) {

@@ -26,7 +26,6 @@ using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.Interfaces.ViewModel;
 using NINA.WPF.Base.Utility.AutoFocus;
 using NINA.WPF.Base.ViewModel;
-using NINA.WPF.Base.ViewModel.AutoFocus;
 using OxyPlot;
 using OxyPlot.Series;
 using System;
@@ -41,7 +40,8 @@ using static NINA.WPF.Base.ViewModel.Imaging.AutoFocusToolVM;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
-    [Export(typeof(IDockableVM))]
+    // TODO: Remove this code after merging the UI changes into NINA core
+    // [Export(typeof(IDockableVM))]
     public class HocusFocusToolVM : DockableVM, ICameraConsumer, IFocuserConsumer, IAutoFocusToolVM {
         private CancellationTokenSource _autoFocusCancelToken;
         private AsyncObservableCollection<Chart> _chartList;
@@ -254,8 +254,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     report = JsonConvert.DeserializeObject<HocusFocusReport>(text);
                 }
 
-                var comparer = new FocusPointComparer();
-                var plotComparer = new PlotPointComparer();
+                var comparer = new WPF.Base.ViewModel.AutoFocus.FocusPointComparer();
+                var plotComparer = new WPF.Base.ViewModel.AutoFocus.PlotPointComparer();
                 HocusFocusVM.FocusPoints.Clear();
                 HocusFocusVM.PlotFocusPoints.Clear();
 
