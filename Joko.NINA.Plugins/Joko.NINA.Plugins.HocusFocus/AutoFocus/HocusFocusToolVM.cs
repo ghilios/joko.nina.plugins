@@ -19,7 +19,6 @@ using NINA.Core.Utility;
 using NINA.Equipment.Equipment.MyCamera;
 using NINA.Equipment.Equipment.MyFocuser;
 using NINA.Equipment.Interfaces.Mediator;
-using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Image.ImageAnalysis;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;

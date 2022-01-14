@@ -18,7 +18,7 @@
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionOptionsVM_Dockable">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <ContentControl Content="{Binding StarDetectionOptions}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
+            <ContentControl ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
         </ScrollViewer>
     </DataTemplate>
 

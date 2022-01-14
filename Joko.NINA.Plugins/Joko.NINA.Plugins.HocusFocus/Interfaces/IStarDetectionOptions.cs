@@ -30,5 +30,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         int StructureDilationCount { get; set; }
         double PixelSampleSize { get; set; }
         bool DebugMode { get; set; }
+        string IntermediateSavePath { get; set; }
+        bool SaveIntermediateImages { get; set; }
     }
 }

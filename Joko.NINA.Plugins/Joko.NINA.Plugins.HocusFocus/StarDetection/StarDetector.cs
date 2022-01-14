@@ -23,6 +23,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using static NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility;
 using MultiStopWatch = NINA.Joko.Plugins.HocusFocus.Utility.MultiStopWatch;
+using System.IO;
+using System.Text;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -83,6 +85,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public float AnalysisSamplingSize { get; set; } = 0.5f;
 
         public bool StoreStructureMap { get; set; } = false;
+
+        public string SaveIntermediateFilesPath { get; set; } = string.Empty;
+
+        public override string ToString() {
+            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(CenterROICropRatio)}={CenterROICropRatio.ToString()}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}}}";
+        }
     }
 
     public class StarDetector : IStarDetector {
@@ -99,6 +107,38 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             public double StarMedian;
         }
 
+        private static void MaybeSaveIntermediateImage(Mat image, StarDetectorParams p, string filename) {
+            var saveIntermediate = !string.IsNullOrEmpty(p.SaveIntermediateFilesPath) && Directory.Exists(p.SaveIntermediateFilesPath);
+            if (!saveIntermediate) {
+                return;
+            }
+
+            var targetPath = Path.Combine(p.SaveIntermediateFilesPath, filename);
+            image.SaveImage(targetPath);
+        }
+
+        private static void MaybeSaveIntermediateText(string text, StarDetectorParams p, string filename) {
+            var saveIntermediate = !string.IsNullOrEmpty(p.SaveIntermediateFilesPath) && Directory.Exists(p.SaveIntermediateFilesPath);
+            if (!saveIntermediate) {
+                return;
+            }
+            File.WriteAllText(Path.Combine(p.SaveIntermediateFilesPath, filename), text);
+        }
+
+        private static void MaybeSaveIntermediateStars(List<Star> stars, StarDetectorParams p, string filename) {
+            var saveIntermediate = !string.IsNullOrEmpty(p.SaveIntermediateFilesPath) && Directory.Exists(p.SaveIntermediateFilesPath);
+            if (!saveIntermediate) {
+                return;
+            }
+
+            var sb = new StringBuilder();
+            int index = 0;
+            foreach (var star in stars) {
+                sb.AppendLine($"{index++} => {star.ToString()}");
+            }
+            File.WriteAllText(Path.Combine(p.SaveIntermediateFilesPath, filename), sb.ToString());
+        }
+
         public Task<StarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
                 throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
@@ -107,6 +147,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 throw new ArgumentException("CenterROICropRatio cannot be negative", "p.CenterROICropRatio");
             }
 
+            MaybeSaveIntermediateText(p.ToString(), p, "0-params.txt");
             return Task.Run(() => {
                 var resourceTracker = new ResourcesTracker();
                 try {
@@ -131,6 +172,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         } else {
                             debugData.DetectionROI = new System.Drawing.Rectangle(0, 0, srcImage.Width, srcImage.Height);
                         }
+                        MaybeSaveIntermediateImage(srcImage, p, "1-source.tif");
 
                         if (p.StoreStructureMap) {
                             debugData.StructureMap = new byte[debugData.DetectionROI.Width * debugData.DetectionROI.Height];
@@ -149,6 +191,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         if (p.NoiseReductionRadius > 0) {
                             CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
                         }
+                        MaybeSaveIntermediateImage(srcImage, p, "2-noise-reduced.tif");
 
                         // Step 2: Prepare for structure detection by applying hotpixel filtering to a copy if it hasn't been done already
                         progress.Report(new ApplicationStatus() { Status = "Preparing for Structure Detection" });
@@ -162,10 +205,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             srcImage.CopyTo(structureMap);
                         }
                         stopWatch.RecordEntry("InitialNoiseReduction");
+                        MaybeSaveIntermediateImage(structureMap, p, "3-structure-map.tif");
 
                         // Step 3: Compute noise estimates and structure map statistics
                         var ksigmaNoiseResult = CvImageUtility.KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
-                        Logger.Trace($"K-Sigma Noise Estimate: {ksigmaNoiseResult.Sigma}, Background Mean: {ksigmaNoiseResult.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResult.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}");
+                        var ksigmaTrace = $"K-Sigma Noise Estimate: {ksigmaNoiseResult.Sigma}, Background Mean: {ksigmaNoiseResult.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResult.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}";
+                        Logger.Trace(ksigmaTrace);
+                        MaybeSaveIntermediateText(ksigmaTrace, p, "ksigma-estimate.txt");
                         stopWatch.RecordEntry("KSigmaNoiseCalculation");
 
                         // Step 4: Subtract a blur to emphasize edges, and rescale the clipped result to [0, 1)
@@ -174,6 +220,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             CvImageUtility.SubtractInPlace(structureMap, structureMapSrcBlurred);
                         }
                         CvImageUtility.RescaleInPlace(structureMap);
+                        MaybeSaveIntermediateImage(structureMap, p, "4-structure-map-blur-subtracted.tif");
 
                         // TODO: Consider whether doing this at multiple scales is worth the cost, particularly when out of focus
                         // Step 5: Subtract a blur to emphasize edges at multiple scales, and rescale the clipped result to [0, 1)
@@ -190,7 +237,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         stopWatch.RecordEntry("BinarizationStatistics");
 
                         double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * ksigmaNoiseResult.Sigma;
-                        Logger.Trace($"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}");
+                        var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}";
+                        Logger.Trace(binarizeTrace);
+                        MaybeSaveIntermediateText(structureMapStats.ToString() + "\r\n" + binarizeTrace, p, "5-structure-map-statistics.txt");
 
                         if (p.StoreStructureMap) {
                             UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 2);
@@ -202,6 +251,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                                 Cv2.MorphologyEx(structureMap, structureMap, MorphTypes.Dilate, dilationStructure, iterations: p.StructureDilationCount, borderType: BorderTypes.Reflect);
                             }
                             stopWatch.RecordEntry("StructureDilation");
+                            MaybeSaveIntermediateImage(structureMap, p, "6-structure-map-dilated.tif");
                         }
 
                         if (p.StoreStructureMap) {
@@ -213,13 +263,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         // Step 7: Binarize foreground structures based on noise estimates
                         CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
                         stopWatch.RecordEntry("Binarization");
+                        MaybeSaveIntermediateImage(structureMap, p, "7-structure-binarized.tif");
 
                         // Step 8: Scan structure map for stars
                         progress.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
                         var stars = ScanStars(srcImage, structureMap, p, ksigmaNoiseResult.Sigma, metrics);
                         stopWatch.RecordEntry("StarAnalysis");
+                        MaybeSaveIntermediateStars(stars, p, "8-detected-stars.txt");
 
-                        Logger.Trace($"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}");
+                        var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
+                        MaybeSaveIntermediateText(metricsTrace, p, "9-detection-metrics.txt");
+                        Logger.Trace(metricsTrace);
                         if (roiRect.HasValue) {
                             // Apply correction for the ROI
                             stars = stars.Select(s => s.AddOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top)).ToList();

@@ -22,11 +22,15 @@ using System.Threading.Tasks;
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public class Star {
-        public Point2d Center;
-        public Rect StarBoundingBox;
-        public double Background;
-        public double MeanBrightness;
-        public double HFR;
+        public Point2d Center { get; set; }
+        public Rect StarBoundingBox { get; set; }
+        public double Background { get; set; }
+        public double MeanBrightness { get; set; }
+        public double HFR { get; set; }
+
+        public override string ToString() {
+            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}}}";
+        }
     }
 
     public class StarDetectorMetrics {

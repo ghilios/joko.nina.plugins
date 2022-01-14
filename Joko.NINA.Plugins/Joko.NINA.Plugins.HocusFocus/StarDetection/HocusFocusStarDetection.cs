@@ -27,6 +27,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media;
+using NINA.Core.Interfaces;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -59,8 +60,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public DebugData DebugData { get; set; }
     }
 
-    // TODO: Add star detection back after updating the approach
-    // [Export(typeof(IPluggableBehavior))]
+    [Export(typeof(IPluggableBehavior))]
     internal class HocusFocusStarDetection : IStarDetection {
         private readonly IStarDetector starDetector;
         private readonly StarDetectionOptions starDetectionOptions;
@@ -95,8 +95,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 StructureDilationSize = starDetectionOptions.StructureDilationSize,
                 StructureDilationCount = starDetectionOptions.StructureDilationCount,
                 AnalysisSamplingSize = (float)starDetectionOptions.PixelSampleSize,
-                StoreStructureMap = starDetectionOptions.DebugMode
+                StoreStructureMap = starDetectionOptions.DebugMode,
+                SaveIntermediateFilesPath = starDetectionOptions.SaveIntermediateImages ? starDetectionOptions.IntermediateSavePath : string.Empty
             };
+            // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again
+            starDetectionOptions.SaveIntermediateImages = false;
 
             if (p.UseROI && p.InnerCropRatio < 1.0 && p.OuterCropRatio > 0.0) {
                 detectorParams.CenterROICropRatio = p.OuterCropRatio >= 1.0 ? p.InnerCropRatio : p.OuterCropRatio;

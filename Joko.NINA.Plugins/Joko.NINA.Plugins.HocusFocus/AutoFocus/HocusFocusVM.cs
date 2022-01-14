@@ -1045,7 +1045,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error($"Initial HFR calculation failed. Aborting auto focus");
                 Notification.ShowWarning("Calculating initial HFR failed. Aborting auto focus");
                 progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
-            } catch (OperationCanceledException e) {
+            } catch (OperationCanceledException) {
                 if (timeoutCts.IsCancellationRequested) {
                     Notification.ShowWarning($"AutoFocus timed out after {autoFocusOptions.AutoFocusTimeoutSeconds} seconds");
                     Logger.Warning($"AutoFocus timed out after {autoFocusOptions.AutoFocusTimeoutSeconds} seconds");

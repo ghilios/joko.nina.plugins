@@ -96,7 +96,6 @@
                         </Grid>
                     </TabItem.Content>
                 </TabItem>
-                <!--
                 <TabItem>
                     <TabItem.Header>
                         <Grid>
@@ -130,7 +129,7 @@
                                 <RowDefinition />
                             </Grid.RowDefinitions>
                             <StackPanel Orientation="Vertical" Grid.Column="0">
-                                <ContentControl Content="{Binding StarDetectionOptions}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
+                                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
                                 <Button
                                     Margin="5"
                                     HorizontalAlignment="Center"
@@ -146,7 +145,6 @@
                         </Grid>
                     </TabItem.Content>
                 </TabItem>
-                -->
                 <TabItem>
                     <TabItem.Header>
                         <Grid>
@@ -199,191 +197,4 @@
             </TabControl>
         </Grid>
     </DataTemplate>
-    <!--
-    <DataTemplate x:Key="Three Point Polar Alignment_Options">
-        <Grid DataContext="{Binding}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition />
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-                <RowDefinition MinHeight="25" />
-            </Grid.RowDefinitions>
-            <TextBlock VerticalAlignment="Center" Text="Default Move Rate" />
-            <TextBox
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                Text="{Binding DefaultMoveRate}" />
-            <TextBlock
-                Grid.Row="1"
-                VerticalAlignment="Center"
-                Text="Default East Direction" />
-            <CheckBox
-                Grid.Row="1"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                IsChecked="{Binding DefaultEastDirection}" />
-            <TextBlock
-                Grid.Row="2"
-                VerticalAlignment="Center"
-                Text="Default Target Distance" />
-
-            <ninactrl:UnitTextBox
-                Grid.Row="2"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                Text="{Binding DefaultTargetDistance}"
-                Unit="°" />
-            <TextBlock
-                Grid.Row="3"
-                VerticalAlignment="Center"
-                Text="Default Search Radius" />
-            <ninactrl:UnitTextBox
-                Grid.Row="3"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                Text="{Binding DefaultSearchRadius}"
-                Unit="°" />
-
-            <TextBlock
-                Grid.Row="4"
-                VerticalAlignment="Center"
-                Text="Axis move timeout factor" />
-            <ninactrl:UnitTextBox
-                Grid.Row="4"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                Text="{Binding MoveTimeoutFactor}"
-                Unit="x" />
-
-            <TextBlock
-                Grid.Row="5"
-                VerticalAlignment="Center"
-                Text="Default azimuth offset from pole" />
-            <ninactrl:UnitTextBox
-                Grid.Row="5"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                Text="{Binding DefaultAzimuthOffset}"
-                Unit="°" />
-
-            <TextBlock
-                Grid.Row="6"
-                VerticalAlignment="Center"
-                Text="Default altitude offset from pole" />
-            <ninactrl:UnitTextBox
-                Grid.Row="6"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                Text="{Binding DefaultAltitudeOffset}"
-                Unit="°" />
-
-            <TextBlock
-                Grid.Row="7"
-                VerticalAlignment="Center"
-                Text="Altitude Error Color" />
-            <xceed:ColorPicker
-                Grid.Row="7"
-                Grid.Column="1"
-                Width="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                SelectedColor="{Binding AltitudeErrorColor}" />
-            <TextBlock
-                Grid.Row="8"
-                VerticalAlignment="Center"
-                Text="Azimuth Error Color" />
-            <xceed:ColorPicker
-                Grid.Row="8"
-                Grid.Column="1"
-                Width="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                SelectedColor="{Binding AzimuthErrorColor}" />
-            <TextBlock
-                Grid.Row="9"
-                VerticalAlignment="Center"
-                Text="Total Error Color" />
-            <xceed:ColorPicker
-                Grid.Row="9"
-                Grid.Column="1"
-                Width="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                SelectedColor="{Binding TotalErrorColor}" />
-            <TextBlock
-                Grid.Row="10"
-                VerticalAlignment="Center"
-                Text="Target Circle Color" />
-            <xceed:ColorPicker
-                Grid.Row="10"
-                Grid.Column="1"
-                Width="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                SelectedColor="{Binding TargetCircleColor}" />
-            <TextBlock
-                Grid.Row="11"
-                VerticalAlignment="Center"
-                Text="Sucessful Step Color" />
-            <xceed:ColorPicker
-                Grid.Row="11"
-                Grid.Column="1"
-                Width="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                SelectedColor="{Binding SuccessColor}" />
-            <TextBlock
-                Grid.Row="12"
-                VerticalAlignment="Center"
-                Text="Log polar alignment error adjustments?" />
-            <CheckBox
-                Grid.Row="12"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,0,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                IsChecked="{Binding LogError}" />
-        </Grid>
-    </DataTemplate>
-    -->
 </ResourceDictionary>

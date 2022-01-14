@@ -1,15 +1,19 @@
 ﻿<ResourceDictionary
     x:Class="NINA.Joko.Plugins.HocusFocus.Resources.OptionsDataTemplates"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit"
     xmlns:hfconverters="clr-namespace:NINA.Joko.Plugins.HocusFocus.Converters"
     xmlns:hfenum="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
     xmlns:hfrules="clr-namespace:NINA.Joko.Plugins.HocusFocus.ValidationRules"
     xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
-    xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary">
+    xmlns:sd="clr-namespace:NINA.Joko.Plugins.HocusFocus.StarDetection"
+    xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary"
+    mc:Ignorable="d">
     <hfconverters:ShowStructureMapToVisibilityConverter x:Key="ShowStructureMapToVisibilityConverter" />
     <hfconverters:DoubleZeroToVisibilityConverter x:Key="DoubleZeroToVisibilityConverter" />
     <hfconverters:IntNegativeToVisibilityConverter x:Key="IntNegativeToVisibilityConverter" />
@@ -63,6 +67,8 @@
     <TextBlock x:Key="TooFlatColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowStructureMap_Tooltip" Text="Overlays the structure map to aide debugging. Original shows the initial structure map after noise clipping and binarization, and Dilated shows it after dilation has been performed" />
     <TextBlock x:Key="StructureMapColor_Tooltip" Text="The color of the overlayed structure map" />
+    <TextBlock x:Key="SaveIntermediatePath_Tooltip" Text="When Save Intermediate Files is enabled, they are written to this path the next time star detection runs" />
+    <TextBlock x:Key="SaveIntermediateFiles_Tooltip" Text="If enabled, every step of star detection emits a debugging file to the intermediate path" />
     <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
         <Grid Margin="5" VerticalAlignment="Top">
             <Grid.ColumnDefinitions>
@@ -157,9 +163,23 @@
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">
-        <Grid Margin="5" VerticalAlignment="Top">
+        <Grid
+            d:DataContext="{d:DesignInstance sd:StarDetectionOptionsVM, IsDesignTimeCreatable=False}"
+            Margin="5"
+            VerticalAlignment="Top">
+            <Grid.Resources>
+                <Style x:Key="HideOnSaveIntermediateOff" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="Auto" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding StarDetectionOptions.SaveIntermediateImages}" Value="False">
+                            <Setter Property="Height" Value="0" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Resources>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition />
                 <ColumnDefinition />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
@@ -180,6 +200,8 @@
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
+                <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
+                <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
             </Grid.RowDefinitions>
@@ -196,7 +218,7 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                IsChecked="{Binding HotpixelFiltering}"
+                IsChecked="{Binding StarDetectionOptions.HotpixelFiltering}"
                 ToolTip="{StaticResource HotpixelFiltering_Tooltip}" />
             <TextBlock
                 Grid.Row="1"
@@ -211,7 +233,7 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                IsChecked="{Binding UseAutoFocusCrop}"
+                IsChecked="{Binding StarDetectionOptions.UseAutoFocusCrop}"
                 ToolTip="{StaticResource UseAutoFocusCrop_Tooltip}" />
             <TextBlock
                 Grid.Row="2"
@@ -228,7 +250,7 @@
                 VerticalAlignment="Center"
                 Unit="pixels"
                 ToolTip="{StaticResource NoiseReductionRadius_Tooltip}">
-                <Binding Path="NoiseReductionRadius" UpdateSourceTrigger="LostFocus">
+                <Binding Path="StarDetectionOptions.NoiseReductionRadius" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
                     </Binding.ValidationRules>
@@ -249,7 +271,7 @@
                 VerticalAlignment="Center"
                 Unit="x"
                 ToolTip="{StaticResource NoiseClippingMultiplier_Tooltip}">
-                <Binding Path="NoiseClippingMultiplier" UpdateSourceTrigger="LostFocus">
+                <Binding Path="StarDetectionOptions.NoiseClippingMultiplier" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
                     </Binding.ValidationRules>
@@ -270,7 +292,7 @@
                 VerticalAlignment="Center"
                 Unit="x"
                 ToolTip="{StaticResource StarClippingMultiplier_Tooltip}">
-                <Binding Path="StarClippingMultiplier" UpdateSourceTrigger="LostFocus">
+                <Binding Path="StarDetectionOptions.StarClippingMultiplier" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
                     </Binding.ValidationRules>
@@ -291,7 +313,7 @@
                 VerticalAlignment="Center"
                 Unit="layers"
                 ToolTip="{StaticResource StructureLayers_Tooltip}">
-                <Binding Path="StructureLayers" UpdateSourceTrigger="LostFocus">
+                <Binding Path="StarDetectionOptions.StructureLayers" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterThanZeroRule />
                     </Binding.ValidationRules>
@@ -312,7 +334,7 @@
                 VerticalAlignment="Center"
                 Unit="(s-b)/n"
                 ToolTip="{StaticResource BrightnessSensitivity_Tooltip}">
-                <Binding Path="BrightnessSensitivity" UpdateSourceTrigger="LostFocus" />
+                <Binding Path="StarDetectionOptions.BrightnessSensitivity" UpdateSourceTrigger="LostFocus" />
             </ninactrl:UnitTextBox>
             <TextBlock
                 Grid.Row="7"
@@ -329,7 +351,7 @@
                 VerticalAlignment="Center"
                 Unit="%"
                 ToolTip="{StaticResource StarPeakResponse_Tooltip}">
-                <Binding Path="StarPeakResponse" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
+                <Binding Path="StarDetectionOptions.StarPeakResponse" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
                     <Binding.ValidationRules>
                         <rules:FloatRangeRule>
                             <rules:FloatRangeRule.ValidRange>
@@ -354,7 +376,7 @@
                 VerticalAlignment="Center"
                 Unit=""
                 ToolTip="{StaticResource MaxDistortion_Tooltip}">
-                <Binding Path="MaxDistortion" UpdateSourceTrigger="LostFocus">
+                <Binding Path="StarDetectionOptions.MaxDistortion" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:FloatRangeRule>
                             <rules:FloatRangeRule.ValidRange>
@@ -379,7 +401,7 @@
                 VerticalAlignment="Center"
                 Unit="%"
                 ToolTip="{StaticResource StarCenterTolerance_Tooltip}">
-                <Binding Path="StarCenterTolerance" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
+                <Binding Path="StarDetectionOptions.StarCenterTolerance" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
                     <Binding.ValidationRules>
                         <rules:FloatRangeRule>
                             <rules:FloatRangeRule.ValidRange>
@@ -404,7 +426,7 @@
                 VerticalAlignment="Center"
                 Unit="pixels"
                 ToolTip="{StaticResource StarBackgroundBoxExpansion_Tooltip}">
-                <Binding Path="StarBackgroundBoxExpansion" UpdateSourceTrigger="LostFocus">
+                <Binding Path="StarDetectionOptions.StarBackgroundBoxExpansion" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterThanZeroRule />
                     </Binding.ValidationRules>
@@ -425,7 +447,7 @@
                 VerticalAlignment="Center"
                 Unit="pixels"
                 ToolTip="{StaticResource MinStarBoundingBoxSize_Tooltip}">
-                <Binding Path="MinStarBoundingBoxSize" UpdateSourceTrigger="LostFocus">
+                <Binding Path="StarDetectionOptions.MinStarBoundingBoxSize" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
                     </Binding.ValidationRules>
@@ -446,7 +468,7 @@
                 VerticalAlignment="Center"
                 Unit="pixels"
                 ToolTip="{StaticResource MinHFR_Tooltip}">
-                <Binding Path="MinHFR" UpdateSourceTrigger="LostFocus">
+                <Binding Path="StarDetectionOptions.MinHFR" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterThanZeroRule />
                     </Binding.ValidationRules>
@@ -467,7 +489,7 @@
                 VerticalAlignment="Center"
                 Unit="pixels"
                 ToolTip="{StaticResource StructureDilationSize_Tooltip}">
-                <Binding Path="StructureDilationSize" UpdateSourceTrigger="LostFocus">
+                <Binding Path="StarDetectionOptions.StructureDilationSize" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:FloatRangeRule>
                             <rules:FloatRangeRule.ValidRange>
@@ -492,7 +514,7 @@
                 VerticalAlignment="Center"
                 Unit="x"
                 ToolTip="{StaticResource StructureDilationCount_Tooltip}">
-                <Binding Path="StructureDilationCount" UpdateSourceTrigger="LostFocus">
+                <Binding Path="StarDetectionOptions.StructureDilationCount" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
                     </Binding.ValidationRules>
@@ -513,7 +535,7 @@
                 VerticalAlignment="Center"
                 Unit="%"
                 ToolTip="{StaticResource PixelSampleSize_Tooltip}">
-                <Binding Path="PixelSampleSize" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
+                <Binding Path="StarDetectionOptions.PixelSampleSize" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
                     <Binding.ValidationRules>
                         <rules:FloatRangeRule>
                             <rules:FloatRangeRule.ValidRange>
@@ -523,6 +545,7 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
                 Grid.Row="16"
                 Grid.Column="0"
@@ -536,8 +559,70 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                IsChecked="{Binding DebugMode}"
+                IsChecked="{Binding StarDetectionOptions.DebugMode}"
                 ToolTip="{StaticResource DebugMode_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="17"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Intermediate Path"
+                ToolTip="{StaticResource SaveIntermediatePath_Tooltip}" />
+            <TextBox
+                Grid.Row="17"
+                Grid.Column="1"
+                Margin="5,5,0,0"
+                VerticalAlignment="Center"
+                VerticalContentAlignment="Center">
+                <TextBox.Text>
+                    <Binding Path="StarDetectionOptions.IntermediateSavePath" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:DirectoryExistsRule />
+                        </Binding.ValidationRules>
+                    </Binding>
+                </TextBox.Text>
+                <TextBox.Style>
+                    <Style TargetType="{x:Type TextBox}" BasedOn="{StaticResource StandardTextbox}">
+                        <Setter Property="MaxWidth" Value="150" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding StarDetectionOptions.SaveIntermediateImages}" Value="False">
+                                <Setter Property="MaxWidth" Value="0" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBox.Style>
+            </TextBox>
+            <Button
+                Grid.Row="17"
+                Grid.Column="2"
+                Width="20"
+                Height="20"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Command="{Binding ChooseIntermediatePathDiagCommand}">
+                <Path
+                    Margin="2,10,2,0"
+                    Data="{StaticResource DotsSVG}"
+                    Fill="{StaticResource ButtonForegroundBrush}"
+                    Stretch="Uniform" />
+            </Button>
+
+            <TextBlock
+                Grid.Row="18"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Save Intermediate"
+                ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
+            <CheckBox
+                Grid.Row="18"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.SaveIntermediateImages}"
+                ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarAnnotator_Options">

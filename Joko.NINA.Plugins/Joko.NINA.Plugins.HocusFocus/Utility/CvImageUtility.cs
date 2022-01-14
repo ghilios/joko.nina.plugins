@@ -38,6 +38,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         public double Mean { get; set; }
 
         public double StdDev { get; set; }
+
+        public override string ToString() {
+            return $"{{{nameof(Median)}={Median.ToString()}, {nameof(MAD)}={MAD.ToString()}, {nameof(Mean)}={Mean.ToString()}, {nameof(StdDev)}={StdDev.ToString()}}}";
+        }
     }
 
     public static class CvImageUtility {

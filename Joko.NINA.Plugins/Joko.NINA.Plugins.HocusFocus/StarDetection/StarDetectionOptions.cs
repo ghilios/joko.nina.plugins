@@ -15,6 +15,7 @@ using NINA.Core.Utility;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
+using System.IO;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -49,6 +50,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             structureDilationSize = optionsAccessor.GetValueInt32("StructureDilationSize", 5);
             structureDilationCount = optionsAccessor.GetValueInt32("StructureDilationCount", 1);
             pixelSampleSize = optionsAccessor.GetValueDouble("PixelSampleSize", 0.5);
+            intermediateSavePath = optionsAccessor.GetValueString(nameof(IntermediateSavePath), "");
+            if (string.IsNullOrEmpty(intermediateSavePath) || !Directory.Exists(intermediateSavePath)) {
+                IntermediateSavePath = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "HocusFocusIntermediate");
+                if (!Directory.Exists(IntermediateSavePath)) {
+                    Directory.CreateDirectory(IntermediateSavePath);
+                }
+            }
+            saveIntermediateImages = false;
         }
 
         public void ResetDefaults() {
@@ -68,6 +77,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             StructureDilationSize = 5;
             StructureDilationCount = 1;
             PixelSampleSize = 0.5;
+            IntermediateSavePath = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "HocusFocusIntermediate");
+            if (!Directory.Exists(IntermediateSavePath)) {
+                Directory.CreateDirectory(IntermediateSavePath);
+            }
+            SaveIntermediateImages = false;
         }
 
         private bool debugMode;
@@ -328,6 +342,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     pixelSampleSize = value;
                     optionsAccessor.SetValueDouble("PixelSampleSize", pixelSampleSize);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private string intermediateSavePath;
+
+        public string IntermediateSavePath {
+            get => intermediateSavePath;
+            set {
+                if (intermediateSavePath != value) {
+                    intermediateSavePath = value;
+                    optionsAccessor.SetValueString(nameof(IntermediateSavePath), intermediateSavePath);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool saveIntermediateImages;
+
+        public bool SaveIntermediateImages {
+            get => saveIntermediateImages;
+            set {
+                if (saveIntermediateImages != value) {
+                    saveIntermediateImages = value;
                     RaisePropertyChanged();
                 }
             }
