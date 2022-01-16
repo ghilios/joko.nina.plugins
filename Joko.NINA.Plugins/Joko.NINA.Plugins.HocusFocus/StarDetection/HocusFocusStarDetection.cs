@@ -56,6 +56,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     }
 
     public class HocusFocusStarDetectionResult : StarDetectionResult {
+        public StarDetectorParams DetectorParams { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
         public DebugData DebugData { get; set; }
     }
@@ -105,7 +106,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 detectorParams.CenterROICropRatio = p.OuterCropRatio >= 1.0 ? p.InnerCropRatio : p.OuterCropRatio;
             }
 
-            var result = new HocusFocusStarDetectionResult() { Params = p };
+            var result = new HocusFocusStarDetectionResult() { Params = p, DetectorParams = detectorParams };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var starList = starDetectorResult.DetectedStars;

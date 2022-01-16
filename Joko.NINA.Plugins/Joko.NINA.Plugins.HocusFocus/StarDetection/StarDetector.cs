@@ -139,7 +139,34 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             File.WriteAllText(Path.Combine(p.SaveIntermediateFilesPath, filename), sb.ToString());
         }
 
+        public Task<StarDetectorResult> Detect(Mat srcImage, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            return Task.Run(() => {
+                var resourceTracker = new ResourcesTracker();
+                try {
+                    return DetectImpl(srcImage, resourceTracker, p, progress, token);
+                } finally {
+                    // Cleanup
+                    resourceTracker.Dispose();
+                    progress?.Report(new ApplicationStatus() { });
+                }
+            }, token);
+        }
+
         public Task<StarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            return Task.Run(() => {
+                var resourceTracker = new ResourcesTracker();
+                try {
+                    var srcImage = CvImageUtility.ToOpenCVMat(image);
+                    return DetectImpl(srcImage, resourceTracker, p, progress, token);
+                } finally {
+                    // Cleanup
+                    resourceTracker.Dispose();
+                    progress?.Report(new ApplicationStatus() { });
+                }
+            }, token);
+        }
+
+        private StarDetectorResult DetectImpl(Mat srcImage, ResourcesTracker resourceTracker, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
                 throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
             }
@@ -148,149 +175,139 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
 
             MaybeSaveIntermediateText(p.ToString(), p, "0-params.txt");
-            return Task.Run(() => {
-                var resourceTracker = new ResourcesTracker();
-                try {
-                    var metrics = new StarDetectorMetrics();
-                    using (var stopWatch = MultiStopWatch.Measure()) {
-                        var srcImage = CvImageUtility.ToOpenCVMat(image);
-                        var debugData = new DebugData();
+            var metrics = new StarDetectorMetrics();
+            using (var stopWatch = MultiStopWatch.Measure()) {
+                var debugData = new DebugData();
 
-                        Rect? roiRect = null;
-                        if (p.CenterROICropRatio < 1.0) {
-                            var startFactor = (1.0 - p.CenterROICropRatio) / 2.0;
-                            roiRect = new Rect(
-                                (int)Math.Floor(srcImage.Cols * startFactor),
-                                (int)Math.Floor(srcImage.Rows * startFactor),
-                                (int)(srcImage.Cols * p.CenterROICropRatio),
-                                (int)(srcImage.Rows * p.CenterROICropRatio));
-                            debugData.DetectionROI = roiRect.Value.ToDrawingRectangle();
+                Rect? roiRect = null;
+                if (p.CenterROICropRatio < 1.0) {
+                    var startFactor = (1.0 - p.CenterROICropRatio) / 2.0;
+                    roiRect = new Rect(
+                        (int)Math.Floor(srcImage.Cols * startFactor),
+                        (int)Math.Floor(srcImage.Rows * startFactor),
+                        (int)(srcImage.Cols * p.CenterROICropRatio),
+                        (int)(srcImage.Rows * p.CenterROICropRatio));
+                    debugData.DetectionROI = roiRect.Value.ToDrawingRectangle();
 
-                            var roiImage = srcImage.SubMat(roiRect.Value).Clone();
-                            srcImage.Dispose();
-                            srcImage = roiImage;
-                        } else {
-                            debugData.DetectionROI = new System.Drawing.Rectangle(0, 0, srcImage.Width, srcImage.Height);
-                        }
-                        MaybeSaveIntermediateImage(srcImage, p, "1-source.tif");
-
-                        if (p.StoreStructureMap) {
-                            debugData.StructureMap = new byte[debugData.DetectionROI.Width * debugData.DetectionROI.Height];
-                        }
-
-                        stopWatch.RecordEntry("LoadImage");
-
-                        // Step 1: Perform initial noise reduction and hotpixel filtering
-                        progress.Report(new ApplicationStatus() { Status = "Noise Reduction" });
-                        var hotpixelFilteringApplied = false;
-                        if (p.HotpixelFiltering || p.NoiseReductionRadius > 0) {
-                            // Apply a median box filter in place to the starting image
-                            Cv2.MedianBlur(srcImage, srcImage, 3);
-                            hotpixelFilteringApplied = true;
-                        }
-                        if (p.NoiseReductionRadius > 0) {
-                            CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
-                        }
-                        MaybeSaveIntermediateImage(srcImage, p, "2-noise-reduced.tif");
-
-                        // Step 2: Prepare for structure detection by applying hotpixel filtering to a copy if it hasn't been done already
-                        progress.Report(new ApplicationStatus() { Status = "Preparing for Structure Detection" });
-                        Mat structureMap;
-                        if (!hotpixelFilteringApplied) {
-                            structureMap = resourceTracker.NewMat();
-                            Cv2.MedianBlur(srcImage, structureMap, 3);
-                            hotpixelFilteringApplied = true;
-                        } else {
-                            structureMap = resourceTracker.NewMat();
-                            srcImage.CopyTo(structureMap);
-                        }
-                        stopWatch.RecordEntry("InitialNoiseReduction");
-                        MaybeSaveIntermediateImage(structureMap, p, "3-structure-map.tif");
-
-                        // Step 3: Compute noise estimates and structure map statistics
-                        var ksigmaNoiseResult = CvImageUtility.KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
-                        var ksigmaTrace = $"K-Sigma Noise Estimate: {ksigmaNoiseResult.Sigma}, Background Mean: {ksigmaNoiseResult.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResult.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}";
-                        Logger.Trace(ksigmaTrace);
-                        MaybeSaveIntermediateText(ksigmaTrace, p, "ksigma-estimate.txt");
-                        stopWatch.RecordEntry("KSigmaNoiseCalculation");
-
-                        // Step 4: Subtract a blur to emphasize edges, and rescale the clipped result to [0, 1)
-                        using (var structureMapSrcBlurred = new Mat()) {
-                            CvImageUtility.ConvolveGaussian(structureMap, structureMapSrcBlurred, 1 + (1 << p.StructureLayers));
-                            CvImageUtility.SubtractInPlace(structureMap, structureMapSrcBlurred);
-                        }
-                        CvImageUtility.RescaleInPlace(structureMap);
-                        MaybeSaveIntermediateImage(structureMap, p, "4-structure-map-blur-subtracted.tif");
-
-                        // TODO: Consider whether doing this at multiple scales is worth the cost, particularly when out of focus
-                        // Step 5: Subtract a blur to emphasize edges at multiple scales, and rescale the clipped result to [0, 1)
-                        /*
-                        var structureMapEmphasized = resourceTracker.T(MultiScaleEmphasizeEdges(structureMap, 4, 3));
-                        structureMap.Dispose();
-                        structureMap = structureMapEmphasized;
-                        */
-                        stopWatch.RecordEntry("EmphasizeEdges");
-
-                        // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
-                        // The difference doesn't seem worth it based on tests done so far
-                        var structureMapStats = CvImageUtility.CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
-                        stopWatch.RecordEntry("BinarizationStatistics");
-
-                        double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * ksigmaNoiseResult.Sigma;
-                        var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}";
-                        Logger.Trace(binarizeTrace);
-                        MaybeSaveIntermediateText(structureMapStats.ToString() + "\r\n" + binarizeTrace, p, "5-structure-map-statistics.txt");
-
-                        if (p.StoreStructureMap) {
-                            UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 2);
-                        }
-
-                        // Step 6: Boost small structures with a dilation box filter
-                        if (p.StructureDilationCount > 0) {
-                            using (var dilationStructure = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(p.StructureDilationSize, p.StructureDilationSize))) {
-                                Cv2.MorphologyEx(structureMap, structureMap, MorphTypes.Dilate, dilationStructure, iterations: p.StructureDilationCount, borderType: BorderTypes.Reflect);
-                            }
-                            stopWatch.RecordEntry("StructureDilation");
-                            MaybeSaveIntermediateImage(structureMap, p, "6-structure-map-dilated.tif");
-                        }
-
-                        if (p.StoreStructureMap) {
-                            UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 1);
-                        }
-
-                        progress.Report(new ApplicationStatus() { Status = "Structure Detection" });
-
-                        // Step 7: Binarize foreground structures based on noise estimates
-                        CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
-                        stopWatch.RecordEntry("Binarization");
-                        MaybeSaveIntermediateImage(structureMap, p, "7-structure-binarized.tif");
-
-                        // Step 8: Scan structure map for stars
-                        progress.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
-                        var stars = ScanStars(srcImage, structureMap, p, ksigmaNoiseResult.Sigma, metrics);
-                        stopWatch.RecordEntry("StarAnalysis");
-                        MaybeSaveIntermediateStars(stars, p, "8-detected-stars.txt");
-
-                        var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
-                        MaybeSaveIntermediateText(metricsTrace, p, "9-detection-metrics.txt");
-                        Logger.Trace(metricsTrace);
-                        if (roiRect.HasValue) {
-                            // Apply correction for the ROI
-                            stars = stars.Select(s => s.AddOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top)).ToList();
-                        }
-
-                        return new StarDetectorResult() {
-                            DetectedStars = stars,
-                            Metrics = metrics,
-                            DebugData = debugData
-                        };
-                    }
-                } finally {
-                    // Cleanup
-                    resourceTracker.Dispose();
-                    progress.Report(new ApplicationStatus() { });
+                    var roiImage = srcImage.SubMat(roiRect.Value).Clone();
+                    srcImage.Dispose();
+                    srcImage = roiImage;
+                } else {
+                    debugData.DetectionROI = new System.Drawing.Rectangle(0, 0, srcImage.Width, srcImage.Height);
                 }
-            }, token);
+                MaybeSaveIntermediateImage(srcImage, p, "1-source.tif");
+
+                if (p.StoreStructureMap) {
+                    debugData.StructureMap = new byte[debugData.DetectionROI.Width * debugData.DetectionROI.Height];
+                }
+
+                stopWatch.RecordEntry("LoadImage");
+
+                // Step 1: Perform initial noise reduction and hotpixel filtering
+                progress?.Report(new ApplicationStatus() { Status = "Noise Reduction" });
+                var hotpixelFilteringApplied = false;
+                if (p.HotpixelFiltering || p.NoiseReductionRadius > 0) {
+                    // Apply a median box filter in place to the starting image
+                    Cv2.MedianBlur(srcImage, srcImage, 3);
+                    hotpixelFilteringApplied = true;
+                }
+                if (p.NoiseReductionRadius > 0) {
+                    CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
+                }
+                MaybeSaveIntermediateImage(srcImage, p, "2-noise-reduced.tif");
+
+                // Step 2: Prepare for structure detection by applying hotpixel filtering to a copy if it hasn't been done already
+                progress?.Report(new ApplicationStatus() { Status = "Preparing for Structure Detection" });
+                Mat structureMap;
+                if (!hotpixelFilteringApplied) {
+                    structureMap = resourceTracker.NewMat();
+                    Cv2.MedianBlur(srcImage, structureMap, 3);
+                    hotpixelFilteringApplied = true;
+                } else {
+                    structureMap = resourceTracker.NewMat();
+                    srcImage.CopyTo(structureMap);
+                }
+                stopWatch.RecordEntry("InitialNoiseReduction");
+                MaybeSaveIntermediateImage(structureMap, p, "3-structure-map.tif");
+
+                // Step 3: Compute noise estimates and structure map statistics
+                var ksigmaNoiseResult = CvImageUtility.KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
+                var ksigmaTrace = $"K-Sigma Noise Estimate: {ksigmaNoiseResult.Sigma}, Background Mean: {ksigmaNoiseResult.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResult.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}";
+                Logger.Trace(ksigmaTrace);
+                MaybeSaveIntermediateText(ksigmaTrace, p, "ksigma-estimate.txt");
+                stopWatch.RecordEntry("KSigmaNoiseCalculation");
+
+                // Step 4: Subtract a blur to emphasize edges, and rescale the clipped result to [0, 1)
+                using (var structureMapSrcBlurred = new Mat()) {
+                    CvImageUtility.ConvolveGaussian(structureMap, structureMapSrcBlurred, 1 + (1 << p.StructureLayers));
+                    CvImageUtility.SubtractInPlace(structureMap, structureMapSrcBlurred);
+                }
+                CvImageUtility.RescaleInPlace(structureMap);
+                MaybeSaveIntermediateImage(structureMap, p, "4-structure-map-blur-subtracted.tif");
+
+                // TODO: Consider whether doing this at multiple scales is worth the cost, particularly when out of focus
+                // Step 5: Subtract a blur to emphasize edges at multiple scales, and rescale the clipped result to [0, 1)
+                /*
+                var structureMapEmphasized = resourceTracker.T(MultiScaleEmphasizeEdges(structureMap, 4, 3));
+                structureMap.Dispose();
+                structureMap = structureMapEmphasized;
+                */
+                stopWatch.RecordEntry("EmphasizeEdges");
+
+                // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
+                // The difference doesn't seem worth it based on tests done so far
+                var structureMapStats = CvImageUtility.CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
+                stopWatch.RecordEntry("BinarizationStatistics");
+
+                double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * ksigmaNoiseResult.Sigma;
+                var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}";
+                Logger.Trace(binarizeTrace);
+                MaybeSaveIntermediateText(structureMapStats.ToString() + "\r\n" + binarizeTrace, p, "5-structure-map-statistics.txt");
+
+                if (p.StoreStructureMap) {
+                    UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 2);
+                }
+
+                // Step 6: Boost small structures with a dilation box filter
+                if (p.StructureDilationCount > 0) {
+                    using (var dilationStructure = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(p.StructureDilationSize, p.StructureDilationSize))) {
+                        Cv2.MorphologyEx(structureMap, structureMap, MorphTypes.Dilate, dilationStructure, iterations: p.StructureDilationCount, borderType: BorderTypes.Reflect);
+                    }
+                    stopWatch.RecordEntry("StructureDilation");
+                    MaybeSaveIntermediateImage(structureMap, p, "6-structure-map-dilated.tif");
+                }
+
+                if (p.StoreStructureMap) {
+                    UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 1);
+                }
+
+                progress?.Report(new ApplicationStatus() { Status = "Structure Detection" });
+
+                // Step 7: Binarize foreground structures based on noise estimates
+                CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
+                stopWatch.RecordEntry("Binarization");
+                MaybeSaveIntermediateImage(structureMap, p, "7-structure-binarized.tif");
+
+                // Step 8: Scan structure map for stars
+                progress?.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
+                var stars = ScanStars(srcImage, structureMap, p, ksigmaNoiseResult.Sigma, metrics);
+                stopWatch.RecordEntry("StarAnalysis");
+                MaybeSaveIntermediateStars(stars, p, "8-detected-stars.txt");
+
+                var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
+                MaybeSaveIntermediateText(metricsTrace, p, "9-detection-metrics.txt");
+                Logger.Trace(metricsTrace);
+                if (roiRect.HasValue) {
+                    // Apply correction for the ROI
+                    stars = stars.Select(s => s.AddOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top)).ToList();
+                }
+
+                return new StarDetectorResult() {
+                    DetectedStars = stars,
+                    Metrics = metrics,
+                    DebugData = debugData
+                };
+            }
         }
 
         /// <summary>

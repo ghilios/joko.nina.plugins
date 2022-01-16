@@ -24,6 +24,8 @@ using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
+using System.IO;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -38,8 +40,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         private CancellationTokenSource refreshAnnotationTaskCTS;
 
         [ImportingConstructor]
-        public HocusFocusStarAnnotator(IProfileService profileService, IImageControlVM imageControlVM) {
-            StarAnnotatorOptions = HocusFocusPlugin.StarAnnotatorOptions;
+        public HocusFocusStarAnnotator(IImageControlVM imageControlVM) : this(HocusFocusPlugin.StarAnnotatorOptions, imageControlVM) {
+        }
+
+        public HocusFocusStarAnnotator(IStarAnnotatorOptions starAnnotatorOptions, IImageControlVM imageControlVM) {
+            StarAnnotatorOptions = starAnnotatorOptions;
             StarAnnotatorOptions.PropertyChanged += StarAnnotatorOptions_PropertyChanged;
             this.imageControlVM = imageControlVM;
         }
@@ -66,7 +71,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }, refreshAnnotationTaskCTS.Token);
         }
 
-        public StarAnnotatorOptions StarAnnotatorOptions { get; set; }
+        public IStarAnnotatorOptions StarAnnotatorOptions { get; set; }
 
         public string Name => "Hocus Focus";
 
@@ -211,9 +216,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                         var img = ImageUtility.ConvertBitmap(newBitmap, System.Windows.Media.PixelFormats.Bgr24);
                         img.Freeze();
+                        var hocusFocusDetectorParams = (result as HocusFocusStarDetectionResult)?.DetectorParams;
+                        if (hocusFocusDetectorParams != null) {
+                            MaybeSaveIntermediateBitmapSource(img, hocusFocusDetectorParams, "annotated-result.png");
+                        }
+
                         return img;
                     }
                 }
+            }
+        }
+
+        private static void MaybeSaveIntermediateBitmapSource(BitmapSource image, StarDetectorParams p, string filename) {
+            var saveIntermediate = !string.IsNullOrEmpty(p.SaveIntermediateFilesPath) && Directory.Exists(p.SaveIntermediateFilesPath);
+            if (!saveIntermediate) {
+                return;
+            }
+
+            var targetPath = Path.Combine(p.SaveIntermediateFilesPath, filename);
+            using (var fileStream = new FileStream(targetPath, FileMode.Create)) {
+                BitmapEncoder encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(image));
+                encoder.Save(fileStream);
             }
         }
 

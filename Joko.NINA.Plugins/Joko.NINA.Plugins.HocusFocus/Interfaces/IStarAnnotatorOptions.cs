@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using System.ComponentModel;
 using System.Windows.Media;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
@@ -25,7 +26,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Dilated
     }
 
-    public interface IStarAnnotatorOptions {
+    public interface IStarAnnotatorOptions : INotifyPropertyChanged {
         bool ShowAnnotations { get; set; }
         bool ShowAllStars { get; set; }
         int MaxStars { get; set; }
@@ -43,5 +44,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         ShowStructureMapEnum ShowStructureMap { get; set; }
         Color StructureMapColor { get; set; }
         IStarDetectionOptions DetectorOptions { get; set; }
+        Color TooFlatColor { get; set; }
+        Color SaturatedColor { get; set; }
+        Color LowSensitivityColor { get; set; }
+        Color NotCenteredColor { get; set; }
+        Color DegenerateColor { get; set; }
+        bool ShowDegenerate { get; set; }
+        bool ShowSaturated { get; set; }
+        bool ShowLowSensitivity { get; set; }
+        bool ShowNotCentered { get; set; }
+        bool ShowTooFlat { get; set; }
     }
 }

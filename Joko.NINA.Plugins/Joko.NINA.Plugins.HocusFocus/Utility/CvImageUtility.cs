@@ -180,6 +180,93 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return result;
         }
 
+        private static CvImageStatistics CalculateStatistics_Histogram_UInt16(Mat image) {
+            var histogram = new uint[ushort.MaxValue + 1];
+            unsafe {
+                var dataPtr = (ushort*)image.DataPointer;
+                for (var i = 0; i < image.Rows * image.Cols; ++i) {
+                    histogram[dataPtr[i]] += 1;
+                }
+            }
+
+            var numPixels = image.Rows * image.Cols;
+
+            // Median
+            var targetMedianCount = numPixels / 2.0d;
+            uint currentCount = 0;
+            double median = -1.0d;
+            for (uint i = 0; i <= ushort.MaxValue; ++i) {
+                currentCount += histogram[i];
+                if (currentCount > targetMedianCount) {
+                    median = i;
+                    break;
+                } else if (currentCount == targetMedianCount) {
+                    for (uint j = i + 1; i <= ushort.MaxValue; ++i) {
+                        if (histogram[j] > 0) {
+                            median = (i + j) / 2.0d;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+
+            // MAD
+            currentCount = 0;
+            int upIndex = (int)Math.Ceiling(median);
+            int downIndex = (int)Math.Floor(median);
+            double beforeMedian = -1;
+            double mad;
+            while (true) {
+                while (upIndex <= ushort.MaxValue && histogram[upIndex] == 0) {
+                    ++upIndex;
+                }
+                while (downIndex >= 0 && histogram[downIndex] == 0) {
+                    --downIndex;
+                }
+
+                var upDistance = upIndex <= ushort.MaxValue ? Math.Abs(upIndex - median) : double.MaxValue;
+                var downDistance = downIndex >= 0 ? Math.Abs(downIndex - median) : double.MaxValue;
+                int chosenIndex;
+                if (upDistance <= downDistance) {
+                    chosenIndex = upIndex;
+                    currentCount += histogram[upIndex++];
+                } else {
+                    chosenIndex = downIndex;
+                    currentCount += histogram[downIndex--];
+                }
+
+                if (currentCount == targetMedianCount) {
+                    beforeMedian = Math.Abs(chosenIndex - median);
+                } else if (currentCount > targetMedianCount) {
+                    if (beforeMedian >= 0) {
+                        mad = (beforeMedian + Math.Abs(chosenIndex - median)) / 2.0d;
+                    } else {
+                        mad = Math.Abs(chosenIndex - median);
+                    }
+                    break;
+                }
+            }
+
+            // Mean
+            ulong pixelTotal = 0L;
+            for (uint i = 0; i <= ushort.MaxValue; ++i) {
+                pixelTotal += histogram[i] * i;
+            }
+            double mean = pixelTotal / (double)numPixels;
+
+            // Variance
+            double sse = 0d;
+            for (uint i = 0; i <= ushort.MaxValue; ++i) {
+                var error = i - mean;
+                sse += error * error;
+            }
+            double variance = sse / (numPixels - 1);
+            double stdDev = Math.Sqrt(variance);
+
+            return new CvImageStatistics() { Median = median, MAD = mad, Mean = mean, StdDev = stdDev };
+        }
+
         public struct Ranged {
 
             public Ranged(double start, double end) {
@@ -197,6 +284,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             Ranged? valueRange = null,
             Rect? rect = null,
             CvImageStatisticsFlags flags = CvImageStatisticsFlags.All) {
+            if (image.Type() == MatType.CV_16U) {
+                return CalculateStatistics_Histogram_UInt16(image);
+            }
             if (image.Type() != MatType.CV_32F) {
                 throw new ArgumentException("Only CV_32F supported");
             }
@@ -637,6 +727,62 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     Stdev = Math.Sqrt(sumVariance / total)
                 };
             }
+        }
+
+        public static void ApplyLUT(Mat src, Mat lut, Mat dst) {
+            if (dst.Size() != src.Size() || dst.Type() != src.Type()) {
+                dst.Create(src.Size(), src.Type());
+            }
+
+            unsafe {
+                var srcData = (ushort*)src.DataPointer;
+                var dstData = (ushort*)dst.DataPointer;
+                var lutData = (ushort*)lut.DataPointer;
+                var numPixels = src.Rows * src.Cols;
+                for (int i = 0; i < numPixels; ++i) {
+                    dstData[i] = lutData[srcData[i]];
+                }
+            }
+        }
+
+        private static double NormalizeUShort(double val, int bitDepth) {
+            return val / (double)(1 << bitDepth);
+        }
+
+        private static ushort DenormalizeUShort(double val) {
+            return (ushort)(val * ushort.MaxValue);
+        }
+
+        private static double MidtonesTransferFunction(double midToneBalance, double x) {
+            if (x > 0) {
+                if (x < 1) {
+                    return (midToneBalance - 1) * x / ((2 * midToneBalance - 1) * x - midToneBalance);
+                }
+                return 1;
+            }
+            return 0;
+        }
+
+        public static Mat CreateMTFLookup(CvImageStatistics statistics, double shadowsClipping = -2.8, double targetHistogramMedianPercent = 0.2) {
+            var normalizedMedian = NormalizeUShort(statistics.Median, 16);
+            var normalizedMAD = NormalizeUShort(statistics.MAD, 16);
+
+            var scaleFactor = 1.4826; // see https://en.wikipedia.org/wiki/Median_absolute_deviation
+
+            double shadows = normalizedMedian + shadowsClipping * normalizedMAD * scaleFactor;
+            double midtones = MidtonesTransferFunction(targetHistogramMedianPercent, normalizedMedian - shadows);
+            double highlights = 1;
+
+            var lut = new Mat(1, ushort.MaxValue, MatType.CV_16U);
+            unsafe {
+                var lutData = (ushort*)lut.DataPointer;
+                for (int i = 0; i < ushort.MaxValue; i++) {
+                    double value = NormalizeUShort(i, 16);
+                    lutData[i] = DenormalizeUShort(MidtonesTransferFunction(midtones, 1 - highlights + value - shadows));
+                }
+            }
+
+            return lut;
         }
     }
 }
