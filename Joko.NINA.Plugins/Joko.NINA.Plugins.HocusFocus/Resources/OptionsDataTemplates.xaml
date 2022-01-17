@@ -327,6 +327,22 @@
             </ComboBox>
 
             <TextBlock
+                Grid.Row="4"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Use AutoFocus Crop"
+                ToolTip="{StaticResource UseAutoFocusCrop_Tooltip}" />
+            <CheckBox
+                Grid.Row="4"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.UseAutoFocusCrop}"
+                ToolTip="{StaticResource UseAutoFocusCrop_Tooltip}" />
+
+            <TextBlock
                 Grid.Row="10"
                 Grid.Column="0"
                 VerticalAlignment="Center"
@@ -341,22 +357,6 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding StarDetectionOptions.HotpixelFiltering}"
                 ToolTip="{StaticResource HotpixelFiltering_Tooltip}" />
-
-            <TextBlock
-                Grid.Row="11"
-                Grid.Column="0"
-                VerticalAlignment="Center"
-                Text="Use AutoFocus Crop"
-                ToolTip="{StaticResource UseAutoFocusCrop_Tooltip}" />
-            <CheckBox
-                Grid.Row="11"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,5,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                IsChecked="{Binding StarDetectionOptions.UseAutoFocusCrop}"
-                ToolTip="{StaticResource UseAutoFocusCrop_Tooltip}" />
 
             <TextBlock
                 Grid.Row="12"

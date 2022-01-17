@@ -16,6 +16,7 @@ using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
 using System.IO;
+using System.Collections.Generic;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -29,7 +30,64 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
 
             this.optionsAccessor = new PluginOptionsAccessor(profileService, guid.Value);
+            this.PropertyChanged += StarDetectionOptions_PropertyChanged;
             InitializeOptions();
+        }
+
+        private HashSet<String> SimplePropertyNames = new HashSet<string>() {
+            nameof(Simple_NoiseLevel),
+            nameof(Simple_PixelScale),
+            nameof(Simple_FocusRange),
+        };
+
+        private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
+            if (this.UseAdvanced) {
+                return;
+            }
+
+            if (!String.IsNullOrEmpty(e.PropertyName) && !SimplePropertyNames.Contains(e.PropertyName)) {
+                return;
+            }
+
+            HotpixelFiltering = Simple_NoiseLevel != NoiseLevelEnum.None;
+            switch (Simple_NoiseLevel) {
+                case NoiseLevelEnum.None:
+                    NoiseReductionRadius = 0;
+                    break;
+
+                case NoiseLevelEnum.Typical:
+                    NoiseReductionRadius = 3;
+                    break;
+
+                case NoiseLevelEnum.High:
+                    NoiseReductionRadius = 5;
+                    break;
+            }
+            NoiseClippingMultiplier = 4;
+            StarClippingMultiplier = 2;
+            StructureLayers = 4;
+            if (Simple_FocusRange == FocusRangeEnum.WideRange) {
+                StructureLayers += 1;
+            }
+
+            MinStarBoundingBoxSize = 5;
+            PixelSampleSize = 0.5;
+            if (Simple_PixelScale == PixelScaleEnum.WideField) {
+                StructureLayers -= 1;
+                MinStarBoundingBoxSize -= 1;
+            } else if (Simple_PixelScale == PixelScaleEnum.LongFocalLength) {
+                StructureLayers += 1;
+                MinStarBoundingBoxSize += 1;
+                PixelSampleSize = 1.0;
+            }
+            BrightnessSensitivity = 0.1;
+            StarPeakResponse = 0.75;
+            MaxDistortion = 0.5;
+            StarCenterTolerance = 0.3;
+            StarBackgroundBoxExpansion = 3;
+            MinHFR = 1.5;
+            StructureDilationSize = 3;
+            StructureDilationCount = 0;
         }
 
         private void InitializeOptions() {
@@ -41,18 +99,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             hotpixelFiltering = optionsAccessor.GetValueBoolean("HotpixelFiltering", true);
             useAutoFocusCrop = optionsAccessor.GetValueBoolean("UseAutoFocusCrop", true);
             noiseReductionRadius = optionsAccessor.GetValueInt32("NoiseReductionRadius", 3);
-            noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 5.0);
-            starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 0.5);
-            structureLayers = optionsAccessor.GetValueInt32("StructureLayers", 5);
-            brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 3.0);
-            starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.6);
+            noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 4.0);
+            starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 2.0);
+            structureLayers = optionsAccessor.GetValueInt32("StructureLayers", 4);
+            brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 0.1);
+            starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.75);
             maxDistortion = optionsAccessor.GetValueDouble("MaxDistortion", 0.5);
             starCenterTolerance = optionsAccessor.GetValueDouble("StarCenterTolerance", 0.3);
             starBackgroundBoxExpansion = optionsAccessor.GetValueInt32("StarBackgroundBoxExpansion", 3);
             minStarBoundingBoxSize = optionsAccessor.GetValueInt32("MinStarBoundingBoxSize", 5);
             minHFR = optionsAccessor.GetValueDouble("MinHFR", 1.5);
-            structureDilationSize = optionsAccessor.GetValueInt32("StructureDilationSize", 5);
-            structureDilationCount = optionsAccessor.GetValueInt32("StructureDilationCount", 1);
+            structureDilationSize = optionsAccessor.GetValueInt32("StructureDilationSize", 3);
+            structureDilationCount = optionsAccessor.GetValueInt32("StructureDilationCount", 0);
             pixelSampleSize = optionsAccessor.GetValueDouble("PixelSampleSize", 0.5);
             intermediateSavePath = optionsAccessor.GetValueString(nameof(IntermediateSavePath), "");
             if (string.IsNullOrEmpty(intermediateSavePath) || !Directory.Exists(intermediateSavePath)) {
@@ -65,8 +123,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public void ResetDefaults() {
-            DebugMode = false;
             UseAdvanced = false;
+            DebugMode = false;
             Simple_NoiseLevel = NoiseLevelEnum.Typical;
             Simple_PixelScale = PixelScaleEnum.Typical;
             simple_FocusRange = FocusRangeEnum.Typical;
