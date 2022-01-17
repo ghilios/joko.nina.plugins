@@ -80,7 +80,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 MinStarBoundingBoxSize += 1;
                 PixelSampleSize = 1.0;
             }
-            BrightnessSensitivity = 0.1;
+            BrightnessSensitivity = 10.0;
             StarPeakResponse = 0.75;
             MaxDistortion = 0.5;
             StarCenterTolerance = 0.3;
@@ -102,7 +102,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 4.0);
             starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 2.0);
             structureLayers = optionsAccessor.GetValueInt32("StructureLayers", 4);
-            brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 0.1);
+            brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 10.0);
             starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.75);
             maxDistortion = optionsAccessor.GetValueDouble("MaxDistortion", 0.5);
             starCenterTolerance = optionsAccessor.GetValueDouble("StarCenterTolerance", 0.3);
@@ -131,18 +131,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             HotpixelFiltering = true;
             UseAutoFocusCrop = true;
             NoiseReductionRadius = 3;
-            NoiseClippingMultiplier = 5.0;
-            StarClippingMultiplier = 0.5;
-            StructureLayers = 5;
-            BrightnessSensitivity = 3.0;
+            NoiseClippingMultiplier = 4.0;
+            StarClippingMultiplier = 2.0;
+            StructureLayers = 4;
+            BrightnessSensitivity = 10.0;
             StarPeakResponse = 0.6;
             MaxDistortion = 0.5;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
             MinHFR = 1.5;
-            StructureDilationSize = 5;
-            StructureDilationCount = 1;
+            StructureDilationSize = 3;
+            StructureDilationCount = 0;
             PixelSampleSize = 0.5;
             IntermediateSavePath = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "HocusFocusIntermediate");
             if (!Directory.Exists(IntermediateSavePath)) {

@@ -32,7 +32,7 @@
     <TextBlock x:Key="StarClippingMultiplier_Tooltip" Text="Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis. Decrease this if there are a large number of stars excluded for being degenerate and you can see many clear dim stars that are not detected." />
     <TextBlock x:Key="StructureLayers_Tooltip" Text="The number of dyadic (power of 2) layers to include in structure detection. At the default of 5 (2⁵=32), structures larger than 32 pixels in size are excluded from structure detection" />
     <TextBlock x:Key="BrightnessSensitivity_Tooltip">
-        Given a star with a normalized brightness measure of <Bold>s</Bold>, a local background of <Bold>b</Bold>, and a background noise level of <Bold>n</Bold>, star sensitivity is measured as the ratio of the star brightness above the background relative to the background noise <Bold>(s-b)/n</Bold>. The default value of 5x the noise level seems to works well, but if you find a large number of rejections due to low sensitivity, smaller values can increase sensitivity
+        Given a star with a normalized brightness measure of <Bold>s</Bold>, a local background of <Bold>b</Bold>, and a background noise level of <Bold>n</Bold>, star sensitivity is measured as the ratio of the star brightness above the background relative to the background noise <Bold>(s-b)/n</Bold>. The default value of 10x the noise level seems to works well, but if you find a large number of rejections due to low sensitivity, smaller values can increase sensitivity
     </TextBlock>
     <TextBlock x:Key="StarPeakResponse_Tooltip" Text="The ratio of the star median relative to the star peak. It provides a measure of flatness, since median values close to the peak indicate low dispersion. Consider increasing if too many stars are rejected with &quot;Too Flat&quot;" />
     <TextBlock x:Key="MaxDistortion_Tooltip" Text="The ratio of star pixels to the size of a perfect square bounding box. A perfect circule has a distortion of PI/4, which is approximately 0.7. The default value of 0.5 allows for some distortion and measurement error and should work for most cases." />
@@ -202,8 +202,8 @@
             </Grid.Resources>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition />
-                <ColumnDefinition />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition />
@@ -731,9 +731,6 @@
             <Button
                 Grid.Row="27"
                 Grid.Column="2"
-                Width="20"
-                Height="20"
-                Margin="5,5,0,0"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Command="{Binding ChooseIntermediatePathDiagCommand}">
@@ -742,6 +739,20 @@
                     Data="{StaticResource DotsSVG}"
                     Fill="{StaticResource ButtonForegroundBrush}"
                     Stretch="Uniform" />
+                <Button.Style>
+                    <Style TargetType="{x:Type Button}" BasedOn="{StaticResource StandardButton}">
+                        <Setter Property="Width" Value="20" />
+                        <Setter Property="Height" Value="20" />
+                        <Setter Property="Margin" Value="5,5,0,0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding StarDetectionOptions.SaveIntermediateImages}" Value="False">
+                                <Setter Property="Width" Value="0" />
+                                <Setter Property="Height" Value="0" />
+                                <Setter Property="Margin" Value="0" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
             </Button>
 
             <TextBlock

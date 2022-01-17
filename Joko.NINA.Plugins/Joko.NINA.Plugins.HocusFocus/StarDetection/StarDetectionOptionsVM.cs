@@ -12,7 +12,6 @@
 
 using NINA.Core.Utility;
 using NINA.Equipment.Interfaces.ViewModel;
-using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.ViewModel;
 using System;
@@ -51,7 +50,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         public override bool IsTool { get; } = true;
 
-        public IStarDetectionOptions StarDetectionOptions { get; private set; }
+        public StarDetectionOptions StarDetectionOptions { get; private set; }
 
         public ICommand ChooseIntermediatePathDiagCommand { get; private set; }
     }

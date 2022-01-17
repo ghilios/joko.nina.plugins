@@ -56,7 +56,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public int StructureDilationCount { get; set; } = 0;
 
         // Sensitivity is the minimum value of a star's brightness (with the background n subtracted out) above the noise floor (s - b)/n. Smaller values increase sensitivity
-        public double Sensitivity { get; set; } = 0.1;
+        public double Sensitivity { get; set; } = 10.0;
 
         // Maximum ratio of median pixel value to the peak for a candidate pixel to be rejected. Large values are more tolerant of flat structures
         public double PeakResponse { get; set; } = 0.75;
@@ -240,7 +240,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 MaybeSaveIntermediateText(ksigmaTraceSrc, p, "04-ksigma-estimate-src.txt");
                 stopWatch.RecordEntry("KSigmaNoiseCalculation-Source");
 
-                // Step 4: Compute b-split wavelets to exclude large structures such as nebulae. If the pixel scale is very small or need a wide range for focus, you may need to increase the number of layers
+                // Step 4: Compute b-spline wavelets to exclude large structures such as nebulae. If the pixel scale is very small or need a wide range for focus, you may need to increase the number of layers
                 //         to keep stars from being excluded
                 {
                     var waveletLayers = ComputeAtrousB3SplineDyadicWaveletLayers(srcImage, p.StructureLayers);
