@@ -14,12 +14,13 @@
     xmlns:sd="clr-namespace:NINA.Joko.Plugins.HocusFocus.StarDetection"
     xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary"
     mc:Ignorable="d">
-    <hfconverters:ShowStructureMapToVisibilityConverter x:Key="ShowStructureMapToVisibilityConverter" />
-    <hfconverters:DoubleZeroToVisibilityConverter x:Key="DoubleZeroToVisibilityConverter" />
-    <hfconverters:IntNegativeToVisibilityConverter x:Key="IntNegativeToVisibilityConverter" />
-    <hfconverters:InverseDoubleZeroToVisibilityConverter x:Key="InverseDoubleZeroToVisibilityConverter" />
-    <hfconverters:AutoFocusFittingToVisibilityConverter x:Key="AutoFocusFittingToVisibilityConverter" />
-    <hfconverters:ZeroToInfinityConverter x:Key="ZeroToInfinityConverter" />
+    <hfconverters:ShowStructureMapToVisibilityConverter x:Key="HF_ShowStructureMapToVisibilityConverter" />
+    <hfconverters:DoubleZeroToVisibilityConverter x:Key="HF_DoubleZeroToVisibilityConverter" />
+    <hfconverters:IntNegativeToVisibilityConverter x:Key="HF_IntNegativeToVisibilityConverter" />
+    <hfconverters:InverseDoubleZeroToVisibilityConverter x:Key="HF_InverseDoubleZeroToVisibilityConverter" />
+    <hfconverters:AutoFocusFittingToVisibilityConverter x:Key="HF_AutoFocusFittingToVisibilityConverter" />
+    <hfconverters:ZeroToInfinityConverter x:Key="HF_ZeroToInfinityConverter" />
+    <hfconverters:EnumStaticDescriptionValueConverter x:Key="HF_EnumStaticDescriptionValueConverter" />
     <TextBlock x:Key="MaxConcurrent_Tooltip" Text="The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long an Auto Focus operation can take before we cancel it and move on." />
     <TextBlock x:Key="ValidateHfrImprovement_Tooltip" Text="If enabled, takes an extra exposure before and after to ensure HFR improved. This check may be done in addition to the R² validation configured in NINA's Auto Focus options." />
@@ -71,6 +72,10 @@
     <TextBlock x:Key="StructureMapColor_Tooltip" Text="The color of the overlayed structure map" />
     <TextBlock x:Key="SaveIntermediatePath_Tooltip" Text="When Save Intermediate Files is enabled, they are written to this path the next time star detection runs" />
     <TextBlock x:Key="SaveIntermediateFiles_Tooltip" Text="If enabled, every step of star detection emits a debugging file to the intermediate path" />
+    <TextBlock x:Key="UseAdvanced_Tooltip" Text="Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless you're an expert" />
+    <TextBlock x:Key="SimpleNoiseLevel_Tooltip" Text="Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio" />
+    <TextBlock x:Key="SimpleFocusRange_Tooltip" Text="As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection" />
+    <TextBlock x:Key="SimplePixelScale_Tooltip" Text="At high focal lengths, pixel scale decreases and apparent star size (in pixels) increases. Setting this to a higher focal length increases the number of layers considered for star detection, which could increase false positives due from nebulosity" />
     <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
         <Grid Margin="5" VerticalAlignment="Top">
             <Grid.ColumnDefinitions>
@@ -97,7 +102,7 @@
                 HorizontalAlignment="Left"
                 ToolTip="{StaticResource MaxConcurrent_Tooltip}"
                 Unit="images">
-                <Binding Path="MaxConcurrent" UpdateSourceTrigger="LostFocus" Converter="{StaticResource ZeroToInfinityConverter}">
+                <Binding Path="MaxConcurrent" UpdateSourceTrigger="LostFocus" Converter="{StaticResource HF_ZeroToInfinityConverter}">
                     <Binding.ValidationRules>
                         <hfrules:PositiveIntegerOrInfiniteRule />
                     </Binding.ValidationRules>
@@ -170,6 +175,22 @@
             Margin="5"
             VerticalAlignment="Top">
             <Grid.Resources>
+                <Style x:Key="ShowOnUseAdvanced" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="0" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="True">
+                            <Setter Property="Height" Value="Auto" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+                <Style x:Key="ShowOnUseSimple" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="0" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="False">
+                            <Setter Property="Height" Value="Auto" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
                 <Style x:Key="HideOnSaveIntermediateOff" TargetType="{x:Type RowDefinition}">
                     <Setter Property="Height" Value="Auto" />
                     <Style.Triggers>
@@ -186,21 +207,31 @@
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
-                <RowDefinition />
+                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
                 <RowDefinition />
@@ -211,8 +242,8 @@
                 Grid.Row="0"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Text="Hotpixel Filtering"
-                ToolTip="{StaticResource HotpixelFiltering_Tooltip}" />
+                Text="Advanced Mode"
+                ToolTip="{StaticResource UseAdvanced_Tooltip}" />
             <CheckBox
                 Grid.Row="0"
                 Grid.Column="1"
@@ -220,16 +251,105 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                IsChecked="{Binding StarDetectionOptions.HotpixelFiltering}"
-                ToolTip="{StaticResource HotpixelFiltering_Tooltip}" />
+                IsChecked="{Binding StarDetectionOptions.UseAdvanced}"
+                ToolTip="{StaticResource UseAdvanced_Tooltip}" />
+
             <TextBlock
                 Grid.Row="1"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Noise Level"
+                ToolTip="{StaticResource SimpleNoiseLevel_Tooltip}" />
+            <ComboBox
+                Grid.Row="1"
+                Grid.Column="1"
+                Name="PART_NoiseLevelEnumList"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:NoiseLevelEnum}}}"
+                SelectedItem="{Binding StarDetectionOptions.Simple_NoiseLevel}"
+                ToolTip="{StaticResource SimpleNoiseLevel_Tooltip}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock
+                Grid.Row="2"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Pixel Scale"
+                ToolTip="{StaticResource SimplePixelScale_Tooltip}" />
+            <ComboBox
+                Grid.Row="2"
+                Grid.Column="1"
+                Name="PART_PixelScaleEnumList"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:PixelScaleEnum}}}"
+                SelectedItem="{Binding StarDetectionOptions.Simple_PixelScale}"
+                ToolTip="{StaticResource SimplePixelScale_Tooltip}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock
+                Grid.Row="3"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Focus Range"
+                ToolTip="{StaticResource SimpleFocusRange_Tooltip}" />
+            <ComboBox
+                Grid.Row="3"
+                Grid.Column="1"
+                Name="PART_FocusRangeEnumList"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:FocusRangeEnum}}}"
+                SelectedItem="{Binding StarDetectionOptions.Simple_FocusRange}"
+                ToolTip="{StaticResource SimpleFocusRange_Tooltip}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock
+                Grid.Row="10"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Hotpixel Filtering"
+                ToolTip="{StaticResource HotpixelFiltering_Tooltip}" />
+            <CheckBox
+                Grid.Row="10"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.HotpixelFiltering}"
+                ToolTip="{StaticResource HotpixelFiltering_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="11"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Use AutoFocus Crop"
                 ToolTip="{StaticResource UseAutoFocusCrop_Tooltip}" />
             <CheckBox
-                Grid.Row="1"
+                Grid.Row="11"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -237,14 +357,15 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding StarDetectionOptions.UseAutoFocusCrop}"
                 ToolTip="{StaticResource UseAutoFocusCrop_Tooltip}" />
+
             <TextBlock
-                Grid.Row="2"
+                Grid.Row="12"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Noise Reduction Radius"
                 ToolTip="{StaticResource NoiseReductionRadius_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="2"
+                Grid.Row="12"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -258,14 +379,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="3"
+                Grid.Row="13"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Noise Clipping Multiplier"
                 ToolTip="{StaticResource NoiseClippingMultiplier_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="3"
+                Grid.Row="13"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -279,14 +401,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="4"
+                Grid.Row="14"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Star Clipping Multiplier"
                 ToolTip="{StaticResource StarClippingMultiplier_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="4"
+                Grid.Row="14"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -300,14 +423,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="5"
+                Grid.Row="15"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Structure Layers"
                 ToolTip="{StaticResource StructureLayers_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="5"
+                Grid.Row="15"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -321,14 +445,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="6"
+                Grid.Row="16"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Brightness Sensitivity"
                 ToolTip="{StaticResource BrightnessSensitivity_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="6"
+                Grid.Row="16"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -338,14 +463,15 @@
                 ToolTip="{StaticResource BrightnessSensitivity_Tooltip}">
                 <Binding Path="StarDetectionOptions.BrightnessSensitivity" UpdateSourceTrigger="LostFocus" />
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="7"
+                Grid.Row="17"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Star Peak Response"
                 ToolTip="{StaticResource StarPeakResponse_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="7"
+                Grid.Row="17"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -363,14 +489,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="8"
+                Grid.Row="18"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Max Distortion"
                 ToolTip="{StaticResource MaxDistortion_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="8"
+                Grid.Row="18"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -388,14 +515,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="9"
+                Grid.Row="19"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Star Center Tolerance"
                 ToolTip="{StaticResource StarCenterTolerance_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="9"
+                Grid.Row="19"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -413,14 +541,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="10"
+                Grid.Row="20"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Background Box Expansion"
                 ToolTip="{StaticResource StarBackgroundBoxExpansion_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="10"
+                Grid.Row="20"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -434,14 +563,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="11"
+                Grid.Row="21"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Min Bounding Box Size"
                 ToolTip="{StaticResource MinStarBoundingBoxSize_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="11"
+                Grid.Row="21"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -455,14 +585,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="12"
+                Grid.Row="22"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Min HFR"
                 ToolTip="{StaticResource MinHFR_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="12"
+                Grid.Row="22"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -476,14 +607,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="13"
+                Grid.Row="23"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Structure Dilation Size"
                 ToolTip="{StaticResource StructureDilationSize_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="13"
+                Grid.Row="23"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -501,14 +633,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="14"
+                Grid.Row="24"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Structure Dilation Iterations"
                 ToolTip="{StaticResource StructureDilationCount_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="14"
+                Grid.Row="24"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -522,14 +655,15 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
             <TextBlock
-                Grid.Row="15"
+                Grid.Row="25"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Pixel Sample Size"
                 ToolTip="{StaticResource PixelSampleSize_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="15"
+                Grid.Row="25"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -549,13 +683,13 @@
             </ninactrl:UnitTextBox>
 
             <TextBlock
-                Grid.Row="16"
+                Grid.Row="26"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Debug Mode"
                 ToolTip="{StaticResource DebugMode_Tooltip}" />
             <CheckBox
-                Grid.Row="16"
+                Grid.Row="26"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -565,13 +699,13 @@
                 ToolTip="{StaticResource DebugMode_Tooltip}" />
 
             <TextBlock
-                Grid.Row="17"
+                Grid.Row="27"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Intermediate Path"
                 ToolTip="{StaticResource SaveIntermediatePath_Tooltip}" />
             <TextBox
-                Grid.Row="17"
+                Grid.Row="27"
                 Grid.Column="1"
                 Margin="5,5,0,0"
                 VerticalAlignment="Center"
@@ -595,7 +729,7 @@
                 </TextBox.Style>
             </TextBox>
             <Button
-                Grid.Row="17"
+                Grid.Row="27"
                 Grid.Column="2"
                 Width="20"
                 Height="20"
@@ -611,13 +745,13 @@
             </Button>
 
             <TextBlock
-                Grid.Row="18"
+                Grid.Row="28"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Save Intermediate"
                 ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
             <CheckBox
-                Grid.Row="18"
+                Grid.Row="28"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1137,7 +1271,7 @@
                 ToolTip="{StaticResource StructureMapColor_Tooltip}"
                 Margin="5,5,0,0">
                 <TextBlock.Visibility>
-                    <MultiBinding Converter="{StaticResource ShowStructureMapToVisibilityConverter}">
+                    <MultiBinding Converter="{StaticResource HF_ShowStructureMapToVisibilityConverter}">
                         <Binding Path="DetectorOptions.DebugMode" />
                         <Binding ElementName="PART_ShowStructureMapList" Path="SelectedItem" />
                     </MultiBinding>
@@ -1153,7 +1287,7 @@
                 SelectedColor="{Binding StructureMapColor}"
                 ToolTip="{StaticResource StructureMapColor_Tooltip}">
                 <xceed:ColorPicker.Visibility>
-                    <MultiBinding Converter="{StaticResource ShowStructureMapToVisibilityConverter}">
+                    <MultiBinding Converter="{StaticResource HF_ShowStructureMapToVisibilityConverter}">
                         <Binding Path="DetectorOptions.DebugMode" />
                         <Binding ElementName="PART_ShowStructureMapList" Path="SelectedItem" />
                     </MultiBinding>

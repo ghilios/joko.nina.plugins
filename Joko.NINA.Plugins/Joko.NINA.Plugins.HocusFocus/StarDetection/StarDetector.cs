@@ -33,27 +33,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         // Half size in pixels of a Gaussian convolution filter used for noise reduction. This is useful for low-SNR images
         // Setting this value also implies hotpixel filtering is enabled, since otherwise we would blend the hot pixels into their neighbors
-        public int NoiseReductionRadius { get; set; } = 0;
+        public int NoiseReductionRadius { get; set; } = 2;
 
         // Number of noise standard deviations above the median to binarize the structure map containing star candidates. Increasing this is useful for noisy images to reduce
         // spurious detected stars in combination with light noise reduction
-        public double NoiseClippingMultiplier { get; set; } = 5.0;
+        public double NoiseClippingMultiplier { get; set; } = 4.0;
 
         // Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis
-        public double StarClippingMultiplier { get; set; } = 1.0;
+        public double StarClippingMultiplier { get; set; } = 2.0;
 
         // Half size of a median box filter, used for hotpixel removal if HotpixelFiltering is enabled. Only 1 is supported for now, since OpenCV has native support for
         // a median box filter but not a general circular one
         public int HotpixelFilterRadius { get; set; } = 1;
 
         // Number of wavelet layers for structure detection
-        public int StructureLayers { get; set; } = 5;
+        public int StructureLayers { get; set; } = 4;
 
         // Size of the circle used to dilate the structure map
-        public int StructureDilationSize { get; set; } = 5;
+        public int StructureDilationSize { get; set; } = 3;
 
         // Number of times to perform dilation on the structure map
-        public int StructureDilationCount { get; set; } = 2;
+        public int StructureDilationCount { get; set; } = 0;
 
         // Sensitivity is the minimum value of a star's brightness (with the background n subtracted out) above the noise floor (s - b)/n. Smaller values increase sensitivity
         public double Sensitivity { get; set; } = 0.1;
@@ -66,7 +66,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double MaxDistortion { get; set; } = 0.5;
 
         // Size (as a ratio) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star
-        public double StarCenterTolerance { get; set; } = 0.2;
+        public double StarCenterTolerance { get; set; } = 0.3;
 
         // The background is estimated by looking in an area around the star bounding box, increased on each side by this number of pixels
         public int BackgroundBoxExpansion { get; set; } = 3;
@@ -276,7 +276,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 MaybeSaveIntermediateText(structureMapStats.ToString() + Environment.NewLine + binarizeTrace, p, "08-structure-map-statistics.txt");
 
                 if (p.StoreStructureMap) {
-                    UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 2);
+                    UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 1);
                 }
 
                 // Step 7: Boost small structures with a dilation box filter
@@ -289,7 +289,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
 
                 if (p.StoreStructureMap) {
-                    UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 1);
+                    UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 2);
                 }
 
                 progress?.Report(new ApplicationStatus() { Status = "Structure Detection" });

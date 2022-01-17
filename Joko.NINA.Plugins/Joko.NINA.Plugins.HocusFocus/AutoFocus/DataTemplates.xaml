@@ -268,22 +268,22 @@
                     Margin="0,5,0,0"
                     BorderBrush="{StaticResource BorderBrush}"
                     BorderThickness="0"
-                    Visibility="{Binding FinalFocuserPosition, Converter={StaticResource IntNegativeToVisibilityConverter}}">
+                    Visibility="{Binding FinalFocuserPosition, Converter={StaticResource HF_IntNegativeToVisibilityConverter}}">
                     <UniformGrid VerticalAlignment="Center" Columns="2">
                         <TextBlock Text="{ns:Loc LblPosition}" />
-                        <StackPanel Margin="5,0,0,0" Orientation="Horizontal" Visibility="{Binding LastAutoFocusPoint.Focuspoint.X, Converter={StaticResource DoubleZeroToVisibilityConverter}}">
-                            <TextBlock Text="{Binding InitialFocuserPosition}" Visibility="{Binding InitialFocuserPosition, Converter={StaticResource IntNegativeToVisibilityConverter}}" />
-                            <TextBlock Text=" -> " Visibility="{Binding InitialFocuserPosition, Converter={StaticResource IntNegativeToVisibilityConverter}}" />
+                        <StackPanel Margin="5,0,0,0" Orientation="Horizontal" Visibility="{Binding LastAutoFocusPoint.Focuspoint.X, Converter={StaticResource HF_DoubleZeroToVisibilityConverter}}">
+                            <TextBlock Text="{Binding InitialFocuserPosition}" Visibility="{Binding InitialFocuserPosition, Converter={StaticResource HF_IntNegativeToVisibilityConverter}}" />
+                            <TextBlock Text=" -> " Visibility="{Binding InitialFocuserPosition, Converter={StaticResource HF_IntNegativeToVisibilityConverter}}" />
                             <TextBlock Text="{Binding FinalFocuserPosition}" />
                         </StackPanel>
                     </UniformGrid>
                 </Border>
-                <Border Visibility="{Binding InitialHFR, Converter={StaticResource DoubleZeroToVisibilityConverter}}">
+                <Border Visibility="{Binding InitialHFR, Converter={StaticResource HF_DoubleZeroToVisibilityConverter}}">
                     <Border
                         Margin="0,5,0,0"
                         BorderBrush="{StaticResource BorderBrush}"
                         BorderThickness="0"
-                        Visibility="{Binding FinalHFR, Converter={StaticResource InverseDoubleZeroToVisibilityConverter}}">
+                        Visibility="{Binding FinalHFR, Converter={StaticResource HF_InverseDoubleZeroToVisibilityConverter}}">
                         <UniformGrid VerticalAlignment="Center" Columns="2">
                             <TextBlock Text="Start HFR" />
                             <TextBlock Text="{Binding InitialHFR, StringFormat=\{0:0.00\}}" />
@@ -294,7 +294,7 @@
                     Margin="0,5,0,0"
                     BorderBrush="{StaticResource BorderBrush}"
                     BorderThickness="0"
-                    Visibility="{Binding FinalHFR, Converter={StaticResource DoubleZeroToVisibilityConverter}}">
+                    Visibility="{Binding FinalHFR, Converter={StaticResource HF_DoubleZeroToVisibilityConverter}}">
                     <UniformGrid VerticalAlignment="Center" Columns="2">
                         <TextBlock Text="HFR Change" />
                         <StackPanel Margin="5,0,0,0" Orientation="Horizontal">
@@ -308,7 +308,7 @@
                     Margin="0,5,0,0"
                     BorderBrush="{StaticResource BorderBrush}"
                     BorderThickness="0"
-                    Visibility="{Binding LastAutoFocusPoint.Focuspoint.Y, Converter={StaticResource DoubleZeroToVisibilityConverter}}">
+                    Visibility="{Binding LastAutoFocusPoint.Focuspoint.Y, Converter={StaticResource HF_DoubleZeroToVisibilityConverter}}">
                     <UniformGrid VerticalAlignment="Center" Columns="2">
                         <TextBlock Text="Estimated Final HFR" />
                         <TextBlock Text="{Binding LastAutoFocusPoint.Focuspoint.Y, StringFormat=\{0:0.00\}}" />
@@ -343,7 +343,7 @@
                 Orientation="Vertical">
                 <UniformGrid Margin="0,5,0,0" VerticalAlignment="Center" Columns="2">
                     <UniformGrid.Visibility>
-                        <MultiBinding Converter="{StaticResource AutoFocusFittingToVisibilityConverter}">
+                        <MultiBinding Converter="{StaticResource HF_AutoFocusFittingToVisibilityConverter}">
                             <Binding>
                                 <Binding.Source>
                                     <s:String>QuadraticFitting</s:String>
@@ -365,7 +365,7 @@
                 </UniformGrid>
                 <UniformGrid Margin="0,5,0,0" VerticalAlignment="Center" Columns="2">
                     <UniformGrid.Visibility>
-                        <MultiBinding Converter="{StaticResource AutoFocusFittingToVisibilityConverter}">
+                        <MultiBinding Converter="{StaticResource HF_AutoFocusFittingToVisibilityConverter}">
                             <Binding>
                                 <Binding.Source>
                                     <s:String>HyperbolicFitting</s:String>
@@ -387,7 +387,7 @@
                 </UniformGrid>
                 <UniformGrid Margin="0,5,0,0" VerticalAlignment="Center" Columns="2">
                     <UniformGrid.Visibility>
-                        <MultiBinding Converter="{StaticResource AutoFocusFittingToVisibilityConverter}">
+                        <MultiBinding Converter="{StaticResource HF_AutoFocusFittingToVisibilityConverter}">
                             <Binding>
                                 <Binding.Source>
                                     <s:String>Trendline</s:String>

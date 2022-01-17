@@ -10,10 +10,60 @@
 
 #endregion "copyright"
 
+using NINA.Core.Utility;
+using NINA.Joko.Plugins.HocusFocus.Converters;
+using System.ComponentModel;
+
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum NoiseLevelEnum {
+
+        [Description("Typical")]
+        Typical,
+
+        [Description("None")]
+        None,
+
+        [Description("High")]
+        High
+    }
+
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum PixelScaleEnum {
+
+        [Description("Typical")]
+        Typical,
+
+        [Description("Wide Field")]
+        WideField,
+
+        [Description("Long Focal Length")]
+        LongFocalLength
+    }
+
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum FocusRangeEnum {
+
+        [Description("Typical")]
+        Typical,
+
+        [Description("Wide Range")]
+        WideRange
+    }
+
     public interface IStarDetectionOptions {
+        bool UseAdvanced { get; set; }
+
+        // Simple configuration, which produces the detailed configuration with fewer knobs
+        NoiseLevelEnum Simple_NoiseLevel { get; set; }
+
+        PixelScaleEnum Simple_PixelScale { get; set; }
+        FocusRangeEnum Simple_FocusRange { get; set; }
+
+        // Fine-grained configuration
         bool HotpixelFiltering { get; set; }
+
         bool UseAutoFocusCrop { get; set; }
         int NoiseReductionRadius { get; set; }
         double NoiseClippingMultiplier { get; set; }

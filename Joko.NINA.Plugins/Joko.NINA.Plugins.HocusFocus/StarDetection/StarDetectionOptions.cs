@@ -34,6 +34,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         private void InitializeOptions() {
             debugMode = optionsAccessor.GetValueBoolean("DetectionDebugMode", false);
+            useAdvanced = optionsAccessor.GetValueBoolean("UseAdvanced", false);
+            simple_NoiseLevel = optionsAccessor.GetValueEnum<NoiseLevelEnum>("Simple_NoiseLevel", NoiseLevelEnum.Typical);
+            simple_PixelScale = optionsAccessor.GetValueEnum<PixelScaleEnum>("Simple_PixelScale", PixelScaleEnum.Typical);
+            simple_FocusRange = optionsAccessor.GetValueEnum<FocusRangeEnum>("simple_FocusRange", FocusRangeEnum.Typical);
             hotpixelFiltering = optionsAccessor.GetValueBoolean("HotpixelFiltering", true);
             useAutoFocusCrop = optionsAccessor.GetValueBoolean("UseAutoFocusCrop", true);
             noiseReductionRadius = optionsAccessor.GetValueInt32("NoiseReductionRadius", 3);
@@ -61,6 +65,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public void ResetDefaults() {
+            DebugMode = false;
+            UseAdvanced = false;
+            Simple_NoiseLevel = NoiseLevelEnum.Typical;
+            Simple_PixelScale = PixelScaleEnum.Typical;
+            simple_FocusRange = FocusRangeEnum.Typical;
             HotpixelFiltering = true;
             UseAutoFocusCrop = true;
             NoiseReductionRadius = 3;
@@ -92,6 +101,58 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (debugMode != value) {
                     debugMode = value;
                     optionsAccessor.SetValueBoolean("DetectionDebugMode", hotpixelFiltering);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool useAdvanced;
+
+        public bool UseAdvanced {
+            get => useAdvanced;
+            set {
+                if (useAdvanced != value) {
+                    useAdvanced = value;
+                    optionsAccessor.SetValueBoolean("UseAdvanced", useAdvanced);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private NoiseLevelEnum simple_NoiseLevel;
+
+        public NoiseLevelEnum Simple_NoiseLevel {
+            get => simple_NoiseLevel;
+            set {
+                if (simple_NoiseLevel != value) {
+                    simple_NoiseLevel = value;
+                    optionsAccessor.SetValueEnum<NoiseLevelEnum>("Simple_NoiseLevel", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private PixelScaleEnum simple_PixelScale;
+
+        public PixelScaleEnum Simple_PixelScale {
+            get => simple_PixelScale;
+            set {
+                if (simple_PixelScale != value) {
+                    simple_PixelScale = value;
+                    optionsAccessor.SetValueEnum<PixelScaleEnum>("Simple_PixelScale", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private FocusRangeEnum simple_FocusRange;
+
+        public FocusRangeEnum Simple_FocusRange {
+            get => simple_FocusRange;
+            set {
+                if (simple_FocusRange != value) {
+                    simple_FocusRange = value;
+                    optionsAccessor.SetValueEnum<FocusRangeEnum>("Simple_FocusRange", value);
                     RaisePropertyChanged();
                 }
             }
