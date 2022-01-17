@@ -55,6 +55,8 @@
     <TextBlock x:Key="ROIColor_Tooltip" Text="The color of the region of interest boxes" />
     <TextBlock x:Key="ShowStarCenter_Tooltip" Text="Whether to show the a reticule on each star center" />
     <TextBlock x:Key="StarCenterColor_Tooltip" Text="The color of the reticule on each star center" />
+    <TextBlock x:Key="ShowTooDistorted_Tooltip" Text="Whether to show the failed stars that were too distorted" />
+    <TextBlock x:Key="TooDistortedColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowDegenerate_Tooltip" Text="Whether to show the failed degenerate stars" />
     <TextBlock x:Key="DegenerateColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowSaturated_Tooltip" Text="Whether to show the failed saturated stars" />
@@ -657,6 +659,8 @@
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -907,14 +911,48 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding StarCenterColor}"
                 ToolTip="{StaticResource StarCenterColor_Tooltip}" />
+
             <TextBlock
                 Grid.Row="13"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Show Distorted"
+                ToolTip="{StaticResource ShowTooDistorted_Tooltip}" />
+            <CheckBox
+                Grid.Row="13"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding ShowTooDistorted}"
+                ToolTip="{StaticResource ShowTooDistorted_Tooltip}" />
+            <TextBlock
+                Grid.Row="14"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Visibility="{Binding ShowTooDistorted, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Text="Distorted Box Color"
+                ToolTip="{StaticResource TooDistortedColor_Tooltip}" />
+            <xceed:ColorPicker
+                Visibility="{Binding ShowTooDistorted, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Grid.Row="14"
+                Grid.Column="1"
+                Width="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectedColor="{Binding TooDistortedColor}"
+                ToolTip="{StaticResource TooDistortedColor_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="15"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Show Degenerate"
                 ToolTip="{StaticResource ShowDegenerate_Tooltip}" />
             <CheckBox
-                Grid.Row="13"
+                Grid.Row="15"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -923,7 +961,7 @@
                 IsChecked="{Binding ShowDegenerate}"
                 ToolTip="{StaticResource ShowDegenerate_Tooltip}" />
             <TextBlock
-                Grid.Row="14"
+                Grid.Row="16"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -931,7 +969,7 @@
                 ToolTip="{StaticResource DegenerateColor_Tooltip}" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="14"
+                Grid.Row="16"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -939,14 +977,15 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding DegenerateColor}"
                 ToolTip="{StaticResource DegenerateColor_Tooltip}" />
+
             <TextBlock
-                Grid.Row="15"
+                Grid.Row="17"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Show Saturated"
                 ToolTip="{StaticResource ShowSaturated_Tooltip}" />
             <CheckBox
-                Grid.Row="15"
+                Grid.Row="17"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -955,7 +994,7 @@
                 IsChecked="{Binding ShowSaturated}"
                 ToolTip="{StaticResource ShowSaturated_Tooltip}" />
             <TextBlock
-                Grid.Row="16"
+                Grid.Row="18"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -963,7 +1002,7 @@
                 ToolTip="{StaticResource SaturatedColor_Tooltip}" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="16"
+                Grid.Row="18"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -971,14 +1010,15 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding SaturatedColor}"
                 ToolTip="{StaticResource SaturatedColor_Tooltip}" />
+
             <TextBlock
-                Grid.Row="17"
+                Grid.Row="19"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Show Low Sensitivity"
                 ToolTip="{StaticResource ShowLowSensitivity_Tooltip}" />
             <CheckBox
-                Grid.Row="17"
+                Grid.Row="19"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -987,7 +1027,7 @@
                 IsChecked="{Binding ShowLowSensitivity}"
                 ToolTip="{StaticResource ShowLowSensitivity_Tooltip}" />
             <TextBlock
-                Grid.Row="18"
+                Grid.Row="20"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -995,7 +1035,7 @@
                 ToolTip="{StaticResource LowSensitivityColor_Tooltip}" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="18"
+                Grid.Row="20"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -1003,14 +1043,15 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding LowSensitivityColor}"
                 ToolTip="{StaticResource LowSensitivityColor_Tooltip}" />
+
             <TextBlock
-                Grid.Row="19"
+                Grid.Row="21"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Show Not Centered"
                 ToolTip="{StaticResource ShowNotCentered_Tooltip}" />
             <CheckBox
-                Grid.Row="19"
+                Grid.Row="21"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1019,7 +1060,7 @@
                 IsChecked="{Binding ShowNotCentered}"
                 ToolTip="{StaticResource ShowNotCentered_Tooltip}" />
             <TextBlock
-                Grid.Row="20"
+                Grid.Row="22"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -1027,7 +1068,7 @@
                 ToolTip="{StaticResource NotCenteredColor_Tooltip}" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="20"
+                Grid.Row="22"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -1035,14 +1076,15 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding NotCenteredColor}"
                 ToolTip="{StaticResource NotCenteredColor_Tooltip}" />
+
             <TextBlock
-                Grid.Row="21"
+                Grid.Row="23"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Show Too Flat"
                 ToolTip="{StaticResource ShowTooFlat_Tooltip}" />
             <CheckBox
-                Grid.Row="21"
+                Grid.Row="23"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1051,7 +1093,7 @@
                 IsChecked="{Binding ShowTooFlat}"
                 ToolTip="{StaticResource ShowTooFlat_Tooltip}" />
             <TextBlock
-                Grid.Row="22"
+                Grid.Row="24"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
@@ -1059,7 +1101,7 @@
                 ToolTip="{StaticResource TooFlatColor_Tooltip}" />
             <xceed:ColorPicker
                 Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="22"
+                Grid.Row="24"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
@@ -1067,15 +1109,16 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding TooFlatColor}"
                 ToolTip="{StaticResource TooFlatColor_Tooltip}" />
+
             <TextBlock
-                Grid.Row="23"
+                Grid.Row="25"
                 Grid.Column="0"
                 Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}"
                 VerticalAlignment="Center"
                 Text="Show Structure Map"
                 ToolTip="{StaticResource ShowStructureMap_Tooltip}" />
             <ComboBox
-                Grid.Row="23"
+                Grid.Row="25"
                 Grid.Column="1"
                 Name="PART_ShowStructureMapList"
                 Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}"
@@ -1087,7 +1130,7 @@
                 SelectedItem="{Binding ShowStructureMap}"
                 ToolTip="{StaticResource ShowStructureMap_Tooltip}" />
             <TextBlock
-                Grid.Row="24"
+                Grid.Row="26"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Structure Map Color"
@@ -1101,7 +1144,7 @@
                 </TextBlock.Visibility>
             </TextBlock>
             <xceed:ColorPicker
-                Grid.Row="24"
+                Grid.Row="26"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"

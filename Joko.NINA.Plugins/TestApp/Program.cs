@@ -26,7 +26,10 @@ using System.Windows.Media.Imaging;
 namespace TestApp {
 
     internal class Program {
-        private const string InputFilePath = @"C:\Users\ghili\Downloads\2021-10-17_21-22-58_Ha_-10.00_3.00s_0000.tif";
+        private const string InputFilePath = /* @"C:\AP\LIGHT_2021-07-29_02-36-57_H_-9.90_300.00s_0151.tif"; */ @"C:\Users\ghili\Downloads\2021-10-17_21-22-58_Ha_-10.00_3.00s_0000.tif";
+        private const string InputFilePath2 = @"C:\AutoFocusTestData\nik\L__2021-10-29_05-49-01__ASI2600MM_SNAPSHOT_G100_O30_2.00s_-4.80C.tif";
+        private const string InputFilePath3 = @"C:\AP\Focus Points Original\12_Focuser_11250_HFR_1493.tif";
+        private const string InputFilePath4 = @"C:\AP\Focus Points Original\5_Focuser_6000_HFR_0191.tif";
         private const string IntermediatePath = @"E:\StarDetectionTest\Intermediate";
 
         private static void Main(string[] args) {
@@ -35,9 +38,14 @@ namespace TestApp {
 
         private static async Task MainAsync(string[] args) {
             var starAnnotatorOptions = StaticStarAnnotatorOptions.CreateDefault();
+            /*
+            starAnnotatorOptions.ShowDegenerate = true;
+            starAnnotatorOptions.ShowTooDistorted = true;
+            starAnnotatorOptions.ShowNotCentered = true;
+            */
 
             using (var t = new ResourcesTracker()) {
-                var src = t.T(new Mat(InputFilePath, ImreadModes.Unchanged));
+                var src = t.T(new Mat(InputFilePath3, ImreadModes.Unchanged));
                 var srcFloat = t.NewMat();
                 ConvertToFloat(src, srcFloat);
 
@@ -51,14 +59,22 @@ namespace TestApp {
                 var starDetectionParams = new StarDetectionParams() { };
                 var detectorParams = new StarDetectorParams() {
                     SaveIntermediateFilesPath = IntermediatePath,
-                    StructureDilationCount = 0
+                    NoiseReductionRadius = 3,
+                    StructureDilationCount = 0,
+                    StructureDilationSize = 1,
+                    NoiseClippingMultiplier = 4,
+                    StarClippingMultiplier = 2,
+                    StructureLayers = 4,
+                    StarCenterTolerance = 0.3
                 };
                 var detectorResult = await detector.Detect(srcFloat, detectorParams, null, CancellationToken.None);
                 var detectionResult = new HocusFocusStarDetectionResult() {
                     StarList = detectorResult.DetectedStars.Select(s => s.ToDetectedStar()).ToList(),
                     DetectedStars = detectorResult.DetectedStars.Count,
                     DetectorParams = detectorParams,
-                    Params = starDetectionParams
+                    Params = starDetectionParams,
+                    Metrics = detectorResult.Metrics,
+                    DebugData = detectorResult.DebugData
                 };
 
                 var stretchedSourceBmpSrc = ToBitmapSource(stretchedSrc, PixelFormats.Gray16);
@@ -120,6 +136,8 @@ namespace TestApp {
             public bool ShowLowSensitivity { get; set; }
             public bool ShowNotCentered { get; set; }
             public bool ShowTooFlat { get; set; }
+            public Color TooDistortedColor { get; set; }
+            public bool ShowTooDistorted { get; set; }
 
             public static StaticStarAnnotatorOptions CreateDefault() {
                 return new StaticStarAnnotatorOptions() {
@@ -137,6 +155,8 @@ namespace TestApp {
                     ROIColor = Color.FromArgb(255, 255, 255, 0),
                     ShowStarCenter = true,
                     StarCenterColor = Color.FromArgb(128, 0, 0, 255),
+                    ShowTooDistorted = false,
+                    TooDistortedColor = Color.FromArgb(128, 255, 255, 0),
                     ShowDegenerate = false,
                     DegenerateColor = Color.FromArgb(128, 0, 255, 0),
                     ShowSaturated = false,
@@ -144,7 +164,7 @@ namespace TestApp {
                     ShowLowSensitivity = false,
                     LowSensitivityColor = Color.FromArgb(128, 0, 255, 0),
                     ShowNotCentered = false,
-                    NotCenteredColor = Color.FromArgb(128, 0, 255, 0),
+                    NotCenteredColor = Color.FromArgb(128, 0, 255, 255),
                     ShowTooFlat = false,
                     TooFlatColor = Color.FromArgb(128, 0, 255, 0),
                     ShowStructureMap = ShowStructureMapEnum.None,

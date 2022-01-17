@@ -59,7 +59,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double Sensitivity { get; set; } = 0.1;
 
         // Maximum ratio of median pixel value to the peak for a candidate pixel to be rejected. Large values are more tolerant of flat structures
-        public double PeakResponse { get; set; } = 0.85;
+        public double PeakResponse { get; set; } = 0.75;
 
         // Maximum distortion allowed in each star, which is the ratio of "area" (number of pixels) to the area of a perfect square bounding box. A perfect
         // circle has distortion PI/4 which is about 0.8. Smaller values are more distorted
@@ -88,8 +88,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         public string SaveIntermediateFilesPath { get; set; } = string.Empty;
 
+        // If a star contains any pixels greater than this threshold, it is rejected due to being fully saturated
+        public double SaturationThreshold { get; set; } = 0.99f;
+
         public override string ToString() {
-            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(CenterROICropRatio)}={CenterROICropRatio.ToString()}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}}}";
+            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(CenterROICropRatio)}={CenterROICropRatio.ToString()}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold}}}";
         }
     }
 
@@ -174,7 +177,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 throw new ArgumentException("CenterROICropRatio cannot be negative", "p.CenterROICropRatio");
             }
 
-            MaybeSaveIntermediateText(p.ToString(), p, "0-params.txt");
+            MaybeSaveIntermediateText(p.ToString(), p, "00-params.txt");
             var metrics = new StarDetectorMetrics();
             using (var stopWatch = MultiStopWatch.Measure()) {
                 var debugData = new DebugData();
@@ -195,7 +198,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 } else {
                     debugData.DetectionROI = new System.Drawing.Rectangle(0, 0, srcImage.Width, srcImage.Height);
                 }
-                MaybeSaveIntermediateImage(srcImage, p, "1-source.tif");
+                MaybeSaveIntermediateImage(srcImage, p, "01-source.tif");
 
                 if (p.StoreStructureMap) {
                     debugData.StructureMap = new byte[debugData.DetectionROI.Width * debugData.DetectionROI.Height];
@@ -214,7 +217,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (p.NoiseReductionRadius > 0) {
                     CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
                 }
-                MaybeSaveIntermediateImage(srcImage, p, "2-noise-reduced.tif");
+                MaybeSaveIntermediateImage(srcImage, p, "02-noise-reduced.tif");
 
                 // Step 2: Prepare for structure detection by applying hotpixel filtering to a copy if it hasn't been done already
                 progress?.Report(new ApplicationStatus() { Status = "Preparing for Structure Detection" });
@@ -228,53 +231,61 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     srcImage.CopyTo(structureMap);
                 }
                 stopWatch.RecordEntry("InitialNoiseReduction");
-                MaybeSaveIntermediateImage(structureMap, p, "3-structure-map.tif");
+                MaybeSaveIntermediateImage(structureMap, p, "03-structure-map.tif");
 
-                // Step 3: Compute noise estimates and structure map statistics
-                var ksigmaNoiseResult = CvImageUtility.KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
-                var ksigmaTrace = $"K-Sigma Noise Estimate: {ksigmaNoiseResult.Sigma}, Background Mean: {ksigmaNoiseResult.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResult.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}";
-                Logger.Trace(ksigmaTrace);
-                MaybeSaveIntermediateText(ksigmaTrace, p, "ksigma-estimate.txt");
-                stopWatch.RecordEntry("KSigmaNoiseCalculation");
+                // Step 3: Calculate noise estimates on the noise-reduced source data. This will be used later to separate background from stars
+                var ksigmaNoiseResultSrc = CvImageUtility.KappaSigmaNoiseEstimate(srcImage, clippingMultipler: p.NoiseClippingMultiplier);
+                var ksigmaTraceSrc = $"Source K-Sigma Noise Estimate: {ksigmaNoiseResultSrc.Sigma}, Background Mean: {ksigmaNoiseResultSrc.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResultSrc.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}";
+                Logger.Trace(ksigmaTraceSrc);
+                MaybeSaveIntermediateText(ksigmaTraceSrc, p, "04-ksigma-estimate-src.txt");
+                stopWatch.RecordEntry("KSigmaNoiseCalculation-Source");
 
-                // Step 4: Subtract a blur to emphasize edges, and rescale the clipped result to [0, 1)
-                using (var structureMapSrcBlurred = new Mat()) {
-                    CvImageUtility.ConvolveGaussian(structureMap, structureMapSrcBlurred, 1 + (1 << p.StructureLayers));
-                    CvImageUtility.SubtractInPlace(structureMap, structureMapSrcBlurred);
+                // Step 4: Compute b-split wavelets to exclude large structures such as nebulae. If the pixel scale is very small or need a wide range for focus, you may need to increase the number of layers
+                //         to keep stars from being excluded
+                {
+                    var waveletLayers = ComputeAtrousB3SplineDyadicWaveletLayers(srcImage, p.StructureLayers);
+                    var residualLayer = waveletLayers[waveletLayers.Length - 1];
+                    CvImageUtility.SubtractInPlace(structureMap, residualLayer);
+                    MaybeSaveIntermediateImage(structureMap, p, "05-structure-map-wavelet.tif");
+                    foreach (var layer in waveletLayers) {
+                        layer.Dispose();
+                    }
+                    stopWatch.RecordEntry("WaveletCalculation");
                 }
-                CvImageUtility.RescaleInPlace(structureMap);
-                MaybeSaveIntermediateImage(structureMap, p, "4-structure-map-blur-subtracted.tif");
 
-                // TODO: Consider whether doing this at multiple scales is worth the cost, particularly when out of focus
-                // Step 5: Subtract a blur to emphasize edges at multiple scales, and rescale the clipped result to [0, 1)
-                /*
-                var structureMapEmphasized = resourceTracker.T(MultiScaleEmphasizeEdges(structureMap, 4, 3));
-                structureMap.Dispose();
-                structureMap = structureMapEmphasized;
-                */
-                stopWatch.RecordEntry("EmphasizeEdges");
+                // Step 5: Compute noise estimates and structure map statistics, which will be used to calculate a binarization threshold
+                var ksigmaNoiseResultStructureMap = KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
+                var ksigmaTraceStructureMap = $"Structure Map K-Sigma Noise Estimate: {ksigmaNoiseResultStructureMap.Sigma}, Background Mean: {ksigmaNoiseResultStructureMap.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResultStructureMap.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}";
+                Logger.Trace(ksigmaTraceStructureMap);
+                MaybeSaveIntermediateText(ksigmaTraceStructureMap, p, "06-ksigma-estimate-structure-map.txt");
+                stopWatch.RecordEntry("KSigmaNoiseCalculation-StructureMap");
 
                 // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
                 // The difference doesn't seem worth it based on tests done so far
-                var structureMapStats = CvImageUtility.CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
+                var structureMapStats = CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
                 stopWatch.RecordEntry("BinarizationStatistics");
 
-                double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * ksigmaNoiseResult.Sigma;
-                var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}";
+                // Step 6: Excluding large structures can cut off the outsides of large stars, or leave holes when far out of focus. Blurring smooths this out well for structure detection
+                CvImageUtility.ConvolveGaussian(structureMap, structureMap, p.StructureLayers * 2 + 1);
+                MaybeSaveIntermediateImage(structureMap, p, "07-structure-map-wavelet-blurred.tif");
+                stopWatch.RecordEntry("PostWaveletConvolution");
+
+                double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * ksigmaNoiseResultStructureMap.Sigma;
+                var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}, Clipping Multiplier: {p.NoiseClippingMultiplier}, Noise Sigma: {ksigmaNoiseResultStructureMap.Sigma}";
                 Logger.Trace(binarizeTrace);
-                MaybeSaveIntermediateText(structureMapStats.ToString() + "\r\n" + binarizeTrace, p, "5-structure-map-statistics.txt");
+                MaybeSaveIntermediateText(structureMapStats.ToString() + Environment.NewLine + binarizeTrace, p, "08-structure-map-statistics.txt");
 
                 if (p.StoreStructureMap) {
                     UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 2);
                 }
 
-                // Step 6: Boost small structures with a dilation box filter
+                // Step 7: Boost small structures with a dilation box filter
                 if (p.StructureDilationCount > 0) {
                     using (var dilationStructure = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(p.StructureDilationSize, p.StructureDilationSize))) {
                         Cv2.MorphologyEx(structureMap, structureMap, MorphTypes.Dilate, dilationStructure, iterations: p.StructureDilationCount, borderType: BorderTypes.Reflect);
                     }
                     stopWatch.RecordEntry("StructureDilation");
-                    MaybeSaveIntermediateImage(structureMap, p, "6-structure-map-dilated.tif");
+                    MaybeSaveIntermediateImage(structureMap, p, "09-structure-map-dilated.tif");
                 }
 
                 if (p.StoreStructureMap) {
@@ -283,19 +294,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 progress?.Report(new ApplicationStatus() { Status = "Structure Detection" });
 
-                // Step 7: Binarize foreground structures based on noise estimates
+                // Step 8: Binarize foreground structures based on noise estimates
                 CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
                 stopWatch.RecordEntry("Binarization");
-                MaybeSaveIntermediateImage(structureMap, p, "7-structure-binarized.tif");
+                MaybeSaveIntermediateImage(structureMap, p, "10-structure-binarized.tif");
 
-                // Step 8: Scan structure map for stars
+                // Step 9: Scan structure map for stars
                 progress?.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
-                var stars = ScanStars(srcImage, structureMap, p, ksigmaNoiseResult.Sigma, metrics);
+                var stars = ScanStars(srcImage, structureMap, p, ksigmaNoiseResultSrc.Sigma, metrics);
                 stopWatch.RecordEntry("StarAnalysis");
-                MaybeSaveIntermediateStars(stars, p, "8-detected-stars.txt");
+                MaybeSaveIntermediateStars(stars, p, "11-detected-stars.txt");
 
                 var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
-                MaybeSaveIntermediateText(metricsTrace, p, "9-detection-metrics.txt");
+                MaybeSaveIntermediateText(metricsTrace, p, "12-detection-metrics.txt");
                 Logger.Trace(metricsTrace);
                 if (roiRect.HasValue) {
                     // Apply correction for the ROI
@@ -330,7 +341,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        // TODO: Consider whether doing this at multiple scales is worth the cost, particularly when out of focus
         private Mat MultiScaleEmphasizeEdges(Mat src, int firstLayer, int numLayers) {
             if (firstLayer <= 0) {
                 throw new ArgumentException("firstLayer must be positive", "firstLayer");
@@ -529,18 +539,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // Too distorted
             double d = Math.Max(starBounds.Width, starBounds.Height);
             if ((starPoints.Count / d / d) < p.MaxDistortion) {
-                ++metrics.TooDistorted;
+                metrics.TooDistortedBounds.Add(starBounds);
                 return null;
             }
 
             var starCandidate = ComputeStarParameters(srcImage, starBounds, p, noiseSigma, starPoints);
-            // Full saturated
             if (starCandidate == null) {
                 metrics.DegenerateBounds.Add(starBounds);
                 return null;
             }
 
-            if (starCandidate.Peak >= 1.0f) {
+            // Fully saturated
+            if ((starCandidate.Background + starCandidate.Peak) >= p.SaturationThreshold) {
                 metrics.SaturatedBounds.Add(starBounds);
                 return null;
             }

@@ -148,6 +148,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         }
 
                         var metrics = (result as HocusFocusStarDetectionResult)?.Metrics;
+                        if (StarAnnotatorOptions.ShowDegenerate && metrics?.TooDistortedBounds != null) {
+                            using (var brush = new SolidBrush(StarAnnotatorOptions.TooDistortedColor.ToDrawingColor()))
+                            using (var pen = new Pen(brush)) {
+                                foreach (var rect in metrics.TooDistortedBounds) {
+                                    graphics.DrawRectangle(pen, rect.ToDrawingRectangle());
+                                }
+                            }
+                        }
                         if (StarAnnotatorOptions.ShowDegenerate && metrics?.DegenerateBounds != null) {
                             using (var brush = new SolidBrush(StarAnnotatorOptions.DegenerateColor.ToDrawingColor()))
                             using (var pen = new Pen(brush)) {

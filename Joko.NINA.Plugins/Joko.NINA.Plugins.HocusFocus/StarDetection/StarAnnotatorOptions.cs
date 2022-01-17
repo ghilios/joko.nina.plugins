@@ -48,6 +48,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             roiColor = optionsAccessor.GetValueColor("ROIColor", Color.FromArgb(255, 255, 255, 0));
             showStarCenter = optionsAccessor.GetValueBoolean("ShowStarCenter", true);
             starCenterColor = optionsAccessor.GetValueColor("StarCenterColor", Color.FromArgb(128, 0, 0, 255));
+            showTooDistorted = optionsAccessor.GetValueBoolean("ShowTooDistorted", false);
+            tooDistortedColor = optionsAccessor.GetValueColor("TooDistortedColor", Color.FromArgb(128, 0, 255, 0));
             showDegenerate = optionsAccessor.GetValueBoolean("ShowDegenerate", false);
             degenerateColor = optionsAccessor.GetValueColor("DegenerateColor", Color.FromArgb(128, 0, 255, 0));
             showSaturated = optionsAccessor.GetValueBoolean("ShowSaturated", false);
@@ -77,6 +79,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             ROIColor = Color.FromArgb(255, 255, 255, 0); // Yellow
             ShowStarCenter = true;
             StarCenterColor = Color.FromArgb(128, 0, 0, 255); // Blue half transparency
+            ShowTooDistorted = false;
+            TooDistortedColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
             ShowDegenerate = false;
             DegenerateColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
             ShowSaturated = false;
@@ -268,6 +272,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (starCenterColor != value) {
                     starCenterColor = value;
                     optionsAccessor.SetValueColor("StarCenterColor", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool showTooDistorted;
+
+        public bool ShowTooDistorted {
+            get => showTooDistorted;
+            set {
+                if (showTooDistorted != value) {
+                    showTooDistorted = value;
+                    optionsAccessor.SetValueBoolean("ShowTooDistorted", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private Color tooDistortedColor;
+
+        public Color TooDistortedColor {
+            get => tooDistortedColor;
+            set {
+                if (tooDistortedColor != value) {
+                    tooDistortedColor = value;
+                    optionsAccessor.SetValueColor("TooDistortedColor", value);
                     RaisePropertyChanged();
                 }
             }

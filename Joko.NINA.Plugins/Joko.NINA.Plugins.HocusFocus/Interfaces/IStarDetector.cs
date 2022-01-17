@@ -38,7 +38,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int TotalDetected { get; set; } = -1;
         public int TooSmall { get; set; } = -1;
         public int OnBorder { get; set; } = -1;
-        public int TooDistorted { get; set; } = -1;
+        public int TooDistorted { get => TooDistortedBounds.Count; set => throw new NotSupportedException("Can't set TooDistorted directly"); }
+        public List<Rect> TooDistortedBounds { get; private set; } = new List<Rect>();
         public int Degenerate { get => DegenerateBounds.Count; set => throw new NotSupportedException("Can't set Degenerate directly"); }
         public List<Rect> DegenerateBounds { get; private set; } = new List<Rect>();
         public int Saturated { get => SaturatedBounds.Count; set => throw new NotSupportedException("Can't set Saturated directly"); }

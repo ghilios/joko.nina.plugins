@@ -49,6 +49,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Color LowSensitivityColor { get; set; }
         Color NotCenteredColor { get; set; }
         Color DegenerateColor { get; set; }
+        Color TooDistortedColor { get; set; }
+        bool ShowTooDistorted { get; set; }
         bool ShowDegenerate { get; set; }
         bool ShowSaturated { get; set; }
         bool ShowLowSensitivity { get; set; }
