@@ -328,6 +328,7 @@
     <Compile Include="StarDetection\StarDetector.cs" />
     <Compile Include="StarDetection\StarDetectionOptionsVM.cs" />
     <Compile Include="Utility\CvImageUtility.cs" />
+    <Compile Include="Utility\MathUtility.cs" />
     <Compile Include="Utility\MultiStopWatch.cs" />
     <Compile Include="ValidationRules\PositiveIntegerOrInfiniteRule.cs" />
   </ItemGroup>
@@ -381,6 +382,7 @@
 
       echo "Copying $(PlatformName) $(TargetFileName)"
       xcopy "$(TargetPath)" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
+      xcopy "$(TargetDir)\$(TargetName).pdb" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
 
       echo "Copying $(PlatformName) $(TargetFileName) Dependencies"
       xcopy "$(TargetDir)OpenCVSharp.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y

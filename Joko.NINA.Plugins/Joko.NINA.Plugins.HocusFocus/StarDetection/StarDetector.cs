@@ -235,27 +235,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 // Step 3: Calculate noise estimates on the noise-reduced source data. This will be used later to separate background from stars
                 var ksigmaNoiseResultSrc = CvImageUtility.KappaSigmaNoiseEstimate(srcImage, clippingMultipler: p.NoiseClippingMultiplier);
-                var ksigmaTraceSrc = $"Source K-Sigma Noise Estimate: {ksigmaNoiseResultSrc.Sigma}, Background Mean: {ksigmaNoiseResultSrc.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResultSrc.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}";
+                var ksigmaTraceSrc = $"Source K-Sigma Noise Estimate: {ksigmaNoiseResultSrc.Sigma}, Background Mean: {ksigmaNoiseResultSrc.BackgroundMean}, NumIterations={ksigmaNoiseResultSrc.NumIterations}";
                 Logger.Trace(ksigmaTraceSrc);
                 MaybeSaveIntermediateText(ksigmaTraceSrc, p, "04-ksigma-estimate-src.txt");
                 stopWatch.RecordEntry("KSigmaNoiseCalculation-Source");
 
                 // Step 4: Compute b-spline wavelets to exclude large structures such as nebulae. If the pixel scale is very small or need a wide range for focus, you may need to increase the number of layers
                 //         to keep stars from being excluded
-                {
-                    var waveletLayers = ComputeAtrousB3SplineDyadicWaveletLayers(srcImage, p.StructureLayers);
-                    var residualLayer = waveletLayers[waveletLayers.Length - 1];
+                using (var residualLayer = ComputeResidualAtrousB3SplineDyadicWaveletLayer(srcImage, p.StructureLayers)) {
                     CvImageUtility.SubtractInPlace(structureMap, residualLayer);
-                    MaybeSaveIntermediateImage(structureMap, p, "05-structure-map-wavelet.tif");
-                    foreach (var layer in waveletLayers) {
-                        layer.Dispose();
-                    }
-                    stopWatch.RecordEntry("WaveletCalculation");
                 }
+
+                MaybeSaveIntermediateImage(structureMap, p, "05-structure-map-wavelet.tif");
+                stopWatch.RecordEntry("WaveletCalculation");
 
                 // Step 5: Compute noise estimates and structure map statistics, which will be used to calculate a binarization threshold
                 var ksigmaNoiseResultStructureMap = KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
-                var ksigmaTraceStructureMap = $"Structure Map K-Sigma Noise Estimate: {ksigmaNoiseResultStructureMap.Sigma}, Background Mean: {ksigmaNoiseResultStructureMap.BackgroundMean}, Background Percentage: {(double)ksigmaNoiseResultStructureMap.BackgroundPixels / (structureMap.Rows * structureMap.Cols)}";
+                var ksigmaTraceStructureMap = $"Structure Map K-Sigma Noise Estimate: {ksigmaNoiseResultStructureMap.Sigma}, Background Mean: {ksigmaNoiseResultStructureMap.BackgroundMean}, NumIterations={ksigmaNoiseResultStructureMap.NumIterations}";
                 Logger.Trace(ksigmaTraceStructureMap);
                 MaybeSaveIntermediateText(ksigmaTraceStructureMap, p, "06-ksigma-estimate-structure-map.txt");
                 stopWatch.RecordEntry("KSigmaNoiseCalculation-StructureMap");
@@ -338,48 +334,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         structureMapDebugData[i] = value;
                     }
                 }
-            }
-        }
-
-        private Mat MultiScaleEmphasizeEdges(Mat src, int firstLayer, int numLayers) {
-            if (firstLayer <= 0) {
-                throw new ArgumentException("firstLayer must be positive", "firstLayer");
-            }
-            if (numLayers <= 0) {
-                throw new ArgumentException("numLayers must be positive", "numLayers");
-            }
-
-            var numPixels = src.Rows * src.Cols;
-            Mat result = null;
-            try {
-                // For each scale layer, subtract a blurred image to emphasize edges. Then take the maximum across all layers and rescale the result
-                using (var srcBlurred = new Mat()) {
-                    result = Mat.Zeros(src.Size(), src.Type());
-                    for (int layer = firstLayer; layer < firstLayer + numLayers; ++layer) {
-                        CvImageUtility.ConvolveGaussian(src, srcBlurred, 1 + (1 << layer));
-                        unsafe {
-                            var lhsData = (float*)src.DataPointer;
-                            var rhsData = (float*)srcBlurred.DataPointer;
-                            var targetData = (float*)result.DataPointer;
-                            for (int i = 0; i < numPixels; ++i) {
-                                var value = *(lhsData++) - *(rhsData++);
-                                if (value > 0.0f) {
-                                    var newValue = (*targetData + value);
-                                    if (newValue > 1.0f) {
-                                        newValue = 1.0f;
-                                    }
-                                    *targetData = newValue;
-                                }
-                                ++targetData;
-                            }
-                        }
-                    }
-                    CvImageUtility.RescaleInPlace(result);
-                }
-                return result;
-            } catch (Exception) {
-                result?.Dispose();
-                throw;
             }
         }
 
@@ -504,7 +458,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                         // Now that we've evaluated the pixels within the star bounding box, we can zero them all out so we don't look again
                         foreach (var starPoint in starPoints) {
-                            structureData[starPoint.Y * width + starPoint.X] = 0.0f;
+                            structureMap.Set<float>(starPoint.Y, starPoint.X, 0.0f);
                         }
                     }
                 }

@@ -18,6 +18,8 @@ using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
@@ -45,6 +47,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
     }
 
     public static class CvImageUtility {
+        private static Random PRNG = new Random();
 
         public static Mat ToOpenCVMat(ushort[] imageArray, int bpp, int width, int height) {
             var data = new Mat(new Size(width, height), MatType.CV_32F);
@@ -105,37 +108,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 throw new ArgumentException("Only CV_32F supported");
             }
 
-            float[] data;
-            if (rect == null) {
-                image.GetArray<float>(out data);
-            } else {
-                unsafe {
-                    var imageData = (float*)image.DataPointer;
-                    var height = rect.Value.Height;
-                    var width = rect.Value.Width;
-                    var startX = rect.Value.X;
-                    var startY = rect.Value.Y;
-                    data = new float[height * width];
-                    var dataSizeBytes = data.Length * sizeof(float);
-                    var dataRowSizeBytes = width * sizeof(float);
-                    fixed (float* t = data) {
-                        for (int row = 0; row < rect.Value.Height; ++row) {
-                            System.Buffer.MemoryCopy(imageData + ((row + startY) * image.Width) + startX, t + (row * width), dataSizeBytes, dataRowSizeBytes);
-                            dataSizeBytes -= dataRowSizeBytes;
-                        }
-                    }
-                }
-            }
-
             var result = new CvImageStatistics();
+            var maybeRoi = rect != null ? image.SubMat(rect.Value) : image;
             if (flags.HasFlag(CvImageStatisticsFlags.MAD) || flags.HasFlag(CvImageStatisticsFlags.Median)) {
-                // Median
-                Array.Sort(data);
-                var medianPosition = data.Length >> 1;
-                result.Median = data[medianPosition];
-
-                // MAD
+                maybeRoi.GetArray<float>(out var data);
                 if (flags.HasFlag(CvImageStatisticsFlags.MAD)) {
+                    // Median
+                    Array.Sort(data);
+                    var medianPosition = data.Length >> 1;
+                    if (flags.HasFlag(CvImageStatisticsFlags.Median)) {
+                        result.Median = data[medianPosition];
+                    }
+
+                    // MAD
                     int upIndex = medianPosition;
                     int downIndex = medianPosition - 1;
                     int currentCount = 0;
@@ -154,27 +139,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                             break;
                         }
                     }
+                } else if (flags.HasFlag(CvImageStatisticsFlags.Median)) {
+                    // Since we're only getting the median, we can use quick select
+                    result.Median = MathUtility.MedianFloat(data, PRNG);
                 }
             }
 
-            if (flags.HasFlag(CvImageStatisticsFlags.Mean) || flags.HasFlag(CvImageStatisticsFlags.StdDev)) {
-                // Mean
-                double pixelTotal = 0d;
-                for (int i = 0; i < data.Length; ++i) {
-                    pixelTotal += data[i];
+            if (flags.HasFlag(CvImageStatisticsFlags.StdDev)) {
+                Cv2.MeanStdDev(maybeRoi, out var meanScalar, out var stddevScalar);
+                result.StdDev = stddevScalar.ToDouble();
+                if (flags.HasFlag(CvImageStatisticsFlags.Mean)) {
+                    result.Mean = meanScalar.ToDouble();
                 }
-                result.Mean = pixelTotal / data.Length;
-
-                // Variance
-                if (flags.HasFlag(CvImageStatisticsFlags.StdDev)) {
-                    double sse = 0d;
-                    for (int i = 0; i < data.Length; ++i) {
-                        var error = data[i] - result.Mean;
-                        sse += error * error;
-                    }
-                    double variance = sse / (data.Length - 1);
-                    result.StdDev = Math.Sqrt(variance);
-                }
+            } else if (flags.HasFlag(CvImageStatisticsFlags.Mean)) {
+                var meanScalar = Cv2.Mean(maybeRoi);
+                result.Mean = meanScalar.ToDouble();
             }
 
             return result;
@@ -457,43 +436,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return bicubicWavelet2D;
         }
 
-        public static Mat ClipInPlace(Mat src, float min = 0.0f, float max = 1.0f) {
-            unsafe {
-                var srcData = (float*)src.DataPointer;
-                var numPixels = src.Rows * src.Cols;
-                for (int i = 0; i < numPixels; ++i) {
-                    var value = srcData[i];
-                    if (value < min) {
-                        value = min;
-                    }
-                    if (value > max) {
-                        value = max;
-                    }
-                    srcData[i] = value;
-                }
-                return src;
-            }
+        public static Mat ClampInPlace(Mat src, float min = 0.0f, float max = 1.0f) {
+            Cv2.Max(src, min, src);
+            Cv2.Min(src, max, src);
+            return src;
         }
 
-        public static Mat RescaleInPlace(Mat src, float min = 0.0f, float max = 1.0f) {
-            unsafe {
-                var srcData = (float*)src.DataPointer;
-                var numPixels = src.Rows * src.Cols;
-                float dataMin = float.MaxValue, dataMax = 0.0f;
-                for (int i = 0; i < numPixels; ++i) {
-                    var value = srcData[i];
-                    dataMax = value > dataMax ? value : dataMax;
-                    dataMin = value < dataMin ? value : dataMin;
-                }
-                var scalingDenominator = dataMax - dataMin;
-                if (scalingDenominator > 0) {
-                    for (int i = 0; i < numPixels; ++i) {
-                        var pixel = srcData[i];
-                        srcData[i] = (pixel - dataMin) / scalingDenominator;
-                    }
-                }
-                return src;
-            }
+        public static Mat Rescale(Mat src, float min = 0.0f, float max = 1.0f) {
+            Cv2.MinMaxIdx(src, out double dataMin, out double dataMax);
+            var scalingDenominator = dataMax - dataMin;
+            return src.Subtract(dataMin).Divide(scalingDenominator).ToMat();
         }
 
         public static Mat SubtractInPlace(Mat lhs, Mat rhs, float min = 0.0f, float max = 1.0f) {
@@ -504,38 +456,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 throw new ArgumentException("Only CV_32F supported");
             }
 
-            unsafe {
-                var lhsData = (float*)lhs.DataPointer;
-                var rhsData = (float*)rhs.DataPointer;
-                var numPixels = lhs.Rows * lhs.Cols;
-                for (int i = 0; i < numPixels; ++i) {
-                    var value = *lhsData - *(rhsData++);
-                    if (value < min) {
-                        value = min;
-                    }
-                    if (value > max) {
-                        value = max;
-                    }
-                    *(lhsData++) = value;
-                }
-            }
-            return lhs;
+            Cv2.Subtract(lhs, rhs, lhs);
+            return ClampInPlace(lhs, min, max);
         }
 
-        public static Mat[] ComputeAtrousB3SplineDyadicWaveletLayers(Mat src, int numLayers) {
-            var layers = new Mat[numLayers + 1];
+        public static Mat ComputeResidualAtrousB3SplineDyadicWaveletLayer(Mat src, int numLayers) {
             var previousLayer = src;
-            Mat convolved = null;
+            Mat tempMat = new Mat();
             for (int i = 0; i < numLayers; ++i) {
                 using (var scalingFilter = GetB3SplineFilter(i)) {
-                    convolved = new Mat();
-                    Cv2.SepFilter2D(previousLayer, convolved, MatType.CV_32F, scalingFilter, scalingFilter, borderType: BorderTypes.Reflect);
-                    layers[i] = ClipInPlace(previousLayer.Subtract(convolved).ToMat());
-                    previousLayer = convolved;
+                    Cv2.SepFilter2D(previousLayer, tempMat, MatType.CV_32F, scalingFilter, scalingFilter, borderType: BorderTypes.Reflect);
+                    previousLayer = tempMat;
                 }
             }
-            layers[numLayers] = convolved;
-            return layers;
+            return previousLayer;
         }
 
         public static double BilinearSamplePixelValue(Mat image, double y, double x) {
@@ -561,48 +495,31 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         public class KappSigmaNoiseEstimateResult {
             public double Sigma { get; set; }
             public double BackgroundMean { get; set; }
-            public long BackgroundPixels { get; set; }
+            public int NumIterations { get; set; }
         }
 
-        public static KappSigmaNoiseEstimateResult KappaSigmaNoiseEstimate(Mat image, double clippingMultipler = 3.0d, double allowedError = 0.00001, int maxIterations = 10) {
+        public static KappSigmaNoiseEstimateResult KappaSigmaNoiseEstimate(Mat image, double clippingMultipler = 3.0d, double allowedError = 0.00001, int maxIterations = 5) {
             // NOTE: This algorithm could be sped up by building a log histogram. Consider this if performance becomes problematic
             if (image.Type() != MatType.CV_32F) {
                 throw new ArgumentException("Only CV_32F supported");
             }
 
-            unsafe {
-                var imageData = (float*)image.DataPointer;
+            using (var backgroundMaskMat = new Mat()) {
                 int numPixels = image.Rows * image.Cols;
                 var threshold = float.MaxValue;
                 var lastSigma = 1.0d;
                 var lastBackgroundMean = 1.0d;
-                var backgroundPixels = 0L;
                 int numIterations = 0;
+
                 while (numIterations < maxIterations) {
-                    ++numIterations;
-                    var total = 0.0d;
-                    backgroundPixels = 0L;
-                    for (int i = 0; i < numPixels; ++i) {
-                        var pixel = (double)imageData[i];
-                        if (pixel < threshold && pixel > 0.0f) {
-                            total += pixel;
-                            ++backgroundPixels;
-                        }
+                    if (numIterations > 0) {
+                        Cv2.InRange(image, float.Epsilon, threshold - float.Epsilon, backgroundMaskMat);
                     }
 
-                    var mean = total / backgroundPixels;
-                    var mrs = 0.0d;
-                    for (int i = 0; i < numPixels; ++i) {
-                        var pixel = (double)imageData[i];
-                        if (pixel < threshold && pixel > 0.0f) {
-                            var error = pixel - mean;
-                            mrs += error * error;
-                        }
-                    }
-
-                    var variance = mrs / (backgroundPixels - 1);
-                    var sigma = Math.Sqrt(variance);
-                    if (numIterations > 1) {
+                    Cv2.MeanStdDev(image, out var meanScalar, out var sigmaScalar, numIterations > 0 ? backgroundMaskMat : null);
+                    var sigma = sigmaScalar.ToDouble();
+                    var mean = meanScalar.ToDouble();
+                    if (++numIterations > 1) {
                         // NOTE: PixInsight treats this as an absolute difference rather than a percent change. That makes it faster, but less accurate
                         var sigmaConvergenceError = Math.Abs(sigma - lastSigma);
                         if (sigmaConvergenceError <= allowedError) {
@@ -618,7 +535,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 return new KappSigmaNoiseEstimateResult() {
                     Sigma = lastSigma,
                     BackgroundMean = lastBackgroundMean,
-                    BackgroundPixels = backgroundPixels
+                    NumIterations = numIterations
                 };
             }
         }
@@ -628,14 +545,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 dst.Create(src.Size(), src.Type());
             }
 
-            unsafe {
-                var srcData = (float*)src.DataPointer;
-                var dstData = (float*)dst.DataPointer;
-                var numPixels = src.Rows * src.Cols;
-                for (int i = 0; i < numPixels; ++i) {
-                    dstData[i] = (double)srcData[i] >= threshold ? 1.0f : 0.0f;
-                }
-            }
+            Cv2.Threshold(src, dst, threshold, 1.0d, ThresholdTypes.Binary);
         }
 
         public static System.Drawing.Rectangle ToDrawingRectangle(this OpenCvSharp.Rect openCvRect) {
