@@ -81,6 +81,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // Amount of the image to crop before analysis
         public double CenterROICropRatio { get; set; } = 1.0d;
 
+        // Amount of the ROI to consider for star detection
+        public double InnerROICropRatio { get; set; } = 1.0d;
+
         // Granularity to sample star bounding boxes when computing star measurements
         public float AnalysisSamplingSize { get; set; } = 0.5f;
 
@@ -292,6 +295,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 // Step 8: Binarize foreground structures based on noise estimates
                 CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
+                if (p.InnerROICropRatio < 1.0d) {
+                    var startFactor = (1.0 - p.InnerROICropRatio) / 2.0;
+                    var innerRoiRect = new Rect(
+                        (int)Math.Floor(structureMap.Cols * startFactor),
+                        (int)Math.Floor(structureMap.Rows * startFactor),
+                        (int)(structureMap.Cols * p.InnerROICropRatio),
+                        (int)(structureMap.Rows * p.InnerROICropRatio));
+                    structureMap.SubMat(innerRoiRect).SetTo(0.0f);
+                    Logger.Info($"Clearing structure map for inner ROI, using a ratio of {p.InnerROICropRatio}");
+                }
+
                 stopWatch.RecordEntry("Binarization");
                 MaybeSaveIntermediateImage(structureMap, p, "10-structure-binarized.tif");
 
@@ -307,6 +321,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (roiRect.HasValue) {
                     // Apply correction for the ROI
                     stars = stars.Select(s => s.AddOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top)).ToList();
+                    metrics.AddROIOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top);
                 }
 
                 return new StarDetectorResult() {
@@ -394,8 +409,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         var starBounds = new Rect(xLeft, yTop, 1, 1);
 
                         for (int y = yTop, x = xLeft; ;) {
+                            var rowOffsetStart = y * width;
                             int rowPointsAdded = 0;
-                            if (structureData[y * width + x] >= ZERO_THRESHOLD) {
+                            if (structureData[rowOffsetStart + x] >= ZERO_THRESHOLD) {
                                 starPoints.Add(new Point(x, y));
                                 ++rowPointsAdded;
                             }
@@ -404,7 +420,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             // Keep adding pixels to the left until you run into a background pixel, but only if the starting pixel belongs to a star
                             if (rowPointsAdded > 0) {
                                 for (rowStartX = x; rowStartX > 0;) {
-                                    if (structureData[y * width + (rowStartX - 1)] < ZERO_THRESHOLD) {
+                                    if (structureData[rowOffsetStart + (rowStartX - 1)] < ZERO_THRESHOLD) {
                                         break;
                                     }
                                     starPoints.Add(new Point(--rowStartX, y));
@@ -414,7 +430,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                             // Keep adding pixels to the right until you run into a background pixel
                             for (rowEndX = x; rowEndX < xRight;) {
-                                if (structureData[y * width + (rowEndX + 1)] < ZERO_THRESHOLD) {
+                                if (structureData[rowOffsetStart + (rowEndX + 1)] < ZERO_THRESHOLD) {
                                     if (rowPointsAdded > 0 || rowEndX >= starBounds.Right) {
                                         // We're expanding the star search area down and to the right. If we haven't encountered any star pixels on
                                         // this row yet, we should keep iterating until we find the first one or we've hit the current right boundary of
@@ -457,8 +473,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         }
 
                         // Now that we've evaluated the pixels within the star bounding box, we can zero them all out so we don't look again
+                        // TODO: Assess the performance and result impact of clearing the entire star bounds instead of just the star points
+                        // structureMap.SubMat(starBounds).SetTo(0.0f);
                         foreach (var starPoint in starPoints) {
-                            structureMap.Set<float>(starPoint.Y, starPoint.X, 0.0f);
+                            structureData[starPoint.Y * width + starPoint.X] = 0.0f;
                         }
                     }
                 }

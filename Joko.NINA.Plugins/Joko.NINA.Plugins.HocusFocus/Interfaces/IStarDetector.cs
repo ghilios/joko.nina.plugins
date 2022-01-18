@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
@@ -53,6 +54,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int TooLowHFR { get; set; } = -1;
         public int HFRAnalysisFailed { get; set; } = -1;
         public int OutsideROI { get; set; } = -1;
+
+        public void AddROIOffset(int xOffset, int yOffset) {
+            var allRectBounds = new List<List<Rect>>() {
+                TooDistortedBounds,
+                DegenerateBounds,
+                SaturatedBounds,
+                LowSensitivityBounds,
+                NotCenteredBounds,
+                TooFlatBounds
+            };
+
+            var offset = new Point(xOffset, yOffset);
+            foreach (var rectBounds in allRectBounds) {
+                var newRectBounds = rectBounds.Select(r => new Rect(r.Location + offset, r.Size)).ToList();
+                rectBounds.Clear();
+                rectBounds.AddRange(newRectBounds);
+            }
+        }
     }
 
     public class StarDetectorResult {

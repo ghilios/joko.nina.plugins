@@ -42,7 +42,7 @@
     <TextBlock x:Key="MinHFR_Tooltip" Text="Minimum HFR for a star to be considered viable" />
     <TextBlock x:Key="StructureDilationSize_Tooltip" Text="During star detection a structure map is generated containing potential star pixels that are above the background noise threshold. This parameter defines the size of gaussian morphology filter used to dilate the structure map. Consider increasing this value if bounding boxes are not large enough around stars, which may be more likely at very high focal lengths." />
     <TextBlock x:Key="StructureDilationCount_Tooltip" Text="This parameter is related to Structure Dilation Size. It specifies the number of times the morphological dilation is performed. Consider increasing this value if bounding boxes are not large enough around stars, which may be more likely at very high focal lengths." />
-    <TextBlock x:Key="PixelSampleSize_Tooltip" Text="When calculating star centers and HFR, we sample values between pixels using bilinear interpolation to improve accuracy. The optimal sample size depends on whether and how much your optical system is undersampling. Increase to 1 if you are perfectly- or over-sampled, and consider lowering it below 0.5 if you are more than 2x undersampled." />
+    <TextBlock x:Key="PixelSampleSize_Tooltip" Text="When calculating star centers and HFR, we sample values between pixels using bilinear interpolation to improve accuracy. The optimal sample size depends on whether and how much your optical system is undersampling. Increase to 1 if you are perfectly- or over-sampled, and consider lowering it below 0.5 if you are more than 2x undersampled. This value must be between 25 and 100, inclusive" />
     <TextBlock x:Key="DebugMode_Tooltip" Text="Enables debug mode, which saves additional data useful for debugging. Keep this off unless you're tuning star detection and want to view structure maps." />
     <TextBlock x:Key="ShowAnnotations_Tooltip" Text="Toggles the annotations on/off" />
     <TextBlock x:Key="ShowAllStars_Tooltip" Text="Whether to annotate all stars" />
@@ -481,11 +481,11 @@
                 ToolTip="{StaticResource StarPeakResponse_Tooltip}">
                 <Binding Path="StarDetectionOptions.StarPeakResponse" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
                     <Binding.ValidationRules>
-                        <rules:FloatRangeRule>
-                            <rules:FloatRangeRule.ValidRange>
-                                <rules:FloatRangeChecker Maximum="100.0" Minimum="0" />
-                            </rules:FloatRangeRule.ValidRange>
-                        </rules:FloatRangeRule>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="100.0" Minimum="0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
@@ -507,11 +507,11 @@
                 ToolTip="{StaticResource MaxDistortion_Tooltip}">
                 <Binding Path="StarDetectionOptions.MaxDistortion" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
-                        <rules:FloatRangeRule>
-                            <rules:FloatRangeRule.ValidRange>
-                                <rules:FloatRangeChecker Maximum="1.0" Minimum="0" />
-                            </rules:FloatRangeRule.ValidRange>
-                        </rules:FloatRangeRule>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="1.0" Minimum="0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
@@ -533,11 +533,11 @@
                 ToolTip="{StaticResource StarCenterTolerance_Tooltip}">
                 <Binding Path="StarDetectionOptions.StarCenterTolerance" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
                     <Binding.ValidationRules>
-                        <rules:FloatRangeRule>
-                            <rules:FloatRangeRule.ValidRange>
-                                <rules:FloatRangeChecker Maximum="1.0" Minimum="0" />
-                            </rules:FloatRangeRule.ValidRange>
-                        </rules:FloatRangeRule>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="100.0" Minimum="0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
@@ -675,7 +675,7 @@
                     <Binding.ValidationRules>
                         <rules:FloatRangeRule>
                             <rules:FloatRangeRule.ValidRange>
-                                <rules:FloatRangeChecker Maximum="1.0" Minimum="0.1" />
+                                <rules:FloatRangeChecker Maximum="100.0" Minimum="25.0" />
                             </rules:FloatRangeRule.ValidRange>
                         </rules:FloatRangeRule>
                     </Binding.ValidationRules>

@@ -71,14 +71,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
 
             MinStarBoundingBoxSize = 5;
-            PixelSampleSize = 0.5;
+            PixelSampleSize = 1.0;
             if (Simple_PixelScale == PixelScaleEnum.WideField) {
                 StructureLayers -= 1;
                 MinStarBoundingBoxSize -= 1;
+                PixelSampleSize = 0.5;
             } else if (Simple_PixelScale == PixelScaleEnum.LongFocalLength) {
                 StructureLayers += 1;
                 MinStarBoundingBoxSize += 1;
-                PixelSampleSize = 1.0;
             }
             BrightnessSensitivity = 10.0;
             StarPeakResponse = 0.75;

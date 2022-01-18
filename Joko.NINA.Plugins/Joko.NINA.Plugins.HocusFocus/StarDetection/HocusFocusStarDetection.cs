@@ -104,6 +104,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             if (p.UseROI && p.InnerCropRatio < 1.0 && p.OuterCropRatio > 0.0) {
                 detectorParams.CenterROICropRatio = p.OuterCropRatio >= 1.0 ? p.InnerCropRatio : p.OuterCropRatio;
+                if (p.OuterCropRatio < 1.0) {
+                    detectorParams.InnerROICropRatio = p.InnerCropRatio / p.OuterCropRatio;
+                }
             }
 
             var result = new HocusFocusStarDetectionResult() { Params = p, DetectorParams = detectorParams };
