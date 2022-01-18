@@ -45,10 +45,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return;
             }
 
-            if (!String.IsNullOrEmpty(e.PropertyName) && !SimplePropertyNames.Contains(e.PropertyName)) {
-                return;
-            }
-
             HotpixelFiltering = Simple_NoiseLevel != NoiseLevelEnum.None;
             switch (Simple_NoiseLevel) {
                 case NoiseLevelEnum.None:
@@ -91,6 +87,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
+            if (this.UseAdvanced) {
+                return;
+            }
+
+            if (!String.IsNullOrEmpty(e.PropertyName) && !SimplePropertyNames.Contains(e.PropertyName)) {
+                return;
+            }
             ConfigureSimpleSettings();
         }
 
