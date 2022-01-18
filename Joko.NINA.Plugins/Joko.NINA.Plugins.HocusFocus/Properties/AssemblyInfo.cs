@@ -18,13 +18,13 @@ using System.Runtime.InteropServices;
 
 // [MANDATORY] The assembly versioning
 //Should be incremented for each new release build of a plugin
-[assembly: AssemblyVersion("1.11.0.12")]
-[assembly: AssemblyFileVersion("1.11.0.12")]
+[assembly: AssemblyVersion("1.11.0.13")]
+[assembly: AssemblyFileVersion("1.11.0.13")]
 
 // [MANDATORY] The name of your plugin
 [assembly: AssemblyTitle("Hocus Focus")]
 // [MANDATORY] A short description of your plugin
-[assembly: AssemblyDescription("Improved Star Annotation and Auto Focus for NINA")]
+[assembly: AssemblyDescription("Improved Star Detection, Star Annotation and Auto Focus for NINA")]
 
 // The following attributes are not required for the plugin per se, but are required by the official manifest meta data
 
@@ -35,7 +35,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCopyright("Copyright ©  2021")]
 
 // The minimum Version of N.I.N.A. that this plugin is compatible with
-[assembly: AssemblyMetadata("MinimumApplicationVersion", "2.0.0.2020")]
+[assembly: AssemblyMetadata("MinimumApplicationVersion", "2.0.0.2021")]
 
 // The license your plugin code is using
 [assembly: AssemblyMetadata("License", "MPL-2.0")]
@@ -62,13 +62,21 @@ using System.Runtime.InteropServices;
 //[Optional] An additional url to an example example screenshot of your plugin in action
 [assembly: AssemblyMetadata("AltScreenshotURL", "")]
 //[Optional] An in-depth description of your plugin
-[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Annotation and Auto Focus for NINA. Improved star detection and additional Auto Focus features are on the way as well
+[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Detection, Star Annotation, and Auto Focus for NINA. Additional Star Detection and Auto Focus features are on the way as well
 
 **Features**
 
 *AutoFocus*
 
-* Substantially faster by analyzing exposures while next focus points are being exposed
+* Can be faster than the built-in NINA Auto Focuser by analyzing exposures while next focus points are being exposed
+* The concurrent Auto Focus is particularly useful when using the Hocus Focus star detector, which can be more resource intensive
+
+*Improved star detection*
+
+* Simpler configuration, with an advanced mode for fine tuning
+* Higher accuracy (lower HFR Standard Deviation) if parameters are set properly
+* Advanced control over star detection parameters
+* Can use the new Star Detector or Annotator without requiring both. Keep what you like
 
 *Customizable Star Annotation*
 * Customizable colors and fonts for star annotations
@@ -78,13 +86,9 @@ To enable these features, go to Options -> Imaging -> Image Options. After this 
 
 **Features coming soon**
 
-*Improved star detection*
+*Star detection*
 
-* Faster for large sensors, particularly APS-C and Full Frame
-* Higher accuracy (lower HFR Standard Deviation) if parameters are set properly
-* Advanced control over star detection parameters
-* Can use the new Star Detector or Annotator without requiring both. Keep what you like
-* Eccentricity calculation
+* Eccentricity and FWHM calculation
 
 *AutoFocus*
 

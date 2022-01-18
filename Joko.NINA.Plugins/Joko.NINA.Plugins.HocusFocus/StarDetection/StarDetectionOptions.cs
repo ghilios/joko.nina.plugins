@@ -40,7 +40,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             nameof(Simple_FocusRange),
         };
 
-        private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
+        private void ConfigureSimpleSettings() {
             if (this.UseAdvanced) {
                 return;
             }
@@ -90,6 +90,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             StructureDilationCount = 0;
         }
 
+        private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
+            ConfigureSimpleSettings();
+        }
+
         private void InitializeOptions() {
             debugMode = optionsAccessor.GetValueBoolean("DetectionDebugMode", false);
             useAdvanced = optionsAccessor.GetValueBoolean("UseAdvanced", false);
@@ -120,6 +124,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
             saveIntermediateImages = false;
+            ConfigureSimpleSettings();
         }
 
         public void ResetDefaults() {

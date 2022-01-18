@@ -28,6 +28,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media;
 using NINA.Core.Interfaces;
+using NINA.Core.Utility.Notification;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -111,6 +112,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             var result = new HocusFocusStarDetectionResult() { Params = p, DetectorParams = detectorParams };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
+            if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
+                Notification.ShowInformation("Saved intermediate star detection files");
+                Logger.Info($"Saved intermediate star detection files to {detectorParams.SaveIntermediateFilesPath}");
+            }
+
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var starList = starDetectorResult.DetectedStars;
             if (!starDetectionOptions.UseAutoFocusCrop && !p.IsAutoFocus) {

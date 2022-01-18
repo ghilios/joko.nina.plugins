@@ -25,6 +25,7 @@ using static NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility;
 using MultiStopWatch = NINA.Joko.Plugins.HocusFocus.Utility.MultiStopWatch;
 using System.IO;
 using System.Text;
+using NINA.Core.Utility.Notification;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
