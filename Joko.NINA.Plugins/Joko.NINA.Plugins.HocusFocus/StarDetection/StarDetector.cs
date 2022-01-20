@@ -29,6 +29,11 @@ using NINA.Core.Utility.Notification;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
+    public enum StarDetectorPSFFitType {
+        None,
+        Gaussian
+    }
+
     public class StarDetectorParams {
         public bool HotpixelFiltering { get; set; } = true;
 
@@ -86,7 +91,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double InnerROICropRatio { get; set; } = 1.0d;
 
         // Granularity to sample star bounding boxes when computing star measurements
-        public float AnalysisSamplingSize { get; set; } = 0.5f;
+        public float AnalysisSamplingSize { get; set; } = 1.0f;
 
         public bool StoreStructureMap { get; set; } = false;
 
@@ -94,6 +99,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         // If a star contains any pixels greater than this threshold, it is rejected due to being fully saturated
         public double SaturationThreshold { get; set; } = 0.99f;
+
+        // What type of PSF fitting should be done
+        public StarDetectorPSFFitType PSFFit { get; set; } = StarDetectorPSFFitType.None;
+
+        // If PSF modeling is enabled, any R^2 values below this threshold will be rejected
+        public double PSFGoodnessOfFitThreshold { get; set; } = 0.9;
 
         public override string ToString() {
             return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(CenterROICropRatio)}={CenterROICropRatio.ToString()}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold}}}";
@@ -146,34 +157,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             File.WriteAllText(Path.Combine(p.SaveIntermediateFilesPath, filename), sb.ToString());
         }
 
-        public Task<StarDetectorResult> Detect(Mat srcImage, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
-            return Task.Run(() => {
-                var resourceTracker = new ResourcesTracker();
-                try {
-                    return DetectImpl(srcImage, resourceTracker, p, progress, token);
-                } finally {
-                    // Cleanup
-                    resourceTracker.Dispose();
-                    progress?.Report(new ApplicationStatus() { });
-                }
-            }, token);
+        public async Task<StarDetectorResult> Detect(Mat srcImage, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            var resourceTracker = new ResourcesTracker();
+            try {
+                return await DetectImpl(srcImage, resourceTracker, p, progress, token);
+            } finally {
+                // Cleanup
+                resourceTracker.Dispose();
+                progress?.Report(new ApplicationStatus() { });
+            }
         }
 
-        public Task<StarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
-            return Task.Run(() => {
-                var resourceTracker = new ResourcesTracker();
-                try {
-                    var srcImage = CvImageUtility.ToOpenCVMat(image);
-                    return DetectImpl(srcImage, resourceTracker, p, progress, token);
-                } finally {
-                    // Cleanup
-                    resourceTracker.Dispose();
-                    progress?.Report(new ApplicationStatus() { });
-                }
-            }, token);
+        public async Task<StarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            var resourceTracker = new ResourcesTracker();
+            try {
+                var srcImage = CvImageUtility.ToOpenCVMat(image);
+                return await DetectImpl(srcImage, resourceTracker, p, progress, token);
+            } finally {
+                // Cleanup
+                resourceTracker.Dispose();
+                progress?.Report(new ApplicationStatus() { });
+            }
         }
 
-        private StarDetectorResult DetectImpl(Mat srcImage, ResourcesTracker resourceTracker, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        private async Task<StarDetectorResult> DetectImpl(Mat srcImage, ResourcesTracker resourceTracker, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
                 throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
             }
@@ -312,11 +319,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 // Step 9: Scan structure map for stars
                 progress?.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
-                var stars = ScanStars(srcImage, structureMap, p, ksigmaNoiseResultSrc.Sigma, metrics);
+                var stars = ScanStars(srcImage, structureMap, p, ksigmaNoiseResultSrc.Sigma, metrics, token);
                 stopWatch.RecordEntry("StarAnalysis");
+
+                // Step 10: Fit PSF models
+                if (p.PSFFit != StarDetectorPSFFitType.None) {
+                    progress?.Report(new ApplicationStatus() { Status = "Modeling PSFs" });
+                    await ModelPSF(stars, p, metrics, token);
+
+                    stars = stars.Where(s => s.PSF != null).ToList();
+                    stopWatch.RecordEntry("StarAnalysis");
+                }
                 MaybeSaveIntermediateStars(stars, p, "11-detected-stars.txt");
 
-                var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
+                var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}, PSFFailed={metrics.PSFFailed}";
                 MaybeSaveIntermediateText(metricsTrace, p, "12-detection-metrics.txt");
                 Logger.Trace(metricsTrace);
                 if (roiRect.HasValue) {
@@ -331,6 +347,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     DebugData = debugData
                 };
             }
+        }
+
+        // TODO: Consider making this configurable
+        private const int PSF_MODEL_PARTITION_SIZE = 100;
+
+        private async Task ModelPSF(List<Star> stars, StarDetectorParams p, StarDetectorMetrics metrics, CancellationToken ct) {
+            var allTasks = new List<Task>();
+            foreach (var detectedStarsPartition in stars.Partition(100)) {
+                var psfPartitionTask = Task.Run(() => {
+                    foreach (var detectedStar in detectedStarsPartition) {
+                        var psf = GaussianPSFModeler.Model(detectedStar, ct: ct);
+                        if (psf == null || psf.RSquared < p.PSFGoodnessOfFitThreshold) {
+                            metrics.PSFFailedBounds.Add(detectedStar.StarBoundingBox);
+                        } else {
+                            detectedStar.PSF = psf;
+                        }
+                    }
+                }, ct);
+                allTasks.Add(psfPartitionTask);
+            }
+
+            await Task.WhenAll(allTasks);
         }
 
         /// <summary>
@@ -354,9 +392,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         private bool MeasureStar(Mat srcImage, Star star, StarDetectorParams p) {
+            const float ZERO_THRESHOLD = 0.001f;
+
             var background = star.Background;
             double totalBrightness = 0.0;
             double totalWeightedDistance = 0.0;
+            bool fitPsf = p.PSFFit != StarDetectorPSFFitType.None;
+            if (fitPsf) {
+                star.SampledPixelsAboveBackground = new List<Tuple<Point2d, double>>();
+            }
 
             // Determine the start position to sample from the star bounding box so that we stay within the box *and* the center point is one of the samples. This ensures
             // we're sampling in a balanced manner around the center
@@ -370,6 +414,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     if (value > 0.0f) {
                         var dx = x - star.Center.X;
                         var dy = y - star.Center.Y;
+                        if (fitPsf) {
+                            if (Math.Abs(dx) < ZERO_THRESHOLD && Math.Abs(dy) < ZERO_THRESHOLD) {
+                                star.CentroidBrightness = value;
+                            } else {
+                                star.SampledPixelsAboveBackground.Add(new Tuple<Point2d, double>(new Point2d(dx, dy), value));
+                            }
+                        }
                         var distance = Math.Sqrt(dx * dx + dy * dy);
                         totalWeightedDistance += value * distance;
                         totalBrightness += value;
@@ -377,14 +428,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            if (totalBrightness > 0.0f) {
+            if (totalBrightness > 0.0f && star.CentroidBrightness > 0.0f) {
                 star.HFR = totalWeightedDistance / totalBrightness;
                 return true;
             }
             return false;
         }
 
-        private List<Star> ScanStars(Mat srcImage, Mat structureMap, StarDetectorParams p, double noiseSigma, StarDetectorMetrics metrics) {
+        private List<Star> ScanStars(Mat srcImage, Mat structureMap, StarDetectorParams p, double noiseSigma, StarDetectorMetrics metrics, CancellationToken ct) {
             const float ZERO_THRESHOLD = 0.001f;
 
             var stars = new List<Star>();
@@ -398,6 +449,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             unsafe {
                 var structureData = (float*)structureMap.DataPointer;
                 for (int yTop = 0, xRight = width - 1, yBottom = height - 1; yTop < yBottom; ++yTop) {
+                    ct.ThrowIfCancellationRequested();
+
                     for (int xLeft = 0; xLeft < xRight; ++xLeft) {
                         // Skip background and pixels already visited
                         if (structureData[yTop * width + xLeft] < ZERO_THRESHOLD) {
@@ -474,8 +527,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         }
 
                         // Now that we've evaluated the pixels within the star bounding box, we can zero them all out so we don't look again
-                        // TODO: Assess the performance and result impact of clearing the entire star bounds instead of just the star points
-                        // structureMap.SubMat(starBounds).SetTo(0.0f);
                         foreach (var starPoint in starPoints) {
                             structureData[starPoint.Y * width + starPoint.X] = 0.0f;
                         }

@@ -26,7 +26,7 @@ using System.Windows.Media.Imaging;
 namespace TestApp {
 
     internal class Program {
-        private const string InputFilePath = /* @"C:\AP\LIGHT_2021-07-29_02-36-57_H_-9.90_300.00s_0151.tif"; */ @"C:\Users\ghili\Downloads\2021-10-17_21-22-58_Ha_-10.00_3.00s_0000.tif";
+        private const string InputFilePath = @"C:\Users\ghili\Downloads\LIGHT_2022-01-08_20-40-16_H_-10.00_300.00s_0031.tif";
         private const string InputFilePath2 = @"C:\AutoFocusTestData\nik\L__2021-10-29_05-49-01__ASI2600MM_SNAPSHOT_G100_O30_2.00s_-4.80C.tif";
         private const string InputFilePath3 = @"C:\AP\Focus Points Original\12_Focuser_11250_HFR_1493.tif";
         private const string InputFilePath4 = @"C:\AP\Focus Points Original\5_Focuser_6000_HFR_0191.tif";
@@ -38,14 +38,8 @@ namespace TestApp {
 
         private static async Task MainAsync(string[] args) {
             var starAnnotatorOptions = StaticStarAnnotatorOptions.CreateDefault();
-            /*
-            starAnnotatorOptions.ShowDegenerate = true;
-            starAnnotatorOptions.ShowTooDistorted = true;
-            starAnnotatorOptions.ShowNotCentered = true;
-            */
-
             using (var t = new ResourcesTracker()) {
-                var src = t.T(new Mat(InputFilePath3, ImreadModes.Unchanged));
+                var src = t.T(new Mat(InputFilePath, ImreadModes.Unchanged));
                 var srcFloat = t.NewMat();
                 ConvertToFloat(src, srcFloat);
 
@@ -58,14 +52,10 @@ namespace TestApp {
                 var annotator = new HocusFocusStarAnnotator(starAnnotatorOptions, null);
                 var starDetectionParams = new StarDetectionParams() { };
                 var detectorParams = new StarDetectorParams() {
-                    SaveIntermediateFilesPath = IntermediatePath,
-                    NoiseReductionRadius = 3,
-                    StructureDilationCount = 0,
-                    StructureDilationSize = 1,
-                    NoiseClippingMultiplier = 4,
-                    StarClippingMultiplier = 2,
-                    StructureLayers = 4,
-                    StarCenterTolerance = 0.3
+                    PSFFit = StarDetectorPSFFitType.Gaussian,
+                    PSFGoodnessOfFitThreshold = 0.9
+                    // SaveIntermediateFilesPath = IntermediatePath,
+                    // CenterROICropRatio = 0.3
                 };
                 var detectorResult = await detector.Detect(srcFloat, detectorParams, null, CancellationToken.None);
                 var detectionResult = new HocusFocusStarDetectionResult() {
@@ -74,7 +64,7 @@ namespace TestApp {
                     DetectorParams = detectorParams,
                     Params = starDetectionParams,
                     Metrics = detectorResult.Metrics,
-                    DebugData = detectorResult.DebugData
+                    DebugData = detectorResult.DebugData,
                 };
 
                 var stretchedSourceBmpSrc = ToBitmapSource(stretchedSrc, PixelFormats.Gray16);

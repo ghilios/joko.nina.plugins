@@ -24,10 +24,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public class Star {
         public Point2d Center { get; set; }
+        public List<Tuple<Point2d, double>> SampledPixelsAboveBackground { get; set; }
         public Rect StarBoundingBox { get; set; }
         public double Background { get; set; }
         public double MeanBrightness { get; set; }
         public double HFR { get; set; }
+        public double CentroidBrightness { get; set; }
+        public PSFModel PSF { get; set; }
 
         public override string ToString() {
             return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}}}";
@@ -51,6 +54,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public List<Rect> NotCenteredBounds { get; private set; } = new List<Rect>();
         public int TooFlat { get => TooFlatBounds.Count; set => throw new NotSupportedException("Can't set TooFlat directly"); }
         public List<Rect> TooFlatBounds { get; private set; } = new List<Rect>();
+        public int PSFFailed { get => PSFFailedBounds.Count; set => throw new NotSupportedException("Can't set PSFFailed directly"); }
+        public List<Rect> PSFFailedBounds { get; private set; } = new List<Rect>();
         public int TooLowHFR { get; set; } = -1;
         public int HFRAnalysisFailed { get; set; } = -1;
         public int OutsideROI { get; set; } = -1;
@@ -62,7 +67,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
                 SaturatedBounds,
                 LowSensitivityBounds,
                 NotCenteredBounds,
-                TooFlatBounds
+                TooFlatBounds,
+                PSFFailedBounds
             };
 
             var offset = new Point(xOffset, yOffset);

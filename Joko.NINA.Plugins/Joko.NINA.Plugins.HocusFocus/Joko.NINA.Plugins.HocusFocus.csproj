@@ -98,6 +98,9 @@
     <Reference Include="K4os.Compression.LZ4, Version=1.2.16.0, Culture=neutral, PublicKeyToken=2186fa9121ef231d, processorArchitecture=MSIL">
       <HintPath>..\packages\K4os.Compression.LZ4.1.2.16\lib\net46\K4os.Compression.LZ4.dll</HintPath>
     </Reference>
+    <Reference Include="MathNet.Numerics, Version=5.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\MathNet.Numerics.5.0.0-alpha08\lib\net48\MathNet.Numerics.dll</HintPath>
+    </Reference>
     <Reference Include="Microsoft.Bcl.AsyncInterfaces, Version=6.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
       <HintPath>..\packages\Microsoft.Bcl.AsyncInterfaces.6.0.0\lib\net461\Microsoft.Bcl.AsyncInterfaces.dll</HintPath>
     </Reference>
@@ -320,8 +323,10 @@
     <Compile Include="StarDetection\DataTemplates.xaml.cs">
       <DependentUpon>DataTemplates.xaml</DependentUpon>
     </Compile>
+    <Compile Include="StarDetection\GaussianPSFModeler.cs" />
     <Compile Include="StarDetection\HocusFocusStarAnnotator.cs" />
     <Compile Include="StarDetection\HocusFocusStarDetection.cs" />
+    <Compile Include="StarDetection\PSFModel.cs" />
     <Compile Include="StarDetection\StarAnnotatorOptions.cs" />
     <Compile Include="StarDetection\StarDetectionOptions.cs" />
     <Compile Include="StarDetection\StarAnnotatorOptionsVM.cs" />
@@ -329,6 +334,7 @@
     <Compile Include="StarDetection\StarDetector.cs" />
     <Compile Include="StarDetection\StarDetectionOptionsVM.cs" />
     <Compile Include="Utility\CvImageUtility.cs" />
+    <Compile Include="Utility\Extensions.cs" />
     <Compile Include="Utility\MathUtility.cs" />
     <Compile Include="Utility\MultiStopWatch.cs" />
     <Compile Include="ValidationRules\PositiveIntegerOrInfiniteRule.cs" />

@@ -570,6 +570,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return new Star() {
                 Center = star.Center.Add(new Point2d(xOffset, yOffset)),
                 StarBoundingBox = star.StarBoundingBox.Add(new Point(xOffset, yOffset)),
+                SampledPixelsAboveBackground = star.SampledPixelsAboveBackground,
+                CentroidBrightness = star.CentroidBrightness,
                 Background = star.Background,
                 MeanBrightness = star.MeanBrightness,
                 HFR = star.HFR
