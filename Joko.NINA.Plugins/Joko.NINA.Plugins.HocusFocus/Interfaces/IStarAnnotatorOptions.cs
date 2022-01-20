@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.Converters;
 using System.ComponentModel;
 using System.Windows.Media;
 
@@ -26,11 +27,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Dilated
     }
 
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
     public enum ShowAnnotationTypeEnum {
+
+        [Description("None")]
         None,
+
+        [Description("HFR")]
         HFR,
+
+        [Description("FWHM")]
         FWHM,
-        Eccentricity
+
+        [Description("Eccentricity")]
+        Eccentricity,
+
+        [Description("PSF Rotation")]
+        PSFTheta
     }
 
     public interface IStarAnnotatorOptions : INotifyPropertyChanged {

@@ -17,21 +17,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class PSFModel {
 
-        public PSFModel(double fwhmX, double fwhmY, Angle theta, double rSquared) {
+        public PSFModel(double fwhmX, double fwhmY, double thetaRadians, double rSquared, double pixelScale) {
             this.FWHMx = fwhmX;
             this.FWHMy = fwhmY;
-            this.Theta = theta;
+            this.ThetaRadians = thetaRadians;
             var a = Math.Max(fwhmX, fwhmY);
             var b = Math.Min(fwhmX, fwhmY);
             this.Eccentricity = Math.Sqrt(1 - b * b / (a * a));
-            this.FWHM = Math.Sqrt(fwhmX * fwhmY);
+            this.FWHMPixels = Math.Sqrt(fwhmX * fwhmY);
+            this.FWHMArcsecs = this.FWHMPixels * pixelScale;
             this.RSquared = rSquared;
         }
 
         public double FWHMx { get; private set; }
         public double FWHMy { get; private set; }
-        public Angle Theta { get; private set; }
-        public double FWHM { get; private set; }
+        public double ThetaRadians { get; private set; }
+        public double FWHMPixels { get; private set; }
+        public double FWHMArcsecs { get; private set; }
         public double Eccentricity { get; private set; }
         public double RSquared { get; private set; }
     }

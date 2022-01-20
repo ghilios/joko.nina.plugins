@@ -52,14 +52,15 @@ namespace TestApp {
                 var annotator = new HocusFocusStarAnnotator(starAnnotatorOptions, null);
                 var starDetectionParams = new StarDetectionParams() { };
                 var detectorParams = new StarDetectorParams() {
-                    PSFFit = StarDetectorPSFFitType.Gaussian,
-                    PSFGoodnessOfFitThreshold = 0.9
+                    FitPSF = StarDetectorPSFFitType.Gaussian,
+                    PSFGoodnessOfFitThreshold = 0.9,
+                    PixelScale = 1.1d
                     // SaveIntermediateFilesPath = IntermediatePath,
                     // CenterROICropRatio = 0.3
                 };
                 var detectorResult = await detector.Detect(srcFloat, detectorParams, null, CancellationToken.None);
                 var detectionResult = new HocusFocusStarDetectionResult() {
-                    StarList = detectorResult.DetectedStars.Select(s => s.ToDetectedStar()).ToList(),
+                    StarList = detectorResult.DetectedStars.Select(s => HocusFocusStarDetection.ToDetectedStar(s)).ToList(),
                     DetectedStars = detectorResult.DetectedStars.Count,
                     DetectorParams = detectorParams,
                     Params = starDetectionParams,

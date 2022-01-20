@@ -12,6 +12,7 @@
 
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Converters;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using System.ComponentModel;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
@@ -54,6 +55,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public interface IStarDetectionOptions {
         bool UseAdvanced { get; set; }
+        StarDetectorPSFFitType FitPSF { get; set; }
 
         // Simple configuration, which produces the detailed configuration with fewer knobs
         NoiseLevelEnum Simple_NoiseLevel { get; set; }

@@ -43,9 +43,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             this.Outputs = outputs;
         }
 
-        public static PSFModel Model(Star detectedStar, int maxIterations = 20, double tolerance = 1E-8, CancellationToken ct = default) {
+        public static PSFModel Model(Star detectedStar, double pixelScale, int maxIterations = 20, double tolerance = 1E-8, CancellationToken ct = default) {
             var modeler = new GaussianPSFModeler(detectedStar);
-            return modeler.Solve(maxIterations, tolerance, ct);
+            return modeler.Solve(pixelScale, maxIterations, tolerance, ct);
         }
 
         // G(x,y; sigx,sigy,theta)
@@ -166,7 +166,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return 1 - rss / tss;
         }
 
-        public PSFModel Solve(int maxIterations = 20, double tolerance = 1E-8, CancellationToken ct = default) {
+        public PSFModel Solve(double pixelScale, int maxIterations = 20, double tolerance = 1E-8, CancellationToken ct = default) {
             var gn = new LevenbergMarquardt(parameters: 3) {
                 Function = this.Value,
                 Gradient = this.Gradient,
@@ -191,7 +191,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var fwhmX = sigX * SIGMA_TO_FWHM_FACTOR;
             var fwhmY = sigY * SIGMA_TO_FWHM_FACTOR;
             var rSquared = GoodnessOfFit(sigX, sigY, theta);
-            return new PSFModel(fwhmX: fwhmX, fwhmY: fwhmY, theta: Angle.ByRadians(theta), rSquared: rSquared);
+            return new PSFModel(fwhmX: fwhmX, fwhmY: fwhmY, thetaRadians: theta, rSquared: rSquared, pixelScale: pixelScale);
         }
     }
 }

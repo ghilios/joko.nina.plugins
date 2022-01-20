@@ -20,6 +20,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
 
 namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
@@ -556,16 +557,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return new Accord.Point(x: (float)point.X, y: (float)point.Y);
         }
 
-        public static DetectedStar ToDetectedStar(this Star star) {
-            return new DetectedStar() {
-                HFR = star.HFR,
-                Position = star.Center.ToAccordPoint(),
-                AverageBrightness = star.MeanBrightness,
-                Background = star.Background,
-                BoundingBox = star.StarBoundingBox.ToDrawingRectangle()
-            };
-        }
-
         public static Star AddOffset(this Star star, int xOffset, int yOffset) {
             return new Star() {
                 Center = star.Center.Add(new Point2d(xOffset, yOffset)),
@@ -574,7 +565,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 CentroidBrightness = star.CentroidBrightness,
                 Background = star.Background,
                 MeanBrightness = star.MeanBrightness,
-                HFR = star.HFR
+                HFR = star.HFR,
+                PSF = star.PSF
             };
         }
 

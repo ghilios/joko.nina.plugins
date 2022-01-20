@@ -25,12 +25,18 @@ using static NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility;
 using MultiStopWatch = NINA.Joko.Plugins.HocusFocus.Utility.MultiStopWatch;
 using System.IO;
 using System.Text;
-using NINA.Core.Utility.Notification;
+using NINA.Joko.Plugins.HocusFocus.Converters;
+using System.ComponentModel;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
     public enum StarDetectorPSFFitType {
+
+        [Description("None")]
         None,
+
+        [Description("Gaussian")]
         Gaussian
     }
 
@@ -101,13 +107,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double SaturationThreshold { get; set; } = 0.99f;
 
         // What type of PSF fitting should be done
-        public StarDetectorPSFFitType PSFFit { get; set; } = StarDetectorPSFFitType.None;
+        public StarDetectorPSFFitType FitPSF { get; set; } = StarDetectorPSFFitType.None;
 
         // If PSF modeling is enabled, any R^2 values below this threshold will be rejected
         public double PSFGoodnessOfFitThreshold { get; set; } = 0.9;
 
+        // Pixel scale of the image given for star detection
+        public double PixelScale { get; set; } = 1.0d;
+
         public override string ToString() {
-            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(CenterROICropRatio)}={CenterROICropRatio.ToString()}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold}}}";
+            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(CenterROICropRatio)}={CenterROICropRatio.ToString()}, {nameof(InnerROICropRatio)}={InnerROICropRatio.ToString()}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(FitPSF)}={FitPSF.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}}}";
         }
     }
 
@@ -323,7 +332,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 stopWatch.RecordEntry("StarAnalysis");
 
                 // Step 10: Fit PSF models
-                if (p.PSFFit != StarDetectorPSFFitType.None) {
+                if (p.FitPSF != StarDetectorPSFFitType.None) {
                     progress?.Report(new ApplicationStatus() { Status = "Modeling PSFs" });
                     await ModelPSF(stars, p, metrics, token);
 
@@ -357,7 +366,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             foreach (var detectedStarsPartition in stars.Partition(100)) {
                 var psfPartitionTask = Task.Run(() => {
                     foreach (var detectedStar in detectedStarsPartition) {
-                        var psf = GaussianPSFModeler.Model(detectedStar, ct: ct);
+                        var psf = GaussianPSFModeler.Model(detectedStar, p.PixelScale, ct: ct);
                         if (psf == null || psf.RSquared < p.PSFGoodnessOfFitThreshold) {
                             metrics.PSFFailedBounds.Add(detectedStar.StarBoundingBox);
                         } else {
@@ -397,7 +406,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var background = star.Background;
             double totalBrightness = 0.0;
             double totalWeightedDistance = 0.0;
-            bool fitPsf = p.PSFFit != StarDetectorPSFFitType.None;
+            bool fitPsf = p.FitPSF != StarDetectorPSFFitType.None;
             if (fitPsf) {
                 star.SampledPixelsAboveBackground = new List<Tuple<Point2d, double>>();
             }

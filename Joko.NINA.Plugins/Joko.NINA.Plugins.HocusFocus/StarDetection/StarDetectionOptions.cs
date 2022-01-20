@@ -100,6 +100,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         private void InitializeOptions() {
             debugMode = optionsAccessor.GetValueBoolean("DetectionDebugMode", false);
             useAdvanced = optionsAccessor.GetValueBoolean("UseAdvanced", false);
+            fitPSF = optionsAccessor.GetValueEnum<StarDetectorPSFFitType>("FitPSF", StarDetectorPSFFitType.Gaussian);
             simple_NoiseLevel = optionsAccessor.GetValueEnum<NoiseLevelEnum>("Simple_NoiseLevel", NoiseLevelEnum.Typical);
             simple_PixelScale = optionsAccessor.GetValueEnum<PixelScaleEnum>("Simple_PixelScale", PixelScaleEnum.Typical);
             simple_FocusRange = optionsAccessor.GetValueEnum<FocusRangeEnum>("simple_FocusRange", FocusRangeEnum.Typical);
@@ -133,6 +134,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public void ResetDefaults() {
             UseAdvanced = false;
             DebugMode = false;
+            FitPSF = StarDetectorPSFFitType.Gaussian;
             Simple_NoiseLevel = NoiseLevelEnum.Typical;
             Simple_PixelScale = PixelScaleEnum.Typical;
             simple_FocusRange = FocusRangeEnum.Typical;
@@ -180,6 +182,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (useAdvanced != value) {
                     useAdvanced = value;
                     optionsAccessor.SetValueBoolean("UseAdvanced", useAdvanced);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private StarDetectorPSFFitType fitPSF;
+
+        public StarDetectorPSFFitType FitPSF {
+            get => fitPSF;
+            set {
+                if (fitPSF != value) {
+                    fitPSF = value;
+                    optionsAccessor.SetValueEnum<StarDetectorPSFFitType>("FitPSF", value);
                     RaisePropertyChanged();
                 }
             }

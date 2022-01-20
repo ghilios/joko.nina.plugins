@@ -16,6 +16,18 @@ using System.Runtime.CompilerServices;
 namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
     public static class MathUtility {
+        private const double RadiansToDegreeFactor = 180d / Math.PI;
+        private const double ArcSecPerPixConversionFactor = RadiansToDegreeFactor * 60d * 60d / 1000d;
+
+        // Copied to avoid static initializer in AstroUtil from NINA. That should be changed!
+        public static double ArcsecPerPixel(double pixelSize, double focalLength) {
+            // arcseconds inside one radian and compensated by the difference of microns in pixels and mm in focal length
+            return (pixelSize / focalLength) * ArcSecPerPixConversionFactor;
+        }
+
+        public static double RadiansToDegrees(double radians) {
+            return radians * RadiansToDegreeFactor;
+        }
 
         private static int PartitionFloat(this float[] arr, int start, int end, Random rnd = null) {
             if (rnd != null)
