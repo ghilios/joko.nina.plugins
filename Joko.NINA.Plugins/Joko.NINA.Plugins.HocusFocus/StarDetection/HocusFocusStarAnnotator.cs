@@ -16,7 +16,6 @@ using NINA.Core.Interfaces;
 using NINA.Core.Utility;
 using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Image.ImageAnalysis;
-using NINA.Profile.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
@@ -94,16 +93,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             using (var starBoundsBrush = new SolidBrush(StarAnnotatorOptions.StarBoundsColor.ToDrawingColor()))
             using (var starBoundsPen = new Pen(starBoundsBrush))
-            using (var hfrBrush = new SolidBrush(StarAnnotatorOptions.HFRColor.ToDrawingColor()))
+            using (var annotationBrush = new SolidBrush(StarAnnotatorOptions.AnnotationColor.ToDrawingColor()))
             using (var roiBrush = new SolidBrush(StarAnnotatorOptions.ROIColor.ToDrawingColor()))
             using (var roiPen = new Pen(roiBrush))
-            using (var hfrFont = new Font(StarAnnotatorOptions.TextFontFamily.ToDrawingFontFamily(), StarAnnotatorOptions.TextFontSizePoints, FontStyle.Regular, GraphicsUnit.Point))
+            using (var annotationFont = new Font(StarAnnotatorOptions.AnnotationFontFamily.ToDrawingFontFamily(), StarAnnotatorOptions.AnnotationFontSizePoints, FontStyle.Regular, GraphicsUnit.Point))
             using (var starCenterBrush = new SolidBrush(StarAnnotatorOptions.StarCenterColor.ToDrawingColor()))
             using (var starCenterPen = new Pen(starCenterBrush))
-            using (var saturatedBrush = new SolidBrush(StarAnnotatorOptions.SaturatedColor.ToDrawingColor()))
-            using (var lowSensitivityBrush = new SolidBrush(StarAnnotatorOptions.LowSensitivityColor.ToDrawingColor()))
-            using (var notCenteredBrush = new SolidBrush(StarAnnotatorOptions.NotCenteredColor.ToDrawingColor()))
-            using (var tooFlatBrush = new SolidBrush(StarAnnotatorOptions.TooFlatColor.ToDrawingColor()))
             using (MyStopWatch.Measure()) {
                 using (var bmp = ImageUtility.Convert16BppTo8Bpp(imageToAnnotate)) {
                     using (var newBitmap = new Bitmap(bmp.Width, bmp.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb)) {
@@ -133,8 +128,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                                         graphics.DrawEllipse(starBoundsPen, new RectangleF(star.BoundingBox.X, star.BoundingBox.Y, star.BoundingBox.Width, star.BoundingBox.Height));
                                     }
                                 }
-                                if (StarAnnotatorOptions.ShowHFR) {
-                                    graphics.DrawString(star.HFR.ToString("##.##"), hfrFont, hfrBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.HFR) {
+                                    graphics.DrawString(star.HFR.ToString("##.##"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.FWHM) {
+                                    // TODO: Implement
+                                } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.Eccentricity) {
+                                    // TODO: Implement
                                 }
                                 if (StarAnnotatorOptions.ShowStarCenter) {
                                     var xLength = Math.Max(1.0f, Math.Min(star.Position.X - star.BoundingBox.Left, star.BoundingBox.Right - star.Position.X)) / 2.0f;
@@ -192,6 +191,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             using (var brush = new SolidBrush(StarAnnotatorOptions.TooFlatColor.ToDrawingColor()))
                             using (var pen = new Pen(brush)) {
                                 foreach (var rect in metrics.TooFlatBounds) {
+                                    graphics.DrawRectangle(pen, rect.ToDrawingRectangle());
+                                }
+                            }
+                        }
+                        if (StarAnnotatorOptions.ShowPSFFailed && metrics?.PSFFailedBounds != null) {
+                            using (var brush = new SolidBrush(StarAnnotatorOptions.PSFFailedColor.ToDrawingColor()))
+                            using (var pen = new Pen(brush)) {
+                                foreach (var rect in metrics.PSFFailedBounds) {
                                     graphics.DrawRectangle(pen, rect.ToDrawingRectangle());
                                 }
                             }

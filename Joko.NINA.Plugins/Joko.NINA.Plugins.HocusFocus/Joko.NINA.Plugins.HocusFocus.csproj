@@ -301,6 +301,7 @@
     <Compile Include="Converters\IntNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\InverseDoubleZeroToVisibilityConverter.cs" />
     <Compile Include="Converters\PositiveToBooleanConverter.cs" />
+    <Compile Include="Converters\ShowAnnotationTypeToVisibilityConverter.cs" />
     <Compile Include="Converters\StructureMapTypeToVisibilityConverter.cs" />
     <Compile Include="Converters\ZeroToInfinityConverter.cs" />
     <Compile Include="Interfaces\IAutoFocusOptions.cs" />

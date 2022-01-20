@@ -105,10 +105,10 @@ namespace TestApp {
             public bool ShowStarBounds { get; set; }
             public StarBoundsTypeEnum StarBoundsType { get; set; }
             public Color StarBoundsColor { get; set; }
-            public bool ShowHFR { get; set; }
-            public Color HFRColor { get; set; }
-            public FontFamily TextFontFamily { get; set; }
-            public float TextFontSizePoints { get; set; }
+            public ShowAnnotationTypeEnum ShowAnnotationType { get; set; }
+            public Color AnnotationColor { get; set; }
+            public FontFamily AnnotationFontFamily { get; set; }
+            public float AnnotationFontSizePoints { get; set; }
             public bool ShowROI { get; set; }
             public Color ROIColor { get; set; }
             public bool ShowStarCenter { get; set; }
@@ -116,6 +116,7 @@ namespace TestApp {
             public ShowStructureMapEnum ShowStructureMap { get; set; }
             public Color StructureMapColor { get; set; }
             public IStarDetectionOptions DetectorOptions { get; set; }
+            public Color PSFFailedColor { get; set; }
             public Color TooFlatColor { get; set; }
             public Color SaturatedColor { get; set; }
             public Color LowSensitivityColor { get; set; }
@@ -126,6 +127,7 @@ namespace TestApp {
             public bool ShowLowSensitivity { get; set; }
             public bool ShowNotCentered { get; set; }
             public bool ShowTooFlat { get; set; }
+            public bool ShowPSFFailed { get; set; }
             public Color TooDistortedColor { get; set; }
             public bool ShowTooDistorted { get; set; }
 
@@ -136,10 +138,10 @@ namespace TestApp {
                     MaxStars = 200,
                     ShowStarBounds = true,
                     StarBoundsColor = Color.FromArgb(128, 255, 0, 0),
-                    ShowHFR = true,
-                    TextFontFamily = new FontFamily("Arial"),
-                    TextFontSizePoints = 18,
-                    HFRColor = Color.FromArgb(255, 255, 255, 0),
+                    ShowAnnotationType = ShowAnnotationTypeEnum.FWHM,
+                    AnnotationFontFamily = new FontFamily("Arial"),
+                    AnnotationFontSizePoints = 18,
+                    AnnotationColor = Color.FromArgb(255, 255, 255, 0),
                     StarBoundsType = StarBoundsTypeEnum.Box,
                     ShowROI = true,
                     ROIColor = Color.FromArgb(255, 255, 255, 0),
@@ -156,6 +158,8 @@ namespace TestApp {
                     ShowNotCentered = false,
                     NotCenteredColor = Color.FromArgb(128, 0, 255, 255),
                     ShowTooFlat = false,
+                    PSFFailedColor = Color.FromArgb(128, 255, 165, 0),
+                    ShowPSFFailed = true,
                     TooFlatColor = Color.FromArgb(128, 0, 255, 0),
                     ShowStructureMap = ShowStructureMapEnum.None,
                     StructureMapColor = Color.FromArgb(128, 255, 0, 255)

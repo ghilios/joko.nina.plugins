@@ -10,34 +10,30 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
 using System.Globalization;
 using System.Windows.Data;
 
 namespace NINA.Joko.Plugins.HocusFocus.Converters {
 
-    public class ZeroToInfinityConverter : IValueConverter {
+    public class ShowAnnotationTypeToVisibilityConverter : IValueConverter {
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
-            if (value is int) {
-                var d = (int)value;
-                if (d <= 0) {
-                    return "unlimited";
-                }
-                return d.ToString();
+            if (!(value is ShowAnnotationTypeEnum)) {
+                return System.Windows.Visibility.Collapsed;
             }
-            throw new ArgumentException("Invalid Type for Converter");
+
+            var showAnnotationType = (ShowAnnotationTypeEnum)value;
+            if (showAnnotationType != ShowAnnotationTypeEnum.None) {
+                return System.Windows.Visibility.Visible;
+            } else {
+                return System.Windows.Visibility.Collapsed;
+            }
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) {
-            if (value is string) {
-                var s = (string)value;
-                if (s == "unlimited") {
-                    return 0;
-                }
-                return int.Parse(s);
-            }
-            throw new ArgumentException("Invalid Type for Converter");
+            throw new NotSupportedException();
         }
     }
 }

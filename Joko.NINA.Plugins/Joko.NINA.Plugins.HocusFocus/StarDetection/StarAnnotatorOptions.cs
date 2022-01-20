@@ -39,10 +39,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             maxStars = optionsAccessor.GetValueInt32("MaxStars", 200);
             showStarBounds = optionsAccessor.GetValueBoolean("ShowStarBounds", true);
             starBoundsColor = optionsAccessor.GetValueColor("StarBoundsColor", Color.FromArgb(128, 255, 0, 0));
-            showHFR = optionsAccessor.GetValueBoolean("ShowHFR", true);
-            textFontFamily = new FontFamily(optionsAccessor.GetValueString("TextFontFamily", "Arial"));
-            textFontSizePoints = optionsAccessor.GetValueSingle("TextFontSizePoints", 18);
-            hfrColor = optionsAccessor.GetValueColor("HFRColor", Color.FromArgb(255, 255, 255, 0));
+            showAnnotationType = optionsAccessor.GetValueEnum<ShowAnnotationTypeEnum>("ShowAnnotationType", ShowAnnotationTypeEnum.HFR);
+            annotationFontFamily = new FontFamily(optionsAccessor.GetValueString("AnnotationFontFamily", "Arial"));
+            annotationFontSizePoints = optionsAccessor.GetValueSingle("AnnotationFontSizePoints", 18);
+            annotationColor = optionsAccessor.GetValueColor("AnnotationColor", Color.FromArgb(255, 255, 255, 0));
             starBoundsType = optionsAccessor.GetValueEnum<StarBoundsTypeEnum>("StarBoundsType", StarBoundsTypeEnum.Box);
             showROI = optionsAccessor.GetValueBoolean("ShowROI", true);
             roiColor = optionsAccessor.GetValueColor("ROIColor", Color.FromArgb(255, 255, 255, 0));
@@ -60,6 +60,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             notCenteredColor = optionsAccessor.GetValueColor("NotCenteredColor", Color.FromArgb(128, 0, 255, 0));
             showTooFlat = optionsAccessor.GetValueBoolean("ShowTooFlat", false);
             tooFlatColor = optionsAccessor.GetValueColor("TooFlatColor", Color.FromArgb(128, 0, 255, 0));
+            showPSFFailed = optionsAccessor.GetValueBoolean("ShowPSFFailed", false);
+            psfFailedColor = optionsAccessor.GetValueColor("PSFFailedColor", Color.FromArgb(128, 255, 165, 0));
             showStructureMap = optionsAccessor.GetValueEnum<ShowStructureMapEnum>("ShowStructureMap", ShowStructureMapEnum.None);
             structureMapColor = optionsAccessor.GetValueColor("StructureMapColor", Color.FromArgb(128, 255, 0, 255));
         }
@@ -70,10 +72,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             MaxStars = 200;
             ShowStarBounds = true;
             StarBoundsColor = Color.FromArgb(128, 255, 0, 0); // Red half transparency
-            ShowHFR = true;
-            TextFontFamily = new FontFamily("Arial");
-            TextFontSizePoints = 18;
-            HFRColor = Color.FromArgb(255, 255, 255, 0); // Red
+            ShowAnnotationType = ShowAnnotationTypeEnum.HFR;
+            AnnotationFontFamily = new FontFamily("Arial");
+            AnnotationFontSizePoints = 18;
+            AnnotationColor = Color.FromArgb(255, 255, 255, 0); // Red
             StarBoundsType = StarBoundsTypeEnum.Box;
             ShowROI = true;
             ROIColor = Color.FromArgb(255, 255, 255, 0); // Yellow
@@ -91,6 +93,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             NotCenteredColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
             ShowTooFlat = false;
             TooFlatColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
+            ShowPSFFailed = false;
+            PSFFailedColor = Color.FromArgb(128, 255, 165, 0); // Orange half transparency
             ShowStructureMap = ShowStructureMapEnum.None;
             StructureMapColor = Color.FromArgb(128, 255, 0, 255); // Purple half transparency
         }
@@ -160,53 +164,53 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private bool showHFR;
+        private ShowAnnotationTypeEnum showAnnotationType;
 
-        public bool ShowHFR {
-            get => showHFR;
+        public ShowAnnotationTypeEnum ShowAnnotationType {
+            get => showAnnotationType;
             set {
-                if (showHFR != value) {
-                    showHFR = value;
-                    optionsAccessor.SetValueBoolean("ShowHFR", value);
+                if (showAnnotationType != value) {
+                    showAnnotationType = value;
+                    optionsAccessor.SetValueEnum<ShowAnnotationTypeEnum>("ShowAnnotationType", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
-        private FontFamily textFontFamily;
+        private FontFamily annotationFontFamily;
 
-        public FontFamily TextFontFamily {
-            get => textFontFamily;
+        public FontFamily AnnotationFontFamily {
+            get => annotationFontFamily;
             set {
-                if (textFontFamily != value) {
-                    textFontFamily = value;
-                    optionsAccessor.SetValueString("TextFontFamily", value.FamilyNames.First().Value);
+                if (annotationFontFamily != value) {
+                    annotationFontFamily = value;
+                    optionsAccessor.SetValueString("AnnotationFontFamily", value.FamilyNames.First().Value);
                     RaisePropertyChanged();
                 }
             }
         }
 
-        private float textFontSizePoints;
+        private float annotationFontSizePoints;
 
-        public float TextFontSizePoints {
-            get => textFontSizePoints;
+        public float AnnotationFontSizePoints {
+            get => annotationFontSizePoints;
             set {
-                if (textFontSizePoints != value) {
-                    textFontSizePoints = value;
-                    optionsAccessor.SetValueSingle("TextFontSizePoints", value);
+                if (annotationFontSizePoints != value) {
+                    annotationFontSizePoints = value;
+                    optionsAccessor.SetValueSingle("AnnotationFontSizePoints", value);
                     RaisePropertyChanged();
                 }
             }
         }
 
-        private Color hfrColor;
+        private Color annotationColor;
 
-        public Color HFRColor {
-            get => hfrColor;
+        public Color AnnotationColor {
+            get => annotationColor;
             set {
-                if (hfrColor != value) {
-                    hfrColor = value;
-                    optionsAccessor.SetValueColor("HFRColor", value);
+                if (annotationColor != value) {
+                    annotationColor = value;
+                    optionsAccessor.SetValueColor("AnnotationColor", value);
                     RaisePropertyChanged();
                 }
             }
@@ -428,6 +432,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (tooFlatColor != value) {
                     tooFlatColor = value;
                     optionsAccessor.SetValueColor("TooFlatColor", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool showPSFFailed;
+
+        public bool ShowPSFFailed {
+            get => showPSFFailed;
+            set {
+                if (showPSFFailed != value) {
+                    showPSFFailed = value;
+                    optionsAccessor.SetValueBoolean("ShowPSFFailed", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private Color psfFailedColor;
+
+        public Color PSFFailedColor {
+            get => psfFailedColor;
+            set {
+                if (psfFailedColor != value) {
+                    psfFailedColor = value;
+                    optionsAccessor.SetValueColor("PSFFailedColor", value);
                     RaisePropertyChanged();
                 }
             }

@@ -26,6 +26,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Dilated
     }
 
+    public enum ShowAnnotationTypeEnum {
+        None,
+        HFR,
+        FWHM,
+        Eccentricity
+    }
+
     public interface IStarAnnotatorOptions : INotifyPropertyChanged {
         bool ShowAnnotations { get; set; }
         bool ShowAllStars { get; set; }
@@ -33,10 +40,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool ShowStarBounds { get; set; }
         StarBoundsTypeEnum StarBoundsType { get; set; }
         Color StarBoundsColor { get; set; }
-        bool ShowHFR { get; set; }
-        Color HFRColor { get; set; }
-        FontFamily TextFontFamily { get; set; }
-        float TextFontSizePoints { get; set; }
+        ShowAnnotationTypeEnum ShowAnnotationType { get; set; }
+        Color AnnotationColor { get; set; }
+        FontFamily AnnotationFontFamily { get; set; }
+        float AnnotationFontSizePoints { get; set; }
         bool ShowROI { get; set; }
         Color ROIColor { get; set; }
         bool ShowStarCenter { get; set; }
@@ -50,11 +57,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Color NotCenteredColor { get; set; }
         Color DegenerateColor { get; set; }
         Color TooDistortedColor { get; set; }
+        Color PSFFailedColor { get; set; }
         bool ShowTooDistorted { get; set; }
         bool ShowDegenerate { get; set; }
         bool ShowSaturated { get; set; }
         bool ShowLowSensitivity { get; set; }
         bool ShowNotCentered { get; set; }
         bool ShowTooFlat { get; set; }
+        bool ShowPSFFailed { get; set; }
     }
 }

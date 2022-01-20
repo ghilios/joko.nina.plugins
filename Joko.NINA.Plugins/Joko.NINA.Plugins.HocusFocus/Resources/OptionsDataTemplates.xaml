@@ -21,6 +21,7 @@
     <hfconverters:AutoFocusFittingToVisibilityConverter x:Key="HF_AutoFocusFittingToVisibilityConverter" />
     <hfconverters:ZeroToInfinityConverter x:Key="HF_ZeroToInfinityConverter" />
     <hfconverters:EnumStaticDescriptionValueConverter x:Key="HF_EnumStaticDescriptionValueConverter" />
+    <hfconverters:ShowAnnotationTypeToVisibilityConverter x:Key="HF_ShowAnnotationTypeToVisibilityConverter" />
     <TextBlock x:Key="MaxConcurrent_Tooltip" Text="The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long an Auto Focus operation can take before we cancel it and move on." />
     <TextBlock x:Key="ValidateHfrImprovement_Tooltip" Text="If enabled, takes an extra exposure before and after to ensure HFR improved. This check may be done in addition to the R² validation configured in NINA's Auto Focus options." />
@@ -50,8 +51,8 @@
     <TextBlock x:Key="ShowStarBounds_Tooltip" Text="Whether to draw the bounding box or ellipse around the star" />
     <TextBlock x:Key="StarBoundsType_Tooltip" Text="The type of boundary surrounding the star. Star detection internally uses a box, but an ellipse can be more aesthetically pleasing" />
     <TextBlock x:Key="StarBoundsColor_Tooltip" Text="The color of the bounding box or ellipse around the star" />
-    <TextBlock x:Key="ShowHFR_Tooltip" Text="Whether to show the HFR measurement for each star" />
-    <TextBlock x:Key="HFRColor_Tooltip" Text="The color of the bounding box or ellipse around the star" />
+    <TextBlock x:Key="ShowAnnotationType_Tooltip" Text="What type of annotation to show for each star" />
+    <TextBlock x:Key="AnnotationColor_Tooltip" Text="The color of the annotation text next to the star" />
     <TextBlock x:Key="ShowROI_Tooltip" Text="Whether to show the region of interest" />
     <TextBlock x:Key="ROIColor_Tooltip" Text="The color of the region of interest boxes" />
     <TextBlock x:Key="ShowStarCenter_Tooltip" Text="Whether to show the a reticule on each star center" />
@@ -68,6 +69,8 @@
     <TextBlock x:Key="NotCenteredColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowTooFlat_Tooltip" Text="Whether to show the failed too flat stars" />
     <TextBlock x:Key="TooFlatColor_Tooltip" Text="The color of the failed star bounding box" />
+    <TextBlock x:Key="ShowPSFFailed_Tooltip" Text="Whether to show the failed PSF model fits" />
+    <TextBlock x:Key="PSFFailedColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowStructureMap_Tooltip" Text="Overlays the structure map to aide debugging. Original shows the initial structure map after noise clipping and binarization, and Dilated shows it after dilation has been performed" />
     <TextBlock x:Key="StructureMapColor_Tooltip" Text="The color of the overlayed structure map" />
     <TextBlock x:Key="SaveIntermediatePath_Tooltip" Text="When Save Intermediate Files is enabled, they are written to this path the next time star detection runs" />
@@ -806,6 +809,8 @@
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
+                <RowDefinition />
+                <RowDefinition />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -911,20 +916,41 @@
                 Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 SelectedColor="{Binding StarBoundsColor}"
                 ToolTip="{StaticResource StarBoundsColor_Tooltip}" />
+
             <TextBlock
                 Grid.Row="6"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Text="Font" />
+                Text="Show Property"
+                ToolTip="{StaticResource ShowAnnotationType_Tooltip}" />
+            <ComboBox
+                Grid.Row="6"
+                Grid.Column="1"
+                Name="PART_ShowAnnotationTypeList"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:ShowAnnotationTypeEnum}}}"
+                SelectedItem="{Binding ShowAnnotationType}"
+                ToolTip="{StaticResource ShowAnnotationType_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="7"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Property Font"
+                Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}" />
             <StackPanel
                 Orientation="Horizontal"
-                Grid.Row="6"
-                Grid.Column="1">
+                Grid.Row="7"
+                Grid.Column="1"
+                Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}">
                 <ComboBox
                     xmlns:ComponentModel="clr-namespace:System.ComponentModel;assembly=WindowsBase"
                     Margin="5,5,0,0"
                     ItemTemplate="{DynamicResource FontTemplate}"
-                    SelectedItem="{Binding TextFontFamily}">
+                    SelectedItem="{Binding AnnotationFontFamily}">
                     <ComboBox.Resources>
                         <CollectionViewSource x:Key="OrderedSystemFonts" Source="{Binding Source={x:Static Fonts.SystemFontFamilies}}">
                             <CollectionViewSource.SortDescriptions>
@@ -952,46 +978,34 @@
                     Margin="5,5,0,0"
                     HorizontalAlignment="Left"
                     VerticalAlignment="Center"
+                    Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}"
                     Unit="pt">
-                    <Binding Path="TextFontSizePoints" UpdateSourceTrigger="LostFocus">
+                    <Binding Path="AnnotationFontSizePoints" UpdateSourceTrigger="LostFocus">
                         <Binding.ValidationRules>
                             <rules:GreaterThanZeroRule />
                         </Binding.ValidationRules>
                     </Binding>
                 </ninactrl:UnitTextBox>
             </StackPanel>
-            <TextBlock
-                Grid.Row="7"
-                Grid.Column="0"
-                VerticalAlignment="Center"
-                Text="Show HFR"
-                ToolTip="{StaticResource ShowHFR_Tooltip}" />
-            <CheckBox
-                Grid.Row="7"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,5,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                IsChecked="{Binding ShowHFR}"
-                ToolTip="{StaticResource ShowHFR_Tooltip}" />
+
             <TextBlock
                 Grid.Row="8"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowHFR, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Text="HFR Color"
-                ToolTip="{StaticResource HFRColor_Tooltip}" />
+                Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}"
+                Text="Property Color"
+                ToolTip="{StaticResource AnnotationColor_Tooltip}" />
             <xceed:ColorPicker
-                Visibility="{Binding ShowHFR, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}"
                 Grid.Row="8"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                SelectedColor="{Binding HFRColor}"
-                ToolTip="{StaticResource HFRColor_Tooltip}" />
+                SelectedColor="{Binding AnnotationColor}"
+                ToolTip="{StaticResource AnnotationColor_Tooltip}" />
+
             <TextBlock
                 Grid.Row="9"
                 Grid.Column="0"
@@ -1258,12 +1272,45 @@
             <TextBlock
                 Grid.Row="25"
                 Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Show PSF Failed"
+                ToolTip="{StaticResource ShowPSFFailed_Tooltip}" />
+            <CheckBox
+                Grid.Row="25"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding ShowPSFFailed}"
+                ToolTip="{StaticResource ShowPSFFailed_Tooltip}" />
+            <TextBlock
+                Grid.Row="26"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Visibility="{Binding ShowPSFFailed, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Text="PSF Failed Box Color"
+                ToolTip="{StaticResource PSFFailedColor_Tooltip}" />
+            <xceed:ColorPicker
+                Visibility="{Binding ShowPSFFailed, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                Grid.Row="26"
+                Grid.Column="1"
+                Width="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectedColor="{Binding PSFFailedColor}"
+                ToolTip="{StaticResource PSFFailedColor_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="27"
+                Grid.Column="0"
                 Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}"
                 VerticalAlignment="Center"
                 Text="Show Structure Map"
                 ToolTip="{StaticResource ShowStructureMap_Tooltip}" />
             <ComboBox
-                Grid.Row="25"
+                Grid.Row="27"
                 Grid.Column="1"
                 Name="PART_ShowStructureMapList"
                 Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}"
@@ -1275,7 +1322,7 @@
                 SelectedItem="{Binding ShowStructureMap}"
                 ToolTip="{StaticResource ShowStructureMap_Tooltip}" />
             <TextBlock
-                Grid.Row="26"
+                Grid.Row="28"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Structure Map Color"
@@ -1289,7 +1336,7 @@
                 </TextBlock.Visibility>
             </TextBlock>
             <xceed:ColorPicker
-                Grid.Row="26"
+                Grid.Row="28"
                 Grid.Column="1"
                 Width="80"
                 Margin="5,5,0,0"
