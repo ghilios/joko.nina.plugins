@@ -36,5 +36,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double FWHMArcsecs { get; private set; }
         public double Eccentricity { get; private set; }
         public double RSquared { get; private set; }
+
+        public override string ToString() {
+            return $"{{{nameof(FWHMx)}={FWHMx.ToString()}, {nameof(FWHMy)}={FWHMy.ToString()}, {nameof(ThetaRadians)}={ThetaRadians.ToString()}, {nameof(FWHMPixels)}={FWHMPixels.ToString()}, {nameof(FWHMArcsecs)}={FWHMArcsecs.ToString()}, {nameof(Eccentricity)}={Eccentricity.ToString()}, {nameof(RSquared)}={RSquared.ToString()}}}";
+        }
     }
 }

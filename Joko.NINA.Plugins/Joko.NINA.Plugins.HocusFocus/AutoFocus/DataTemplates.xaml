@@ -482,7 +482,7 @@
                         <UniformGrid Columns="2">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="70"
+                                    Width="100"
                                     VerticalAlignment="Center"
                                     Text="{ns:Loc LblNrStars}" />
                                 <TextBlock
@@ -491,9 +491,11 @@
                                     VerticalAlignment="Center"
                                     Text="{Binding Statistics.StarDetectionAnalysis.DetectedStars, StringFormat=\{0:0\}, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
                             </StackPanel>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="70"
+                                    Width="100"
                                     VerticalAlignment="Center"
                                     Text="{ns:Loc LblHFR}" />
                                 <TextBlock
@@ -502,11 +504,46 @@
                                     VerticalAlignment="Center"
                                     Text="{Binding Statistics.StarDetectionAnalysis.HFR, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
                             </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="100"
+                                    VerticalAlignment="Center"
+                                    Text="{ns:Loc LblHFRStDev}" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Statistics.StarDetectionAnalysis.HFRStDev, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                            </StackPanel>
                         </UniformGrid>
                         <UniformGrid Columns="2">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
+                                    Width="100"
+                                    VerticalAlignment="Center"
+                                    Text="FWHM" />
+                                <TextBlock
                                     Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding FWHM, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="100"
+                                    VerticalAlignment="Center"
+                                    Text="FWHM MAD" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding FWHMMAD, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="100"
                                     VerticalAlignment="Center"
                                     Text="Eccentricity" />
                                 <TextBlock
@@ -517,14 +554,14 @@
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="70"
+                                    Width="100"
                                     VerticalAlignment="Center"
-                                    Text="{ns:Loc LblHFRStDev}" />
+                                    Text="Eccentricity MAD" />
                                 <TextBlock
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding Statistics.StarDetectionAnalysis.HFRStDev, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                                    Text="{Binding EccentricityMAD, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
                     </StackPanel>
@@ -676,6 +713,17 @@
                             </StackPanel>
                         </UniformGrid>
                         <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="PSF Failed" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.PSFFailed, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                            </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
                                     Width="120"

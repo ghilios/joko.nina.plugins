@@ -11,6 +11,8 @@
 #endregion "copyright"
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 
 namespace NINA.Joko.Plugins.HocusFocus.Utility {
@@ -72,6 +74,25 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         // https://stackoverflow.com/questions/4140719/calculate-median-in-c-sharp
         public static float MedianFloat(this float[] arr, Random rnd = null) {
             return arr.NthOrderStatisticFloat((arr.Length - 1) / 2, rnd);
+        }
+
+        public static (double, double) MedianMAD(this IEnumerable<double> values) {
+            var valuesArray = values.ToArray();
+            Array.Sort(valuesArray);
+
+            var median = valuesArray.Length % 2 == 0
+              ? (valuesArray[valuesArray.Length / 2 - 1] + valuesArray[valuesArray.Length / 2]) / 2.0
+              : valuesArray[valuesArray.Length / 2];
+
+            for (int i = 0; i < valuesArray.Length; ++i) {
+                valuesArray[i] = Math.Abs(valuesArray[i] - median);
+            }
+            Array.Sort(valuesArray);
+
+            var mad = 1.483 * valuesArray.Length % 2 == 0
+              ? (valuesArray[valuesArray.Length / 2 - 1] + valuesArray[valuesArray.Length / 2]) / 2.0
+              : valuesArray[valuesArray.Length / 2];
+            return (median, mad);
         }
     }
 }

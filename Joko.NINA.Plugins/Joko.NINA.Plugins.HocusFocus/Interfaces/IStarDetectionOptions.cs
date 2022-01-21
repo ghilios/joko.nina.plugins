@@ -55,7 +55,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public interface IStarDetectionOptions {
         bool UseAdvanced { get; set; }
-        StarDetectorPSFFitType FitPSF { get; set; }
+        bool ModelPSF { get; set; }
 
         // Simple configuration, which produces the detailed configuration with fewer knobs
         NoiseLevelEnum Simple_NoiseLevel { get; set; }
@@ -84,5 +84,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool DebugMode { get; set; }
         string IntermediateSavePath { get; set; }
         bool SaveIntermediateImages { get; set; }
+        int PSFParallelPartitionSize { get; set; }
+        StarDetectorPSFFitType PSFFitType { get; set; }
+        int PSFResolution { get; set; }
     }
 }

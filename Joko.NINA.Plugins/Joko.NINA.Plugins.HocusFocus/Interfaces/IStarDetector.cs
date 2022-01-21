@@ -24,16 +24,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public class Star {
         public Point2d Center { get; set; }
-        public List<Tuple<Point2d, double>> SampledPixelsAboveBackground { get; set; }
         public Rect StarBoundingBox { get; set; }
         public double Background { get; set; }
         public double MeanBrightness { get; set; }
         public double HFR { get; set; }
-        public double CentroidBrightness { get; set; }
         public PSFModel PSF { get; set; }
 
         public override string ToString() {
-            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}}}";
+            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}, {nameof(PSF)}={PSF}}}";
         }
     }
 

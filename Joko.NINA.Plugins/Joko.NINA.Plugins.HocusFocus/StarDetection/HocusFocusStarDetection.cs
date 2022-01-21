@@ -59,13 +59,37 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private double fwhmStdDev;
+        private double fwhmMAD;
 
-        public double FWHMStdDev {
-            get => fwhmStdDev;
+        public double FWHMMAD {
+            get => fwhmMAD;
             set {
-                if (fwhmStdDev != value) {
-                    fwhmStdDev = value;
+                if (fwhmMAD != value) {
+                    fwhmMAD = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double eccentricity;
+
+        public double Eccentricity {
+            get => eccentricity;
+            set {
+                if (eccentricity != value) {
+                    eccentricity = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double eccentricityMAD;
+
+        public double EccentricityMAD {
+            get => eccentricityMAD;
+            set {
+                if (eccentricityMAD != value) {
+                    eccentricityMAD = value;
                     RaisePropertyChanged();
                 }
             }
@@ -87,7 +111,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public StarDetectorMetrics Metrics { get; set; }
         public DebugData DebugData { get; set; }
         public double FWHM { get; set; } = double.NaN;
-        public double FWHMStdDev { get; set; } = double.NaN;
+        public double FWHMMAD { get; set; } = double.NaN;
+        public double Eccentricity { get; set; } = double.NaN;
+        public double EccentricityMAD { get; set; } = double.NaN;
     }
 
     public class HocusFocusDetectedStar : DetectedStar {
@@ -115,10 +141,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
-            var binning = image.RawImageData.MetaData.Camera.BinX;
+            var binning = Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
             var pixelScale = MathUtility.ArcsecPerPixel(profileService.ActiveProfile.CameraSettings.PixelSize, profileService.ActiveProfile.TelescopeSettings.FocalLength) * binning;
             var detectorParams = new StarDetectorParams() {
-                FitPSF = starDetectionOptions.FitPSF,
+                ModelPSF = starDetectionOptions.ModelPSF,
+                PSFFitType = starDetectionOptions.PSFFitType,
                 HotpixelFiltering = starDetectionOptions.HotpixelFiltering,
                 NoiseReductionRadius = starDetectionOptions.NoiseReductionRadius,
                 NoiseClippingMultiplier = starDetectionOptions.NoiseClippingMultiplier,
@@ -136,7 +163,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 AnalysisSamplingSize = (float)starDetectionOptions.PixelSampleSize,
                 StoreStructureMap = starDetectionOptions.DebugMode,
                 SaveIntermediateFilesPath = starDetectionOptions.SaveIntermediateImages ? starDetectionOptions.IntermediateSavePath : string.Empty,
-                PixelScale = pixelScale
+                PixelScale = pixelScale,
+                PSFParallelPartitionSize = starDetectionOptions.PSFParallelPartitionSize,
+                PSFResolution = starDetectionOptions.PSFResolution
             };
 
             // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again
@@ -189,13 +218,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Logger.Trace($"Discarded {countBefore - countAfter} outlier stars");
             }
 
-            if (detectorParams.FitPSF != StarDetectorPSFFitType.None) {
+            if (detectorParams.ModelPSF) {
                 var psfStarList = starList.Where(s => s.PSF != null).ToList();
                 if (psfStarList.Count > 1) {
-                    var fwhmMean = psfStarList.Average(s => s.PSF.FWHMArcsecs);
-                    var fwhmVariance = psfStarList.Select(s => s.PSF.FWHMArcsecs - fwhmMean).Sum(s => s * s) / (psfStarList.Count - 1);
-                    result.FWHM = fwhmMean;
-                    result.FWHMStdDev = Math.Sqrt(fwhmVariance);
+                    var (fwhm, fwhmMAD) = psfStarList.Select(s => s.PSF.FWHMArcsecs).MedianMAD();
+                    result.FWHM = fwhm;
+                    result.FWHMMAD = fwhmMAD;
+
+                    var (eccentricity, eccentricityMAD) = psfStarList.Select(s => s.PSF.Eccentricity).MedianMAD();
+                    result.Eccentricity = eccentricity;
+                    result.EccentricityMAD = eccentricityMAD;
                 }
             }
 
@@ -253,7 +285,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             hocusFocusAnalysis.DetectedStars = result.DetectedStars;
             hocusFocusAnalysis.Metrics = hocusFocusResult.Metrics;
             hocusFocusAnalysis.FWHM = hocusFocusResult.FWHM;
-            hocusFocusAnalysis.FWHMStdDev = hocusFocusResult.FWHMStdDev;
+            hocusFocusAnalysis.FWHMMAD = hocusFocusResult.FWHMMAD;
+            hocusFocusAnalysis.Eccentricity = hocusFocusResult.Eccentricity;
+            hocusFocusAnalysis.EccentricityMAD = hocusFocusResult.EccentricityMAD;
         }
     }
 }

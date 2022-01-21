@@ -484,13 +484,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             var x1 = Math.Min(image.Width - 1, x0 + 1);
             double yRatio = y - y0;
             double xRatio = x - x0;
-            var p00 = (double)image.Get<float>(y0, x0);
-            var p01 = (double)image.Get<float>(y0, x1);
-            var p10 = (double)image.Get<float>(y1, x0);
-            var p11 = (double)image.Get<float>(y1, x1);
-            var interpolatedX0 = p00 + xRatio * (p01 - p00);
-            var interpolatedX1 = p10 + xRatio * (p11 - p10);
-            return interpolatedX0 + yRatio * (interpolatedX1 - interpolatedX0);
+            unsafe {
+                var data = (float*)image.DataPointer;
+                var width = image.Width;
+                var p00 = (double)data[y0 * width + x0];
+                var p01 = (double)data[y0 * width + x1];
+                var p10 = (double)data[y1 * width + x0];
+                var p11 = (double)data[y1 * width + x1];
+                var interpolatedX0 = p00 + xRatio * (p01 - p00);
+                var interpolatedX1 = p10 + xRatio * (p11 - p10);
+                return interpolatedX0 + yRatio * (interpolatedX1 - interpolatedX0);
+            }
         }
 
         public class KappSigmaNoiseEstimateResult {
@@ -561,8 +565,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return new Star() {
                 Center = star.Center.Add(new Point2d(xOffset, yOffset)),
                 StarBoundingBox = star.StarBoundingBox.Add(new Point(xOffset, yOffset)),
-                SampledPixelsAboveBackground = star.SampledPixelsAboveBackground,
-                CentroidBrightness = star.CentroidBrightness,
                 Background = star.Background,
                 MeanBrightness = star.MeanBrightness,
                 HFR = star.HFR,

@@ -52,7 +52,10 @@ namespace TestApp {
                 var annotator = new HocusFocusStarAnnotator(starAnnotatorOptions, null);
                 var starDetectionParams = new StarDetectionParams() { };
                 var detectorParams = new StarDetectorParams() {
-                    FitPSF = StarDetectorPSFFitType.Gaussian,
+                    ModelPSF = true,
+                    PSFFitType = StarDetectorPSFFitType.Gaussian,
+                    PSFParallelPartitionSize = 100,
+                    PSFResolution = 10,
                     PSFGoodnessOfFitThreshold = 0.9,
                     PixelScale = 1.1d
                     // SaveIntermediateFilesPath = IntermediatePath,

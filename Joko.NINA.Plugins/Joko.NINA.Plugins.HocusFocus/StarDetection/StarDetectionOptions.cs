@@ -84,6 +84,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             MinHFR = 1.5;
             StructureDilationSize = 3;
             StructureDilationCount = 0;
+            PSFFitType = StarDetectorPSFFitType.Gaussian;
+            // TODO: Consider increasing the resolution for long focal lengths
+            PSFResolution = 10;
         }
 
         private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -99,8 +102,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         private void InitializeOptions() {
             debugMode = optionsAccessor.GetValueBoolean("DetectionDebugMode", false);
+            modelPSF = optionsAccessor.GetValueBoolean("ModelPSF", true);
             useAdvanced = optionsAccessor.GetValueBoolean("UseAdvanced", false);
-            fitPSF = optionsAccessor.GetValueEnum<StarDetectorPSFFitType>("FitPSF", StarDetectorPSFFitType.Gaussian);
+            psfFitType = optionsAccessor.GetValueEnum<StarDetectorPSFFitType>("PSFFitType", StarDetectorPSFFitType.Gaussian);
             simple_NoiseLevel = optionsAccessor.GetValueEnum<NoiseLevelEnum>("Simple_NoiseLevel", NoiseLevelEnum.Typical);
             simple_PixelScale = optionsAccessor.GetValueEnum<PixelScaleEnum>("Simple_PixelScale", PixelScaleEnum.Typical);
             simple_FocusRange = optionsAccessor.GetValueEnum<FocusRangeEnum>("simple_FocusRange", FocusRangeEnum.Typical);
@@ -128,13 +132,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
             saveIntermediateImages = false;
+            psfParallelPartitionSize = optionsAccessor.GetValueInt32("PSFParallelPartitionSize", 100);
+            psfResolution = optionsAccessor.GetValueInt32("PSFResolution", 10);
             ConfigureSimpleSettings();
         }
 
         public void ResetDefaults() {
             UseAdvanced = false;
             DebugMode = false;
-            FitPSF = StarDetectorPSFFitType.Gaussian;
+            ModelPSF = true;
+            PSFFitType = StarDetectorPSFFitType.Gaussian;
             Simple_NoiseLevel = NoiseLevelEnum.Typical;
             Simple_PixelScale = PixelScaleEnum.Typical;
             simple_FocusRange = FocusRangeEnum.Typical;
@@ -159,6 +166,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Directory.CreateDirectory(IntermediateSavePath);
             }
             SaveIntermediateImages = false;
+            PSFParallelPartitionSize = 100;
+            PSFResolution = 10;
         }
 
         private bool debugMode;
@@ -187,14 +196,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private StarDetectorPSFFitType fitPSF;
+        private bool modelPSF;
 
-        public StarDetectorPSFFitType FitPSF {
-            get => fitPSF;
+        public bool ModelPSF {
+            get => modelPSF;
             set {
-                if (fitPSF != value) {
-                    fitPSF = value;
-                    optionsAccessor.SetValueEnum<StarDetectorPSFFitType>("FitPSF", value);
+                if (modelPSF != value) {
+                    modelPSF = value;
+                    optionsAccessor.SetValueBoolean("ModelPSF", modelPSF);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private StarDetectorPSFFitType psfFitType;
+
+        public StarDetectorPSFFitType PSFFitType {
+            get => psfFitType;
+            set {
+                if (psfFitType != value) {
+                    psfFitType = value;
+                    optionsAccessor.SetValueEnum<StarDetectorPSFFitType>("PSFFitType", value);
                     RaisePropertyChanged();
                 }
             }
@@ -509,6 +531,38 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             set {
                 if (saveIntermediateImages != value) {
                     saveIntermediateImages = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int psfParallelPartitionSize;
+
+        public int PSFParallelPartitionSize {
+            get => psfParallelPartitionSize;
+            set {
+                if (psfParallelPartitionSize != value) {
+                    if (value < 0) {
+                        throw new ArgumentException("PSFParallelPartitionSize must be non-negative", "PSFParallelPartitionSize");
+                    }
+                    psfParallelPartitionSize = value;
+                    optionsAccessor.SetValueInt32("PSFParallelPartitionSize", psfParallelPartitionSize);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int psfResolution;
+
+        public int PSFResolution {
+            get => psfResolution;
+            set {
+                if (psfResolution != value) {
+                    if (value < 0) {
+                        throw new ArgumentException("PSFResolution must be non-negative", "PSFResolution");
+                    }
+                    psfResolution = value;
+                    optionsAccessor.SetValueInt32("PSFResolution", psfResolution);
                     RaisePropertyChanged();
                 }
             }

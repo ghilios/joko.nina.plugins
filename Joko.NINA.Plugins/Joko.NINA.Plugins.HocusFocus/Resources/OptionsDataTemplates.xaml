@@ -76,7 +76,10 @@
     <TextBlock x:Key="SaveIntermediatePath_Tooltip" Text="When Save Intermediate Files is enabled, they are written to this path the next time star detection runs" />
     <TextBlock x:Key="SaveIntermediateFiles_Tooltip" Text="If enabled, every step of star detection emits a debugging file to the intermediate path" />
     <TextBlock x:Key="UseAdvanced_Tooltip" Text="Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless you're an expert" />
-    <TextBlock x:Key="FitPSF_Tooltip" Text="What type of PSF model to fit. If none is selected, then FWHM and Eccentricity will not be calculated" />
+    <TextBlock x:Key="ModelPSF_Tooltip" Text="Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity" />
+    <TextBlock x:Key="PSFFitType_Tooltip" Text="What type of PSF model to fit" />
+    <TextBlock x:Key="PSFResolution_Tooltip" Text="The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting. Higher resolution may be more accurate, but takes longer to calculate" />
+    <TextBlock x:Key="PSFParallelPartitionSize_Tooltip" Text="Enables parallel processing of PSF modeling by partitioning the detected stars into batches of this size. Set to 0 to disable parallelism" />
     <TextBlock x:Key="SimpleNoiseLevel_Tooltip" Text="Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio" />
     <TextBlock x:Key="SimpleFocusRange_Tooltip" Text="As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection" />
     <TextBlock x:Key="SimplePixelScale_Tooltip" Text="At high focal lengths, pixel scale decreases and apparent star size (in pixels) increases. Setting this to a higher focal length increases the number of layers considered for star detection, which could increase false positives due from nebulosity" />
@@ -236,6 +239,16 @@
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
                 <RowDefinition />
@@ -351,24 +364,16 @@
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Fit PSF"
-                ToolTip="{StaticResource FitPSF_Tooltip}" />
-            <ComboBox
+                ToolTip="{StaticResource ModelPSF_Tooltip}" />
+            <CheckBox
                 Grid.Row="9"
                 Grid.Column="1"
-                Name="PART_StarDetectorPSFFitTypeList"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type sd:StarDetectorPSFFitType}}}"
-                SelectedItem="{Binding StarDetectionOptions.FitPSF}"
-                ToolTip="{StaticResource FitPSF_Tooltip}">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
+                IsChecked="{Binding StarDetectionOptions.ModelPSF}"
+                ToolTip="{StaticResource ModelPSF_Tooltip}" />
 
             <TextBlock
                 Grid.Row="10"
@@ -714,10 +719,74 @@
                 Grid.Row="26"
                 Grid.Column="0"
                 VerticalAlignment="Center"
+                Text="PSF Type"
+                ToolTip="{StaticResource PSFFitType_Tooltip}" />
+            <ComboBox
+                Grid.Row="26"
+                Grid.Column="1"
+                Name="PART_StarDetectorPSFFitTypeList"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type sd:StarDetectorPSFFitType}}}"
+                SelectedItem="{Binding StarDetectionOptions.PSFFitType}"
+                ToolTip="{StaticResource PSFFitType_Tooltip}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock
+                Grid.Row="27"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="PSF Resolution"
+                ToolTip="{StaticResource PSFResolution_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="27"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Unit="pixels"
+                ToolTip="{StaticResource PSFResolution_Tooltip}">
+                <Binding Path="StarDetectionOptions.PSFResolution" UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:GreaterZeroRule />
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="28"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="PSF Parallel Size"
+                ToolTip="{StaticResource PSFParallelPartitionSize_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="28"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Unit="stars"
+                ToolTip="{StaticResource PSFParallelPartitionSize_Tooltip}">
+                <Binding Path="StarDetectionOptions.PSFParallelPartitionSize" UpdateSourceTrigger="LostFocus" />
+            </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="36"
+                Grid.Column="0"
+                VerticalAlignment="Center"
                 Text="Debug Mode"
                 ToolTip="{StaticResource DebugMode_Tooltip}" />
             <CheckBox
-                Grid.Row="26"
+                Grid.Row="36"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -727,13 +796,13 @@
                 ToolTip="{StaticResource DebugMode_Tooltip}" />
 
             <TextBlock
-                Grid.Row="27"
+                Grid.Row="37"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Intermediate Path"
                 ToolTip="{StaticResource SaveIntermediatePath_Tooltip}" />
             <TextBox
-                Grid.Row="27"
+                Grid.Row="37"
                 Grid.Column="1"
                 Margin="5,5,0,0"
                 VerticalAlignment="Center"
@@ -757,7 +826,7 @@
                 </TextBox.Style>
             </TextBox>
             <Button
-                Grid.Row="27"
+                Grid.Row="37"
                 Grid.Column="2"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
@@ -784,13 +853,13 @@
             </Button>
 
             <TextBlock
-                Grid.Row="28"
+                Grid.Row="38"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Save Intermediate"
                 ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
             <CheckBox
-                Grid.Row="28"
+                Grid.Row="38"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"

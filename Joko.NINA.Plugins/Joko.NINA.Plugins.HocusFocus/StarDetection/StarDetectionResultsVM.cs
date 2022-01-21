@@ -65,21 +65,38 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        // TODO: When extending fields, include them like this
-        /*
+        public double FWHM {
+            get {
+                return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.FWHM ?? double.NaN;
+            }
+        }
+
+        public double FWHMMAD {
+            get {
+                return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.FWHMMAD ?? double.NaN;
+            }
+        }
+
         public double Eccentricity {
             get {
                 return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.Eccentricity ?? double.NaN;
             }
         }
-        */
+
+        public double EccentricityMAD {
+            get {
+                return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.EccentricityMAD ?? double.NaN;
+            }
+        }
 
         private void Statistics_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
             this.ChildChanged(sender, e);
             RaisePropertyChanged(nameof(Statistics));
             RaisePropertyChanged(nameof(Metrics));
-            // TODO: When extending fields, include them like this
-            // RaisePropertyChanged(nameof(Eccentricity));
+            RaisePropertyChanged(nameof(FWHM));
+            RaisePropertyChanged(nameof(FWHMMAD));
+            RaisePropertyChanged(nameof(Eccentricity));
+            RaisePropertyChanged(nameof(EccentricityMAD));
         }
     }
 }

@@ -10,58 +10,33 @@
 
 #endregion "copyright"
 
-using Accord.Math.Optimization;
-using NINA.Astrometry;
+using OpenCvSharp;
 using System;
-using System.Linq;
-using System.Threading;
-using Star = NINA.Joko.Plugins.HocusFocus.Interfaces.Star;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
-    public class GaussianPSFModeler {
-        private static readonly double SIGMA_TO_FWHM_FACTOR = 2.0d * Math.Sqrt(2.0d * Math.Log(2.0d));
+    public class GaussianPSFType : PSFModelTypeBase {
 
-        private readonly Star detectedStar;
-        private readonly double A;
-        public double[][] Inputs { get; private set; }
-        public double[] Outputs { get; private set; }
-
-        public GaussianPSFModeler(Star detectedStar) {
-            this.detectedStar = detectedStar;
-            this.A = detectedStar.CentroidBrightness;
-
-            double[][] inputs = new double[detectedStar.SampledPixelsAboveBackground.Count][];
-            double[] outputs = new double[detectedStar.SampledPixelsAboveBackground.Count];
-            int index = 0;
-            foreach (var pixelAndValue in detectedStar.SampledPixelsAboveBackground) {
-                inputs[index] = new double[] { pixelAndValue.Item1.X, pixelAndValue.Item1.Y };
-                outputs[index++] = pixelAndValue.Item2;
-            }
-
-            this.Inputs = inputs;
-            this.Outputs = outputs;
+        public GaussianPSFType(double[][] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale) :
+            base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
         }
 
-        public static PSFModel Model(Star detectedStar, double pixelScale, int maxIterations = 20, double tolerance = 1E-8, CancellationToken ct = default) {
-            var modeler = new GaussianPSFModeler(detectedStar);
-            return modeler.Solve(pixelScale, maxIterations, tolerance, ct);
-        }
+        public override bool UseJacobian => false;
 
         // G(x,y; sigx,sigy,theta)
         // Background level is normalized to already 0
         // A is the value at the centroid
         // x0,y0 is the origin, so all x,y are relative to the centroid within the star bounding boxes
         // See Gaussian elliptical definition here: https://pixinsight.com/doc/tools/DynamicPSF/DynamicPSF.html
-        public double Value(double[] parameters, double[] input) {
+        public override double Value(double[] parameters, double[] input) {
             var x = input[0];
             var y = input[1];
             var U = parameters[0];
             var V = parameters[1];
             var T = parameters[2];
-            // T = theta
             // U = sigmaX
             // V = sigmaY
+            // T = theta
 
             var cosT = Math.Cos(T);
             var sinT = Math.Sin(T);
@@ -79,12 +54,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // E = ---- + ----
             //     2U^2   2V^2
             var E = X2 / (2 * U2) + Y2 / (2 * V2);
+            var A = this.CentroidBrightness;
 
             // O = A * e^(-E)
             return A * Math.Exp(-E);
         }
 
-        public void Gradient(double[] parameters, double[] input, double[] result) {
+        public override void Gradient(double[] parameters, double[] input, double[] result) {
             var x = input[0];
             var y = input[1];
             var U = parameters[0]; // sigmaX
@@ -102,6 +78,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var V2 = V * V;
             var V3 = V2 * V;
             var E = X2 / (2 * U2) + Y2 / (2 * V2);
+            var A = this.CentroidBrightness;
             var O = A * Math.Exp(-E);
 
             // dX
@@ -146,52 +123,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             result[0] = dO_dU;
             result[1] = dO_dV;
             result[2] = dO_dT;
-        }
-
-        private double GoodnessOfFit(double sigmaX, double sigmaY, double theta) {
-            var parameters = new double[] { sigmaX, sigmaY, theta };
-            var rss = 0.0d;
-            var tss = 0.0d;
-            var estimatedSum = 0.0d;
-            var yBar = detectedStar.SampledPixelsAboveBackground.Select(x => x.Item2).Average();
-            foreach (var (point, observedValue) in detectedStar.SampledPixelsAboveBackground) {
-                var input = new double[] { point.X, point.Y };
-                var estimatedValue = Value(parameters, input);
-                estimatedSum += estimatedValue;
-                var residual = estimatedValue - observedValue;
-                var observedDispersion = observedValue - yBar;
-                tss += observedDispersion * observedDispersion;
-                rss += residual * residual;
-            }
-            return 1 - rss / tss;
-        }
-
-        public PSFModel Solve(double pixelScale, int maxIterations = 20, double tolerance = 1E-8, CancellationToken ct = default) {
-            var gn = new LevenbergMarquardt(parameters: 3) {
-                Function = this.Value,
-                Gradient = this.Gradient,
-                Solution = new[] { detectedStar.StarBoundingBox.Width / 3.0, detectedStar.StarBoundingBox.Height / 3.0, 0.0d },
-                MaxIterations = maxIterations,
-                Tolerance = tolerance,
-                Token = ct
-            };
-
-            gn.Minimize(this.Inputs, this.Outputs);
-            ct.ThrowIfCancellationRequested();
-
-            if (!gn.HasConverged) {
-                return null;
-            }
-
-            var predict = gn.Solution;
-            var sigX = predict[0];
-            var sigY = predict[1];
-            var theta = predict[2];
-
-            var fwhmX = sigX * SIGMA_TO_FWHM_FACTOR;
-            var fwhmY = sigY * SIGMA_TO_FWHM_FACTOR;
-            var rSquared = GoodnessOfFit(sigX, sigY, theta);
-            return new PSFModel(fwhmX: fwhmX, fwhmY: fwhmY, thetaRadians: theta, rSquared: rSquared, pixelScale: pixelScale);
         }
     }
 }

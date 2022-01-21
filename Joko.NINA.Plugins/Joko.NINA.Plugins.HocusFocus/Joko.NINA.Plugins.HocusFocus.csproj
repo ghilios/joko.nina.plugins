@@ -53,6 +53,9 @@
     <Reference Include="Accord.Statistics, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
       <HintPath>..\packages\Accord.Statistics.3.8.0\lib\net462\Accord.Statistics.dll</HintPath>
     </Reference>
+    <Reference Include="alglib.net, Version=3.18.2.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\alglib.net.3.18.2\lib\net48\alglib.net.dll</HintPath>
+    </Reference>
     <Reference Include="AsyncEnumerable, Version=4.0.2.0, Culture=neutral, PublicKeyToken=0426b068161bd1d1, processorArchitecture=MSIL">
       <HintPath>..\packages\AsyncEnumerator.4.0.2\lib\net461\AsyncEnumerable.dll</HintPath>
     </Reference>
@@ -328,6 +331,7 @@
     <Compile Include="StarDetection\HocusFocusStarAnnotator.cs" />
     <Compile Include="StarDetection\HocusFocusStarDetection.cs" />
     <Compile Include="StarDetection\PSFModel.cs" />
+    <Compile Include="StarDetection\PSFModeler.cs" />
     <Compile Include="StarDetection\StarAnnotatorOptions.cs" />
     <Compile Include="StarDetection\StarDetectionOptions.cs" />
     <Compile Include="StarDetection\StarAnnotatorOptionsVM.cs" />
@@ -393,6 +397,7 @@
       xcopy "$(TargetDir)\$(TargetName).pdb" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
 
       echo "Copying $(PlatformName) $(TargetFileName) Dependencies"
+      xcopy "$(TargetDir)alglib.net.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
       xcopy "$(TargetDir)OpenCVSharp.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
       xcopy "$(TargetDir)OpenCVSharp.Extensions.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
       xcopy "$(TargetDir)dll\x86\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\x86" /h/k/r/y
