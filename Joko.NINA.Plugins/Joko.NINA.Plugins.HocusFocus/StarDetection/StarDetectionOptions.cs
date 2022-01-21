@@ -124,7 +124,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             minHFR = optionsAccessor.GetValueDouble("MinHFR", 1.5);
             structureDilationSize = optionsAccessor.GetValueInt32("StructureDilationSize", 3);
             structureDilationCount = optionsAccessor.GetValueInt32("StructureDilationCount", 0);
-            pixelSampleSize = optionsAccessor.GetValueDouble("PixelSampleSize", 0.5);
+            pixelSampleSize = optionsAccessor.GetValueDouble("PixelSampleSize", 1.0);
             intermediateSavePath = optionsAccessor.GetValueString(nameof(IntermediateSavePath), "");
             if (string.IsNullOrEmpty(intermediateSavePath) || !Directory.Exists(intermediateSavePath)) {
                 IntermediateSavePath = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "HocusFocusIntermediate");
@@ -162,7 +162,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             MinHFR = 1.5;
             StructureDilationSize = 3;
             StructureDilationCount = 0;
-            PixelSampleSize = 0.5;
+            PixelSampleSize = 1.0;
             IntermediateSavePath = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "HocusFocusIntermediate");
             if (!Directory.Exists(IntermediateSavePath)) {
                 Directory.CreateDirectory(IntermediateSavePath);
