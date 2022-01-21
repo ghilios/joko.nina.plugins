@@ -84,7 +84,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             MinHFR = 1.5;
             StructureDilationSize = 3;
             StructureDilationCount = 0;
-            PSFFitType = StarDetectorPSFFitType.Gaussian;
+            PSFFitType = StarDetectorPSFFitType.Moffat_40;
             // TODO: Consider increasing the resolution for long focal lengths
             PSFResolution = 10;
             PSFFitThreshold = 0.6;
