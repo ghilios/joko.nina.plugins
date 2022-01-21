@@ -53,8 +53,8 @@ namespace TestApp {
                 var starDetectionParams = new StarDetectionParams() { };
                 var detectorParams = new StarDetectorParams() {
                     ModelPSF = true,
-                    PSFFitType = StarDetectorPSFFitType.Gaussian,
-                    PSFParallelPartitionSize = 100,
+                    PSFFitType = StarDetectorPSFFitType.Moffat_40,
+                    PSFParallelPartitionSize = 0,
                     PSFResolution = 10,
                     PSFGoodnessOfFitThreshold = 0.9,
                     PixelScale = 1.1d

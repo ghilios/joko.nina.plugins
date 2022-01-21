@@ -327,9 +327,10 @@
     <Compile Include="StarDetection\DataTemplates.xaml.cs">
       <DependentUpon>DataTemplates.xaml</DependentUpon>
     </Compile>
-    <Compile Include="StarDetection\GaussianPSFModeler.cs" />
+    <Compile Include="StarDetection\GaussianPSFType.cs" />
     <Compile Include="StarDetection\HocusFocusStarAnnotator.cs" />
     <Compile Include="StarDetection\HocusFocusStarDetection.cs" />
+    <Compile Include="StarDetection\MoffatPSFType.cs" />
     <Compile Include="StarDetection\PSFModel.cs" />
     <Compile Include="StarDetection\PSFModeler.cs" />
     <Compile Include="StarDetection\StarAnnotatorOptions.cs" />

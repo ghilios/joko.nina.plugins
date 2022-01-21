@@ -127,6 +127,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             if (fitType == StarDetectorPSFFitType.Gaussian) {
                 return new GaussianPSFType(inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
+            } else if (fitType == StarDetectorPSFFitType.Moffat_40) {
+                return new MoffatPSFType(beta: 0.4, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
             } else {
                 throw new ArgumentException($"Unknown PSF fit type {fitType}");
             }

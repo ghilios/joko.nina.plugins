@@ -18,8 +18,8 @@ using System.Runtime.InteropServices;
 
 // [MANDATORY] The assembly versioning
 //Should be incremented for each new release build of a plugin
-[assembly: AssemblyVersion("1.11.0.13")]
-[assembly: AssemblyFileVersion("1.11.0.13")]
+[assembly: AssemblyVersion("1.11.0.14")]
+[assembly: AssemblyFileVersion("1.11.0.14")]
 
 // [MANDATORY] The name of your plugin
 [assembly: AssemblyTitle("Hocus Focus")]
@@ -62,7 +62,7 @@ using System.Runtime.InteropServices;
 //[Optional] An additional url to an example example screenshot of your plugin in action
 [assembly: AssemblyMetadata("AltScreenshotURL", "")]
 //[Optional] An in-depth description of your plugin
-[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Detection, Star Annotation, and Auto Focus for NINA. Additional Star Detection and Auto Focus features are on the way as well
+[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Detection, Star Annotation, and Auto Focus for NINA. Additional Auto Focus features are on the way as well
 
 **Features**
 
@@ -73,6 +73,8 @@ using System.Runtime.InteropServices;
 
 *Improved star detection*
 
+* Fit PSFs to stars using Gaussian and Moffat 0.4. If enabled, fit failures lead to rejected stars and a better HFR calculation
+* Eccentricity and FWHM calculation when PSF modeling is enabled
 * Simpler configuration, with an advanced mode for fine tuning
 * Higher accuracy (lower HFR Standard Deviation) if parameters are set properly
 * Advanced control over star detection parameters
@@ -85,10 +87,6 @@ using System.Runtime.InteropServices;
 To enable these features, go to Options -> Imaging -> Image Options. After this plugin is installed, there will be Star Annotator and Auto Focus dropdown boxes you can select ""Hocus Focus"" for.
 
 **Features coming soon**
-
-*Star detection*
-
-* Eccentricity and FWHM calculation
 
 *AutoFocus*
 

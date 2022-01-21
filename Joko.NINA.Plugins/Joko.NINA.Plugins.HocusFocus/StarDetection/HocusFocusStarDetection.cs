@@ -165,11 +165,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 SaveIntermediateFilesPath = starDetectionOptions.SaveIntermediateImages ? starDetectionOptions.IntermediateSavePath : string.Empty,
                 PixelScale = pixelScale,
                 PSFParallelPartitionSize = starDetectionOptions.PSFParallelPartitionSize,
-                PSFResolution = starDetectionOptions.PSFResolution
+                PSFResolution = starDetectionOptions.PSFResolution,
+                PSFGoodnessOfFitThreshold = starDetectionOptions.PSFFitThreshold
             };
 
-            // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again
-            starDetectionOptions.SaveIntermediateImages = false;
+            // For AutoFocus, don't save intermediate data or model PSFs
+            if (p.IsAutoFocus) {
+                detectorParams.SaveIntermediateFilesPath = string.Empty;
+                detectorParams.ModelPSF = false;
+            } else {
+                // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again
+                starDetectionOptions.SaveIntermediateImages = false;
+            }
 
             if (p.UseROI && p.InnerCropRatio < 1.0 && p.OuterCropRatio > 0.0) {
                 detectorParams.CenterROICropRatio = p.OuterCropRatio >= 1.0 ? p.InnerCropRatio : p.OuterCropRatio;
