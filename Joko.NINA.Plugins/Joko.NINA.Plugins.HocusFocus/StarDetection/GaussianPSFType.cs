@@ -16,6 +16,7 @@ using System;
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class GaussianPSFType : PSFModelTypeBase {
+        private static readonly double SIGMA_TO_FWHM_FACTOR = 2.0d * Math.Sqrt(2.0d * Math.Log(2.0d));
 
         public GaussianPSFType(double[][] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale) :
             base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
@@ -123,6 +124,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             result[0] = dO_dU;
             result[1] = dO_dV;
             result[2] = dO_dT;
+        }
+
+        public override double SigmaToFWHM(double sigma) {
+            return sigma * SIGMA_TO_FWHM_FACTOR;
         }
     }
 }

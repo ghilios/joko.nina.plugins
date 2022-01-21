@@ -87,7 +87,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFFitType = StarDetectorPSFFitType.Moffat_40;
             // TODO: Consider increasing the resolution for long focal lengths
             PSFResolution = 10;
-            PSFFitThreshold = 0.6;
+            PSFFitThreshold = 0.9;
         }
 
         private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -135,7 +135,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             saveIntermediateImages = false;
             psfParallelPartitionSize = optionsAccessor.GetValueInt32("PSFParallelPartitionSize", 100);
             psfResolution = optionsAccessor.GetValueInt32("PSFResolution", 10);
-            psfFitThreshold = optionsAccessor.GetValueDouble("PSFFitThreshold", 0.6);
+            psfFitThreshold = optionsAccessor.GetValueDouble("PSFFitThreshold", 0.9);
             ConfigureSimpleSettings();
         }
 
@@ -170,7 +170,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             SaveIntermediateImages = false;
             PSFParallelPartitionSize = 100;
             PSFResolution = 10;
-            PSFFitThreshold = 0.6;
+            PSFFitThreshold = 0.9;
         }
 
         private bool debugMode;

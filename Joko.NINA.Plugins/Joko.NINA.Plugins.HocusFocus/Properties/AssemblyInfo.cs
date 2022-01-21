@@ -18,8 +18,8 @@ using System.Runtime.InteropServices;
 
 // [MANDATORY] The assembly versioning
 //Should be incremented for each new release build of a plugin
-[assembly: AssemblyVersion("1.11.0.15")]
-[assembly: AssemblyFileVersion("1.11.0.15")]
+[assembly: AssemblyVersion("1.11.0.16")]
+[assembly: AssemblyFileVersion("1.11.0.16")]
 
 // [MANDATORY] The name of your plugin
 [assembly: AssemblyTitle("Hocus Focus")]
@@ -73,7 +73,7 @@ using System.Runtime.InteropServices;
 
 *Improved star detection*
 
-* Fit PSFs to stars using Gaussian and Moffat 0.4. If enabled, fit failures lead to rejected stars and a better HFR calculation
+* Fit PSFs to stars using Gaussian and Moffat 4. If enabled, fit failures lead to rejected stars and a better HFR calculation
 * Eccentricity and FWHM calculation when PSF modeling is enabled
 * Simpler configuration, with an advanced mode for fine tuning
 * Higher accuracy (lower HFR Standard Deviation) if parameters are set properly

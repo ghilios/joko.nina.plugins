@@ -67,5 +67,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // TODO: Consider implementing this to evaluate whether using a jacobian can speed up modeling
             throw new NotImplementedException();
         }
+
+        public override double SigmaToFWHM(double sigma) {
+            return sigma * 2 * Math.Sqrt(Math.Pow(2, 1 / this.Beta) - 1);
+        }
     }
 }

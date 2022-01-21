@@ -44,6 +44,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double[][] Inputs { get; private set; }
         public double[] Outputs { get; private set; }
 
+        public abstract double SigmaToFWHM(double sigma);
+
         public virtual void FitResiduals(double[] parameters, double[] fi, object obj) {
             // x contains the 3 parameters
             // fi will store the result - 1 for each observation
@@ -96,7 +98,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     }
 
     public class PSFModeler {
-        private static readonly double SIGMA_TO_FWHM_FACTOR = 2.0d * Math.Sqrt(2.0d * Math.Log(2.0d));
 
         public static PSFModelTypeBase Create(StarDetectorPSFFitType fitType, int psfResolution, Star detectedStar, Mat srcImage, double pixelScale) {
             var background = detectedStar.Background;
@@ -128,7 +129,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (fitType == StarDetectorPSFFitType.Gaussian) {
                 return new GaussianPSFType(inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
             } else if (fitType == StarDetectorPSFFitType.Moffat_40) {
-                return new MoffatPSFType(beta: 0.4, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
+                return new MoffatPSFType(beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
             } else {
                 throw new ArgumentException($"Unknown PSF fit type {fitType}");
             }
@@ -181,8 +182,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var sigY = solution[1];
                 var theta = solution[2];
 
-                var fwhmX = sigX * SIGMA_TO_FWHM_FACTOR;
-                var fwhmY = sigY * SIGMA_TO_FWHM_FACTOR;
+                var fwhmX = modelType.SigmaToFWHM(sigX);
+                var fwhmY = modelType.SigmaToFWHM(sigY);
                 var rSquared = modelType.GoodnessOfFit(sigX, sigY, theta);
                 return new PSFModel(fwhmX: fwhmX, fwhmY: fwhmY, thetaRadians: theta, rSquared: rSquared, pixelScale: modelType.PixelScale);
             } finally {

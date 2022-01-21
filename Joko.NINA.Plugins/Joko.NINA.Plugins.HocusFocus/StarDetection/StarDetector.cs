@@ -33,7 +33,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     [TypeConverter(typeof(EnumStaticDescriptionConverter))]
     public enum StarDetectorPSFFitType {
 
-        [Description("Moffat 0.4")]
+        [Description("Moffat 4.0")]
         Moffat_40,
 
         [Description("Gaussian")]
@@ -113,7 +113,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public StarDetectorPSFFitType PSFFitType { get; set; } = StarDetectorPSFFitType.Gaussian;
 
         // If PSF modeling is enabled, any R^2 values below this threshold will be rejected
-        public double PSFGoodnessOfFitThreshold { get; set; } = 0.6;
+        public double PSFGoodnessOfFitThreshold { get; set; } = 0.9;
 
         // The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting
         public int PSFResolution { get; set; } = 10;
