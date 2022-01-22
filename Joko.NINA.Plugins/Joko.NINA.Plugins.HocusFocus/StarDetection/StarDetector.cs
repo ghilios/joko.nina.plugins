@@ -351,7 +351,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
                 MaybeSaveIntermediateStars(stars, p, "11-detected-stars.txt");
 
-                var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}, PSFFailed={metrics.PSFFailed}";
+                var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
                 MaybeSaveIntermediateText(metricsTrace, p, "12-detection-metrics.txt");
                 Logger.Trace(metricsTrace);
                 if (roiRect.HasValue) {
@@ -382,12 +382,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         try {
                             psf = PSFModeler.Solve(modeler, ct: ct);
                         } catch (Exception e) {
-                            Logger.Trace($"Failed to model PSF. Ignoring the error and treating it as a failed star detection. {e.Message}");
+                            Logger.Trace($"Failed to model PSF. Ignoring the error and discarding the PSF. {e.Message}");
                         }
 
-                        if (psf == null || psf.RSquared < p.PSFGoodnessOfFitThreshold) {
-                            metrics.PSFFailedBounds.Add(detectedStar.StarBoundingBox);
-                        } else {
+                        if (psf != null && psf.RSquared >= p.PSFGoodnessOfFitThreshold) {
                             detectedStar.PSF = psf;
                         }
                     }

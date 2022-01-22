@@ -60,8 +60,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             notCenteredColor = optionsAccessor.GetValueColor("NotCenteredColor", Color.FromArgb(128, 0, 255, 0));
             showTooFlat = optionsAccessor.GetValueBoolean("ShowTooFlat", false);
             tooFlatColor = optionsAccessor.GetValueColor("TooFlatColor", Color.FromArgb(128, 0, 255, 0));
-            showPSFFailed = optionsAccessor.GetValueBoolean("ShowPSFFailed", false);
-            psfFailedColor = optionsAccessor.GetValueColor("PSFFailedColor", Color.FromArgb(128, 255, 165, 0));
             showStructureMap = optionsAccessor.GetValueEnum<ShowStructureMapEnum>("ShowStructureMap", ShowStructureMapEnum.None);
             structureMapColor = optionsAccessor.GetValueColor("StructureMapColor", Color.FromArgb(128, 255, 0, 255));
         }
@@ -93,8 +91,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             NotCenteredColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
             ShowTooFlat = false;
             TooFlatColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
-            ShowPSFFailed = false;
-            PSFFailedColor = Color.FromArgb(128, 255, 165, 0); // Orange half transparency
             ShowStructureMap = ShowStructureMapEnum.None;
             StructureMapColor = Color.FromArgb(128, 255, 0, 255); // Purple half transparency
         }
@@ -432,32 +428,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (tooFlatColor != value) {
                     tooFlatColor = value;
                     optionsAccessor.SetValueColor("TooFlatColor", value);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private bool showPSFFailed;
-
-        public bool ShowPSFFailed {
-            get => showPSFFailed;
-            set {
-                if (showPSFFailed != value) {
-                    showPSFFailed = value;
-                    optionsAccessor.SetValueBoolean("ShowPSFFailed", value);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private Color psfFailedColor;
-
-        public Color PSFFailedColor {
-            get => psfFailedColor;
-            set {
-                if (psfFailedColor != value) {
-                    psfFailedColor = value;
-                    optionsAccessor.SetValueColor("PSFFailedColor", value);
                     RaisePropertyChanged();
                 }
             }

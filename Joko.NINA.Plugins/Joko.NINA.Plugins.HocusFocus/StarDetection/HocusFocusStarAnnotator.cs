@@ -201,14 +201,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                                 }
                             }
                         }
-                        if (StarAnnotatorOptions.ShowPSFFailed && metrics?.PSFFailedBounds != null) {
-                            using (var brush = new SolidBrush(StarAnnotatorOptions.PSFFailedColor.ToDrawingColor()))
-                            using (var pen = new Pen(brush)) {
-                                foreach (var rect in metrics.PSFFailedBounds) {
-                                    graphics.DrawRectangle(pen, rect.ToDrawingRectangle());
-                                }
-                            }
-                        }
 
                         if (p.UseROI) {
                             graphics.DrawRectangle(roiPen, (float)(1 - p.InnerCropRatio) * imageToAnnotate.PixelWidth / 2, (float)(1 - p.InnerCropRatio) * imageToAnnotate.PixelHeight / 2, (float)p.InnerCropRatio * imageToAnnotate.PixelWidth, (float)p.InnerCropRatio * imageToAnnotate.PixelHeight);

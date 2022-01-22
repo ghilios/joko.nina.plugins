@@ -120,7 +120,6 @@ namespace TestApp {
             public ShowStructureMapEnum ShowStructureMap { get; set; }
             public Color StructureMapColor { get; set; }
             public IStarDetectionOptions DetectorOptions { get; set; }
-            public Color PSFFailedColor { get; set; }
             public Color TooFlatColor { get; set; }
             public Color SaturatedColor { get; set; }
             public Color LowSensitivityColor { get; set; }
@@ -131,7 +130,6 @@ namespace TestApp {
             public bool ShowLowSensitivity { get; set; }
             public bool ShowNotCentered { get; set; }
             public bool ShowTooFlat { get; set; }
-            public bool ShowPSFFailed { get; set; }
             public Color TooDistortedColor { get; set; }
             public bool ShowTooDistorted { get; set; }
 
@@ -162,8 +160,6 @@ namespace TestApp {
                     ShowNotCentered = false,
                     NotCenteredColor = Color.FromArgb(128, 0, 255, 255),
                     ShowTooFlat = false,
-                    PSFFailedColor = Color.FromArgb(128, 255, 165, 0),
-                    ShowPSFFailed = true,
                     TooFlatColor = Color.FromArgb(128, 0, 255, 0),
                     ShowStructureMap = ShowStructureMapEnum.None,
                     StructureMapColor = Color.FromArgb(128, 255, 0, 255)

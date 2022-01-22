@@ -69,8 +69,6 @@
     <TextBlock x:Key="NotCenteredColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowTooFlat_Tooltip" Text="Whether to show the failed too flat stars" />
     <TextBlock x:Key="TooFlatColor_Tooltip" Text="The color of the failed star bounding box" />
-    <TextBlock x:Key="ShowPSFFailed_Tooltip" Text="Whether to show the failed PSF model fits" />
-    <TextBlock x:Key="PSFFailedColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowStructureMap_Tooltip" Text="Overlays the structure map to aide debugging. Original shows the initial structure map after noise clipping and binarization, and Dilated shows it after dilation has been performed" />
     <TextBlock x:Key="StructureMapColor_Tooltip" Text="The color of the overlayed structure map" />
     <TextBlock x:Key="SaveIntermediatePath_Tooltip" Text="When Save Intermediate Files is enabled, they are written to this path the next time star detection runs" />
@@ -1395,39 +1393,6 @@
                 VerticalAlignment="Center"
                 SelectedColor="{Binding TooFlatColor}"
                 ToolTip="{StaticResource TooFlatColor_Tooltip}" />
-
-            <TextBlock
-                Grid.Row="25"
-                Grid.Column="0"
-                VerticalAlignment="Center"
-                Text="Show PSF Failed"
-                ToolTip="{StaticResource ShowPSFFailed_Tooltip}" />
-            <CheckBox
-                Grid.Row="25"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,5,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                IsChecked="{Binding ShowPSFFailed}"
-                ToolTip="{StaticResource ShowPSFFailed_Tooltip}" />
-            <TextBlock
-                Grid.Row="26"
-                Grid.Column="0"
-                VerticalAlignment="Center"
-                Visibility="{Binding ShowPSFFailed, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Text="PSF Failed Box Color"
-                ToolTip="{StaticResource PSFFailedColor_Tooltip}" />
-            <xceed:ColorPicker
-                Visibility="{Binding ShowPSFFailed, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
-                Grid.Row="26"
-                Grid.Column="1"
-                Width="80"
-                Margin="5,5,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                SelectedColor="{Binding PSFFailedColor}"
-                ToolTip="{StaticResource PSFFailedColor_Tooltip}" />
 
             <TextBlock
                 Grid.Row="27"

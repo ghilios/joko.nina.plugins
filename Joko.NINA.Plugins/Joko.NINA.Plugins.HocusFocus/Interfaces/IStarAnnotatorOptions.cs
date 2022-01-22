@@ -70,13 +70,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Color NotCenteredColor { get; set; }
         Color DegenerateColor { get; set; }
         Color TooDistortedColor { get; set; }
-        Color PSFFailedColor { get; set; }
         bool ShowTooDistorted { get; set; }
         bool ShowDegenerate { get; set; }
         bool ShowSaturated { get; set; }
         bool ShowLowSensitivity { get; set; }
         bool ShowNotCentered { get; set; }
         bool ShowTooFlat { get; set; }
-        bool ShowPSFFailed { get; set; }
     }
 }
