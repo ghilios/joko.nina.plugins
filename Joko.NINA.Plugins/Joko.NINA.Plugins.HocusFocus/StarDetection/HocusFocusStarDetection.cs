@@ -31,6 +31,8 @@ using NINA.Core.Interfaces;
 using NINA.Core.Utility.Notification;
 using NINA.Profile.Interfaces;
 using Star = NINA.Joko.Plugins.HocusFocus.Interfaces.Star;
+using NINA.WPF.Base.Interfaces;
+using NINA.WPF.Base.ViewModel;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -185,6 +187,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
+            var selectedAutoFocusBehavior = profileService.ActiveProfile.ApplicationSettings.SelectedPluggableBehaviors.Where(k => k.Key == typeof(IAutoFocusVMFactory).FullName).ToList();
+            var ninaStockAutoFocus = selectedAutoFocusBehavior.Count == 0 || selectedAutoFocusBehavior.First().Value == "NINA";
+            var isNinaAutoFocus = ninaStockAutoFocus && p.IsAutoFocus;
+
             var result = new HocusFocusStarDetectionResult() { Params = p, DetectorParams = detectorParams };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
@@ -194,7 +200,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var starList = starDetectorResult.DetectedStars;
-            if (!starDetectionOptions.UseAutoFocusCrop && !p.IsAutoFocus) {
+            if (!starDetectionOptions.UseAutoFocusCrop && !isNinaAutoFocus) {
                 p.UseROI = false;
             }
 
@@ -210,15 +216,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (starList.Count > 1) {
                 int countBefore = starList.Count;
 
-                // Now that we have a properly filtered star list, let's compute stats and further filter out from the mean
-                var hfrMean = starList.Average(s => s.HFR);
-                var hfrVariance = starList.Sum(s => (s.HFR - hfrMean) * (s.HFR - hfrMean)) / (starList.Count - 1);
-                var hfrStdDev = Math.Sqrt(hfrVariance);
+                // Now that we have a properly filtered star list, let's compute stats and further filter out from the average
+                // Median and MAD are used as they are more robust to outliers
+                var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
                 if (p.Sensitivity == StarSensitivityEnum.Normal) {
-                    starList = starList.Where(s => s.HFR <= hfrMean + 3.0 * hfrStdDev && s.HFR >= hfrMean - 3.0 * hfrStdDev).ToList<Star>();
+                    starList = starList.Where(s => s.HFR <= hfrMedian + 3.0 * hfrMAD && s.HFR >= hfrMedian - 3.0 * hfrMAD).ToList<Star>();
                 } else {
                     // More sensitivity means getting fainter and smaller stars, and maybe some noise, skewing the distribution towards low hfr. Let's be more permissive towards the large star end.
-                    starList = starList.Where(s => s.HFR <= hfrMean + 4 * hfrStdDev && s.HFR >= hfrMean - 3.0 * hfrStdDev).ToList<Star>();
+                    starList = starList.Where(s => s.HFR <= hfrMedian + 4 * hfrMAD && s.HFR >= hfrMedian - 3.0 * hfrMAD).ToList<Star>();
                 }
 
                 int countAfter = starList.Count;

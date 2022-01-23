@@ -346,7 +346,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     progress?.Report(new ApplicationStatus() { Status = "Modeling PSFs" });
                     await ModelPSF(srcImage, stars, p, metrics, token);
 
-                    stars = stars.Where(s => s.PSF != null).ToList();
                     stopWatch.RecordEntry("ModelPSF");
                 }
                 MaybeSaveIntermediateStars(stars, p, "11-detected-stars.txt");
@@ -370,7 +369,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         private async Task ModelPSF(Mat srcImage, List<Star> stars, StarDetectorParams p, StarDetectorMetrics metrics, CancellationToken ct) {
             var allTasks = new List<Task>();
-            Logger.Debug($"Modeling PSFs using a parallel partition size of {p.PSFParallelPartitionSize}");
+            Logger.Debug($"Modeling PSFs using a parallel partition size of {p.PSFParallelPartitionSize} and a pixel scale of {p.PixelScale} arcsec/pixel");
             var partitions = p.PSFParallelPartitionSize > 0 ? stars.Partition(p.PSFParallelPartitionSize) : new List<IEnumerable<Star>>() { stars };
             foreach (var detectedStarsPartition in partitions) {
                 var psfPartitionTask = Task.Run(() => {

@@ -386,7 +386,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var analysisParams = new StarDetectionParams() {
                     Sensitivity = profileService.ActiveProfile.ImageSettings.StarSensitivity,
                     NoiseReduction = profileService.ActiveProfile.ImageSettings.NoiseReduction,
-                    NumberOfAFStars = profileService.ActiveProfile.FocuserSettings.AutoFocusUseBrightestStars
+                    NumberOfAFStars = profileService.ActiveProfile.FocuserSettings.AutoFocusUseBrightestStars,
+                    IsAutoFocus = true
                 };
                 if (profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio < 1 && !IsSubSampleEnabled()) {
                     analysisParams.UseROI = true;
