@@ -18,14 +18,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     public class MoffatPSFType : PSFModelTypeBase {
         public double Beta { get; private set; }
 
-        public MoffatPSFType(double beta, double[][] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale) :
-            base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
+        public MoffatPSFType(double beta, double[][] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale, bool calculateCenter) :
+            base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs, calculateCenter: calculateCenter) {
             this.Beta = beta;
         }
 
+        public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Moffat_40;
+
         public override bool UseJacobian => false;
 
-        // G(x,y; sigx,sigy,theta)
+        // G(x,y; x0,y0,sigx,sigy,theta)
         // Background level is normalized already to 0
         // A is the value at the centroid
         // x0,y0 is the origin, so all x,y are relative to the centroid within the star bounding boxes
@@ -33,17 +35,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public override double Value(double[] parameters, double[] input) {
             var x = input[0];
             var y = input[1];
-            var U = parameters[0];
-            var V = parameters[1];
-            var T = parameters[2];
+            var x0 = parameters[0];
+            var y0 = parameters[1];
+            var U = parameters[2];
+            var V = parameters[3];
+            var T = parameters[4];
+            // x0 = X0 (X offset)
+            // y0 = Y0 (Y offset)
             // U = sigmaX
             // V = sigmaY
             // T = theta
 
             var cosT = Math.Cos(T);
             var sinT = Math.Sin(T);
-            var X = x * cosT + y * sinT;
-            var Y = -x * sinT + y * cosT;
+            var X = (x - x0) * cosT + (y - y0) * sinT;
+            var Y = -(x - x0) * sinT + (y - y0) * cosT;
             // X = xPrime = x * cos(T) + y * sin(T)
             // Y = yPrime = -x * sin(T) + y * cos(T)
 

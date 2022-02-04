@@ -36,10 +36,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     }
 
     public class StarDetectorMetrics {
-        public int StructureCandidates { get; set; } = -1;
-        public int TotalDetected { get; set; } = -1;
-        public int TooSmall { get; set; } = -1;
-        public int OnBorder { get; set; } = -1;
+        public int StructureCandidates { get; set; } = 0;
+        public int TotalDetected { get; set; } = 0;
+        public int TooSmall { get; set; } = 0;
+        public int OnBorder { get; set; } = 0;
         public int TooDistorted { get => TooDistortedBounds.Count; set => throw new NotSupportedException("Can't set TooDistorted directly"); }
         public List<Rect> TooDistortedBounds { get; private set; } = new List<Rect>();
         public int Degenerate { get => DegenerateBounds.Count; set => throw new NotSupportedException("Can't set Degenerate directly"); }
@@ -52,9 +52,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public List<Rect> NotCenteredBounds { get; private set; } = new List<Rect>();
         public int TooFlat { get => TooFlatBounds.Count; set => throw new NotSupportedException("Can't set TooFlat directly"); }
         public List<Rect> TooFlatBounds { get; private set; } = new List<Rect>();
-        public int TooLowHFR { get; set; } = -1;
-        public int HFRAnalysisFailed { get; set; } = -1;
-        public int OutsideROI { get; set; } = -1;
+        public int TooLowHFR { get; set; } = 0;
+        public int HFRAnalysisFailed { get; set; } = 0;
+        public int PSFFitFailed { get; set; } = 0;
+        public int OutsideROI { get; set; } = 0;
 
         public void AddROIOffset(int xOffset, int yOffset) {
             var allRectBounds = new List<List<Rect>>() {

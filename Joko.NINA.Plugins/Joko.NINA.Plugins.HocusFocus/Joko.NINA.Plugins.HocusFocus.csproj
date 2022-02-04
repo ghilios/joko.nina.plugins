@@ -306,6 +306,7 @@
     <Compile Include="Converters\PositiveToBooleanConverter.cs" />
     <Compile Include="Converters\ShowAnnotationTypeToVisibilityConverter.cs" />
     <Compile Include="Converters\StructureMapTypeToVisibilityConverter.cs" />
+    <Compile Include="Converters\ZeroToDoubleDashConverter.cs" />
     <Compile Include="Converters\ZeroToInfinityConverter.cs" />
     <Compile Include="Interfaces\IAutoFocusOptions.cs" />
     <Compile Include="Interfaces\IStarAnnotatorOptions.cs" />

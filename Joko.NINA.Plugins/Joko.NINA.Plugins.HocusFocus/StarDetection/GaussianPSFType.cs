@@ -18,9 +18,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     public class GaussianPSFType : PSFModelTypeBase {
         private static readonly double SIGMA_TO_FWHM_FACTOR = 2.0d * Math.Sqrt(2.0d * Math.Log(2.0d));
 
-        public GaussianPSFType(double[][] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale) :
-            base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
+        public GaussianPSFType(double[][] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale, bool calculateCenter) :
+            base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs, calculateCenter: calculateCenter) {
         }
+
+        public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Gaussian;
 
         public override bool UseJacobian => false;
 
@@ -32,17 +34,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public override double Value(double[] parameters, double[] input) {
             var x = input[0];
             var y = input[1];
-            var U = parameters[0];
-            var V = parameters[1];
-            var T = parameters[2];
+            var x0 = parameters[0];
+            var y0 = parameters[1];
+            var U = parameters[2];
+            var V = parameters[3];
+            var T = parameters[4];
+            // x0 = X0 (X offset)
+            // y0 = Y0 (Y offset)
             // U = sigmaX
             // V = sigmaY
             // T = theta
 
             var cosT = Math.Cos(T);
             var sinT = Math.Sin(T);
-            var X = x * cosT + y * sinT;
-            var Y = -x * sinT + y * cosT;
+            var X = (x - x0) * cosT + (y - y0) * sinT;
+            var Y = -(x - x0) * sinT + (y - y0) * cosT;
             // X = xPrime = x * cos(T) + y * sin(T)
             // Y = yPrime = -x * sin(T) + y * cos(T)
 

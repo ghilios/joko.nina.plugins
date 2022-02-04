@@ -65,6 +65,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        public StarDetectorPSFFitType PSFType {
+            get {
+                return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.PSFType ?? StarDetectorPSFFitType.Moffat_40;
+            }
+        }
+
+        public double PSFRSquared {
+            get {
+                return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.PSFRSquared ?? double.NaN;
+            }
+        }
+
+        public double Sigma {
+            get {
+                return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.Sigma ?? double.NaN;
+            }
+        }
+
         public double FWHM {
             get {
                 return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.FWHM ?? double.NaN;
@@ -93,6 +111,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             this.ChildChanged(sender, e);
             RaisePropertyChanged(nameof(Statistics));
             RaisePropertyChanged(nameof(Metrics));
+            RaisePropertyChanged(nameof(PSFType));
+            RaisePropertyChanged(nameof(PSFRSquared));
+            RaisePropertyChanged(nameof(Sigma));
             RaisePropertyChanged(nameof(FWHM));
             RaisePropertyChanged(nameof(FWHMMAD));
             RaisePropertyChanged(nameof(Eccentricity));

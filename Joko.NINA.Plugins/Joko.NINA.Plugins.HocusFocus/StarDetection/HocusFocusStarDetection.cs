@@ -49,6 +49,42 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        private StarDetectorPSFFitType psfType;
+
+        public StarDetectorPSFFitType PSFType {
+            get => psfType;
+            set {
+                if (psfType != value) {
+                    psfType = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double psfRSquared;
+
+        public double PSFRSquared {
+            get => psfRSquared;
+            set {
+                if (psfRSquared != value) {
+                    psfRSquared = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double sigma;
+
+        public double Sigma {
+            get => sigma;
+            set {
+                if (sigma != value) {
+                    sigma = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private double fwhm;
 
         public double FWHM {
@@ -112,6 +148,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public StarDetectorParams DetectorParams { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
         public DebugData DebugData { get; set; }
+
+        public StarDetectorPSFFitType PSFType { get; set; } = StarDetectorPSFFitType.Moffat_40;
+        public double PSFRSquared { get; set; } = double.NaN;
+        public double Sigma { get; set; } = double.NaN;
+
         public double FWHM { get; set; } = double.NaN;
         public double FWHMMAD { get; set; } = double.NaN;
         public double Eccentricity { get; set; } = double.NaN;
@@ -145,6 +186,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public async Task<StarDetectionResult> Detect(IRenderedImage image, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var binning = Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
             var pixelScale = MathUtility.ArcsecPerPixel(profileService.ActiveProfile.CameraSettings.PixelSize, profileService.ActiveProfile.TelescopeSettings.FocalLength) * binning;
+            if (double.IsNaN(pixelScale)) {
+                Notification.ShowWarning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
+            }
+
             var detectorParams = new StarDetectorParams() {
                 ModelPSF = starDetectionOptions.ModelPSF,
                 PSFFitType = starDetectionOptions.PSFFitType,
@@ -168,7 +213,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 PixelScale = pixelScale,
                 PSFParallelPartitionSize = starDetectionOptions.PSFParallelPartitionSize,
                 PSFResolution = starDetectionOptions.PSFResolution,
-                PSFGoodnessOfFitThreshold = starDetectionOptions.PSFFitThreshold
+                PSFGoodnessOfFitThreshold = starDetectionOptions.PSFFitThreshold,
+                CalculatePSFCenter = starDetectionOptions.CalculatePSFCenter
             };
 
             // For AutoFocus, don't save intermediate data or model PSFs
@@ -233,6 +279,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (detectorParams.ModelPSF) {
                 var psfStarList = starList.Where(s => s.PSF != null).ToList();
                 if (psfStarList.Count > 1) {
+                    result.PSFType = detectorParams.PSFFitType;
+
+                    var (sigma, _) = psfStarList.Select(s => s.PSF.Sigma).MedianMAD();
+                    result.Sigma = sigma;
+
+                    var (psfRSquared, _) = psfStarList.Select(s => s.PSF.RSquared).MedianMAD();
+                    result.PSFRSquared = psfRSquared;
+
                     var (fwhm, fwhmMAD) = psfStarList.Select(s => s.PSF.FWHMArcsecs).MedianMAD();
                     result.FWHM = fwhm;
                     result.FWHMMAD = fwhmMAD;
@@ -296,6 +350,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             hocusFocusAnalysis.HFRStDev = result.HFRStdDev;
             hocusFocusAnalysis.DetectedStars = result.DetectedStars;
             hocusFocusAnalysis.Metrics = hocusFocusResult.Metrics;
+            hocusFocusAnalysis.PSFType = hocusFocusResult.PSFType;
+            hocusFocusAnalysis.PSFRSquared = hocusFocusResult.PSFRSquared;
+            hocusFocusAnalysis.Sigma = hocusFocusResult.Sigma;
             hocusFocusAnalysis.FWHM = hocusFocusResult.FWHM;
             hocusFocusAnalysis.FWHMMAD = hocusFocusResult.FWHMMAD;
             hocusFocusAnalysis.Eccentricity = hocusFocusResult.Eccentricity;

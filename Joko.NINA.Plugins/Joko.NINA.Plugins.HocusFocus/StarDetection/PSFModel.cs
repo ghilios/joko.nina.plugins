@@ -17,7 +17,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class PSFModel {
 
-        public PSFModel(double fwhmX, double fwhmY, double thetaRadians, double rSquared, double pixelScale) {
+        public PSFModel(StarDetectorPSFFitType psfType, double sigmaX, double sigmaY, double fwhmX, double fwhmY, double thetaRadians, double rSquared, double pixelScale) {
+            this.PSFType = psfType;
+            this.SigmaX = sigmaX;
+            this.SigmaY = sigmaY;
+            this.Sigma = Math.Sqrt(sigmaX * sigmaY);
             this.FWHMx = fwhmX;
             this.FWHMy = fwhmY;
             this.ThetaRadians = thetaRadians;
@@ -29,6 +33,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             this.RSquared = rSquared;
         }
 
+        public StarDetectorPSFFitType PSFType { get; private set; }
+        public double SigmaX { get; private set; }
+        public double SigmaY { get; private set; }
+        public double Sigma { get; private set; }
         public double FWHMx { get; private set; }
         public double FWHMy { get; private set; }
         public double ThetaRadians { get; private set; }
@@ -38,7 +46,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double RSquared { get; private set; }
 
         public override string ToString() {
-            return $"{{{nameof(FWHMx)}={FWHMx.ToString()}, {nameof(FWHMy)}={FWHMy.ToString()}, {nameof(ThetaRadians)}={ThetaRadians.ToString()}, {nameof(FWHMPixels)}={FWHMPixels.ToString()}, {nameof(FWHMArcsecs)}={FWHMArcsecs.ToString()}, {nameof(Eccentricity)}={Eccentricity.ToString()}, {nameof(RSquared)}={RSquared.ToString()}}}";
+            return $"{{{nameof(PSFType)}={PSFType.ToString()}, {nameof(SigmaX)}={SigmaX.ToString()}, {nameof(SigmaY)}={SigmaY.ToString()}, {nameof(Sigma)}={Sigma.ToString()}, {nameof(FWHMx)}={FWHMx.ToString()}, {nameof(FWHMy)}={FWHMy.ToString()}, {nameof(ThetaRadians)}={ThetaRadians.ToString()}, {nameof(FWHMPixels)}={FWHMPixels.ToString()}, {nameof(FWHMArcsecs)}={FWHMArcsecs.ToString()}, {nameof(Eccentricity)}={Eccentricity.ToString()}, {nameof(RSquared)}={RSquared.ToString()}}}";
         }
     }
 }

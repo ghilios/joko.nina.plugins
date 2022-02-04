@@ -29,9 +29,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 throw new Exception($"Guid not found in assembly metadata");
             }
 
+            profileService.ProfileChanged += ProfileService_ProfileChanged;
+
             this.optionsAccessor = new PluginOptionsAccessor(profileService, guid.Value);
             this.PropertyChanged += StarDetectionOptions_PropertyChanged;
             InitializeOptions();
+        }
+
+        private void ProfileService_ProfileChanged(object sender, EventArgs e) {
+            InitializeOptions();
+            RaiseAllPropertiesChanged();
         }
 
         private HashSet<String> SimplePropertyNames = new HashSet<string>() {
@@ -88,6 +95,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // TODO: Consider increasing the resolution for long focal lengths
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
+            CalculatePSFCenter = false;
         }
 
         private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -108,7 +116,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             psfFitType = optionsAccessor.GetValueEnum<StarDetectorPSFFitType>("PSFFitType", StarDetectorPSFFitType.Moffat_40);
             simple_NoiseLevel = optionsAccessor.GetValueEnum<NoiseLevelEnum>("Simple_NoiseLevel", NoiseLevelEnum.Typical);
             simple_PixelScale = optionsAccessor.GetValueEnum<PixelScaleEnum>("Simple_PixelScale", PixelScaleEnum.Typical);
-            simple_FocusRange = optionsAccessor.GetValueEnum<FocusRangeEnum>("simple_FocusRange", FocusRangeEnum.Typical);
+            simple_FocusRange = optionsAccessor.GetValueEnum<FocusRangeEnum>("Simple_FocusRange", FocusRangeEnum.Typical);
             hotpixelFiltering = optionsAccessor.GetValueBoolean("HotpixelFiltering", true);
             useAutoFocusCrop = optionsAccessor.GetValueBoolean("UseAutoFocusCrop", true);
             noiseReductionRadius = optionsAccessor.GetValueInt32("NoiseReductionRadius", 3);
@@ -136,6 +144,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             psfParallelPartitionSize = optionsAccessor.GetValueInt32("PSFParallelPartitionSize", 100);
             psfResolution = optionsAccessor.GetValueInt32("PSFResolution", 10);
             psfFitThreshold = optionsAccessor.GetValueDouble("PSFFitThreshold", 0.9);
+            calculatePSFCenter = optionsAccessor.GetValueBoolean("CalculatePSFCenter", false);
             ConfigureSimpleSettings();
         }
 
@@ -171,6 +180,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFParallelPartitionSize = 100;
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
+            CalculatePSFCenter = false;
         }
 
         private bool debugMode;
@@ -582,6 +592,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     psfFitThreshold = value;
                     optionsAccessor.SetValueDouble("PSFFitThreshold", psfFitThreshold);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool calculatePSFCenter;
+
+        public bool CalculatePSFCenter {
+            get => calculatePSFCenter;
+            set {
+                if (calculatePSFCenter != value) {
+                    calculatePSFCenter = value;
+                    optionsAccessor.SetValueBoolean("CalculatePSFCenter", calculatePSFCenter);
                     RaisePropertyChanged();
                 }
             }
