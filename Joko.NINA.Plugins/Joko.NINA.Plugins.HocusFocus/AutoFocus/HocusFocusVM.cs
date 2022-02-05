@@ -456,6 +456,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// <param name="initialFocusPosition"></param>
         /// <param name="initialHFR"></param>
         private AutoFocusReport GenerateReport(
+            AutoFocusState state,
+            int attemptNumber,
             double initialFocusPosition,
             double initialHFR,
             double finalHFR,
@@ -481,8 +483,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     duration
                 );
 
+                var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
+                if (!string.IsNullOrEmpty(state.SaveFolder)) {
+                    var targetFilePath = Path.Combine(state.SaveFolder, $"{attemptNumber:00}_autofocus_report.json");
+                    File.WriteAllText(targetFilePath, reportText);
+                }
+
                 string path = Path.Combine(ReportDirectory, DateTime.Now.ToString("yyyy-MM-dd--HH-mm-ss") + ".json");
-                File.WriteAllText(path, JsonConvert.SerializeObject(report));
+                File.WriteAllText(path, reportText);
                 return report;
             } catch (Exception ex) {
                 Logger.Error(ex);
@@ -985,6 +993,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     token.ThrowIfCancellationRequested();
 
                     var report = GenerateReport(
+                        autoFocusState,
+                        autoFocusState.AttemptNumber,
                         initialFocusPosition,
                         InitialHFR,
                         FinalHFR,
