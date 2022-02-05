@@ -80,7 +80,7 @@
                                         </TextBlock.Text>
                                     </TextBlock>
                                 </StackPanel>
-                                <ContentControl Content="{Binding AutoFocusOptions}" ContentTemplate="{StaticResource HocusFocus_AutoFocus_Options}" />
+                                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_AutoFocus_Options}" />
                                 <Button
                                     Margin="5"
                                     HorizontalAlignment="Center"

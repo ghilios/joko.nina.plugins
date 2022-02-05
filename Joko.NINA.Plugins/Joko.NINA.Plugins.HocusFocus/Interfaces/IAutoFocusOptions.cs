@@ -23,5 +23,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool ValidateHfrImprovement { get; set; }
         double HFRImprovementThreshold { get; set; }
         int AutoFocusTimeoutSeconds { get; set; }
+        string SavePath { get; set; }
+        bool Save { get; set; }
     }
 }

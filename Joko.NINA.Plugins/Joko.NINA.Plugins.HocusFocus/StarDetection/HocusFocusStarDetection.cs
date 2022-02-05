@@ -33,6 +33,7 @@ using NINA.Profile.Interfaces;
 using Star = NINA.Joko.Plugins.HocusFocus.Interfaces.Star;
 using NINA.WPF.Base.Interfaces;
 using NINA.WPF.Base.ViewModel;
+using Newtonsoft.Json;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -147,6 +148,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     public class HocusFocusStarDetectionResult : StarDetectionResult {
         public StarDetectorParams DetectorParams { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
+
+        [JsonIgnore]
         public DebugData DebugData { get; set; }
 
         public StarDetectorPSFFitType PSFType { get; set; } = StarDetectorPSFFitType.Moffat_40;

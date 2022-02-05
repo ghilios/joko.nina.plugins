@@ -81,7 +81,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             this.applicationStatusMediator = applicationStatusMediator;
 
-            this.HocusFocusVM = (HocusFocusVM)new HocusFocusVMFactory(profileService, cameraMediator, filterWheelMediator, focuserMediator, guiderMediator, imagingMediator, starDetectionSelector).Create();
+            this.HocusFocusVM = (HocusFocusVM)new HocusFocusVMFactory(profileService, cameraMediator, filterWheelMediator, focuserMediator, guiderMediator, imagingMediator, starDetectionSelector, starAnnotatorSelector).Create();
 
             ChartList = new AsyncObservableCollection<Chart>();
             ChartListSelectable = true;

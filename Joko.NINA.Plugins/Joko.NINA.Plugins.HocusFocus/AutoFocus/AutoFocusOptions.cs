@@ -42,6 +42,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             autoFocusTimeoutSeconds = optionsAccessor.GetValueInt32("AutoFocusTimeoutSeconds", (int)TimeSpan.FromMinutes(10).TotalSeconds);
             validateHfrImprovement = optionsAccessor.GetValueBoolean("ValidateHfrImprovement", true);
             hfrImprovementThreshold = optionsAccessor.GetValueDouble("HFRImprovementThreshold", 0.15);
+            savePath = optionsAccessor.GetValueString("SavePath", "");
+            save = optionsAccessor.GetValueBoolean("Save", false);
         }
 
         public void ResetDefaults() {
@@ -55,6 +57,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusTimeoutSeconds = (int)TimeSpan.FromMinutes(10).TotalSeconds;
             ValidateHfrImprovement = true;
             HFRImprovementThreshold = 0.15;
+            SavePath = "";
+            Save = false;
         }
 
         private int maxConcurrent;
@@ -206,6 +210,32 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                     autoFocusTimeoutSeconds = value;
                     optionsAccessor.SetValueInt32("AutoFocusTimeoutSeconds", autoFocusTimeoutSeconds);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private string savePath;
+
+        public string SavePath {
+            get => savePath;
+            set {
+                if (savePath != value) {
+                    savePath = value;
+                    optionsAccessor.SetValueString(nameof(SavePath), savePath);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool save;
+
+        public bool Save {
+            get => save;
+            set {
+                if (save != value) {
+                    save = value;
+                    optionsAccessor.SetValueBoolean(nameof(Save), save);
                     RaisePropertyChanged();
                 }
             }

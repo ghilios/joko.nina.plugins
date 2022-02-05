@@ -29,6 +29,8 @@
     <TextBlock x:Key="HFRImprovementThreshold_Tooltip" Text="How much wiggle room when validating HFR improvements. The default value of 15% means that the Auto Focus fails if the initial HFR is 15% or more better than the final HFR" />
     <TextBlock x:Key="HotpixelFiltering_Tooltip" Text="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
     <TextBlock x:Key="UseAutoFocusCrop_Tooltip" Text="Uses the inner and outer crop from the Auto Focus options for regular exposures (ie, those that aren't done during focusing)" />
+    <TextBlock x:Key="SavePath_Tooltip" Text="The folder to save Auto Focus runs" />
+    <TextBlock x:Key="SaveAutoFocus_Tooltip" Text="Saves details about every Auto Focus run, including a copy of the image, the star detection results, and the stretched annotated image" />
     <TextBlock x:Key="NoiseReductionRadius_Tooltip" Text="Blurs the image with a NxN gaussian convolution and a sigma automatically chosen to match this radius. Larger values blur the image further. If this is enabled, hotpixel filtering is automatically performed before to prevent the hotpixels from bleeding into the surrounding pixels" />
     <TextBlock x:Key="NoiseClippingMultiplier_Tooltip" Text="Structure map generation binarizes pixels above the noise floor after noise detection and before star detection. This floor is calculated based on the background (median of the whole image) + this multiplier times the noise standard deviation, as calculated using the Kappa-Sigma algorithm. Increasing this value more aggressively clips the background, which can be useful if star bounding boxes include too much background data." />
     <TextBlock x:Key="StarClippingMultiplier_Tooltip" Text="Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis. Decrease this if there are a large number of stars excluded for being degenerate and you can see many clear dim stars that are not detected." />
@@ -86,8 +88,19 @@
     <TextBlock x:Key="SimplePixelScale_Tooltip" Text="At high focal lengths, pixel scale decreases and apparent star size (in pixels) increases. Setting this to a higher focal length increases the number of layers considered for star detection, which could increase false positives due from nebulosity" />
     <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
         <Grid Margin="5" VerticalAlignment="Top">
+            <Grid.Resources>
+                <Style x:Key="HideOnSaveOff" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="Auto" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding AutoFocusOptions.Save}" Value="False">
+                            <Setter Property="Height" Value="0" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Resources>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition />
                 <ColumnDefinition />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
@@ -95,6 +108,8 @@
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
+                <RowDefinition />
+                <RowDefinition Style="{StaticResource HideOnSaveOff}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -110,7 +125,7 @@
                 HorizontalAlignment="Left"
                 ToolTip="{StaticResource MaxConcurrent_Tooltip}"
                 Unit="images">
-                <Binding Path="MaxConcurrent" UpdateSourceTrigger="LostFocus" Converter="{StaticResource HF_ZeroToInfinityConverter}">
+                <Binding Path="AutoFocusOptions.MaxConcurrent" UpdateSourceTrigger="LostFocus" Converter="{StaticResource HF_ZeroToInfinityConverter}">
                     <Binding.ValidationRules>
                         <hfrules:PositiveIntegerOrInfiniteRule />
                     </Binding.ValidationRules>
@@ -131,7 +146,7 @@
                 VerticalAlignment="Center"
                 Unit="seconds"
                 ToolTip="{StaticResource AutoFocusTimeoutSeconds_Tooltip}">
-                <Binding Path="AutoFocusTimeoutSeconds" UpdateSourceTrigger="LostFocus">
+                <Binding Path="AutoFocusOptions.AutoFocusTimeoutSeconds" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterThanZeroRule />
                     </Binding.ValidationRules>
@@ -150,8 +165,9 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                IsChecked="{Binding ValidateHfrImprovement}"
+                IsChecked="{Binding AutoFocusOptions.ValidateHfrImprovement}"
                 ToolTip="{StaticResource ValidateHfrImprovement_Tooltip}" />
+
             <TextBlock
                 Grid.Row="3"
                 Grid.Column="0"
@@ -169,12 +185,86 @@
                 VerticalAlignment="Center"
                 Unit="%"
                 ToolTip="{StaticResource HFRImprovementThreshold_Tooltip}">
-                <Binding Path="HFRImprovementThreshold" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
+                <Binding Path="AutoFocusOptions.HFRImprovementThreshold" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="4"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Save"
+                ToolTip="{StaticResource SaveAutoFocus_Tooltip}" />
+            <CheckBox
+                Grid.Row="4"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding AutoFocusOptions.Save}"
+                ToolTip="{StaticResource SaveAutoFocus_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="5"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Save Path"
+                ToolTip="{StaticResource SavePath_Tooltip}" />
+            <TextBox
+                Grid.Row="5"
+                Grid.Column="1"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Center"
+                VerticalContentAlignment="Center">
+                <TextBox.Text>
+                    <Binding Path="AutoFocusOptions.SavePath" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:DirectoryExistsRule />
+                        </Binding.ValidationRules>
+                    </Binding>
+                </TextBox.Text>
+                <TextBox.Style>
+                    <Style TargetType="{x:Type TextBox}" BasedOn="{StaticResource StandardTextbox}">
+                        <Setter Property="MaxWidth" Value="200" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding AutoFocusOptions.Save}" Value="False">
+                                <Setter Property="MaxWidth" Value="0" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBox.Style>
+            </TextBox>
+            <Button
+                Grid.Row="5"
+                Grid.Column="2"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Command="{Binding ChooseSavePathDiagCommand}">
+                <Path
+                    Margin="2,10,2,0"
+                    Data="{StaticResource DotsSVG}"
+                    Fill="{StaticResource ButtonForegroundBrush}"
+                    Stretch="Uniform" />
+                <Button.Style>
+                    <Style TargetType="{x:Type Button}" BasedOn="{StaticResource StandardButton}">
+                        <Setter Property="Width" Value="20" />
+                        <Setter Property="Height" Value="20" />
+                        <Setter Property="Margin" Value="5,5,0,0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding AutoFocusOptions.Save}" Value="False">
+                                <Setter Property="Width" Value="0" />
+                                <Setter Property="Height" Value="0" />
+                                <Setter Property="Margin" Value="0" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">

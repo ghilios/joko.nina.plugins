@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using Newtonsoft.Json;
 using NINA.Core.Utility;
 using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -57,9 +58,9 @@ namespace TestApp {
                     PSFParallelPartitionSize = 0,
                     PSFResolution = 10,
                     PSFGoodnessOfFitThreshold = 0.9,
-                    PixelScale = 1.1d
+                    PixelScale = 1.1d,
                     // SaveIntermediateFilesPath = IntermediatePath,
-                    // CenterROICropRatio = 0.3
+                    CenterROICropRatio = 0.3
                 };
                 var detectorResult = await detector.Detect(srcFloat, detectorParams, null, CancellationToken.None);
                 var detectionResult = new HocusFocusStarDetectionResult() {

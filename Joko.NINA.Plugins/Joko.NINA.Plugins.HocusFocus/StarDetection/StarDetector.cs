@@ -543,8 +543,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         }
 
                         // Now that we've evaluated the pixels within the star bounding box, we can zero them all out so we don't look again
-                        foreach (var starPoint in starPoints) {
-                            structureData[starPoint.Y * width + starPoint.X] = 0.0f;
+                        for (int y = starBounds.Top; y < starBounds.Bottom; ++y) {
+                            for (int x = starBounds.Left; x < starBounds.Right; ++x) {
+                                structureData[y * width + x] = 0.0f;
+                            }
                         }
                     }
                 }
