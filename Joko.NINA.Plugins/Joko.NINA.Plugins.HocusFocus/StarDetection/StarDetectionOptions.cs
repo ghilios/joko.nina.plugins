@@ -204,6 +204,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (useAdvanced != value) {
                     useAdvanced = value;
                     optionsAccessor.SetValueBoolean("UseAdvanced", useAdvanced);
+                    ConfigureSimpleSettings();
                     RaisePropertyChanged();
                 }
             }
@@ -243,6 +244,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (simple_NoiseLevel != value) {
                     simple_NoiseLevel = value;
                     optionsAccessor.SetValueEnum<NoiseLevelEnum>("Simple_NoiseLevel", value);
+                    ConfigureSimpleSettings();
                     RaisePropertyChanged();
                 }
             }
@@ -256,6 +258,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (simple_PixelScale != value) {
                     simple_PixelScale = value;
                     optionsAccessor.SetValueEnum<PixelScaleEnum>("Simple_PixelScale", value);
+                    ConfigureSimpleSettings();
                     RaisePropertyChanged();
                 }
             }
@@ -269,6 +272,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (simple_FocusRange != value) {
                     simple_FocusRange = value;
                     optionsAccessor.SetValueEnum<FocusRangeEnum>("Simple_FocusRange", value);
+                    ConfigureSimpleSettings();
                     RaisePropertyChanged();
                 }
             }

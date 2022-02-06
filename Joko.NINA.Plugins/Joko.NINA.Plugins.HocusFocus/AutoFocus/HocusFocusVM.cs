@@ -238,6 +238,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
             set {
                 finalFocusPoint = value;
+                FinalFocuserPosition = (int)Math.Round(finalFocusPoint.X);
                 RaisePropertyChanged();
             }
         }
@@ -1021,7 +1022,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         FinalFocusPoint = finalFocusPoint;
                         LastAutoFocusPoint = lastAutoFocusPoint;
                         AutoFocusDuration = duration;
-                        FinalFocuserPosition = (int)Math.Round(finalFocusPoint.X);
                         return report;
                     }
                 } while (reattempt);
