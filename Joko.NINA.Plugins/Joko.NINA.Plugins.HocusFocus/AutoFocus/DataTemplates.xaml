@@ -424,51 +424,6 @@
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectorDockable_Dockable">
         <ContentControl Content="{Binding StarDetectionOptions}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
     </DataTemplate>
-    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusToolVM_Dockable">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <Grid Margin="5,0,5,0">
-                <Grid.RowDefinitions>
-                    <RowDefinition />
-                    <RowDefinition MinHeight="10" Height="Auto" />
-                    <RowDefinition Height="30" />
-                    <RowDefinition Height="30" />
-                    <RowDefinition Height="30" />
-                </Grid.RowDefinitions>
-                <ContentControl Content="{Binding HocusFocusVM}" ContentTemplate="{StaticResource NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable}" />
-
-                <ComboBox
-                    Name="PART_FocusChartComboBox"
-                    Grid.Row="2"
-                    Height="25"
-                    MinWidth="0"
-                    Margin="10,0,2,0"
-                    IsEnabled="{Binding ChartListSelectable}"
-                    ItemsSource="{Binding ChartList}"
-                    SelectedValue="{Binding SelectedChart}">
-                    <b:Interaction.Triggers>
-                        <b:EventTrigger EventName="SelectionChanged">
-                            <b:InvokeCommandAction Command="{Binding SelectionChangedCommand}" />
-                        </b:EventTrigger>
-                    </b:Interaction.Triggers>
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Name}" />
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-
-                <ninactrl:CancellableButton
-                    Grid.Row="3"
-                    Height="25"
-                    Margin="10,0,2,0"
-                    ButtonText="{ns:Loc LblStartAutoFocus}"
-                    CancelButtonImage="{StaticResource CancelSVG}"
-                    CancelCommand="{Binding CancelAutoFocusCommand}"
-                    CancelToolTip="{ns:Loc LblCancel}"
-                    Command="{Binding StartAutoFocusCommand}" />
-            </Grid>
-        </ScrollViewer>
-    </DataTemplate>
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionResultsVM_Dockable">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <Grid Margin="5">

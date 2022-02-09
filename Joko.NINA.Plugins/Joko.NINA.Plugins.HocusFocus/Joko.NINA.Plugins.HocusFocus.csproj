@@ -284,15 +284,17 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AutoFocus\AutoFocusEngine.cs" />
+    <Compile Include="AutoFocus\AutoFocusEngineFactory.cs" />
     <Compile Include="AutoFocus\AutoFocusOptions.cs" />
     <Compile Include="AutoFocus\DataTemplates.xaml.cs">
       <DependentUpon>DataTemplates.xaml</DependentUpon>
     </Compile>
     <Compile Include="AutoFocus\Exceptions.cs" />
     <Compile Include="AutoFocus\HocusFocusReport.cs" />
-    <Compile Include="AutoFocus\HocusFocusToolVM.cs" />
     <Compile Include="AutoFocus\HocusFocusVM.cs" />
     <Compile Include="AutoFocus\HocusFocusVMFactory.cs" />
+    <Compile Include="Interfaces\IAutoFocusEngine.cs" />
     <Compile Include="Converters\AutoFocusFittingToVisibilityConverter.cs" />
     <Compile Include="Converters\DecimalDegreesToArcsecDoubleDashConverter.cs" />
     <Compile Include="Converters\DecimalMinToDoubleDashConverter.cs" />

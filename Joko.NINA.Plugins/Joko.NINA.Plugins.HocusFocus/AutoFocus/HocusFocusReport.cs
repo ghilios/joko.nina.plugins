@@ -63,23 +63,23 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Fitting = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR ? profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting.ToString() : "GAUSSIAN",
                 MeasurePoints = FocusPoints.Select(x => new FocusPoint() { Position = x.X, Value = x.Y, Error = x.ErrorY }),
                 Intersections = new Intersections() {
-                    TrendLineIntersection = new FocusPoint() { Position = trendlineFitting.Intersection.X, Value = trendlineFitting.Intersection.Y },
-                    GaussianMaximum = new FocusPoint() { Position = gaussianFitting.Maximum.X, Value = gaussianFitting.Maximum.Y },
-                    HyperbolicMinimum = new FocusPoint() { Position = hyperbolicFitting.Minimum.X, Value = hyperbolicFitting.Minimum.Y },
-                    QuadraticMinimum = new FocusPoint() { Position = quadraticFitting.Minimum.X, Value = quadraticFitting.Minimum.Y }
+                    TrendLineIntersection = trendlineFitting != null ? new FocusPoint() { Position = trendlineFitting.Intersection.X, Value = trendlineFitting.Intersection.Y } : null,
+                    GaussianMaximum = gaussianFitting != null ? new FocusPoint() { Position = gaussianFitting.Maximum.X, Value = gaussianFitting.Maximum.Y } : null,
+                    HyperbolicMinimum = hyperbolicFitting != null ? new FocusPoint() { Position = hyperbolicFitting.Minimum.X, Value = hyperbolicFitting.Minimum.Y } : null,
+                    QuadraticMinimum = quadraticFitting != null ? new FocusPoint() { Position = quadraticFitting.Minimum.X, Value = quadraticFitting.Minimum.Y } : null
                 },
                 Fittings = new Fittings() {
-                    Gaussian = gaussianFitting.Expression,
-                    Hyperbolic = hyperbolicFitting.Expression,
-                    Quadratic = quadraticFitting.Expression,
-                    LeftTrend = trendlineFitting.LeftExpression,
-                    RightTrend = trendlineFitting.RightExpression
+                    Gaussian = gaussianFitting?.Expression ?? "",
+                    Hyperbolic = hyperbolicFitting?.Expression ?? "",
+                    Quadratic = quadraticFitting?.Expression ?? "",
+                    LeftTrend = trendlineFitting?.LeftExpression ?? "",
+                    RightTrend = trendlineFitting?.RightExpression ?? ""
                 },
                 RSquares = new RSquares() {
-                    Hyperbolic = hyperbolicFitting.RSquared,
-                    Quadratic = quadraticFitting.RSquared,
-                    LeftTrend = trendlineFitting.LeftTrend?.RSquared ?? double.NaN,
-                    RightTrend = trendlineFitting.RightTrend?.RSquared ?? double.NaN
+                    Hyperbolic = hyperbolicFitting?.RSquared ?? double.NaN,
+                    Quadratic = quadraticFitting?.RSquared ?? double.NaN,
+                    LeftTrend = trendlineFitting?.LeftTrend?.RSquared ?? double.NaN,
+                    RightTrend = trendlineFitting?.RightTrend?.RSquared ?? double.NaN
                 },
                 BacklashCompensation = new BacklashCompensation() {
                     BacklashCompensationModel = profileService.ActiveProfile.FocuserSettings.BacklashCompensationModel.ToString(),

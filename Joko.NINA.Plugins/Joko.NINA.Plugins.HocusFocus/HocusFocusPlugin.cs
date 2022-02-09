@@ -19,6 +19,9 @@ using NINA.Plugin.Interfaces;
 using NINA.Profile.Interfaces;
 using System.ComponentModel.Composition;
 using System.Windows.Input;
+using NINA.Equipment.Interfaces.Mediator;
+using NINA.Core.Interfaces;
+using NINA.Image.ImageAnalysis;
 
 namespace NINA.Joko.Plugins.HocusFocus {
 
@@ -26,7 +29,15 @@ namespace NINA.Joko.Plugins.HocusFocus {
     public class HocusFocusPlugin : PluginBase {
 
         [ImportingConstructor]
-        public HocusFocusPlugin(IProfileService profileService) {
+        public HocusFocusPlugin(
+            IProfileService profileService,
+            ICameraMediator cameraMediator,
+            IFilterWheelMediator filterWheelMediator,
+            IFocuserMediator focuserMediator,
+            IGuiderMediator guiderMediator,
+            IImagingMediator imagingMediator,
+            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
+            IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector) {
             if (Settings.Default.UpdateSettings) {
                 Settings.Default.Upgrade();
                 Settings.Default.UpdateSettings = false;
@@ -41,6 +52,18 @@ namespace NINA.Joko.Plugins.HocusFocus {
             }
             if (AutoFocusOptions == null) {
                 AutoFocusOptions = new AutoFocusOptions(profileService);
+            }
+            if (AutoFocusEngineFactory == null) {
+                AutoFocusEngineFactory = new AutoFocusEngineFactory(
+                    profileService,
+                    cameraMediator,
+                    filterWheelMediator,
+                    focuserMediator,
+                    guiderMediator,
+                    imagingMediator,
+                    starDetectionSelector,
+                    starAnnotatorSelector,
+                    AutoFocusOptions);
             }
 
             ResetStarDetectionDefaultsCommand = new RelayCommand((object o) => StarDetectionOptions.ResetDefaults());
@@ -75,6 +98,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public static StarAnnotatorOptions StarAnnotatorOptions { get; private set; }
 
         public static AutoFocusOptions AutoFocusOptions { get; private set; }
+
+        public static AutoFocusEngineFactory AutoFocusEngineFactory { get; private set; }
 
         public ICommand ResetStarDetectionDefaultsCommand { get; private set; }
 
