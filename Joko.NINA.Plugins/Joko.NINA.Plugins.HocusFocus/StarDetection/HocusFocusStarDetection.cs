@@ -148,6 +148,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     public class HocusFocusStarDetectionResult : StarDetectionResult {
         public StarDetectorParams DetectorParams { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
+        public HocusFocusDetectionParams HocusFocusParams { get; set; }
 
         [JsonIgnore]
         public DebugData DebugData { get; set; }
@@ -167,7 +168,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     }
 
     [Export(typeof(IPluggableBehavior))]
-    public class HocusFocusStarDetection : IStarDetection {
+    public class HocusFocusStarDetection : IHocusFocusStarDetection {
         private readonly IStarDetector starDetector;
         private readonly StarDetectionOptions starDetectionOptions;
         private readonly IProfileService profileService;
@@ -191,6 +192,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var pixelScale = MathUtility.ArcsecPerPixel(profileService.ActiveProfile.CameraSettings.PixelSize, profileService.ActiveProfile.TelescopeSettings.FocalLength) * binning;
             if (double.IsNaN(pixelScale)) {
                 Notification.ShowWarning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
+            }
+
+            var selectedAutoFocusBehavior = profileService.ActiveProfile.ApplicationSettings.SelectedPluggableBehaviors.Where(k => k.Key == typeof(IAutoFocusVMFactory).FullName).ToList();
+            var ninaStockAutoFocus = selectedAutoFocusBehavior.Count == 0 || selectedAutoFocusBehavior.First().Value == "NINA";
+            var isNinaAutoFocus = ninaStockAutoFocus && p.IsAutoFocus;
+            if (!starDetectionOptions.UseAutoFocusCrop && !isNinaAutoFocus) {
+                p.UseROI = false;
+            }
+
+            var starDetectionRegion = StarDetectionRegion.Full;
+            if (p.UseROI && p.InnerCropRatio < 1.0 && p.OuterCropRatio > 0.0) {
+                var outerCropRatio = p.OuterCropRatio >= 1.0 ? p.InnerCropRatio : p.OuterCropRatio;
+                var outerRegion = RatioRect.FromCenterROI(outerCropRatio);
+                RatioRect innerCropRegion = null;
+                if (p.OuterCropRatio < 1.0) {
+                    innerCropRegion = RatioRect.FromCenterROI(p.InnerCropRatio);
+                }
+                starDetectionRegion = new StarDetectionRegion(outerRegion, innerCropRegion);
             }
 
             var detectorParams = new StarDetectorParams() {
@@ -217,7 +236,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 PSFParallelPartitionSize = starDetectionOptions.PSFParallelPartitionSize,
                 PSFResolution = starDetectionOptions.PSFResolution,
                 PSFGoodnessOfFitThreshold = starDetectionOptions.PSFFitThreshold,
-                CalculatePSFCenter = starDetectionOptions.CalculatePSFCenter
+                CalculatePSFCenter = starDetectionOptions.CalculatePSFCenter,
+                Region = starDetectionRegion
             };
 
             // For AutoFocus, don't save intermediate data or model PSFs
@@ -229,18 +249,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 starDetectionOptions.SaveIntermediateImages = false;
             }
 
-            if (p.UseROI && p.InnerCropRatio < 1.0 && p.OuterCropRatio > 0.0) {
-                detectorParams.CenterROICropRatio = p.OuterCropRatio >= 1.0 ? p.InnerCropRatio : p.OuterCropRatio;
-                if (p.OuterCropRatio < 1.0) {
-                    detectorParams.InnerROICropRatio = p.InnerCropRatio / p.OuterCropRatio;
-                }
-            }
+            var hocusFocusParams = new HocusFocusDetectionParams() {
+                HighSigmaOutlierRejection = p.Sensitivity == StarSensitivityEnum.Normal ? 3.0d : 4.0d,
+                LowSigmaOutlierRejection = 3.0d,
+                MatchStarPositions = p.MatchStarPositions,
+                NumberOfAFStars = p.NumberOfAFStars,
+                IsAutoFocus = p.IsAutoFocus
+            };
 
-            var selectedAutoFocusBehavior = profileService.ActiveProfile.ApplicationSettings.SelectedPluggableBehaviors.Where(k => k.Key == typeof(IAutoFocusVMFactory).FullName).ToList();
-            var ninaStockAutoFocus = selectedAutoFocusBehavior.Count == 0 || selectedAutoFocusBehavior.First().Value == "NINA";
-            var isNinaAutoFocus = ninaStockAutoFocus && p.IsAutoFocus;
+            var detectionResult = await Detect(image, hocusFocusParams, detectorParams, progress, token);
+            detectionResult.Params = p;
+            return detectionResult;
+        }
 
-            var result = new HocusFocusStarDetectionResult() { Params = p, DetectorParams = detectorParams };
+        public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            var result = new HocusFocusStarDetectionResult() { HocusFocusParams = hocusFocusParams, DetectorParams = detectorParams };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
                 Notification.ShowInformation("Saved intermediate star detection files");
@@ -249,13 +272,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var starList = starDetectorResult.DetectedStars;
-            if (!starDetectionOptions.UseAutoFocusCrop && !isNinaAutoFocus) {
-                p.UseROI = false;
-            }
 
-            if (p.UseROI) {
+            if (!detectorParams.Region.IsFull()) {
                 var before = starList.Count;
-                starList = starList.Where(s => InROI(s, imageSize, p)).ToList();
+                starList = starList.Where(s => InROI(s, imageSize, detectorParams.Region)).ToList();
                 var outsideRoi = before - starList.Count;
                 if (outsideRoi > 0) {
                     starDetectorResult.Metrics.OutsideROI = outsideRoi;
@@ -268,12 +288,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // Now that we have a properly filtered star list, let's compute stats and further filter out from the average
                 // Median and MAD are used as they are more robust to outliers
                 var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
-                if (p.Sensitivity == StarSensitivityEnum.Normal) {
-                    starList = starList.Where(s => s.HFR <= hfrMedian + 3.0 * hfrMAD && s.HFR >= hfrMedian - 3.0 * hfrMAD).ToList<Star>();
-                } else {
-                    // More sensitivity means getting fainter and smaller stars, and maybe some noise, skewing the distribution towards low hfr. Let's be more permissive towards the large star end.
-                    starList = starList.Where(s => s.HFR <= hfrMedian + 4 * hfrMAD && s.HFR >= hfrMedian - 3.0 * hfrMAD).ToList<Star>();
-                }
+                starList = starList.Where(s => s.HFR <= hfrMedian + hocusFocusParams.HighSigmaOutlierRejection * hfrMAD && s.HFR >= hfrMedian - hocusFocusParams.LowSigmaOutlierRejection * hfrMAD).ToList<Star>();
 
                 int countAfter = starList.Count;
                 Logger.Trace($"Discarded {countBefore - countAfter} outlier stars");
@@ -301,15 +316,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
 
             result.DetectedStars = starList.Count;
-            if (p.NumberOfAFStars > 0) {
-                if (starList.Count != 0 && (p.MatchStarPositions == null || p.MatchStarPositions.Count == 0)) {
-                    if (starList.Count > p.NumberOfAFStars) {
-                        starList = starList.OrderByDescending(s => s.HFR * 0.3 + s.MeanBrightness * 0.7).Take(p.NumberOfAFStars).ToList<Star>();
+            if (hocusFocusParams.NumberOfAFStars > 0) {
+                if (starList.Count != 0 && (hocusFocusParams.MatchStarPositions == null || hocusFocusParams.MatchStarPositions.Count == 0)) {
+                    if (starList.Count > hocusFocusParams.NumberOfAFStars) {
+                        starList = starList.OrderByDescending(s => s.HFR * 0.3 + s.MeanBrightness * 0.7).Take(hocusFocusParams.NumberOfAFStars).ToList<Star>();
                     }
                     result.BrightestStarPositions = starList.Select(s => s.Center.ToAccordPoint()).ToList();
                 } else { // find the closest stars to the brightest stars previously identified
                     var topStars = new List<Star>();
-                    p.MatchStarPositions.ForEach(pos => topStars.Add(starList.Aggregate((min, next) => min.Center.ToAccordPoint().DistanceTo(pos) < next.Center.ToAccordPoint().DistanceTo(pos) ? min : next)));
+                    hocusFocusParams.MatchStarPositions.ForEach(pos => topStars.Add(starList.Aggregate((min, next) => min.Center.ToAccordPoint().DistanceTo(pos) < next.Center.ToAccordPoint().DistanceTo(pos) ? min : next)));
                     starList = topStars;
                 }
             }
@@ -338,8 +353,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             };
         }
 
-        private static bool InROI(Star detectedStar, Size imageSize, StarDetectionParams p) {
-            return DetectionUtility.InROI(imageSize, detectedStar.StarBoundingBox.ToDrawingRectangle(), outerCropRatio: p.OuterCropRatio, innerCropRatio: p.InnerCropRatio);
+        private static bool InROI(Star detectedStar, Size imageSize, StarDetectionRegion starDetectionRegion) {
+            var starRectangle = detectedStar.StarBoundingBox.ToDrawingRectangle();
+            var withinOuter = starDetectionRegion.OuterBoundary.Contains(starRectangle, imageSize);
+            if (starDetectionRegion.InnerCropBoundary == null || !withinOuter) {
+                return withinOuter;
+            }
+            return !starDetectionRegion.InnerCropBoundary.Contains(starRectangle, imageSize);
         }
 
         public IStarDetectionAnalysis CreateAnalysis() {

@@ -311,6 +311,7 @@
     <Compile Include="Converters\ZeroToDoubleDashConverter.cs" />
     <Compile Include="Converters\ZeroToInfinityConverter.cs" />
     <Compile Include="Interfaces\IAutoFocusOptions.cs" />
+    <Compile Include="Interfaces\IHocusFocusStarDetection.cs" />
     <Compile Include="Interfaces\IStarAnnotatorOptions.cs" />
     <Compile Include="Interfaces\IStarDetectionOptions.cs" />
     <Compile Include="Interfaces\IStarDetector.cs" />

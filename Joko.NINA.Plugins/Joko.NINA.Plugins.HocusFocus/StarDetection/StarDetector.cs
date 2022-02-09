@@ -25,113 +25,8 @@ using static NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility;
 using MultiStopWatch = NINA.Joko.Plugins.HocusFocus.Utility.MultiStopWatch;
 using System.IO;
 using System.Text;
-using NINA.Joko.Plugins.HocusFocus.Converters;
-using System.ComponentModel;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
-
-    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
-    public enum StarDetectorPSFFitType {
-
-        [Description("Moffat 4.0")]
-        Moffat_40,
-
-        [Description("Gaussian")]
-        Gaussian
-    }
-
-    public class StarDetectorParams {
-        public bool HotpixelFiltering { get; set; } = true;
-
-        // Half size in pixels of a Gaussian convolution filter used for noise reduction. This is useful for low-SNR images
-        // Setting this value also implies hotpixel filtering is enabled, since otherwise we would blend the hot pixels into their neighbors
-        public int NoiseReductionRadius { get; set; } = 2;
-
-        // Number of noise standard deviations above the median to binarize the structure map containing star candidates. Increasing this is useful for noisy images to reduce
-        // spurious detected stars in combination with light noise reduction
-        public double NoiseClippingMultiplier { get; set; } = 4.0;
-
-        // Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis
-        public double StarClippingMultiplier { get; set; } = 2.0;
-
-        // Half size of a median box filter, used for hotpixel removal if HotpixelFiltering is enabled. Only 1 is supported for now, since OpenCV has native support for
-        // a median box filter but not a general circular one
-        public int HotpixelFilterRadius { get; set; } = 1;
-
-        // Number of wavelet layers for structure detection
-        public int StructureLayers { get; set; } = 4;
-
-        // Size of the circle used to dilate the structure map
-        public int StructureDilationSize { get; set; } = 3;
-
-        // Number of times to perform dilation on the structure map
-        public int StructureDilationCount { get; set; } = 0;
-
-        // Sensitivity is the minimum value of a star's brightness (with the background n subtracted out) above the noise floor (s - b)/n. Smaller values increase sensitivity
-        public double Sensitivity { get; set; } = 10.0;
-
-        // Maximum ratio of median pixel value to the peak for a candidate pixel to be rejected. Large values are more tolerant of flat structures
-        public double PeakResponse { get; set; } = 0.75;
-
-        // Maximum distortion allowed in each star, which is the ratio of "area" (number of pixels) to the area of a perfect square bounding box. A perfect
-        // circle has distortion PI/4 which is about 0.8. Smaller values are more distorted
-        public double MaxDistortion { get; set; } = 0.5;
-
-        // Size (as a ratio) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star
-        public double StarCenterTolerance { get; set; } = 0.3;
-
-        // The background is estimated by looking in an area around the star bounding box, increased on each side by this number of pixels
-        public int BackgroundBoxExpansion { get; set; } = 3;
-
-        // The minimum allowed size (length of either side) of a star candidate's bounding box. Increasing this can be helpful at very high focal lengths if too many small structures
-        // are detected
-        public int MinimumStarBoundingBoxSize { get; set; } = 5;
-
-        // Minimum HFR for a star to be considered viable
-        public double MinHFR { get; set; } = 1.5d;
-
-        // Amount of the image to crop before analysis
-        public double CenterROICropRatio { get; set; } = 1.0d;
-
-        // Amount of the ROI to consider for star detection
-        public double InnerROICropRatio { get; set; } = 1.0d;
-
-        // Granularity to sample star bounding boxes when computing star measurements
-        public float AnalysisSamplingSize { get; set; } = 1.0f;
-
-        public bool StoreStructureMap { get; set; } = false;
-
-        public string SaveIntermediateFilesPath { get; set; } = string.Empty;
-
-        // If a star contains any pixels greater than this threshold, it is rejected due to being fully saturated
-        public double SaturationThreshold { get; set; } = 0.99f;
-
-        // Whether to model PSFs
-        public bool ModelPSF { get; set; } = true;
-
-        // What type of PSF fitting should be done
-        public StarDetectorPSFFitType PSFFitType { get; set; } = StarDetectorPSFFitType.Moffat_40;
-
-        // If PSF modeling is enabled, any R^2 values below this threshold will be rejected
-        public double PSFGoodnessOfFitThreshold { get; set; } = 0.9;
-
-        // The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting
-        public int PSFResolution { get; set; } = 10;
-
-        // Enables parallel processing of PSF modeling by partitioning the detected stars into batches of this size
-        // Set <= 0 to disable parallelism
-        public int PSFParallelPartitionSize { get; set; } = 100;
-
-        // Pixel scale of the image given for star detection
-        public double PixelScale { get; set; } = 1.0d;
-
-        // When modeling PSFs, include calculation of the center in the modeler. This is more computationally intensive, but yields a more precise result
-        public bool CalculatePSFCenter { get; set; } = false;
-
-        public override string ToString() {
-            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(CenterROICropRatio)}={CenterROICropRatio.ToString()}, {nameof(InnerROICropRatio)}={InnerROICropRatio.ToString()}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(CalculatePSFCenter)}={CalculatePSFCenter.ToString()}}}";
-        }
-    }
 
     public class StarDetector : IStarDetector {
 
@@ -179,7 +74,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             File.WriteAllText(Path.Combine(p.SaveIntermediateFilesPath, filename), sb.ToString());
         }
 
-        public async Task<StarDetectorResult> Detect(Mat srcImage, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        public async Task<HocusFocusStarDetectorResult> Detect(Mat srcImage, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var resourceTracker = new ResourcesTracker();
             try {
                 return await DetectImpl(srcImage, resourceTracker, p, progress, token);
@@ -190,7 +85,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        public async Task<StarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        public async Task<HocusFocusStarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var resourceTracker = new ResourcesTracker();
             try {
                 var srcImage = CvImageUtility.ToOpenCVMat(image);
@@ -202,12 +97,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private async Task<StarDetectorResult> DetectImpl(Mat srcImage, ResourcesTracker resourceTracker, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        private async Task<HocusFocusStarDetectorResult> DetectImpl(Mat srcImage, ResourcesTracker resourceTracker, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
                 throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
-            }
-            if (p.CenterROICropRatio < 0.0) {
-                throw new ArgumentException("CenterROICropRatio cannot be negative", "p.CenterROICropRatio");
             }
 
             MaybeSaveIntermediateText(p.ToString(), p, "00-params.txt");
@@ -216,13 +108,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var debugData = new DebugData();
 
                 Rect? roiRect = null;
-                if (p.CenterROICropRatio < 1.0) {
-                    var startFactor = (1.0 - p.CenterROICropRatio) / 2.0;
+                if (p.Region.OuterBoundary.Height < 1.0d || p.Region.OuterBoundary.Width < 1.0d) {
                     roiRect = new Rect(
-                        (int)Math.Floor(srcImage.Cols * startFactor),
-                        (int)Math.Floor(srcImage.Rows * startFactor),
-                        (int)(srcImage.Cols * p.CenterROICropRatio),
-                        (int)(srcImage.Rows * p.CenterROICropRatio));
+                        (int)Math.Floor(srcImage.Cols * p.Region.OuterBoundary.StartX),
+                        (int)Math.Floor(srcImage.Rows * p.Region.OuterBoundary.StartY),
+                        (int)(srcImage.Cols * p.Region.OuterBoundary.Width),
+                        (int)(srcImage.Rows * p.Region.OuterBoundary.Height));
                     debugData.DetectionROI = roiRect.Value.ToDrawingRectangle();
 
                     var roiImage = srcImage.SubMat(roiRect.Value).Clone();
@@ -325,15 +216,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 // Step 8: Binarize foreground structures based on noise estimates
                 CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
-                if (p.InnerROICropRatio < 1.0d) {
-                    var startFactor = (1.0 - p.InnerROICropRatio) / 2.0;
+                if (p.Region.InnerCropBoundary != null) {
                     var innerRoiRect = new Rect(
-                        (int)Math.Floor(structureMap.Cols * startFactor),
-                        (int)Math.Floor(structureMap.Rows * startFactor),
-                        (int)(structureMap.Cols * p.InnerROICropRatio),
-                        (int)(structureMap.Rows * p.InnerROICropRatio));
+                        (int)Math.Floor(srcImage.Cols * p.Region.InnerCropBoundary.StartX),
+                        (int)Math.Floor(srcImage.Rows * p.Region.InnerCropBoundary.StartY),
+                        (int)(srcImage.Cols * p.Region.InnerCropBoundary.Width),
+                        (int)(srcImage.Rows * p.Region.InnerCropBoundary.Height));
                     structureMap.SubMat(innerRoiRect).SetTo(0.0f);
-                    Logger.Info($"Clearing structure map for inner ROI, using a ratio of {p.InnerROICropRatio}");
+                    Logger.Info($"Clearing structure map for inner ROI: {p.Region.InnerCropBoundary}");
                 }
 
                 stopWatch.RecordEntry("Binarization");
@@ -362,7 +252,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     metrics.AddROIOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top);
                 }
 
-                return new StarDetectorResult() {
+                return new HocusFocusStarDetectorResult() {
                     DetectedStars = stars,
                     Metrics = metrics,
                     DebugData = debugData

@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Astrometry;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {

@@ -91,6 +91,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
+            var hfResult = result as HocusFocusStarDetectionResult;
             using (var starBoundsBrush = new SolidBrush(StarAnnotatorOptions.StarBoundsColor.ToDrawingColor()))
             using (var starBoundsPen = new Pen(starBoundsBrush))
             using (var annotationBrush = new SolidBrush(StarAnnotatorOptions.AnnotationColor.ToDrawingColor()))
@@ -202,15 +203,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             }
                         }
 
-                        if (p.UseROI) {
-                            graphics.DrawRectangle(roiPen, (float)(1 - p.InnerCropRatio) * imageToAnnotate.PixelWidth / 2, (float)(1 - p.InnerCropRatio) * imageToAnnotate.PixelHeight / 2, (float)p.InnerCropRatio * imageToAnnotate.PixelWidth, (float)p.InnerCropRatio * imageToAnnotate.PixelHeight);
-                            if (p.OuterCropRatio < 1) {
-                                graphics.DrawRectangle(roiPen, (float)(1 - p.OuterCropRatio) * imageToAnnotate.PixelWidth / 2, (float)(1 - p.OuterCropRatio) * imageToAnnotate.PixelHeight / 2, (float)p.OuterCropRatio * imageToAnnotate.PixelWidth, (float)p.OuterCropRatio * imageToAnnotate.PixelHeight);
+                        if (hfResult != null) {
+                            if (!hfResult.DetectorParams.Region.IsFull()) {
+                                var outerRegion = hfResult.DetectorParams.Region.OuterBoundary;
+                                graphics.DrawRectangle(roiPen, (float)outerRegion.StartX * imageToAnnotate.PixelWidth, (float)outerRegion.StartY * imageToAnnotate.PixelHeight / 2, (float)outerRegion.Width * imageToAnnotate.PixelWidth, (float)outerRegion.Height * imageToAnnotate.PixelHeight);
+                                if (hfResult.DetectorParams.Region.InnerCropBoundary != null) {
+                                    var innerRegion = hfResult.DetectorParams.Region.InnerCropBoundary;
+                                    graphics.DrawRectangle(roiPen, (float)innerRegion.StartX * imageToAnnotate.PixelWidth, (float)innerRegion.StartY * imageToAnnotate.PixelHeight / 2, (float)innerRegion.Width * imageToAnnotate.PixelWidth, (float)innerRegion.Height * imageToAnnotate.PixelHeight);
+                                }
+                            }
+                        } else {
+                            if (p.UseROI) {
+                                graphics.DrawRectangle(roiPen, (float)(1 - p.InnerCropRatio) * imageToAnnotate.PixelWidth / 2, (float)(1 - p.InnerCropRatio) * imageToAnnotate.PixelHeight / 2, (float)p.InnerCropRatio * imageToAnnotate.PixelWidth, (float)p.InnerCropRatio * imageToAnnotate.PixelHeight);
+                                if (p.OuterCropRatio < 1) {
+                                    graphics.DrawRectangle(roiPen, (float)(1 - p.OuterCropRatio) * imageToAnnotate.PixelWidth / 2, (float)(1 - p.OuterCropRatio) * imageToAnnotate.PixelHeight / 2, (float)p.OuterCropRatio * imageToAnnotate.PixelWidth, (float)p.OuterCropRatio * imageToAnnotate.PixelHeight);
+                                }
                             }
                         }
 
                         if (StarAnnotatorOptions.ShowStructureMap != Interfaces.ShowStructureMapEnum.None) {
-                            var hfResult = result as HocusFocusStarDetectionResult;
                             var structureMapData = hfResult?.DebugData?.StructureMap;
                             if (structureMapData != null) {
                                 var minStructureMapValue = StarAnnotatorOptions.ShowStructureMap == Interfaces.ShowStructureMapEnum.Dilated ? 1 : 2;

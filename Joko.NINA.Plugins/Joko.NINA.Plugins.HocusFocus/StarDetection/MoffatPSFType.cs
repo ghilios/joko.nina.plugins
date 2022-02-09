@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using OpenCvSharp;
 using System;
 

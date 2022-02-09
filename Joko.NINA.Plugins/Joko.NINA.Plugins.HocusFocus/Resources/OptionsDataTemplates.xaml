@@ -820,7 +820,7 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type sd:StarDetectorPSFFitType}}}"
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:StarDetectorPSFFitType}}}"
                 SelectedItem="{Binding StarDetectionOptions.PSFFitType}"
                 ToolTip="{StaticResource PSFFitType_Tooltip}">
                 <ComboBox.ItemTemplate>

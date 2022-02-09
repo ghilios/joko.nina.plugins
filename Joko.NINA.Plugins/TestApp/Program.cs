@@ -60,7 +60,7 @@ namespace TestApp {
                     PSFGoodnessOfFitThreshold = 0.9,
                     PixelScale = 1.1d,
                     // SaveIntermediateFilesPath = IntermediatePath,
-                    CenterROICropRatio = 0.3
+                    Region = new StarDetectionRegion(RatioRect.FromCenterROI(0.3))
                 };
                 var detectorResult = await detector.Detect(srcFloat, detectorParams, null, CancellationToken.None);
                 var detectionResult = new HocusFocusStarDetectionResult() {
