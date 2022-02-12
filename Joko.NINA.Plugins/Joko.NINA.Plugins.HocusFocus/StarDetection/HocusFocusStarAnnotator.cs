@@ -206,10 +206,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         if (hfResult != null) {
                             if (!hfResult.DetectorParams.Region.IsFull()) {
                                 var outerRegion = hfResult.DetectorParams.Region.OuterBoundary;
-                                graphics.DrawRectangle(roiPen, (float)outerRegion.StartX * imageToAnnotate.PixelWidth, (float)outerRegion.StartY * imageToAnnotate.PixelHeight / 2, (float)outerRegion.Width * imageToAnnotate.PixelWidth, (float)outerRegion.Height * imageToAnnotate.PixelHeight);
+                                graphics.DrawRectangle(roiPen, (float)outerRegion.StartX * imageToAnnotate.PixelWidth, (float)outerRegion.StartY * imageToAnnotate.PixelHeight, (float)outerRegion.Width * imageToAnnotate.PixelWidth, (float)outerRegion.Height * imageToAnnotate.PixelHeight);
                                 if (hfResult.DetectorParams.Region.InnerCropBoundary != null) {
                                     var innerRegion = hfResult.DetectorParams.Region.InnerCropBoundary;
-                                    graphics.DrawRectangle(roiPen, (float)innerRegion.StartX * imageToAnnotate.PixelWidth, (float)innerRegion.StartY * imageToAnnotate.PixelHeight / 2, (float)innerRegion.Width * imageToAnnotate.PixelWidth, (float)innerRegion.Height * imageToAnnotate.PixelHeight);
+                                    graphics.DrawRectangle(roiPen, (float)innerRegion.StartX * imageToAnnotate.PixelWidth, (float)innerRegion.StartY * imageToAnnotate.PixelHeight, (float)innerRegion.Width * imageToAnnotate.PixelWidth, (float)innerRegion.Height * imageToAnnotate.PixelHeight);
                                 }
                             }
                         } else {

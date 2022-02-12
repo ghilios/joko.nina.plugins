@@ -23,6 +23,7 @@ using System.ComponentModel;
 using NINA.Joko.Plugins.HocusFocus.Converters;
 using System.Drawing;
 using Point = OpenCvSharp.Point;
+using NINA.Image.ImageAnalysis;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
@@ -108,6 +109,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
                 rect.Width / (double)fullSize.Width,
                 rect.Height / (double)fullSize.Height);
         }
+
+        public Rectangle ToRectangle(System.Drawing.Size fullSize) {
+            return new Rectangle(
+                x: (int)Math.Round(StartX * fullSize.Width),
+                y: (int)Math.Round(StartY * fullSize.Height),
+                width: (int)Math.Round(Width * fullSize.Width),
+                height: (int)Math.Round(Height * fullSize.Height));
+        }
+
+        public System.Windows.Int32Rect ToInt32Rect(System.Drawing.Size fullSize) {
+            return new System.Windows.Int32Rect(
+                x: (int)Math.Round(StartX * fullSize.Width),
+                y: (int)Math.Round(StartY * fullSize.Height),
+                width: (int)Math.Round(Width * fullSize.Width),
+                height: (int)Math.Round(Height * fullSize.Height));
+        }
     }
 
     public class StarDetectionRegion {
@@ -139,6 +156,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         public bool IsFull() {
             return InnerCropBoundary == null && OuterBoundary.IsFull();
+        }
+
+        public static StarDetectionRegion FromStarDetectionParams(StarDetectionParams p) {
+            var starDetectionRegion = StarDetectionRegion.Full;
+            if (p.UseROI && p.InnerCropRatio < 1.0 && p.OuterCropRatio > 0.0) {
+                var outerCropRatio = p.OuterCropRatio >= 1.0 ? p.InnerCropRatio : p.OuterCropRatio;
+                var outerRegion = RatioRect.FromCenterROI(outerCropRatio);
+                RatioRect innerCropRegion = null;
+                if (p.OuterCropRatio < 1.0) {
+                    innerCropRegion = RatioRect.FromCenterROI(p.InnerCropRatio);
+                }
+                starDetectionRegion = new StarDetectionRegion(outerRegion, innerCropRegion);
+            }
+            return starDetectionRegion;
         }
     }
 

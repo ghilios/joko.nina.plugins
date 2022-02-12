@@ -39,6 +39,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Media.Imaging;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
@@ -207,20 +208,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             public SemaphoreSlim ExposureSemaphore { get; private set; }
             public int FramesPerPoint { get; private set; }
             public int InitialFocuserPosition { get; set; }
-
-            // public MeasureAndError? InitialHFR { get; set; }
-            // public MeasureAndError? FinalHFR { get; set; }
             public List<Task> InitialHFRTasks { get; private set; } = new List<Task>();
-
             public List<Task> AnalysisTasks { get; private set; } = new List<Task>();
-
-            //public List<MeasureAndError> InitialHFRSubMeasurements { get; private set; } = new List<MeasureAndError>();
-            //public List<MeasureAndError> FinalHFRSubMeasurements { get; private set; } = new List<MeasureAndError>();
-            //public Dictionary<int, MeasureAndError> MeasurementsByFocuserPoint { get; private set; } = new Dictionary<int, MeasureAndError>();
-            //public Dictionary<int, List<MeasureAndError>> SubMeasurementsByFocuserPoints { get; private set; } = new Dictionary<int, List<MeasureAndError>>();
             public AsyncAutoResetEvent MeasurementCompleteEvent { get; private set; }
-
-            // public AutoFocusFitting Fittings { get; private set; } = new AutoFocusFitting();
             public string SaveFolder { get; set; } = "";
 
             private volatile int measurementsInProgress;
@@ -266,6 +256,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusRegionState regionState,
             int attemptNumber,
             int imageNumber,
+            int frameNumber,
             int focuserPosition,
             IRenderedImage image,
             CancellationToken token) {
@@ -298,7 +289,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 StarDetectionResult analysisResult;
                 if (regionState.Region == null) {
-                    if (profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio < 1 && !IsSubSampleEnabled()) {
+                    if (profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio < 1 && !IsSubSampleEnabled(state)) {
                         analysisParams.UseROI = true;
                         analysisParams.InnerCropRatio = profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio;
                         analysisParams.OuterCropRatio = profileService.ActiveProfile.FocuserSettings.AutoFocusOuterCropRatio;
@@ -312,14 +303,26 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
-                    var resultFileName = $"{attemptNumber:00}_{imageNumber:00}_star_detection_result.json";
-                    var resultTargetPath = Path.Combine(state.SaveFolder, resultFileName);
+                    var saveAttemptFolder = GetSaveAttemptFolder(state, attemptNumber);
+                    var resultFileName = $"{imageNumber:00}_Frame{frameNumber:00}_Region{regionState.RegionIndex:00}_star_detection_result.json";
+                    var resultTargetPath = Path.Combine(saveAttemptFolder, resultFileName);
                     File.WriteAllText(resultTargetPath, JsonConvert.SerializeObject(analysisResult, Formatting.Indented));
 
-                    var annotatedFileName = $"{attemptNumber:00}_{imageNumber:00}_annotated.png";
-                    var annotatedTargetPath = Path.Combine(state.SaveFolder, annotatedFileName);
+                    var annotatedFileName = $"{imageNumber:00}_Frame{frameNumber:00}_Region{regionState.RegionIndex:00}_annotated.png";
+                    var annotatedTargetPath = Path.Combine(saveAttemptFolder, annotatedFileName);
                     var annotator = starAnnotatorSelector.GetBehavior();
                     var annotatedImage = await annotator.GetAnnotatedImage(analysisParams, analysisResult, image.Image);
+
+                    // If this is null, then we didn't subsample the image. Thus we can crop the annotated image and save only the relevant part
+                    if (!IsSubSampleEnabled(state)) {
+                        var starDetectionRegion = regionState.Region ?? StarDetectionRegion.FromStarDetectionParams(analysisParams);
+                        if (!starDetectionRegion.IsFull()) {
+                            var imageSize = new System.Drawing.Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
+                            var cropRect = starDetectionRegion.OuterBoundary.ToInt32Rect(imageSize);
+                            annotatedImage = new CroppedBitmap(annotatedImage, cropRect);
+                        }
+                    }
+
                     using (var fileStream = new FileStream(annotatedTargetPath, FileMode.Create)) {
                         var encoder = new PngBitmapEncoder();
                         encoder.Frames.Add(BitmapFrame.Create(annotatedImage));
@@ -340,7 +343,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     NoiseReduction = profileService.ActiveProfile.ImageSettings.NoiseReduction,
                     Method = profileService.ActiveProfile.FocuserSettings.ContrastDetectionMethod
                 };
-                if (profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio < 1 && !IsSubSampleEnabled()) {
+                if (profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio < 1 && !IsSubSampleEnabled(state)) {
                     analysisParams.UseROI = true;
                     analysisParams.InnerCropRatio = profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio;
                 }
@@ -349,18 +352,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private async Task<IExposureData> TakeExposure(FilterInfo filter, int focuserPosition, CancellationToken token, IProgress<ApplicationStatus> progress) {
+        private async Task<IExposureData> TakeExposure(AutoFocusState state, int focuserPosition, CancellationToken token, IProgress<ApplicationStatus> progress) {
             IExposureData image;
             var retries = 0;
             do {
                 Logger.Trace($"Starting exposure for autofocus at position {focuserPosition}");
                 double expTime = profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime;
+                var filter = state.AutoFocusFilter;
                 if (filter != null && filter.AutoFocusExposureTime > -1) {
                     expTime = filter.AutoFocusExposureTime;
                 }
                 var seq = new CaptureSequence(expTime, CaptureSequence.ImageTypes.SNAPSHOT, filter, null, 1);
 
-                var subSampleRectangle = GetSubSampleRectangle();
+                var subSampleRectangle = GetSubSampleRectangle(state);
                 if (subSampleRectangle != null) {
                     seq.EnableSubSample = true;
                     seq.SubSambleRectangle = subSampleRectangle;
@@ -384,7 +388,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 try {
                     image = await imagingMediator.CaptureImage(seq, token, progress);
                 } catch (Exception e) {
-                    if (!IsSubSampleEnabled()) {
+                    if (!IsSubSampleEnabled(state)) {
                         throw;
                     }
 
@@ -468,14 +472,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private async Task AnalyzeExposure(
             IRenderedImage preparedImage,
             int focuserPosition,
+            int attemptNumber,
+            int imageNumber,
+            int frameNumber,
             AutoFocusState state,
             AutoFocusRegionState regionState,
             Func<int, MeasureAndError, AutoFocusState, AutoFocusRegionState, Task> action,
             CancellationToken token) {
-            // TODO: Add whether auto stretch is required to IStarDetection. For now, just set to true
-            int attemptNumber = state.AttemptNumber;
-            int imageNumber = state.ImageNumber;
-
             MeasureAndError partialMeasurement;
             try {
                 partialMeasurement = await EvaluateExposure(
@@ -483,14 +486,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     regionState: regionState,
                     attemptNumber: attemptNumber,
                     imageNumber: imageNumber,
+                    frameNumber: frameNumber,
                     focuserPosition: focuserPosition,
                     image: preparedImage,
                     token: token);
                 if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
-                    var fileName = $"{attemptNumber:00}_{imageNumber:00}_Focuser{focuserPosition}_HFR{partialMeasurement.Measure:00.00}";
+                    var fileName = $"{imageNumber:00}_Focuser{focuserPosition}_HFR{partialMeasurement.Measure:00.00}";
                     var imageData = preparedImage.RawImageData;
                     var fsi = new FileSaveInfo(profileService) {
-                        FilePath = state.SaveFolder,
+                        FilePath = GetSaveAttemptFolder(state, attemptNumber),
                         FilePattern = fileName
                     };
                     await imageData.SaveToDisk(fsi, token);
@@ -503,12 +507,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             await action(focuserPosition, partialMeasurement, state, regionState);
         }
 
+        private string GetSaveAttemptFolder(AutoFocusState state, int attemptNumber) {
+            var attemptFolder = Path.Combine(state.SaveFolder, $"attempt{attemptNumber:00}");
+            Directory.CreateDirectory(attemptFolder);
+            return attemptFolder;
+        }
+
         private async Task StartAutoFocusPoint(
             int focuserPosition,
             AutoFocusState state,
             Func<int, MeasureAndError, AutoFocusState, AutoFocusRegionState, Task> action,
             CancellationToken token,
             IProgress<ApplicationStatus> progress) {
+            var attemptNumber = state.AttemptNumber;
             for (int i = 0; i < state.FramesPerPoint; ++i) {
                 using (MyStopWatch.Measure("Waiting on ExposureSemaphore")) {
                     await state.ExposureSemaphore.WaitAsync(token);
@@ -516,24 +527,38 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 token.ThrowIfCancellationRequested();
 
                 state.OnNextImage();
-                var exposureData = await TakeExposure(state.AutoFocusFilter, focuserPosition, token, progress);
+                var imageNumber = state.ImageNumber;
+                var frameNumber = i;
+                var exposureData = await TakeExposure(state, focuserPosition, token, progress);
                 state.MeasurementStarted();
                 try {
                     var exposureAnalysisTasks = new List<Task>();
                     var prepareExposureTask = PrepareExposure(exposureData, token);
                     foreach (var regionState in state.FocusRegionStates) {
-                        var analysisTask = prepareExposureTask.ContinueWith(t => AnalyzeExposure(t.Result, focuserPosition, state, regionState, action, token));
+                        var analysisTask = Task.Run(async () => {
+                            var preparedExposure = await prepareExposureTask;
+                            await AnalyzeExposure(
+                                preparedExposure,
+                                focuserPosition: focuserPosition,
+                                attemptNumber: attemptNumber,
+                                imageNumber: imageNumber,
+                                frameNumber: frameNumber,
+                                state: state,
+                                regionState: regionState,
+                                action: action,
+                                token: token);
+                        });
                         exposureAnalysisTasks.Add(analysisTask);
                         lock (state.StatesLock) {
                             state.AnalysisTasks.Add(analysisTask);
                         }
                     }
 
-                    var releaseSemaphoreTask = Task.WhenAll(exposureAnalysisTasks)
-                        .ContinueWith((t) => {
-                            state.MeasurementCompleted();
-                            state.ExposureSemaphore.Release();
-                        });
+                    var releaseSemaphoreTask = Task.Run(async () => {
+                        await Task.WhenAll(exposureAnalysisTasks);
+                        state.MeasurementCompleted();
+                        state.ExposureSemaphore.Release();
+                    });
                     lock (state.StatesLock) {
                         state.AnalysisTasks.Add(releaseSemaphoreTask);
                     }
@@ -777,7 +802,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private ObservableRectangle GetSubSampleRectangle() {
+        private ObservableRectangle GetSubSampleRectangle(AutoFocusState state) {
+            if (!IsSubSampleEnabled(state)) {
+                return null;
+            }
+
             var cameraInfo = cameraMediator.GetInfo();
             if (profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio < 1 && profileService.ActiveProfile.FocuserSettings.AutoFocusOuterCropRatio == 1 && cameraInfo.CanSubSample) {
                 int subSampleWidth = (int)Math.Round(cameraInfo.XSize * profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio);
@@ -786,12 +815,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 int subSampleY = (int)Math.Round((cameraInfo.YSize - subSampleHeight) / 2.0d);
                 return new ObservableRectangle(subSampleX, subSampleY, subSampleWidth, subSampleHeight);
             }
+
             return null;
         }
 
-        private bool IsSubSampleEnabled() {
+        private bool IsSubSampleEnabled(AutoFocusState state) {
+            if (state.FocusRegions.Count > 1) {
+                return false;
+            }
+
             var cameraInfo = cameraMediator.GetInfo();
-            return profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio < 1 && profileService.ActiveProfile.FocuserSettings.AutoFocusOuterCropRatio == 1 && cameraInfo.CanSubSample;
+            if (!cameraInfo.CanSubSample) {
+                return false;
+            }
+
+            return profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio < 1 && profileService.ActiveProfile.FocuserSettings.AutoFocusOuterCropRatio == 1;
         }
 
         private async Task<bool> ValidateCalculatedFocusPosition(

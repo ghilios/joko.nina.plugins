@@ -290,7 +290,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
                 if (!string.IsNullOrEmpty(saveFolder)) {
-                    var targetFilePath = Path.Combine(saveFolder, $"{attemptNumber:00}_autofocus_report.json");
+                    var targetFilePath = Path.Combine(saveFolder, $"attempt{attemptNumber:00}", $"autofocus_report.json");
                     File.WriteAllText(targetFilePath, reportText);
                 }
 

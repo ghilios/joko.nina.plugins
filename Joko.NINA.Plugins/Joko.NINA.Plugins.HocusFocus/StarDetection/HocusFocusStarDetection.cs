@@ -195,17 +195,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 p.UseROI = false;
             }
 
-            var starDetectionRegion = StarDetectionRegion.Full;
-            if (p.UseROI && p.InnerCropRatio < 1.0 && p.OuterCropRatio > 0.0) {
-                var outerCropRatio = p.OuterCropRatio >= 1.0 ? p.InnerCropRatio : p.OuterCropRatio;
-                var outerRegion = RatioRect.FromCenterROI(outerCropRatio);
-                RatioRect innerCropRegion = null;
-                if (p.OuterCropRatio < 1.0) {
-                    innerCropRegion = RatioRect.FromCenterROI(p.InnerCropRatio);
-                }
-                starDetectionRegion = new StarDetectionRegion(outerRegion, innerCropRegion);
-            }
-
+            var starDetectionRegion = StarDetectionRegion.FromStarDetectionParams(p);
             var detectorParams = GetStarDetectorParams(image, starDetectionRegion, p.IsAutoFocus);
             var hocusFocusParams = ToHocusFocusParams(p);
 
@@ -281,9 +271,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var starList = starDetectorResult.DetectedStars;
 
-            if (!detectorParams.Region.IsFull()) {
+            if (!detectorParams.Region.IsFull() && detectorParams.Region.InnerCropBoundary != null) {
+                var innerRegion = detectorParams.Region.InnerCropBoundary.ToRectangle(imageSize);
                 var before = starList.Count;
-                starList = starList.Where(s => InROI(s, imageSize, detectorParams.Region)).ToList();
+                starList = starList.Where(s => OutsideROI(s, innerRegion)).ToList();
                 var outsideRoi = before - starList.Count;
                 if (outsideRoi > 0) {
                     starDetectorResult.Metrics.OutsideROI = outsideRoi;
@@ -361,13 +352,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             };
         }
 
-        private static bool InROI(Star detectedStar, Size imageSize, StarDetectionRegion starDetectionRegion) {
+        private static bool OutsideROI(Star detectedStar, Rectangle innerCropBoundary) {
             var starRectangle = detectedStar.StarBoundingBox.ToDrawingRectangle();
-            var withinOuter = starDetectionRegion.OuterBoundary.Contains(starRectangle, imageSize);
-            if (starDetectionRegion.InnerCropBoundary == null || !withinOuter) {
-                return withinOuter;
+            if (innerCropBoundary.Contains(starRectangle) || innerCropBoundary.IntersectsWith(starRectangle)) {
+                return false;
             }
-            return !starDetectionRegion.InnerCropBoundary.Contains(starRectangle, imageSize);
+            return true;
         }
 
         public IStarDetectionAnalysis CreateAnalysis() {
