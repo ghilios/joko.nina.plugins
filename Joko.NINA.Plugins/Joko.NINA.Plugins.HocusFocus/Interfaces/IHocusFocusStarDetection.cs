@@ -30,6 +30,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public interface IHocusFocusStarDetection : IStarDetection {
 
+        HocusFocusDetectionParams ToHocusFocusParams(StarDetectionParams p);
+
+        StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus);
+
         Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token);
     }
 }

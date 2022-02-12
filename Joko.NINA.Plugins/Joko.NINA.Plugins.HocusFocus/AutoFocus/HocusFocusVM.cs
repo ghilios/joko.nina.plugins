@@ -25,6 +25,7 @@ using NINA.WPF.Base.ViewModel.AutoFocus;
 using OxyPlot;
 using OxyPlot.Series;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -49,7 +50,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IFocuserMediator focuserMediator;
         private static readonly PlotPointComparer plotPointComparer = new PlotPointComparer();
         private readonly IAutoFocusOptions autoFocusOptions;
-        private readonly IAutoFocusEngine autoFocusEngine;
+        private readonly IAutoFocusEngineFactory autoFocusEngineFactory;
         public static readonly string ReportDirectory = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "AutoFocus");
 
         static HocusFocusVM() {
@@ -63,12 +64,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public HocusFocusVM(
             IProfileService profileService,
             IFocuserMediator focuserMediator,
-            IAutoFocusEngine autoFocusEngine,
+            IAutoFocusEngineFactory autoFocusEngineFactory,
             IAutoFocusOptions autoFocusOptions
         ) : base(profileService) {
             this.focuserMediator = focuserMediator;
             this.autoFocusOptions = autoFocusOptions;
-            this.autoFocusEngine = autoFocusEngine;
+            this.autoFocusEngineFactory = autoFocusEngineFactory;
 
             FocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             PlotFocusPoints = new AsyncObservableCollection<DataPoint>();
@@ -326,12 +327,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public async Task<AutoFocusReport> StartAutoFocus(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
-            this.autoFocusEngine.Started += AutoFocusEngine_AutoFocusStarted;
-            this.autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
-            this.autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
-            this.autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
-            this.autoFocusEngine.Completed += AutoFocusEngine_Completed;
-
+            var autoFocusEngine = autoFocusEngineFactory.Create();
+            autoFocusEngine.Started += AutoFocusEngine_AutoFocusStarted;
+            autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
+            autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
+            autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+            autoFocusEngine.Completed += AutoFocusEngine_Completed;
             var result = await autoFocusEngine.Run(imagingFilter, token, progress);
             if (!result.Succeeded) {
                 return null;
@@ -342,20 +343,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public AutoFocusReport LastReport { get; private set; }
 
         private void AutoFocusEngine_Completed(object sender, AutoFocusCompletedEventArgs e) {
-            FinalFocusPoint = new DataPoint(e.FinalFocuserPosition, e.FinalHFR);
+            var firstRegion = e.RegionHFRs[0];
+            FinalFocusPoint = new DataPoint(firstRegion.EstimatedFinalFocuserPosition, firstRegion.EstimatedFinalHFR);
             LastAutoFocusPoint = new ReportAutoFocusPoint {
                 Focuspoint = FinalFocusPoint,
                 Temperature = e.Temperature,
                 Timestamp = DateTime.Now,
                 Filter = e.Filter
             };
+            if (firstRegion.FinalHFR.HasValue) {
+                FinalHFR = firstRegion.FinalHFR.Value;
+            }
+
             AutoFocusDuration = e.Duration;
 
             var report = GenerateReport(
                 attemptNumber: e.Iteration,
                 initialFocusPosition: e.InitialFocusPosition,
-                initialHFR: e.InitialHFR,
-                finalHFR: e.FinalHFR,
+                initialHFR: firstRegion.InitialHFR,
+                finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
                 filter: e.Filter,
                 finalFocusPoint: FinalFocusPoint,
                 lastAutoFocusPoint: LastAutoFocusPoint,
@@ -369,6 +375,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void AutoFocusEngine_MeasurementPointCompleted(object sender, AutoFocusMeasurementPointCompletedEventArgs e) {
+            if (e.RegionIndex != 0) {
+                return;
+            }
+
             FocusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, Math.Max(0.001, e.Measurement.Stdev)), focusPointComparer);
             PlotFocusPoints.AddSorted(new DataPoint(e.FocuserPosition, e.Measurement.Measure), plotPointComparer);
 

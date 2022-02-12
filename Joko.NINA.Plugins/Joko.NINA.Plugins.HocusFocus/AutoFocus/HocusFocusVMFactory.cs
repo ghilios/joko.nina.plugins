@@ -50,7 +50,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public string ContentId => this.GetType().FullName;
 
         public IAutoFocusVM Create() {
-            return new HocusFocusVM(profileService, focuserMediator, autoFocusEngineFactory.Create(), autoFocusOptions);
+            return new HocusFocusVM(profileService, focuserMediator, autoFocusEngineFactory, autoFocusOptions);
         }
     }
 }

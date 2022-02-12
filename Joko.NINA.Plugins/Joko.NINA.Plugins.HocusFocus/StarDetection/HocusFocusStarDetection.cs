@@ -188,12 +188,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
-            var binning = Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
-            var pixelScale = MathUtility.ArcsecPerPixel(profileService.ActiveProfile.CameraSettings.PixelSize, profileService.ActiveProfile.TelescopeSettings.FocalLength) * binning;
-            if (double.IsNaN(pixelScale)) {
-                Notification.ShowWarning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
-            }
-
             var selectedAutoFocusBehavior = profileService.ActiveProfile.ApplicationSettings.SelectedPluggableBehaviors.Where(k => k.Key == typeof(IAutoFocusVMFactory).FullName).ToList();
             var ninaStockAutoFocus = selectedAutoFocusBehavior.Count == 0 || selectedAutoFocusBehavior.First().Value == "NINA";
             var isNinaAutoFocus = ninaStockAutoFocus && p.IsAutoFocus;
@@ -210,6 +204,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     innerCropRegion = RatioRect.FromCenterROI(p.InnerCropRatio);
                 }
                 starDetectionRegion = new StarDetectionRegion(outerRegion, innerCropRegion);
+            }
+
+            var detectorParams = GetStarDetectorParams(image, starDetectionRegion, p.IsAutoFocus);
+            var hocusFocusParams = ToHocusFocusParams(p);
+
+            var detectionResult = await Detect(image, hocusFocusParams, detectorParams, progress, token);
+            detectionResult.Params = p;
+            return detectionResult;
+        }
+
+        public HocusFocusDetectionParams ToHocusFocusParams(StarDetectionParams p) {
+            return new HocusFocusDetectionParams() {
+                HighSigmaOutlierRejection = p.Sensitivity == StarSensitivityEnum.Normal ? 3.0d : 4.0d,
+                LowSigmaOutlierRejection = 3.0d,
+                MatchStarPositions = p.MatchStarPositions,
+                NumberOfAFStars = p.NumberOfAFStars,
+                IsAutoFocus = p.IsAutoFocus
+            };
+        }
+
+        public StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
+            var binning = Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
+            var pixelScale = MathUtility.ArcsecPerPixel(profileService.ActiveProfile.CameraSettings.PixelSize, profileService.ActiveProfile.TelescopeSettings.FocalLength) * binning;
+            if (double.IsNaN(pixelScale)) {
+                Notification.ShowWarning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
             }
 
             var detectorParams = new StarDetectorParams() {
@@ -241,25 +260,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             };
 
             // For AutoFocus, don't save intermediate data or model PSFs
-            if (p.IsAutoFocus) {
+            if (isAutoFocus) {
                 detectorParams.SaveIntermediateFilesPath = string.Empty;
                 detectorParams.ModelPSF = false;
             } else {
                 // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again
                 starDetectionOptions.SaveIntermediateImages = false;
             }
-
-            var hocusFocusParams = new HocusFocusDetectionParams() {
-                HighSigmaOutlierRejection = p.Sensitivity == StarSensitivityEnum.Normal ? 3.0d : 4.0d,
-                LowSigmaOutlierRejection = 3.0d,
-                MatchStarPositions = p.MatchStarPositions,
-                NumberOfAFStars = p.NumberOfAFStars,
-                IsAutoFocus = p.IsAutoFocus
-            };
-
-            var detectionResult = await Detect(image, hocusFocusParams, detectorParams, progress, token);
-            detectionResult.Params = p;
-            return detectionResult;
+            return detectorParams;
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {

@@ -294,6 +294,7 @@
     <Compile Include="AutoFocus\HocusFocusReport.cs" />
     <Compile Include="AutoFocus\HocusFocusVM.cs" />
     <Compile Include="AutoFocus\HocusFocusVMFactory.cs" />
+    <Compile Include="AutoFocus\InspectorVM.cs" />
     <Compile Include="Interfaces\IAutoFocusEngine.cs" />
     <Compile Include="Converters\AutoFocusFittingToVisibilityConverter.cs" />
     <Compile Include="Converters\DecimalDegreesToArcsecDoubleDashConverter.cs" />

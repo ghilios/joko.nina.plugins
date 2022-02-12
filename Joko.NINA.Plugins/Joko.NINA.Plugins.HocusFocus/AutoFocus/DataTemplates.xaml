@@ -734,4 +734,39 @@
             </Grid>
         </ScrollViewer>
     </DataTemplate>
+    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.InspectorVM_Dockable">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition MinHeight="150" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <StackPanel
+                Grid.Row="0"
+                Orientation="Horizontal">
+                <ninactrl:CancellableButton
+                    Grid.Row="0"
+                    Height="30"
+                    Margin="5"
+                    Padding="10,5,10,5"
+                    VerticalAlignment="Center"
+                    Background="{StaticResource SecondaryBackgroundBrush}"
+                    ButtonForegroundBrush="{StaticResource ButtonForegroundDisabledBrush}"
+                    ButtonText="Analyze"
+                    ButtonStyle="{StaticResource SecondaryBackgroundButton}"
+                    CancelToolTip="Cancel the analysis in progress"
+                    Command="{Binding AnalyzeCommand}"
+                    CancelCommand="{Binding CancelAnalyzeCommand}"
+                    ToolTip="Run an autofocus to detect various aberrations, such as tilt, incorrect backfocus, and field curvature" />
+                <Expander
+                    Grid.Row="1"
+                    VerticalAlignment="Center"
+                    Header="How to use this">
+                    <TextBlock>
+                        TODO: Show instructions about how to use this
+                    </TextBlock>
+                </Expander>
+            </StackPanel>
+        </Grid>
+    </DataTemplate>
 </ResourceDictionary>

@@ -16,6 +16,8 @@ using NINA.Core.Model.Equipment;
 using NINA.WPF.Base.Utility.AutoFocus;
 using NINA.WPF.Base.ViewModel.AutoFocus;
 using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -30,6 +32,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool AutoFocusInProgress { get; }
 
         Task<AutoFocusResult> Run(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
+
+        Task<AutoFocusResult> RunWithRegions(FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress);
 
         event EventHandler<AutoFocusInitialHFRCalculatedEventArgs> InitialHFRCalculated;
 
@@ -81,6 +85,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     }
 
     public class AutoFocusInitialHFRCalculatedEventArgs : EventArgs {
+        public StarDetectionRegion Region { get; set; }
         public MeasureAndError InitialHFR { get; set; }
     }
 
@@ -96,16 +101,25 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public class AutoFocusMeasurementPointCompletedEventArgs : EventArgs {
         public int FocuserPosition { get; set; }
+        public int RegionIndex { get; set; }
+        public StarDetectionRegion Region { get; set; }
         public MeasureAndError Measurement { get; set; }
         public AutoFocusFitting Fittings { get; set; }
+    }
+
+    public class AutoFocusRegionHFR {
+        public StarDetectionRegion Region { get; set; }
+        public double InitialHFR { get; set; }
+        public double EstimatedFinalHFR { get; set; }
+        public double? FinalHFR { get; set; }
+        public double EstimatedFinalFocuserPosition { get; set; }
+        public int FinalFocuserPosition { get; set; }
     }
 
     public class AutoFocusCompletedEventArgs : EventArgs {
         public int Iteration { get; set; }
         public int InitialFocusPosition { get; set; }
-        public int FinalFocuserPosition { get; set; }
-        public double InitialHFR { get; set; }
-        public double FinalHFR { get; set; }
+        public ImmutableList<AutoFocusRegionHFR> RegionHFRs { get; set; }
         public string Filter { get; set; }
         public double Temperature { get; set; }
         public TimeSpan Duration { get; set; }
