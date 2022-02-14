@@ -44,14 +44,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public bool IsBayered { get; set; }
     }
 
+    public class AutoFocusEngineOptions {
+        public bool ValidateHfrImprovement { get; set; }
+        public AFMethodEnum AutoFocusMethod { get; set; }
+        public AFCurveFittingEnum AutoFocusCurveFitting { get; set; }
+        public int AutoFocusInitialOffsetSteps { get; set; }
+        public int AutoFocusStepSize { get; set; }
+        public int AutoFocusNumberOfFramesPerPoint { get; set; }
+        public int MaxConcurrent { get; set; }
+        public bool Save { get; set; }
+        public string SavePath { get; set; }
+        public TimeSpan AutoFocusTimeout { get; set; }
+        public double HFRImprovementThreshold { get; set; }
+    }
+
     public interface IAutoFocusEngine {
         bool AutoFocusInProgress { get; }
 
-        Task<AutoFocusResult> Run(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
+        Task<AutoFocusResult> Run(AutoFocusEngineOptions options, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
 
-        Task<AutoFocusResult> RunWithRegions(FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress);
+        Task<AutoFocusResult> RunWithRegions(AutoFocusEngineOptions options, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress);
 
-        Task<AutoFocusResult> Rerun(SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
+        Task<AutoFocusResult> Rerun(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
+
+        AutoFocusEngineOptions GetOptions();
 
         event EventHandler<AutoFocusInitialHFRCalculatedEventArgs> InitialHFRCalculated;
 

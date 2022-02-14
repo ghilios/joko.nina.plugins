@@ -39,7 +39,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using System.Windows.Media.Imaging;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
@@ -181,27 +180,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private class AutoFocusState {
 
             public AutoFocusState(
+                AutoFocusEngineOptions options,
                 FilterInfo autoFocusFilter,
-                List<StarDetectionRegion> regions,
-                int framesPerPoint,
-                int maxConcurrency,
-                AFMethodEnum afMethod,
-                AFCurveFittingEnum afCurveFittingType) {
+                List<StarDetectionRegion> regions) {
+                this.Options = options;
                 this.AutoFocusFilter = autoFocusFilter;
-                this.FramesPerPoint = framesPerPoint;
-                this.ExposureSemaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+                this.ExposureSemaphore = new SemaphoreSlim(options.MaxConcurrent, options.MaxConcurrent);
                 this.MeasurementCompleteEvent = new AsyncAutoResetEvent(false);
                 AttemptNumber = 0;
                 ImageNumber = 0;
                 InitialFocuserPosition = -1;
                 this.FocusRegions = ImmutableList.ToImmutableList(regions ?? Enumerable.Empty<StarDetectionRegion>());
                 if (regions == null) {
-                    this.FocusRegionStates = ImmutableList.Create(new AutoFocusRegionState(0, null, afMethod, afCurveFittingType));
+                    this.FocusRegionStates = ImmutableList.Create(new AutoFocusRegionState(0, null, options.AutoFocusMethod, options.AutoFocusCurveFitting));
                 } else {
-                    this.FocusRegionStates = ImmutableList.ToImmutableList(regions.Select((r, i) => new AutoFocusRegionState(i, r, afMethod, afCurveFittingType)));
+                    this.FocusRegionStates = ImmutableList.ToImmutableList(regions.Select((r, i) => new AutoFocusRegionState(i, r, options.AutoFocusMethod, options.AutoFocusCurveFitting)));
                 }
             }
 
+            public AutoFocusEngineOptions Options { get; private set; }
             public ImmutableList<StarDetectionRegion> FocusRegions { get; private set; }
             public ImmutableList<AutoFocusRegionState> FocusRegionStates { get; private set; }
             public int AttemptNumber { get; private set; }
@@ -257,6 +254,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private async Task<MeasureAndError> EvaluateExposure(
             AutoFocusState state,
             AutoFocusRegionState regionState,
+            bool finalValidation,
             int attemptNumber,
             int imageNumber,
             int frameNumber,
@@ -306,7 +304,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
-                    var saveAttemptFolder = GetSaveAttemptFolder(state, attemptNumber);
+                    var saveAttemptFolder = GetSaveAttemptFolder(state, attemptNumber, finalValidation);
                     var resultFileName = $"{imageNumber:00}_Frame{frameNumber:00}_Region{regionState.RegionIndex:00}_star_detection_result.json";
                     var resultTargetPath = Path.Combine(saveAttemptFolder, resultFileName);
                     File.WriteAllText(resultTargetPath, JsonConvert.SerializeObject(analysisResult, Formatting.Indented));
@@ -482,6 +480,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             int attemptNumber,
             int imageNumber,
             int frameNumber,
+            bool finalValidation,
             AutoFocusState state,
             AutoFocusRegionState regionState,
             Func<int, MeasureAndError, AutoFocusState, AutoFocusRegionState, Task> action,
@@ -495,6 +494,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     imageNumber: imageNumber,
                     frameNumber: frameNumber,
                     focuserPosition: focuserPosition,
+                    finalValidation: finalValidation,
                     image: preparedImage,
                     token: token);
                 if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
@@ -503,7 +503,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var fileName = $"{imageNumber:00}_Frame{frameNumber:00}_BitDepth{bitDepth}_Bayered{(isBayered ? 1 : 0)}_Focuser{focuserPosition}_HFR{partialMeasurement.Measure:00.00}";
                     var imageData = preparedImage.RawImageData;
                     var fsi = new FileSaveInfo(profileService) {
-                        FilePath = GetSaveAttemptFolder(state, attemptNumber),
+                        FilePath = GetSaveAttemptFolder(state, attemptNumber, finalValidation),
                         FilePattern = fileName
                     };
                     await imageData.SaveToDisk(fsi, token);
@@ -516,8 +516,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             await action(focuserPosition, partialMeasurement, state, regionState);
         }
 
-        private string GetSaveAttemptFolder(AutoFocusState state, int attemptNumber) {
-            var attemptFolder = Path.Combine(state.SaveFolder, $"attempt{attemptNumber:00}");
+        private string GetSaveAttemptFolder(AutoFocusState state, int attemptNumber, bool finalValidation) {
+            string attemptFolder;
+            if (finalValidation) {
+                attemptFolder = Path.Combine(state.SaveFolder, $"final");
+            } else if (attemptNumber == 0) {
+                attemptFolder = Path.Combine(state.SaveFolder, $"initial");
+            } else {
+                attemptFolder = Path.Combine(state.SaveFolder, $"attempt{attemptNumber:00}");
+            }
+
             Directory.CreateDirectory(attemptFolder);
             return attemptFolder;
         }
@@ -526,6 +534,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             int focuserPosition,
             AutoFocusState state,
             Func<int, MeasureAndError, AutoFocusState, AutoFocusRegionState, Task> action,
+            bool finalValidation,
             CancellationToken token,
             IProgress<ApplicationStatus> progress) {
             var attemptNumber = state.AttemptNumber;
@@ -552,6 +561,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                                 attemptNumber: attemptNumber,
                                 imageNumber: imageNumber,
                                 frameNumber: frameNumber,
+                                finalValidation: finalValidation,
                                 state: state,
                                 regionState: regionState,
                                 action: action,
@@ -581,8 +591,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private async Task StartInitialFocusPoints(int initialFocusPosition, AutoFocusState autoFocusState, CancellationToken token, IProgress<ApplicationStatus> progress) {
-            if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR && autoFocusOptions.ValidateHfrImprovement) {
-                await StartAutoFocusPoint(initialFocusPosition, autoFocusState, InitialHFRMeasurementAction, token, progress);
+            if (autoFocusState.Options.AutoFocusMethod == AFMethodEnum.STARHFR && autoFocusState.Options.ValidateHfrImprovement) {
+                await StartAutoFocusPoint(initialFocusPosition, autoFocusState, InitialHFRMeasurementAction, false, token, progress);
             }
         }
 
@@ -598,7 +608,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                 leftMostPosition = Math.Min(leftMostPosition, targetFocuserPosition);
                 rightMostPosition = Math.Max(rightMostPosition, targetFocuserPosition);
-                await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, token, progress);
+                await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
             }
 
             while (true) {
@@ -610,7 +620,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 lock (firstRegionState.SubMeasurementsLock) {
                     trendlineFit = firstRegionState.Fittings.TrendlineFitting;
                     focusPoints = firstRegionState.MeasurementsByFocuserPoint;
-                    if (autoFocusOptions.ValidateHfrImprovement && firstRegionState.InitialHFR.HasValue && firstRegionState.InitialHFR.Value.Measure == 0.0) {
+                    if (autoFocusState.Options.ValidateHfrImprovement && firstRegionState.InitialHFR.HasValue && firstRegionState.InitialHFR.Value.Measure == 0.0) {
                         throw new InitialHFRFailedException();
                     }
                 }
@@ -634,7 +644,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         rightMostPosition = targetFocuserPosition;
                         await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                         token.ThrowIfCancellationRequested();
-                        await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, token, progress);
+                        await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
                         token.ThrowIfCancellationRequested();
                     }
                     break;
@@ -647,7 +657,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         leftMostPosition = targetFocuserPosition;
                         await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                         token.ThrowIfCancellationRequested();
-                        await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, token, progress);
+                        await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
                         token.ThrowIfCancellationRequested();
                     }
                     break;
@@ -658,14 +668,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     leftMostPosition = targetFocuserPosition;
                     await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                     token.ThrowIfCancellationRequested();
-                    await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, token, progress);
+                    await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
                     token.ThrowIfCancellationRequested();
                 } else { // if (rightTrendCount < offsetSteps) {
                     targetFocuserPosition = rightMostPosition + stepSize;
                     rightMostPosition = targetFocuserPosition;
                     await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                     token.ThrowIfCancellationRequested();
-                    await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, token, progress);
+                    await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
                     token.ThrowIfCancellationRequested();
                 }
 
@@ -683,20 +693,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private async Task<AutoFocusState> InitializeState(
+            AutoFocusEngineOptions options,
             FilterInfo imagingFilter,
             List<StarDetectionRegion> regions,
             CancellationToken token,
             IProgress<ApplicationStatus> progress) {
             var autofocusFilter = await SetAutofocusFilter(imagingFilter, token, progress);
-            var maxConcurrent = autoFocusOptions.MaxConcurrent > 0 ? autoFocusOptions.MaxConcurrent : int.MaxValue;
-            var framesPerPoint = profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint;
             return new AutoFocusState(
+                options,
                 autofocusFilter,
-                regions,
-                framesPerPoint,
-                maxConcurrent,
-                profileService.ActiveProfile.FocuserSettings.AutoFocusMethod,
-                profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting);
+                regions);
         }
 
         private async Task<bool> RunAutoFocus(
@@ -707,16 +713,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             bool reattempt;
 
             using (var stopWatch = MyStopWatch.Measure()) {
-                if (autoFocusOptions.Save) {
-                    if (string.IsNullOrWhiteSpace(autoFocusOptions.SavePath)) {
+                if (autoFocusState.Options.Save) {
+                    if (string.IsNullOrWhiteSpace(autoFocusState.Options.SavePath)) {
                         Notification.ShowWarning("No save path specified in Hocus Focus Auto Focus Options");
                         Logger.Warning("No save path specified in Hocus Focus Auto Focus Options");
-                    } else if (!Directory.Exists(autoFocusOptions.SavePath)) {
-                        Notification.ShowWarning($"The save path {autoFocusOptions.SavePath} does not exist");
-                        Logger.Warning($"The save path {autoFocusOptions.SavePath} specified in Hocus Focus Auto Focus Options does not exist");
+                    } else if (!Directory.Exists(autoFocusState.Options.SavePath)) {
+                        Notification.ShowWarning($"The save path {autoFocusState.Options.SavePath} does not exist");
+                        Logger.Warning($"The save path {autoFocusState.Options.SavePath} specified in Hocus Focus Auto Focus Options does not exist");
                     } else {
                         var folderName = $"AutoFocus_{DateTime.Now:yyyyddMM_HHmmss}";
-                        var targetPath = Path.Combine(autoFocusOptions.SavePath, folderName);
+                        var targetPath = Path.Combine(autoFocusState.Options.SavePath, folderName);
                         Logger.Info($"Saving AutoFocus run to {targetPath}");
                         Directory.CreateDirectory(targetPath);
                         autoFocusState.SaveFolder = targetPath;
@@ -894,16 +900,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             await focuserMediator.MoveFocuser(firstRegionFinalFocusPosition, token);
             token.ThrowIfCancellationRequested();
 
-            if (autoFocusOptions.ValidateHfrImprovement) {
+            if (autoFocusState.Options.ValidateHfrImprovement) {
                 Logger.Info($"Validating HFR at final focus position {firstRegionFinalFocusPosition}");
-                await StartAutoFocusPoint(firstRegionFinalFocusPosition, autoFocusState, FinalHFRMeasurementAction, token, progress);
+                await StartAutoFocusPoint(firstRegionFinalFocusPosition, autoFocusState, FinalHFRMeasurementAction, true, token, progress);
                 token.ThrowIfCancellationRequested();
             }
 
             await Task.WhenAll(autoFocusState.AnalysisTasks);
             token.ThrowIfCancellationRequested();
 
-            if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR && autoFocusOptions.ValidateHfrImprovement) {
+            if (autoFocusState.Options.AutoFocusMethod == AFMethodEnum.STARHFR && autoFocusState.Options.ValidateHfrImprovement) {
                 foreach (var autoFocusRegionState in autoFocusState.FocusRegionStates) {
                     lock (autoFocusRegionState.SubMeasurementsLock) {
                         if (!autoFocusRegionState.FinalHFR.HasValue || autoFocusRegionState.FinalHFR.Value.Measure == 0.0) {
@@ -919,7 +925,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                         var finalHfr = autoFocusRegionState.FinalHFR?.Measure;
                         var initialHFR = autoFocusRegionState.InitialHFR?.Measure;
-                        if (finalHfr > (initialHFR * (1.0 + autoFocusOptions.HFRImprovementThreshold))) {
+                        if (finalHfr > (initialHFR * (1.0 + autoFocusState.Options.HFRImprovementThreshold))) {
                             Logger.Warning($"New focus point HFR {finalHfr} is significantly worse than original HFR {initialHFR}");
                             Notification.ShowWarning(string.Format(Loc.Instance["LblAutoFocusNewWorseThanOriginal"], finalHfr, initialHFR));
                             return false;
@@ -959,7 +965,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private async Task<AutoFocusResult> RunImpl(FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress) {
+        private async Task<AutoFocusResult> RunImpl(AutoFocusEngineOptions options, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress) {
             if (AutoFocusInProgress) {
                 Notification.ShowError("Another AutoFocus is already in progress");
                 return null;
@@ -968,7 +974,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Logger.Trace("Starting Autofocus");
             OnStarted();
 
-            var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(autoFocusOptions.AutoFocusTimeoutSeconds));
+            var timeoutCts = new CancellationTokenSource(options.AutoFocusTimeout);
             bool tempComp = false;
             bool guidingStopped = false;
             bool completed = false;
@@ -985,7 +991,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 var autofocusCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
-                autoFocusState = await InitializeState(imagingFilter, regions, autofocusCts.Token, progress);
+                autoFocusState = await InitializeState(options, imagingFilter, regions, autofocusCts.Token, progress);
                 completed = await RunAutoFocus(autoFocusState, StartBlindFocusPoints, autofocusCts.Token, progress);
             } catch (TooManyFailedMeasurementsException e) {
                 Logger.Error($"Too many failed points ({e.NumFailures}). Aborting auto focus");
@@ -997,8 +1003,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
             } catch (OperationCanceledException) {
                 if (timeoutCts.IsCancellationRequested) {
-                    Notification.ShowWarning($"AutoFocus timed out after {autoFocusOptions.AutoFocusTimeoutSeconds} seconds");
-                    Logger.Warning($"AutoFocus timed out after {autoFocusOptions.AutoFocusTimeoutSeconds} seconds");
+                    Notification.ShowWarning($"AutoFocus timed out after {options.AutoFocusTimeout}");
+                    Logger.Warning($"AutoFocus timed out after {options.AutoFocusTimeout}");
                 } else {
                     Logger.Warning("AutoFocus cancelled");
                 }
@@ -1018,11 +1024,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             };
         }
 
-        public Task<AutoFocusResult> Run(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
-            return RunImpl(imagingFilter, null, token, progress);
+        public Task<AutoFocusResult> Run(AutoFocusEngineOptions options, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            return RunImpl(options, imagingFilter, null, token, progress);
         }
 
-        public Task<AutoFocusResult> RunWithRegions(FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress) {
+        public Task<AutoFocusResult> RunWithRegions(AutoFocusEngineOptions options, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress) {
             if (regions == null || regions.Count == 0) {
                 throw new ArgumentException("At least one star detection region must be provided");
             }
@@ -1030,7 +1036,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (!(selectedDetector is HocusFocusStarDetection)) {
                 throw new ArgumentException($"Hocus Focus must be used as the star detector to auto focus with specific regions");
             }
-            return RunImpl(imagingFilter, regions, token, progress);
+            return RunImpl(options, imagingFilter, regions, token, progress);
         }
 
         private async Task<MeasureAndError> ReloadAndAnalyzeSavedFile(
@@ -1052,6 +1058,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     attemptNumber: attemptNumber,
                     imageNumber: savedFile.ImageNumber,
                     frameNumber: savedFile.FrameNumber,
+                    finalValidation: false,
                     focuserPosition: savedFile.FocuserPosition,
                     image: preparedImage,
                     token: token);
@@ -1060,12 +1067,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        public async Task<AutoFocusResult> Rerun(SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
-            // TODO: Put InitialHFR in an initial folder, instead of attempt00
-            // TODO: Put FinalHFR in a final folder, per attempt. ie, finalXX
-
+        public async Task<AutoFocusResult> Rerun(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
             OnStarted();
-            var state = await InitializeState(imagingFilter, null, token, progress);
+            var state = await InitializeState(options, imagingFilter, null, token, progress);
             state.OnNextAttempt();
             OnIterationStarted(state.AttemptNumber);
 
@@ -1195,6 +1199,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Duration = duration,
                 SaveFolder = state.SaveFolder
             });
+        }
+
+        public AutoFocusEngineOptions GetOptions() {
+            return new AutoFocusEngineOptions() {
+                ValidateHfrImprovement = autoFocusOptions.ValidateHfrImprovement,
+                MaxConcurrent = autoFocusOptions.MaxConcurrent > 0 ? autoFocusOptions.MaxConcurrent : int.MaxValue,
+                AutoFocusNumberOfFramesPerPoint = profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint,
+                AutoFocusMethod = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod,
+                AutoFocusCurveFitting = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting,
+                Save = autoFocusOptions.Save,
+                SavePath = autoFocusOptions.SavePath,
+                HFRImprovementThreshold = autoFocusOptions.HFRImprovementThreshold,
+                AutoFocusTimeout = TimeSpan.FromSeconds(autoFocusOptions.AutoFocusTimeoutSeconds),
+                AutoFocusInitialOffsetSteps = profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
+                AutoFocusStepSize = profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize
+            };
         }
 
         public event EventHandler<AutoFocusInitialHFRCalculatedEventArgs> InitialHFRCalculated;

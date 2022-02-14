@@ -385,7 +385,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
             autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
             autoFocusEngine.Completed += AutoFocusEngine_Completed;
-            var result = await autoFocusEngine.Run(imagingFilter, token, progress);
+            var options = autoFocusEngine.GetOptions();
+            var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
             if (!result.Succeeded) {
                 return null;
             }
@@ -542,7 +543,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     imagingFilter = profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.Where(x => x.Position == filterInfo.SelectedFilter.Position).FirstOrDefault();
                 }
 
-                var result = await autoFocusEngine.Rerun(savedAttempt, imagingFilter, loadSavedAutoFocusRunCts.Token, this.progress);
+                var options = autoFocusEngine.GetOptions();
+                var result = await autoFocusEngine.Rerun(options, savedAttempt, imagingFilter, loadSavedAutoFocusRunCts.Token, this.progress);
                 return result.Succeeded;
             } catch (OperationCanceledException) {
                 Logger.Info("Load saved auto focus run canceled");

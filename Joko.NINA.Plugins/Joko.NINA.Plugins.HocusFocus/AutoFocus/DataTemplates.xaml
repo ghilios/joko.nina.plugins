@@ -420,7 +420,7 @@
             <ninactrl:CancellableButton
                 Grid.Row="3"
                 Height="25"
-                Margin="20,0,0,0"
+                Margin="0,15,0,5"
                 Padding="5,0,5,0"
                 ButtonText="Reprocess Saved Run"
                 HorizontalAlignment="Stretch"
