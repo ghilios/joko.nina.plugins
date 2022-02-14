@@ -81,7 +81,7 @@
     <TextBlock x:Key="PSFFitType_Tooltip" Text="What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight" />
     <TextBlock x:Key="PSFResolution_Tooltip" Text="The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting. Higher resolution may be more accurate, but takes longer to calculate" />
     <TextBlock x:Key="PSFFitThreshold_Tooltip" Text="The minimum goodness of fit (R²) required for a PSF" />
-    <TextBlock x:Key="PSFCalculateCenter_Tooltip" Text="When modeling PSFs, include calculation of the center in the modeler. This is more computationally intensive, but yields a more precise result." />
+    <TextBlock x:Key="PSFCalculateCenter_Tooltip" Text="When modeling PSFs, include calculation of the center position and brightness in the modeler. This is more computationally intensive, but yields a more precise result." />
     <TextBlock x:Key="PSFParallelPartitionSize_Tooltip" Text="Enables parallel processing of PSF modeling by partitioning the detected stars into batches of this size. Set to 0 to disable parallelism" />
     <TextBlock x:Key="SimpleNoiseLevel_Tooltip" Text="Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio" />
     <TextBlock x:Key="SimpleFocusRange_Tooltip" Text="As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection" />

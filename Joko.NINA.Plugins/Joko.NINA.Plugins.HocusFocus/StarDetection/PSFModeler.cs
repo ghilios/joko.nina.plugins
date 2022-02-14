@@ -10,14 +10,12 @@
 
 #endregion "copyright"
 
-using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using OpenCvSharp;
 using System;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using Rect = OpenCvSharp.Rect;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
@@ -79,8 +77,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        public double GoodnessOfFit(double x0, double y0, double sigmaX, double sigmaY, double theta) {
-            var parameters = new double[] { x0, y0, sigmaX, sigmaY, theta };
+        public double GoodnessOfFit(double A, double x0, double y0, double sigmaX, double sigmaY, double theta) {
+            double[] parameters;
+            if (CalculateCenter) {
+                parameters = new double[] { A, x0, y0, sigmaX, sigmaY, theta };
+            } else {
+                parameters = new double[] { sigmaX, sigmaY, theta };
+            }
+
             var rss = 0.0d;
             var tss = 0.0d;
             var estimatedSum = 0.0d;
@@ -143,7 +147,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             alglib.minlmstate state = null;
             alglib.minlmreport rep = null;
             try {
-                var initialGuess = new double[] { 0.0, 0.0, modelType.StarBoundingBox.Width / 3.0, modelType.StarBoundingBox.Height / 3.0, 0.0d };
+                double[] initialGuess, lowerBounds, upperBounds, scale, solution;
+                var sigmaUpperBound = Math.Sqrt(modelType.StarBoundingBox.Width * modelType.StarBoundingBox.Width + modelType.StarBoundingBox.Height * modelType.StarBoundingBox.Height) / 2;
+                if (modelType.CalculateCenter) {
+                    initialGuess = new double[] { modelType.CentroidBrightness, 0.0, 0.0, modelType.StarBoundingBox.Width / 3.0, modelType.StarBoundingBox.Height / 3.0, 0.0d };
+
+                    var dxLimit = modelType.CalculateCenter ? modelType.StarBoundingBox.Width / 8.0d : 0.0d;
+                    var dyLimit = modelType.CalculateCenter ? modelType.StarBoundingBox.Height / 8.0d : 0.0d;
+                    lowerBounds = new double[] { 0.0d, -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
+                    upperBounds = new double[] { 2.0d * modelType.CentroidBrightness, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
+                    scale = new double[] { 0.001, 0.1, 0.1, 1, 1, 1 };
+                    solution = new double[5];
+                } else {
+                    initialGuess = new double[] { modelType.StarBoundingBox.Width / 3.0, modelType.StarBoundingBox.Height / 3.0, 0.0d };
+                    lowerBounds = new double[] { 0, 0, -Math.PI / 2.0d };
+                    upperBounds = new double[] { sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
+                    scale = new double[] { 1, 1, 1 };
+                    solution = new double[3];
+                }
+
                 if (modelType.UseJacobian) {
                     alglib.minlmcreatevj(modelType.Inputs.Length, initialGuess, out state);
                     alglib.minlmsetacctype(state, 1);
@@ -151,27 +173,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     const double deltaForNumericIntegration = 1E-4;
                     alglib.minlmcreatev(modelType.Inputs.Length, initialGuess, deltaForNumericIntegration, out state);
                 }
-
-                var dxLimit = modelType.CalculateCenter ? modelType.StarBoundingBox.Width / 8.0d : 0.0d;
-                var dyLimit = modelType.CalculateCenter ? modelType.StarBoundingBox.Height / 8.0d : 0.0d;
-
-                // Set the box constraints on the parameters
-                var lowerBounds = new double[] { -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
-                var sigmaUpperBound = Math.Sqrt(modelType.StarBoundingBox.Width * modelType.StarBoundingBox.Width + modelType.StarBoundingBox.Height * modelType.StarBoundingBox.Height) / 2;
-                var upperBounds = new double[] { dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
                 alglib.minlmsetbc(state, lowerBounds, upperBounds);
 
                 // Set the termination conditions
                 alglib.minlmsetcond(state, tolerance, maxIterations);
 
                 // Set all variables to the same scale, except for x0, y0. This feature is useful if the magnitude if some variables is dramatically different than others
-                alglib.minlmsetscale(state, new double[] { 0.1, 0.1, 1, 1, 1 });
+                alglib.minlmsetscale(state, scale);
 
                 // Perform the optimization
                 alglib.minlmoptimize(state, modelType.FitResiduals, modelType.FitResidualsJacobian, null, null);
                 ct.ThrowIfCancellationRequested();
 
-                var solution = new double[5];
                 alglib.minlmresults(state, out solution, out rep);
                 if (rep.terminationtype < 0) {
                     string reason;
@@ -185,15 +198,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     throw new Exception($"PSF modeling failed with type {rep.terminationtype} and reason: {reason}");
                 }
 
-                var x0 = solution[0];
-                var y0 = solution[1];
-                var sigX = solution[2];
-                var sigY = solution[3];
-                var theta = solution[4];
+                double A, x0, y0, sigX, sigY, theta;
+                if (modelType.CalculateCenter) {
+                    A = solution[0];
+                    x0 = solution[1];
+                    y0 = solution[2];
+                    sigX = solution[3];
+                    sigY = solution[4];
+                    theta = solution[5];
+                } else {
+                    A = modelType.CentroidBrightness;
+                    x0 = 0.0d;
+                    y0 = 0.0d;
+                    sigX = solution[0];
+                    sigY = solution[1];
+                    theta = solution[2];
+                }
 
                 var fwhmX = modelType.SigmaToFWHM(sigX);
                 var fwhmY = modelType.SigmaToFWHM(sigY);
-                var rSquared = modelType.GoodnessOfFit(x0, y0, sigX, sigY, theta);
+                var rSquared = modelType.GoodnessOfFit(A, x0, y0, sigX, sigY, theta);
                 return new PSFModel(psfType: modelType.PSFType, sigmaX: sigX, sigmaY: sigY, fwhmX: fwhmX, fwhmY: fwhmY, thetaRadians: theta, rSquared: rSquared, pixelScale: modelType.PixelScale);
             } finally {
                 if (state != null) {

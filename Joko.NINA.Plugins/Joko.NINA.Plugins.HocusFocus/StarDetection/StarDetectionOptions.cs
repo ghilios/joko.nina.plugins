@@ -95,7 +95,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // TODO: Consider increasing the resolution for long focal lengths
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
-            CalculatePSFCenter = false;
+            CalculatePSFCenter = true;
         }
 
         private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -180,7 +180,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFParallelPartitionSize = 100;
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
-            CalculatePSFCenter = false;
+            CalculatePSFCenter = true;
         }
 
         private bool debugMode;

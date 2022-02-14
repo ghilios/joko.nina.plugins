@@ -33,13 +33,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // x0,y0 is the origin, so all x,y are relative to the centroid within the star bounding boxes
         // See Gaussian elliptical definition here: https://pixinsight.com/doc/tools/DynamicPSF/DynamicPSF.html
         public override double Value(double[] parameters, double[] input) {
+            var A = CalculateCenter ? parameters[0] : this.CentroidBrightness;
             var x = input[0];
             var y = input[1];
-            var x0 = parameters[0];
-            var y0 = parameters[1];
-            var U = parameters[2];
-            var V = parameters[3];
-            var T = parameters[4];
+            var x0 = CalculateCenter ? parameters[1] : 0.0d;
+            var y0 = CalculateCenter ? parameters[2] : 0.0d;
+            var U = CalculateCenter ? parameters[3] : parameters[0];
+            var V = CalculateCenter ? parameters[4] : parameters[1];
+            var T = CalculateCenter ? parameters[5] : parameters[2];
             // x0 = X0 (X offset)
             // y0 = Y0 (Y offset)
             // U = sigmaX
@@ -62,23 +63,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // E = ---- + ----
             //     2U^2   2V^2
             var E = X2 / (2 * U2) + Y2 / (2 * V2);
-            var A = this.CentroidBrightness;
 
             // O = A * e^(-E)
             return A * Math.Exp(-E);
         }
 
         public override void Gradient(double[] parameters, double[] input, double[] result) {
+            var A = CalculateCenter ? parameters[0] : this.CentroidBrightness;
             var x = input[0];
             var y = input[1];
-            var U = parameters[0]; // sigmaX
-            var V = parameters[1]; // sigmaY
-            var T = parameters[2]; // theta
+            var x0 = CalculateCenter ? parameters[1] : 0.0d;
+            var y0 = CalculateCenter ? parameters[2] : 0.0d;
+            var U = CalculateCenter ? parameters[3] : parameters[0];
+            var V = CalculateCenter ? parameters[4] : parameters[1];
+            var T = CalculateCenter ? parameters[5] : parameters[2];
 
             var cosT = Math.Cos(T);
             var sinT = Math.Sin(T);
-            var X = x * cosT + y * sinT; // xPrime
-            var Y = -x * sinT + y * cosT; // yPrime
+            var X = (x - x0) * cosT + (y - y0) * sinT; // xPrime
+            var Y = -(x - x0) * sinT + (y - y0) * cosT; // yPrime
             var X2 = X * X;
             var Y2 = Y * Y;
             var U2 = U * U;
@@ -86,7 +89,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var V2 = V * V;
             var V3 = V2 * V;
             var E = X2 / (2 * U2) + Y2 / (2 * V2);
-            var A = this.CentroidBrightness;
             var O = A * Math.Exp(-E);
 
             // dX
