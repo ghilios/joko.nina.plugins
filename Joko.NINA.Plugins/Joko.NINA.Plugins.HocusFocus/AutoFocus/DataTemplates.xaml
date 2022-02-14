@@ -18,6 +18,7 @@
                 <RowDefinition MinHeight="150" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <oxy:Plot
                 Background="{StaticResource BackgroundBrush}"
@@ -416,6 +417,19 @@
                     <TextBlock Margin="5,0,0,0" Text="{Binding AutoFocusDuration, Converter={StaticResource TimeSpanToStringConverter}}" />
                 </UniformGrid>
             </StackPanel>
+            <ninactrl:CancellableButton
+                Grid.Row="3"
+                Height="25"
+                Margin="20,0,0,0"
+                Padding="5,0,5,0"
+                ButtonText="Reprocess Saved Run"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Bottom"
+                CancelButtonImage="{StaticResource CancelSVG}"
+                CancelCommand="{Binding CancelLoadSavedAutoFocusRunCommand}"
+                ToolTip="Reprocesses AutoFocus images saved by having Save enabled in Hocus Focus -> Auto Focus Options. This produces an auto focus curve using whatever the current star detection and fit settings are"
+                CancelToolTip="{ns:Loc LblCancel}"
+                Command="{Binding LoadSavedAutoFocusRunCommand}" />
         </Grid>
     </DataTemplate>
     <DataTemplate DataType="{x:Type local:HocusFocusVM}">

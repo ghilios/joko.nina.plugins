@@ -25,5 +25,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         int AutoFocusTimeoutSeconds { get; set; }
         string SavePath { get; set; }
         bool Save { get; set; }
+        string LastSelectedLoadPath { get; set; }
     }
 }

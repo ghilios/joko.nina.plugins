@@ -16,6 +16,7 @@ using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces;
+using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.Interfaces.ViewModel;
 using System.ComponentModel.Composition;
 
@@ -25,22 +26,30 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
     public class HocusFocusVMFactory : IAutoFocusVMFactory {
         private readonly IProfileService profileService;
         private readonly IFocuserMediator focuserMediator;
+        private readonly IFilterWheelMediator filterWheelMediator;
+        private readonly IApplicationStatusMediator applicationStatusMediator;
         private readonly IAutoFocusEngineFactory autoFocusEngineFactory;
         private readonly IAutoFocusOptions autoFocusOptions;
 
         [ImportingConstructor]
         public HocusFocusVMFactory(
             IProfileService profileService,
-            IFocuserMediator focuserMediator) : this(profileService, focuserMediator, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory) {
+            IFocuserMediator focuserMediator,
+            IFilterWheelMediator filterWheelMediator,
+            IApplicationStatusMediator applicationStatusMediator) : this(profileService, focuserMediator, filterWheelMediator, applicationStatusMediator, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory) {
         }
 
         public HocusFocusVMFactory(
             IProfileService profileService,
             IFocuserMediator focuserMediator,
+            IFilterWheelMediator filterWheelMediator,
+            IApplicationStatusMediator applicationStatusMediator,
             IAutoFocusOptions autoFocusOptions,
             IAutoFocusEngineFactory autoFocusEngineFactory) {
             this.profileService = profileService;
             this.focuserMediator = focuserMediator;
+            this.filterWheelMediator = filterWheelMediator;
+            this.applicationStatusMediator = applicationStatusMediator;
             this.autoFocusOptions = autoFocusOptions;
             this.autoFocusEngineFactory = autoFocusEngineFactory;
         }
@@ -50,7 +59,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public string ContentId => this.GetType().FullName;
 
         public IAutoFocusVM Create() {
-            return new HocusFocusVM(profileService, focuserMediator, autoFocusEngineFactory, autoFocusOptions);
+            return new HocusFocusVM(profileService, focuserMediator, autoFocusEngineFactory, autoFocusOptions, filterWheelMediator, applicationStatusMediator);
         }
     }
 }

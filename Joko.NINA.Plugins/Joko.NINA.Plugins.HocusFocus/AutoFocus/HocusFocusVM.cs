@@ -15,9 +15,11 @@ using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
+using NINA.Core.Utility.Notification;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile.Interfaces;
+using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.Interfaces.ViewModel;
 using NINA.WPF.Base.Utility.AutoFocus;
 using NINA.WPF.Base.ViewModel;
@@ -28,13 +30,22 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Threading;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     public class HocusFocusVM : BaseVM, IAutoFocusVM {
         private static readonly FocusPointComparer focusPointComparer = new FocusPointComparer();
+
+        private readonly SynchronizationContext synchronizationContext =
+            Application.Current?.Dispatcher != null
+            ? new DispatcherSynchronizationContext(Application.Current.Dispatcher)
+            : null;
 
         private AFCurveFittingEnum autoFocusChartCurveFitting;
         private AFMethodEnum autoFocusChartMethod;
@@ -51,6 +62,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private static readonly PlotPointComparer plotPointComparer = new PlotPointComparer();
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IAutoFocusEngineFactory autoFocusEngineFactory;
+        private readonly IFilterWheelMediator filterWheelMediator;
+        private readonly IApplicationStatusMediator applicationStatusMediator;
+        private readonly IProgress<ApplicationStatus> progress;
         public static readonly string ReportDirectory = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "AutoFocus");
 
         static HocusFocusVM() {
@@ -65,15 +79,53 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IProfileService profileService,
             IFocuserMediator focuserMediator,
             IAutoFocusEngineFactory autoFocusEngineFactory,
-            IAutoFocusOptions autoFocusOptions
+            IAutoFocusOptions autoFocusOptions,
+            IFilterWheelMediator filterWheelMediator,
+            IApplicationStatusMediator applicationStatusMediator
         ) : base(profileService) {
             this.focuserMediator = focuserMediator;
             this.autoFocusOptions = autoFocusOptions;
             this.autoFocusEngineFactory = autoFocusEngineFactory;
+            this.filterWheelMediator = filterWheelMediator;
+            this.applicationStatusMediator = applicationStatusMediator;
 
             FocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             PlotFocusPoints = new AsyncObservableCollection<DataPoint>();
             ClearCharts();
+
+            // TODO: Move to NINA Core utility method
+            if (SynchronizationContext.Current == synchronizationContext) {
+                this.progress = new Progress<ApplicationStatus>(p => {
+                    p.Source = "Hocus Focus";
+                    applicationStatusMediator.StatusUpdate(p);
+                });
+            } else {
+                IProgress<ApplicationStatus> progressTemp = null;
+                synchronizationContext.Send(_ => {
+                    progressTemp = new Progress<ApplicationStatus>(p => {
+                        p.Source = "Hocus Focus";
+                        applicationStatusMediator.StatusUpdate(p);
+                    });
+                }, null);
+                this.progress = progressTemp;
+            }
+
+            LoadSavedAutoFocusRunCommand = new AsyncCommand<bool>(() => {
+                string path = "";
+                using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
+                    if (!String.IsNullOrEmpty(autoFocusOptions.LastSelectedLoadPath)) {
+                        dialog.SelectedPath = autoFocusOptions.LastSelectedLoadPath;
+                    }
+                    if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) {
+                        return Task.FromResult(false);
+                    }
+
+                    path = dialog.SelectedPath;
+                    autoFocusOptions.LastSelectedLoadPath = path;
+                }
+                return Task.Run(() => LoadSavedAutoFocusRun(path));
+            });
+            CancelLoadSavedAutoFocusRunCommand = new RelayCommand(CancelLoadSavedAutoFocusRun);
         }
 
         public AFCurveFittingEnum AutoFocusChartCurveFitting {
@@ -344,18 +396,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private void AutoFocusEngine_Completed(object sender, AutoFocusCompletedEventArgs e) {
             var firstRegion = e.RegionHFRs[0];
-            FinalFocusPoint = new DataPoint(firstRegion.EstimatedFinalFocuserPosition, firstRegion.EstimatedFinalHFR);
-            LastAutoFocusPoint = new ReportAutoFocusPoint {
-                Focuspoint = FinalFocusPoint,
-                Temperature = e.Temperature,
-                Timestamp = DateTime.Now,
-                Filter = e.Filter
-            };
-            if (firstRegion.FinalHFR.HasValue) {
-                FinalHFR = firstRegion.FinalHFR.Value;
-            }
-
-            AutoFocusDuration = e.Duration;
+            AutoFocusEngine_CompletedNoReport(sender, e);
 
             var report = GenerateReport(
                 attemptNumber: e.Iteration,
@@ -372,6 +413,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             focuserMediator.BroadcastSuccessfulAutoFocusRun(autoFocusInfo);
 
             LastReport = report;
+        }
+
+        private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusCompletedEventArgs e) {
+            var firstRegion = e.RegionHFRs[0];
+            FinalFocusPoint = new DataPoint(firstRegion.EstimatedFinalFocuserPosition, firstRegion.EstimatedFinalHFR);
+            LastAutoFocusPoint = new ReportAutoFocusPoint {
+                Focuspoint = FinalFocusPoint,
+                Temperature = e.Temperature,
+                Timestamp = DateTime.Now,
+                Filter = e.Filter
+            };
+            if (firstRegion.FinalHFR.HasValue) {
+                FinalHFR = firstRegion.FinalHFR.Value;
+            }
+
+            AutoFocusDuration = e.Duration;
         }
 
         private void AutoFocusEngine_MeasurementPointCompleted(object sender, AutoFocusMeasurementPointCompletedEventArgs e) {
@@ -405,6 +462,100 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Temperature = focuserMediator.GetInfo().Temperature,
                 Timestamp = DateTime.Now
             };
+        }
+
+        public ICommand LoadSavedAutoFocusRunCommand { get; private set; }
+        public ICommand CancelLoadSavedAutoFocusRunCommand { get; private set; }
+
+        private static readonly Regex ATTEMPT_REGEX = new Regex(@"^attempt(?<ATTEMPT>\d+)$", RegexOptions.Compiled);
+        private static readonly Regex IMAGE_FILE_REGEX = new Regex(@"^(?<IMAGE_INDEX>\d+)_Frame(?<FRAME_NUMBER>\d+)_BitDepth(?<BITDEPTH>\d+)_Bayered(?<BAYERED>\d)_Focuser(?<FOCUSER>\d+)_HFR(?<HFR>(\d+)(\.\d+)?)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private CancellationTokenSource loadSavedAutoFocusRunCts;
+
+        private async Task<bool> LoadSavedAutoFocusRun(string selectedPath) {
+            try {
+                loadSavedAutoFocusRunCts?.Cancel();
+                loadSavedAutoFocusRunCts = new CancellationTokenSource();
+
+                var attemptFolder = new DirectoryInfo(selectedPath);
+                var attemptMatch = ATTEMPT_REGEX.Match(attemptFolder.Name);
+                if (!attemptMatch.Success || !int.TryParse(attemptMatch.Groups["ATTEMPT"].Value, out var attemptNumber)) {
+                    Notification.ShowError("A folder named attemptXX must be selected");
+                    return false;
+                }
+
+                var allFiles = attemptFolder.GetFiles();
+                var savedImages = new List<SavedAutoFocusImage>();
+                foreach (var file in allFiles) {
+                    var fileNameNoExtension = Path.GetFileNameWithoutExtension(file.Name);
+                    var match = IMAGE_FILE_REGEX.Match(fileNameNoExtension);
+                    if (!match.Success) {
+                        continue;
+                    }
+                    if (!int.TryParse(match.Groups["IMAGE_INDEX"].Value, out var imageIndex)) {
+                        continue;
+                    }
+                    if (!int.TryParse(match.Groups["FRAME_NUMBER"].Value, out var frameNumber)) {
+                        continue;
+                    }
+                    if (!int.TryParse(match.Groups["FOCUSER"].Value, out var focuserPosition)) {
+                        continue;
+                    }
+                    if (!int.TryParse(match.Groups["BITDEPTH"].Value, out var bitdepth)) {
+                        continue;
+                    }
+                    if (!int.TryParse(match.Groups["BAYERED"].Value, out var isBayeredInt)) {
+                        continue;
+                    }
+
+                    var isBayered = isBayeredInt != 0;
+                    var savedImage = new SavedAutoFocusImage() {
+                        Path = file.FullName,
+                        BitDepth = bitdepth,
+                        IsBayered = isBayered,
+                        FocuserPosition = focuserPosition,
+                        FrameNumber = frameNumber,
+                        ImageNumber = imageIndex,
+                    };
+                    savedImages.Add(savedImage);
+                }
+                if (savedImages.Count < 3) {
+                    Notification.ShowError($"Must be at least 3 saved AF images in {selectedPath}");
+                    return false;
+                }
+
+                var savedAttempt = new SavedAutoFocusAttempt() {
+                    Attempt = attemptNumber,
+                    SavedImages = savedImages
+                };
+
+                var autoFocusEngine = autoFocusEngineFactory.Create();
+                autoFocusEngine.Started += AutoFocusEngine_AutoFocusStarted;
+                autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
+                autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
+                autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+                autoFocusEngine.Completed += AutoFocusEngine_CompletedNoReport;
+
+                var filterInfo = filterWheelMediator.GetInfo();
+                FilterInfo imagingFilter = null;
+                if (filterInfo?.SelectedFilter != null) {
+                    imagingFilter = profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.Where(x => x.Position == filterInfo.SelectedFilter.Position).FirstOrDefault();
+                }
+
+                var result = await autoFocusEngine.Rerun(savedAttempt, imagingFilter, loadSavedAutoFocusRunCts.Token, this.progress);
+                return result.Succeeded;
+            } catch (OperationCanceledException) {
+                Logger.Info("Load saved auto focus run canceled");
+                return false;
+            } catch (Exception e) {
+                Notification.ShowError($"Failed reprocessing saved AF: {e.Message}");
+                Logger.Error("Failed reprocessing saved AF", e);
+                return false;
+            }
+        }
+
+        private void CancelLoadSavedAutoFocusRun(object o) {
+            loadSavedAutoFocusRunCts?.Cancel();
         }
     }
 }

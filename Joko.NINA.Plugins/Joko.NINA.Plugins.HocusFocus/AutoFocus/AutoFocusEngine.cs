@@ -51,6 +51,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IFocuserMediator focuserMediator;
         private readonly IGuiderMediator guiderMediator;
         private readonly IImagingMediator imagingMediator;
+        private readonly IImageDataFactory imageDataFactory;
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
         private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
         private readonly IAutoFocusOptions autoFocusOptions;
@@ -62,6 +63,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IFocuserMediator focuserMediator,
             IGuiderMediator guiderMediator,
             IImagingMediator imagingMediator,
+            IImageDataFactory imageDataFactory,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IAutoFocusOptions autoFocusOptions) {
@@ -71,6 +73,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.focuserMediator = focuserMediator;
             this.imagingMediator = imagingMediator;
             this.guiderMediator = guiderMediator;
+            this.imageDataFactory = imageDataFactory;
             this.starDetectionSelector = starDetectionSelector;
             this.starAnnotatorSelector = starAnnotatorSelector;
             this.autoFocusOptions = autoFocusOptions;
@@ -459,6 +462,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private async Task<IRenderedImage> PrepareExposure(IExposureData exposureData, CancellationToken token) {
+            return await PrepareExposure(await exposureData.ToImageData(null, token), token);
+        }
+
+        private async Task<IRenderedImage> PrepareExposure(IImageData imageData, CancellationToken token) {
             var autoStretch = true;
             // If using contrast based statistics, no need to stretch
             if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.CONTRASTDETECTION && profileService.ActiveProfile.FocuserSettings.ContrastDetectionMethod == ContrastDetectionMethodEnum.Statistics) {
@@ -466,7 +473,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             var prepareParameters = new PrepareImageParameters(autoStretch: autoStretch, detectStars: false);
-            return await imagingMediator.PrepareImage(exposureData, prepareParameters, token);
+            return await imagingMediator.PrepareImage(imageData, prepareParameters, token);
         }
 
         private async Task AnalyzeExposure(
@@ -491,7 +498,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     image: preparedImage,
                     token: token);
                 if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
-                    var fileName = $"{imageNumber:00}_Focuser{focuserPosition}_HFR{partialMeasurement.Measure:00.00}";
+                    var bitDepth = preparedImage.RawImageData.Properties.BitDepth;
+                    var isBayered = preparedImage.RawImageData.Properties.IsBayered;
+                    var fileName = $"{imageNumber:00}_Frame{frameNumber:00}_BitDepth{bitDepth}_Bayered{(isBayered ? 1 : 0)}_Focuser{focuserPosition}_HFR{partialMeasurement.Measure:00.00}";
                     var imageData = preparedImage.RawImageData;
                     var fsi = new FileSaveInfo(profileService) {
                         FilePath = GetSaveAttemptFolder(state, attemptNumber),
@@ -1022,6 +1031,110 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 throw new ArgumentException($"Hocus Focus must be used as the star detector to auto focus with specific regions");
             }
             return RunImpl(imagingFilter, regions, token, progress);
+        }
+
+        private async Task<MeasureAndError> ReloadAndAnalyzeSavedFile(
+            AutoFocusState state,
+            AutoFocusRegionState regionState,
+            int attemptNumber,
+            SavedAutoFocusImage savedFile,
+            CancellationToken token,
+            IProgress<ApplicationStatus> progress) {
+            try {
+                state.MeasurementStarted();
+                var isBayered = savedFile.IsBayered;
+                var bitDepth = savedFile.BitDepth;
+                var imageData = await this.imageDataFactory.CreateFromFile(savedFile.Path, bitDepth, isBayered, profileService.ActiveProfile.CameraSettings.RawConverter, token);
+                var preparedImage = await PrepareExposure(imageData, token);
+                return await EvaluateExposure(
+                    state: state,
+                    regionState: regionState,
+                    attemptNumber: attemptNumber,
+                    imageNumber: savedFile.ImageNumber,
+                    frameNumber: savedFile.FrameNumber,
+                    focuserPosition: savedFile.FocuserPosition,
+                    image: preparedImage,
+                    token: token);
+            } finally {
+                state.MeasurementCompleted();
+            }
+        }
+
+        public async Task<AutoFocusResult> Rerun(SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            // TODO: Put InitialHFR in an initial folder, instead of attempt00
+            // TODO: Put FinalHFR in a final folder, per attempt. ie, finalXX
+
+            OnStarted();
+            var state = await InitializeState(imagingFilter, null, token, progress);
+            state.OnNextAttempt();
+            OnIterationStarted(state.AttemptNumber);
+
+            var regionState = state.FocusRegionStates[0];
+            regionState.InitialHFR = new MeasureAndError() { Measure = 0.1d, Stdev = 0.0d };
+
+            var savedFiles = savedAttempt.SavedImages;
+            var focuserPositionTasks = new List<Task>();
+            int completedCount = 0;
+            int totalCount = savedFiles.Count;
+            progress.Report(new ApplicationStatus() {
+                Status = "Data Points",
+                MaxProgress = totalCount,
+                Progress = 0,
+                ProgressType = ApplicationStatus.StatusProgressType.ValueOfMaxValue
+            });
+
+            try {
+                foreach (var focuserPositionGroup in savedFiles.GroupBy(f => f.FocuserPosition)) {
+                    var focuserPosition = focuserPositionGroup.Key;
+                    var files = focuserPositionGroup.OrderBy(g => g.FrameNumber).ToList();
+                    var partialMeasurements = new List<MeasureAndError>();
+                    var partialMeasurementTasks = new List<Task>();
+                    foreach (var savedFile in files) {
+                        using (MyStopWatch.Measure("Waiting on ExposureSemaphore")) {
+                            await state.ExposureSemaphore.WaitAsync(token);
+                        }
+
+                        var partialMeasurementTask = ReloadAndAnalyzeSavedFile(state, regionState, savedAttempt.Attempt, savedFile, token, progress);
+                        var postPartialMeasurementTask = Task.Run(async () => {
+                            try {
+                                var partialMeasurement = await partialMeasurementTask;
+                                lock (partialMeasurements) {
+                                    partialMeasurements.Add(partialMeasurement);
+                                }
+
+                                var incrementedCompletedCount = Interlocked.Increment(ref completedCount);
+                                progress.Report(new ApplicationStatus() {
+                                    Status = "Data Points",
+                                    MaxProgress = totalCount,
+                                    Progress = incrementedCompletedCount,
+                                    ProgressType = ApplicationStatus.StatusProgressType.ValueOfMaxValue
+                                });
+                            } finally {
+                                state.ExposureSemaphore.Release();
+                            }
+                        });
+                        partialMeasurementTasks.Add(postPartialMeasurementTask);
+                    }
+
+                    var focuserPositionTask = Task.Run(async () => {
+                        await Task.WhenAll(partialMeasurementTasks);
+                        var focuserPositionMeasurement = partialMeasurements.AverageMeasurement();
+                        await FocusPointMeasurementAction(focuserPosition, focuserPositionMeasurement, state, regionState);
+                    });
+                    focuserPositionTasks.Add(focuserPositionTask);
+                }
+
+                await Task.WhenAll(focuserPositionTasks);
+
+                regionState.CalculateFinalFocusPoint();
+                OnCompleted(state, 0.0d, TimeSpan.Zero);
+                return new AutoFocusResult() {
+                    Succeeded = true
+                };
+            } finally {
+                await Task.Delay(1000);
+                progress.Report(new ApplicationStatus());
+            }
         }
 
         private void OnInitialHFRCalculated(StarDetectionRegion region, MeasureAndError initialHFRMeasurement) {

@@ -28,12 +28,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         IAutoFocusEngine Create();
     }
 
+    public class SavedAutoFocusAttempt {
+        public int Attempt { get; set; }
+
+        // public List<StarDetectionRegion> Regions { get; set; }
+        public List<SavedAutoFocusImage> SavedImages { get; set; }
+    }
+
+    public class SavedAutoFocusImage {
+        public string Path { get; set; }
+        public int ImageNumber { get; set; }
+        public int FrameNumber { get; set; }
+        public int FocuserPosition { get; set; }
+        public int BitDepth { get; set; }
+        public bool IsBayered { get; set; }
+    }
+
     public interface IAutoFocusEngine {
         bool AutoFocusInProgress { get; }
 
         Task<AutoFocusResult> Run(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
 
         Task<AutoFocusResult> RunWithRegions(FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress);
+
+        Task<AutoFocusResult> Rerun(SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
 
         event EventHandler<AutoFocusInitialHFRCalculatedEventArgs> InitialHFRCalculated;
 

@@ -13,6 +13,7 @@
 using NINA.Core.Interfaces;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.ImageAnalysis;
+using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile.Interfaces;
 
@@ -25,6 +26,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IFocuserMediator focuserMediator;
         private readonly IGuiderMediator guiderMediator;
         private readonly IImagingMediator imagingMediator;
+        private readonly IImageDataFactory imageDataFactory;
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
         private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
         private readonly IAutoFocusOptions autoFocusOptions;
@@ -36,6 +38,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IFocuserMediator focuserMediator,
             IGuiderMediator guiderMediator,
             IImagingMediator imagingMediator,
+            IImageDataFactory imageDataFactory,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IAutoFocusOptions autoFocusOptions) {
@@ -45,6 +48,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.focuserMediator = focuserMediator;
             this.imagingMediator = imagingMediator;
             this.guiderMediator = guiderMediator;
+            this.imageDataFactory = imageDataFactory;
             this.starDetectionSelector = starDetectionSelector;
             this.starAnnotatorSelector = starAnnotatorSelector;
             this.autoFocusOptions = autoFocusOptions;
@@ -58,6 +62,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 focuserMediator,
                 guiderMediator,
                 imagingMediator,
+                imageDataFactory,
                 starDetectionSelector,
                 starAnnotatorSelector,
                 autoFocusOptions);

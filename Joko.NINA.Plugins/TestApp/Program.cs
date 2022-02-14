@@ -18,7 +18,9 @@ using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using OpenCvSharp;
 using System;
+using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media;
@@ -34,7 +36,32 @@ namespace TestApp {
         private const string IntermediatePath = @"E:\StarDetectionTest\Intermediate";
 
         private static void Main(string[] args) {
-            MainAsync(args).Wait();
+            var folder = @"E:\AutoFocusSaves\AutoFocus_20221102_223808\attempt01";
+            var files = Directory.GetFiles(folder, "*", SearchOption.TopDirectoryOnly);
+
+            var attemptFolder = new DirectoryInfo(folder);
+            var attemptRegex = new Regex(@"^attempt(?<ATTEMPT>\d+)$", RegexOptions.Compiled);
+            var attemptMatch = attemptRegex.Match(attemptFolder.Name);
+            int attemptNumber = -1;
+            if (attemptMatch.Success) {
+                attemptNumber = int.Parse(attemptMatch.Groups["ATTEMPT"].Value);
+            }
+
+            var imageFileRegex = new Regex(@"^(?<IMAGE_INDEX>\d+)_Focuser(?<FOCUSER>\d+)_HFR(?<HFR>(\d+)(\.\d+)?)$", RegexOptions.Compiled);
+            var allFiles = attemptFolder.GetFiles();
+            foreach (var file in allFiles) {
+                var fileNameNoExtension = System.IO.Path.GetFileNameWithoutExtension(file.Name);
+                var match = imageFileRegex.Match(fileNameNoExtension);
+                if (match.Success) {
+                    var focuser = int.Parse(match.Groups["FOCUSER"].Value);
+                    var hfr = double.Parse(match.Groups["HFR"].Value);
+                    Console.WriteLine($"Found image file: {file.Name}, Focuser: {focuser}, HFR: {hfr}");
+                }
+            }
+
+            Console.WriteLine();
+
+            // MainAsync(args).Wait();
         }
 
         private static async Task MainAsync(string[] args) {

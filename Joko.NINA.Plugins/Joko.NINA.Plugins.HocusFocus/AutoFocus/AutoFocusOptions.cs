@@ -44,6 +44,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             hfrImprovementThreshold = optionsAccessor.GetValueDouble("HFRImprovementThreshold", 0.15);
             savePath = optionsAccessor.GetValueString("SavePath", "");
             save = optionsAccessor.GetValueBoolean("Save", false);
+            lastSelectedLoadPath = optionsAccessor.GetValueString("LastSelectedLoadPath", "");
         }
 
         public void ResetDefaults() {
@@ -59,6 +60,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             HFRImprovementThreshold = 0.15;
             SavePath = "";
             Save = false;
+            LastSelectedLoadPath = "";
         }
 
         private int maxConcurrent;
@@ -236,6 +238,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (save != value) {
                     save = value;
                     optionsAccessor.SetValueBoolean(nameof(Save), save);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private string lastSelectedLoadPath;
+
+        public string LastSelectedLoadPath {
+            get => lastSelectedLoadPath;
+            set {
+                if (lastSelectedLoadPath != value) {
+                    lastSelectedLoadPath = value;
+                    optionsAccessor.SetValueString(nameof(LastSelectedLoadPath), lastSelectedLoadPath);
                     RaisePropertyChanged();
                 }
             }

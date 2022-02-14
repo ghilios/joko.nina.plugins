@@ -22,6 +22,7 @@ using System.Windows.Input;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Core.Interfaces;
 using NINA.Image.ImageAnalysis;
+using NINA.Image.Interfaces;
 
 namespace NINA.Joko.Plugins.HocusFocus {
 
@@ -36,6 +37,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
             IFocuserMediator focuserMediator,
             IGuiderMediator guiderMediator,
             IImagingMediator imagingMediator,
+            IImageDataFactory imageDataFactory,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector) {
             if (Settings.Default.UpdateSettings) {
@@ -61,6 +63,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     focuserMediator,
                     guiderMediator,
                     imagingMediator,
+                    imageDataFactory,
                     starDetectionSelector,
                     starAnnotatorSelector,
                     AutoFocusOptions);
