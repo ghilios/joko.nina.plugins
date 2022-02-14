@@ -379,18 +379,28 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public async Task<AutoFocusReport> StartAutoFocus(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
-            var autoFocusEngine = autoFocusEngineFactory.Create();
-            autoFocusEngine.Started += AutoFocusEngine_AutoFocusStarted;
-            autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
-            autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
-            autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
-            autoFocusEngine.Completed += AutoFocusEngine_Completed;
-            var options = autoFocusEngine.GetOptions();
-            var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
-            if (!result.Succeeded) {
-                return null;
+            try {
+                if (AutoFocusInProgress) {
+                    Notification.ShowError("Another AutoFocus is already in progress");
+                    return null;
+                }
+                AutoFocusInProgress = true;
+
+                var autoFocusEngine = autoFocusEngineFactory.Create();
+                autoFocusEngine.Started += AutoFocusEngine_AutoFocusStarted;
+                autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
+                autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
+                autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+                autoFocusEngine.Completed += AutoFocusEngine_Completed;
+                var options = autoFocusEngine.GetOptions();
+                var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
+                if (!result.Succeeded) {
+                    return null;
+                }
+                return LastReport;
+            } finally {
+                AutoFocusInProgress = false;
             }
-            return LastReport;
         }
 
         public AutoFocusReport LastReport { get; private set; }
@@ -475,6 +485,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private async Task<bool> LoadSavedAutoFocusRun(string selectedPath) {
             try {
+                if (AutoFocusInProgress) {
+                    Notification.ShowError("Another AutoFocus is already in progress");
+                    return false;
+                }
+                AutoFocusInProgress = true;
+
                 loadSavedAutoFocusRunCts?.Cancel();
                 loadSavedAutoFocusRunCts = new CancellationTokenSource();
 
@@ -553,11 +569,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Notification.ShowError($"Failed reprocessing saved AF: {e.Message}");
                 Logger.Error("Failed reprocessing saved AF", e);
                 return false;
+            } finally {
+                AutoFocusInProgress = false;
             }
         }
 
         private void CancelLoadSavedAutoFocusRun(object o) {
             loadSavedAutoFocusRunCts?.Cancel();
+        }
+
+        private bool autoFocusInProgress;
+
+        public bool AutoFocusInProgress {
+            get => autoFocusInProgress;
+            private set {
+                if (autoFocusInProgress != value) {
+                    autoFocusInProgress = value;
+                    RaisePropertyChanged();
+                }
+            }
         }
     }
 }

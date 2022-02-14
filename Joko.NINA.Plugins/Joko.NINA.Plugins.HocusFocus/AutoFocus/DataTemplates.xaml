@@ -287,7 +287,7 @@
                         Visibility="{Binding FinalHFR, Converter={StaticResource HF_InverseDoubleZeroToVisibilityConverter}}">
                         <UniformGrid VerticalAlignment="Center" Columns="2">
                             <TextBlock Text="Start HFR" />
-                            <TextBlock Text="{Binding InitialHFR, StringFormat=\{0:0.00\}}" />
+                            <TextBlock Margin="5,0,0,0" Text="{Binding InitialHFR, StringFormat=\{0:0.00\}}" />
                         </UniformGrid>
                     </Border>
                 </Border>
@@ -312,7 +312,7 @@
                     Visibility="{Binding LastAutoFocusPoint.Focuspoint.Y, Converter={StaticResource HF_DoubleZeroToVisibilityConverter}}">
                     <UniformGrid VerticalAlignment="Center" Columns="2">
                         <TextBlock Text="Estimated Final HFR" />
-                        <TextBlock Text="{Binding LastAutoFocusPoint.Focuspoint.Y, StringFormat=\{0:0.00\}}" />
+                        <TextBlock Margin="5,0,0,0" Text="{Binding LastAutoFocusPoint.Focuspoint.Y, StringFormat=\{0:0.00\}}" />
                     </UniformGrid>
                 </Border>
                 <Border
@@ -420,13 +420,14 @@
             <ninactrl:CancellableButton
                 Grid.Row="3"
                 Height="25"
-                Margin="0,15,0,5"
+                Margin="10,15,0,5"
                 Padding="5,0,5,0"
                 ButtonText="Reprocess Saved Run"
-                HorizontalAlignment="Stretch"
+                HorizontalAlignment="Left"
                 VerticalAlignment="Bottom"
                 CancelButtonImage="{StaticResource CancelSVG}"
                 CancelCommand="{Binding CancelLoadSavedAutoFocusRunCommand}"
+                IsEnabled="{Binding AutoFocusInProgress, Converter={StaticResource InverseBooleanConverter}}"
                 ToolTip="Reprocesses AutoFocus images saved by having Save enabled in Hocus Focus -> Auto Focus Options. This produces an auto focus curve using whatever the current star detection and fit settings are"
                 CancelToolTip="{ns:Loc LblCancel}"
                 Command="{Binding LoadSavedAutoFocusRunCommand}" />

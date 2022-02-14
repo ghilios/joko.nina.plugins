@@ -206,7 +206,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             public FilterInfo AutoFocusFilter { get; private set; }
             public object StatesLock { get; private set; } = new object();
             public SemaphoreSlim ExposureSemaphore { get; private set; }
-            public int FramesPerPoint { get; private set; }
             public int InitialFocuserPosition { get; set; }
             public List<Task> InitialHFRTasks { get; private set; } = new List<Task>();
             public List<Task> AnalysisTasks { get; private set; } = new List<Task>();
@@ -416,7 +415,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
                 values.Add(measurement);
 
-                if (values.Count < state.FramesPerPoint) {
+                if (values.Count < state.Options.FramesPerPoint) {
                     return Task.CompletedTask;
                 }
 
@@ -437,7 +436,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private Task InitialHFRMeasurementAction(int focuserPosition, MeasureAndError measurement, AutoFocusState state, AutoFocusRegionState regionState) {
             lock (regionState.SubMeasurementsLock) {
                 regionState.InitialHFRSubMeasurements.Add(measurement);
-                if (regionState.InitialHFRSubMeasurements.Count < state.FramesPerPoint) {
+                if (regionState.InitialHFRSubMeasurements.Count < state.Options.FramesPerPoint) {
                     return Task.CompletedTask;
                 }
 
@@ -450,7 +449,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private Task FinalHFRMeasurementAction(int focuserPosition, MeasureAndError measurement, AutoFocusState state, AutoFocusRegionState regionState) {
             lock (regionState.SubMeasurementsLock) {
                 regionState.FinalHFRSubMeasurements.Add(measurement);
-                if (regionState.FinalHFRSubMeasurements.Count < state.FramesPerPoint) {
+                if (regionState.FinalHFRSubMeasurements.Count < state.Options.FramesPerPoint) {
                     return Task.CompletedTask;
                 }
 
@@ -538,7 +537,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             CancellationToken token,
             IProgress<ApplicationStatus> progress) {
             var attemptNumber = state.AttemptNumber;
-            for (int i = 0; i < state.FramesPerPoint; ++i) {
+            for (int i = 0; i < state.Options.FramesPerPoint; ++i) {
                 using (MyStopWatch.Measure("Waiting on ExposureSemaphore")) {
                     await state.ExposureSemaphore.WaitAsync(token);
                 }
@@ -1205,7 +1204,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return new AutoFocusEngineOptions() {
                 ValidateHfrImprovement = autoFocusOptions.ValidateHfrImprovement,
                 MaxConcurrent = autoFocusOptions.MaxConcurrent > 0 ? autoFocusOptions.MaxConcurrent : int.MaxValue,
-                AutoFocusNumberOfFramesPerPoint = profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint,
+                FramesPerPoint = profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint,
                 AutoFocusMethod = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod,
                 AutoFocusCurveFitting = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting,
                 Save = autoFocusOptions.Save,

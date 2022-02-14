@@ -50,7 +50,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public AFCurveFittingEnum AutoFocusCurveFitting { get; set; }
         public int AutoFocusInitialOffsetSteps { get; set; }
         public int AutoFocusStepSize { get; set; }
-        public int AutoFocusNumberOfFramesPerPoint { get; set; }
+        public int FramesPerPoint { get; set; }
         public int MaxConcurrent { get; set; }
         public bool Save { get; set; }
         public string SavePath { get; set; }
