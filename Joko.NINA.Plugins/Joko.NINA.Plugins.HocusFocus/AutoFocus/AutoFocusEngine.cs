@@ -862,9 +862,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 foreach (var autoFocusRegionState in autoFocusState.FocusRegionStates) {
                     var fittings = autoFocusRegionState.Fittings;
                     if (rSquaredThreshold > 0) {
-                        var hyperbolicBad = fittings.HyperbolicFitting.RSquared < rSquaredThreshold;
-                        var quadraticBad = fittings.QuadraticFitting.RSquared < rSquaredThreshold;
-                        var trendlineBad = fittings.TrendlineFitting.LeftTrend.RSquared < rSquaredThreshold || fittings.TrendlineFitting.RightTrend.RSquared < rSquaredThreshold;
+                        var hyperbolicBad = fittings.HyperbolicFitting != null && fittings.HyperbolicFitting.RSquared < rSquaredThreshold;
+                        var quadraticBad = fittings.QuadraticFitting != null && fittings.QuadraticFitting.RSquared < rSquaredThreshold;
+                        var trendlineBad = fittings.TrendlineFitting != null && (fittings.TrendlineFitting.LeftTrend.RSquared < rSquaredThreshold || fittings.TrendlineFitting.RightTrend.RSquared < rSquaredThreshold);
 
                         var fitting = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
 
