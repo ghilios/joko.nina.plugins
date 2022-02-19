@@ -10,6 +10,9 @@
 
 #endregion "copyright"
 
+using ILNumerics;
+using ILNumerics.Drawing;
+using ILNumerics.Drawing.Plotting;
 using Newtonsoft.Json;
 using NINA.Core.Utility;
 using NINA.Image.ImageAnalysis;
@@ -18,13 +21,21 @@ using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using OpenCvSharp;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+
+using static ILNumerics.Globals;
+using static ILNumerics.ILMath;
+using DashStyle = ILNumerics.Drawing.DashStyle;
+using DrawingColor = System.Drawing.Color;
+using FormsApplication = System.Windows.Forms.Application;
 
 namespace TestApp {
 
@@ -35,7 +46,9 @@ namespace TestApp {
         private const string InputFilePath4 = @"C:\AP\Focus Points Original\5_Focuser_6000_HFR_0191.tif";
         private const string IntermediatePath = @"E:\StarDetectionTest\Intermediate";
 
+        [STAThread]
         private static void Main(string[] args) {
+            /*
             var folder = @"E:\AutoFocusSaves\AutoFocus_20221102_223808\attempt01";
             var files = Directory.GetFiles(folder, "*", SearchOption.TopDirectoryOnly);
 
@@ -58,8 +71,60 @@ namespace TestApp {
                     Console.WriteLine($"Found image file: {file.Name}, Focuser: {focuser}, HFR: {hfr}");
                 }
             }
+            */
 
-            Console.WriteLine();
+            var a = new App();
+            // a.StartupUri = new Uri("App.xaml", System.UriKind.Relative);
+            a.Run();
+
+            /*
+            FormsApplication.EnableVisualStyles();
+            FormsApplication.SetCompatibleTextRenderingDefault(false);
+            var form = new ILForm();
+
+            Array<float> angles = linspace<float>(0, (float)pi * 2f, 6);
+            Array<float> pos = zeros<float>(3, 6);
+            pos["0;:"] = sin(angles);
+            pos["1;:"] = cos(angles);
+
+            var scene = new Scene();
+            // get terrain data, convert to single precision
+            Array<float> A = tosingle(SpecialData.terrain[r(120, end), r(0, 310)]);
+            scene.Add(
+              // create plot cube
+              new PlotCube(twoDMode: true) {
+	            // create contour plot
+	            new ContourPlot(A, create3D: false,
+                    levels: new List<ContourLevel> {
+			            // configure individual contour levels
+			            new ContourLevel() { Text = "Coast", Value = 5, LineWidth = 3, LabelColor = DrawingColor.Azure },
+                        new ContourLevel() { Text = "Plateau", Value = 1000, LineWidth = 3},
+                        new ContourLevel() { Text = "Basis 1", Value = 1500, LineWidth = 3, LineStyle = DashStyle.PointDash },
+                        new ContourLevel() { Text = "High", Value = 3000, LineWidth = 3, LineColor = 0 },
+                        new ContourLevel() { Text = @"\fontname{Colonna MT}\bf\fontsize{+4}Rescue", Value = 4200, LineWidth = 3,
+                                                          LineStyle = DashStyle.Dotted },
+                        new ContourLevel() { Text = "Peak", Value = 5000, LineWidth = 3},
+                    }),
+	            // add surface with the same data
+	            new Surface(A) {
+	  	            // disable wireframe
+		            Wireframe = { Visible = false },
+                    UseLighting = true,
+                    Children = {
+                      new Legend { Location = new PointF(1f,.1f) },
+                      new Colorbar {
+                          Location = new PointF(1,.4f),
+                          Anchor = new PointF(1,0)
+                      }
+                    }
+            });
+
+            scene.First<PlotCube>().AspectRatioMode = AspectRatioMode.StretchToFill;
+            form.panel1.Scene = scene;
+            Application.Run(form);
+            */
+
+            // Console.WriteLine();
 
             // MainAsync(args).Wait();
         }
@@ -105,7 +170,7 @@ namespace TestApp {
             }
         }
 
-        private static BitmapSource ToBitmapSource(Mat src, PixelFormat pf) {
+        public static BitmapSource ToBitmapSource(Mat src, PixelFormat pf) {
             int stride = (src.Width * pf.BitsPerPixel + 7) / 8;
             double dpi = 96;
 
@@ -115,7 +180,7 @@ namespace TestApp {
             return source;
         }
 
-        private static void ConvertToFloat(Mat src, Mat dst) {
+        public static void ConvertToFloat(Mat src, Mat dst) {
             if (src.Size() != dst.Size() || dst.Type() != MatType.CV_32F) {
                 dst.Create(src.Size(), MatType.CV_32F);
             }

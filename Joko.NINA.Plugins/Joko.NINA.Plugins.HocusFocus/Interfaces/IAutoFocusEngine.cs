@@ -20,6 +20,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
+using DrawingSize = System.Drawing.Size;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
@@ -45,6 +46,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     }
 
     public class AutoFocusEngineOptions {
+        public bool DebayerImage { get; set; }
+        public int NumberOfAFStars { get; set; }
+        public int TotalNumberOfAttempts { get; set; }
         public bool ValidateHfrImprovement { get; set; }
         public AFMethodEnum AutoFocusMethod { get; set; }
         public AFCurveFittingEnum AutoFocusCurveFitting { get; set; }
@@ -68,6 +72,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Task<AutoFocusResult> Rerun(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
 
         AutoFocusEngineOptions GetOptions();
+
+        Task<FilterInfo> SetAutofocusFilter(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
 
         event EventHandler<AutoFocusInitialHFRCalculatedEventArgs> InitialHFRCalculated;
 
@@ -114,8 +120,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         }
     }
 
+    public class AutoFocusRegionResult {
+        public int RegionIndex { get; set; }
+        public StarDetectionRegion Region { get; set; }
+        public AutoFocusFitting Fittings { get; set; }
+        public double EstimatedFinalFocuserPosition { get; set; }
+        public double EstimatedFinalHFR { get; set; }
+    }
+
     public class AutoFocusResult {
         public bool Succeeded { get; set; }
+
+        public DrawingSize ImageSize { get; set; }
+        public AutoFocusRegionResult[] RegionResults { get; set; }
     }
 
     public class AutoFocusInitialHFRCalculatedEventArgs : EventArgs {
@@ -156,6 +173,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public ImmutableList<AutoFocusRegionHFR> RegionHFRs { get; set; }
         public string Filter { get; set; }
         public double Temperature { get; set; }
+        public DrawingSize ImageSize { get; set; }
         public TimeSpan Duration { get; set; }
         public string SaveFolder { get; set; }
     }

@@ -23,6 +23,9 @@ using NINA.Equipment.Interfaces.Mediator;
 using NINA.Core.Interfaces;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
+using System.Reflection;
+using System.IO;
+using System;
 
 namespace NINA.Joko.Plugins.HocusFocus {
 
@@ -55,6 +58,9 @@ namespace NINA.Joko.Plugins.HocusFocus {
             if (AutoFocusOptions == null) {
                 AutoFocusOptions = new AutoFocusOptions(profileService);
             }
+            if (InspectorOptions == null) {
+                InspectorOptions = new InspectorOptions(profileService);
+            }
             if (AutoFocusEngineFactory == null) {
                 AutoFocusEngineFactory = new AutoFocusEngineFactory(
                     profileService,
@@ -68,6 +74,10 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     starAnnotatorSelector,
                     AutoFocusOptions);
             }
+
+            var thisAssembly = Assembly.GetAssembly(typeof(HocusFocusPlugin));
+            var thisAssemblyFileInfo = new FileInfo(thisAssembly.Location);
+            ILNumerics.Settings.DefaultRenderer = ILNumerics.Drawing.RendererTypes.OpenGL;
 
             ResetStarDetectionDefaultsCommand = new RelayCommand((object o) => StarDetectionOptions.ResetDefaults());
             ResetStarAnnotatorDefaultsCommand = new RelayCommand((object o) => StarAnnotatorOptions.ResetDefaults());
@@ -101,6 +111,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public static StarAnnotatorOptions StarAnnotatorOptions { get; private set; }
 
         public static AutoFocusOptions AutoFocusOptions { get; private set; }
+
+        public static InspectorOptions InspectorOptions { get; private set; }
 
         public static AutoFocusEngineFactory AutoFocusEngineFactory { get; private set; }
 

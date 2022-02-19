@@ -40,6 +40,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
+using DrawingSize = System.Drawing.Size;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
@@ -199,6 +200,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             public AutoFocusEngineOptions Options { get; private set; }
+            public DrawingSize ImageSize { get; set; }
             public ImmutableList<StarDetectionRegion> FocusRegions { get; private set; }
             public ImmutableList<AutoFocusRegionState> FocusRegionStates { get; private set; }
             public int AttemptNumber { get; private set; }
@@ -265,25 +267,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var imageProperties = image.RawImageData.Properties;
 
             // Very simple to directly provide result if we use statistics based contrast detection
-            if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.CONTRASTDETECTION && profileService.ActiveProfile.FocuserSettings.ContrastDetectionMethod == ContrastDetectionMethodEnum.Statistics) {
+            if (state.Options.AutoFocusMethod == AFMethodEnum.CONTRASTDETECTION && profileService.ActiveProfile.FocuserSettings.ContrastDetectionMethod == ContrastDetectionMethodEnum.Statistics) {
                 var imageStatistics = await image.RawImageData.Statistics.Task;
                 return new MeasureAndError() { Measure = 100 * imageStatistics.StDev / imageStatistics.Mean, Stdev = 0.01 };
             }
 
             System.Windows.Media.PixelFormat pixelFormat;
 
-            if (imageProperties.IsBayered && profileService.ActiveProfile.ImageSettings.DebayerImage) {
+            if (imageProperties.IsBayered && state.Options.DebayerImage) {
                 pixelFormat = System.Windows.Media.PixelFormats.Rgb48;
             } else {
                 pixelFormat = System.Windows.Media.PixelFormats.Gray16;
             }
 
-            if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR) {
+            if (state.Options.AutoFocusMethod == AFMethodEnum.STARHFR) {
                 var starDetection = starDetectionSelector.GetBehavior();
                 var analysisParams = new StarDetectionParams() {
                     Sensitivity = profileService.ActiveProfile.ImageSettings.StarSensitivity,
                     NoiseReduction = profileService.ActiveProfile.ImageSettings.NoiseReduction,
-                    NumberOfAFStars = profileService.ActiveProfile.FocuserSettings.AutoFocusUseBrightestStars,
+                    NumberOfAFStars = state.Options.NumberOfAFStars,
                     IsAutoFocus = true
                 };
 
@@ -424,7 +426,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var validFocusPoints = regionState.MeasurementsByFocuserPoint.Where(fp => fp.Value.Measure > 0.0).Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, Math.Max(0.001, fp.Value.Stdev))).ToList();
                 if (validFocusPoints.Count >= 3) {
-                    var autoFocusMethod = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod.ToString();
+                    var autoFocusMethod = state.Options.AutoFocusMethod.ToString();
                     regionState.UpdateCurveFittings(validFocusPoints);
                 }
 
@@ -458,14 +460,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return Task.CompletedTask;
         }
 
-        private async Task<IRenderedImage> PrepareExposure(IExposureData exposureData, CancellationToken token) {
-            return await PrepareExposure(await exposureData.ToImageData(null, token), token);
+        private async Task<IRenderedImage> PrepareExposure(AutoFocusState state, IExposureData exposureData, CancellationToken token) {
+            return await PrepareExposure(state, await exposureData.ToImageData(null, token), token);
         }
 
-        private async Task<IRenderedImage> PrepareExposure(IImageData imageData, CancellationToken token) {
+        private async Task<IRenderedImage> PrepareExposure(AutoFocusState state, IImageData imageData, CancellationToken token) {
             var autoStretch = true;
             // If using contrast based statistics, no need to stretch
-            if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.CONTRASTDETECTION && profileService.ActiveProfile.FocuserSettings.ContrastDetectionMethod == ContrastDetectionMethodEnum.Statistics) {
+            if (state.Options.AutoFocusMethod == AFMethodEnum.CONTRASTDETECTION && profileService.ActiveProfile.FocuserSettings.ContrastDetectionMethod == ContrastDetectionMethodEnum.Statistics) {
                 autoStretch = false;
             }
 
@@ -550,7 +552,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 state.MeasurementStarted();
                 try {
                     var exposureAnalysisTasks = new List<Task>();
-                    var prepareExposureTask = PrepareExposure(exposureData, token);
+                    var prepareExposureTask = PrepareExposure(state, exposureData, token);
                     foreach (var regionState in state.FocusRegionStates) {
                         var analysisTask = Task.Run(async () => {
                             var preparedExposure = await prepareExposureTask;
@@ -565,6 +567,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                                 regionState: regionState,
                                 action: action,
                                 token: token);
+                            lock (state.StatesLock) {
+                                var imageProperties = preparedExposure.RawImageData.Properties;
+                                state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
+                            }
                         });
                         exposureAnalysisTasks.Add(analysisTask);
                         lock (state.StatesLock) {
@@ -597,8 +603,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private async Task StartBlindFocusPoints(int initialFocusPosition, AutoFocusState autoFocusState, CancellationToken token, IProgress<ApplicationStatus> progress) {
             // Initial set of focus point acquisition getting back to at least the starting point
-            var offsetSteps = profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps;
-            var stepSize = profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize;
+            var offsetSteps = autoFocusState.Options.AutoFocusInitialOffsetSteps;
+            var stepSize = autoFocusState.Options.AutoFocusStepSize;
             var targetFocuserPosition = initialFocusPosition + ((offsetSteps + 1) * stepSize);
             int leftMostPosition = int.MaxValue;
             int rightMostPosition = int.MinValue;
@@ -751,7 +757,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     if (!goodFocusPosition) {
                         // Ensure we cancel any remaining tasks from this iteration so we can start the next
                         iterationTaskCts.Cancel();
-                        if (autoFocusState.AttemptNumber < profileService.ActiveProfile.FocuserSettings.AutoFocusTotalNumberOfAttempts) {
+                        if (autoFocusState.AttemptNumber < autoFocusState.Options.TotalNumberOfAttempts) {
                             Notification.ShowWarning(Loc.Instance["LblAutoFocusReattempting"]);
                             Logger.Warning($"Potentially bad auto-focus. Setting focuser back to {initialFocusPosition} and re-attempting.");
                             await focuserMediator.MoveFocuser(initialFocusPosition, token);
@@ -935,7 +941,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return true;
         }
 
-        private async Task<FilterInfo> SetAutofocusFilter(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+        public async Task<FilterInfo> SetAutofocusFilter(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
             if (profileService.ActiveProfile.FocuserSettings.UseFilterWheelOffsets) {
                 var filter = profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.Where(f => f.AutoFocusFilter == true).FirstOrDefault();
                 if (filter == null) {
@@ -1019,7 +1025,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             return new AutoFocusResult() {
-                Succeeded = completed
+                Succeeded = completed,
+                ImageSize = autoFocusState.ImageSize,
+                RegionResults = autoFocusState.FocusRegionStates.Select(rs => new AutoFocusRegionResult() {
+                    RegionIndex = rs.RegionIndex,
+                    Region = rs.Region,
+                    EstimatedFinalFocuserPosition = rs.FinalFocusPoint.X,
+                    EstimatedFinalHFR = rs.FinalFocusPoint.Y,
+                    Fittings = rs.Fittings
+                }).OrderBy(r => r.RegionIndex).ToArray()
             };
         }
 
@@ -1050,7 +1064,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var isBayered = savedFile.IsBayered;
                 var bitDepth = savedFile.BitDepth;
                 var imageData = await this.imageDataFactory.CreateFromFile(savedFile.Path, bitDepth, isBayered, profileService.ActiveProfile.CameraSettings.RawConverter, token);
-                var preparedImage = await PrepareExposure(imageData, token);
+                var preparedImage = await PrepareExposure(state, imageData, token);
                 return await EvaluateExposure(
                     state: state,
                     regionState: regionState,
@@ -1196,12 +1210,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Filter = filter,
                 Temperature = temperature,
                 Duration = duration,
-                SaveFolder = state.SaveFolder
+                SaveFolder = state.SaveFolder,
+                ImageSize = state.ImageSize
             });
         }
 
         public AutoFocusEngineOptions GetOptions() {
             return new AutoFocusEngineOptions() {
+                DebayerImage = profileService.ActiveProfile.ImageSettings.DebayerImage,
+                NumberOfAFStars = profileService.ActiveProfile.FocuserSettings.AutoFocusUseBrightestStars,
+                TotalNumberOfAttempts = profileService.ActiveProfile.FocuserSettings.AutoFocusTotalNumberOfAttempts,
                 ValidateHfrImprovement = autoFocusOptions.ValidateHfrImprovement,
                 MaxConcurrent = autoFocusOptions.MaxConcurrent > 0 ? autoFocusOptions.MaxConcurrent : int.MaxValue,
                 FramesPerPoint = profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint,

@@ -1,18 +1,18 @@
 ﻿<ResourceDictionary
     x:Class="NINA.Joko.Plugins.HocusFocus.Resources.OptionsDataTemplates"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:hfconverters="clr-namespace:NINA.Joko.Plugins.HocusFocus.Converters"
     xmlns:hfenum="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
     xmlns:hfrules="clr-namespace:NINA.Joko.Plugins.HocusFocus.ValidationRules"
     xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
-    xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
-    xmlns:sd="clr-namespace:NINA.Joko.Plugins.HocusFocus.StarDetection"
     xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary"
+    xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
+    xmlns:sd="clr-namespace:NINA.Joko.Plugins.HocusFocus.StarDetection"
+    xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
+    xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit"
     mc:Ignorable="d">
     <hfconverters:ShowStructureMapToVisibilityConverter x:Key="HF_ShowStructureMapToVisibilityConverter" />
     <hfconverters:DoubleZeroToVisibilityConverter x:Key="HF_DoubleZeroToVisibilityConverter" />
@@ -23,6 +23,8 @@
     <hfconverters:EnumStaticDescriptionValueConverter x:Key="HF_EnumStaticDescriptionValueConverter" />
     <hfconverters:ShowAnnotationTypeToVisibilityConverter x:Key="HF_ShowAnnotationTypeToVisibilityConverter" />
     <hfconverters:ZeroToDoubleDashConverter x:Key="HF_ZeroToDoubleDashConverter" />
+    <hfconverters:DoubleNegativeToVisibilityConverter x:Key="HF_DoubleNegativeToVisibilityConverter" />
+    <hfconverters:DoubleNegativeToEmptyStringConverter x:Key="HF_DoubleNegativeToEmptyStringConverter" />
     <TextBlock x:Key="MaxConcurrent_Tooltip" Text="The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long an Auto Focus operation can take before we cancel it and move on." />
     <TextBlock x:Key="ValidateHfrImprovement_Tooltip" Text="If enabled, takes an extra exposure before and after to ensure HFR improved. This check may be done in addition to the R² validation configured in NINA's Auto Focus options." />
@@ -36,8 +38,11 @@
     <TextBlock x:Key="StarClippingMultiplier_Tooltip" Text="Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis. Decrease this if there are a large number of stars excluded for being degenerate and you can see many clear dim stars that are not detected." />
     <TextBlock x:Key="StructureLayers_Tooltip" Text="The number of dyadic (power of 2) layers to include in structure detection. At the default of 5 (2⁵=32), structures larger than 32 pixels in size are excluded from structure detection" />
     <TextBlock x:Key="BrightnessSensitivity_Tooltip">
-        Given a star with a normalized brightness measure of <Bold>s</Bold>, a local background of <Bold>b</Bold>, and a background noise level of <Bold>n</Bold>, star sensitivity is measured as the ratio of the star brightness above the background relative to the background noise <Bold>(s-b)/n</Bold>. The default value of 10x the noise level seems to works well, but if you find a large number of rejections due to low sensitivity, smaller values can increase sensitivity
-    </TextBlock>
+        Given a star with a normalized brightness measure of<Bold>s</Bold>
+        , a local background of<Bold>b</Bold>
+        , and a background noise level of<Bold>n</Bold>
+        , star sensitivity is measured as the ratio of the star brightness above the background relative to the background noise<Bold>(s-b)/n</Bold>
+        . The default value of 10x the noise level seems to works well, but if you find a large number of rejections due to low sensitivity, smaller values can increase sensitivity</TextBlock>
     <TextBlock x:Key="StarPeakResponse_Tooltip" Text="The ratio of the star median relative to the star peak. It provides a measure of flatness, since median values close to the peak indicate low dispersion. Consider increasing if too many stars are rejected with &quot;Too Flat&quot;" />
     <TextBlock x:Key="MaxDistortion_Tooltip" Text="The ratio of star pixels to the size of a perfect square bounding box. A perfect circule has a distortion of PI/4, which is approximately 0.7. The default value of 0.5 allows for some distortion and measurement error and should work for most cases." />
     <TextBlock x:Key="StarCenterTolerance_Tooltip" Text="Size (as a percentage) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star" />
@@ -125,7 +130,10 @@
                 HorizontalAlignment="Left"
                 ToolTip="{StaticResource MaxConcurrent_Tooltip}"
                 Unit="images">
-                <Binding Path="AutoFocusOptions.MaxConcurrent" UpdateSourceTrigger="LostFocus" Converter="{StaticResource HF_ZeroToInfinityConverter}">
+                <Binding
+                    Converter="{StaticResource HF_ZeroToInfinityConverter}"
+                    Path="AutoFocusOptions.MaxConcurrent"
+                    UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <hfrules:PositiveIntegerOrInfiniteRule />
                     </Binding.ValidationRules>
@@ -144,8 +152,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="seconds"
-                ToolTip="{StaticResource AutoFocusTimeoutSeconds_Tooltip}">
+                ToolTip="{StaticResource AutoFocusTimeoutSeconds_Tooltip}"
+                Unit="seconds">
                 <Binding Path="AutoFocusOptions.AutoFocusTimeoutSeconds" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterThanZeroRule />
@@ -171,21 +179,24 @@
             <TextBlock
                 Grid.Row="3"
                 Grid.Column="0"
-                Visibility="{Binding ValidateHfrImprovement, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 VerticalAlignment="Center"
                 Text="HFR Improvement Tolerance"
-                ToolTip="{StaticResource HFRImprovementThreshold_Tooltip}" />
+                ToolTip="{StaticResource HFRImprovementThreshold_Tooltip}"
+                Visibility="{Binding AutoFocusOptions.ValidateHfrImprovement, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <ninactrl:UnitTextBox
                 Grid.Row="3"
                 Grid.Column="1"
-                Visibility="{Binding ValidateHfrImprovement, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
+                ToolTip="{StaticResource HFRImprovementThreshold_Tooltip}"
                 Unit="%"
-                ToolTip="{StaticResource HFRImprovementThreshold_Tooltip}">
-                <Binding Path="AutoFocusOptions.HFRImprovementThreshold" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
+                Visibility="{Binding AutoFocusOptions.ValidateHfrImprovement, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                <Binding
+                    Converter="{StaticResource PercentageConverter}"
+                    Path="AutoFocusOptions.HFRImprovementThreshold"
+                    UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
                     </Binding.ValidationRules>
@@ -229,7 +240,7 @@
                     </Binding>
                 </TextBox.Text>
                 <TextBox.Style>
-                    <Style TargetType="{x:Type TextBox}" BasedOn="{StaticResource StandardTextbox}">
+                    <Style BasedOn="{StaticResource StandardTextbox}" TargetType="{x:Type TextBox}">
                         <Setter Property="MaxWidth" Value="200" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding AutoFocusOptions.Save}" Value="False">
@@ -251,7 +262,7 @@
                     Fill="{StaticResource ButtonForegroundBrush}"
                     Stretch="Uniform" />
                 <Button.Style>
-                    <Style TargetType="{x:Type Button}" BasedOn="{StaticResource StandardButton}">
+                    <Style BasedOn="{StaticResource StandardButton}" TargetType="{x:Type Button}">
                         <Setter Property="Width" Value="20" />
                         <Setter Property="Height" Value="20" />
                         <Setter Property="Margin" Value="5,5,0,0" />
@@ -269,9 +280,10 @@
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">
         <Grid
-            d:DataContext="{d:DesignInstance sd:StarDetectionOptionsVM, IsDesignTimeCreatable=False}"
             Margin="5"
-            VerticalAlignment="Top">
+            VerticalAlignment="Top"
+            d:DataContext="{d:DesignInstance sd:StarDetectionOptionsVM,
+                                             IsDesignTimeCreatable=False}">
             <Grid.Resources>
                 <Style x:Key="ShowOnUseAdvanced" TargetType="{x:Type RowDefinition}">
                     <Setter Property="Height" Value="0" />
@@ -369,9 +381,9 @@
                 Text="Noise Level"
                 ToolTip="{StaticResource SimpleNoiseLevel_Tooltip}" />
             <ComboBox
+                Name="PART_NoiseLevelEnumList"
                 Grid.Row="1"
                 Grid.Column="1"
-                Name="PART_NoiseLevelEnumList"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
@@ -393,9 +405,9 @@
                 Text="Pixel Scale"
                 ToolTip="{StaticResource SimplePixelScale_Tooltip}" />
             <ComboBox
+                Name="PART_PixelScaleEnumList"
                 Grid.Row="2"
                 Grid.Column="1"
-                Name="PART_PixelScaleEnumList"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
@@ -417,9 +429,9 @@
                 Text="Focus Range"
                 ToolTip="{StaticResource SimpleFocusRange_Tooltip}" />
             <ComboBox
+                Name="PART_FocusRangeEnumList"
                 Grid.Row="3"
                 Grid.Column="1"
-                Name="PART_FocusRangeEnumList"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
@@ -495,8 +507,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="pixels"
-                ToolTip="{StaticResource NoiseReductionRadius_Tooltip}">
+                ToolTip="{StaticResource NoiseReductionRadius_Tooltip}"
+                Unit="pixels">
                 <Binding Path="StarDetectionOptions.NoiseReductionRadius" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
@@ -517,8 +529,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="x"
-                ToolTip="{StaticResource NoiseClippingMultiplier_Tooltip}">
+                ToolTip="{StaticResource NoiseClippingMultiplier_Tooltip}"
+                Unit="x">
                 <Binding Path="StarDetectionOptions.NoiseClippingMultiplier" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
@@ -539,8 +551,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="x"
-                ToolTip="{StaticResource StarClippingMultiplier_Tooltip}">
+                ToolTip="{StaticResource StarClippingMultiplier_Tooltip}"
+                Unit="x">
                 <Binding Path="StarDetectionOptions.StarClippingMultiplier" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
@@ -561,8 +573,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="layers"
-                ToolTip="{StaticResource StructureLayers_Tooltip}">
+                ToolTip="{StaticResource StructureLayers_Tooltip}"
+                Unit="layers">
                 <Binding Path="StarDetectionOptions.StructureLayers" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterThanZeroRule />
@@ -583,8 +595,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="(s-b)/n"
-                ToolTip="{StaticResource BrightnessSensitivity_Tooltip}">
+                ToolTip="{StaticResource BrightnessSensitivity_Tooltip}"
+                Unit="(s-b)/n">
                 <Binding Path="StarDetectionOptions.BrightnessSensitivity" UpdateSourceTrigger="LostFocus" />
             </ninactrl:UnitTextBox>
 
@@ -601,9 +613,12 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="%"
-                ToolTip="{StaticResource StarPeakResponse_Tooltip}">
-                <Binding Path="StarDetectionOptions.StarPeakResponse" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
+                ToolTip="{StaticResource StarPeakResponse_Tooltip}"
+                Unit="%">
+                <Binding
+                    Converter="{StaticResource PercentageConverter}"
+                    Path="StarDetectionOptions.StarPeakResponse"
+                    UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:DoubleRangeRule>
                             <rules:DoubleRangeRule.ValidRange>
@@ -627,8 +642,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit=""
-                ToolTip="{StaticResource MaxDistortion_Tooltip}">
+                ToolTip="{StaticResource MaxDistortion_Tooltip}"
+                Unit="">
                 <Binding Path="StarDetectionOptions.MaxDistortion" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:DoubleRangeRule>
@@ -653,9 +668,12 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="%"
-                ToolTip="{StaticResource StarCenterTolerance_Tooltip}">
-                <Binding Path="StarDetectionOptions.StarCenterTolerance" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
+                ToolTip="{StaticResource StarCenterTolerance_Tooltip}"
+                Unit="%">
+                <Binding
+                    Converter="{StaticResource PercentageConverter}"
+                    Path="StarDetectionOptions.StarCenterTolerance"
+                    UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:DoubleRangeRule>
                             <rules:DoubleRangeRule.ValidRange>
@@ -679,8 +697,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="pixels"
-                ToolTip="{StaticResource StarBackgroundBoxExpansion_Tooltip}">
+                ToolTip="{StaticResource StarBackgroundBoxExpansion_Tooltip}"
+                Unit="pixels">
                 <Binding Path="StarDetectionOptions.StarBackgroundBoxExpansion" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterThanZeroRule />
@@ -701,8 +719,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="pixels"
-                ToolTip="{StaticResource MinStarBoundingBoxSize_Tooltip}">
+                ToolTip="{StaticResource MinStarBoundingBoxSize_Tooltip}"
+                Unit="pixels">
                 <Binding Path="StarDetectionOptions.MinStarBoundingBoxSize" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
@@ -723,8 +741,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="pixels"
-                ToolTip="{StaticResource MinHFR_Tooltip}">
+                ToolTip="{StaticResource MinHFR_Tooltip}"
+                Unit="pixels">
                 <Binding Path="StarDetectionOptions.MinHFR" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterThanZeroRule />
@@ -745,8 +763,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="pixels"
-                ToolTip="{StaticResource StructureDilationSize_Tooltip}">
+                ToolTip="{StaticResource StructureDilationSize_Tooltip}"
+                Unit="pixels">
                 <Binding Path="StarDetectionOptions.StructureDilationSize" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:FloatRangeRule>
@@ -771,8 +789,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="x"
-                ToolTip="{StaticResource StructureDilationCount_Tooltip}">
+                ToolTip="{StaticResource StructureDilationCount_Tooltip}"
+                Unit="x">
                 <Binding Path="StarDetectionOptions.StructureDilationCount" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
@@ -793,9 +811,12 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="%"
-                ToolTip="{StaticResource PixelSampleSize_Tooltip}">
-                <Binding Path="StarDetectionOptions.PixelSampleSize" UpdateSourceTrigger="LostFocus" Converter="{StaticResource PercentageConverter}">
+                ToolTip="{StaticResource PixelSampleSize_Tooltip}"
+                Unit="%">
+                <Binding
+                    Converter="{StaticResource PercentageConverter}"
+                    Path="StarDetectionOptions.PixelSampleSize"
+                    UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:FloatRangeRule>
                             <rules:FloatRangeRule.ValidRange>
@@ -813,9 +834,9 @@
                 Text="PSF Type"
                 ToolTip="{StaticResource PSFFitType_Tooltip}" />
             <ComboBox
+                Name="PART_StarDetectorPSFFitTypeList"
                 Grid.Row="26"
                 Grid.Column="1"
-                Name="PART_StarDetectorPSFFitTypeList"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
@@ -843,8 +864,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="pixels"
-                ToolTip="{StaticResource PSFResolution_Tooltip}">
+                ToolTip="{StaticResource PSFResolution_Tooltip}"
+                Unit="pixels">
                 <Binding Path="StarDetectionOptions.PSFResolution" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterZeroRule />
@@ -865,8 +886,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="stars"
-                ToolTip="{StaticResource PSFParallelPartitionSize_Tooltip}">
+                ToolTip="{StaticResource PSFParallelPartitionSize_Tooltip}"
+                Unit="stars">
                 <Binding Path="StarDetectionOptions.PSFParallelPartitionSize" UpdateSourceTrigger="LostFocus" />
             </ninactrl:UnitTextBox>
 
@@ -883,8 +904,8 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Unit="R²"
-                ToolTip="{StaticResource PSFFitThreshold_Tooltip}">
+                ToolTip="{StaticResource PSFFitThreshold_Tooltip}"
+                Unit="R²">
                 <Binding Path="StarDetectionOptions.PSFFitThreshold" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:DoubleRangeRule>
@@ -948,7 +969,7 @@
                     </Binding>
                 </TextBox.Text>
                 <TextBox.Style>
-                    <Style TargetType="{x:Type TextBox}" BasedOn="{StaticResource StandardTextbox}">
+                    <Style BasedOn="{StaticResource StandardTextbox}" TargetType="{x:Type TextBox}">
                         <Setter Property="MaxWidth" Value="150" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding StarDetectionOptions.SaveIntermediateImages}" Value="False">
@@ -970,7 +991,7 @@
                     Fill="{StaticResource ButtonForegroundBrush}"
                     Stretch="Uniform" />
                 <Button.Style>
-                    <Style TargetType="{x:Type Button}" BasedOn="{StaticResource StandardButton}">
+                    <Style BasedOn="{StaticResource StandardButton}" TargetType="{x:Type Button}">
                         <Setter Property="Width" Value="20" />
                         <Setter Property="Height" Value="20" />
                         <Setter Property="Margin" Value="5,5,0,0" />
@@ -1073,9 +1094,9 @@
                 Grid.Row="2"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowAllStars, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}"
                 Text="Maximum Stars"
-                ToolTip="{StaticResource MaxStars_Tooltip}" />
+                ToolTip="{StaticResource MaxStars_Tooltip}"
+                Visibility="{Binding ShowAllStars, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}" />
             <ninactrl:UnitTextBox
                 Grid.Row="2"
                 Grid.Column="1"
@@ -1083,9 +1104,9 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
+                ToolTip="{StaticResource MaxStars_Tooltip}"
                 Unit="stars"
-                Visibility="{Binding ShowAllStars, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}"
-                ToolTip="{StaticResource MaxStars_Tooltip}">
+                Visibility="{Binding ShowAllStars, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
                 <Binding Path="MaxStars" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:GreaterThanZeroRule />
@@ -1111,28 +1132,28 @@
                 Grid.Row="4"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Star Bounds Type"
-                ToolTip="{StaticResource StarBoundsType_Tooltip}" />
+                ToolTip="{StaticResource StarBoundsType_Tooltip}"
+                Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <ComboBox
+                Name="PART_StarBoundsTypeList"
                 Grid.Row="4"
                 Grid.Column="1"
-                Name="PART_StarBoundsTypeList"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:StarBoundsTypeEnum}}}"
                 SelectedItem="{Binding StarBoundsType}"
-                ToolTip="{StaticResource StarBoundsType_Tooltip}" />
+                ToolTip="{StaticResource StarBoundsType_Tooltip}"
+                Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <TextBlock
                 Grid.Row="5"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Star Bounds Color"
-                ToolTip="{StaticResource StarBoundsColor_Tooltip}" />
+                ToolTip="{StaticResource StarBoundsColor_Tooltip}"
+                Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <xceed:ColorPicker
                 Grid.Row="5"
                 Grid.Column="1"
@@ -1140,9 +1161,9 @@
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 SelectedColor="{Binding StarBoundsColor}"
-                ToolTip="{StaticResource StarBoundsColor_Tooltip}" />
+                ToolTip="{StaticResource StarBoundsColor_Tooltip}"
+                Visibility="{Binding ShowStarBounds, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
                 Grid.Row="6"
@@ -1151,9 +1172,9 @@
                 Text="Show Property"
                 ToolTip="{StaticResource ShowAnnotationType_Tooltip}" />
             <ComboBox
+                Name="PART_ShowAnnotationTypeList"
                 Grid.Row="6"
                 Grid.Column="1"
-                Name="PART_ShowAnnotationTypeList"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
@@ -1175,9 +1196,9 @@
                 Text="Property Font"
                 Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}" />
             <StackPanel
-                Orientation="Horizontal"
                 Grid.Row="7"
                 Grid.Column="1"
+                Orientation="Horizontal"
                 Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}">
                 <ComboBox
                     xmlns:ComponentModel="clr-namespace:System.ComponentModel;assembly=WindowsBase"
@@ -1211,8 +1232,8 @@
                     Margin="5,5,0,0"
                     HorizontalAlignment="Left"
                     VerticalAlignment="Center"
-                    Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}"
-                    Unit="pt">
+                    Unit="pt"
+                    Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}">
                     <Binding Path="AnnotationFontSizePoints" UpdateSourceTrigger="LostFocus">
                         <Binding.ValidationRules>
                             <rules:GreaterThanZeroRule />
@@ -1225,11 +1246,10 @@
                 Grid.Row="8"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}"
                 Text="Property Color"
-                ToolTip="{StaticResource AnnotationColor_Tooltip}" />
+                ToolTip="{StaticResource AnnotationColor_Tooltip}"
+                Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}" />
             <xceed:ColorPicker
-                Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}"
                 Grid.Row="8"
                 Grid.Column="1"
                 Width="80"
@@ -1237,7 +1257,8 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding AnnotationColor}"
-                ToolTip="{StaticResource AnnotationColor_Tooltip}" />
+                ToolTip="{StaticResource AnnotationColor_Tooltip}"
+                Visibility="{Binding ShowAnnotationType, Converter={StaticResource HF_ShowAnnotationTypeToVisibilityConverter}}" />
 
             <TextBlock
                 Grid.Row="9"
@@ -1258,11 +1279,10 @@
                 Grid.Row="10"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowROI, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="ROI Color"
-                ToolTip="{StaticResource ROIColor_Tooltip}" />
+                ToolTip="{StaticResource ROIColor_Tooltip}"
+                Visibility="{Binding ShowROI, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <xceed:ColorPicker
-                Visibility="{Binding ShowROI, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Grid.Row="10"
                 Grid.Column="1"
                 Width="80"
@@ -1270,7 +1290,8 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding ROIColor}"
-                ToolTip="{StaticResource ROIColor_Tooltip}" />
+                ToolTip="{StaticResource ROIColor_Tooltip}"
+                Visibility="{Binding ShowROI, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <TextBlock
                 Grid.Row="11"
                 Grid.Column="0"
@@ -1290,11 +1311,10 @@
                 Grid.Row="12"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowStarCenter, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Star Center Color"
-                ToolTip="{StaticResource StarCenterColor_Tooltip}" />
+                ToolTip="{StaticResource StarCenterColor_Tooltip}"
+                Visibility="{Binding ShowStarCenter, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <xceed:ColorPicker
-                Visibility="{Binding ShowStarCenter, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Grid.Row="12"
                 Grid.Column="1"
                 Width="80"
@@ -1302,7 +1322,8 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding StarCenterColor}"
-                ToolTip="{StaticResource StarCenterColor_Tooltip}" />
+                ToolTip="{StaticResource StarCenterColor_Tooltip}"
+                Visibility="{Binding ShowStarCenter, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
                 Grid.Row="13"
@@ -1323,11 +1344,10 @@
                 Grid.Row="14"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowTooDistorted, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Distorted Box Color"
-                ToolTip="{StaticResource TooDistortedColor_Tooltip}" />
+                ToolTip="{StaticResource TooDistortedColor_Tooltip}"
+                Visibility="{Binding ShowTooDistorted, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <xceed:ColorPicker
-                Visibility="{Binding ShowTooDistorted, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Grid.Row="14"
                 Grid.Column="1"
                 Width="80"
@@ -1335,7 +1355,8 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding TooDistortedColor}"
-                ToolTip="{StaticResource TooDistortedColor_Tooltip}" />
+                ToolTip="{StaticResource TooDistortedColor_Tooltip}"
+                Visibility="{Binding ShowTooDistorted, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
                 Grid.Row="15"
@@ -1356,11 +1377,10 @@
                 Grid.Row="16"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Degenerate Box Color"
-                ToolTip="{StaticResource DegenerateColor_Tooltip}" />
+                ToolTip="{StaticResource DegenerateColor_Tooltip}"
+                Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <xceed:ColorPicker
-                Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Grid.Row="16"
                 Grid.Column="1"
                 Width="80"
@@ -1368,7 +1388,8 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding DegenerateColor}"
-                ToolTip="{StaticResource DegenerateColor_Tooltip}" />
+                ToolTip="{StaticResource DegenerateColor_Tooltip}"
+                Visibility="{Binding ShowDegenerate, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
                 Grid.Row="17"
@@ -1389,11 +1410,10 @@
                 Grid.Row="18"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Saturated Box Color"
-                ToolTip="{StaticResource SaturatedColor_Tooltip}" />
+                ToolTip="{StaticResource SaturatedColor_Tooltip}"
+                Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <xceed:ColorPicker
-                Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Grid.Row="18"
                 Grid.Column="1"
                 Width="80"
@@ -1401,7 +1421,8 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding SaturatedColor}"
-                ToolTip="{StaticResource SaturatedColor_Tooltip}" />
+                ToolTip="{StaticResource SaturatedColor_Tooltip}"
+                Visibility="{Binding ShowSaturated, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
                 Grid.Row="19"
@@ -1422,11 +1443,10 @@
                 Grid.Row="20"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Low Sensitivity Box Color"
-                ToolTip="{StaticResource LowSensitivityColor_Tooltip}" />
+                ToolTip="{StaticResource LowSensitivityColor_Tooltip}"
+                Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <xceed:ColorPicker
-                Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Grid.Row="20"
                 Grid.Column="1"
                 Width="80"
@@ -1434,7 +1454,8 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding LowSensitivityColor}"
-                ToolTip="{StaticResource LowSensitivityColor_Tooltip}" />
+                ToolTip="{StaticResource LowSensitivityColor_Tooltip}"
+                Visibility="{Binding ShowLowSensitivity, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
                 Grid.Row="21"
@@ -1455,11 +1476,10 @@
                 Grid.Row="22"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Not Centered Box Color"
-                ToolTip="{StaticResource NotCenteredColor_Tooltip}" />
+                ToolTip="{StaticResource NotCenteredColor_Tooltip}"
+                Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <xceed:ColorPicker
-                Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Grid.Row="22"
                 Grid.Column="1"
                 Width="80"
@@ -1467,7 +1487,8 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding NotCenteredColor}"
-                ToolTip="{StaticResource NotCenteredColor_Tooltip}" />
+                ToolTip="{StaticResource NotCenteredColor_Tooltip}"
+                Visibility="{Binding ShowNotCentered, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
                 Grid.Row="23"
@@ -1488,11 +1509,10 @@
                 Grid.Row="24"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Text="Too Flat Box Color"
-                ToolTip="{StaticResource TooFlatColor_Tooltip}" />
+                ToolTip="{StaticResource TooFlatColor_Tooltip}"
+                Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             <xceed:ColorPicker
-                Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
                 Grid.Row="24"
                 Grid.Column="1"
                 Width="80"
@@ -1500,34 +1520,35 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 SelectedColor="{Binding TooFlatColor}"
-                ToolTip="{StaticResource TooFlatColor_Tooltip}" />
+                ToolTip="{StaticResource TooFlatColor_Tooltip}"
+                Visibility="{Binding ShowTooFlat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
                 Grid.Row="27"
                 Grid.Column="0"
-                Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}"
                 VerticalAlignment="Center"
                 Text="Show Structure Map"
-                ToolTip="{StaticResource ShowStructureMap_Tooltip}" />
+                ToolTip="{StaticResource ShowStructureMap_Tooltip}"
+                Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}" />
             <ComboBox
+                Name="PART_ShowStructureMapList"
                 Grid.Row="27"
                 Grid.Column="1"
-                Name="PART_ShowStructureMapList"
-                Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 ItemsSource="{Binding Source={util:EnumBindingSource {x:Type hfenum:ShowStructureMapEnum}}}"
                 SelectedItem="{Binding ShowStructureMap}"
-                ToolTip="{StaticResource ShowStructureMap_Tooltip}" />
+                ToolTip="{StaticResource ShowStructureMap_Tooltip}"
+                Visibility="{Binding DetectorOptions.DebugMode, Converter={BoolToVisibilityConverter}}" />
             <TextBlock
                 Grid.Row="28"
                 Grid.Column="0"
+                Margin="5,5,0,0"
                 VerticalAlignment="Center"
                 Text="Structure Map Color"
-                ToolTip="{StaticResource StructureMapColor_Tooltip}"
-                Margin="5,5,0,0">
+                ToolTip="{StaticResource StructureMapColor_Tooltip}">
                 <TextBlock.Visibility>
                     <MultiBinding Converter="{StaticResource HF_ShowStructureMapToVisibilityConverter}">
                         <Binding Path="DetectorOptions.DebugMode" />

@@ -18,6 +18,7 @@ using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.Interfaces.ViewModel;
@@ -41,11 +42,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     public class HocusFocusVM : BaseVM, IAutoFocusVM {
         private static readonly FocusPointComparer focusPointComparer = new FocusPointComparer();
-
-        private readonly SynchronizationContext synchronizationContext =
-            Application.Current?.Dispatcher != null
-            ? new DispatcherSynchronizationContext(Application.Current.Dispatcher)
-            : null;
+        private static readonly PlotPointComparer plotPointComparer = new PlotPointComparer();
 
         private AFCurveFittingEnum autoFocusChartCurveFitting;
         private AFMethodEnum autoFocusChartMethod;
@@ -59,7 +56,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private TrendlineFitting trendLineFitting;
         private TimeSpan autoFocusDuration;
         private readonly IFocuserMediator focuserMediator;
-        private static readonly PlotPointComparer plotPointComparer = new PlotPointComparer();
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IAutoFocusEngineFactory autoFocusEngineFactory;
         private readonly IFilterWheelMediator filterWheelMediator;
@@ -93,22 +89,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             PlotFocusPoints = new AsyncObservableCollection<DataPoint>();
             ClearCharts();
 
-            // TODO: Move to NINA Core utility method
-            if (SynchronizationContext.Current == synchronizationContext) {
-                this.progress = new Progress<ApplicationStatus>(p => {
-                    p.Source = "Hocus Focus";
-                    applicationStatusMediator.StatusUpdate(p);
-                });
-            } else {
-                IProgress<ApplicationStatus> progressTemp = null;
-                synchronizationContext.Send(_ => {
-                    progressTemp = new Progress<ApplicationStatus>(p => {
-                        p.Source = "Hocus Focus";
-                        applicationStatusMediator.StatusUpdate(p);
-                    });
-                }, null);
-                this.progress = progressTemp;
-            }
+            this.progress = ProgressFactory.Create(applicationStatusMediator, "Hocus Focus");
 
             LoadSavedAutoFocusRunCommand = new AsyncCommand<bool>(() => {
                 string path = "";

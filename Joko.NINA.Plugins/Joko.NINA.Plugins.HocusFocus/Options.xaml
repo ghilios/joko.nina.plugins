@@ -13,9 +13,7 @@
                 <RowDefinition />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
-            <StackPanel
-                Grid.Row="1"
-                Orientation="Horizontal">
+            <StackPanel Grid.Row="1" Orientation="Horizontal">
                 <Path
                     Width="25"
                     Margin="5"
@@ -42,10 +40,10 @@
                             <Grid>
                                 <Grid Width="40" Height="40">
                                     <Path
-                                    Margin="5"
-                                    Data="{StaticResource AutoFocusSVG}"
-                                    Stretch="Uniform"
-                                    Style="{StaticResource TabItemPath}" />
+                                        Margin="5"
+                                        Data="{StaticResource AutoFocusSVG}"
+                                        Stretch="Uniform"
+                                        Style="{StaticResource TabItemPath}" />
                                 </Grid>
                             </Grid>
                             <TextBlock
@@ -64,10 +62,8 @@
                                 <RowDefinition />
                                 <RowDefinition />
                             </Grid.RowDefinitions>
-                            <StackPanel Orientation="Vertical" Grid.Column="0">
-                                <StackPanel
-                                    Grid.Row="1"
-                                    Orientation="Horizontal">
+                            <StackPanel Grid.Column="0" Orientation="Vertical">
+                                <StackPanel Grid.Row="1" Orientation="Horizontal">
                                     <Path
                                         Width="25"
                                         Margin="5"
@@ -128,7 +124,7 @@
                                 <RowDefinition />
                                 <RowDefinition />
                             </Grid.RowDefinitions>
-                            <StackPanel Orientation="Vertical" Grid.Column="0">
+                            <StackPanel Grid.Column="0" Orientation="Vertical">
                                 <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
                                 <Button
                                     Margin="5"
@@ -177,7 +173,7 @@
                                 <RowDefinition />
                                 <RowDefinition />
                             </Grid.RowDefinitions>
-                            <StackPanel Orientation="Vertical" Grid.Column="0">
+                            <StackPanel Grid.Column="0" Orientation="Vertical">
                                 <ContentControl Content="{Binding StarAnnotatorOptions}" ContentTemplate="{StaticResource HocusFocus_StarAnnotator_Options}" />
                                 <Button
                                     Margin="5"

@@ -215,6 +215,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     theta = solution[2];
                 }
 
+                // Normalize rotation angles by ensuring the Y axis is the elongated one
+                if (sigY > sigX) {
+                    if (theta < 0) {
+                        theta += (Math.PI / 2);
+                    } else {
+                        theta -= (Math.PI / 2);
+                    }
+
+                    var temp = sigY;
+                    sigY = sigX;
+                    sigX = temp;
+                }
+
                 var fwhmX = modelType.SigmaToFWHM(sigX);
                 var fwhmY = modelType.SigmaToFWHM(sigY);
                 var rSquared = modelType.GoodnessOfFit(A, x0, y0, sigX, sigY, theta);
