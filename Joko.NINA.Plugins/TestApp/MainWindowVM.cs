@@ -389,7 +389,6 @@ namespace TestApp {
                 plot.Title("Eccentricity");
                 plot.XAxis.Ticks(false);
                 plot.YAxis.Ticks(false);
-                plot.YAxis.Ticks(false);
 
                 lastHighlightedEccentricityPointIndex = -1;
                 highlightedEccentricityPoint = highlightedPoint;

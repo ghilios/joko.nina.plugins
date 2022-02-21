@@ -13,28 +13,30 @@
 using Accord.Statistics.Models.Regression.Linear;
 using ILNumerics;
 using ILNumerics.Drawing;
-using static ILNumerics.Globals;
 using static ILNumerics.ILMath;
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using DrawingSize = System.Drawing.Size;
 using DrawingColor = System.Drawing.Color;
 using ILNumerics.Drawing.Plotting;
 using NINA.Astrometry;
+using System.Windows.Media;
+using System.Windows;
+using NINA.Joko.Plugins.HocusFocus.Utility;
+using System.ComponentModel;
+using NINA.Joko.Plugins.HocusFocus.Converters;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     public class TiltModel : BaseINPC {
         private Dictionary<SensorSide> sideToTiltModelMap;
+        private readonly AsyncObservableCollection<SensorTiltModel> sensorTiltModels;
+        private readonly IApplicationDispatcher applicationDispatcher;
 
-        private AsyncObservableCollection<SensorTiltModel> sensorTiltModels;
-
-        public TiltModel() {
+        public TiltModel(IApplicationDispatcher applicationDispatcher) {
+            this.applicationDispatcher = applicationDispatcher;
             this.sensorTiltModels = new AsyncObservableCollection<SensorTiltModel>();
         }
 
@@ -67,6 +69,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public void UpdateTiltModel(AutoFocusResult result) {
+            var primaryBrushColor = applicationDispatcher.GetResource("PrimaryBrush", Colors.Black);
+
             var (a, b, c) = CalculateTiltPlane(result);
             var xyRatio = result.ImageSize.Width / result.ImageSize.Height;
             var topLeftPosition = a * (-xyRatio) + b * (1) + c;
@@ -116,18 +120,26 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var xs = new double[] { -xyRatio, +xyRatio, -xyRatio, +xyRatio };
                 var ys = new double[] { 1, 1, -1, -1 };
+                var minFocuserPosition = double.PositiveInfinity;
+
                 Array<double> points = zeros<double>(3, 4);
                 Array<double> surfacePoints = zeros<double>(3, 4);
                 for (int i = 0; i < 4; ++i) {
                     var x = xs[i];
                     var y = ys[i];
+                    var modeledFocuserPosition = x * a + y * b + c;
                     points[0, i] = x;
                     points[1, i] = y;
                     points[2, i] = result.RegionResults[i + 1].EstimatedFinalFocuserPosition;
 
                     surfacePoints[0, i] = x;
                     surfacePoints[1, i] = y;
-                    surfacePoints[2, i] = x * a + y * b + c;
+                    surfacePoints[2, i] = modeledFocuserPosition;
+                    minFocuserPosition = Math.Min(modeledFocuserPosition, minFocuserPosition);
+                }
+                for (int i = 0; i < 4; ++i) {
+                    points[2, i] -= minFocuserPosition;
+                    surfacePoints[2, i] -= minFocuserPosition;
                 }
 
                 var triStr = new TrianglesStrip();
@@ -155,10 +167,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                           },
                           ZAxis = {
                               Label = {
-                                  Text = "Focuser Delta"
+                                  Text = ""
                               },
                               Ticks = {
-                                  Mode = TickMode.Auto
+                                  Mode = TickMode.Manual
                               }
                           }
                       },
@@ -167,8 +179,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Children = {
                       new Points {
                         Positions = tosingle(points),
-                        // TODO: Set point color to foreground
-                        Color = DrawingColor.Black
+                        Color = primaryBrushColor.ToDrawingColor()
                       },
                       triStr
                     }
@@ -178,36 +189,60 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 plotCube.Axes.YAxis.Ticks.Add(1.0f, "Top");
                 plotCube.Axes.YAxis.Ticks.Add(-1.0f, "Bottom");
 
+                var dataScreen = plotCube.DataScreenRect;
+
                 // TODO: Add PropertyChanged for Rotation. If Identity, set to starting point
-                plotCube.AspectRatioMode = AspectRatioMode.MaintainRatios;
+                plotCube.AspectRatioMode = AspectRatioMode.StretchToFill;
                 plotCube.AllowZoom = false;
                 plotCube.AllowPan = false;
 
                 scene.Add(plotCube);
                 scene.Screen.First<ILNumerics.Drawing.Label>().Visible = false;
-                // Scene = scene;
+                TiltScene = scene;
             }
         }
 
         public AsyncObservableCollection<SensorTiltModel> SensorTiltModels => sensorTiltModels;
 
-        // public Scene
+        private Scene tiltScene = new Scene(true);
+
+        public Scene TiltScene {
+            get => tiltScene;
+            set {
+                tiltScene = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        public void Reset() {
+            this.TiltScene = null;
+            this.SensorTiltModels.Clear();
+        }
     }
 
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
     public enum SensorSide {
+
+        [Description("Left")]
         Left = 0,
+
+        [Description("Right")]
         Right = 1,
+
+        [Description("Top")]
         Top = 2,
+
+        [Description("Bottom")]
         Bottom = 3
     }
 
     public class SensorTiltModel : BaseINPC {
 
         public SensorTiltModel(SensorSide sensorPosition) {
-            this.SensorPosition = sensorPosition;
+            this.SensorSide = sensorPosition;
         }
 
-        public SensorSide SensorPosition { get; private set; }
+        public SensorSide SensorSide { get; private set; }
 
         private double focuserPosition;
 
@@ -240,7 +275,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public override string ToString() {
-            return $"{{{nameof(SensorPosition)}={SensorPosition.ToString()}, {nameof(FocuserPosition)}={FocuserPosition.ToString()}, {nameof(AdjustmentRequired)}={AdjustmentRequired.ToString()}, {nameof(ImprovementDelta)}={ImprovementDelta.ToString()}}}";
+            return $"{{{nameof(SensorSide)}={SensorSide.ToString()}, {nameof(FocuserPosition)}={FocuserPosition.ToString()}, {nameof(AdjustmentRequired)}={AdjustmentRequired.ToString()}, {nameof(ImprovementDelta)}={ImprovementDelta.ToString()}}}";
         }
     }
 }

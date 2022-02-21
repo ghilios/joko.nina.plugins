@@ -39,6 +39,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             psfNumPanelsWidth = optionsAccessor.GetValueInt32(nameof(PSFNumPanelsWidth), 13);
             simpleExposureSeconds = optionsAccessor.GetValueDouble(nameof(SimpleExposureSeconds), -1);
             numRegionsWide = optionsAccessor.GetValueInt32(nameof(NumRegionsWide), 13);
+            loopingExposureAnalysisEnabled = optionsAccessor.GetValueBoolean(nameof(LoopingExposureAnalysisEnabled), false);
         }
 
         public void ResetDefaults() {
@@ -49,6 +50,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             PSFNumPanelsWidth = 13;
             SimpleExposureSeconds = -1;
             NumRegionsWide = 13;
+            LoopingExposureAnalysisEnabled = false;
         }
 
         private int stepCount;
@@ -137,6 +139,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (numRegionsWide != value) {
                     numRegionsWide = value;
                     optionsAccessor.SetValueInt32(nameof(NumRegionsWide), numRegionsWide);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool loopingExposureAnalysisEnabled;
+
+        public bool LoopingExposureAnalysisEnabled {
+            get => loopingExposureAnalysisEnabled;
+            set {
+                if (loopingExposureAnalysisEnabled != value) {
+                    loopingExposureAnalysisEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(LoopingExposureAnalysisEnabled), loopingExposureAnalysisEnabled);
                     RaisePropertyChanged();
                 }
             }

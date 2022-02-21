@@ -11,16 +11,12 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
-using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.WPF.Base.ViewModel.AutoFocus;
 using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Numerics;
-using System.Runtime.CompilerServices;
-using NINA.Joko.Plugins.HocusFocus.StarDetection;
 
 namespace NINA.Joko.Plugins.HocusFocus.Utility {
 

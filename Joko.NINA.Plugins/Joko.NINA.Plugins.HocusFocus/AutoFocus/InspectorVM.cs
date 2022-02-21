@@ -12,7 +12,6 @@
 
 using ILNumerics;
 using ILNumerics.Drawing;
-using DrawingColor = System.Drawing.Color;
 using static ILNumerics.ILMath;
 
 using NINA.Core.Enum;
@@ -53,13 +52,16 @@ using SPPlot = ScottPlot.Plot;
 using SPVector2 = ScottPlot.Statistics.Vector2;
 using ILNumerics.Drawing.Plotting;
 using System.Drawing;
-using Accord.Math.Optimization.Losses;
-using Accord.Statistics.Models.Regression.Linear;
+using ScottPlot.Statistics;
+using System.Windows.Media;
+using NINA.Equipment.Equipment.MyCamera;
+using NINA.Equipment.Equipment.MyFocuser;
+using NINA.Equipment.Equipment;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     [Export(typeof(IDockableVM))]
-    public class InspectorVM : DockableVM, IScottPlotController {
+    public class InspectorVM : DockableVM, IScottPlotController, ICameraConsumer, IFocuserConsumer {
         private static readonly FocusPointComparer focusPointComparer = new FocusPointComparer();
         private static readonly PlotPointComparer plotPointComparer = new PlotPointComparer();
 
@@ -71,9 +73,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly ICameraMediator cameraMediator;
         private readonly IFocuserMediator focuserMediator;
         private readonly IFilterWheelMediator filterWheelMediator;
+        private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IAutoFocusEngineFactory autoFocusEngineFactory;
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
         private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
+        private readonly IApplicationDispatcher applicationDispatcher;
         private readonly IProgress<ApplicationStatus> progress;
 
         [ImportingConstructor]
@@ -86,7 +90,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IFilterWheelMediator filterWheelMediator,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector)
-            : this(profileService, applicationStatusMediator, imagingMediator, cameraMediator, focuserMediator, filterWheelMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.InspectorOptions, HocusFocusPlugin.AutoFocusEngineFactory, starDetectionSelector, starAnnotatorSelector) {
+            : this(profileService, applicationStatusMediator, imagingMediator, cameraMediator, focuserMediator, filterWheelMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.InspectorOptions, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher) {
         }
 
         public InspectorVM(
@@ -99,9 +103,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IStarDetectionOptions starDetectionOptions,
             IStarAnnotatorOptions starAnnotatorOptions,
             IInspectorOptions inspectorOptions,
+            IAutoFocusOptions autoFocusOptions,
             IAutoFocusEngineFactory autoFocusEngineFactory,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
-            IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector) : base(profileService) {
+            IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
+            IApplicationDispatcher applicationDispatcher) : base(profileService) {
             this.applicationStatusMediator = applicationStatusMediator;
             this.imagingMediator = imagingMediator;
             this.cameraMediator = cameraMediator;
@@ -110,10 +116,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.starDetectionOptions = starDetectionOptions;
             this.starAnnotatorOptions = starAnnotatorOptions;
             this.inspectorOptions = inspectorOptions;
+            this.autoFocusOptions = autoFocusOptions;
             this.autoFocusEngineFactory = autoFocusEngineFactory;
             this.starDetectionSelector = starDetectionSelector;
             this.starAnnotatorSelector = starAnnotatorSelector;
+            this.applicationDispatcher = applicationDispatcher;
             this.progress = ProgressFactory.Create(applicationStatusMediator, "Aberration Inspector");
+
+            this.cameraMediator.RegisterConsumer(this);
+            this.focuserMediator.RegisterConsumer(this);
 
             this.Title = "Aberration Inspector";
 
@@ -126,15 +137,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionFinalFocusPoints = new AsyncObservableCollection<DataPoint>(Enumerable.Range(0, 5).Select(i => new DataPoint(-1.0d, 0.0d)));
             RegionCurveFittings = new AsyncObservableCollection<Func<double, double>>(Enumerable.Range(0, 5).Select(i => (Func<double, double>)null));
             RegionLineFittings = new AsyncObservableCollection<TrendlineFitting>(Enumerable.Range(0, 5).Select(i => (TrendlineFitting)null));
-            TiltModel = new TiltModel();
+            TiltModel = new TiltModel(applicationDispatcher);
 
             // TODO: Change logo
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["HocusFocusAnnotateStarsSVG"];
             ImageGeometry.Freeze();
 
-            RunAutoFocusAnalysisCommand = new AsyncCommand<bool>(AnalyzeAutoFocus, canExecute: (o) => !AnalysisRunning() && CameraConnected() && FocuserConnected());
-            RunExposureAnalysisCommand = new AsyncCommand<bool>(AnalyzeExposure, canExecute: (o) => !AnalysisRunning() && CameraConnected());
+            RunAutoFocusAnalysisCommand = new AsyncCommand<bool>(AnalyzeAutoFocus, canExecute: (o) => !AnalysisRunning() && CameraInfo.Connected && FocuserInfo.Connected);
+            RunExposureAnalysisCommand = new AsyncCommand<bool>(AnalyzeExposure, canExecute: (o) => !AnalysisRunning() && CameraInfo.Connected);
             RerunSavedAutoFocusAnalysisCommand = new AsyncCommand<bool>(AnalyzeSavedAutoFocusRun, canExecute: (o) => !AnalysisRunning());
+            ClearAnalysesCommand = new RelayCommand(ClearAnalyses, canExecute: (o) => !AnalysisRunning());
             CancelAnalyzeCommand = new RelayCommand(CancelAnalyze);
         }
 
@@ -145,14 +157,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             return analyzeTask.Status < TaskStatus.RanToCompletion;
-        }
-
-        private bool CameraConnected() {
-            return cameraMediator.GetInfo().Connected;
-        }
-
-        private bool FocuserConnected() {
-            return focuserMediator.GetInfo().Connected;
         }
 
         public override bool IsTool { get; } = true;
@@ -175,12 +179,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var one_third = 1.0d / 3.0d;
                 var two_thirds = 2.0d / 3.0d;
                 var regions = new List<StarDetectionRegion>() {
-                new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
-                new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
-                new StarDetectionRegion(new RatioRect(two_thirds, one_third, one_third, one_third)),
-                new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
-                new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
-            };
+                    new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(two_thirds, one_third, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
+                };
+
                 var autoFocusEngine = autoFocusEngineFactory.Create();
                 autoFocusEngine.Started += AutoFocusEngine_Started;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
@@ -202,8 +207,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     options.AutoFocusTimeout = TimeSpan.FromSeconds(inspectorOptions.TimeoutSeconds);
                 }
 
+                ActivateAutoFocusChart();
+                DeactivateExposureAnalysis();
                 var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, analyzeCts.Token, this.progress);
-                return await AnalyzeAutoFocusResult(result);
+                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result);
+                ActivateTiltMeasurement();
+                if (!autoFocusAnalysisResult) {
+                    Notification.ShowError("AutoFocus Analysis Failed");
+                    return false;
+                }
+                var exposureAnalysisResult = await TakeAndAnalyzeExposure(autoFocusEngine, analyzeCts.Token);
+                if (!exposureAnalysisResult) {
+                    Notification.ShowError("Exposure Analysis Failed");
+                    return false;
+                }
+                ActivateExposureAnalysis();
+                return true;
             });
             analyzeTask = localAnalyzeTask;
 
@@ -228,15 +247,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return imagingFilter;
         }
 
-        private async Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result) {
+        private Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result) {
             if (!result.Succeeded) {
                 Notification.ShowError($"Inspection analysis failed");
                 Logger.Error("Inspection analysis failed, due to failed AutoFocus");
-                return false;
+                return Task.FromResult(false);
             }
 
             TiltModel.UpdateTiltModel(result);
-            return true;
+            return Task.FromResult(true);
         }
 
         private async Task<bool> TakeAndAnalyzeExposure(IAutoFocusEngine autoFocusEngine, CancellationToken token) {
@@ -257,6 +276,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     autoFocusExposureTime = imagingFilter.AutoFocusExposureTime;
                 }
 
+                DeactivateAutoFocusAnalysis();
                 var exposureTimeSeconds = inspectorOptions.SimpleExposureSeconds >= 0 ? inspectorOptions.SimpleExposureSeconds : autoFocusExposureTime;
                 var captureSequence = new CaptureSequence(exposureTimeSeconds, CaptureSequence.ImageTypes.SNAPSHOT, autoFocusFilter, null, 1);
                 var exposureData = await imagingMediator.CaptureImage(captureSequence, token, progress);
@@ -272,7 +292,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var hfParams = starDetection.ToHocusFocusParams(analysisParams);
                 var starDetectorParams = starDetection.GetStarDetectorParams(imageData, StarDetectionRegion.Full, true);
                 if (!starDetectorParams.ModelPSF) {
-                    Notification.ShowInformation("Enabling PSF modeling for analysis");
                     starDetectorParams.ModelPSF = true;
                 }
 
@@ -280,6 +299,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var imageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
                 var analysisResult = await starDetection.Detect(imageData, hfParams, starDetectorParams, this.progress, token);
                 AnalyzeStarDetectionResult(imageSize, analysisResult);
+                ActivateExposureAnalysis();
                 return true;
             } finally {
                 var completionOperationTimeout = TimeSpan.FromMinutes(1);
@@ -293,66 +313,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
                 }
             }
-        }
-
-        private static (double, double, double) GetPlane() {
-            var ols = new OrdinaryLeastSquares() {
-                UseIntercept = true
-            };
-
-            /*
-                Center - HFR: 2.18011990085716, Focuser: 23264
-                Top Left - HFR Delta: -0.000118910201427624, Focuser Delta: 13
-                Top Right - HFR Delta: 0.0372817463447874, Focuser Delta: -65
-                Bottom Left - HFR Delta: 0.0434991788384473, Focuser Delta: 9
-                Bottom Right - HFR Delta: 0.00131973679976527, Focuser Delta: -56
-                */
-
-            double[][] inputs =
-            {
-                new double[] { -1, 1 },
-                new double[] { 1, 1 },
-                new double[] { -1, -1 },
-                new double[] { 1, -1 },
-            };
-
-            // located in the same Z (z = 1)
-            // double[] outputs = { -0.000118910201427624, 0.0372817463447874, 0.0434991788384473, 0.00131973679976527 };
-            double[] outputs = { 13, -65, 9, -56 };
-
-            // Use Ordinary Least Squares to estimate a regression model
-            MultipleLinearRegression regression = ols.Learn(inputs, outputs);
-
-            // As result, we will be given the following:
-            double a = regression.Weights[0]; // a = 0
-            double b = regression.Weights[1]; // b = 0
-            double c = regression.Intercept;  // c = 1
-            // z = ax + by + c
-
-            // We can compute the predicted points using
-            double[] predicted = regression.Transform(inputs);
-
-            // And the squared error loss using
-            double error = new SquareLoss(outputs).Loss(predicted);
-
-            // We can also compute other measures, such as the coefficient of determination r²
-            double r2 = new RSquaredLoss(numberOfInputs: 2, expected: outputs).Loss(predicted); // should be 1
-
-            // We can also compute the adjusted or weighted versions of r² using
-            var r2loss = new RSquaredLoss(numberOfInputs: 2, expected: outputs) {
-                Adjust = true
-            };
-
-            double ar2 = r2loss.Loss(predicted); // should be 1
-
-            // Alternatively, we can also use the less generic, but maybe more user-friendly method directly:
-            double ur2 = regression.CoefficientOfDetermination(inputs, outputs, adjust: true); // should be 1
-
-            return (a, b, c);
-        }
-
-        private static double ToRadians(double degrees) {
-            return (degrees / 180.0d) * Math.PI;
         }
 
         private void AnalyzeStarDetectionResult(DrawingSize imageSize, StarDetectionResult result) {
@@ -393,7 +353,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
                 }
 
-                var contourPlot = new ContourPlot(points, colormap: Colormaps.Gray, create3D: true, lineWidth: 2, showLabels: false);
+                var contourPlot = new ContourPlot(points, colormap: Colormaps.Gray, create3D: true, lineWidth: 1, showLabels: false);
                 var contourPlotCube = new PlotCube(twoDMode: false) {
                     Axes = {
                           XAxis = {
@@ -417,7 +377,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                                   Text = "FWHM"
                               },
                               Ticks = {
-                                  Mode = TickMode.Manual
+                                  Mode = TickMode.Auto
                               }
                           }
                       },
@@ -428,7 +388,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         Wireframe = { Visible = false },
                         UseLighting = true,
                         Children = {
-                              new Legend { Location = new PointF(1f,.1f) },
                               new Colorbar {
                                   Location = new PointF(1,.4f),
                                   Anchor = new PointF(1,0)
@@ -439,6 +398,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 };
 
                 contourPlotCube.AspectRatioMode = AspectRatioMode.MaintainRatios;
+                contourPlotCube.DataScreenRect = new RectangleF(0, 0, 0.9f, 0.9f);
                 scene.Add(contourPlotCube);
                 scene.Screen.First<Label>().Visible = false;
                 FWHMContourScene = scene;
@@ -449,7 +409,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 double[] xs = DataGen.Range(0, numRegionsWide);
                 double[] ys = DataGen.Range(0, numRegionsTall);
                 var vectors = new SPVector2[numRegionsWide, numRegionsTall];
+                var centerXs = new double[numRegionsWide * numRegionsTall];
+                var centerYs = new double[numRegionsWide * numRegionsTall];
+                var eccentricities = new double[numRegionsWide * numRegionsTall];
 
+                int pointIndex = 0;
                 for (int regionRow = 0; regionRow < numRegionsTall; ++regionRow) {
                     for (int regionCol = 0; regionCol < numRegionsWide; ++regionCol) {
                         var detectedStars = regionDetectedStars[regionCol, regionRow];
@@ -457,25 +421,47 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         if (detectedStars.Count > 0) {
                             var (eccentricityMedian, _) = detectedStars.Select(s => s.PSF.Eccentricity).MedianMAD();
                             var (psfRotationMedian, _) = detectedStars.Select(s => s.PSF.ThetaRadians).MedianMAD();
-                            double x = Math.Cos(psfRotationMedian) * eccentricityMedian;
-                            double y = Math.Sin(psfRotationMedian) * eccentricityMedian;
-                            vectors[regionCol, regionRow] = new SPVector2(x, y);
+
+                            var scaledEccentricity = eccentricityMedian * eccentricityMedian;
+                            double x = Math.Cos(psfRotationMedian) * scaledEccentricity;
+                            double y = Math.Sin(psfRotationMedian) * scaledEccentricity;
+                            vectors[regionCol, regionRow] = new Vector2(x, y);
+                            eccentricities[pointIndex] = eccentricityMedian;
+                        } else {
+                            eccentricities[pointIndex] = double.NaN;
                         }
+                        centerXs[pointIndex] = regionCol;
+                        centerYs[pointIndex++] = regionRow;
                     }
                 }
 
-                // TODO: Add toggle for grayscale
-                var vectorField = plot.AddVectorField(vectors, xs, ys, colormap: ScottPlot.Drawing.Colormap.Dense);
+                var primaryBrushColor = applicationDispatcher.GetResource("PrimaryBrush", Colors.Black);
+                var secondaryBrushColor = applicationDispatcher.GetResource("SecondaryBrush", Colors.Red);
+
+                var vectorField = plot.AddVectorField(vectors, xs, ys, color: primaryBrushColor.ToDrawingColor());
+
+                // Scatter points act as anchor points for mouse over events
+                var scatterPoints = plot.AddScatterPoints(centerXs, centerYs);
+                scatterPoints.IsVisible = false;
+
                 vectorField.ScaledArrowheads = true;
                 vectorField.ScaledArrowheadLength = 0.0;
                 vectorField.ScaledArrowheadWidth = 0.0;
 
-                var colorBar = plot.AddColorbar(ScottPlot.Drawing.Colormap.Dense);
-                colorBar.MinValue = 0.0;
-                colorBar.MaxValue = 1.0;
+                var highlightedPoint = plot.AddPoint(0, 0);
+
+                highlightedPoint.Color = secondaryBrushColor.ToDrawingColor();
+                highlightedPoint.MarkerSize = 5;
+                highlightedPoint.MarkerShape = ScottPlot.MarkerShape.openCircle;
+                highlightedPoint.IsVisible = false;
+
                 plot.XAxis.Ticks(false);
                 plot.YAxis.Ticks(false);
 
+                lastHighlightedEccentricityPointIndex = -1;
+                highlightedEccentricityPoint = highlightedPoint;
+                eccentricityCenterPoints = scatterPoints;
+                eccentricityValues = eccentricities;
                 EccentricityVectorPlot = plot;
             }
         }
@@ -492,7 +478,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             analyzeCts = localAnalyzeCts;
 
             var autoFocusEngine = autoFocusEngineFactory.Create();
-            localAnalyzeTask = Task.Run(() => TakeAndAnalyzeExposure(autoFocusEngine, analyzeCts.Token));
+            localAnalyzeTask = Task.Run(async () => {
+                bool lastResult = false;
+                do {
+                    lastResult = await TakeAndAnalyzeExposure(autoFocusEngine, analyzeCts.Token);
+                } while (LoopingExposureAnalysis && !analyzeCts.Token.IsCancellationRequested);
+                return lastResult;
+            });
             analyzeTask = localAnalyzeTask;
 
             try {
@@ -518,7 +510,60 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var localAnalyzeCts = new CancellationTokenSource();
             analyzeCts = localAnalyzeCts;
 
+            var autoFocusEngine = autoFocusEngineFactory.Create();
+            string selectedPath = "";
+            SavedAutoFocusAttempt savedAttempt;
+            try {
+                using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
+                    if (!String.IsNullOrEmpty(autoFocusOptions.LastSelectedLoadPath)) {
+                        dialog.SelectedPath = autoFocusOptions.LastSelectedLoadPath;
+                    }
+                    if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) {
+                        return false;
+                    }
+
+                    selectedPath = dialog.SelectedPath;
+                    autoFocusOptions.LastSelectedLoadPath = selectedPath;
+                }
+
+                savedAttempt = autoFocusEngine.LoadSavedAutoFocusAttempt(selectedPath);
+            } catch (Exception e) {
+                Notification.ShowError(e.Message);
+                Logger.Error($"Failed to load saved auto focus attempt from {selectedPath}");
+                return false;
+            }
+
             localAnalyzeTask = Task.Run(async () => {
+                var one_third = 1.0d / 3.0d;
+                var two_thirds = 2.0d / 3.0d;
+                var regions = new List<StarDetectionRegion>() {
+                    new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(two_thirds, one_third, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
+                };
+
+                autoFocusEngine.Started += AutoFocusEngine_Started;
+                autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
+                autoFocusEngine.Completed += AutoFocusEngine_Completed;
+                autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+
+                var imagingFilter = GetImagingFilter();
+                var options = autoFocusEngine.GetOptions();
+                if (inspectorOptions.TimeoutSeconds > 0) {
+                    options.AutoFocusTimeout = TimeSpan.FromSeconds(inspectorOptions.TimeoutSeconds);
+                }
+
+                ActivateAutoFocusChart();
+                DeactivateExposureAnalysis();
+                var result = await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, regions, analyzeCts.Token, this.progress);
+                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result);
+                if (!autoFocusAnalysisResult) {
+                    Notification.ShowError("AutoFocus Analysis Failed");
+                    return false;
+                }
+                ActivateTiltMeasurement();
                 return true;
             });
             analyzeTask = localAnalyzeTask;
@@ -526,11 +571,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             try {
                 return await localAnalyzeTask;
             } catch (OperationCanceledException) {
-                Logger.Warning("Inspection exposure analysis cancelled");
+                Logger.Warning("Inspection auto focus rerun analysis cancelled");
                 return false;
             } catch (Exception e) {
-                Notification.ShowError($"Inspection exposure analysis failed: {e.Message}");
-                Logger.Error("Inspection exposure analysis failed", e);
+                Notification.ShowError($"Inspection auto focus rerun analysis failed: {e.Message}");
+                Logger.Error("Inspection auto focus rerun analysis failed", e);
                 return false;
             }
         }
@@ -607,6 +652,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public ICommand RerunSavedAutoFocusAnalysisCommand { get; private set; }
         public ICommand RunExposureAnalysisCommand { get; private set; }
         public ICommand CancelAnalyzeCommand { get; private set; }
+        public ICommand ClearAnalysesCommand { get; private set; }
 
         public AsyncObservableCollection<ScatterErrorPoint> CenterFocusPoints { get; private set; }
         public AsyncObservableCollection<ScatterErrorPoint> OutsideFocusPoints { get; private set; }
@@ -639,11 +685,84 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public void OnMouseMove(object sender, System.Windows.Input.MouseEventArgs e) {
-            // throw new NotImplementedException();
+            var plotControl = (WpfPlot)sender;
+            var plotName = plotControl.Name;
+            if (eccentricityCenterPoints == null) {
+                return;
+            }
+
+            (double mouseCoordX, double mouseCoordY) = plotControl.GetMouseCoordinates();
+            double xyRatio = plotControl.Plot.XAxis.Dims.PxPerUnit / plotControl.Plot.YAxis.Dims.PxPerUnit;
+            (double pointX, double pointY, int pointIndex) = eccentricityCenterPoints.GetPointNearest(mouseCoordX, mouseCoordY, xyRatio);
+
+            // place the highlight over the point of interest
+            highlightedEccentricityPoint.X = pointX;
+            highlightedEccentricityPoint.Y = pointY;
+            highlightedEccentricityPoint.IsVisible = true;
+            highlightedEccentricityPoint.Text = eccentricityValues[pointIndex].ToString("0.00");
+
+            // render if the highlighted point changed
+            if (lastHighlightedEccentricityPointIndex != pointIndex) {
+                lastHighlightedEccentricityPointIndex = pointIndex;
+                RefreshScottPlot(plotName);
+            }
         }
 
         public void OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e) {
-            // throw new NotImplementedException();
+            var plotControl = (WpfPlot)sender;
+            var plotName = plotControl.Name;
+            if (highlightedEccentricityPoint == null) {
+                return;
+            }
+
+            lastHighlightedEccentricityPointIndex = -1;
+            highlightedEccentricityPoint.IsVisible = false;
+            RefreshScottPlot(plotName);
+        }
+
+        private void RefreshScottPlot(string plotName) {
+            // TODO: This should be an event that takes the plot name
+            this.PlotRefreshed?.Invoke(this, new EventArgs());
+        }
+
+        private CameraInfo cameraInfo = DeviceInfo.CreateDefaultInstance<CameraInfo>();
+
+        public CameraInfo CameraInfo {
+            get => cameraInfo;
+            private set {
+                this.cameraInfo = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        public void UpdateDeviceInfo(CameraInfo deviceInfo) {
+            CameraInfo = deviceInfo;
+        }
+
+        public void Dispose() {
+            // Do nothing
+        }
+
+        public void UpdateEndAutoFocusRun(AutoFocusInfo info) {
+            // Do nothing
+        }
+
+        public void UpdateUserFocused(FocuserInfo info) {
+            // Do nothing
+        }
+
+        public void UpdateDeviceInfo(FocuserInfo deviceInfo) {
+            FocuserInfo = deviceInfo;
+        }
+
+        private FocuserInfo focuserInfo = DeviceInfo.CreateDefaultInstance<FocuserInfo>();
+
+        public FocuserInfo FocuserInfo {
+            get => focuserInfo;
+            private set {
+                this.focuserInfo = value;
+                RaisePropertyChanged();
+            }
         }
 
         private bool autoFocusAnalysisProgressOrResult;
@@ -697,5 +816,138 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 RaisePropertyChanged();
             }
         }
+
+        public bool LoopingExposureAnalysis {
+            get => inspectorOptions.LoopingExposureAnalysisEnabled;
+            set {
+                inspectorOptions.LoopingExposureAnalysisEnabled = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private bool tiltMeasurementActive = false;
+
+        public bool TiltMeasurementActive {
+            get => tiltMeasurementActive;
+            set {
+                if (tiltMeasurementActive != value) {
+                    this.tiltMeasurementActive = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool autoFocusChartActive = false;
+
+        public bool AutoFocusChartActive {
+            get => autoFocusChartActive;
+            set {
+                if (autoFocusChartActive != value) {
+                    this.autoFocusChartActive = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool fwhmContoursActive = false;
+
+        public bool FWHMContoursActive {
+            get => fwhmContoursActive;
+            set {
+                if (fwhmContoursActive != value) {
+                    this.fwhmContoursActive = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool eccentricityVectorsActive = false;
+
+        public bool EccentricityVectorsActive {
+            get => eccentricityVectorsActive;
+            set {
+                if (eccentricityVectorsActive != value) {
+                    this.eccentricityVectorsActive = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool autoFocusChartActivatedOnce;
+
+        public bool AutoFocusChartActivatedOnce {
+            get => autoFocusChartActivatedOnce;
+            set {
+                if (autoFocusChartActivatedOnce != value) {
+                    this.autoFocusChartActivatedOnce = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool tiltMeasurementActivatedOnce;
+
+        public bool TiltMeasurementActivatedOnce {
+            get => tiltMeasurementActivatedOnce;
+            set {
+                if (tiltMeasurementActivatedOnce != value) {
+                    this.tiltMeasurementActivatedOnce = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool exposureAnalysisActivatedOnce;
+
+        public bool ExposureAnalysisActivatedOnce {
+            get => exposureAnalysisActivatedOnce;
+            set {
+                if (exposureAnalysisActivatedOnce != value) {
+                    this.exposureAnalysisActivatedOnce = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private void ClearAnalyses(object o) {
+            DeactivateAutoFocusAnalysis();
+            DeactivateExposureAnalysis();
+            AutoFocusChartActivatedOnce = false;
+            TiltMeasurementActivatedOnce = false;
+            ExposureAnalysisActivatedOnce = false;
+            FWHMContourScene = null;
+            TiltModel.Reset();
+        }
+
+        private void ActivateAutoFocusChart() {
+            AutoFocusChartActive = true;
+            AutoFocusChartActivatedOnce = true;
+        }
+
+        private void ActivateTiltMeasurement() {
+            TiltMeasurementActive = true;
+            TiltMeasurementActivatedOnce = true;
+        }
+
+        private void ActivateExposureAnalysis() {
+            FWHMContoursActive = true;
+            EccentricityVectorsActive = true;
+            ExposureAnalysisActivatedOnce = true;
+        }
+
+        private void DeactivateAutoFocusAnalysis() {
+            AutoFocusChartActive = false;
+            TiltMeasurementActive = false;
+        }
+
+        private void DeactivateExposureAnalysis() {
+            FWHMContoursActive = false;
+            EccentricityVectorsActive = false;
+        }
+
+        private ScottPlot.Plottable.MarkerPlot highlightedEccentricityPoint;
+        private ScottPlot.Plottable.ScatterPlot eccentricityCenterPoints;
+        private int lastHighlightedEccentricityPointIndex;
+        private double[] eccentricityValues;
     }
 }

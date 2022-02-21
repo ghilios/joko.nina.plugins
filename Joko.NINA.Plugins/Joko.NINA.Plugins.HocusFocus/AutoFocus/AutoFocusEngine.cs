@@ -37,6 +37,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
@@ -1052,19 +1053,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return RunImpl(options, imagingFilter, regions, token, progress);
         }
 
-        private async Task<MeasureAndError> ReloadAndAnalyzeSavedFile(
+        private async Task<IRenderedImage> ReloadSavedFile(
+            AutoFocusState state,
+            SavedAutoFocusImage savedFile,
+            CancellationToken token) {
+            var isBayered = savedFile.IsBayered;
+            var bitDepth = savedFile.BitDepth;
+            var imageData = await this.imageDataFactory.CreateFromFile(savedFile.Path, bitDepth, isBayered, profileService.ActiveProfile.CameraSettings.RawConverter, token);
+            return await PrepareExposure(state, imageData, token);
+        }
+
+        private async Task<MeasureAndError> AnalyzeSavedFile(
             AutoFocusState state,
             AutoFocusRegionState regionState,
             int attemptNumber,
             SavedAutoFocusImage savedFile,
-            CancellationToken token,
-            IProgress<ApplicationStatus> progress) {
+            IRenderedImage renderedImage,
+            CancellationToken token) {
             try {
                 state.MeasurementStarted();
-                var isBayered = savedFile.IsBayered;
-                var bitDepth = savedFile.BitDepth;
-                var imageData = await this.imageDataFactory.CreateFromFile(savedFile.Path, bitDepth, isBayered, profileService.ActiveProfile.CameraSettings.RawConverter, token);
-                var preparedImage = await PrepareExposure(state, imageData, token);
                 return await EvaluateExposure(
                     state: state,
                     regionState: regionState,
@@ -1073,21 +1080,37 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     frameNumber: savedFile.FrameNumber,
                     finalValidation: false,
                     focuserPosition: savedFile.FocuserPosition,
-                    image: preparedImage,
+                    image: renderedImage,
                     token: token);
             } finally {
                 state.MeasurementCompleted();
             }
         }
 
-        public async Task<AutoFocusResult> Rerun(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+        public Task<AutoFocusResult> Rerun(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            return RerunImpl(options, savedAttempt, imagingFilter, null, token, progress);
+        }
+
+        public Task<AutoFocusResult> RerunWithRegions(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            if (regions == null || regions.Count == 0) {
+                throw new ArgumentException("At least one star detection region must be provided");
+            }
+            var selectedDetector = starDetectionSelector.SelectedBehavior;
+            if (!(selectedDetector is HocusFocusStarDetection)) {
+                throw new ArgumentException($"Hocus Focus must be used as the star detector to auto focus with specific regions");
+            }
+            return RerunImpl(options, savedAttempt, imagingFilter, regions, token, progress);
+        }
+
+        private async Task<AutoFocusResult> RerunImpl(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress) {
             OnStarted();
-            var state = await InitializeState(options, imagingFilter, null, token, progress);
+
+            var state = await InitializeState(options, imagingFilter, regions, token, progress);
             state.OnNextAttempt();
             OnIterationStarted(state.AttemptNumber);
-
-            var regionState = state.FocusRegionStates[0];
-            regionState.InitialHFR = new MeasureAndError() { Measure = 0.1d, Stdev = 0.0d };
+            foreach (var regionState in state.FocusRegionStates) {
+                regionState.InitialHFR = new MeasureAndError() { Measure = 0.1d, Stdev = 0.0d };
+            }
 
             var savedFiles = savedAttempt.SavedImages;
             var focuserPositionTasks = new List<Task>();
@@ -1104,21 +1127,39 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 foreach (var focuserPositionGroup in savedFiles.GroupBy(f => f.FocuserPosition)) {
                     var focuserPosition = focuserPositionGroup.Key;
                     var files = focuserPositionGroup.OrderBy(g => g.FrameNumber).ToList();
-                    var partialMeasurements = new List<MeasureAndError>();
-                    var partialMeasurementTasks = new List<Task>();
+                    var partialMeasurementsPerRegion = Enumerable.Range(0, state.FocusRegions.Count).Select(i => new List<MeasureAndError>()).ToArray();
+                    var allMeasurementTasks = new List<Task>();
                     foreach (var savedFile in files) {
                         using (MyStopWatch.Measure("Waiting on ExposureSemaphore")) {
                             await state.ExposureSemaphore.WaitAsync(token);
                         }
 
-                        var partialMeasurementTask = ReloadAndAnalyzeSavedFile(state, regionState, savedAttempt.Attempt, savedFile, token, progress);
-                        var postPartialMeasurementTask = Task.Run(async () => {
-                            try {
-                                var partialMeasurement = await partialMeasurementTask;
-                                lock (partialMeasurements) {
-                                    partialMeasurements.Add(partialMeasurement);
+                        var postPartialMeasurementTasksPerRegion = Enumerable.Range(0, state.FocusRegions.Count).Select(i => new List<Task>()).ToArray();
+                        var imageLoadTask = ReloadSavedFile(state, savedFile, token);
+                        foreach (var regionState in state.FocusRegionStates) {
+                            var partialMeasurementTask = Task.Run(async () => {
+                                var loadedImage = await imageLoadTask;
+                                lock (state.StatesLock) {
+                                    var imageProperties = loadedImage.RawImageData.Properties;
+                                    state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
                                 }
 
+                                return await AnalyzeSavedFile(state, regionState, savedAttempt.Attempt, savedFile, loadedImage, token);
+                            });
+                            var postPartialMeasurementTask = Task.Run(async () => {
+                                var partialMeasurement = await partialMeasurementTask;
+                                lock (partialMeasurementsPerRegion[regionState.RegionIndex]) {
+                                    partialMeasurementsPerRegion[regionState.RegionIndex].Add(partialMeasurement);
+                                }
+                            });
+
+                            postPartialMeasurementTasksPerRegion[regionState.RegionIndex].Add(postPartialMeasurementTask);
+                            allMeasurementTasks.Add(postPartialMeasurementTask);
+                        }
+
+                        var singleFilePostTask = Task.Run(async () => {
+                            try {
+                                await Task.WhenAll(postPartialMeasurementTasksPerRegion.SelectMany(t => t));
                                 var incrementedCompletedCount = Interlocked.Increment(ref completedCount);
                                 progress.Report(new ApplicationStatus() {
                                     Status = "Data Points",
@@ -1130,23 +1171,39 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                                 state.ExposureSemaphore.Release();
                             }
                         });
-                        partialMeasurementTasks.Add(postPartialMeasurementTask);
+                        allMeasurementTasks.Add(singleFilePostTask);
                     }
 
                     var focuserPositionTask = Task.Run(async () => {
-                        await Task.WhenAll(partialMeasurementTasks);
-                        var focuserPositionMeasurement = partialMeasurements.AverageMeasurement();
-                        await FocusPointMeasurementAction(focuserPosition, focuserPositionMeasurement, state, regionState);
+                        await Task.WhenAll(allMeasurementTasks);
+
+                        var measurementActionTasks = new List<Task>();
+                        foreach (var regionState in state.FocusRegionStates) {
+                            var focuserPositionMeasurement = partialMeasurementsPerRegion[regionState.RegionIndex].AverageMeasurement();
+                            var measurementActionTask = FocusPointMeasurementAction(focuserPosition, focuserPositionMeasurement, state, regionState);
+                            measurementActionTasks.Add(measurementActionTask);
+                        }
+                        await Task.WhenAll(measurementActionTasks);
                     });
                     focuserPositionTasks.Add(focuserPositionTask);
                 }
 
                 await Task.WhenAll(focuserPositionTasks);
+                foreach (var regionState in state.FocusRegionStates) {
+                    regionState.CalculateFinalFocusPoint();
+                }
 
-                regionState.CalculateFinalFocusPoint();
                 OnCompleted(state, 0.0d, TimeSpan.Zero);
                 return new AutoFocusResult() {
-                    Succeeded = true
+                    Succeeded = true,
+                    ImageSize = state.ImageSize,
+                    RegionResults = state.FocusRegionStates.Select(rs => new AutoFocusRegionResult() {
+                        RegionIndex = rs.RegionIndex,
+                        Region = rs.Region,
+                        EstimatedFinalFocuserPosition = rs.FinalFocusPoint.X,
+                        EstimatedFinalHFR = rs.FinalFocusPoint.Y,
+                        Fittings = rs.Fittings
+                    }).OrderBy(r => r.RegionIndex).ToArray()
                 };
             } finally {
                 await Task.Delay(1000);
@@ -1231,6 +1288,61 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 AutoFocusTimeout = TimeSpan.FromSeconds(autoFocusOptions.AutoFocusTimeoutSeconds),
                 AutoFocusInitialOffsetSteps = profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
                 AutoFocusStepSize = profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize
+            };
+        }
+
+        private static readonly Regex ATTEMPT_REGEX = new Regex(@"^attempt(?<ATTEMPT>\d+)$", RegexOptions.Compiled);
+        private static readonly Regex IMAGE_FILE_REGEX = new Regex(@"^(?<IMAGE_INDEX>\d+)_Frame(?<FRAME_NUMBER>\d+)_BitDepth(?<BITDEPTH>\d+)_Bayered(?<BAYERED>\d)_Focuser(?<FOCUSER>\d+)_HFR(?<HFR>(\d+)(\.\d+)?)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public SavedAutoFocusAttempt LoadSavedAutoFocusAttempt(string path) {
+            var attemptFolder = new DirectoryInfo(path);
+            var attemptMatch = ATTEMPT_REGEX.Match(attemptFolder.Name);
+            if (!attemptMatch.Success || !int.TryParse(attemptMatch.Groups["ATTEMPT"].Value, out var attemptNumber)) {
+                throw new Exception("A folder named attemptXX must be selected");
+            }
+
+            var allFiles = attemptFolder.GetFiles();
+            var savedImages = new List<SavedAutoFocusImage>();
+            foreach (var file in allFiles) {
+                var fileNameNoExtension = Path.GetFileNameWithoutExtension(file.Name);
+                var match = IMAGE_FILE_REGEX.Match(fileNameNoExtension);
+                if (!match.Success) {
+                    continue;
+                }
+                if (!int.TryParse(match.Groups["IMAGE_INDEX"].Value, out var imageIndex)) {
+                    continue;
+                }
+                if (!int.TryParse(match.Groups["FRAME_NUMBER"].Value, out var frameNumber)) {
+                    continue;
+                }
+                if (!int.TryParse(match.Groups["FOCUSER"].Value, out var focuserPosition)) {
+                    continue;
+                }
+                if (!int.TryParse(match.Groups["BITDEPTH"].Value, out var bitdepth)) {
+                    continue;
+                }
+                if (!int.TryParse(match.Groups["BAYERED"].Value, out var isBayeredInt)) {
+                    continue;
+                }
+
+                var isBayered = isBayeredInt != 0;
+                var savedImage = new SavedAutoFocusImage() {
+                    Path = file.FullName,
+                    BitDepth = bitdepth,
+                    IsBayered = isBayered,
+                    FocuserPosition = focuserPosition,
+                    FrameNumber = frameNumber,
+                    ImageNumber = imageIndex,
+                };
+                savedImages.Add(savedImage);
+            }
+            if (savedImages.Count < 3) {
+                throw new Exception($"Must be at least 3 saved AF images in {path}");
+            }
+
+            return new SavedAutoFocusAttempt() {
+                Attempt = attemptNumber,
+                SavedImages = savedImages
             };
         }
 

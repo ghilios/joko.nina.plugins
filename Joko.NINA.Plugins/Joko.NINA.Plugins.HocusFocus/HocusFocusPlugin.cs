@@ -26,6 +26,7 @@ using NINA.Image.Interfaces;
 using System.Reflection;
 using System.IO;
 using System;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 
 namespace NINA.Joko.Plugins.HocusFocus {
 
@@ -74,6 +75,9 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     starAnnotatorSelector,
                     AutoFocusOptions);
             }
+            if (ApplicationDispatcher == null) {
+                ApplicationDispatcher = new ApplicationDispatcher();
+            }
 
             var thisAssembly = Assembly.GetAssembly(typeof(HocusFocusPlugin));
             var thisAssemblyFileInfo = new FileInfo(thisAssembly.Location);
@@ -115,6 +119,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public static InspectorOptions InspectorOptions { get; private set; }
 
         public static AutoFocusEngineFactory AutoFocusEngineFactory { get; private set; }
+
+        public static ApplicationDispatcher ApplicationDispatcher { get; private set; }
 
         public ICommand ResetStarDetectionDefaultsCommand { get; private set; }
 

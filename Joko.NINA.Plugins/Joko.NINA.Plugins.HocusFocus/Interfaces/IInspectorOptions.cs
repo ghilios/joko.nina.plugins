@@ -21,5 +21,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         int TimeoutSeconds { get; set; }
         int NumRegionsWide { get; set; }
         double SimpleExposureSeconds { get; set; }
+        bool LoopingExposureAnalysisEnabled { get; set; }
     }
 }

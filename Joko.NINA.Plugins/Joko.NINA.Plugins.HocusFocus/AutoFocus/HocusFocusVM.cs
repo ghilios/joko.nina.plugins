@@ -459,9 +459,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public ICommand LoadSavedAutoFocusRunCommand { get; private set; }
         public ICommand CancelLoadSavedAutoFocusRunCommand { get; private set; }
 
-        private static readonly Regex ATTEMPT_REGEX = new Regex(@"^attempt(?<ATTEMPT>\d+)$", RegexOptions.Compiled);
-        private static readonly Regex IMAGE_FILE_REGEX = new Regex(@"^(?<IMAGE_INDEX>\d+)_Frame(?<FRAME_NUMBER>\d+)_BitDepth(?<BITDEPTH>\d+)_Bayered(?<BAYERED>\d)_Focuser(?<FOCUSER>\d+)_HFR(?<HFR>(\d+)(\.\d+)?)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
         private CancellationTokenSource loadSavedAutoFocusRunCts;
 
         private async Task<bool> LoadSavedAutoFocusRun(string selectedPath) {
@@ -474,60 +471,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 loadSavedAutoFocusRunCts?.Cancel();
                 loadSavedAutoFocusRunCts = new CancellationTokenSource();
-
-                var attemptFolder = new DirectoryInfo(selectedPath);
-                var attemptMatch = ATTEMPT_REGEX.Match(attemptFolder.Name);
-                if (!attemptMatch.Success || !int.TryParse(attemptMatch.Groups["ATTEMPT"].Value, out var attemptNumber)) {
-                    Notification.ShowError("A folder named attemptXX must be selected");
-                    return false;
-                }
-
-                var allFiles = attemptFolder.GetFiles();
-                var savedImages = new List<SavedAutoFocusImage>();
-                foreach (var file in allFiles) {
-                    var fileNameNoExtension = Path.GetFileNameWithoutExtension(file.Name);
-                    var match = IMAGE_FILE_REGEX.Match(fileNameNoExtension);
-                    if (!match.Success) {
-                        continue;
-                    }
-                    if (!int.TryParse(match.Groups["IMAGE_INDEX"].Value, out var imageIndex)) {
-                        continue;
-                    }
-                    if (!int.TryParse(match.Groups["FRAME_NUMBER"].Value, out var frameNumber)) {
-                        continue;
-                    }
-                    if (!int.TryParse(match.Groups["FOCUSER"].Value, out var focuserPosition)) {
-                        continue;
-                    }
-                    if (!int.TryParse(match.Groups["BITDEPTH"].Value, out var bitdepth)) {
-                        continue;
-                    }
-                    if (!int.TryParse(match.Groups["BAYERED"].Value, out var isBayeredInt)) {
-                        continue;
-                    }
-
-                    var isBayered = isBayeredInt != 0;
-                    var savedImage = new SavedAutoFocusImage() {
-                        Path = file.FullName,
-                        BitDepth = bitdepth,
-                        IsBayered = isBayered,
-                        FocuserPosition = focuserPosition,
-                        FrameNumber = frameNumber,
-                        ImageNumber = imageIndex,
-                    };
-                    savedImages.Add(savedImage);
-                }
-                if (savedImages.Count < 3) {
-                    Notification.ShowError($"Must be at least 3 saved AF images in {selectedPath}");
-                    return false;
-                }
-
-                var savedAttempt = new SavedAutoFocusAttempt() {
-                    Attempt = attemptNumber,
-                    SavedImages = savedImages
-                };
-
                 var autoFocusEngine = autoFocusEngineFactory.Create();
+                SavedAutoFocusAttempt savedAttempt;
+
+                try {
+                    savedAttempt = autoFocusEngine.LoadSavedAutoFocusAttempt(selectedPath);
+                } catch (Exception e) {
+                    Notification.ShowError(e.Message);
+                    Logger.Error($"Failed to load saved auto focus attempt from {selectedPath}", e);
+                    return false;
+                }
+
                 autoFocusEngine.Started += AutoFocusEngine_AutoFocusStarted;
                 autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;

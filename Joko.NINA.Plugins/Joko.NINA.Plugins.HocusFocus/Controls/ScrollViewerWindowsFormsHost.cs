@@ -10,12 +10,10 @@
 
 #endregion "copyright"
 
+using NINA.Core.Utility;
+using NINA.Core.Utility.Notification;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Forms.Integration;
@@ -26,23 +24,60 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
     // https://stackoverflow.com/questions/14080580/scrollviewer-is-not-working-in-wpf-windowsformhost
     public class ScrollViewerWindowsFormsHost : WindowsFormsHost {
 
+        public static readonly DependencyProperty ParentScrollViewerProperty = DependencyProperty.Register(
+            "ParentScrollViewer",
+            typeof(ScrollViewer),
+            typeof(ScrollViewerWindowsFormsHost),
+            new FrameworkPropertyMetadata(
+                default(ScrollViewer),
+                FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
+                OnParentScrollViewerPropertyChanged));
+
+        public ScrollViewer ParentScrollViewer {
+            get { return (ScrollViewer)GetValue(ParentScrollViewerProperty); }
+            set { SetValue(ParentScrollViewerProperty, value); }
+        }
+
+        private static void OnParentScrollViewerPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
+            var thisControl = (ScrollViewerWindowsFormsHost)d;
+            var newValue = (ScrollViewer)e.NewValue;
+            thisControl.ParentScrollViewer = newValue;
+        }
+
         protected override void OnWindowPositionChanged(Rect rcBoundingBox) {
             base.OnWindowPositionChanged(rcBoundingBox);
-
-            if (ParentScrollViewer == null)
+            var scrollViewer = ParentScrollViewer ?? ImplicitParentScrollViewer;
+            if (scrollViewer == null) {
                 return;
-
-            GeneralTransform tr = ParentScrollViewer.TransformToAncestor(MainWindow);
-            var scrollRect = new Rect(new Size(ParentScrollViewer.ViewportWidth, ParentScrollViewer.ViewportHeight));
-            scrollRect = tr.TransformBounds(scrollRect);
-
-            var intersect = Rect.Intersect(scrollRect, rcBoundingBox);
-            if (!intersect.IsEmpty) {
-                tr = MainWindow.TransformToDescendant(this);
-                intersect = tr.TransformBounds(intersect);
             }
 
-            SetRegion(intersect);
+            OnWindowPositionChanged(ParentScrollViewer, rcBoundingBox);
+        }
+
+        private bool onWindowPositionChangedLastFailed = false;
+
+        private void OnWindowPositionChanged(ScrollViewer parentScrollViewer, Rect rcBoundingBox) {
+            var mainWindow = Window.GetWindow(this);
+            try {
+                GeneralTransform tr = parentScrollViewer.TransformToAncestor(mainWindow);
+                var scrollRect = new Rect(new Size(parentScrollViewer.ViewportWidth, parentScrollViewer.ViewportHeight));
+                scrollRect = tr.TransformBounds(scrollRect);
+
+                var intersect = Rect.Intersect(scrollRect, rcBoundingBox);
+                if (!intersect.IsEmpty) {
+                    tr = mainWindow.TransformToDescendant(this);
+                    intersect = tr.TransformBounds(intersect);
+                }
+
+                SetRegion(intersect);
+                onWindowPositionChangedLastFailed = false;
+            } catch (Exception e) {
+                Logger.Error("Failed OnWindowPositionChanged", e);
+                if (!onWindowPositionChangedLastFailed) {
+                    Notification.ShowWarning("ScrollViewer FormsHost failed on window position change");
+                    onWindowPositionChangedLastFailed = true;
+                }
+            }
         }
 
         protected override void OnVisualParentChanged(DependencyObject oldParent) {
@@ -69,18 +104,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             return new System.Drawing.RectangleF((float)r.X, (float)r.Y, (float)r.Width, (float)r.Height);
         }
 
-        private Window _mainWindow;
-
-        private Window MainWindow {
-            get {
-                if (_mainWindow == null)
-                    _mainWindow = Window.GetWindow(this);
-
-                return _mainWindow;
-            }
-        }
-
-        private ScrollViewer ParentScrollViewer { get; set; }
+        public ScrollViewer ImplicitParentScrollViewer { get; private set; }
 
         [DllImport("User32.dll", SetLastError = true)]
         public static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);

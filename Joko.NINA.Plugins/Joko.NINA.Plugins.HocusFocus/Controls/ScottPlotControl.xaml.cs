@@ -40,9 +40,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
                 OnPlotPropertyChanged));
 
+        public static readonly DependencyProperty WpfPlotNameProperty = DependencyProperty.Register(
+            "WpfPlotName",
+            typeof(string),
+            typeof(ScottPlotControl),
+            new FrameworkPropertyMetadata(
+                "ScottPlot",
+                FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
+                OnNamePropertyChanged));
+
         public Plot Plot {
             get { return (Plot)GetValue(PlotProperty); }
             set { SetValue(PlotProperty, value); }
+        }
+
+        public string WpfPlotName {
+            get { return (string)GetValue(WpfPlotNameProperty); }
+            set { SetValue(WpfPlotNameProperty, value); }
         }
 
         private static void OnPlotPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
@@ -51,6 +65,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             var newPlot = (Plot)e.NewValue;
             scottPlot.Reset(newPlot);
             scottPlot.Refresh();
+        }
+
+        private static void OnNamePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
+            var thisControl = (ScottPlotControl)d;
+            var scottPlot = thisControl.ScottPlot;
+            scottPlot.Name = (string)e.NewValue;
         }
 
         private void Plot_MouseMove(object sender, System.Windows.Input.MouseEventArgs e) {
@@ -67,6 +87,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
         public ScottPlotControl() {
             InitializeComponent();
+
+            ScottPlot.Plot.XAxis.Ticks(false);
+            ScottPlot.Plot.YAxis.Ticks(false);
 
             ScottPlot.MouseMove += Plot_MouseMove;
             ScottPlot.MouseLeave += Plot_MouseLeave;

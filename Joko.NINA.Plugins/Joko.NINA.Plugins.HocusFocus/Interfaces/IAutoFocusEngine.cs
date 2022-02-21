@@ -31,8 +31,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public class SavedAutoFocusAttempt {
         public int Attempt { get; set; }
-
-        // public List<StarDetectionRegion> Regions { get; set; }
         public List<SavedAutoFocusImage> SavedImages { get; set; }
     }
 
@@ -71,9 +69,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         Task<AutoFocusResult> Rerun(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
 
+        Task<AutoFocusResult> RerunWithRegions(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress);
+
         AutoFocusEngineOptions GetOptions();
 
         Task<FilterInfo> SetAutofocusFilter(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
+
+        SavedAutoFocusAttempt LoadSavedAutoFocusAttempt(string path);
 
         event EventHandler<AutoFocusInitialHFRCalculatedEventArgs> InitialHFRCalculated;
 

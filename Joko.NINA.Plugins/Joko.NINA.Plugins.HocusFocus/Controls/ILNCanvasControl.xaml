@@ -8,6 +8,7 @@
     xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:wf="clr-namespace:System.Windows.Forms;assembly=System.Windows.Forms"
+    Name="UC"
     d:DesignHeight="450"
     d:DesignWidth="800"
     mc:Ignorable="d">
@@ -15,8 +16,7 @@
         <local:ScrollViewerWindowsFormsHost
             x:Name="ILNumericsContainer"
             HorizontalAlignment="Stretch"
-            VerticalAlignment="Stretch">
-            <wf:Panel Dock="Fill" />
-        </local:ScrollViewerWindowsFormsHost>
+            VerticalAlignment="Stretch"
+            ParentScrollViewer="{Binding ParentScrollViewer, ElementName=UC}" />
     </DockPanel>
 </UserControl>
