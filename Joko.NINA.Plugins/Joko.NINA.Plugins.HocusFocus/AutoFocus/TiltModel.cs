@@ -27,6 +27,9 @@ using System.Windows;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using System.ComponentModel;
 using NINA.Joko.Plugins.HocusFocus.Converters;
+using NINA.Joko.Plugins.HocusFocus.Controls;
+using ILNLines = ILNumerics.Drawing.Lines;
+using ILNLabel = ILNumerics.Drawing.Label;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
@@ -198,24 +201,39 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 scene.Add(plotCube);
                 scene.Screen.First<ILNumerics.Drawing.Label>().Visible = false;
-                TiltScene = scene;
+                var sceneContainer = new ILNSceneContainer(scene);
+                sceneContainer.ForegroundChanged += (sender, args) => {
+                    var solidColorBrush = args.Brush as SolidColorBrush;
+                    if (solidColorBrush != null) {
+                        var foregroundColor = solidColorBrush.Color.ToDrawingColor();
+                        foreach (var lines in plotCube.Find<ILNLines>()) {
+                            lines.Color = foregroundColor;
+                        }
+                        foreach (var label in plotCube.Find<ILNLabel>()) {
+                            label.Color = foregroundColor;
+                            label.Fringe.Width = 0;
+                        }
+                    }
+                };
+
+                TiltSceneContainer = sceneContainer;
             }
         }
 
         public AsyncObservableCollection<SensorTiltModel> SensorTiltModels => sensorTiltModels;
 
-        private Scene tiltScene = new Scene(true);
+        private ILNSceneContainer tiltSceneContainer;
 
-        public Scene TiltScene {
-            get => tiltScene;
+        public ILNSceneContainer TiltSceneContainer {
+            get => tiltSceneContainer;
             set {
-                tiltScene = value;
+                tiltSceneContainer = value;
                 RaisePropertyChanged();
             }
         }
 
         public void Reset() {
-            this.TiltScene = null;
+            this.TiltSceneContainer = null;
             this.SensorTiltModels.Clear();
         }
     }

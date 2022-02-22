@@ -88,6 +88,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         public ScottPlotControl() {
             InitializeComponent();
 
+            ScottPlot.Configuration.Zoom = false;
+            ScottPlot.Configuration.Pan = false;
             ScottPlot.Plot.XAxis.Ticks(false);
             ScottPlot.Plot.YAxis.Ticks(false);
 

@@ -393,7 +393,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var report = GenerateReport(
                 attemptNumber: e.Iteration,
                 initialFocusPosition: e.InitialFocusPosition,
-                initialHFR: firstRegion.InitialHFR,
+                initialHFR: firstRegion.InitialHFR ?? 0.0d,
                 finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
                 filter: e.Filter,
                 finalFocusPoint: FinalFocusPoint,

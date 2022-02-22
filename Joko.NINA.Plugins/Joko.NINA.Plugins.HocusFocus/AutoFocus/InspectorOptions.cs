@@ -36,9 +36,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             stepSize = optionsAccessor.GetValueInt32(nameof(StepSize), -1);
             framesPerPoint = optionsAccessor.GetValueInt32(nameof(FramesPerPoint), -1);
             timeoutSeconds = optionsAccessor.GetValueInt32(nameof(TimeoutSeconds), -1);
-            psfNumPanelsWidth = optionsAccessor.GetValueInt32(nameof(PSFNumPanelsWidth), 13);
             simpleExposureSeconds = optionsAccessor.GetValueDouble(nameof(SimpleExposureSeconds), -1);
-            numRegionsWide = optionsAccessor.GetValueInt32(nameof(NumRegionsWide), 13);
+            numRegionsWide = optionsAccessor.GetValueInt32(nameof(NumRegionsWide), 7);
             loopingExposureAnalysisEnabled = optionsAccessor.GetValueBoolean(nameof(LoopingExposureAnalysisEnabled), false);
         }
 
@@ -47,9 +46,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             StepSize = -1;
             FramesPerPoint = -1;
             TimeoutSeconds = -1;
-            PSFNumPanelsWidth = 13;
             SimpleExposureSeconds = -1;
-            NumRegionsWide = 13;
+            NumRegionsWide = 7;
             LoopingExposureAnalysisEnabled = false;
         }
 
@@ -100,19 +98,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (timeoutSeconds != value) {
                     timeoutSeconds = value;
                     optionsAccessor.SetValueInt32(nameof(StepCount), timeoutSeconds);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private int psfNumPanelsWidth;
-
-        public int PSFNumPanelsWidth {
-            get => psfNumPanelsWidth;
-            set {
-                if (psfNumPanelsWidth != value) {
-                    psfNumPanelsWidth = value;
-                    optionsAccessor.SetValueInt32(nameof(PSFNumPanelsWidth), psfNumPanelsWidth);
                     RaisePropertyChanged();
                 }
             }

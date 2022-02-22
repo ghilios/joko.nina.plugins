@@ -48,9 +48,13 @@ using System.Windows.Input;
 
 using Logger = NINA.Core.Utility.Logger;
 using DrawingSize = System.Drawing.Size;
+using DrawingColor = System.Drawing.Color;
+using MediaBrush = System.Windows.Media.Brush;
 using SPPlot = ScottPlot.Plot;
 using SPVector2 = ScottPlot.Statistics.Vector2;
 using ILNumerics.Drawing.Plotting;
+using ILNLines = ILNumerics.Drawing.Lines;
+using ILNLabel = ILNumerics.Drawing.Label;
 using System.Drawing;
 using ScottPlot.Statistics;
 using System.Windows.Media;
@@ -216,7 +220,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Notification.ShowError("AutoFocus Analysis Failed");
                     return false;
                 }
-                var exposureAnalysisResult = await TakeAndAnalyzeExposure(autoFocusEngine, analyzeCts.Token);
+                var exposureAnalysisResult = await TakeAndAnalyzeExposureImpl(autoFocusEngine, analyzeCts.Token);
                 if (!exposureAnalysisResult) {
                     Notification.ShowError("Exposure Analysis Failed");
                     return false;
@@ -258,14 +262,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return Task.FromResult(true);
         }
 
-        private async Task<bool> TakeAndAnalyzeExposure(IAutoFocusEngine autoFocusEngine, CancellationToken token) {
+        private Task<bool> TakeAndAnalyzeExposure(IAutoFocusEngine autoFocusEngine, CancellationToken token) {
             var starDetection = starDetectionSelector.GetBehavior() as IHocusFocusStarDetection;
             if (starDetection == null) {
                 Notification.ShowError("HocusFocus must be selected as the Star Detector. Change this option in Options -> Image Options");
                 Logger.Error("HocusFocus must be selected as the Star Detector");
-                return false;
+                return Task.FromResult(false);
             }
 
+            DeactivateAutoFocusAnalysis();
+            return TakeAndAnalyzeExposureImpl(autoFocusEngine, token);
+        }
+
+        private async Task<bool> TakeAndAnalyzeExposureImpl(IAutoFocusEngine autoFocusEngine, CancellationToken token) {
+            var starDetection = (IHocusFocusStarDetection)starDetectionSelector.GetBehavior();
             var imagingFilter = GetImagingFilter();
             var autoFocusOptions = autoFocusEngine.GetOptions();
 
@@ -276,7 +286,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     autoFocusExposureTime = imagingFilter.AutoFocusExposureTime;
                 }
 
-                DeactivateAutoFocusAnalysis();
                 var exposureTimeSeconds = inspectorOptions.SimpleExposureSeconds >= 0 ? inspectorOptions.SimpleExposureSeconds : autoFocusExposureTime;
                 var captureSequence = new CaptureSequence(exposureTimeSeconds, CaptureSequence.ImageTypes.SNAPSHOT, autoFocusFilter, null, 1);
                 var exposureData = await imagingMediator.CaptureImage(captureSequence, token, progress);
@@ -315,6 +324,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        private DrawingColor GetColorFromBrushResource(string resourceName, DrawingColor fallback) {
+            return applicationDispatcher.DispatchSynchronizationContext(() => {
+                var resource = Application.Current.TryFindResource(resourceName);
+                if (resource is SolidColorBrush) {
+                    return ((SolidColorBrush)resource).Color.ToDrawingColor();
+                }
+                return fallback;
+            });
+        }
+
         private void AnalyzeStarDetectionResult(DrawingSize imageSize, StarDetectionResult result) {
             var numRegionsWide = inspectorOptions.NumRegionsWide;
             int regionSizePixels = imageSize.Width / numRegionsWide;
@@ -337,6 +356,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 regionDetectedStars[regionCol, regionRow].Add(detectedStar);
             }
 
+            // TODO: Add FWHM Contour Map back after the graphic can better be supported
+            /*
             using (Scope.Enter()) {
                 var scene = new Scene();
 
@@ -354,6 +375,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 var contourPlot = new ContourPlot(points, colormap: Colormaps.Gray, create3D: true, lineWidth: 1, showLabels: false);
+                var contourSurface = new Surface(points, colormap: Colormaps.Gray) {
+                    Wireframe = { Visible = false },
+                    UseLighting = true,
+                    Children = {
+                              new Colorbar {
+                                  Location = new PointF(1,.4f),
+                                  Anchor = new PointF(1,0)
+                              }
+                          }
+                };
                 var contourPlotCube = new PlotCube(twoDMode: false) {
                     Axes = {
                           XAxis = {
@@ -384,28 +415,36 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Projection = Projection.Orthographic,
                     Children = {
                       contourPlot,
-                      new Surface(points, colormap: Colormaps.Gray) {
-                        Wireframe = { Visible = false },
-                        UseLighting = true,
-                        Children = {
-                              new Colorbar {
-                                  Location = new PointF(1,.4f),
-                                  Anchor = new PointF(1,0)
-                              }
-                          }
-                      }
+                      contourSurface
                     }
                 };
 
                 contourPlotCube.AspectRatioMode = AspectRatioMode.MaintainRatios;
+                contourPlotCube.AllowZoom = false;
+                contourPlotCube.AllowPan = false;
                 contourPlotCube.DataScreenRect = new RectangleF(0, 0, 0.9f, 0.9f);
                 scene.Add(contourPlotCube);
                 scene.Screen.First<Label>().Visible = false;
-                FWHMContourScene = scene;
+                var sceneContainer = new ILNSceneContainer(scene);
+                sceneContainer.ForegroundChanged += (sender, args) => {
+                    var solidColorBrush = args.Brush as SolidColorBrush;
+                    if (solidColorBrush != null) {
+                        var foregroundColor = solidColorBrush.Color.ToDrawingColor();
+                        foreach (var lines in contourPlot.Find<ILNLines>()) {
+                            lines.Color = foregroundColor;
+                        }
+                        foreach (var label in contourPlot.Find<ILNLabel>()) {
+                            label.Color = foregroundColor;
+                            label.Fringe.Width = 0;
+                        }
+                    }
+                };
+
+                FWHMContourSceneContainer = sceneContainer;
             }
+            */
 
             {
-                var plot = new SPPlot();
                 double[] xs = DataGen.Range(0, numRegionsWide);
                 double[] ys = DataGen.Range(0, numRegionsTall);
                 var vectors = new SPVector2[numRegionsWide, numRegionsTall];
@@ -414,6 +453,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var eccentricities = new double[numRegionsWide * numRegionsTall];
 
                 int pointIndex = 0;
+                double maxMagnitude = 0.0d;
                 for (int regionRow = 0; regionRow < numRegionsTall; ++regionRow) {
                     for (int regionCol = 0; regionCol < numRegionsWide; ++regionCol) {
                         var detectedStars = regionDetectedStars[regionCol, regionRow];
@@ -427,6 +467,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             double y = Math.Sin(psfRotationMedian) * scaledEccentricity;
                             vectors[regionCol, regionRow] = new Vector2(x, y);
                             eccentricities[pointIndex] = eccentricityMedian;
+                            maxMagnitude = Math.Max(scaledEccentricity, maxMagnitude);
                         } else {
                             eccentricities[pointIndex] = double.NaN;
                         }
@@ -435,25 +476,35 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
                 }
 
-                var primaryBrushColor = applicationDispatcher.GetResource("PrimaryBrush", Colors.Black);
-                var secondaryBrushColor = applicationDispatcher.GetResource("SecondaryBrush", Colors.Red);
+                var backgroundColor = GetColorFromBrushResource("BackgroundBrush", DrawingColor.White);
+                var secondaryBackgroundColor = GetColorFromBrushResource("SecondaryBackgroundBrush", DrawingColor.Gray);
+                var primaryColor = GetColorFromBrushResource("PrimaryBrush", DrawingColor.Black);
+                var secondaryColor = GetColorFromBrushResource("SecondaryBrush", DrawingColor.Red);
 
-                var vectorField = plot.AddVectorField(vectors, xs, ys, color: primaryBrushColor.ToDrawingColor());
+                var plot = new SPPlot();
+                plot.Style(dataBackground: secondaryBackgroundColor, figureBackground: backgroundColor, tick: secondaryColor, grid: secondaryColor, axisLabel: primaryColor, titleLabel: primaryColor);
+
+                // maxMagnitude * 1.2 is taken from the ScottPlot code to ensure no vector scaling takes place
+                var vectorField = plot.AddVectorField(vectors, xs, ys, color: primaryColor, scaleFactor: maxMagnitude * 1.2 * 1.5);
 
                 // Scatter points act as anchor points for mouse over events
                 var scatterPoints = plot.AddScatterPoints(centerXs, centerYs);
                 scatterPoints.IsVisible = false;
 
-                vectorField.ScaledArrowheads = true;
-                vectorField.ScaledArrowheadLength = 0.0;
-                vectorField.ScaledArrowheadWidth = 0.0;
+                vectorField.ScaledArrowheadLength = 0;
+                vectorField.ScaledArrowheadWidth = 0;
+                vectorField.ScaledArrowheads = false;
+                vectorField.Anchor = ArrowAnchor.Center;
+                vectorField.MarkerShape = MarkerShape.none;
 
                 var highlightedPoint = plot.AddPoint(0, 0);
 
-                highlightedPoint.Color = secondaryBrushColor.ToDrawingColor();
-                highlightedPoint.MarkerSize = 5;
-                highlightedPoint.MarkerShape = ScottPlot.MarkerShape.openCircle;
+                highlightedPoint.Color = secondaryColor;
+                highlightedPoint.MarkerSize = 7;
+                highlightedPoint.MarkerShape = ScottPlot.MarkerShape.filledCircle;
                 highlightedPoint.IsVisible = false;
+                highlightedPoint.TextFont.Color = primaryColor;
+                highlightedPoint.TextFont.Bold = true;
 
                 plot.XAxis.Ticks(false);
                 plot.YAxis.Ticks(false);
@@ -795,12 +846,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private Scene fwhmContourScene = new Scene(true);
+        private ILNSceneContainer fwhmContourSceneContainer = null;
 
-        public Scene FWHMContourScene {
-            get => fwhmContourScene;
+        public ILNSceneContainer FWHMContourSceneContainer {
+            get => fwhmContourSceneContainer;
             set {
-                fwhmContourScene = value;
+                fwhmContourSceneContainer = value;
                 RaisePropertyChanged();
             }
         }
@@ -915,7 +966,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusChartActivatedOnce = false;
             TiltMeasurementActivatedOnce = false;
             ExposureAnalysisActivatedOnce = false;
-            FWHMContourScene = null;
+            FWHMContourSceneContainer = null;
             TiltModel.Reset();
         }
 

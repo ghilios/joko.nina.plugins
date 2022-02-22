@@ -13,8 +13,8 @@
             <RowDefinition Height="800" />
             <RowDefinition Height="0" />
         </Grid.RowDefinitions>
-        <controls:ILNCanvasControl Grid.Row="0" Scene="{Binding Scene}" />
-        <controls:ILNCanvasControl Grid.Row="1" Scene="{Binding FWHMContourScene}" />
+        <controls:ILNCanvasControl Grid.Row="0" SceneContainer="{Binding Scene}" />
+        <controls:ILNCanvasControl Grid.Row="1" SceneContainer="{Binding FWHMContourScene}" />
         <controls:ScottPlotControl
             Grid.Row="2"
             Background="LightGray"

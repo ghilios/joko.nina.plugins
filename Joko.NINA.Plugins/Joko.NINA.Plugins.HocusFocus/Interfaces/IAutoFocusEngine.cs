@@ -162,7 +162,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public class AutoFocusRegionHFR {
         public StarDetectionRegion Region { get; set; }
-        public double InitialHFR { get; set; }
+        public double? InitialHFR { get; set; }
         public double EstimatedFinalHFR { get; set; }
         public double? FinalHFR { get; set; }
         public double EstimatedFinalFocuserPosition { get; set; }

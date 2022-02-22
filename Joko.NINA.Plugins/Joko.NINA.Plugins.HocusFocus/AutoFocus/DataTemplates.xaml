@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:b="http://schemas.microsoft.com/xaml/behaviors"
     xmlns:controls="clr-namespace:NINA.Joko.Plugins.HocusFocus.Controls"
+    xmlns:hfrules="clr-namespace:NINA.Joko.Plugins.HocusFocus.ValidationRules"
     xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus"
     xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary"
     xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
@@ -22,6 +23,7 @@
     <TextBlock x:Key="StepSize_Tooltip" Text="How many focuser steps in between each data point when doing an AutoFocus. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="FramesPerPoint_Tooltip" Text="How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank" />
+    <TextBlock x:Key="NumRegionsWide_Tooltip" Text="How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors. This value must be an odd, positive integer, and the height will be calculated proportionally from it based on the sensor resolution" />
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
@@ -944,6 +946,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -1065,6 +1068,34 @@
                                 Text="seconds"
                                 ToolTip="{StaticResource AutoFocusTimeoutSeconds_Tooltip}" />
                         </StackPanel>
+
+                        <TextBlock
+                            Grid.Row="4"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Eccentricity Grid Width"
+                            ToolTip="{StaticResource NumRegionsWide_Tooltip}" />
+                        <ninactrl:UnitTextBox
+                            Grid.Row="4"
+                            Grid.Column="1"
+                            MinWidth="40"
+                            VerticalAlignment="Center"
+                            HorizontalContentAlignment="Left"
+                            VerticalContentAlignment="Center"
+                            Foreground="{StaticResource PrimaryBrush}"
+                            TextAlignment="Left"
+                            ToolTip="{StaticResource NumRegionsWide_Tooltip}"
+                            Unit="cells">
+                            <Binding
+                                Converter="{StaticResource HF_ZeroToInfinityConverter}"
+                                Path="InspectorOptions.NumRegionsWide"
+                                UpdateSourceTrigger="LostFocus">
+                                <Binding.ValidationRules>
+                                    <hfrules:PositiveOddIntegerRule />
+                                </Binding.ValidationRules>
+                            </Binding>
+                        </ninactrl:UnitTextBox>
                     </Grid>
                 </Expander>
                 <Expander
@@ -1345,7 +1376,7 @@
                         <Grid Grid.Column="1" HorizontalAlignment="Center">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="300" />
+                                <!-- <RowDefinition Height="300" /> -->
                             </Grid.RowDefinitions>
                             <TextBlock
                                 Grid.Row="0"
@@ -1353,12 +1384,15 @@
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 FontWeight="DemiBold"
-                                Text="Sensor Tilt" />
+                                Text="Sensor Tilt Graphic Coming Soon" />
+                            <!--
                             <controls:ILNCanvasControl
                                 Grid.Row="1"
                                 Background="{StaticResource BackgroundBrush}"
+                                Foreground="{StaticResource PrimaryBrush}"
                                 ParentScrollViewer="{Binding Path=., ElementName=SV}"
-                                Scene="{Binding TiltModel.TiltScene}" />
+                                SceneContainer="{Binding TiltModel.TiltSceneContainer}" />
+                            -->
                         </Grid>
                     </Grid>
                 </Expander>
@@ -1370,7 +1404,7 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="300" />
+                            <!-- <RowDefinition Height="300" /> -->
                         </Grid.RowDefinitions>
                         <TextBlock
                             Grid.Row="0"
@@ -1378,11 +1412,15 @@
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             FontWeight="DemiBold"
-                            Text="FWHM Contour Map" />
+                            Text="FWHM Contour Map Coming Soon" />
+                        <!--
                         <controls:ILNCanvasControl
                             Grid.Row="1"
+                            Background="{StaticResource BackgroundBrush}"
+                            Foreground="{StaticResource PrimaryBrush}"
                             ParentScrollViewer="{Binding Path=., ElementName=SV}"
-                            Scene="{Binding FWHMContourScene}" />
+                            SceneContainer="{Binding FWHMContourSceneContainer}" />
+                        -->
                     </Grid>
                 </Expander>
                 <Expander

@@ -1254,7 +1254,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var regionHFRs = state.FocusRegionStates
                 .Select(s => new AutoFocusRegionHFR() {
                     Region = s.Region,
-                    InitialHFR = s.InitialHFR.Value.Measure,
+                    InitialHFR = s.InitialHFR?.Measure,
                     EstimatedFinalHFR = s.FinalFocusPoint.Y,
                     FinalHFR = s.FinalHFR?.Measure,
                     EstimatedFinalFocuserPosition = s.FinalFocusPoint.X,
