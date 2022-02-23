@@ -120,6 +120,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
                 GaussianFitting = GaussianFitting
             };
         }
+
+        public double GetRSquared() {
+            if (Method == AFMethodEnum.CONTRASTDETECTION) {
+                return double.NaN; // Gaussian doesn't expose R^2, nor does it really make sense
+            }
+            if (CurveFittingType == AFCurveFittingEnum.PARABOLIC || CurveFittingType == AFCurveFittingEnum.TRENDPARABOLIC) {
+                return QuadraticFitting?.RSquared ?? double.NaN;
+            } else if (CurveFittingType == AFCurveFittingEnum.HYPERBOLIC || CurveFittingType == AFCurveFittingEnum.TRENDHYPERBOLIC) {
+                return HyperbolicFitting?.RSquared ?? double.NaN;
+            }
+            return double.NaN;
+        }
     }
 
     public class AutoFocusRegionResult {

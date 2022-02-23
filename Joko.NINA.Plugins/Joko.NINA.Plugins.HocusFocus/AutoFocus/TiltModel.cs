@@ -20,6 +20,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using DrawingColor = System.Drawing.Color;
+using DrawingSize = System.Drawing.Size;
 using ILNumerics.Drawing.Plotting;
 using NINA.Astrometry;
 using System.Windows.Media;
@@ -30,20 +31,55 @@ using NINA.Joko.Plugins.HocusFocus.Converters;
 using NINA.Joko.Plugins.HocusFocus.Controls;
 using ILNLines = ILNumerics.Drawing.Lines;
 using ILNLabel = ILNumerics.Drawing.Label;
+using System.Threading;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
-    public class TiltModel : BaseINPC {
-        private Dictionary<SensorSide> sideToTiltModelMap;
-        private readonly AsyncObservableCollection<SensorTiltModel> sensorTiltModels;
-        private readonly IApplicationDispatcher applicationDispatcher;
+    public class TiltPlaneModel {
 
-        public TiltModel(IApplicationDispatcher applicationDispatcher) {
-            this.applicationDispatcher = applicationDispatcher;
-            this.sensorTiltModels = new AsyncObservableCollection<SensorTiltModel>();
+        public TiltPlaneModel(DrawingSize imageSize, double a, double b, double c, double mean) {
+            if (imageSize.Width == 0 || imageSize.Height <= 0) {
+                throw new ArgumentException($"ImageSize ({ImageSize.Width}, {ImageSize.Height}) dimensions must be positive");
+            }
+
+            ImageSize = imageSize;
+            A = a;
+            B = b;
+            C = c;
+            MeanFocuserPosition = mean;
         }
 
-        private (double, double, double) CalculateTiltPlane(AutoFocusResult result) {
+        public DrawingSize ImageSize { get; private set; }
+        public double A { get; private set; }
+        public double B { get; private set; }
+        public double C { get; private set; }
+        public double MeanFocuserPosition { get; private set; }
+
+        public double EstimateFocusPosition(int x, int y) {
+            var xRatio = GetModelX(x);
+            var yRatio = GetModelY(y);
+            return A * xRatio + B * yRatio + C;
+        }
+
+        public double GetModelX(int x) {
+            if (x < 0 || x >= ImageSize.Height) {
+                throw new ArgumentException($"X ({x}) must be within the image size dimensions ({ImageSize.Width}x{ImageSize.Height})");
+            }
+
+            var xyRatio = ImageSize.Width / ImageSize.Height;
+            return ((double)x / ImageSize.Width - 0.5) * xyRatio;
+        }
+
+        public double GetModelY(int y) {
+            if (y < 0 || y >= ImageSize.Height) {
+                throw new ArgumentException($"Y ({y}) must be within the image size dimensions ({ImageSize.Width}x{ImageSize.Height})");
+            }
+
+            var xyRatio = ImageSize.Width / ImageSize.Height;
+            return (double)y / ImageSize.Height - 0.5;
+        }
+
+        public static TiltPlaneModel Create(AutoFocusResult result) {
             var ols = new OrdinaryLeastSquares() {
                 UseIntercept = true
             };
@@ -68,75 +104,95 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             double a = regression.Weights[0];
             double b = regression.Weights[1];
             double c = regression.Intercept;
-            return (a, b, c);
+            double mean = outputs.Average();
+            return new TiltPlaneModel(result.ImageSize, a, b, c, mean);
+        }
+    }
+
+    public class TiltModel : BaseINPC {
+        private readonly IApplicationDispatcher applicationDispatcher;
+        private int nextHistoryId = 0;
+
+        public TiltModel(IApplicationDispatcher applicationDispatcher) {
+            this.applicationDispatcher = applicationDispatcher;
+            SensorTiltModels = new AsyncObservableCollection<SensorTiltModel>();
+            SensorTiltHistoryModels = new AsyncObservableCollection<SensorTiltHistoryModel>();
         }
 
-        public void UpdateTiltModel(AutoFocusResult result) {
-            var primaryBrushColor = applicationDispatcher.GetResource("PrimaryBrush", Colors.Black);
+        private void UpdateTiltMeasurementsTable(AutoFocusResult result, TiltPlaneModel tiltModel) {
+            var centerFocuser = result.RegionResults[0].EstimatedFinalFocuserPosition;
+            var topLeftFocuser = result.RegionResults[1].EstimatedFinalFocuserPosition;
+            var topRightFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
+            var bottomLeftFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
+            var bottomRightFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
 
-            var (a, b, c) = CalculateTiltPlane(result);
-            var xyRatio = result.ImageSize.Width / result.ImageSize.Height;
-            var topLeftPosition = a * (-xyRatio) + b * (1) + c;
-            var topRightPosition = a * (xyRatio) + b * (1) + c;
-            var bottomLeftPosition = a * (-xyRatio) + b * (-1) + c;
-            var bottomRightPosition = a * (xyRatio) + b * (-1) + c;
-
-            var leftPosition = (topLeftPosition + bottomLeftPosition) / 2;
-            var rightPosition = (topRightPosition + bottomRightPosition) / 2;
-            var topPosition = (topLeftPosition + topRightPosition) / 2;
-            var bottomPosition = (bottomLeftPosition + bottomRightPosition) / 2;
-
-            var leftAdjustment = (rightPosition + leftPosition) / 2 - leftPosition;
-            var rightAdjustment = -leftAdjustment;
-            var topAdjustment = (topPosition + bottomPosition) / 2 - topPosition;
-            var bottomAdjustment = -topAdjustment;
-
-            var newSideToTiltModelMap = new Dictionary<SensorSide, SensorTiltModel>();
-            newSideToTiltModelMap.Add(SensorSide.Left, new SensorTiltModel(SensorSide.Left) {
-                FocuserPosition = leftPosition,
-                AdjustmentRequired = leftAdjustment,
-                ImprovementDelta = double.NaN
+            var newSideToTiltModels = new List<SensorTiltModel>();
+            newSideToTiltModels.Add(new SensorTiltModel(SensorSide.Center) {
+                FocuserPosition = centerFocuser,
+                AdjustmentRequired = double.NaN,
+                RSquared = result.RegionResults[0].Fittings.GetRSquared()
             });
-            newSideToTiltModelMap.Add(SensorSide.Right, new SensorTiltModel(SensorSide.Right) {
-                FocuserPosition = rightPosition,
-                AdjustmentRequired = rightAdjustment,
-                ImprovementDelta = double.NaN
+            newSideToTiltModels.Add(new SensorTiltModel(SensorSide.TopLeft) {
+                FocuserPosition = topLeftFocuser,
+                AdjustmentRequired = tiltModel.MeanFocuserPosition - topLeftFocuser,
+                RSquared = result.RegionResults[1].Fittings.GetRSquared()
             });
-            newSideToTiltModelMap.Add(SensorSide.Top, new SensorTiltModel(SensorSide.Top) {
-                FocuserPosition = topPosition,
-                AdjustmentRequired = topAdjustment,
-                ImprovementDelta = double.NaN
+            newSideToTiltModels.Add(new SensorTiltModel(SensorSide.TopRight) {
+                FocuserPosition = topRightFocuser,
+                AdjustmentRequired = tiltModel.MeanFocuserPosition - topRightFocuser,
+                RSquared = result.RegionResults[2].Fittings.GetRSquared()
             });
-            newSideToTiltModelMap.Add(SensorSide.Bottom, new SensorTiltModel(SensorSide.Bottom) {
-                FocuserPosition = bottomPosition,
-                AdjustmentRequired = bottomAdjustment,
-                ImprovementDelta = double.NaN
+            newSideToTiltModels.Add(new SensorTiltModel(SensorSide.BottomLeft) {
+                FocuserPosition = bottomLeftFocuser,
+                AdjustmentRequired = tiltModel.MeanFocuserPosition - bottomLeftFocuser,
+                RSquared = result.RegionResults[3].Fittings.GetRSquared()
+            });
+            newSideToTiltModels.Add(new SensorTiltModel(SensorSide.BottomRight) {
+                FocuserPosition = bottomRightFocuser,
+                AdjustmentRequired = tiltModel.MeanFocuserPosition - bottomRightFocuser,
+                RSquared = result.RegionResults[4].Fittings.GetRSquared()
             });
 
-            sensorTiltModels.Clear();
-            foreach (var sensorTiltModel in newSideToTiltModelMap.OrderBy(kv => (int)kv.Key).Select(kv => kv.Value)) {
-                sensorTiltModels.Add(sensorTiltModel);
+            SensorTiltModels.Clear();
+            foreach (var sensorTiltModel in newSideToTiltModels.OrderBy(x => (int)x.SensorSide)) {
+                SensorTiltModels.Add(sensorTiltModel);
             }
 
+            var historyId = Interlocked.Increment(ref nextHistoryId);
+            SensorTiltHistoryModels.Insert(0, new SensorTiltHistoryModel(
+                historyId: historyId,
+                center: newSideToTiltModels.First(m => m.SensorSide == SensorSide.Center),
+                topLeft: newSideToTiltModels.First(m => m.SensorSide == SensorSide.TopLeft),
+                topRight: newSideToTiltModels.First(m => m.SensorSide == SensorSide.TopRight),
+                bottomLeft: newSideToTiltModels.First(m => m.SensorSide == SensorSide.BottomLeft),
+                bottomRight: newSideToTiltModels.First(m => m.SensorSide == SensorSide.BottomRight)));
+        }
+
+        private void UpdateTiltPlot(AutoFocusResult result, TiltPlaneModel tiltModel) {
             using (Scope.Enter()) {
                 var scene = new Scene();
 
-                var xs = new double[] { -xyRatio, +xyRatio, -xyRatio, +xyRatio };
-                var ys = new double[] { 1, 1, -1, -1 };
+                var imageXs = new int[] { 0, tiltModel.ImageSize.Width - 1, 0, tiltModel.ImageSize.Width - 1 };
+                var imageYs = new int[] { tiltModel.ImageSize.Height - 1, tiltModel.ImageSize.Height - 1, 0, 0 };
+
+                var modelXs = imageXs.Select(x => tiltModel.GetModelX(x)).ToArray();
+                var modelYs = imageYs.Select(y => tiltModel.GetModelY(y)).ToArray();
                 var minFocuserPosition = double.PositiveInfinity;
 
                 Array<double> points = zeros<double>(3, 4);
                 Array<double> surfacePoints = zeros<double>(3, 4);
                 for (int i = 0; i < 4; ++i) {
-                    var x = xs[i];
-                    var y = ys[i];
-                    var modeledFocuserPosition = x * a + y * b + c;
-                    points[0, i] = x;
-                    points[1, i] = y;
+                    var imageX = imageXs[i];
+                    var imageY = imageYs[i];
+                    var modelX = modelXs[i];
+                    var modelY = modelXs[i];
+                    var modeledFocuserPosition = tiltModel.EstimateFocusPosition(imageX, imageY);
+                    points[0, i] = modelX;
+                    points[1, i] = modelY;
                     points[2, i] = result.RegionResults[i + 1].EstimatedFinalFocuserPosition;
 
-                    surfacePoints[0, i] = x;
-                    surfacePoints[1, i] = y;
+                    surfacePoints[0, i] = modelX;
+                    surfacePoints[1, i] = modelY;
                     surfacePoints[2, i] = modeledFocuserPosition;
                     minFocuserPosition = Math.Min(modeledFocuserPosition, minFocuserPosition);
                 }
@@ -182,7 +238,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Children = {
                       new Points {
                         Positions = tosingle(points),
-                        Color = primaryBrushColor.ToDrawingColor()
+                        // TODO: Set primary brush color via WPF
+                        // Color = primaryBrushColor.ToDrawingColor()
                       },
                       triStr
                     }
@@ -220,7 +277,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        public AsyncObservableCollection<SensorTiltModel> SensorTiltModels => sensorTiltModels;
+        public void UpdateTiltModel(AutoFocusResult result) {
+            var tiltModel = TiltPlaneModel.Create(result);
+            UpdateTiltMeasurementsTable(result, tiltModel);
+        }
+
+        public AsyncObservableCollection<SensorTiltModel> SensorTiltModels { get; private set; }
+
+        public AsyncObservableCollection<SensorTiltHistoryModel> SensorTiltHistoryModels { get; private set; }
 
         private ILNSceneContainer tiltSceneContainer;
 
@@ -241,17 +305,45 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
     [TypeConverter(typeof(EnumStaticDescriptionConverter))]
     public enum SensorSide {
 
-        [Description("Left")]
-        Left = 0,
+        [Description("Center")]
+        Center = 0,
 
-        [Description("Right")]
-        Right = 1,
+        [Description("Top Left")]
+        TopLeft = 1,
 
-        [Description("Top")]
-        Top = 2,
+        [Description("Top Right")]
+        TopRight = 2,
 
-        [Description("Bottom")]
-        Bottom = 3
+        [Description("Bottom Left")]
+        BottomLeft = 3,
+
+        [Description("Bottom Right")]
+        BottomRight = 4
+    }
+
+    public class SensorTiltHistoryModel {
+
+        public SensorTiltHistoryModel(
+            int historyId,
+            SensorTiltModel center,
+            SensorTiltModel topLeft,
+            SensorTiltModel topRight,
+            SensorTiltModel bottomLeft,
+            SensorTiltModel bottomRight) {
+            HistoryId = historyId;
+            Center = center;
+            TopLeft = topLeft;
+            TopRight = topRight;
+            BottomLeft = bottomLeft;
+            BottomRight = bottomRight;
+        }
+
+        public int HistoryId { get; private set; }
+        public SensorTiltModel Center { get; private set; }
+        public SensorTiltModel TopLeft { get; private set; }
+        public SensorTiltModel TopRight { get; private set; }
+        public SensorTiltModel BottomLeft { get; private set; }
+        public SensorTiltModel BottomRight { get; private set; }
     }
 
     public class SensorTiltModel : BaseINPC {
@@ -282,18 +374,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private double improvementDelta;
+        private double rSquared;
 
-        public double ImprovementDelta {
-            get => improvementDelta;
+        public double RSquared {
+            get => rSquared;
             set {
-                improvementDelta = value;
+                rSquared = value;
                 RaisePropertyChanged();
             }
         }
 
         public override string ToString() {
-            return $"{{{nameof(SensorSide)}={SensorSide.ToString()}, {nameof(FocuserPosition)}={FocuserPosition.ToString()}, {nameof(AdjustmentRequired)}={AdjustmentRequired.ToString()}, {nameof(ImprovementDelta)}={ImprovementDelta.ToString()}}}";
+            return $"{{{nameof(SensorSide)}={SensorSide.ToString()}, {nameof(FocuserPosition)}={FocuserPosition.ToString()}, {nameof(AdjustmentRequired)}={AdjustmentRequired.ToString()}, {nameof(RSquared)}={RSquared.ToString()}}}";
         }
     }
 }

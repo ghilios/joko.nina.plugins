@@ -7,7 +7,6 @@
     xmlns:ilndrawing="clr-namespace:ILNumerics.Drawing;assembly=ILNumerics.Drawing.Platforms"
     xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:svgc="http://sharpvectors.codeplex.com/svgc/"
     xmlns:wf="clr-namespace:System.Windows.Forms;assembly=System.Windows.Forms"
     Name="UC"
     d:DesignHeight="450"
@@ -23,11 +22,4 @@
             Visibility="Collapsed" />
     </Grid>
     -->
-
-    <svgc:SvgViewbox
-        Name="SVG"
-        HorizontalAlignment="Stretch"
-        VerticalAlignment="Stretch"
-        AutoSize="True"
-        Visibility="Visible" />
 </UserControl>

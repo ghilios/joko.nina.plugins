@@ -144,7 +144,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             TiltModel = new TiltModel(applicationDispatcher);
 
             // TODO: Change logo
-            ImageGeometry = (System.Windows.Media.GeometryGroup)dict["HocusFocusAnnotateStarsSVG"];
+            ImageGeometry = (System.Windows.Media.GeometryGroup)dict["InspectorSVG"];
             ImageGeometry.Freeze();
 
             RunAutoFocusAnalysisCommand = new AsyncCommand<bool>(AnalyzeAutoFocus, canExecute: (o) => !AnalysisRunning() && CameraInfo.Connected && FocuserInfo.Connected);
@@ -495,7 +495,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 vectorField.ScaledArrowheadWidth = 0;
                 vectorField.ScaledArrowheads = false;
                 vectorField.Anchor = ArrowAnchor.Center;
-                vectorField.MarkerShape = MarkerShape.none;
 
                 var highlightedPoint = plot.AddPoint(0, 0);
 
@@ -652,13 +651,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionFinalFocusPoints[0] = new DataPoint(e.RegionHFRs[0].EstimatedFinalFocuserPosition, e.RegionHFRs[0].EstimatedFinalHFR);
             reportBuilder.AppendLine($"Center - HFR: {centerHFR}, Focuser: {centerFocuser}");
 
+            var outerHFRSum = 0.0d;
             for (int i = 1; i < e.RegionHFRs.Count; ++i) {
                 var regionName = GetRegionName(i);
                 var regionHFR = e.RegionHFRs[i];
+                outerHFRSum += regionHFR.EstimatedFinalHFR;
                 reportBuilder.AppendLine($"{regionName} - HFR Delta: {regionHFR.EstimatedFinalHFR - centerHFR}, Focuser Delta: {regionHFR.EstimatedFinalFocuserPosition - centerFocuser}");
 
-                RegionFinalFocusPoints[i] = new DataPoint(e.RegionHFRs[i].EstimatedFinalFocuserPosition, e.RegionHFRs[i].EstimatedFinalHFR);
+                RegionFinalFocusPoints[i] = new DataPoint(regionHFR.EstimatedFinalFocuserPosition, regionHFR.EstimatedFinalHFR);
             }
+
+            InnerHFR = centerHFR;
+            OuterHFR = outerHFRSum / (e.RegionHFRs.Count - 1);
+            BackfocusHFR = OuterHFR - InnerHFR;
+            AutoFocusCompleted = true;
+
             Logger.Info(reportBuilder.ToString());
         }
 
@@ -690,9 +697,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 RegionCurveFittings[i] = null;
                 RegionLineFittings[i] = null;
                 RegionPlotFocusPoints[i].Clear();
+                RegionFinalFocusPoints[i] = new DataPoint(-1.0d, 0.0d);
             }
             CenterFocusPoints.Clear();
             OutsideFocusPoints.Clear();
+            AutoFocusCompleted = false;
         }
 
         private void CancelAnalyze(object o) {
@@ -711,6 +720,36 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public AsyncObservableCollection<DataPoint> RegionFinalFocusPoints { get; private set; }
         public AsyncObservableCollection<Func<double, double>> RegionCurveFittings { get; private set; }
         public AsyncObservableCollection<TrendlineFitting> RegionLineFittings { get; private set; }
+        private double innerHFR = double.NaN;
+
+        public double InnerHFR {
+            get => innerHFR;
+            private set {
+                innerHFR = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double outerHFR = double.NaN;
+
+        public double OuterHFR {
+            get => outerHFR;
+            private set {
+                outerHFR = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double backfocusHFR = double.NaN;
+
+        public double BackfocusHFR {
+            get => backfocusHFR;
+            private set {
+                backfocusHFR = value;
+                RaisePropertyChanged();
+            }
+        }
+
         public TiltModel TiltModel { get; private set; }
         public IInspectorOptions InspectorOptions => this.inspectorOptions;
 
@@ -888,6 +927,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        private bool tiltMeasurementHistoryActive = false;
+
+        public bool TiltMeasurementHistoryActive {
+            get => tiltMeasurementHistoryActive;
+            set {
+                if (tiltMeasurementHistoryActive != value) {
+                    this.tiltMeasurementHistoryActive = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private bool autoFocusChartActive = false;
 
         public bool AutoFocusChartActive {
@@ -960,6 +1011,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        private bool autoFocusCompleted;
+
+        public bool AutoFocusCompleted {
+            get => autoFocusCompleted;
+            set {
+                if (autoFocusCompleted != value) {
+                    this.autoFocusCompleted = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private void ClearAnalyses(object o) {
             DeactivateAutoFocusAnalysis();
             DeactivateExposureAnalysis();
@@ -968,6 +1031,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ExposureAnalysisActivatedOnce = false;
             FWHMContourSceneContainer = null;
             TiltModel.Reset();
+            AutoFocusCompleted = false;
         }
 
         private void ActivateAutoFocusChart() {
@@ -977,6 +1041,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private void ActivateTiltMeasurement() {
             TiltMeasurementActive = true;
+            TiltMeasurementHistoryActive = true;
             TiltMeasurementActivatedOnce = true;
         }
 
@@ -989,6 +1054,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private void DeactivateAutoFocusAnalysis() {
             AutoFocusChartActive = false;
             TiltMeasurementActive = false;
+            TiltMeasurementHistoryActive = false;
         }
 
         private void DeactivateExposureAnalysis() {

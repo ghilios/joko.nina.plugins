@@ -18,8 +18,6 @@ using ILNLabel = ILNumerics.Drawing.Label;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using System.Windows.Media;
 using System;
-using SharpVectors.Converters;
-using SharpVectors.Renderers.Wpf;
 using System.IO;
 
 namespace NINA.Joko.Plugins.HocusFocus.Controls {
@@ -76,11 +74,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     var height = thisControl.ActualHeight;
                     new SVGDriver(ms, width: (int)width, height: (int)height, scene: newScene).Render();
                     ms.Position = 0;
-
-                    thisControl.SVG.Load(ms);
                 }
-            } else {
-                thisControl.SVG.Unload();
             }
 
             /*

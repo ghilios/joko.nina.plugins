@@ -947,6 +947,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -1104,9 +1105,20 @@
                     IsExpanded="{Binding AutoFocusChartActive}"
                     Visibility="{Binding AutoFocusChartActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                     <Grid>
+                        <Grid.Resources>
+                            <Style x:Key="ShowOnAutoFocusComplete" TargetType="{x:Type RowDefinition}">
+                                <Setter Property="Height" Value="0" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding AutoFocusCompleted}" Value="True">
+                                        <Setter Property="Height" Value="Auto" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Resources>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Style="{StaticResource ShowOnAutoFocusComplete}" />
                         </Grid.RowDefinitions>
                         <TextBlock
                             Grid.Row="0"
@@ -1323,6 +1335,23 @@
                                     Y="{Binding RegionFinalFocusPoints[4].Y}" />
                             </oxy:Plot.Annotations>
                         </oxy:Plot>
+                        <StackPanel
+                            Grid.Row="2"
+                            HorizontalAlignment="Center"
+                            Orientation="Horizontal">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Inner HFR: " />
+                                <TextBlock Text="{Binding InnerHFR, StringFormat=\{0:0.##\}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text=", Outer HFR: " />
+                                <TextBlock Text="{Binding OuterHFR, StringFormat=\{0:0.##\}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text=", Backfocus HFR Delta: " />
+                                <TextBlock Text="{Binding BackfocusHFR, StringFormat=\{0:0.##\}}" />
+                            </StackPanel>
+                        </StackPanel>
                     </Grid>
                 </Expander>
                 <Expander
@@ -1355,7 +1384,7 @@
                                 Margin="10"
                                 HorizontalAlignment="Center"
                                 AutoGenerateColumns="False"
-                                ColumnWidth="50"
+                                ColumnWidth="Auto"
                                 ItemsSource="{Binding TiltModel.SensorTiltModels}">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn
@@ -1368,8 +1397,12 @@
                                         Header="Position" />
                                     <DataGridTextColumn
                                         Width="*"
-                                        Binding="{Binding AdjustmentRequired, StringFormat=\{0:0.00\}}"
+                                        Binding="{Binding AdjustmentRequired, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                         Header="Adjustment" />
+                                    <DataGridTextColumn
+                                        Width="*"
+                                        Binding="{Binding RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                        Header="R²" />
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>
@@ -1398,6 +1431,120 @@
                 </Expander>
                 <Expander
                     Grid.Row="4"
+                    Header="Tilt Measurement History"
+                    IsExpanded="{Binding TiltMeasurementHistoryActive}"
+                    Visibility="{Binding TiltMeasurementActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                    <Grid Grid.Column="0" HorizontalAlignment="Center">
+                        <Grid.Resources>
+                            <!--  TODO: Add names to built in styles in NINA core so we could extend instead of copy  -->
+                            <Style TargetType="{x:Type DataGridColumnHeader}">
+                                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                                <Setter Property="Padding" Value="3,0,3,0" />
+                                <Setter Property="Background" Value="{StaticResource BackgroundBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
+                                <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                                <Setter Property="BorderThickness" Value="0,0,0,1" />
+                                <Style.Triggers>
+                                    <Trigger Property="SortDirection" Value="{x:Null}">
+                                        <Setter Property="Background" Value="{StaticResource BackgroundBrush}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                                    </Trigger>
+                                    <MultiTrigger>
+                                        <MultiTrigger.Conditions>
+                                            <Condition Property="IsMouseOver" Value="True" />
+                                            <Condition Property="SortDirection" Value="{x:Null}" />
+                                        </MultiTrigger.Conditions>
+
+                                        <Setter Property="Foreground" Value="{StaticResource ButtonForegroundBrush}" />
+                                        <Setter Property="Background" Value="{StaticResource SecondaryBackgroundBrush}" />
+                                    </MultiTrigger>
+
+                                    <MultiTrigger>
+                                        <MultiTrigger.Conditions>
+                                            <Condition Property="IsMouseOver" Value="true" />
+                                            <Condition Property="SortDirection" Value="{x:Null}" />
+                                        </MultiTrigger.Conditions>
+
+                                        <Setter Property="Foreground" Value="{StaticResource ButtonForegroundBrush}" />
+                                        <Setter Property="Background" Value="{StaticResource SecondaryBackgroundBrush}" />
+                                    </MultiTrigger>
+                                    <Trigger Property="SortDirection" Value="Ascending">
+                                        <Setter Property="Background" Value="{StaticResource SecondaryBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="SortDirection" Value="Descending">
+                                        <Setter Property="Background" Value="{StaticResource SecondaryBrush}" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Resources>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Row="0"
+                            Margin="10"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            FontWeight="DemiBold"
+                            Text="Tilt Adjustment Required History" />
+                        <DataGrid
+                            Grid.Row="1"
+                            Margin="10"
+                            HorizontalAlignment="Center"
+                            AutoGenerateColumns="False"
+                            ColumnWidth="Auto"
+                            ItemsSource="{Binding TiltModel.SensorTiltHistoryModels}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding HistoryId}"
+                                    Header="Id" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=TopLeft.AdjustmentRequired, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Top Left" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=TopRight.AdjustmentRequired, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Top Right" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=BottomLeft.AdjustmentRequired, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Bottom Left" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=BottomRight.AdjustmentRequired, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Bottom Right" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=Center.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Center R²" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=TopLeft.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Top Left R²" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=TopRight.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Top Right R²" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=BottomLeft.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Bottom Left R²" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=BottomRight.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Bottom Right R²" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </Expander>
+                <Expander
+                    Grid.Row="5"
                     Header="FWHM Contour Map"
                     IsExpanded="{Binding FWHMContoursActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -1424,7 +1571,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="5"
+                    Grid.Row="6"
                     Header="Eccentricity Vectors"
                     IsExpanded="{Binding EccentricityVectorsActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
