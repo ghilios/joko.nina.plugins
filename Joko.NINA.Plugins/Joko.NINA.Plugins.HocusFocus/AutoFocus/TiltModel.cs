@@ -93,10 +93,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 new double[] { xyRatio, -1 },
             };
 
-            var topLeftFocuser = result.RegionResults[1].EstimatedFinalFocuserPosition;
-            var topRightFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
-            var bottomLeftFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
-            var bottomRightFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
+            var topLeftFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
+            var topRightFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
+            var bottomLeftFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
+            var bottomRightFocuser = result.RegionResults[5].EstimatedFinalFocuserPosition;
             double[] outputs = { topLeftFocuser, topRightFocuser, bottomLeftFocuser, bottomRightFocuser };
 
             MultipleLinearRegression regression = ols.Learn(inputs, outputs);
@@ -120,37 +120,37 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void UpdateTiltMeasurementsTable(AutoFocusResult result, TiltPlaneModel tiltModel) {
-            var centerFocuser = result.RegionResults[0].EstimatedFinalFocuserPosition;
-            var topLeftFocuser = result.RegionResults[1].EstimatedFinalFocuserPosition;
-            var topRightFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
-            var bottomLeftFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
-            var bottomRightFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
+            var centerFocuser = result.RegionResults[1].EstimatedFinalFocuserPosition;
+            var topLeftFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
+            var topRightFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
+            var bottomLeftFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
+            var bottomRightFocuser = result.RegionResults[5].EstimatedFinalFocuserPosition;
 
             var newSideToTiltModels = new List<SensorTiltModel>();
             newSideToTiltModels.Add(new SensorTiltModel(SensorSide.Center) {
                 FocuserPosition = centerFocuser,
                 AdjustmentRequired = double.NaN,
-                RSquared = result.RegionResults[0].Fittings.GetRSquared()
+                RSquared = result.RegionResults[1].Fittings.GetRSquared()
             });
             newSideToTiltModels.Add(new SensorTiltModel(SensorSide.TopLeft) {
                 FocuserPosition = topLeftFocuser,
                 AdjustmentRequired = tiltModel.MeanFocuserPosition - topLeftFocuser,
-                RSquared = result.RegionResults[1].Fittings.GetRSquared()
+                RSquared = result.RegionResults[2].Fittings.GetRSquared()
             });
             newSideToTiltModels.Add(new SensorTiltModel(SensorSide.TopRight) {
                 FocuserPosition = topRightFocuser,
                 AdjustmentRequired = tiltModel.MeanFocuserPosition - topRightFocuser,
-                RSquared = result.RegionResults[2].Fittings.GetRSquared()
+                RSquared = result.RegionResults[3].Fittings.GetRSquared()
             });
             newSideToTiltModels.Add(new SensorTiltModel(SensorSide.BottomLeft) {
                 FocuserPosition = bottomLeftFocuser,
                 AdjustmentRequired = tiltModel.MeanFocuserPosition - bottomLeftFocuser,
-                RSquared = result.RegionResults[3].Fittings.GetRSquared()
+                RSquared = result.RegionResults[4].Fittings.GetRSquared()
             });
             newSideToTiltModels.Add(new SensorTiltModel(SensorSide.BottomRight) {
                 FocuserPosition = bottomRightFocuser,
                 AdjustmentRequired = tiltModel.MeanFocuserPosition - bottomRightFocuser,
-                RSquared = result.RegionResults[4].Fittings.GetRSquared()
+                RSquared = result.RegionResults[5].Fittings.GetRSquared()
             });
 
             SensorTiltModels.Clear();
@@ -189,7 +189,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var modeledFocuserPosition = tiltModel.EstimateFocusPosition(imageX, imageY);
                     points[0, i] = modelX;
                     points[1, i] = modelY;
-                    points[2, i] = result.RegionResults[i + 1].EstimatedFinalFocuserPosition;
+                    points[2, i] = result.RegionResults[i + 2].EstimatedFinalFocuserPosition;
 
                     surfacePoints[0, i] = modelX;
                     surfacePoints[1, i] = modelY;

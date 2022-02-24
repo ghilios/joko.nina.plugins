@@ -18,13 +18,13 @@ using System.Runtime.InteropServices;
 
 // [MANDATORY] The assembly versioning
 //Should be incremented for each new release build of a plugin
-[assembly: AssemblyVersion("1.11.0.24")]
-[assembly: AssemblyFileVersion("1.11.0.24")]
+[assembly: AssemblyVersion("1.11.0.25")]
+[assembly: AssemblyFileVersion("1.11.0.25")]
 
 // [MANDATORY] The name of your plugin
 [assembly: AssemblyTitle("Hocus Focus")]
 // [MANDATORY] A short description of your plugin
-[assembly: AssemblyDescription("Improved Star Detection, Star Annotation and Auto Focus for NINA")]
+[assembly: AssemblyDescription("Improved Star Detection, Star Annotation, Auto Focus, and Tilt Correction for NINA")]
 
 // The following attributes are not required for the plugin per se, but are required by the official manifest meta data
 
@@ -50,7 +50,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyMetadata("Homepage", "")]
 
 //[Optional] Common tags that quickly describe your plugin
-[assembly: AssemblyMetadata("Tags", "StarDetection,AutoFocus")]
+[assembly: AssemblyMetadata("Tags", "StarDetection,AutoFocus,Tilt,Aberration,BackFocus")]
 
 //[Optional] A link that will show a log of all changes in between your plugin's versions
 [assembly: AssemblyMetadata("ChangelogURL", "https://github.com/ghilios/joko.nina.plugins/commits/develop")]
@@ -62,14 +62,22 @@ using System.Runtime.InteropServices;
 //[Optional] An additional url to an example example screenshot of your plugin in action
 [assembly: AssemblyMetadata("AltScreenshotURL", "")]
 //[Optional] An in-depth description of your plugin
-[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Detection, Star Annotation, and Auto Focus for NINA. Additional Auto Focus features are on the way as well
+[assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Detection, Star Annotation, and Auto Focus for NINA. It also includes an aberration inspector that measures backfocus and sensor tilt errors.
 
 **Features**
 
 *AutoFocus*
 
 * Can be faster than the built-in NINA Auto Focuser by analyzing exposures while next focus points are being exposed
+* Supports saving AF runs (images, and annotated star detection) to replay them later with different settings
 * The concurrent Auto Focus is particularly useful when using the Hocus Focus star detector, which can be more resource intensive
+
+*Aberration Inspector*
+
+* Estimates backfocus and tilt errors by doing an Auto Focus and computing AF curves for the center and corner regions of the sensor split into a 3x3 grid
+* Generates FWHM Contour Maps and Eccentricity Vector Fields for single exposures for quick visualizations
+* Supports replaying saved AF runs
+* Hocus Focus must be selected for both Auto Focus and Star Detection
 
 *Improved star detection*
 
@@ -93,6 +101,11 @@ To enable these features, go to Options -> Imaging -> Image Options. After this 
 * Fast focus mode when still close to a recent auto focus that can utilize fewer steps, smaller step sizes, and a different fitting as the regular ""blind"" focus
 * Incorporation of measurement error into quality measurement of focusing results
 * Focusing individual color channels instead of just luminance for OSC, since that is skewed towards green focus
+
+*Aberration Inspector*
+
+* FWHM Contour Map
+* 3D visualization of sensor tilt
 ")]
 
 // Setting ComVisible to false makes the types in this assembly not visible

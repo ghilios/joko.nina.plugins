@@ -88,6 +88,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         event EventHandler<AutoFocusMeasurementPointCompletedEventArgs> MeasurementPointCompleted;
 
         event EventHandler<AutoFocusCompletedEventArgs> Completed;
+
+        event EventHandler<AutoFocusFailedEventArgs> Failed;
     }
 
     public class AutoFocusFitting {
@@ -179,10 +181,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double? FinalHFR { get; set; }
         public double EstimatedFinalFocuserPosition { get; set; }
         public int FinalFocuserPosition { get; set; }
+        public AutoFocusFitting Fittings { get; set; }
     }
 
     public class AutoFocusCompletedEventArgs : EventArgs {
         public int Iteration { get; set; }
+        public int InitialFocusPosition { get; set; }
+        public ImmutableList<AutoFocusRegionHFR> RegionHFRs { get; set; }
+        public string Filter { get; set; }
+        public double Temperature { get; set; }
+        public DrawingSize ImageSize { get; set; }
+        public TimeSpan Duration { get; set; }
+        public string SaveFolder { get; set; }
+    }
+
+    public class AutoFocusFailedEventArgs : EventArgs {
+        public int Attempts { get; set; }
         public int InitialFocusPosition { get; set; }
         public ImmutableList<AutoFocusRegionHFR> RegionHFRs { get; set; }
         public string Filter { get; set; }

@@ -789,6 +789,8 @@
                     <RowDefinition Height="Auto" />
                     <!--  Tilt measurements + Tilt graphic  -->
                     <RowDefinition Height="Auto" />
+                    <!--  Tilt history  -->
+                    <RowDefinition Height="Auto" />
                     <!--  FWHM contours  -->
                     <RowDefinition Height="Auto" />
                     <!--  Eccentricity field  -->
@@ -1196,93 +1198,93 @@
                             <oxy:Plot.Annotations>
                                 <oxy:FunctionAnnotation
                                     Name="CenterCurveFitting"
-                                    Equation="{Binding RegionCurveFittings[0]}"
+                                    Equation="{Binding RegionCurveFittings[1]}"
                                     LineStyle="LongDash"
-                                    Visibility="{Binding RegionCurveFittings[0], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
+                                    Visibility="{Binding RegionCurveFittings[1], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
                                 <oxy:LineAnnotation
                                     Name="CenterLeftLineFitting"
-                                    Intercept="{Binding RegionLineFittings[0].LeftTrend.Offset}"
-                                    Slope="{Binding RegionLineFittings[0].LeftTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[0], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
+                                    Intercept="{Binding RegionLineFittings[1].LeftTrend.Offset}"
+                                    Slope="{Binding RegionLineFittings[1].LeftTrend.Slope}"
+                                    Visibility="{Binding RegionLineFittings[1], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
                                 <oxy:LineAnnotation
                                     Name="CenterRightLineFitting"
-                                    Intercept="{Binding RegionLineFittings[0].RightTrend.Offset}"
-                                    Slope="{Binding RegionLineFittings[0].RightTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[0], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
+                                    Intercept="{Binding RegionLineFittings[1].RightTrend.Offset}"
+                                    Slope="{Binding RegionLineFittings[1].RightTrend.Slope}"
+                                    Visibility="{Binding RegionLineFittings[1], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
 
                                 <oxy:FunctionAnnotation
                                     Name="TopLeftCurveFitting"
-                                    Equation="{Binding RegionCurveFittings[1]}"
-                                    Visibility="{Binding RegionCurveFittings[1], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
-                                <oxy:LineAnnotation
-                                    Name="TopLeftLeftLineFitting"
-                                    Intercept="{Binding RegionLineFittings[1].LeftTrend.Offset}"
-                                    Slope="{Binding RegionLineFittings[1].LeftTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[1], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
-                                <oxy:LineAnnotation
-                                    Name="TopLeftRightLineFitting"
-                                    Intercept="{Binding RegionLineFittings[1].RightTrend.Offset}"
-                                    Slope="{Binding RegionLineFittings[1].RightTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[1], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
-
-                                <oxy:FunctionAnnotation
-                                    Name="TopRightCurveFitting"
                                     Equation="{Binding RegionCurveFittings[2]}"
                                     Visibility="{Binding RegionCurveFittings[2], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
                                 <oxy:LineAnnotation
-                                    Name="TopRightLeftLineFitting"
+                                    Name="TopLeftLeftLineFitting"
                                     Intercept="{Binding RegionLineFittings[2].LeftTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[2].LeftTrend.Slope}"
                                     Visibility="{Binding RegionLineFittings[2], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
                                 <oxy:LineAnnotation
-                                    Name="TopRightRightLineFitting"
+                                    Name="TopLeftRightLineFitting"
                                     Intercept="{Binding RegionLineFittings[2].RightTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[2].RightTrend.Slope}"
                                     Visibility="{Binding RegionLineFittings[2], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
 
                                 <oxy:FunctionAnnotation
-                                    Name="BottomLeftCurveFitting"
+                                    Name="TopRightCurveFitting"
                                     Equation="{Binding RegionCurveFittings[3]}"
                                     Visibility="{Binding RegionCurveFittings[3], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
                                 <oxy:LineAnnotation
-                                    Name="BottomLeftLeftLineFitting"
+                                    Name="TopRightLeftLineFitting"
                                     Intercept="{Binding RegionLineFittings[3].LeftTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[3].LeftTrend.Slope}"
                                     Visibility="{Binding RegionLineFittings[3], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
                                 <oxy:LineAnnotation
-                                    Name="BottomLeftRightLineFitting"
+                                    Name="TopRightRightLineFitting"
                                     Intercept="{Binding RegionLineFittings[3].RightTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[3].RightTrend.Slope}"
                                     Visibility="{Binding RegionLineFittings[3], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
 
                                 <oxy:FunctionAnnotation
-                                    Name="BottomRightCurveFitting"
+                                    Name="BottomLeftCurveFitting"
                                     Equation="{Binding RegionCurveFittings[4]}"
                                     Visibility="{Binding RegionCurveFittings[4], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
                                 <oxy:LineAnnotation
-                                    Name="BottomRightLeftLineFitting"
+                                    Name="BottomLeftLeftLineFitting"
                                     Intercept="{Binding RegionLineFittings[4].LeftTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[4].LeftTrend.Slope}"
                                     Visibility="{Binding RegionLineFittings[4], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
                                 <oxy:LineAnnotation
-                                    Name="BottomRightRightLineFitting"
+                                    Name="BottomLeftRightLineFitting"
                                     Intercept="{Binding RegionLineFittings[4].RightTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[4].RightTrend.Slope}"
                                     Visibility="{Binding RegionLineFittings[4], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
+                                    Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
+
+                                <oxy:FunctionAnnotation
+                                    Name="BottomRightCurveFitting"
+                                    Equation="{Binding RegionCurveFittings[5]}"
+                                    Visibility="{Binding RegionCurveFittings[5], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
+                                    Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
+                                <oxy:LineAnnotation
+                                    Name="BottomRightLeftLineFitting"
+                                    Intercept="{Binding RegionLineFittings[5].LeftTrend.Offset}"
+                                    Slope="{Binding RegionLineFittings[5].LeftTrend.Slope}"
+                                    Visibility="{Binding RegionLineFittings[5], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
+                                    Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
+                                <oxy:LineAnnotation
+                                    Name="BottomRightRightLineFitting"
+                                    Intercept="{Binding RegionLineFittings[5].RightTrend.Offset}"
+                                    Slope="{Binding RegionLineFittings[5].RightTrend.Slope}"
+                                    Visibility="{Binding RegionLineFittings[5], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
                                     Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}" />
 
                                 <oxy:PointAnnotation
@@ -1290,22 +1292,12 @@
                                     Fill="{Binding Path=Color, Source={StaticResource AltPrimaryBrush}}"
                                     Shape="Diamond"
                                     Stroke="{Binding Path=Color, Source={StaticResource AltPrimaryBrush}}"
-                                    Visibility="{Binding RegionFinalFocusPoints[0].X, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}"
-                                    X="{Binding RegionFinalFocusPoints[0].X}"
-                                    Y="{Binding RegionFinalFocusPoints[0].Y}" />
-
-                                <oxy:PointAnnotation
-                                    Name="TopLeftFinalFocusPoint"
-                                    Fill="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
-                                    Shape="Cross"
-                                    Stroke="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
-                                    StrokeThickness="1"
                                     Visibility="{Binding RegionFinalFocusPoints[1].X, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}"
                                     X="{Binding RegionFinalFocusPoints[1].X}"
                                     Y="{Binding RegionFinalFocusPoints[1].Y}" />
 
                                 <oxy:PointAnnotation
-                                    Name="TopRightFinalFocusPoint"
+                                    Name="TopLeftFinalFocusPoint"
                                     Fill="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
                                     Shape="Cross"
                                     Stroke="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
@@ -1315,7 +1307,7 @@
                                     Y="{Binding RegionFinalFocusPoints[2].Y}" />
 
                                 <oxy:PointAnnotation
-                                    Name="BottomLeftFinalFocusPoint"
+                                    Name="TopRightFinalFocusPoint"
                                     Fill="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
                                     Shape="Cross"
                                     Stroke="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
@@ -1325,7 +1317,7 @@
                                     Y="{Binding RegionFinalFocusPoints[3].Y}" />
 
                                 <oxy:PointAnnotation
-                                    Name="BottomRightFinalFocusPoint"
+                                    Name="BottomLeftFinalFocusPoint"
                                     Fill="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
                                     Shape="Cross"
                                     Stroke="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
@@ -1333,6 +1325,16 @@
                                     Visibility="{Binding RegionFinalFocusPoints[4].X, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}"
                                     X="{Binding RegionFinalFocusPoints[4].X}"
                                     Y="{Binding RegionFinalFocusPoints[4].Y}" />
+
+                                <oxy:PointAnnotation
+                                    Name="BottomRightFinalFocusPoint"
+                                    Fill="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
+                                    Shape="Cross"
+                                    Stroke="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
+                                    StrokeThickness="1"
+                                    Visibility="{Binding RegionFinalFocusPoints[5].X, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}"
+                                    X="{Binding RegionFinalFocusPoints[5].X}"
+                                    Y="{Binding RegionFinalFocusPoints[5].Y}" />
                             </oxy:Plot.Annotations>
                         </oxy:Plot>
                         <StackPanel
@@ -1490,7 +1492,7 @@
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             FontWeight="DemiBold"
-                            Text="Tilt Adjustment Required History" />
+                            Text="Tilt Adjustment History" />
                         <DataGrid
                             Grid.Row="1"
                             Margin="10"

@@ -135,15 +135,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var dict = new ResourceDictionary();
             dict.Source = new Uri("NINA.Joko.Plugins.HocusFocus;component/StarDetection/DataTemplates.xaml", UriKind.RelativeOrAbsolute);
 
+            MainFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             CenterFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             OutsideFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
-            RegionPlotFocusPoints = Enumerable.Range(0, 5).Select(i => new AsyncObservableCollection<DataPoint>()).ToArray();
-            RegionFinalFocusPoints = new AsyncObservableCollection<DataPoint>(Enumerable.Range(0, 5).Select(i => new DataPoint(-1.0d, 0.0d)));
-            RegionCurveFittings = new AsyncObservableCollection<Func<double, double>>(Enumerable.Range(0, 5).Select(i => (Func<double, double>)null));
-            RegionLineFittings = new AsyncObservableCollection<TrendlineFitting>(Enumerable.Range(0, 5).Select(i => (TrendlineFitting)null));
+            RegionPlotFocusPoints = Enumerable.Range(0, 6).Select(i => new AsyncObservableCollection<DataPoint>()).ToArray();
+            RegionFinalFocusPoints = new AsyncObservableCollection<DataPoint>(Enumerable.Range(0, 6).Select(i => new DataPoint(-1.0d, 0.0d)));
+            RegionCurveFittings = new AsyncObservableCollection<Func<double, double>>(Enumerable.Range(0, 6).Select(i => (Func<double, double>)null));
+            RegionLineFittings = new AsyncObservableCollection<TrendlineFitting>(Enumerable.Range(0, 6).Select(i => (TrendlineFitting)null));
             TiltModel = new TiltModel(applicationDispatcher);
 
-            // TODO: Change logo
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["InspectorSVG"];
             ImageGeometry.Freeze();
 
@@ -180,9 +180,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             analyzeCts = localAnalyzeCts;
 
             localAnalyzeTask = Task.Run(async () => {
+                var autoFocusEngine = autoFocusEngineFactory.Create();
+                var options = GetAutoFocusEngineOptions(autoFocusEngine);
+                var starDetectionRegion = GetAutoFocusRegion(options);
                 var one_third = 1.0d / 3.0d;
                 var two_thirds = 2.0d / 3.0d;
                 var regions = new List<StarDetectionRegion>() {
+                    starDetectionRegion, // Use regular AF star detection ROI for the first region, which drives the auto focus routine
                     new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(two_thirds, one_third, one_third, one_third)),
@@ -190,36 +194,23 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
                 };
 
-                var autoFocusEngine = autoFocusEngineFactory.Create();
+                var imagingFilter = GetImagingFilter();
+
                 autoFocusEngine.Started += AutoFocusEngine_Started;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
                 autoFocusEngine.Completed += AutoFocusEngine_Completed;
+                autoFocusEngine.Failed += AutoFocusEngine_Failed;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
-
-                var imagingFilter = GetImagingFilter();
-                var options = autoFocusEngine.GetOptions();
-                if (inspectorOptions.FramesPerPoint > 0) {
-                    options.FramesPerPoint = inspectorOptions.FramesPerPoint;
-                }
-                if (inspectorOptions.StepCount > 0) {
-                    options.AutoFocusInitialOffsetSteps = inspectorOptions.StepCount;
-                }
-                if (inspectorOptions.StepSize > 0) {
-                    options.AutoFocusStepSize = inspectorOptions.StepSize;
-                }
-                if (inspectorOptions.TimeoutSeconds > 0) {
-                    options.AutoFocusTimeout = TimeSpan.FromSeconds(inspectorOptions.TimeoutSeconds);
-                }
 
                 ActivateAutoFocusChart();
                 DeactivateExposureAnalysis();
                 var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, analyzeCts.Token, this.progress);
                 var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result);
-                ActivateTiltMeasurement();
                 if (!autoFocusAnalysisResult) {
-                    Notification.ShowError("AutoFocus Analysis Failed");
+                    Notification.ShowError("AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.");
                     return false;
                 }
+                ActivateTiltMeasurement();
                 var exposureAnalysisResult = await TakeAndAnalyzeExposureImpl(autoFocusEngine, analyzeCts.Token);
                 if (!exposureAnalysisResult) {
                     Notification.ShowError("Exposure Analysis Failed");
@@ -253,7 +244,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result) {
             if (!result.Succeeded) {
-                Notification.ShowError($"Inspection analysis failed");
                 Logger.Error("Inspection analysis failed, due to failed AutoFocus");
                 return Task.FromResult(false);
             }
@@ -462,7 +452,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             var (eccentricityMedian, _) = detectedStars.Select(s => s.PSF.Eccentricity).MedianMAD();
                             var (psfRotationMedian, _) = detectedStars.Select(s => s.PSF.ThetaRadians).MedianMAD();
 
-                            var scaledEccentricity = eccentricityMedian * eccentricityMedian;
+                            var clippedEccentricity = Math.Max(0.1, eccentricityMedian - 0.33);
+                            var scaledEccentricity = clippedEccentricity * clippedEccentricity;
                             double x = Math.Cos(psfRotationMedian) * scaledEccentricity;
                             double y = Math.Sin(psfRotationMedian) * scaledEccentricity;
                             vectors[regionCol, regionRow] = new Vector2(x, y);
@@ -493,7 +484,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 vectorField.ScaledArrowheadLength = 0;
                 vectorField.ScaledArrowheadWidth = 0;
-                vectorField.ScaledArrowheads = false;
+                vectorField.ScaledArrowheads = true;
                 vectorField.Anchor = ArrowAnchor.Center;
 
                 var highlightedPoint = plot.AddPoint(0, 0);
@@ -549,6 +540,38 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        private AutoFocusEngineOptions GetAutoFocusEngineOptions(IAutoFocusEngine autoFocusEngine) {
+            var options = autoFocusEngine.GetOptions();
+            if (inspectorOptions.FramesPerPoint > 0) {
+                options.FramesPerPoint = inspectorOptions.FramesPerPoint;
+            }
+            if (inspectorOptions.StepCount > 0) {
+                options.AutoFocusInitialOffsetSteps = inspectorOptions.StepCount;
+            }
+            if (inspectorOptions.StepSize > 0) {
+                options.AutoFocusStepSize = inspectorOptions.StepSize;
+            }
+            if (inspectorOptions.TimeoutSeconds > 0) {
+                options.AutoFocusTimeout = TimeSpan.FromSeconds(inspectorOptions.TimeoutSeconds);
+            }
+            return options;
+        }
+
+        private StarDetectionRegion GetAutoFocusRegion(AutoFocusEngineOptions options) {
+            var analysisParams = new StarDetectionParams() {
+                Sensitivity = profileService.ActiveProfile.ImageSettings.StarSensitivity,
+                NoiseReduction = profileService.ActiveProfile.ImageSettings.NoiseReduction,
+                NumberOfAFStars = options.NumberOfAFStars,
+                IsAutoFocus = true
+            };
+            if (profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio < 1) {
+                analysisParams.UseROI = true;
+                analysisParams.InnerCropRatio = profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio;
+                analysisParams.OuterCropRatio = profileService.ActiveProfile.FocuserSettings.AutoFocusOuterCropRatio;
+            }
+            return StarDetectionRegion.FromStarDetectionParams(analysisParams);
+        }
+
         private async Task<bool> AnalyzeSavedAutoFocusRun() {
             var localAnalyzeTask = analyzeTask;
             if (analyzeTask != null && !analyzeTask.IsCompleted) {
@@ -584,9 +607,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             localAnalyzeTask = Task.Run(async () => {
+                var options = GetAutoFocusEngineOptions(autoFocusEngine);
+                var starDetectionRegion = GetAutoFocusRegion(options);
                 var one_third = 1.0d / 3.0d;
                 var two_thirds = 2.0d / 3.0d;
                 var regions = new List<StarDetectionRegion>() {
+                    starDetectionRegion,
                     new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(two_thirds, one_third, one_third, one_third)),
@@ -596,14 +622,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
-                autoFocusEngine.Completed += AutoFocusEngine_Completed;
+                autoFocusEngine.Completed += AutoFocusEngine_CompletedNoReport;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
 
                 var imagingFilter = GetImagingFilter();
-                var options = autoFocusEngine.GetOptions();
-                if (inspectorOptions.TimeoutSeconds > 0) {
-                    options.AutoFocusTimeout = TimeSpan.FromSeconds(inspectorOptions.TimeoutSeconds);
-                }
 
                 ActivateAutoFocusChart();
                 DeactivateExposureAnalysis();
@@ -639,46 +661,112 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionLineFittings[e.RegionIndex] = GetLineFitting(e.Fittings);
             RegionPlotFocusPoints[e.RegionIndex].AddSorted(new DataPoint(e.FocuserPosition, e.Measurement.Measure), plotPointComparer);
 
-            var focusPoints = e.RegionIndex == 0 ? CenterFocusPoints : OutsideFocusPoints;
+            AsyncObservableCollection<ScatterErrorPoint> focusPoints;
+            if (e.RegionIndex == 0) {
+                focusPoints = MainFocusPoints;
+            } else if (e.RegionIndex == 1) {
+                focusPoints = CenterFocusPoints;
+            } else {
+                focusPoints = OutsideFocusPoints;
+            }
+
             focusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, Math.Max(0.001, e.Measurement.Stdev)), focusPointComparer);
         }
 
+        private void GenerateReport(AutoFocusCompletedEventArgs e) {
+            var firstRegion = e.RegionHFRs[0];
+            var finalFocusPoint = new DataPoint(firstRegion.EstimatedFinalFocuserPosition, firstRegion.EstimatedFinalHFR);
+            var lastAutoFocusPoint = new ReportAutoFocusPoint {
+                Focuspoint = finalFocusPoint,
+                Temperature = e.Temperature,
+                Timestamp = DateTime.Now,
+                Filter = e.Filter
+            };
+            var report = HocusFocusVM.GenerateReport(
+                profileService: this.profileService,
+                attemptNumber: e.Iteration,
+                focusPoints: MainFocusPoints,
+                fittings: firstRegion.Fittings,
+                initialFocusPosition: e.InitialFocusPosition,
+                initialHFR: firstRegion.InitialHFR ?? 0.0d,
+                finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
+                filter: e.Filter,
+                temperature: e.Temperature,
+                finalFocusPoint: finalFocusPoint,
+                lastAutoFocusPoint: lastAutoFocusPoint,
+                duration: e.Duration,
+                saveFolder: e.SaveFolder);
+
+            var autoFocusInfo = new AutoFocusInfo(report.Temperature, report.CalculatedFocusPoint.Position, report.Filter, report.Timestamp);
+            focuserMediator.BroadcastSuccessfulAutoFocusRun(autoFocusInfo);
+        }
+
         private void AutoFocusEngine_Completed(object sender, AutoFocusCompletedEventArgs e) {
+            AutoFocusEngine_CompletedNoReport(sender, e);
+            GenerateReport(e);
+        }
+
+        private void AutoFocusEngine_Failed(object sender, AutoFocusFailedEventArgs e) {
+            var firstRegion = e.RegionHFRs[0];
+            var finalFocusPoint = new DataPoint(-1.0d, 0.0d);
+            var lastAutoFocusPoint = new ReportAutoFocusPoint {
+                Focuspoint = finalFocusPoint,
+                Temperature = e.Temperature,
+                Timestamp = DateTime.Now,
+                Filter = e.Filter
+            };
+            _ = HocusFocusVM.GenerateReport(
+                profileService: this.profileService,
+                attemptNumber: e.Attempts,
+                focusPoints: MainFocusPoints,
+                fittings: firstRegion.Fittings,
+                initialFocusPosition: e.InitialFocusPosition,
+                initialHFR: firstRegion.InitialHFR ?? 0.0d,
+                finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
+                filter: e.Filter,
+                temperature: e.Temperature,
+                finalFocusPoint: finalFocusPoint,
+                lastAutoFocusPoint: lastAutoFocusPoint,
+                duration: e.Duration,
+                saveFolder: e.SaveFolder);
+        }
+
+        private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusCompletedEventArgs e) {
             Notification.ShowInformation("Aberration Inspection Complete");
-            var reportBuilder = new StringBuilder();
-            var centerHFR = e.RegionHFRs[0].EstimatedFinalHFR;
-            var centerFocuser = e.RegionHFRs[0].EstimatedFinalFocuserPosition;
-            RegionFinalFocusPoints[0] = new DataPoint(e.RegionHFRs[0].EstimatedFinalFocuserPosition, e.RegionHFRs[0].EstimatedFinalHFR);
-            reportBuilder.AppendLine($"Center - HFR: {centerHFR}, Focuser: {centerFocuser}");
+            var logReportBuilder = new StringBuilder();
+            var centerHFR = e.RegionHFRs[1].EstimatedFinalHFR;
+            var centerFocuser = e.RegionHFRs[1].EstimatedFinalFocuserPosition;
+            RegionFinalFocusPoints[1] = new DataPoint(e.RegionHFRs[1].EstimatedFinalFocuserPosition, e.RegionHFRs[1].EstimatedFinalHFR);
+            logReportBuilder.AppendLine($"Center - HFR: {centerHFR}, Focuser: {centerFocuser}");
 
             var outerHFRSum = 0.0d;
-            for (int i = 1; i < e.RegionHFRs.Count; ++i) {
+            for (int i = 2; i < e.RegionHFRs.Count; ++i) {
                 var regionName = GetRegionName(i);
                 var regionHFR = e.RegionHFRs[i];
                 outerHFRSum += regionHFR.EstimatedFinalHFR;
-                reportBuilder.AppendLine($"{regionName} - HFR Delta: {regionHFR.EstimatedFinalHFR - centerHFR}, Focuser Delta: {regionHFR.EstimatedFinalFocuserPosition - centerFocuser}");
+                logReportBuilder.AppendLine($"{regionName} - HFR Delta: {regionHFR.EstimatedFinalHFR - centerHFR}, Focuser Delta: {regionHFR.EstimatedFinalFocuserPosition - centerFocuser}");
 
                 RegionFinalFocusPoints[i] = new DataPoint(regionHFR.EstimatedFinalFocuserPosition, regionHFR.EstimatedFinalHFR);
             }
 
             InnerHFR = centerHFR;
-            OuterHFR = outerHFRSum / (e.RegionHFRs.Count - 1);
+            OuterHFR = outerHFRSum / (e.RegionHFRs.Count - 2);
             BackfocusHFR = OuterHFR - InnerHFR;
             AutoFocusCompleted = true;
 
-            Logger.Info(reportBuilder.ToString());
+            Logger.Info(logReportBuilder.ToString());
         }
 
         private string GetRegionName(int regionIndex) {
-            if (regionIndex == 0) {
+            if (regionIndex == 1) {
                 return "Center";
-            } else if (regionIndex == 1) {
-                return "Top Left";
             } else if (regionIndex == 2) {
-                return "Top Right";
+                return "Top Left";
             } else if (regionIndex == 3) {
-                return "Bottom Left";
+                return "Top Right";
             } else if (regionIndex == 4) {
+                return "Bottom Left";
+            } else if (regionIndex == 5) {
                 return "Bottom Right";
             }
             throw new ArgumentException($"{regionIndex} is not a valid region index", "regionIndex");
@@ -714,6 +802,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public ICommand CancelAnalyzeCommand { get; private set; }
         public ICommand ClearAnalysesCommand { get; private set; }
 
+        public AsyncObservableCollection<ScatterErrorPoint> MainFocusPoints { get; private set; }
         public AsyncObservableCollection<ScatterErrorPoint> CenterFocusPoints { get; private set; }
         public AsyncObservableCollection<ScatterErrorPoint> OutsideFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint>[] RegionPlotFocusPoints { get; private set; }

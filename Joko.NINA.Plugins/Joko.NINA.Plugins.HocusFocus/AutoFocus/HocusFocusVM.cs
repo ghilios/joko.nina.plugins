@@ -303,20 +303,59 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ReportAutoFocusPoint lastAutoFocusPoint,
             TimeSpan duration,
             string saveFolder) {
+            var temperature = focuserMediator.GetInfo().Temperature;
+            var fittings = new AutoFocusFitting() {
+                GaussianFitting = GaussianFitting,
+                QuadraticFitting = QuadraticFitting,
+                HyperbolicFitting = HyperbolicFitting,
+                TrendlineFitting = TrendlineFitting,
+                Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod,
+                CurveFittingType = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting
+            };
+            return GenerateReport(
+                profileService: profileService,
+                attemptNumber: attemptNumber,
+                focusPoints: FocusPoints,
+                fittings: fittings,
+                initialFocusPosition: initialFocusPosition,
+                initialHFR: initialHFR,
+                finalHFR: finalHFR,
+                filter: filter,
+                temperature: temperature,
+                finalFocusPoint: finalFocusPoint,
+                lastAutoFocusPoint: lastAutoFocusPoint,
+                duration: duration,
+                saveFolder: saveFolder);
+        }
+
+        public static AutoFocusReport GenerateReport(
+            IProfileService profileService,
+            int attemptNumber,
+            ICollection<ScatterErrorPoint> focusPoints,
+            AutoFocusFitting fittings,
+            double initialFocusPosition,
+            double initialHFR,
+            double finalHFR,
+            string filter,
+            double temperature,
+            DataPoint finalFocusPoint,
+            ReportAutoFocusPoint lastAutoFocusPoint,
+            TimeSpan duration,
+            string saveFolder = "") {
             try {
                 var report = HocusFocusReport.GenerateReport(
                     profileService,
-                    FocusPoints,
+                    focusPoints,
                     initialFocusPosition,
                     initialHFR,
                     finalHFR,
                     finalFocusPoint,
                     lastAutoFocusPoint,
-                    TrendlineFitting,
-                    QuadraticFitting,
-                    HyperbolicFitting,
-                    GaussianFitting,
-                    focuserMediator.GetInfo().Temperature,
+                    fittings.TrendlineFitting,
+                    fittings.QuadraticFitting,
+                    fittings.HyperbolicFitting,
+                    fittings.GaussianFitting,
+                    temperature,
                     filter,
                     duration
                 );
@@ -373,6 +412,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
                 autoFocusEngine.Completed += AutoFocusEngine_Completed;
+                autoFocusEngine.Failed += AutoFocusEngine_Failed;
                 var options = autoFocusEngine.GetOptions();
                 var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
                 if (!result.Succeeded) {
@@ -404,6 +444,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var autoFocusInfo = new AutoFocusInfo(report.Temperature, report.CalculatedFocusPoint.Position, report.Filter, report.Timestamp);
             focuserMediator.BroadcastSuccessfulAutoFocusRun(autoFocusInfo);
 
+            LastReport = report;
+        }
+
+        private void AutoFocusEngine_Failed(object sender, AutoFocusFailedEventArgs e) {
+            var firstRegion = e.RegionHFRs[0];
+            var report = GenerateReport(
+                attemptNumber: e.Attempts,
+                initialFocusPosition: e.InitialFocusPosition,
+                initialHFR: firstRegion.InitialHFR ?? 0.0d,
+                finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
+                filter: e.Filter,
+                finalFocusPoint: FinalFocusPoint,
+                lastAutoFocusPoint: LastAutoFocusPoint,
+                duration: e.Duration,
+                saveFolder: e.SaveFolder);
             LastReport = report;
         }
 
