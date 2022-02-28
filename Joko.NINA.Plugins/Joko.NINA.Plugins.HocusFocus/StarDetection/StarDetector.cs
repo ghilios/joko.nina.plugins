@@ -269,7 +269,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     foreach (var detectedStar in detectedStarsPartition) {
                         ct.ThrowIfCancellationRequested();
 
-                        var modeler = PSFModeler.Create(p.PSFFitType, p.PSFResolution, detectedStar, srcImage, p.PixelScale, p.CalculatePSFCenter);
+                        var modeler = PSFModeler.Create(
+                            fitType: p.PSFFitType,
+                            psfResolution: p.PSFResolution,
+                            detectedStar: detectedStar,
+                            srcImage: srcImage,
+                            pixelScale: p.PixelScale,
+                            useILNumerics: p.UseILNumerics);
                         PSFModel psf = null;
                         try {
                             psf = PSFModeler.Solve(modeler, ct: ct);

@@ -245,7 +245,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 PSFParallelPartitionSize = starDetectionOptions.PSFParallelPartitionSize,
                 PSFResolution = starDetectionOptions.PSFResolution,
                 PSFGoodnessOfFitThreshold = starDetectionOptions.PSFFitThreshold,
-                CalculatePSFCenter = starDetectionOptions.CalculatePSFCenter,
                 Region = starDetectionRegion
             };
 

@@ -150,6 +150,7 @@ namespace TestApp {
                     PSFParallelPartitionSize = 0,
                     PSFResolution = 10,
                     PSFGoodnessOfFitThreshold = 0.9,
+                    UseILNumerics = true,
                     PixelScale = 1.1d,
                     // SaveIntermediateFilesPath = IntermediatePath,
                     Region = new StarDetectionRegion(RatioRect.FromCenterROI(0.3))

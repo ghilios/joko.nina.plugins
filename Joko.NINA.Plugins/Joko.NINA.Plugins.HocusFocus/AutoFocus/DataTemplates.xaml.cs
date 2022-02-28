@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using System;
 using System.ComponentModel.Composition;
 using System.Windows;
 
@@ -23,6 +24,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public DataTemplates() {
             InitializeComponent();
+        }
+
+        private void Plot_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e) {
+            var wpfPlot = (OxyPlot.Wpf.Plot)sender;
+            wpfPlot?.ResetAllAxes();
         }
     }
 }

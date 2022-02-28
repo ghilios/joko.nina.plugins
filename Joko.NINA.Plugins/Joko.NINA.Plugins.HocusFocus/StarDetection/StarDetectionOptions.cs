@@ -95,7 +95,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // TODO: Consider increasing the resolution for long focal lengths
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
-            CalculatePSFCenter = true;
         }
 
         private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -144,7 +143,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             psfParallelPartitionSize = optionsAccessor.GetValueInt32("PSFParallelPartitionSize", 100);
             psfResolution = optionsAccessor.GetValueInt32("PSFResolution", 10);
             psfFitThreshold = optionsAccessor.GetValueDouble("PSFFitThreshold", 0.9);
-            calculatePSFCenter = optionsAccessor.GetValueBoolean("CalculatePSFCenter", false);
             ConfigureSimpleSettings();
         }
 
@@ -180,7 +178,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFParallelPartitionSize = 100;
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
-            CalculatePSFCenter = true;
         }
 
         private bool debugMode;
@@ -596,19 +593,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     psfFitThreshold = value;
                     optionsAccessor.SetValueDouble("PSFFitThreshold", psfFitThreshold);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private bool calculatePSFCenter;
-
-        public bool CalculatePSFCenter {
-            get => calculatePSFCenter;
-            set {
-                if (calculatePSFCenter != value) {
-                    calculatePSFCenter = value;
-                    optionsAccessor.SetValueBoolean("CalculatePSFCenter", calculatePSFCenter);
                     RaisePropertyChanged();
                 }
             }

@@ -450,8 +450,10 @@ plt.YLabel("dθ/dt");
                     StructureDilationSize = 3,
                     PSFResolution = 10,
                     PSFGoodnessOfFitThreshold = 0.9,
+                    PSFParallelPartitionSize = 0,
                     ModelPSF = true,
-                    PSFFitType = StarDetectorPSFFitType.Moffat_40
+                    PSFFitType = StarDetectorPSFFitType.Gaussian,
+                    UseILNumerics = true,
                 };
                 var detectorResult = await detector.Detect(srcFloat, detectorParams, null, CancellationToken.None);
                 var result = new HocusFocusStarDetectionResult() {

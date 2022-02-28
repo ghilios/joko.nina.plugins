@@ -30,13 +30,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IApplicationStatusMediator applicationStatusMediator;
         private readonly IAutoFocusEngineFactory autoFocusEngineFactory;
         private readonly IAutoFocusOptions autoFocusOptions;
+        private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
 
         [ImportingConstructor]
         public HocusFocusVMFactory(
             IProfileService profileService,
             IFocuserMediator focuserMediator,
             IFilterWheelMediator filterWheelMediator,
-            IApplicationStatusMediator applicationStatusMediator) : this(profileService, focuserMediator, filterWheelMediator, applicationStatusMediator, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory) {
+            IApplicationStatusMediator applicationStatusMediator,
+            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector) : this(profileService, focuserMediator, filterWheelMediator, applicationStatusMediator, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory, starDetectionSelector) {
         }
 
         public HocusFocusVMFactory(
@@ -45,13 +47,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IFilterWheelMediator filterWheelMediator,
             IApplicationStatusMediator applicationStatusMediator,
             IAutoFocusOptions autoFocusOptions,
-            IAutoFocusEngineFactory autoFocusEngineFactory) {
+            IAutoFocusEngineFactory autoFocusEngineFactory,
+            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector) {
             this.profileService = profileService;
             this.focuserMediator = focuserMediator;
             this.filterWheelMediator = filterWheelMediator;
             this.applicationStatusMediator = applicationStatusMediator;
             this.autoFocusOptions = autoFocusOptions;
             this.autoFocusEngineFactory = autoFocusEngineFactory;
+            this.starDetectionSelector = starDetectionSelector;
         }
 
         public string Name => "Hocus Focus";
@@ -59,7 +63,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public string ContentId => this.GetType().FullName;
 
         public IAutoFocusVM Create() {
-            return new HocusFocusVM(profileService, focuserMediator, autoFocusEngineFactory, autoFocusOptions, filterWheelMediator, applicationStatusMediator);
+            return new HocusFocusVM(profileService, focuserMediator, autoFocusEngineFactory, autoFocusOptions, filterWheelMediator, applicationStatusMediator, starDetectionSelector);
         }
     }
 }

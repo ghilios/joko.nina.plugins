@@ -10,17 +10,22 @@
 
 #endregion "copyright"
 
+using ILNumerics;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using OpenCvSharp;
 using System;
+using static ILNumerics.Globals;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
-    public class GaussianPSFType : PSFModelTypeBase {
-        private static readonly double SIGMA_TO_FWHM_FACTOR = 2.0d * Math.Sqrt(2.0d * Math.Log(2.0d));
+    public static class GaussianPSFConstants {
+        public static readonly double SIGMA_TO_FWHM_FACTOR = 2.0d * Math.Sqrt(2.0d * Math.Log(2.0d));
+    }
 
-        public GaussianPSFType(double[][] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale, bool calculateCenter) :
-            base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs, calculateCenter: calculateCenter) {
+    public class GaussianPSFAlglibType : PSFModelTypeAlglibBase {
+
+        public GaussianPSFAlglibType(double[][] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale) :
+            base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
         }
 
         public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Gaussian;
@@ -33,14 +38,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // x0,y0 is the origin, so all x,y are relative to the centroid within the star bounding boxes
         // See Gaussian elliptical definition here: https://pixinsight.com/doc/tools/DynamicPSF/DynamicPSF.html
         public override double Value(double[] parameters, double[] input) {
-            var A = CalculateCenter ? parameters[0] : this.CentroidBrightness;
+            var A = parameters[0];
             var x = input[0];
             var y = input[1];
-            var x0 = CalculateCenter ? parameters[1] : 0.0d;
-            var y0 = CalculateCenter ? parameters[2] : 0.0d;
-            var U = CalculateCenter ? parameters[3] : parameters[0];
-            var V = CalculateCenter ? parameters[4] : parameters[1];
-            var T = CalculateCenter ? parameters[5] : parameters[2];
+            var x0 = parameters[1];
+            var y0 = parameters[2];
+            var U = parameters[3];
+            var V = parameters[4];
+            var T = parameters[5];
             // x0 = X0 (X offset)
             // y0 = Y0 (Y offset)
             // U = sigmaX
@@ -69,14 +74,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public override void Gradient(double[] parameters, double[] input, double[] result) {
-            var A = CalculateCenter ? parameters[0] : this.CentroidBrightness;
+            var A = parameters[0];
             var x = input[0];
             var y = input[1];
-            var x0 = CalculateCenter ? parameters[1] : 0.0d;
-            var y0 = CalculateCenter ? parameters[2] : 0.0d;
-            var U = CalculateCenter ? parameters[3] : parameters[0];
-            var V = CalculateCenter ? parameters[4] : parameters[1];
-            var T = CalculateCenter ? parameters[5] : parameters[2];
+            var x0 = parameters[1];
+            var y0 = parameters[2];
+            var U = parameters[3];
+            var V = parameters[4];
+            var T = parameters[5];
 
             var cosT = Math.Cos(T);
             var sinT = Math.Sin(T);
@@ -136,7 +141,48 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public override double SigmaToFWHM(double sigma) {
-            return sigma * SIGMA_TO_FWHM_FACTOR;
+            return sigma * GaussianPSFConstants.SIGMA_TO_FWHM_FACTOR;
+        }
+    }
+
+    public class GaussianPSFILNumericsType : PSFModelTypeILNBase {
+
+        public GaussianPSFILNumericsType(double[,] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale) :
+            base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
+        }
+
+        public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Gaussian;
+
+        public override RetArray<double> Residuals(InArray<double> parameters) {
+            using (Scope.Enter(parameters)) {
+                Array<double> ilnInputs = this.Inputs;
+                Array<double> actualValue = this.Outputs;
+                Array<double> A = parameters.GetValue<double>(0);
+                Array<double> x0 = parameters.GetValue<double>(1);
+                Array<double> y0 = parameters.GetValue<double>(2);
+                Array<double> U = parameters.GetValue<double>(3);
+                Array<double> V = parameters.GetValue<double>(4);
+                Array<double> T = parameters.GetValue<double>(5);
+                Array<double> x = ilnInputs[0, full];
+                Array<double> y = ilnInputs[1, full];
+
+                Array<double> cosT = ILMath.cos(T);
+                Array<double> sinT = ILMath.sin(T);
+                Array<double> X = (x - x0) * cosT + (y - y0) * sinT; // xPrime
+                Array<double> Y = -(x - x0) * sinT + (y - y0) * cosT; // yPrime
+                Array<double> X2 = X * X;
+                Array<double> Y2 = Y * Y;
+                Array<double> U2 = U * U;
+                Array<double> V2 = V * V;
+                Array<double> E = X2 / (2 * U2) + Y2 / (2 * V2);
+
+                Array<double> psfValue = A * ILMath.exp(-E);
+                return psfValue - actualValue.T;
+            }
+        }
+
+        public override double SigmaToFWHM(double sigma) {
+            return sigma * GaussianPSFConstants.SIGMA_TO_FWHM_FACTOR;
         }
     }
 }

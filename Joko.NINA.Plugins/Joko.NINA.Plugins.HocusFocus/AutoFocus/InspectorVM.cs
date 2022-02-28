@@ -137,6 +137,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             MainFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             CenterFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
+            TopLeftFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
+            TopRightFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
+            BottomLeftFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
+            BottomRightFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             OutsideFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             RegionPlotFocusPoints = Enumerable.Range(0, 6).Select(i => new AsyncObservableCollection<DataPoint>()).ToArray();
             RegionFinalFocusPoints = new AsyncObservableCollection<DataPoint>(Enumerable.Range(0, 6).Select(i => new DataPoint(-1.0d, 0.0d)));
@@ -189,7 +193,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     starDetectionRegion, // Use regular AF star detection ROI for the first region, which drives the auto focus routine
                     new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(two_thirds, one_third, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(two_thirds, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
                 };
@@ -452,8 +456,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             var (eccentricityMedian, _) = detectedStars.Select(s => s.PSF.Eccentricity).MedianMAD();
                             var (psfRotationMedian, _) = detectedStars.Select(s => s.PSF.ThetaRadians).MedianMAD();
 
-                            var clippedEccentricity = Math.Max(0.1, eccentricityMedian - 0.33);
-                            var scaledEccentricity = clippedEccentricity * clippedEccentricity;
+                            var scaledEccentricity = eccentricityMedian * eccentricityMedian;
                             double x = Math.Cos(psfRotationMedian) * scaledEccentricity;
                             double y = Math.Sin(psfRotationMedian) * scaledEccentricity;
                             vectors[regionCol, regionRow] = new Vector2(x, y);
@@ -615,7 +618,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     starDetectionRegion,
                     new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(two_thirds, one_third, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(two_thirds, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
                 };
@@ -666,8 +669,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 focusPoints = MainFocusPoints;
             } else if (e.RegionIndex == 1) {
                 focusPoints = CenterFocusPoints;
+            } else if (e.RegionIndex == 2) {
+                focusPoints = TopLeftFocusPoints;
+            } else if (e.RegionIndex == 3) {
+                focusPoints = TopRightFocusPoints;
+            } else if (e.RegionIndex == 4) {
+                focusPoints = BottomLeftFocusPoints;
+            } else if (e.RegionIndex == 5) {
+                focusPoints = BottomRightFocusPoints;
             } else {
-                focusPoints = OutsideFocusPoints;
+                throw new Exception($"Unexpected region index {e.RegionIndex}");
             }
 
             focusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, Math.Max(0.001, e.Measurement.Stdev)), focusPointComparer);
@@ -684,6 +695,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             };
             var report = HocusFocusVM.GenerateReport(
                 profileService: this.profileService,
+                starDetector: starDetectionSelector.GetBehavior(),
                 attemptNumber: e.Iteration,
                 focusPoints: MainFocusPoints,
                 fittings: firstRegion.Fittings,
@@ -717,6 +729,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             };
             _ = HocusFocusVM.GenerateReport(
                 profileService: this.profileService,
+                starDetector: starDetectionSelector.GetBehavior(),
                 attemptNumber: e.Attempts,
                 focusPoints: MainFocusPoints,
                 fittings: firstRegion.Fittings,
@@ -789,6 +802,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
             CenterFocusPoints.Clear();
             OutsideFocusPoints.Clear();
+            TopLeftFocusPoints.Clear();
+            TopRightFocusPoints.Clear();
+            BottomLeftFocusPoints.Clear();
+            BottomRightFocusPoints.Clear();
+            AutoFocusChartPlotModel?.ResetAllAxes();
             AutoFocusCompleted = false;
         }
 
@@ -802,13 +820,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public ICommand CancelAnalyzeCommand { get; private set; }
         public ICommand ClearAnalysesCommand { get; private set; }
 
+        // TODO: Make this an observable collection array
         public AsyncObservableCollection<ScatterErrorPoint> MainFocusPoints { get; private set; }
+
         public AsyncObservableCollection<ScatterErrorPoint> CenterFocusPoints { get; private set; }
+        public AsyncObservableCollection<ScatterErrorPoint> TopLeftFocusPoints { get; private set; }
+        public AsyncObservableCollection<ScatterErrorPoint> TopRightFocusPoints { get; private set; }
+        public AsyncObservableCollection<ScatterErrorPoint> BottomLeftFocusPoints { get; private set; }
+        public AsyncObservableCollection<ScatterErrorPoint> BottomRightFocusPoints { get; private set; }
         public AsyncObservableCollection<ScatterErrorPoint> OutsideFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint>[] RegionPlotFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint> RegionFinalFocusPoints { get; private set; }
         public AsyncObservableCollection<Func<double, double>> RegionCurveFittings { get; private set; }
         public AsyncObservableCollection<TrendlineFitting> RegionLineFittings { get; private set; }
+        public PlotModel AutoFocusChartPlotModel { get; set; }
+
         private double innerHFR = double.NaN;
 
         public double InnerHFR {

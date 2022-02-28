@@ -155,6 +155,9 @@
     <Reference Include="ILNumerics.Toolboxes.Interpolation, Version=6.0.0.0, Culture=neutral, PublicKeyToken=feb6e2cd77588932, processorArchitecture=MSIL">
       <HintPath>..\packages\ILNumerics.Toolboxes.Interpolation.6.0.127\lib\net461\ILNumerics.Toolboxes.Interpolation.dll</HintPath>
     </Reference>
+    <Reference Include="ILNumerics.Toolboxes.Optimization, Version=6.0.0.0, Culture=neutral, PublicKeyToken=d11317283e0d33b5, processorArchitecture=MSIL">
+      <HintPath>..\packages\ILNumerics.Toolboxes.Optimization.6.0.127\lib\net461\ILNumerics.Toolboxes.Optimization.dll</HintPath>
+    </Reference>
     <Reference Include="ILNumerics.Toolboxes.Statistics, Version=6.0.0.0, Culture=neutral, PublicKeyToken=176aaed3d023b64c, processorArchitecture=MSIL">
       <HintPath>..\packages\ILNumerics.Toolboxes.Statistics.6.0.127\lib\net461\ILNumerics.Toolboxes.Statistics.dll</HintPath>
     </Reference>

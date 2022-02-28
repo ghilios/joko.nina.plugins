@@ -12,6 +12,7 @@
 
 using Newtonsoft.Json;
 using NINA.Core.Enum;
+using NINA.Image.ImageAnalysis;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Utility.AutoFocus;
 using OxyPlot;
@@ -29,6 +30,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public static HocusFocusReport GenerateReport(
             IProfileService profileService,
+            IStarDetection starDetector,
             ICollection<ScatterErrorPoint> FocusPoints,
             double initialFocusPosition,
             double initialHFR,
@@ -44,6 +46,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             TimeSpan duration) {
             var report = new HocusFocusReport() {
                 Filter = filter,
+                AutoFocuserName = "Hocus Focus",
+                StarDetectorName = starDetector.Name,
                 Timestamp = DateTime.Now,
                 Temperature = temperature,
                 InitialFocusPoint = new FocusPoint() {

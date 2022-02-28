@@ -87,6 +87,5 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         int PSFParallelPartitionSize { get; set; }
         StarDetectorPSFFitType PSFFitType { get; set; }
         int PSFResolution { get; set; }
-        bool CalculatePSFCenter { get; set; }
     }
 }

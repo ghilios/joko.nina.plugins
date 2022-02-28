@@ -152,6 +152,9 @@
     <Reference Include="ILNumerics.Toolboxes.Interpolation, Version=6.0.0.0, Culture=neutral, PublicKeyToken=feb6e2cd77588932, processorArchitecture=MSIL">
       <HintPath>..\packages\ILNumerics.Toolboxes.Interpolation.6.0.127\lib\net461\ILNumerics.Toolboxes.Interpolation.dll</HintPath>
     </Reference>
+    <Reference Include="ILNumerics.Toolboxes.Optimization, Version=6.0.0.0, Culture=neutral, PublicKeyToken=d11317283e0d33b5, processorArchitecture=MSIL">
+      <HintPath>..\packages\ILNumerics.Toolboxes.Optimization.6.0.127\lib\net461\ILNumerics.Toolboxes.Optimization.dll</HintPath>
+    </Reference>
     <Reference Include="ILNumerics.Toolboxes.Statistics, Version=6.0.0.0, Culture=neutral, PublicKeyToken=176aaed3d023b64c, processorArchitecture=MSIL">
       <HintPath>..\packages\ILNumerics.Toolboxes.Statistics.6.0.127\lib\net461\ILNumerics.Toolboxes.Statistics.dll</HintPath>
     </Reference>
@@ -413,12 +416,14 @@
       <DependentUpon>ILNCanvasControl.xaml</DependentUpon>
     </Compile>
     <Compile Include="Controls\ILNSceneContainer.cs" />
+    <Compile Include="Controls\OxyPlotExtended.cs" />
     <Compile Include="Controls\ScottPlotControl.xaml.cs">
       <DependentUpon>ScottPlotControl.xaml</DependentUpon>
     </Compile>
     <Compile Include="Controls\ScrollViewerWindowsFormsHost.cs" />
     <Compile Include="Converters\DoubleNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\DoubleNegativeToEmptyStringConverter.cs" />
+    <Compile Include="Converters\InterpolateColorConverter.cs" />
     <Compile Include="Interfaces\IApplicationDispatcher.cs" />
     <Compile Include="Interfaces\IAutoFocusEngine.cs" />
     <Compile Include="Converters\AutoFocusFittingToVisibilityConverter.cs" />
@@ -528,6 +533,7 @@
     <Analyzer Include="..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\analyzers\dotnet\cs\Microsoft.CodeAnalysis.Analyzers.dll" />
     <Analyzer Include="..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\analyzers\dotnet\cs\Microsoft.CodeAnalysis.CSharp.Analyzers.dll" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>

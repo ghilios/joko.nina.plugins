@@ -105,6 +105,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     using (var newBitmap = new Bitmap(bmp.Width, bmp.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb)) {
                         Graphics graphics = Graphics.FromImage(newBitmap);
                         graphics.DrawImage(bmp, 0, 0);
+                        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
                         var starList = result.StarList;
 
                         if (starList.Count > 0) {
@@ -122,16 +123,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                                 token.ThrowIfCancellationRequested();
                                 textposx = star.BoundingBox.Right;
                                 textposy = star.BoundingBox.Top;
+
+                                var hocusFocusStar = star as HocusFocusDetectedStar;
+                                var psf = hocusFocusStar?.PSF;
+
                                 if (StarAnnotatorOptions.ShowStarBounds) {
                                     if (StarAnnotatorOptions.StarBoundsType == Interfaces.StarBoundsTypeEnum.Box) {
                                         graphics.DrawRectangle(starBoundsPen, new Rectangle(star.BoundingBox.X, star.BoundingBox.Y, star.BoundingBox.Width, star.BoundingBox.Height));
+                                    } else if (StarAnnotatorOptions.StarBoundsType == Interfaces.StarBoundsTypeEnum.PSF) {
+                                        if (psf != null) {
+                                            var thetaDegrees = MathUtility.RadiansToDegrees(psf.ThetaRadians);
+                                            graphics.TranslateTransform(hocusFocusStar.Position.X, hocusFocusStar.Position.Y);
+                                            graphics.RotateTransform((float)thetaDegrees);
+                                            graphics.DrawEllipse(starBoundsPen, new RectangleF(
+                                                (float)-psf.FWHMx,
+                                                (float)-psf.FWHMy,
+                                                (float)(psf.FWHMx * 2),
+                                                (float)(psf.FWHMy * 2)));
+                                            graphics.ResetTransform();
+                                        }
                                     } else {
                                         graphics.DrawEllipse(starBoundsPen, new RectangleF(star.BoundingBox.X, star.BoundingBox.Y, star.BoundingBox.Width, star.BoundingBox.Height));
                                     }
                                 }
 
-                                var hocusFocusStar = star as HocusFocusDetectedStar;
-                                var psf = hocusFocusStar?.PSF;
                                 if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.HFR) {
                                     graphics.DrawString(star.HFR.ToString("#0.00"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
                                 } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.FWHM && psf != null) {

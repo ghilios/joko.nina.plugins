@@ -12,11 +12,13 @@
 
 using Newtonsoft.Json;
 using NINA.Core.Enum;
+using NINA.Core.Interfaces;
 using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
 using NINA.Equipment.Interfaces.Mediator;
+using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
@@ -31,12 +33,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using System.Windows.Input;
-using System.Windows.Threading;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
@@ -56,11 +55,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private TrendlineFitting trendLineFitting;
         private TimeSpan autoFocusDuration;
         private readonly IFocuserMediator focuserMediator;
-        private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IAutoFocusEngineFactory autoFocusEngineFactory;
         private readonly IFilterWheelMediator filterWheelMediator;
-        private readonly IApplicationStatusMediator applicationStatusMediator;
         private readonly IProgress<ApplicationStatus> progress;
+        private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
         public static readonly string ReportDirectory = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "AutoFocus");
 
         static HocusFocusVM() {
@@ -77,13 +75,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IAutoFocusEngineFactory autoFocusEngineFactory,
             IAutoFocusOptions autoFocusOptions,
             IFilterWheelMediator filterWheelMediator,
-            IApplicationStatusMediator applicationStatusMediator
+            IApplicationStatusMediator applicationStatusMediator,
+            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector
         ) : base(profileService) {
             this.focuserMediator = focuserMediator;
-            this.autoFocusOptions = autoFocusOptions;
             this.autoFocusEngineFactory = autoFocusEngineFactory;
             this.filterWheelMediator = filterWheelMediator;
-            this.applicationStatusMediator = applicationStatusMediator;
+            this.starDetectionSelector = starDetectionSelector;
 
             FocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             PlotFocusPoints = new AsyncObservableCollection<DataPoint>();
@@ -314,6 +312,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             };
             return GenerateReport(
                 profileService: profileService,
+                starDetector: starDetectionSelector.GetBehavior(),
                 attemptNumber: attemptNumber,
                 focusPoints: FocusPoints,
                 fittings: fittings,
@@ -330,6 +329,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public static AutoFocusReport GenerateReport(
             IProfileService profileService,
+            IStarDetection starDetector,
             int attemptNumber,
             ICollection<ScatterErrorPoint> focusPoints,
             AutoFocusFitting fittings,
@@ -345,6 +345,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             try {
                 var report = HocusFocusReport.GenerateReport(
                     profileService,
+                    starDetector,
                     focusPoints,
                     initialFocusPosition,
                     initialHFR,

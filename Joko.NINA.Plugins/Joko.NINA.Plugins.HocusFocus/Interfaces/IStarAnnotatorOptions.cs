@@ -18,7 +18,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public enum StarBoundsTypeEnum {
         Ellipse,
-        Box
+        Box,
+        PSF
     }
 
     public enum ShowStructureMapEnum {
