@@ -135,13 +135,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var dict = new ResourceDictionary();
             dict.Source = new Uri("NINA.Joko.Plugins.HocusFocus;component/StarDetection/DataTemplates.xaml", UriKind.RelativeOrAbsolute);
 
-            MainFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
-            CenterFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
-            TopLeftFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
-            TopRightFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
-            BottomLeftFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
-            BottomRightFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
-            OutsideFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
+            RegionFocusPoints = Enumerable.Range(0, 6).Select(i => new AsyncObservableCollection<ScatterErrorPoint>()).ToArray();
             RegionPlotFocusPoints = Enumerable.Range(0, 6).Select(i => new AsyncObservableCollection<DataPoint>()).ToArray();
             RegionFinalFocusPoints = new AsyncObservableCollection<DataPoint>(Enumerable.Range(0, 6).Select(i => new DataPoint(-1.0d, 0.0d)));
             RegionCurveFittings = new AsyncObservableCollection<Func<double, double>>(Enumerable.Range(0, 6).Select(i => (Func<double, double>)null));
@@ -664,23 +658,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionLineFittings[e.RegionIndex] = GetLineFitting(e.Fittings);
             RegionPlotFocusPoints[e.RegionIndex].AddSorted(new DataPoint(e.FocuserPosition, e.Measurement.Measure), plotPointComparer);
 
-            AsyncObservableCollection<ScatterErrorPoint> focusPoints;
-            if (e.RegionIndex == 0) {
-                focusPoints = MainFocusPoints;
-            } else if (e.RegionIndex == 1) {
-                focusPoints = CenterFocusPoints;
-            } else if (e.RegionIndex == 2) {
-                focusPoints = TopLeftFocusPoints;
-            } else if (e.RegionIndex == 3) {
-                focusPoints = TopRightFocusPoints;
-            } else if (e.RegionIndex == 4) {
-                focusPoints = BottomLeftFocusPoints;
-            } else if (e.RegionIndex == 5) {
-                focusPoints = BottomRightFocusPoints;
-            } else {
-                throw new Exception($"Unexpected region index {e.RegionIndex}");
-            }
-
+            var focusPoints = RegionFocusPoints[e.RegionIndex];
             focusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, Math.Max(0.001, e.Measurement.Stdev)), focusPointComparer);
         }
 
@@ -697,7 +675,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 profileService: this.profileService,
                 starDetector: starDetectionSelector.GetBehavior(),
                 attemptNumber: e.Iteration,
-                focusPoints: MainFocusPoints,
+                focusPoints: RegionFocusPoints[0],
                 fittings: firstRegion.Fittings,
                 initialFocusPosition: e.InitialFocusPosition,
                 initialHFR: firstRegion.InitialHFR ?? 0.0d,
@@ -731,7 +709,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 profileService: this.profileService,
                 starDetector: starDetectionSelector.GetBehavior(),
                 attemptNumber: e.Attempts,
-                focusPoints: MainFocusPoints,
+                focusPoints: RegionFocusPoints[0],
                 fittings: firstRegion.Fittings,
                 initialFocusPosition: e.InitialFocusPosition,
                 initialHFR: firstRegion.InitialHFR ?? 0.0d,
@@ -799,13 +777,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 RegionLineFittings[i] = null;
                 RegionPlotFocusPoints[i].Clear();
                 RegionFinalFocusPoints[i] = new DataPoint(-1.0d, 0.0d);
+                RegionFocusPoints[i].Clear();
             }
-            CenterFocusPoints.Clear();
-            OutsideFocusPoints.Clear();
-            TopLeftFocusPoints.Clear();
-            TopRightFocusPoints.Clear();
-            BottomLeftFocusPoints.Clear();
-            BottomRightFocusPoints.Clear();
             AutoFocusChartPlotModel?.ResetAllAxes();
             AutoFocusCompleted = false;
         }
@@ -820,15 +793,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public ICommand CancelAnalyzeCommand { get; private set; }
         public ICommand ClearAnalysesCommand { get; private set; }
 
-        // TODO: Make this an observable collection array
-        public AsyncObservableCollection<ScatterErrorPoint> MainFocusPoints { get; private set; }
-
-        public AsyncObservableCollection<ScatterErrorPoint> CenterFocusPoints { get; private set; }
-        public AsyncObservableCollection<ScatterErrorPoint> TopLeftFocusPoints { get; private set; }
-        public AsyncObservableCollection<ScatterErrorPoint> TopRightFocusPoints { get; private set; }
-        public AsyncObservableCollection<ScatterErrorPoint> BottomLeftFocusPoints { get; private set; }
-        public AsyncObservableCollection<ScatterErrorPoint> BottomRightFocusPoints { get; private set; }
-        public AsyncObservableCollection<ScatterErrorPoint> OutsideFocusPoints { get; private set; }
+        public AsyncObservableCollection<ScatterErrorPoint>[] RegionFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint>[] RegionPlotFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint> RegionFinalFocusPoints { get; private set; }
         public AsyncObservableCollection<Func<double, double>> RegionCurveFittings { get; private set; }
@@ -869,7 +834,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public IInspectorOptions InspectorOptions => this.inspectorOptions;
 
         private TrendlineFitting GetLineFitting(AutoFocusFitting fitting) {
-            if (fitting.Method == AFMethodEnum.CONTRASTDETECTION) {
+            if (fitting.Method == AFMethodEnum.STARHFR) {
                 if (fitting.CurveFittingType == AFCurveFittingEnum.TRENDPARABOLIC || fitting.CurveFittingType == AFCurveFittingEnum.TRENDHYPERBOLIC || fitting.CurveFittingType == AFCurveFittingEnum.TRENDLINES) {
                     return fitting.TrendlineFitting;
                 }
