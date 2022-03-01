@@ -189,16 +189,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private class AutoFocusImageState : IDisposable {
 
-            public AutoFocusImageState(AutoFocusState state, int attemptNumber, int imageNumber, int frameNumber) {
+            public AutoFocusImageState(AutoFocusState state, int attemptNumber, int imageNumber, int frameNumber, int focuserPosition, bool finalValidation) {
                 this.state = state;
                 this.AttemptNumber = attemptNumber;
                 this.ImageNumber = imageNumber;
                 this.FrameNumber = frameNumber;
+                this.FocuserPosition = focuserPosition;
+                this.FinalValidation = finalValidation;
             }
 
             public int AttemptNumber { get; private set; }
             public int ImageNumber { get; private set; }
             public int FrameNumber { get; private set; }
+            public int FocuserPosition { get; private set; }
+            public bool FinalValidation { get; private set; }
 
             private bool measurementStarted = false;
             private readonly AutoFocusState state;
@@ -285,14 +289,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ++AttemptNumber;
             }
 
-            public async Task<AutoFocusImageState> OnNextImage(int frameNumber, CancellationToken token) {
-                Logger.Trace($"OnNextImage - Attempt: {AttemptNumber}, Image: {ImageNumber + 1}, Frame: {frameNumber}");
+            public async Task<AutoFocusImageState> OnNextImage(int frameNumber, int focuserPosition, bool finalValidation, CancellationToken token) {
+                Logger.Trace($"OnNextImage - Attempt: {AttemptNumber}, Image: {ImageNumber + 1}, Frame: {frameNumber}, FocuserPosition: {focuserPosition}, FinalValidation: {finalValidation}");
                 using (MyStopWatch.Measure("Waiting on ExposureSemaphore")) {
                     await ExposureSemaphore.WaitAsync(token);
                 }
 
                 var imageNumber = ++ImageNumber;
-                return new AutoFocusImageState(this, attemptNumber: AttemptNumber, imageNumber: imageNumber, frameNumber: frameNumber);
+                return new AutoFocusImageState(this, attemptNumber: AttemptNumber, imageNumber: imageNumber, frameNumber: frameNumber, focuserPosition: focuserPosition, finalValidation: finalValidation);
             }
 
             public void ResetFocusMeasurements() {
@@ -314,12 +318,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private async Task<MeasureAndError> EvaluateExposure(
             AutoFocusState state,
             AutoFocusRegionState regionState,
-            bool finalValidation,
             AutoFocusImageState imageState,
-            int focuserPosition,
             IRenderedImage image,
             CancellationToken token) {
-            Logger.Trace($"Evaluating auto focus exposure at position {focuserPosition}");
+            Logger.Trace($"Evaluating auto focus exposure at position {imageState.FocuserPosition}");
 
             var imageProperties = image.RawImageData.Properties;
 
@@ -362,7 +364,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
-                    var saveAttemptFolder = GetSaveAttemptFolder(state, imageState.AttemptNumber, finalValidation);
+                    var saveAttemptFolder = GetSaveAttemptFolder(state, imageState.AttemptNumber, imageState.FinalValidation);
                     var resultFileName = $"{imageState.ImageNumber:00}_Frame{imageState.FrameNumber:00}_Region{regionState.RegionIndex:00}_star_detection_result.json";
                     var resultTargetPath = Path.Combine(saveAttemptFolder, resultFileName);
                     File.WriteAllText(resultTargetPath, JsonConvert.SerializeObject(analysisResult, Formatting.Indented));
@@ -389,7 +391,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
                 }
 
-                Logger.Debug($"Current Focus - Position: {focuserPosition}, HFR: {analysisResult.AverageHFR}");
+                Logger.Debug($"Current Focus - Position: {imageState.FocuserPosition}, HFR: {analysisResult.AverageHFR}");
                 return new MeasureAndError() { Measure = analysisResult.AverageHFR, Stdev = analysisResult.HFRStdDev };
             } else {
                 if (regionState.Region != null) {
@@ -517,8 +519,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return Task.CompletedTask;
         }
 
-        private async Task<IRenderedImage> PrepareExposure(AutoFocusState state, IExposureData exposureData, CancellationToken token) {
-            return await PrepareExposure(state, await exposureData.ToImageData(null, token), token);
+        private async Task<IRenderedImage> PrepareExposure(AutoFocusState state, AutoFocusImageState imageState, IExposureData exposureData, CancellationToken token) {
+            var preparedImage = await PrepareExposure(state, await exposureData.ToImageData(null, token), token);
+            if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
+                var bitDepth = preparedImage.RawImageData.Properties.BitDepth;
+                var isBayered = preparedImage.RawImageData.Properties.IsBayered;
+                var fileName = $"{imageState.ImageNumber:00}_Frame{imageState.FrameNumber:00}_BitDepth{bitDepth}_Bayered{(isBayered ? 1 : 0)}_Focuser{imageState.FocuserPosition}";
+                var imageData = preparedImage.RawImageData;
+                var fsi = new FileSaveInfo(profileService) {
+                    FilePath = GetSaveAttemptFolder(state, imageState.AttemptNumber, imageState.FinalValidation),
+                    FilePattern = fileName
+                };
+                await imageData.SaveToDisk(fsi, token);
+            }
+            return preparedImage;
         }
 
         private async Task<IRenderedImage> PrepareExposure(AutoFocusState state, IImageData imageData, CancellationToken token) {
@@ -534,9 +548,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private async Task AnalyzeExposure(
             IRenderedImage preparedImage,
-            int focuserPosition,
             AutoFocusImageState imageState,
-            bool finalValidation,
             AutoFocusState state,
             AutoFocusRegionState regionState,
             Func<int, MeasureAndError, AutoFocusState, AutoFocusRegionState, Task> action,
@@ -547,27 +559,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     state: state,
                     regionState: regionState,
                     imageState: imageState,
-                    focuserPosition: focuserPosition,
-                    finalValidation: finalValidation,
                     image: preparedImage,
                     token: token);
-                if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
-                    var bitDepth = preparedImage.RawImageData.Properties.BitDepth;
-                    var isBayered = preparedImage.RawImageData.Properties.IsBayered;
-                    var fileName = $"{imageState.ImageNumber:00}_Frame{imageState.FrameNumber:00}_BitDepth{bitDepth}_Bayered{(isBayered ? 1 : 0)}_Focuser{focuserPosition}_HFR{partialMeasurement.Measure:00.00}";
-                    var imageData = preparedImage.RawImageData;
-                    var fsi = new FileSaveInfo(profileService) {
-                        FilePath = GetSaveAttemptFolder(state, imageState.AttemptNumber, finalValidation),
-                        FilePattern = fileName
-                    };
-                    await imageData.SaveToDisk(fsi, token);
-                }
             } catch (Exception e) {
-                Logger.Error(e, $"Error while preparing and analyzing exposure at {focuserPosition}");
+                Logger.Error(e, $"Error while preparing and analyzing exposure at {imageState.FocuserPosition}");
                 // Setting a partial measurement representing a failure to ensure the action is executed
                 partialMeasurement = new MeasureAndError() { Measure = 0.0d, Stdev = double.NaN };
             }
-            await action(focuserPosition, partialMeasurement, state, regionState);
+            await action(imageState.FocuserPosition, partialMeasurement, state, regionState);
         }
 
         private string GetSaveAttemptFolder(AutoFocusState state, int attemptNumber, bool finalValidation) {
@@ -593,7 +592,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IProgress<ApplicationStatus> progress) {
             var attemptNumber = state.AttemptNumber;
             for (int i = 0; i < state.Options.FramesPerPoint; ++i) {
-                var imageState = await state.OnNextImage(i, token);
+                var imageState = await state.OnNextImage(i, focuserPosition, finalValidation, token);
                 token.ThrowIfCancellationRequested();
 
                 var imageNumber = state.ImageNumber;
@@ -602,15 +601,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 imageState.MeasurementStarted();
                 try {
                     var exposureAnalysisTasks = new List<Task>();
-                    var prepareExposureTask = PrepareExposure(state, exposureData, token);
+                    var prepareExposureTask = PrepareExposure(state, imageState, exposureData, token);
                     foreach (var regionState in state.FocusRegionStates) {
                         var analysisTask = Task.Run(async () => {
                             var preparedExposure = await prepareExposureTask;
                             await AnalyzeExposure(
                                 preparedExposure,
-                                focuserPosition: focuserPosition,
                                 imageState: imageState,
-                                finalValidation: finalValidation,
                                 state: state,
                                 regionState: regionState,
                                 action: action,
@@ -775,7 +772,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         Notification.ShowWarning($"The save path {autoFocusState.Options.SavePath} does not exist");
                         Logger.Warning($"The save path {autoFocusState.Options.SavePath} specified in Hocus Focus Auto Focus Options does not exist");
                     } else {
-                        var folderName = $"AutoFocus_{DateTime.Now:yyyyddMM_HHmmss}";
+                        var folderName = $"AutoFocus_{DateTime.Now:yyyyMMdd_HHmmss}";
                         var targetPath = Path.Combine(autoFocusState.Options.SavePath, folderName);
                         Logger.Info($"Saving AutoFocus run to {targetPath}");
                         Directory.CreateDirectory(targetPath);
@@ -1140,8 +1137,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     state: state,
                     regionState: regionState,
                     imageState: imageState,
-                    finalValidation: false,
-                    focuserPosition: savedFile.FocuserPosition,
                     image: renderedImage,
                     token: token);
             } finally {
@@ -1192,7 +1187,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var partialMeasurementsPerRegion = Enumerable.Range(0, state.FocusRegionStates.Count).Select(i => new List<MeasureAndError>()).ToArray();
                     var allMeasurementTasks = new List<Task>();
                     foreach (var savedFile in files) {
-                        var imageState = await state.OnNextImage(savedFile.FrameNumber, token);
+                        var imageState = await state.OnNextImage(savedFile.FrameNumber, savedFile.FocuserPosition, false, token);
 
                         var postPartialMeasurementTasksPerRegion = Enumerable.Range(0, state.FocusRegionStates.Count).Select(i => new List<Task>()).ToArray();
                         var imageLoadTask = ReloadSavedFile(state, savedFile, token);
@@ -1382,7 +1377,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private static readonly Regex ATTEMPT_REGEX = new Regex(@"^attempt(?<ATTEMPT>\d+)$", RegexOptions.Compiled);
-        private static readonly Regex IMAGE_FILE_REGEX = new Regex(@"^(?<IMAGE_INDEX>\d+)_Frame(?<FRAME_NUMBER>\d+)_BitDepth(?<BITDEPTH>\d+)_Bayered(?<BAYERED>\d)_Focuser(?<FOCUSER>\d+)_HFR(?<HFR>(\d+)(\.\d+)?)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex IMAGE_FILE_REGEX = new Regex(@"^(?<IMAGE_INDEX>\d+)_Frame(?<FRAME_NUMBER>\d+)_BitDepth(?<BITDEPTH>\d+)_Bayered(?<BAYERED>\d)_Focuser(?<FOCUSER>\d+)(_HFR(?<HFR>(\d+)(\.\d+)?))?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         public SavedAutoFocusAttempt LoadSavedAutoFocusAttempt(string path) {
             var attemptFolder = new DirectoryInfo(path);
