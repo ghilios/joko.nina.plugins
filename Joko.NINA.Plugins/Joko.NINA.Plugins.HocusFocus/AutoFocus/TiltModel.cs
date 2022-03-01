@@ -107,11 +107,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
     }
 
     public class TiltModel : BaseINPC {
-        private readonly IApplicationDispatcher applicationDispatcher;
+        private readonly IInspectorOptions inspectorOptions;
         private int nextHistoryId = 0;
 
-        public TiltModel(IApplicationDispatcher applicationDispatcher) {
-            this.applicationDispatcher = applicationDispatcher;
+        public TiltModel(IInspectorOptions inspectorOptions) {
+            this.inspectorOptions = inspectorOptions;
             SensorTiltModels = new AsyncObservableCollection<SensorTiltModel>();
             SensorTiltHistoryModels = new AsyncObservableCollection<SensorTiltHistoryModel>();
         }
@@ -122,31 +122,37 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var topRightFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
             var bottomLeftFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
             var bottomRightFocuser = result.RegionResults[5].EstimatedFinalFocuserPosition;
+            var micronsPerFocuserStep = inspectorOptions.MicronsPerFocuserStep > 0 ? inspectorOptions.MicronsPerFocuserStep : double.NaN;
 
             var newSideToTiltModels = new List<SensorTiltModel>();
             newSideToTiltModels.Add(new SensorTiltModel(SensorSide.Center) {
                 FocuserPosition = centerFocuser,
-                AdjustmentRequired = double.NaN,
+                AdjustmentRequiredSteps = double.NaN,
+                AdjustmentRequiredMicrons = double.NaN,
                 RSquared = result.RegionResults[1].Fittings.GetRSquared()
             });
             newSideToTiltModels.Add(new SensorTiltModel(SensorSide.TopLeft) {
                 FocuserPosition = topLeftFocuser,
-                AdjustmentRequired = tiltModel.MeanFocuserPosition - topLeftFocuser,
+                AdjustmentRequiredSteps = tiltModel.MeanFocuserPosition - topLeftFocuser,
+                AdjustmentRequiredMicrons = (tiltModel.MeanFocuserPosition - topLeftFocuser) * micronsPerFocuserStep,
                 RSquared = result.RegionResults[2].Fittings.GetRSquared()
             });
             newSideToTiltModels.Add(new SensorTiltModel(SensorSide.TopRight) {
                 FocuserPosition = topRightFocuser,
-                AdjustmentRequired = tiltModel.MeanFocuserPosition - topRightFocuser,
+                AdjustmentRequiredSteps = tiltModel.MeanFocuserPosition - topRightFocuser,
+                AdjustmentRequiredMicrons = (tiltModel.MeanFocuserPosition - topRightFocuser) * micronsPerFocuserStep,
                 RSquared = result.RegionResults[3].Fittings.GetRSquared()
             });
             newSideToTiltModels.Add(new SensorTiltModel(SensorSide.BottomLeft) {
                 FocuserPosition = bottomLeftFocuser,
-                AdjustmentRequired = tiltModel.MeanFocuserPosition - bottomLeftFocuser,
+                AdjustmentRequiredSteps = tiltModel.MeanFocuserPosition - bottomLeftFocuser,
+                AdjustmentRequiredMicrons = (tiltModel.MeanFocuserPosition - bottomLeftFocuser) * micronsPerFocuserStep,
                 RSquared = result.RegionResults[4].Fittings.GetRSquared()
             });
             newSideToTiltModels.Add(new SensorTiltModel(SensorSide.BottomRight) {
                 FocuserPosition = bottomRightFocuser,
-                AdjustmentRequired = tiltModel.MeanFocuserPosition - bottomRightFocuser,
+                AdjustmentRequiredSteps = tiltModel.MeanFocuserPosition - bottomRightFocuser,
+                AdjustmentRequiredMicrons = (tiltModel.MeanFocuserPosition - bottomRightFocuser) * micronsPerFocuserStep,
                 RSquared = result.RegionResults[5].Fittings.GetRSquared()
             });
 
@@ -364,12 +370,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private double adjustmentRequired;
+        private double adjustmentRequiredSteps;
 
-        public double AdjustmentRequired {
-            get => adjustmentRequired;
+        public double AdjustmentRequiredSteps {
+            get => adjustmentRequiredSteps;
             set {
-                adjustmentRequired = value;
+                adjustmentRequiredSteps = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double adjustmentRequiredMicrons;
+
+        public double AdjustmentRequiredMicrons {
+            get => adjustmentRequiredMicrons;
+            set {
+                adjustmentRequiredMicrons = value;
                 RaisePropertyChanged();
             }
         }
@@ -385,7 +401,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public override string ToString() {
-            return $"{{{nameof(SensorSide)}={SensorSide.ToString()}, {nameof(FocuserPosition)}={FocuserPosition.ToString()}, {nameof(AdjustmentRequired)}={AdjustmentRequired.ToString()}, {nameof(RSquared)}={RSquared.ToString()}}}";
+            return $"{{{nameof(SensorSide)}={SensorSide.ToString()}, {nameof(FocuserPosition)}={FocuserPosition.ToString()}, {nameof(AdjustmentRequiredSteps)}={AdjustmentRequiredSteps.ToString()}, {nameof(RSquared)}={RSquared.ToString()}}}";
         }
     }
 }

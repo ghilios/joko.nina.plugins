@@ -24,6 +24,7 @@
     <TextBlock x:Key="FramesPerPoint_Tooltip" Text="How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="NumRegionsWide_Tooltip" Text="How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors. This value must be an odd, positive integer, and the height will be calculated proportionally from it based on the sensor resolution" />
+    <TextBlock x:Key="MicronsPerFocuserStep_Tooltip" Text="How much the focuser moves per step, in microns. If this is set, the adjustment chart will include adjustments in microns" />
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
@@ -950,6 +951,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -1099,6 +1101,42 @@
                                 </Binding.ValidationRules>
                             </Binding>
                         </ninactrl:UnitTextBox>
+
+                        <TextBlock
+                            Grid.Row="5"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Focuser Step Size"
+                            ToolTip="{StaticResource MicronsPerFocuserStep_Tooltip}" />
+                        <StackPanel
+                            Grid.Row="5"
+                            Grid.Column="1"
+                            Orientation="Horizontal">
+                            <ninactrl:HintTextBox
+                                MinWidth="40"
+                                VerticalAlignment="Center"
+                                HorizontalContentAlignment="Left"
+                                VerticalContentAlignment="Center"
+                                Foreground="{StaticResource PrimaryBrush}"
+                                HintText="(disabled)"
+                                TextAlignment="Left"
+                                ToolTip="{StaticResource MicronsPerFocuserStep_Tooltip}">
+                                <ninactrl:HintTextBox.Text>
+                                    <Binding
+                                        Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                        Mode="TwoWay"
+                                        Path="InspectorOptions.MicronsPerFocuserStep"
+                                        UpdateSourceTrigger="LostFocus" />
+                                </ninactrl:HintTextBox.Text>
+                            </ninactrl:HintTextBox>
+                            <TextBlock
+                                Margin="3,0,0,0"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                Text="microns"
+                                ToolTip="{StaticResource MicronsPerFocuserStep_Tooltip}" />
+                        </StackPanel>
                     </Grid>
                 </Expander>
                 <Expander
@@ -1514,8 +1552,12 @@
                                         Header="Position" />
                                     <DataGridTextColumn
                                         Width="*"
-                                        Binding="{Binding AdjustmentRequired, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
-                                        Header="Adjustment" />
+                                        Binding="{Binding AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                        Header="Adj Steps" />
+                                    <DataGridTextColumn
+                                        Width="*"
+                                        Binding="{Binding AdjustmentRequiredMicrons, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                        Header="Adj Microns" />
                                     <DataGridTextColumn
                                         Width="*"
                                         Binding="{Binding RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
@@ -1629,19 +1671,19 @@
                                     Header="Id" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=TopLeft.AdjustmentRequired, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TopLeft.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Top Left" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=TopRight.AdjustmentRequired, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TopRight.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Top Right" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=BottomLeft.AdjustmentRequired, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=BottomLeft.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Bottom Left" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=BottomRight.AdjustmentRequired, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=BottomRight.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Bottom Right" />
                                 <DataGridTextColumn
                                     Width="Auto"

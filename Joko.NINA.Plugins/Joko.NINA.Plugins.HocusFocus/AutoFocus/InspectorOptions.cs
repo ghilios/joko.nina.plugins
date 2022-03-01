@@ -39,6 +39,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             simpleExposureSeconds = optionsAccessor.GetValueDouble(nameof(SimpleExposureSeconds), -1);
             numRegionsWide = optionsAccessor.GetValueInt32(nameof(NumRegionsWide), 7);
             loopingExposureAnalysisEnabled = optionsAccessor.GetValueBoolean(nameof(LoopingExposureAnalysisEnabled), false);
+            micronsPerFocuserStep = optionsAccessor.GetValueDouble(nameof(MicronsPerFocuserStep), -1);
         }
 
         public void ResetDefaults() {
@@ -49,6 +50,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SimpleExposureSeconds = -1;
             NumRegionsWide = 7;
             LoopingExposureAnalysisEnabled = false;
+            MicronsPerFocuserStep = -1;
         }
 
         private int stepCount;
@@ -137,6 +139,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (loopingExposureAnalysisEnabled != value) {
                     loopingExposureAnalysisEnabled = value;
                     optionsAccessor.SetValueBoolean(nameof(LoopingExposureAnalysisEnabled), loopingExposureAnalysisEnabled);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double micronsPerFocuserStep;
+
+        public double MicronsPerFocuserStep {
+            get => micronsPerFocuserStep;
+            set {
+                if (micronsPerFocuserStep != value) {
+                    micronsPerFocuserStep = value;
+                    optionsAccessor.SetValueDouble(nameof(MicronsPerFocuserStep), micronsPerFocuserStep);
                     RaisePropertyChanged();
                 }
             }
