@@ -292,10 +292,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     starDetectorParams.ModelPSF = true;
                 }
 
-                var imageProperties = imageData.RawImageData.Properties;
-                var imageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
-                var analysisResult = await starDetection.Detect(imageData, hfParams, starDetectorParams, this.progress, token);
-                AnalyzeStarDetectionResult(imageSize, analysisResult);
+                var analysisResult = (HocusFocusStarDetectionResult)await starDetection.Detect(imageData, hfParams, starDetectorParams, this.progress, token);
+                AnalyzeStarDetectionResult(analysisResult);
+                this.SnapshotAnalysisStarDetectionResult = analysisResult;
                 ActivateExposureAnalysis();
                 return true;
             } finally {
@@ -322,8 +321,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             });
         }
 
-        private void AnalyzeStarDetectionResult(DrawingSize imageSize, StarDetectionResult result) {
+        private void AnalyzeStarDetectionResult(HocusFocusStarDetectionResult result) {
             var numRegionsWide = inspectorOptions.NumRegionsWide;
+            var imageSize = result.ImageSize;
             int regionSizePixels = imageSize.Width / numRegionsWide;
             int numRegionsTall = imageSize.Height / regionSizePixels;
             numRegionsTall += numRegionsTall % 2 == 0 ? 1 : 0;
@@ -343,94 +343,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var regionCol = (int)Math.Floor(detectedStar.Position.X / imageSize.Width * numRegionsWide);
                 regionDetectedStars[regionCol, regionRow].Add(detectedStar);
             }
-
-            // TODO: Add FWHM Contour Map back after the graphic can better be supported
-            /*
-            using (Scope.Enter()) {
-                var scene = new Scene();
-
-                Array<float> points = zeros<float>(numRegionsTall, numRegionsWide);
-                for (int regionRow = 0; regionRow < numRegionsTall; ++regionRow) {
-                    for (int regionCol = 0; regionCol < numRegionsWide; ++regionCol) {
-                        var detectedStars = regionDetectedStars[regionCol, regionRow];
-                        if (detectedStars.Count == 0) {
-                            points[regionRow, regionCol] = float.NaN;
-                            continue;
-                        }
-                        var (fwhmMedian, _) = detectedStars.Select(s => s.PSF.FWHMArcsecs).MedianMAD();
-                        points[regionRow, regionCol] = (float)fwhmMedian;
-                    }
-                }
-
-                var contourPlot = new ContourPlot(points, colormap: Colormaps.Gray, create3D: true, lineWidth: 1, showLabels: false);
-                var contourSurface = new Surface(points, colormap: Colormaps.Gray) {
-                    Wireframe = { Visible = false },
-                    UseLighting = true,
-                    Children = {
-                              new Colorbar {
-                                  Location = new PointF(1,.4f),
-                                  Anchor = new PointF(1,0)
-                              }
-                          }
-                };
-                var contourPlotCube = new PlotCube(twoDMode: false) {
-                    Axes = {
-                          XAxis = {
-                              Label = {
-                                  Text = ""
-                              },
-                              Ticks = {
-                                  Mode = TickMode.Manual
-                              }
-                          },
-                          YAxis = {
-                              Label = {
-                                  Text = ""
-                              },
-                              Ticks = {
-                                  Mode = TickMode.Manual
-                              }
-                          },
-                          ZAxis = {
-                              Label = {
-                                  Text = "FWHM"
-                              },
-                              Ticks = {
-                                  Mode = TickMode.Auto
-                              }
-                          }
-                      },
-                    Projection = Projection.Orthographic,
-                    Children = {
-                      contourPlot,
-                      contourSurface
-                    }
-                };
-
-                contourPlotCube.AspectRatioMode = AspectRatioMode.MaintainRatios;
-                contourPlotCube.AllowZoom = false;
-                contourPlotCube.AllowPan = false;
-                contourPlotCube.DataScreenRect = new RectangleF(0, 0, 0.9f, 0.9f);
-                scene.Add(contourPlotCube);
-                scene.Screen.First<Label>().Visible = false;
-                var sceneContainer = new ILNSceneContainer(scene);
-                sceneContainer.ForegroundChanged += (sender, args) => {
-                    var solidColorBrush = args.Brush as SolidColorBrush;
-                    if (solidColorBrush != null) {
-                        var foregroundColor = solidColorBrush.Color.ToDrawingColor();
-                        foreach (var lines in contourPlot.Find<ILNLines>()) {
-                            lines.Color = foregroundColor;
-                        }
-                        foreach (var label in contourPlot.Find<ILNLabel>()) {
-                            label.Color = foregroundColor;
-                            label.Fringe.Width = 0;
-                        }
-                    }
-                };
-
-                FWHMContourSceneContainer = sceneContainer;
-            }
-            */
 
             {
                 double[] xs = DataGen.Range(0, numRegionsWide);
@@ -826,6 +738,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             get => backfocusHFR;
             private set {
                 backfocusHFR = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private HocusFocusStarDetectionResult snapshotAnalysisStarDetectionResult;
+
+        public HocusFocusStarDetectionResult SnapshotAnalysisStarDetectionResult {
+            get => snapshotAnalysisStarDetectionResult;
+            private set {
+                snapshotAnalysisStarDetectionResult = value;
                 RaisePropertyChanged();
             }
         }

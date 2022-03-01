@@ -37,19 +37,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     public class TiltPlaneModel {
 
-        public TiltPlaneModel(DrawingSize imageSize, double a, double b, double c, double mean) {
-            if (imageSize.Width == 0 || imageSize.Height <= 0) {
-                throw new ArgumentException($"ImageSize ({ImageSize.Width}, {ImageSize.Height}) dimensions must be positive");
+        public TiltPlaneModel(AutoFocusResult autoFocusResult, double a, double b, double c, double mean) {
+            if (autoFocusResult.ImageSize.Width == 0 || autoFocusResult.ImageSize.Height <= 0) {
+                throw new ArgumentException($"ImageSize ({autoFocusResult.ImageSize.Width}, {autoFocusResult.ImageSize.Height}) dimensions must be positive");
             }
 
-            ImageSize = imageSize;
+            AutoFocusResult = autoFocusResult;
             A = a;
             B = b;
             C = c;
             MeanFocuserPosition = mean;
         }
 
-        public DrawingSize ImageSize { get; private set; }
+        public AutoFocusResult AutoFocusResult { get; private set; }
         public double A { get; private set; }
         public double B { get; private set; }
         public double C { get; private set; }
@@ -62,21 +62,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public double GetModelX(int x) {
-            if (x < 0 || x >= ImageSize.Height) {
-                throw new ArgumentException($"X ({x}) must be within the image size dimensions ({ImageSize.Width}x{ImageSize.Height})");
+            if (x < 0 || x >= AutoFocusResult.ImageSize.Width) {
+                throw new ArgumentException($"X ({x}) must be within the image size dimensions ({AutoFocusResult.ImageSize.Width}x{AutoFocusResult.ImageSize.Height})");
             }
 
-            var xyRatio = ImageSize.Width / ImageSize.Height;
-            return ((double)x / ImageSize.Width - 0.5) * xyRatio;
+            return (double)x / AutoFocusResult.ImageSize.Width - 0.5;
         }
 
         public double GetModelY(int y) {
-            if (y < 0 || y >= ImageSize.Height) {
-                throw new ArgumentException($"Y ({y}) must be within the image size dimensions ({ImageSize.Width}x{ImageSize.Height})");
+            if (y < 0 || y >= AutoFocusResult.ImageSize.Height) {
+                throw new ArgumentException($"Y ({y}) must be within the image size dimensions ({AutoFocusResult.ImageSize.Width}x{AutoFocusResult.ImageSize.Height})");
             }
 
-            var xyRatio = ImageSize.Width / ImageSize.Height;
-            return (double)y / ImageSize.Height - 0.5;
+            return (double)y / AutoFocusResult.ImageSize.Height - 0.5;
         }
 
         public static TiltPlaneModel Create(AutoFocusResult result) {
@@ -84,13 +82,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 UseIntercept = true
             };
 
-            var xyRatio = result.ImageSize.Width / result.ImageSize.Height;
             double[][] inputs =
             {
-                new double[] { -xyRatio, 1 },
-                new double[] { xyRatio, 1 },
-                new double[] { -xyRatio, -1 },
-                new double[] { xyRatio, -1 },
+                new double[] { -0.5, 0.5 },
+                new double[] { 0.5, 0.5 },
+                new double[] { -0.5, -0.5 },
+                new double[] { 0.5, -0.5 },
             };
 
             var topLeftFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
@@ -105,7 +102,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             double b = regression.Weights[1];
             double c = regression.Intercept;
             double mean = outputs.Average();
-            return new TiltPlaneModel(result.ImageSize, a, b, c, mean);
+            return new TiltPlaneModel(result, a, b, c, mean);
         }
     }
 
@@ -168,6 +165,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 bottomRight: newSideToTiltModels.First(m => m.SensorSide == SensorSide.BottomRight)));
         }
 
+        /*
         private void UpdateTiltPlot(AutoFocusResult result, TiltPlaneModel tiltModel) {
             using (Scope.Enter()) {
                 var scene = new Scene();
@@ -276,9 +274,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 TiltSceneContainer = sceneContainer;
             }
         }
+        */
 
         public void UpdateTiltModel(AutoFocusResult result) {
             var tiltModel = TiltPlaneModel.Create(result);
+            TiltPlaneModel = tiltModel;
             UpdateTiltMeasurementsTable(result, tiltModel);
         }
 
@@ -286,19 +286,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public AsyncObservableCollection<SensorTiltHistoryModel> SensorTiltHistoryModels { get; private set; }
 
-        private ILNSceneContainer tiltSceneContainer;
+        private TiltPlaneModel tiltPlaneModel;
 
-        public ILNSceneContainer TiltSceneContainer {
-            get => tiltSceneContainer;
-            set {
-                tiltSceneContainer = value;
+        public TiltPlaneModel TiltPlaneModel {
+            get => tiltPlaneModel;
+            private set {
+                tiltPlaneModel = value;
                 RaisePropertyChanged();
             }
         }
 
         public void Reset() {
-            this.TiltSceneContainer = null;
             this.SensorTiltModels.Clear();
+            this.TiltPlaneModel = null;
         }
     }
 

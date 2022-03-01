@@ -161,6 +161,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double FWHMMAD { get; set; } = double.NaN;
         public double Eccentricity { get; set; } = double.NaN;
         public double EccentricityMAD { get; set; } = double.NaN;
+        public Size ImageSize { get; set; }
     }
 
     public class HocusFocusDetectedStar : DetectedStar {
@@ -260,14 +261,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
-            var result = new HocusFocusStarDetectionResult() { HocusFocusParams = hocusFocusParams, DetectorParams = detectorParams };
+            var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
+            var result = new HocusFocusStarDetectionResult() { HocusFocusParams = hocusFocusParams, DetectorParams = detectorParams, ImageSize = imageSize };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
                 Notification.ShowInformation("Saved intermediate star detection files");
                 Logger.Info($"Saved intermediate star detection files to {detectorParams.SaveIntermediateFilesPath}");
             }
 
-            var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var starList = starDetectorResult.DetectedStars;
 
             if (!detectorParams.Region.IsFull() && detectorParams.Region.InnerCropBoundary != null) {

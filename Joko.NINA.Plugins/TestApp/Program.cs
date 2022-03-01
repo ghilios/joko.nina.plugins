@@ -48,6 +48,11 @@ namespace TestApp {
 
         [STAThread]
         private static void Main(string[] args) {
+            Colormap cm = new Colormap(Colormaps.Jet);
+            // fetch the colormap data to a local variable
+            Array<float> data = cm.Data;
+            Console.WriteLine();
+
             /*
             var folder = @"E:\AutoFocusSaves\AutoFocus_20221102_223808\attempt01";
             var files = Directory.GetFiles(folder, "*", SearchOption.TopDirectoryOnly);

@@ -18,8 +18,8 @@ using System.Runtime.InteropServices;
 
 // [MANDATORY] The assembly versioning
 //Should be incremented for each new release build of a plugin
-[assembly: AssemblyVersion("1.11.0.26")]
-[assembly: AssemblyFileVersion("1.11.0.26")]
+[assembly: AssemblyVersion("1.11.0.27")]
+[assembly: AssemblyFileVersion("1.11.0.27")]
 
 // [MANDATORY] The name of your plugin
 [assembly: AssemblyTitle("Hocus Focus")]
@@ -78,6 +78,8 @@ using System.Runtime.InteropServices;
 * Generates FWHM Contour Maps and Eccentricity Vector Fields for single exposures for quick visualizations
 * Supports replaying saved AF runs
 * Hocus Focus must be selected for both Auto Focus and Star Detection
+* FWHM Contour Map
+* 3D visualization of sensor tilt
 
 *Improved star detection*
 
@@ -102,10 +104,6 @@ To enable these features, go to Options -> Imaging -> Image Options. After this 
 * Incorporation of measurement error into quality measurement of focusing results
 * Focusing individual color channels instead of just luminance for OSC, since that is skewed towards green focus
 
-*Aberration Inspector*
-
-* FWHM Contour Map
-* 3D visualization of sensor tilt
 ")]
 
 // Setting ComVisible to false makes the types in this assembly not visible
