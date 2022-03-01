@@ -246,6 +246,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return Task.FromResult(false);
             }
 
+            var invalidRegionCount = result.RegionResults.Count(r => double.IsNaN(r.EstimatedFinalFocuserPosition));
+            if (invalidRegionCount > 0) {
+                Notification.ShowWarning($"{invalidRegionCount} regions failed to produce a focus curve");
+                Logger.Error($"{invalidRegionCount} regions failed to produce a focus curve");
+            }
+
             TiltModel.UpdateTiltModel(result);
             return Task.FromResult(true);
         }

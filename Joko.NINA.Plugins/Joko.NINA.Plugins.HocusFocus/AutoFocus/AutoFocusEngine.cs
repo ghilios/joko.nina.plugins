@@ -96,7 +96,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             public int RegionIndex { get; private set; }
             public StarDetectionRegion Region { get; private set; }
             public object SubMeasurementsLock { get; private set; } = new object();
-            public DataPoint FinalFocusPoint { get; private set; }
+            public DataPoint? FinalFocusPoint { get; private set; }
             public MeasureAndError? InitialHFR { get; set; }
             public MeasureAndError? FinalHFR { get; set; }
             public List<MeasureAndError> InitialHFRSubMeasurements { get; private set; } = new List<MeasureAndError>();
@@ -144,36 +144,44 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 this.FinalFocusPoint = DetermineFinalFocusPoint();
             }
 
-            private DataPoint DetermineFinalFocusPoint() {
+            private DataPoint? DetermineFinalFocusPoint() {
                 using (MyStopWatch.Measure()) {
                     var method = Fittings.Method;
                     var fitting = Fittings.CurveFittingType;
 
                     if (method == AFMethodEnum.STARHFR) {
                         if (fitting == AFCurveFittingEnum.TRENDLINES) {
-                            return Fittings.TrendlineFitting.Intersection;
+                            return Fittings.TrendlineFitting?.Intersection;
                         }
 
                         if (fitting == AFCurveFittingEnum.HYPERBOLIC) {
-                            return Fittings.HyperbolicFitting.Minimum;
+                            return Fittings.HyperbolicFitting?.Minimum;
                         }
 
                         if (fitting == AFCurveFittingEnum.PARABOLIC) {
-                            return Fittings.QuadraticFitting.Minimum;
+                            return Fittings.QuadraticFitting?.Minimum;
                         }
 
                         if (fitting == AFCurveFittingEnum.TRENDPARABOLIC) {
+                            if (Fittings.TrendlineFitting == null || Fittings.QuadraticFitting == null) {
+                                return null;
+                            }
+
                             return new DataPoint(Math.Round((Fittings.TrendlineFitting.Intersection.X + Fittings.QuadraticFitting.Minimum.X) / 2), (Fittings.TrendlineFitting.Intersection.Y + Fittings.QuadraticFitting.Minimum.Y) / 2);
                         }
 
                         if (fitting == AFCurveFittingEnum.TRENDHYPERBOLIC) {
+                            if (Fittings.TrendlineFitting == null || Fittings.HyperbolicFitting == null) {
+                                return null;
+                            }
+
                             return new DataPoint(Math.Round((Fittings.TrendlineFitting.Intersection.X + Fittings.HyperbolicFitting.Minimum.X) / 2), (Fittings.TrendlineFitting.Intersection.Y + Fittings.HyperbolicFitting.Minimum.Y) / 2);
                         }
 
                         Logger.Error($"Invalid AutoFocus Fitting {fitting} for method {method}");
                         return new DataPoint();
                     } else {
-                        return Fittings.GaussianFitting.Maximum;
+                        return Fittings.GaussianFitting?.Maximum;
                     }
                 }
             }
@@ -937,7 +945,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var max = autoFocusRegionState.MeasurementsByFocuserPoint.Max(x => x.Key);
 
                     autoFocusRegionState.CalculateFinalFocusPoint();
-                    var finalFocusPosition = (int)Math.Round(autoFocusRegionState.FinalFocusPoint.X);
+                    var finalFocusPosition = (int)Math.Round(autoFocusRegionState.FinalFocusPoint?.X ?? -1);
+                    if (finalFocusPosition < 0) {
+                        Logger.Error("Fit failed. There likely weren't enough data points with detected stars");
+                        Notification.ShowError("Fit failed. There likely weren't enough data points with detected stars");
+                        return false;
+                    }
+
                     if (finalFocusPosition < min || finalFocusPosition > max) {
                         Logger.Error($"Determined focus point position is outside of the overall measurement points of the curve. Fitting is incorrect and autofocus settings are incorrect. FocusPosition {finalFocusPosition}; Min: {min}; Max: {max}; Region: {autoFocusRegionState.Region}");
                         Notification.ShowError(Loc.Instance["LblAutoFocusPointOutsideOfBounds"]);
@@ -946,7 +960,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }
 
-            var firstRegionFinalFocusPosition = (int)Math.Round(autoFocusState.FocusRegionStates[0].FinalFocusPoint.X);
+            var firstRegionFinalFocusPosition = (int)Math.Round(autoFocusState.FocusRegionStates[0].FinalFocusPoint?.X ?? -1);
+            if (firstRegionFinalFocusPosition < 0) {
+                Logger.Error("Fit failed. There likely weren't enough data points with detected stars");
+                Notification.ShowError("Fit failed. There likely weren't enough data points with detected stars");
+                return false;
+            }
 
             await focuserMediator.MoveFocuser(firstRegionFinalFocusPosition, token);
             token.ThrowIfCancellationRequested();
@@ -1076,8 +1095,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 RegionResults = autoFocusState.FocusRegionStates.Select(rs => new AutoFocusRegionResult() {
                     RegionIndex = rs.RegionIndex,
                     Region = rs.Region,
-                    EstimatedFinalFocuserPosition = rs.FinalFocusPoint.X,
-                    EstimatedFinalHFR = rs.FinalFocusPoint.Y,
+                    EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X ?? double.NaN,
+                    EstimatedFinalHFR = rs.FinalFocusPoint?.Y ?? double.NaN,
                     Fittings = rs.Fittings
                 }).OrderBy(r => r.RegionIndex).ToArray()
             };
@@ -1241,8 +1260,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     RegionResults = state.FocusRegionStates.Select(rs => new AutoFocusRegionResult() {
                         RegionIndex = rs.RegionIndex,
                         Region = rs.Region,
-                        EstimatedFinalFocuserPosition = rs.FinalFocusPoint.X,
-                        EstimatedFinalHFR = rs.FinalFocusPoint.Y,
+                        EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X ?? double.NaN,
+                        EstimatedFinalHFR = rs.FinalFocusPoint?.Y ?? double.NaN,
                         Fittings = rs.Fittings
                     }).OrderBy(r => r.RegionIndex).ToArray()
                 };
@@ -1296,10 +1315,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 .Select(s => new AutoFocusRegionHFR() {
                     Region = s.Region,
                     InitialHFR = s.InitialHFR?.Measure,
-                    EstimatedFinalHFR = s.FinalFocusPoint.Y,
+                    EstimatedFinalHFR = s.FinalFocusPoint?.Y ?? double.NaN,
                     FinalHFR = s.FinalHFR?.Measure,
-                    EstimatedFinalFocuserPosition = s.FinalFocusPoint.X,
-                    FinalFocuserPosition = (int)Math.Round(s.FinalFocusPoint.X),
+                    EstimatedFinalFocuserPosition = s.FinalFocusPoint?.X ?? double.NaN,
+                    FinalFocuserPosition = (int)Math.Round(s.FinalFocusPoint?.X ?? -1),
                     Fittings = s.Fittings
                 }).ToImmutableList();
             Completed?.Invoke(this, new AutoFocusCompletedEventArgs() {
@@ -1325,10 +1344,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 .Select(s => new AutoFocusRegionHFR() {
                     Region = s.Region,
                     InitialHFR = s.InitialHFR?.Measure,
-                    EstimatedFinalHFR = s.FinalFocusPoint.Y,
+                    EstimatedFinalHFR = s.FinalFocusPoint?.Y ?? double.NaN,
                     FinalHFR = s.FinalHFR?.Measure,
-                    EstimatedFinalFocuserPosition = s.FinalFocusPoint.X,
-                    FinalFocuserPosition = (int)Math.Round(s.FinalFocusPoint.X),
+                    EstimatedFinalFocuserPosition = s.FinalFocusPoint?.X ?? double.NaN,
+                    FinalFocuserPosition = (int)Math.Round(s.FinalFocusPoint?.X ?? -1),
                     Fittings = s.Fittings
                 }).ToImmutableList();
             Failed?.Invoke(this, new AutoFocusFailedEventArgs() {

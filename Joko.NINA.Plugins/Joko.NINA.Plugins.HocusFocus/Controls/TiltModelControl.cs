@@ -149,9 +149,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                         var modelX = modelXs[i];
                         var modelY = modelYs[i];
                         var modeledFocuserPosition = tiltPlaneModel.EstimateFocusPosition(imageX, imageY);
+                        var autoFocusEstimatedFocuserPosition = autoFocusResult.RegionResults[i + 2].EstimatedFinalFocuserPosition;
+                        if (double.IsNaN(autoFocusEstimatedFocuserPosition)) {
+                            Logger.Error("One or more of the corners failed to produce a focus curve. Not producing a tilt model");
+                            return null;
+                        }
+
                         points[0, i] = modelX;
                         points[1, i] = modelY;
-                        points[2, i] = autoFocusResult.RegionResults[i + 2].EstimatedFinalFocuserPosition;
+                        points[2, i] = autoFocusEstimatedFocuserPosition;
 
                         surfacePoints[0, i] = modelX;
                         surfacePoints[1, i] = modelY;

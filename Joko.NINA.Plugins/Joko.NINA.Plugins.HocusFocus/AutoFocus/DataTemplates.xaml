@@ -1548,7 +1548,7 @@
                                         Header="Side" />
                                     <DataGridTextColumn
                                         Width="*"
-                                        Binding="{Binding FocuserPosition, StringFormat=\{0:0.#\}}"
+                                        Binding="{Binding FocuserPosition, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                         Header="Position" />
                                     <DataGridTextColumn
                                         Width="*"
