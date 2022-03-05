@@ -54,6 +54,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private QuadraticFitting quadraticFitting;
         private TrendlineFitting trendLineFitting;
         private TimeSpan autoFocusDuration;
+        private readonly IAutoFocusOptions autoFocusOptions;
+        private readonly IStarDetectionOptions starDetectionOptions;
         private readonly IFocuserMediator focuserMediator;
         private readonly IAutoFocusEngineFactory autoFocusEngineFactory;
         private readonly IFilterWheelMediator filterWheelMediator;
@@ -74,6 +76,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IFocuserMediator focuserMediator,
             IAutoFocusEngineFactory autoFocusEngineFactory,
             IAutoFocusOptions autoFocusOptions,
+            IStarDetectionOptions starDetectionOptions,
             IFilterWheelMediator filterWheelMediator,
             IApplicationStatusMediator applicationStatusMediator,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector
@@ -82,6 +85,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.autoFocusEngineFactory = autoFocusEngineFactory;
             this.filterWheelMediator = filterWheelMediator;
             this.starDetectionSelector = starDetectionSelector;
+            this.starDetectionOptions = starDetectionOptions;
+            this.autoFocusOptions = autoFocusOptions;
 
             FocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             PlotFocusPoints = new AsyncObservableCollection<DataPoint>();
@@ -292,15 +297,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// <param name="initialFocusPosition"></param>
         /// <param name="initialHFR"></param>
         private AutoFocusReport GenerateReport(
-            int attemptNumber,
             double initialFocusPosition,
             double initialHFR,
             double finalHFR,
             string filter,
             DataPoint finalFocusPoint,
             ReportAutoFocusPoint lastAutoFocusPoint,
-            TimeSpan duration,
-            string saveFolder) {
+            StarDetectionRegion region,
+            TimeSpan duration) {
             var temperature = focuserMediator.GetInfo().Temperature;
             var fittings = new AutoFocusFitting() {
                 GaussianFitting = GaussianFitting,
@@ -313,7 +317,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return GenerateReport(
                 profileService: profileService,
                 starDetector: starDetectionSelector.GetBehavior(),
-                attemptNumber: attemptNumber,
                 focusPoints: FocusPoints,
                 fittings: fittings,
                 initialFocusPosition: initialFocusPosition,
@@ -323,14 +326,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 temperature: temperature,
                 finalFocusPoint: finalFocusPoint,
                 lastAutoFocusPoint: lastAutoFocusPoint,
-                duration: duration,
-                saveFolder: saveFolder);
+                region: region,
+                starDetectionOptions: this.starDetectionOptions,
+                autoFocusOptions: this.autoFocusOptions,
+                duration: duration);
         }
 
         public static AutoFocusReport GenerateReport(
             IProfileService profileService,
+            IAutoFocusOptions autoFocusOptions,
+            IStarDetectionOptions starDetectionOptions,
             IStarDetection starDetector,
-            int attemptNumber,
             ICollection<ScatterErrorPoint> focusPoints,
             AutoFocusFitting fittings,
             double initialFocusPosition,
@@ -340,8 +346,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             double temperature,
             DataPoint finalFocusPoint,
             ReportAutoFocusPoint lastAutoFocusPoint,
-            TimeSpan duration,
-            string saveFolder = "") {
+            StarDetectionRegion region,
+            TimeSpan duration) {
             try {
                 var report = HocusFocusReport.GenerateReport(
                     profileService,
@@ -351,22 +357,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     initialHFR,
                     finalHFR,
                     finalFocusPoint,
+                    fittings,
                     lastAutoFocusPoint,
-                    fittings.TrendlineFitting,
-                    fittings.QuadraticFitting,
-                    fittings.HyperbolicFitting,
-                    fittings.GaussianFitting,
                     temperature,
                     filter,
+                    region,
+                    starDetectionOptions,
+                    autoFocusOptions,
                     duration
                 );
 
                 var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
-                if (!string.IsNullOrEmpty(saveFolder)) {
-                    var targetFilePath = Path.Combine(saveFolder, $"attempt{attemptNumber:00}", $"autofocus_report.json");
-                    File.WriteAllText(targetFilePath, reportText);
-                }
-
                 string path = Path.Combine(ReportDirectory, DateTime.Now.ToString("yyyy-MM-dd--HH-mm-ss") + ".json");
                 File.WriteAllText(path, reportText);
                 return report;
@@ -432,15 +433,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusEngine_CompletedNoReport(sender, e);
 
             var report = GenerateReport(
-                attemptNumber: e.Iteration,
                 initialFocusPosition: e.InitialFocusPosition,
                 initialHFR: firstRegion.InitialHFR ?? 0.0d,
                 finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
                 filter: e.Filter,
                 finalFocusPoint: FinalFocusPoint,
                 lastAutoFocusPoint: LastAutoFocusPoint,
-                duration: e.Duration,
-                saveFolder: e.SaveFolder);
+                region: firstRegion.Region,
+                duration: e.Duration);
+            if (!string.IsNullOrEmpty(e.SaveFolder)) {
+                var regionIndex = 0;
+                var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
+                var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
+                File.WriteAllText(targetFilePath, reportText);
+            }
 
             var autoFocusInfo = new AutoFocusInfo(report.Temperature, report.CalculatedFocusPoint.Position, report.Filter, report.Timestamp);
             focuserMediator.BroadcastSuccessfulAutoFocusRun(autoFocusInfo);
@@ -451,16 +457,52 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private void AutoFocusEngine_Failed(object sender, AutoFocusFailedEventArgs e) {
             var firstRegion = e.RegionHFRs[0];
             var report = GenerateReport(
-                attemptNumber: e.Attempts,
                 initialFocusPosition: e.InitialFocusPosition,
                 initialHFR: firstRegion.InitialHFR ?? 0.0d,
                 finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
                 filter: e.Filter,
                 finalFocusPoint: FinalFocusPoint,
                 lastAutoFocusPoint: LastAutoFocusPoint,
-                duration: e.Duration,
-                saveFolder: e.SaveFolder);
+                region: firstRegion.Region,
+                duration: e.Duration);
+
+            if (!string.IsNullOrEmpty(e.SaveFolder)) {
+                var regionIndex = 0;
+                var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
+                var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
+                File.WriteAllText(targetFilePath, reportText);
+            }
             LastReport = report;
+        }
+
+        private void AutoFocusEngine_IterationFailed(object sender, AutoFocusFailedEventArgs e) {
+            if (!string.IsNullOrEmpty(e.SaveFolder)) {
+                var regionIndex = 0;
+                var firstRegion = e.RegionHFRs[regionIndex];
+                var report = HocusFocusReport.GenerateReport(
+                    profileService: this.profileService,
+                    starDetector: starDetectionSelector.GetBehavior(),
+                    focusPoints: FocusPoints,
+                    fittings: firstRegion.Fittings,
+                    initialFocusPosition: e.InitialFocusPosition,
+                    initialHFR: firstRegion.InitialHFR ?? 0.0d,
+                    finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
+                    filter: e.Filter,
+                    temperature: e.Temperature,
+                    focusPoint: FinalFocusPoint,
+                    lastFocusPoint: LastAutoFocusPoint,
+                    region: firstRegion.Region,
+                    hocusFocusStarDetectionOptions: this.starDetectionOptions,
+                    hocusFocusAutoFocusOptions: this.autoFocusOptions,
+                    duration: e.Duration);
+
+                var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
+                var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
+                File.WriteAllText(targetFilePath, reportText);
+            }
+
+            FocusPoints.Clear();
+            PlotFocusPoints.Clear();
         }
 
         private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusCompletedEventArgs e) {
@@ -495,11 +537,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private void AutoFocusEngine_InitialHFRCalculated(object sender, AutoFocusInitialHFRCalculatedEventArgs e) {
             this.InitialHFR = e.InitialHFR.Measure;
-        }
-
-        private void AutoFocusEngine_IterationFailed(object sender, AutoFocusIterationFailedEventArgs e) {
-            FocusPoints.Clear();
-            PlotFocusPoints.Clear();
         }
 
         private void AutoFocusEngine_AutoFocusStarted(object sender, AutoFocusStartedEventArgs e) {

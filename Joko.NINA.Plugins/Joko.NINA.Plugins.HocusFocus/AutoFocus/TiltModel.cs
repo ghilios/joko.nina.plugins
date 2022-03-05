@@ -11,26 +11,13 @@
 #endregion "copyright"
 
 using Accord.Statistics.Models.Regression.Linear;
-using ILNumerics;
-using ILNumerics.Drawing;
-using static ILNumerics.ILMath;
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using DrawingColor = System.Drawing.Color;
-using DrawingSize = System.Drawing.Size;
-using ILNumerics.Drawing.Plotting;
-using NINA.Astrometry;
-using System.Windows.Media;
-using System.Windows;
-using NINA.Joko.Plugins.HocusFocus.Utility;
 using System.ComponentModel;
 using NINA.Joko.Plugins.HocusFocus.Converters;
-using NINA.Joko.Plugins.HocusFocus.Controls;
-using ILNLines = ILNumerics.Drawing.Lines;
-using ILNLabel = ILNumerics.Drawing.Label;
 using System.Threading;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
@@ -74,7 +61,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 throw new ArgumentException($"Y ({y}) must be within the image size dimensions ({AutoFocusResult.ImageSize.Width}x{AutoFocusResult.ImageSize.Height})");
             }
 
-            return (double)y / AutoFocusResult.ImageSize.Height - 0.5;
+            return -((double)y / AutoFocusResult.ImageSize.Height - 0.5);
         }
 
         public static TiltPlaneModel Create(AutoFocusResult result) {

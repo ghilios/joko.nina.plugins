@@ -79,7 +79,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         event EventHandler<AutoFocusInitialHFRCalculatedEventArgs> InitialHFRCalculated;
 
-        event EventHandler<AutoFocusIterationFailedEventArgs> IterationFailed;
+        event EventHandler<AutoFocusFailedEventArgs> IterationFailed;
 
         event EventHandler<AutoFocusIterationStartedEventArgs> IterationStarted;
 
@@ -156,10 +156,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public MeasureAndError InitialHFR { get; set; }
     }
 
-    public class AutoFocusIterationFailedEventArgs : EventArgs {
-        public int Iteration { get; set; }
-    }
-
     public class AutoFocusIterationStartedEventArgs : EventArgs {
         public int Iteration { get; set; }
     }
@@ -196,7 +192,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     }
 
     public class AutoFocusFailedEventArgs : EventArgs {
-        public int Attempts { get; set; }
+        public int Iteration { get; set; }
         public int InitialFocusPosition { get; set; }
         public ImmutableList<AutoFocusRegionHFR> RegionHFRs { get; set; }
         public string Filter { get; set; }

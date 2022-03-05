@@ -13,6 +13,7 @@
 using Newtonsoft.Json;
 using NINA.Core.Enum;
 using NINA.Image.ImageAnalysis;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Utility.AutoFocus;
 using OxyPlot;
@@ -28,22 +29,38 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         [JsonProperty]
         public double FinalHFR { get; set; } = 0.0d;
 
+        [JsonProperty]
+        public StarDetectionRegion Region { get; set; } = StarDetectionRegion.Full;
+
+        [JsonProperty]
+        public IStarDetectionOptions HocusFocusStarDetectionOptions { get; set; } = null;
+
+        [JsonProperty]
+        public IAutoFocusOptions HocusFocusAutoFocusOptions { get; set; } = null;
+
+        [JsonProperty]
+        public IFocuserSettings FocuserOptions { get; set; } = null;
+
         public static HocusFocusReport GenerateReport(
             IProfileService profileService,
             IStarDetection starDetector,
-            ICollection<ScatterErrorPoint> FocusPoints,
+            ICollection<ScatterErrorPoint> focusPoints,
             double initialFocusPosition,
             double initialHFR,
             double finalHFR,
             DataPoint focusPoint,
+            AutoFocusFitting fittings,
             ReportAutoFocusPoint lastFocusPoint,
-            TrendlineFitting trendlineFitting,
-            QuadraticFitting quadraticFitting,
-            HyperbolicFitting hyperbolicFitting,
-            GaussianFitting gaussianFitting,
             double temperature,
             string filter,
+            StarDetectionRegion region,
+            IStarDetectionOptions hocusFocusStarDetectionOptions,
+            IAutoFocusOptions hocusFocusAutoFocusOptions,
             TimeSpan duration) {
+            var trendlineFitting = fittings.TrendlineFitting;
+            var quadraticFitting = fittings.QuadraticFitting;
+            var hyperbolicFitting = fittings.HyperbolicFitting;
+            var gaussianFitting = fittings.GaussianFitting;
             var report = new HocusFocusReport() {
                 Filter = filter,
                 AutoFocuserName = "Hocus Focus",
@@ -65,7 +82,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 FinalHFR = finalHFR,
                 Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod.ToString(),
                 Fitting = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR ? profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting.ToString() : "GAUSSIAN",
-                MeasurePoints = FocusPoints.Select(x => new FocusPoint() { Position = x.X, Value = x.Y, Error = x.ErrorY }),
+                MeasurePoints = focusPoints.Select(x => new FocusPoint() { Position = x.X, Value = x.Y, Error = x.ErrorY }),
                 Intersections = new Intersections() {
                     TrendLineIntersection = trendlineFitting != null ? new FocusPoint() { Position = trendlineFitting.Intersection.X, Value = trendlineFitting.Intersection.Y } : null,
                     GaussianMaximum = gaussianFitting != null ? new FocusPoint() { Position = gaussianFitting.Maximum.X, Value = gaussianFitting.Maximum.Y } : null,
@@ -90,7 +107,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     BacklashIN = profileService.ActiveProfile.FocuserSettings.BacklashIn,
                     BacklashOUT = profileService.ActiveProfile.FocuserSettings.BacklashOut,
                 },
-                Duration = duration
+                Region = region,
+                Duration = duration,
+                FocuserOptions = profileService.ActiveProfile.FocuserSettings,
+                HocusFocusStarDetectionOptions = starDetector is IHocusFocusStarDetection ? hocusFocusStarDetectionOptions : null,
+                HocusFocusAutoFocusOptions = hocusFocusAutoFocusOptions
             };
 
             return report;

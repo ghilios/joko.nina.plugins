@@ -17,9 +17,11 @@ using NINA.Profile.Interfaces;
 using System;
 using System.IO;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
+    [JsonObject]
     public class StarDetectionOptions : BaseINPC, IStarDetectionOptions {
         private readonly PluginOptionsAccessor optionsAccessor;
 

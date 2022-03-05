@@ -808,7 +808,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             Logger.Warning($"Potentially bad auto-focus. Setting focuser back to {initialFocusPosition} and re-attempting.");
                             await focuserMediator.MoveFocuser(initialFocusPosition, token);
 
-                            OnIterationFailed(autoFocusState.AttemptNumber);
+                            OnIterationFailed(
+                                state: autoFocusState,
+                                temperature: focuserMediator.GetInfo().Temperature,
+                                duration: stopWatch.Elapsed);
                             reattempt = true;
                         }
                     } else {
@@ -1283,10 +1286,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Started?.Invoke(this, new AutoFocusStartedEventArgs());
         }
 
-        private void OnIterationFailed(int iteration) {
-            IterationFailed?.Invoke(this, new AutoFocusIterationFailedEventArgs() {
-                Iteration = iteration
-            });
+        private void OnIterationFailed(
+            AutoFocusState state,
+            double temperature,
+            TimeSpan duration) {
+            IterationFailed?.Invoke(this, GetFailedEventArgs(state, temperature, duration));
         }
 
         private void OnMeasurementPointCompleted(int focuserPosition, AutoFocusRegionState regionState, MeasureAndError measurement) {
@@ -1328,7 +1332,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             });
         }
 
-        private void OnFailed(
+        private AutoFocusFailedEventArgs GetFailedEventArgs(
             AutoFocusState state,
             double temperature,
             TimeSpan duration) {
@@ -1345,8 +1349,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     FinalFocuserPosition = (int)Math.Round(s.FinalFocusPoint?.X ?? -1),
                     Fittings = s.Fittings
                 }).ToImmutableList();
-            Failed?.Invoke(this, new AutoFocusFailedEventArgs() {
-                Attempts = state.AttemptNumber,
+            return new AutoFocusFailedEventArgs() {
+                Iteration = state.AttemptNumber,
                 InitialFocusPosition = initialFocuserPosition,
                 RegionHFRs = regionHFRs,
                 Filter = filter,
@@ -1354,7 +1358,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Duration = duration,
                 SaveFolder = state.SaveFolder,
                 ImageSize = state.ImageSize
-            });
+            };
+        }
+
+        private void OnFailed(
+            AutoFocusState state,
+            double temperature,
+            TimeSpan duration) {
+            Failed?.Invoke(this, GetFailedEventArgs(state, temperature, duration));
         }
 
         public AutoFocusEngineOptions GetOptions() {
@@ -1433,7 +1444,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public event EventHandler<AutoFocusInitialHFRCalculatedEventArgs> InitialHFRCalculated;
 
-        public event EventHandler<AutoFocusIterationFailedEventArgs> IterationFailed;
+        public event EventHandler<AutoFocusFailedEventArgs> IterationFailed;
 
         public event EventHandler<AutoFocusIterationStartedEventArgs> IterationStarted;
 
