@@ -149,6 +149,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public StarDetectorParams DetectorParams { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
         public HocusFocusDetectionParams HocusFocusParams { get; set; }
+        public StarDetectionRegion Region { get; set; }
 
         [JsonIgnore]
         public DebugData DebugData { get; set; }
@@ -262,7 +263,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
-            var result = new HocusFocusStarDetectionResult() { HocusFocusParams = hocusFocusParams, DetectorParams = detectorParams, ImageSize = imageSize };
+            var result = new HocusFocusStarDetectionResult() {
+                HocusFocusParams = hocusFocusParams,
+                DetectorParams = detectorParams,
+                ImageSize = imageSize,
+                Region = detectorParams.Region
+            };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
                 Notification.ShowInformation("Saved intermediate star detection files");
@@ -346,6 +352,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 HFR = star.HFR,
                 Position = star.Center.ToAccordPoint(),
                 AverageBrightness = star.MeanBrightness,
+                MaxBrightness = star.PeakBrightness,
                 Background = star.Background,
                 BoundingBox = star.StarBoundingBox.ToDrawingRectangle(),
                 PSF = star.PSF

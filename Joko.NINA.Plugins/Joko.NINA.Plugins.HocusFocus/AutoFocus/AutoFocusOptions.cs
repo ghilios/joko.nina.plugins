@@ -15,9 +15,11 @@ using NINA.Core.Utility;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
+using Newtonsoft.Json;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
+    [JsonObject]
     public class AutoFocusOptions : BaseINPC, IAutoFocusOptions {
         private readonly PluginOptionsAccessor optionsAccessor;
 

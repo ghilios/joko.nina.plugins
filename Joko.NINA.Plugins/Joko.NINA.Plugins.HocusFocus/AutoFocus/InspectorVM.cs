@@ -61,6 +61,8 @@ using System.Windows.Media;
 using NINA.Equipment.Equipment.MyCamera;
 using NINA.Equipment.Equipment.MyFocuser;
 using NINA.Equipment.Equipment;
+using Newtonsoft.Json;
+using System.IO;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
@@ -196,8 +198,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
-                autoFocusEngine.Completed += AutoFocusEngine_Completed;
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
+                autoFocusEngine.Completed += AutoFocusEngine_Completed;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
 
                 ActivateAutoFocusChart();
@@ -536,7 +538,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 };
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
-                autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
+                autoFocusEngine.Failed += AutoFocusEngine_Failed;
                 autoFocusEngine.Completed += AutoFocusEngine_CompletedNoReport;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
 
@@ -581,31 +583,50 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void GenerateReport(AutoFocusCompletedEventArgs e) {
-            var firstRegion = e.RegionHFRs[0];
-            var finalFocusPoint = new DataPoint(firstRegion.EstimatedFinalFocuserPosition, firstRegion.EstimatedFinalHFR);
-            var lastAutoFocusPoint = new ReportAutoFocusPoint {
-                Focuspoint = finalFocusPoint,
-                Temperature = e.Temperature,
-                Timestamp = DateTime.Now,
-                Filter = e.Filter
-            };
-            var report = HocusFocusVM.GenerateReport(
-                profileService: this.profileService,
-                starDetector: starDetectionSelector.GetBehavior(),
-                attemptNumber: e.Iteration,
-                focusPoints: RegionFocusPoints[0],
-                fittings: firstRegion.Fittings,
-                initialFocusPosition: e.InitialFocusPosition,
-                initialHFR: firstRegion.InitialHFR ?? 0.0d,
-                finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
-                filter: e.Filter,
-                temperature: e.Temperature,
-                finalFocusPoint: finalFocusPoint,
-                lastAutoFocusPoint: lastAutoFocusPoint,
-                duration: e.Duration,
-                saveFolder: e.SaveFolder);
+            var regionReports = new HocusFocusReport[e.RegionHFRs.Count];
+            for (int regionIndex = 0; regionIndex < e.RegionHFRs.Count; ++regionIndex) {
+                var region = e.RegionHFRs[regionIndex];
+                var finalFocusPoint = new DataPoint(region.EstimatedFinalFocuserPosition, region.EstimatedFinalHFR);
+                var lastAutoFocusPoint = new ReportAutoFocusPoint {
+                    Focuspoint = finalFocusPoint,
+                    Temperature = e.Temperature,
+                    Timestamp = DateTime.Now,
+                    Filter = e.Filter
+                };
+                var report = HocusFocusReport.GenerateReport(
+                    profileService: this.profileService,
+                    starDetector: starDetectionSelector.GetBehavior(),
+                    focusPoints: RegionFocusPoints[regionIndex],
+                    fittings: region.Fittings,
+                    initialFocusPosition: e.InitialFocusPosition,
+                    initialHFR: region.InitialHFR ?? 0.0d,
+                    finalHFR: region.FinalHFR ?? region.EstimatedFinalHFR,
+                    filter: e.Filter,
+                    temperature: e.Temperature,
+                    focusPoint: finalFocusPoint,
+                    lastFocusPoint: lastAutoFocusPoint,
+                    region: region.Region,
+                    hocusFocusStarDetectionOptions: this.starDetectionOptions,
+                    hocusFocusAutoFocusOptions: this.autoFocusOptions,
+                    duration: e.Duration);
+                regionReports[regionIndex] = report;
+            }
 
-            var autoFocusInfo = new AutoFocusInfo(report.Temperature, report.CalculatedFocusPoint.Position, report.Filter, report.Timestamp);
+            if (!string.IsNullOrEmpty(e.SaveFolder)) {
+                for (int regionIndex = 0; regionIndex < e.RegionHFRs.Count; ++regionIndex) {
+                    var regionReport = regionReports[regionIndex];
+                    var regionReportText = JsonConvert.SerializeObject(regionReport, Formatting.Indented);
+                    var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
+                    File.WriteAllText(targetFilePath, regionReportText);
+                }
+            }
+
+            var reportText = JsonConvert.SerializeObject(regionReports[0], Formatting.Indented);
+            string path = Path.Combine(HocusFocusVM.ReportDirectory, DateTime.Now.ToString("yyyy-MM-dd--HH-mm-ss") + ".json");
+            File.WriteAllText(path, reportText);
+
+            var firstRegionReport = regionReports[0];
+            var autoFocusInfo = new AutoFocusInfo(firstRegionReport.Temperature, firstRegionReport.CalculatedFocusPoint.Position, firstRegionReport.Filter, firstRegionReport.Timestamp);
             focuserMediator.BroadcastSuccessfulAutoFocusRun(autoFocusInfo);
         }
 
@@ -614,8 +635,50 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             GenerateReport(e);
         }
 
+        private void MaybeSaveFailedAutoFocusReports(AutoFocusFailedEventArgs e) {
+            if (!string.IsNullOrEmpty(e.SaveFolder)) {
+                for (int regionIndex = 0; regionIndex < e.RegionHFRs.Count; ++regionIndex) {
+                    var region = e.RegionHFRs[regionIndex];
+                    var finalFocusPoint = new DataPoint(-1.0d, 0.0d);
+                    var lastAutoFocusPoint = new ReportAutoFocusPoint {
+                        Focuspoint = finalFocusPoint,
+                        Temperature = e.Temperature,
+                        Timestamp = DateTime.Now,
+                        Filter = e.Filter
+                    };
+                    var report = HocusFocusReport.GenerateReport(
+                        profileService: this.profileService,
+                        starDetector: starDetectionSelector.GetBehavior(),
+                        focusPoints: RegionFocusPoints[regionIndex],
+                        fittings: region.Fittings,
+                        initialFocusPosition: e.InitialFocusPosition,
+                        initialHFR: region.InitialHFR ?? 0.0d,
+                        finalHFR: region.FinalHFR ?? region.EstimatedFinalHFR,
+                        filter: e.Filter,
+                        temperature: e.Temperature,
+                        focusPoint: finalFocusPoint,
+                        lastFocusPoint: lastAutoFocusPoint,
+                        region: region.Region,
+                        hocusFocusStarDetectionOptions: this.starDetectionOptions,
+                        hocusFocusAutoFocusOptions: this.autoFocusOptions,
+                        duration: e.Duration);
+                    var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
+                    var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
+                    File.WriteAllText(targetFilePath, reportText);
+                }
+            }
+        }
+
+        private void AutoFocusEngine_IterationFailed(object sender, AutoFocusFailedEventArgs e) {
+            MaybeSaveFailedAutoFocusReports(e);
+            ClearPlots();
+        }
+
         private void AutoFocusEngine_Failed(object sender, AutoFocusFailedEventArgs e) {
-            var firstRegion = e.RegionHFRs[0];
+            MaybeSaveFailedAutoFocusReports(e);
+
+            var regionIndex = 0;
+            var region = e.RegionHFRs[regionIndex];
             var finalFocusPoint = new DataPoint(-1.0d, 0.0d);
             var lastAutoFocusPoint = new ReportAutoFocusPoint {
                 Focuspoint = finalFocusPoint,
@@ -623,21 +686,26 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Timestamp = DateTime.Now,
                 Filter = e.Filter
             };
-            _ = HocusFocusVM.GenerateReport(
+            var report = HocusFocusReport.GenerateReport(
                 profileService: this.profileService,
                 starDetector: starDetectionSelector.GetBehavior(),
-                attemptNumber: e.Attempts,
-                focusPoints: RegionFocusPoints[0],
-                fittings: firstRegion.Fittings,
+                focusPoints: RegionFocusPoints[regionIndex],
+                fittings: region.Fittings,
                 initialFocusPosition: e.InitialFocusPosition,
-                initialHFR: firstRegion.InitialHFR ?? 0.0d,
-                finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
+                initialHFR: region.InitialHFR ?? 0.0d,
+                finalHFR: region.FinalHFR ?? region.EstimatedFinalHFR,
                 filter: e.Filter,
                 temperature: e.Temperature,
-                finalFocusPoint: finalFocusPoint,
-                lastAutoFocusPoint: lastAutoFocusPoint,
-                duration: e.Duration,
-                saveFolder: e.SaveFolder);
+                focusPoint: finalFocusPoint,
+                lastFocusPoint: lastAutoFocusPoint,
+                region: region.Region,
+                hocusFocusStarDetectionOptions: this.starDetectionOptions,
+                hocusFocusAutoFocusOptions: this.autoFocusOptions,
+                duration: e.Duration);
+
+            var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
+            string path = Path.Combine(HocusFocusVM.ReportDirectory, DateTime.Now.ToString("yyyy-MM-dd--HH-mm-ss") + ".json");
+            File.WriteAllText(path, reportText);
         }
 
         private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusCompletedEventArgs e) {
@@ -679,10 +747,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return "Bottom Right";
             }
             throw new ArgumentException($"{regionIndex} is not a valid region index", "regionIndex");
-        }
-
-        private void AutoFocusEngine_IterationFailed(object sender, AutoFocusIterationFailedEventArgs e) {
-            ClearPlots();
         }
 
         private void ClearAnalysis() {

@@ -517,7 +517,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Center = starCandidate.Center,
                 Background = starCandidate.Background,
                 MeanBrightness = starCandidate.TotalFlux / starCandidate.PixelCount,
-                StarBoundingBox = starBounds
+                StarBoundingBox = starBounds,
+                PeakBrightness = starCandidate.Peak
             };
 
             // Measure HFR, and discard if we couldn't calculate it

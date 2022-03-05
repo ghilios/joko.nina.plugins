@@ -655,8 +655,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             int leftMostPosition = int.MaxValue;
             int rightMostPosition = int.MinValue;
             for (int i = 0; i < offsetSteps; ++i) {
-                targetFocuserPosition -= stepSize;
-                await focuserMediator.MoveFocuser(targetFocuserPosition, token);
+                var previousFocuserPosition = targetFocuserPosition;
+                targetFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition - stepSize, token);
+                if (targetFocuserPosition >= previousFocuserPosition) {
+                    throw new Exception($"Focuser reached its limit at {targetFocuserPosition}");
+                }
+
                 leftMostPosition = Math.Min(leftMostPosition, targetFocuserPosition);
                 rightMostPosition = Math.Max(rightMostPosition, targetFocuserPosition);
                 await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
@@ -691,11 +695,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var targetMaxFocuserPosition = trendlineFit.Minimum.X + (failedRightPoints + offsetSteps) * stepSize;
                     Logger.Info($"Enough left trend points ({leftTrendCount}) with an established minimum ({trendlineFit.Minimum.X}) to queue remaining right focus points up to {targetMaxFocuserPosition}");
                     while (rightMostPosition < targetMaxFocuserPosition) {
+                        var previousTarget = targetFocuserPosition;
                         targetFocuserPosition = rightMostPosition + stepSize;
+                        var actualFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition, token);
+                        if (actualFocuserPosition <= previousTarget) {
+                            throw new Exception($"Focuser reached its limit at {actualFocuserPosition}");
+                        }
+
                         rightMostPosition = targetFocuserPosition;
-                        await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                         token.ThrowIfCancellationRequested();
-                        await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
+                        await StartAutoFocusPoint(actualFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
                         token.ThrowIfCancellationRequested();
                     }
                     break;
@@ -704,29 +713,44 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var targetMinFocuserPosition = trendlineFit.Minimum.X - (failedLeftPoints + offsetSteps) * stepSize;
                     Logger.Info($"Enough right trend points ({rightTrendCount}) with an established minimum ({trendlineFit.Minimum.X}) to queue remaining left focus points down to {targetMinFocuserPosition}");
                     while (leftMostPosition > targetMinFocuserPosition) {
+                        var previousTarget = targetFocuserPosition;
                         targetFocuserPosition = leftMostPosition - stepSize;
+                        var actualFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition, token);
+                        if (actualFocuserPosition >= previousTarget) {
+                            throw new Exception($"Focuser reached its limit at {actualFocuserPosition}");
+                        }
+
                         leftMostPosition = targetFocuserPosition;
-                        await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                         token.ThrowIfCancellationRequested();
-                        await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
+                        await StartAutoFocusPoint(actualFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
                         token.ThrowIfCancellationRequested();
                     }
                     break;
                 }
 
                 if (leftTrendCount < offsetSteps) {
-                    targetFocuserPosition = leftMostPosition - stepSize;
+                    var previousTarget = targetFocuserPosition;
+                    targetFocuserPosition -= stepSize;
+                    var actualFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition, token);
+                    if (actualFocuserPosition >= previousTarget) {
+                        throw new Exception($"Focuser reached its limit at {actualFocuserPosition}");
+                    }
+
                     leftMostPosition = targetFocuserPosition;
-                    await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                     token.ThrowIfCancellationRequested();
-                    await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
+                    await StartAutoFocusPoint(actualFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
                     token.ThrowIfCancellationRequested();
                 } else { // if (rightTrendCount < offsetSteps) {
-                    targetFocuserPosition = rightMostPosition + stepSize;
+                    var previousTarget = targetFocuserPosition;
+                    targetFocuserPosition += stepSize;
+                    var actualFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition, token);
+                    if (actualFocuserPosition <= previousTarget) {
+                        throw new Exception($"Focuser reached its limit at {actualFocuserPosition}");
+                    }
+
                     rightMostPosition = targetFocuserPosition;
-                    await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                     token.ThrowIfCancellationRequested();
-                    await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
+                    await StartAutoFocusPoint(actualFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
                     token.ThrowIfCancellationRequested();
                 }
 
@@ -808,7 +832,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             Logger.Warning($"Potentially bad auto-focus. Setting focuser back to {initialFocusPosition} and re-attempting.");
                             await focuserMediator.MoveFocuser(initialFocusPosition, token);
 
-                            OnIterationFailed(autoFocusState.AttemptNumber);
+                            OnIterationFailed(
+                                state: autoFocusState,
+                                temperature: focuserMediator.GetInfo().Temperature,
+                                duration: stopWatch.Elapsed);
                             reattempt = true;
                         }
                     } else {
@@ -1283,10 +1310,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Started?.Invoke(this, new AutoFocusStartedEventArgs());
         }
 
-        private void OnIterationFailed(int iteration) {
-            IterationFailed?.Invoke(this, new AutoFocusIterationFailedEventArgs() {
-                Iteration = iteration
-            });
+        private void OnIterationFailed(
+            AutoFocusState state,
+            double temperature,
+            TimeSpan duration) {
+            IterationFailed?.Invoke(this, GetFailedEventArgs(state, temperature, duration));
         }
 
         private void OnMeasurementPointCompleted(int focuserPosition, AutoFocusRegionState regionState, MeasureAndError measurement) {
@@ -1328,7 +1356,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             });
         }
 
-        private void OnFailed(
+        private AutoFocusFailedEventArgs GetFailedEventArgs(
             AutoFocusState state,
             double temperature,
             TimeSpan duration) {
@@ -1345,8 +1373,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     FinalFocuserPosition = (int)Math.Round(s.FinalFocusPoint?.X ?? -1),
                     Fittings = s.Fittings
                 }).ToImmutableList();
-            Failed?.Invoke(this, new AutoFocusFailedEventArgs() {
-                Attempts = state.AttemptNumber,
+            return new AutoFocusFailedEventArgs() {
+                Iteration = state.AttemptNumber,
                 InitialFocusPosition = initialFocuserPosition,
                 RegionHFRs = regionHFRs,
                 Filter = filter,
@@ -1354,7 +1382,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Duration = duration,
                 SaveFolder = state.SaveFolder,
                 ImageSize = state.ImageSize
-            });
+            };
+        }
+
+        private void OnFailed(
+            AutoFocusState state,
+            double temperature,
+            TimeSpan duration) {
+            Failed?.Invoke(this, GetFailedEventArgs(state, temperature, duration));
         }
 
         public AutoFocusEngineOptions GetOptions() {
@@ -1433,7 +1468,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public event EventHandler<AutoFocusInitialHFRCalculatedEventArgs> InitialHFRCalculated;
 
-        public event EventHandler<AutoFocusIterationFailedEventArgs> IterationFailed;
+        public event EventHandler<AutoFocusFailedEventArgs> IterationFailed;
 
         public event EventHandler<AutoFocusIterationStartedEventArgs> IterationStarted;
 

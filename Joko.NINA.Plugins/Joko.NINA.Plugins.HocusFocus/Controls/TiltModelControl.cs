@@ -155,11 +155,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                             return null;
                         }
 
-                        points[0, i] = modelX;
+                        points[0, i] = -modelX;
                         points[1, i] = modelY;
                         points[2, i] = autoFocusEstimatedFocuserPosition;
 
-                        surfacePoints[0, i] = modelX;
+                        surfacePoints[0, i] = -modelX;
                         surfacePoints[1, i] = modelY;
                         surfacePoints[2, i] = modeledFocuserPosition;
                         minFocuserPosition = Math.Min(modeledFocuserPosition, minFocuserPosition);
@@ -170,8 +170,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     }
 
                     var triStr = new TrianglesStrip();
-                    triStr.Positions.Update(tosingle(surfacePoints));
                     triStr.Color = SurfaceColor.ToDrawingColor();
+                    triStr.Positions = tosingle(surfacePoints);
                     var plotPoints = new Points {
                         Positions = tosingle(points),
                         Color = PointColor.ToDrawingColor()
@@ -209,10 +209,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                         Projection = Projection.Orthographic,
                         Children = { plotPoints, triStr }
                     };
-                    plotCube.Axes.XAxis.Ticks.Add(-0.5f, "Left");
-                    plotCube.Axes.XAxis.Ticks.Add(0.5f, "Right");
-                    plotCube.Axes.YAxis.Ticks.Add(0.5f, "Top");
-                    plotCube.Axes.YAxis.Ticks.Add(-0.5f, "Bottom");
+                    plotCube.Axes.XAxis.Ticks.Add(-0.5f, "Right");
+                    plotCube.Axes.XAxis.Ticks.Add(0.5f, "Left");
+                    plotCube.Axes.YAxis.Ticks.Add(0.5f, "Bottom");
+                    plotCube.Axes.YAxis.Ticks.Add(-0.5f, "Top");
 
                     var dataScreen = plotCube.DataScreenRect;
                     plotCube.AspectRatioMode = AspectRatioMode.StretchToFill;

@@ -1540,6 +1540,7 @@
                                 HorizontalAlignment="Center"
                                 AutoGenerateColumns="False"
                                 ColumnWidth="Auto"
+                                IsReadOnly="True"
                                 ItemsSource="{Binding TiltModel.SensorTiltModels}">
                                 <DataGrid.Columns>
                                     <DataGridTextColumn
