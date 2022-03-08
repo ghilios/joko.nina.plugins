@@ -241,14 +241,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 scene.Add(contourPlotCube);
                 scene.Screen.First<Label>().Visible = false;
 
-                var lines = contourPlotCube.Find<ContourLine>();
-                var labelBefore = lines.First().Label;
-
                 UpdateAxisColor(contourPlotCube, AxisColor.ToDrawingColor());
                 UpdateTextColor(contourPlotCube, contourPlot, TextColor.ToDrawingColor());
 
-                var lines2 = contourPlotCube.Find<ContourLine>();
-                var labelAfter = lines2.First().Label;
                 contourPlotCube.Configure();
                 this.PlotCube = contourPlotCube;
                 this.ContourPlot = contourPlot;

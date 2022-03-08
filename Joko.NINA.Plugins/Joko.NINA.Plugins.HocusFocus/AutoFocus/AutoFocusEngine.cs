@@ -666,6 +666,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 await StartAutoFocusPoint(targetFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
             }
 
+            Logger.Info("Waiting on initial focuser move analyses");
+            await Task.WhenAll(autoFocusState.AnalysisTasks);
+
             while (true) {
                 token.ThrowIfCancellationRequested();
 
@@ -729,29 +732,33 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 if (leftTrendCount < offsetSteps) {
-                    var previousTarget = targetFocuserPosition;
-                    targetFocuserPosition -= stepSize;
-                    var actualFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition, token);
+                    var previousTarget = leftMostPosition;
+                    leftMostPosition -= stepSize;
+                    var actualFocuserPosition = await focuserMediator.MoveFocuser(leftMostPosition, token);
                     if (actualFocuserPosition >= previousTarget) {
                         throw new Exception($"Focuser reached its limit at {actualFocuserPosition}");
                     }
 
-                    leftMostPosition = targetFocuserPosition;
                     token.ThrowIfCancellationRequested();
                     await StartAutoFocusPoint(actualFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
                     token.ThrowIfCancellationRequested();
+
+                    Logger.Info("Waiting on next left movement analysis");
+                    await Task.WhenAll(autoFocusState.AnalysisTasks);
                 } else { // if (rightTrendCount < offsetSteps) {
-                    var previousTarget = targetFocuserPosition;
-                    targetFocuserPosition += stepSize;
-                    var actualFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition, token);
+                    var previousTarget = rightMostPosition;
+                    rightMostPosition += stepSize;
+                    var actualFocuserPosition = await focuserMediator.MoveFocuser(rightMostPosition, token);
                     if (actualFocuserPosition <= previousTarget) {
                         throw new Exception($"Focuser reached its limit at {actualFocuserPosition}");
                     }
 
-                    rightMostPosition = targetFocuserPosition;
                     token.ThrowIfCancellationRequested();
                     await StartAutoFocusPoint(actualFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
                     token.ThrowIfCancellationRequested();
+
+                    Logger.Info("Waiting on next right movement analysis");
+                    await Task.WhenAll(autoFocusState.AnalysisTasks);
                 }
 
                 // Ensure we don't have too many measurements in flight, since we need completed analyses to determine stopping conditions

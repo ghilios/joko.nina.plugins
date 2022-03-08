@@ -1664,6 +1664,7 @@
                             HorizontalAlignment="Center"
                             AutoGenerateColumns="False"
                             ColumnWidth="Auto"
+                            IsReadOnly="True"
                             ItemsSource="{Binding TiltModel.SensorTiltHistoryModels}">
                             <DataGrid.Columns>
                                 <DataGridTextColumn
