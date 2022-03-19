@@ -1493,18 +1493,21 @@
                         <StackPanel
                             Grid.Row="2"
                             HorizontalAlignment="Center"
-                            Orientation="Horizontal">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="Inner HFR: " />
-                                <TextBlock Text="{Binding InnerHFR, StringFormat=\{0:0.##\}}" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text=", Outer HFR: " />
-                                <TextBlock Text="{Binding OuterHFR, StringFormat=\{0:0.##\}}" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text=", Backfocus HFR Delta: " />
+                            Orientation="Vertical">
+                            <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                                <TextBlock Text="Backfocus Error: " />
                                 <TextBlock Text="{Binding BackfocusHFR, StringFormat=\{0:0.##\}}" />
+                                <TextBlock Text=" (HFR difference)" />
+                            </StackPanel>
+                            <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Inner HFR: " />
+                                    <TextBlock Text="{Binding InnerHFR, StringFormat=\{0:0.##\}}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text=", Outer HFR: " />
+                                    <TextBlock Text="{Binding OuterHFR, StringFormat=\{0:0.##\}}" />
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
                     </Grid>
@@ -1569,6 +1572,7 @@
                         <Grid Grid.Column="1" HorizontalAlignment="Stretch">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="300" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
@@ -1577,13 +1581,21 @@
                             <TextBlock
                                 Grid.Row="0"
                                 Grid.Column="0"
-                                Margin="10"
+                                Margin="10,10,10,5"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 FontWeight="DemiBold"
                                 Text="Sensor Tilt Visualization" />
-                            <controls:TiltModelControl
+                            <TextBlock
                                 Grid.Row="1"
+                                Grid.Column="0"
+                                Margin="10,0,10,5"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Text="Use for tilt direction, not amount! Model always scaled to fit" />
+                            <controls:TiltModelControl
+                                Grid.Row="2"
                                 Grid.Column="0"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch"

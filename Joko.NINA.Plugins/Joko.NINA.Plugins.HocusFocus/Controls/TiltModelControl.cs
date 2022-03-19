@@ -139,7 +139,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
                     var modelXs = imageXs.Select(x => tiltPlaneModel.GetModelX(x)).ToArray();
                     var modelYs = imageYs.Select(y => tiltPlaneModel.GetModelY(y)).ToArray();
-                    var minFocuserPosition = double.PositiveInfinity;
 
                     Array<double> points = zeros<double>(3, 4);
                     Array<double> surfacePoints = zeros<double>(3, 4);
@@ -155,18 +154,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                             return null;
                         }
 
-                        points[0, i] = -modelX;
-                        points[1, i] = modelY;
+                        points[0, i] = modelX;
+                        points[1, i] = -modelY;
                         points[2, i] = autoFocusEstimatedFocuserPosition;
 
-                        surfacePoints[0, i] = -modelX;
-                        surfacePoints[1, i] = modelY;
+                        surfacePoints[0, i] = modelX;
+                        surfacePoints[1, i] = -modelY;
                         surfacePoints[2, i] = modeledFocuserPosition;
-                        minFocuserPosition = Math.Min(modeledFocuserPosition, minFocuserPosition);
                     }
                     for (int i = 0; i < 4; ++i) {
-                        points[2, i] -= minFocuserPosition;
-                        surfacePoints[2, i] -= minFocuserPosition;
+                        points[2, i] = tiltPlaneModel.MeanFocuserPosition - points[2, i];
+                        surfacePoints[2, i] = tiltPlaneModel.MeanFocuserPosition - surfacePoints[2, i];
                     }
 
                     var triStr = new TrianglesStrip();
@@ -181,8 +179,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                         Axes = {
                           XAxis = {
                               Label = {
-                                Text = "",
-                                    Visible = false
+                                  Text = ""
                               },
                               Ticks = {
                                   Mode = TickMode.Manual
@@ -198,21 +195,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                           },
                           ZAxis = {
                               Label = {
-                                  Text = ""
+                                 Text = "Focuser Delta"
                               },
                               Ticks = {
-                                  Mode = TickMode.Manual
+                                  Mode = TickMode.Auto
                               }
                           }
                       },
-                        Rotation = Matrix4.Rotation(new Vector3(1, 0, 0), AstroUtil.ToRadians(75)) * Matrix4.Rotation(new Vector3(0, 0, 1), AstroUtil.ToRadians(15)),
+                        Rotation = Matrix4.Rotation(new Vector3(1, 0, 0), AstroUtil.ToRadians(75)) * Matrix4.Rotation(new Vector3(0, 0, 1), AstroUtil.ToRadians(195)),
                         Projection = Projection.Orthographic,
                         Children = { plotPoints, triStr }
                     };
-                    plotCube.Axes.XAxis.Ticks.Add(-0.5f, "Right");
-                    plotCube.Axes.XAxis.Ticks.Add(0.5f, "Left");
-                    plotCube.Axes.YAxis.Ticks.Add(0.5f, "Bottom");
-                    plotCube.Axes.YAxis.Ticks.Add(-0.5f, "Top");
+                    plotCube.Axes.XAxis.Ticks.Add(-0.5f, "Left");
+                    plotCube.Axes.XAxis.Ticks.Add(0.5f, "Right");
+                    plotCube.Axes.YAxis.Ticks.Add(0.5f, "Top");
+                    plotCube.Axes.YAxis.Ticks.Add(-0.5f, "Bottom");
 
                     var dataScreen = plotCube.DataScreenRect;
                     plotCube.AspectRatioMode = AspectRatioMode.StretchToFill;

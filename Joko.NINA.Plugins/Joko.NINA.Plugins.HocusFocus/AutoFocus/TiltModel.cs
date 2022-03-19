@@ -61,7 +61,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 throw new ArgumentException($"Y ({y}) must be within the image size dimensions ({AutoFocusResult.ImageSize.Width}x{AutoFocusResult.ImageSize.Height})");
             }
 
-            return -((double)y / AutoFocusResult.ImageSize.Height - 0.5);
+            return (double)y / AutoFocusResult.ImageSize.Height - 0.5;
         }
 
         public static TiltPlaneModel Create(AutoFocusResult result) {
@@ -71,10 +71,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             double[][] inputs =
             {
-                new double[] { -0.5, 0.5 },
-                new double[] { 0.5, 0.5 },
                 new double[] { -0.5, -0.5 },
                 new double[] { 0.5, -0.5 },
+                new double[] { -0.5, 0.5 },
+                new double[] { 0.5, 0.5 },
             };
 
             var topLeftFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
