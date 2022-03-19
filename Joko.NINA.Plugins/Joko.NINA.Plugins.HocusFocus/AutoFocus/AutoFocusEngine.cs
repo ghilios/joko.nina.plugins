@@ -698,7 +698,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var targetMaxFocuserPosition = trendlineFit.Minimum.X + (failedRightPoints + offsetSteps) * stepSize;
                     Logger.Info($"Enough left trend points ({leftTrendCount}) with an established minimum ({trendlineFit.Minimum.X}) to queue remaining right focus points up to {targetMaxFocuserPosition}");
                     while (rightMostPosition < targetMaxFocuserPosition) {
-                        var previousTarget = targetFocuserPosition;
+                        var previousTarget = rightMostPosition;
                         targetFocuserPosition = rightMostPosition + stepSize;
                         var actualFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                         if (actualFocuserPosition <= previousTarget) {
@@ -716,7 +716,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var targetMinFocuserPosition = trendlineFit.Minimum.X - (failedLeftPoints + offsetSteps) * stepSize;
                     Logger.Info($"Enough right trend points ({rightTrendCount}) with an established minimum ({trendlineFit.Minimum.X}) to queue remaining left focus points down to {targetMinFocuserPosition}");
                     while (leftMostPosition > targetMinFocuserPosition) {
-                        var previousTarget = targetFocuserPosition;
+                        var previousTarget = leftMostPosition;
                         targetFocuserPosition = leftMostPosition - stepSize;
                         var actualFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition, token);
                         if (actualFocuserPosition >= previousTarget) {
