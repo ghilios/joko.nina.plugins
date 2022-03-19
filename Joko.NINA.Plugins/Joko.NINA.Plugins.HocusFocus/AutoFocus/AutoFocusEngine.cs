@@ -115,6 +115,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }
 
+            public void ResetInitialHFRMeasurements() {
+                lock (SubMeasurementsLock) {
+                    this.InitialHFRSubMeasurements.Clear();
+                    this.InitialHFR = null;
+                }
+            }
+
             public void UpdateCurveFittings(List<ScatterErrorPoint> validFocusPoints) {
                 lock (SubMeasurementsLock) {
                     var method = this.Fittings.Method;
@@ -303,6 +310,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 lock (StatesLock) {
                     this.AnalysisTasks.Clear();
                     this.FocusRegionStates.ForEach(s => s.ResetMeasurements());
+                }
+            }
+
+            public void ResetInitialHFRMeasurements() {
+                lock (StatesLock) {
+                    this.AnalysisTasks.Clear();
+                    this.FocusRegionStates.ForEach(s => s.ResetInitialHFRMeasurements());
                 }
             }
 
@@ -643,11 +657,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private async Task StartInitialFocusPoints(int initialFocusPosition, AutoFocusState autoFocusState, CancellationToken token, IProgress<ApplicationStatus> progress) {
             if (autoFocusState.Options.AutoFocusMethod == AFMethodEnum.STARHFR && autoFocusState.Options.ValidateHfrImprovement) {
-                await StartAutoFocusPoint(initialFocusPosition, autoFocusState, InitialHFRMeasurementAction, false, token, progress);
+                var firstRegionState = autoFocusState.FocusRegionStates[0];
+                if (firstRegionState.InitialHFR == null) {
+                    autoFocusState.ResetInitialHFRMeasurements();
+                    await StartAutoFocusPoint(initialFocusPosition, autoFocusState, InitialHFRMeasurementAction, false, token, progress);
+                }
             }
         }
 
         private async Task StartBlindFocusPoints(int initialFocusPosition, AutoFocusState autoFocusState, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            Logger.Info("Waiting on initial HFR analysis");
+            await Task.WhenAll(autoFocusState.AnalysisTasks);
+
+            var firstRegionState = autoFocusState.FocusRegionStates[0];
+            lock (firstRegionState.SubMeasurementsLock) {
+                if (autoFocusState.Options.ValidateHfrImprovement && firstRegionState.InitialHFR.HasValue && firstRegionState.InitialHFR.Value.Measure == 0.0) {
+                    throw new InitialHFRFailedException();
+                }
+            }
+
             // Initial set of focus point acquisition getting back to at least the starting point
             var offsetSteps = autoFocusState.Options.AutoFocusInitialOffsetSteps;
             var stepSize = autoFocusState.Options.AutoFocusStepSize;
@@ -674,13 +702,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 TrendlineFitting trendlineFit;
                 Dictionary<int, MeasureAndError> focusPoints;
-                var firstRegionState = autoFocusState.FocusRegionStates[0];
                 lock (firstRegionState.SubMeasurementsLock) {
                     trendlineFit = firstRegionState.Fittings.TrendlineFitting;
                     focusPoints = firstRegionState.MeasurementsByFocuserPoint;
-                    if (autoFocusState.Options.ValidateHfrImprovement && firstRegionState.InitialHFR.HasValue && firstRegionState.InitialHFR.Value.Measure == 0.0) {
-                        throw new InitialHFRFailedException();
-                    }
                 }
 
                 var currentPosition = focuserMediator.GetInfo().Position;
@@ -815,21 +839,34 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 int initialFocusPosition = focuserMediator.GetInfo().Position;
                 autoFocusState.InitialFocuserPosition = initialFocusPosition;
 
-                await StartInitialFocusPoints(initialFocusPosition, autoFocusState, token, progress);
-
                 do {
                     autoFocusState.OnNextAttempt();
                     OnIterationStarted(autoFocusState.AttemptNumber);
 
+                    await StartInitialFocusPoints(initialFocusPosition, autoFocusState, token, progress);
                     reattempt = false;
 
                     var iterationTaskCts = new CancellationTokenSource();
                     var iterationCts = CancellationTokenSource.CreateLinkedTokenSource(token, iterationTaskCts.Token);
+                    bool goodFocusPosition = false;
 
-                    await pointGenerationAction(initialFocusPosition, autoFocusState, iterationCts.Token, progress);
-                    token.ThrowIfCancellationRequested();
+                    try {
+                        await pointGenerationAction(initialFocusPosition, autoFocusState, iterationCts.Token, progress);
+                        token.ThrowIfCancellationRequested();
 
-                    bool goodFocusPosition = await ValidateCalculatedFocusPosition(autoFocusState, iterationCts.Token, progress);
+                        goodFocusPosition = await ValidateCalculatedFocusPosition(autoFocusState, iterationCts.Token, progress);
+                    } catch (TooManyFailedMeasurementsException e) {
+                        // Allow retries for too many failed points retries
+                        Logger.Error($"Too many failed points ({e.NumFailures})");
+                        Notification.ShowWarning(Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"]);
+                        progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
+                    } catch (InitialHFRFailedException) {
+                        // Allow retries for initial HFR failed
+                        Logger.Error($"Initial HFR calculation failed");
+                        Notification.ShowWarning("Calculating initial HFR failed");
+                        progress.Report(new ApplicationStatus() { Status = "Calculating initial HFR failed" });
+                    }
+
                     var duration = stopWatch.Elapsed;
                     if (!goodFocusPosition) {
                         // Ensure we cancel any remaining tasks from this iteration so we can start the next
@@ -1094,14 +1131,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var autofocusCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
                 autoFocusState = await InitializeState(options, imagingFilter, regions, autofocusCts.Token, progress);
                 completed = await RunAutoFocus(autoFocusState, StartBlindFocusPoints, autofocusCts.Token, progress);
-            } catch (TooManyFailedMeasurementsException e) {
-                Logger.Error($"Too many failed points ({e.NumFailures}). Aborting auto focus");
-                Notification.ShowWarning(Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"]);
-                progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
-            } catch (InitialHFRFailedException) {
-                Logger.Error($"Initial HFR calculation failed. Aborting auto focus");
-                Notification.ShowWarning("Calculating initial HFR failed. Aborting auto focus");
-                progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
             } catch (OperationCanceledException) {
                 if (timeoutCts.IsCancellationRequested) {
                     Notification.ShowWarning($"AutoFocus timed out after {options.AutoFocusTimeout}");
