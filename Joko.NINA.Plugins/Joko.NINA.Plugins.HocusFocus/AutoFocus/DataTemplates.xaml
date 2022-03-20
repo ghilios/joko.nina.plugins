@@ -25,6 +25,8 @@
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="NumRegionsWide_Tooltip" Text="How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors. This value must be an odd, positive integer, and the height will be calculated proportionally from it based on the sensor resolution" />
     <TextBlock x:Key="MicronsPerFocuserStep_Tooltip" Text="How much the focuser moves per step, in microns. If this is set, the adjustment chart will include adjustments in microns" />
+    <TextBlock x:Key="EccentricityColorMapEnabled_Tooltip" Text="Enable color on the eccentricity map" />
+    <TextBlock x:Key="MouseOnChartsEnabled_Tooltip" Text="Enable mouse events on charts to scroll, pan, and zoom. Disable this if you don't want the charts to intercept mouse actions" />
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
@@ -952,6 +954,9 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -1137,6 +1142,34 @@
                                 Text="microns"
                                 ToolTip="{StaticResource MicronsPerFocuserStep_Tooltip}" />
                         </StackPanel>
+
+                        <TextBlock
+                            Grid.Row="6"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Eccentricity Color Enabled"
+                            ToolTip="{StaticResource EccentricityColorMapEnabled_Tooltip}" />
+                        <StackPanel
+                            Grid.Row="6"
+                            Grid.Column="1"
+                            Orientation="Horizontal">
+                            <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.EccentricityColorMapEnabled}" />
+                        </StackPanel>
+
+                        <TextBlock
+                            Grid.Row="7"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Mouse Events Enabled"
+                            ToolTip="{StaticResource MouseOnChartsEnabled_Tooltip}" />
+                        <StackPanel
+                            Grid.Row="7"
+                            Grid.Column="1"
+                            Orientation="Horizontal">
+                            <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.MouseOnChartsEnabled}" />
+                        </StackPanel>
                     </Grid>
                 </Expander>
                 <Expander
@@ -1256,8 +1289,8 @@
                                 <oxy:LinearAxis
                                     AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                                     EndPosition="1"
-                                    IsPanEnabled="True"
-                                    IsZoomEnabled="True"
+                                    IsPanEnabled="{Binding Path=InspectorOptions.MouseOnChartsEnabled}"
+                                    IsZoomEnabled="{Binding Path=InspectorOptions.MouseOnChartsEnabled}"
                                     MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
                                     MajorGridlineStyle="LongDash"
                                     MaximumPadding="0.1"
@@ -1270,8 +1303,8 @@
                                 <oxy:LinearAxis
                                     AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                                     EndPosition="1"
-                                    IsPanEnabled="True"
-                                    IsZoomEnabled="True"
+                                    IsPanEnabled="{Binding Path=InspectorOptions.MouseOnChartsEnabled}"
+                                    IsZoomEnabled="{Binding Path=InspectorOptions.MouseOnChartsEnabled}"
                                     MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
                                     MajorGridlineStyle="LongDash"
                                     MaximumPadding="0.1"

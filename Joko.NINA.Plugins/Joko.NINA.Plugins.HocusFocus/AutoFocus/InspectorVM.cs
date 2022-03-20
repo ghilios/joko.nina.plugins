@@ -63,6 +63,8 @@ using NINA.Equipment.Equipment.MyFocuser;
 using NINA.Equipment.Equipment;
 using Newtonsoft.Json;
 using System.IO;
+using NINA.Joko.Plugins.HocusFocus.Scottplot;
+using NINA.Astrometry;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
@@ -359,7 +361,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var centerXs = new double[numRegionsWide * numRegionsTall];
                 var centerYs = new double[numRegionsWide * numRegionsTall];
                 var eccentricities = new double[numRegionsWide * numRegionsTall];
+                var rotations = new double[numRegionsWide * numRegionsTall];
 
+                double scalingFactor = 2.5;
                 int pointIndex = 0;
                 double maxMagnitude = 0.0d;
                 for (int regionRow = 0; regionRow < numRegionsTall; ++regionRow) {
@@ -370,14 +374,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             var (eccentricityMedian, _) = detectedStars.Select(s => s.PSF.Eccentricity).MedianMAD();
                             var (psfRotationMedian, _) = detectedStars.Select(s => s.PSF.ThetaRadians).MedianMAD();
 
-                            var scaledEccentricity = eccentricityMedian * eccentricityMedian;
+                            var scaledEccentricity = eccentricityMedian * eccentricityMedian * scalingFactor;
                             double x = Math.Cos(psfRotationMedian) * scaledEccentricity;
                             double y = Math.Sin(psfRotationMedian) * scaledEccentricity;
                             vectors[regionCol, regionRow] = new Vector2(x, y);
                             eccentricities[pointIndex] = eccentricityMedian;
+                            rotations[pointIndex] = Angle.ByRadians(psfRotationMedian).Degree;
                             maxMagnitude = Math.Max(scaledEccentricity, maxMagnitude);
                         } else {
                             eccentricities[pointIndex] = double.NaN;
+                            rotations[pointIndex] = double.NaN;
                         }
                         centerXs[pointIndex] = regionCol;
                         centerYs[pointIndex++] = regionRow;
@@ -392,8 +398,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var plot = new SPPlot();
                 plot.Style(dataBackground: secondaryBackgroundColor, figureBackground: backgroundColor, tick: secondaryColor, grid: secondaryColor, axisLabel: primaryColor, titleLabel: primaryColor);
 
+                ScottPlot.Drawing.Colormap colormap = null;
+                if (InspectorOptions.EccentricityColorMapEnabled) {
+                    colormap = new ScottPlot.Drawing.Colormap(new LinearColormap("G2R", DrawingColor.Green, DrawingColor.GreenYellow, DrawingColor.Red));
+                }
+
                 // maxMagnitude * 1.2 is taken from the ScottPlot code to ensure no vector scaling takes place
-                var vectorField = plot.AddVectorField(vectors, xs, ys, color: primaryColor, scaleFactor: maxMagnitude * 1.2 * 1.5);
+                var vectorField = new HFVectorField(vectors, xs, ys, colormap: colormap, scaleFactor: maxMagnitude * 1.2 * 1.5, colorScaleMin: 0.3 * 0.3 * scalingFactor, colorScaleMax: 0.6 * 0.6 * scalingFactor, defaultColor: primaryColor);
+                plot.Add(vectorField);
 
                 // Scatter points act as anchor points for mouse over events
                 var scatterPoints = plot.AddScatterPoints(centerXs, centerYs);
@@ -402,6 +414,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 vectorField.ScaledArrowheadLength = 0;
                 vectorField.ScaledArrowheadWidth = 0;
                 vectorField.ScaledArrowheads = true;
+                vectorField.LineWidth = 3;
                 vectorField.Anchor = ArrowAnchor.Center;
 
                 var highlightedPoint = plot.AddPoint(0, 0);
@@ -420,6 +433,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 highlightedEccentricityPoint = highlightedPoint;
                 eccentricityCenterPoints = scatterPoints;
                 eccentricityValues = eccentricities;
+                rotationValues = rotations;
                 EccentricityVectorPlot = plot;
             }
         }
@@ -861,7 +875,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             highlightedEccentricityPoint.X = pointX;
             highlightedEccentricityPoint.Y = pointY;
             highlightedEccentricityPoint.IsVisible = true;
-            highlightedEccentricityPoint.Text = eccentricityValues[pointIndex].ToString("0.00");
+            highlightedEccentricityPoint.Text = $"{eccentricityValues[pointIndex]:0.00}, {rotationValues[pointIndex]:0.}°";
 
             // render if the highlighted point changed
             if (lastHighlightedEccentricityPointIndex != pointIndex) {
@@ -1138,5 +1152,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private ScottPlot.Plottable.ScatterPlot eccentricityCenterPoints;
         private int lastHighlightedEccentricityPointIndex;
         private double[] eccentricityValues;
+        private double[] rotationValues;
     }
 }

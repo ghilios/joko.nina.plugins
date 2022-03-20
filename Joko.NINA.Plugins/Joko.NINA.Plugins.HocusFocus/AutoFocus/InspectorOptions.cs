@@ -40,6 +40,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             numRegionsWide = optionsAccessor.GetValueInt32(nameof(NumRegionsWide), 7);
             loopingExposureAnalysisEnabled = optionsAccessor.GetValueBoolean(nameof(LoopingExposureAnalysisEnabled), false);
             micronsPerFocuserStep = optionsAccessor.GetValueDouble(nameof(MicronsPerFocuserStep), -1);
+            eccentricityColorMapEnabled = optionsAccessor.GetValueBoolean(nameof(EccentricityColorMapEnabled), true);
+            mouseOnChartsEnabled = optionsAccessor.GetValueBoolean(nameof(MouseOnChartsEnabled), true);
         }
 
         public void ResetDefaults() {
@@ -51,6 +53,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             NumRegionsWide = 7;
             LoopingExposureAnalysisEnabled = false;
             MicronsPerFocuserStep = -1;
+            EccentricityColorMapEnabled = true;
+            MouseOnChartsEnabled = true;
         }
 
         private int stepCount;
@@ -152,6 +156,32 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (micronsPerFocuserStep != value) {
                     micronsPerFocuserStep = value;
                     optionsAccessor.SetValueDouble(nameof(MicronsPerFocuserStep), micronsPerFocuserStep);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool eccentricityColorMapEnabled;
+
+        public bool EccentricityColorMapEnabled {
+            get => eccentricityColorMapEnabled;
+            set {
+                if (eccentricityColorMapEnabled != value) {
+                    eccentricityColorMapEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(EccentricityColorMapEnabled), eccentricityColorMapEnabled);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool mouseOnChartsEnabled;
+
+        public bool MouseOnChartsEnabled {
+            get => mouseOnChartsEnabled;
+            set {
+                if (mouseOnChartsEnabled != value) {
+                    mouseOnChartsEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(MouseOnChartsEnabled), mouseOnChartsEnabled);
                     RaisePropertyChanged();
                 }
             }

@@ -465,6 +465,9 @@
     <Compile Include="Resources\OptionsDataTemplates.xaml.cs">
       <DependentUpon>OptionsDataTemplates.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Scottplot\HFArrowStyle.cs" />
+    <Compile Include="Scottplot\HFVectorField.cs" />
+    <Compile Include="Scottplot\LinearColormap.cs" />
     <Compile Include="StarDetection\DataTemplates.xaml.cs">
       <DependentUpon>DataTemplates.xaml</DependentUpon>
     </Compile>

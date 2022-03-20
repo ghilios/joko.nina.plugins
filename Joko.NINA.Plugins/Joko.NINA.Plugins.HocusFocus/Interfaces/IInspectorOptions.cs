@@ -23,5 +23,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double SimpleExposureSeconds { get; set; }
         bool LoopingExposureAnalysisEnabled { get; set; }
         double MicronsPerFocuserStep { get; set; }
+        bool EccentricityColorMapEnabled { get; set; }
+        bool MouseOnChartsEnabled { get; set; }
     }
 }
