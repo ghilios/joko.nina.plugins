@@ -14,6 +14,7 @@ using ILNumerics;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using OpenCvSharp;
 using System;
+using System.Threading;
 using static ILNumerics.Globals;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {

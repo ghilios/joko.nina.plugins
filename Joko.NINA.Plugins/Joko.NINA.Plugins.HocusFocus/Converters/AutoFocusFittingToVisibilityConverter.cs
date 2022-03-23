@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Core.Enum;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.WPF.Base.Utility.AutoFocus;
 using System;
 using System.Globalization;

@@ -1264,7 +1264,11 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Style="{StaticResource ShowOnAutoFocusComplete}" />
+                            <RowDefinition Style="{StaticResource ShowOnAutoFocusComplete}" />
                         </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
                         <TextBlock
                             Grid.Row="0"
                             Margin="10"
@@ -1529,16 +1533,27 @@
                             Orientation="Vertical">
                             <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
                                 <TextBlock Text="Backfocus Error: " />
+                                <TextBlock Text="{Binding BackfocusFocuserPositionDelta, StringFormat=\{0:0\}}" />
+                                <TextBlock Text=" (Move sensor " />
+                                <TextBlock FontWeight="DemiBold" Text="{Binding BackfocusDirection}" />
+                                <TextBlock Text=" flattener)" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel
+                            Grid.Row="3"
+                            HorizontalAlignment="Center"
+                            Orientation="Vertical">
+                            <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                                <TextBlock Text="HFR difference: " />
                                 <TextBlock Text="{Binding BackfocusHFR, StringFormat=\{0:0.##\}}" />
-                                <TextBlock Text=" (HFR difference)" />
                             </StackPanel>
                             <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="Inner HFR: " />
+                                    <TextBlock Text="Inner: " />
                                     <TextBlock Text="{Binding InnerHFR, StringFormat=\{0:0.##\}}" />
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text=", Outer HFR: " />
+                                    <TextBlock Text=", Outer: " />
                                     <TextBlock Text="{Binding OuterHFR, StringFormat=\{0:0.##\}}" />
                                 </StackPanel>
                             </StackPanel>

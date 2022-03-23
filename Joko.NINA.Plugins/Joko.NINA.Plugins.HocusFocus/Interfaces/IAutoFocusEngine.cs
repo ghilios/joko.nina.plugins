@@ -13,6 +13,7 @@
 using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.WPF.Base.Utility.AutoFocus;
 using NINA.WPF.Base.ViewModel.AutoFocus;
 using System;
@@ -58,6 +59,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public string SavePath { get; set; }
         public TimeSpan AutoFocusTimeout { get; set; }
         public double HFRImprovementThreshold { get; set; }
+        public bool EnableHyperbolicV2 { get; set; }
+        public int FocuserOffset { get; set; }
     }
 
     public interface IAutoFocusEngine {

@@ -13,15 +13,20 @@
 using ILNumerics;
 using ILNumerics.Drawing;
 using ILNumerics.Drawing.Plotting;
+using KdTree;
+using KdTree.Math;
 using Newtonsoft.Json;
 using NINA.Core.Utility;
 using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
+using NINA.WPF.Base.Utility.AutoFocus;
 using OpenCvSharp;
+using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -46,12 +51,51 @@ namespace TestApp {
         private const string InputFilePath4 = @"C:\AP\Focus Points Original\5_Focuser_6000_HFR_0191.tif";
         private const string IntermediatePath = @"E:\StarDetectionTest\Intermediate";
 
+        public class SavedStars {
+            public int FocuserPosition { get; set; }
+            public List<HocusFocusDetectedStar> StarList { get; set; }
+        }
+
+        public class DetectedStarIndex {
+
+            public DetectedStarIndex(int index, HocusFocusDetectedStar star) {
+                this.Index = index;
+                this.DetectedStar = star;
+            }
+
+            public int Index { get; private set; }
+            public HocusFocusDetectedStar DetectedStar { get; private set; }
+        }
+
+        public class MatchingPair {
+            public int SourceIndex { get; set; }
+            public int GlobalIndex { get; set; }
+        }
+
+        public class MatchedStar {
+            public int FocuserPosition { get; set; }
+            public HocusFocusDetectedStar Star { get; set; }
+        }
+
+        public class MatchedStars {
+            public double RegistrationX { get; set; } = double.NaN;
+            public double RegistrationY { get; set; } = double.NaN;
+            public double? FitFocuserPosition { get; set; }
+            public double? FitHFR { get; set; }
+            public double? FitRSquared { get; set; }
+            public string FitExpression { get; set; } = null;
+            public List<MatchedStar> StarsUsedInCalculation { get; set; }
+        }
+
         [STAThread]
-        private static void Main(string[] args) {
-            Colormap cm = new Colormap(Colormaps.Jet);
-            // fetch the colormap data to a local variable
-            Array<float> data = cm.Data;
-            Console.WriteLine();
+        private static async Task Main(string[] args) {
+            /*
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+            await MainAsync(args);
+            stopwatch.Stop();
+            Console.WriteLine($"Elapsed: {stopwatch.Elapsed}");
+            */
 
             /*
             var folder = @"E:\AutoFocusSaves\AutoFocus_20221102_223808\attempt01";
@@ -78,60 +122,148 @@ namespace TestApp {
             }
             */
 
-            var a = new App();
-            // a.StartupUri = new Uri("App.xaml", System.UriKind.Relative);
-            a.Run();
-
             /*
-            FormsApplication.EnableVisualStyles();
-            FormsApplication.SetCompatibleTextRenderingDefault(false);
-            var form = new ILForm();
-
-            Array<float> angles = linspace<float>(0, (float)pi * 2f, 6);
-            Array<float> pos = zeros<float>(3, 6);
-            pos["0;:"] = sin(angles);
-            pos["1;:"] = cos(angles);
-
-            var scene = new Scene();
-            // get terrain data, convert to single precision
-            Array<float> A = tosingle(SpecialData.terrain[r(120, end), r(0, 310)]);
-            scene.Add(
-              // create plot cube
-              new PlotCube(twoDMode: true) {
-	            // create contour plot
-	            new ContourPlot(A, create3D: false,
-                    levels: new List<ContourLevel> {
-			            // configure individual contour levels
-			            new ContourLevel() { Text = "Coast", Value = 5, LineWidth = 3, LabelColor = DrawingColor.Azure },
-                        new ContourLevel() { Text = "Plateau", Value = 1000, LineWidth = 3},
-                        new ContourLevel() { Text = "Basis 1", Value = 1500, LineWidth = 3, LineStyle = DashStyle.PointDash },
-                        new ContourLevel() { Text = "High", Value = 3000, LineWidth = 3, LineColor = 0 },
-                        new ContourLevel() { Text = @"\fontname{Colonna MT}\bf\fontsize{+4}Rescue", Value = 4200, LineWidth = 3,
-                                                          LineStyle = DashStyle.Dotted },
-                        new ContourLevel() { Text = "Peak", Value = 5000, LineWidth = 3},
-                    }),
-	            // add surface with the same data
-	            new Surface(A) {
-	  	            // disable wireframe
-		            Wireframe = { Visible = false },
-                    UseLighting = true,
-                    Children = {
-                      new Legend { Location = new PointF(1f,.1f) },
-                      new Colorbar {
-                          Location = new PointF(1,.4f),
-                          Anchor = new PointF(1,0)
-                      }
-                    }
-            });
-
-            scene.First<PlotCube>().AspectRatioMode = AspectRatioMode.StretchToFill;
-            form.panel1.Scene = scene;
-            Application.Run(form);
+            var a = new App();
+            a.Run();
             */
 
-            // Console.WriteLine();
+            var path = @"E:\TiltSavedAF";
+            var allDetectedStars = await Task.WhenAll(Directory.GetFiles(path, "*_result.json").Select(async filePath => {
+                using (var reader = File.OpenText(filePath)) {
+                    var text = await reader.ReadToEndAsync();
+                    var savedStars = JsonConvert.DeserializeObject<SavedStars>(text);
+                    return savedStars;
+                }
+            }));
 
-            // MainAsync(args).Wait();
+            var sumAllStars = allDetectedStars.Sum(a => a.StarList.Count);
+            var allDetectedStarTrees = allDetectedStars.Select(result => {
+                var tree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
+                foreach (var (star, starIndex) in result.StarList.Select((star, starIndex) => (star, starIndex))) {
+                    tree.Add(new[] { star.Position.X, star.Position.Y }, new DetectedStarIndex(starIndex, star));
+                }
+                return tree;
+            }).ToArray();
+
+            float searchRadius = 50;
+            var globalRegistry = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
+            var starIndexMap = Enumerable.Range(0, allDetectedStars.Length).Select(i => new Dictionary<int, int>()).ToArray();
+            foreach (var starNode in allDetectedStarTrees[0]) {
+                var nextIndex = globalRegistry.Count;
+                globalRegistry.Add(starNode.Point, new DetectedStarIndex(nextIndex, starNode.Value.DetectedStar));
+                starIndexMap[0].Add(starNode.Value.Index, nextIndex);
+            }
+
+            for (int i = 1; i < allDetectedStars.Length; ++i) {
+                var nextStarList = allDetectedStars[i].StarList;
+                var nextStarTree = allDetectedStarTrees[i];
+                var nextStarIndexMap = starIndexMap[i];
+                var matchedGlobalStars = new bool[globalRegistry.Count];
+                var matchedSourceStars = new bool[nextStarTree.Count];
+                var queue = new PriorityQueue<MatchingPair, float>(new FloatMath());
+                foreach (var (starNode, starNodeIndex) in nextStarTree.Select((starNode, starNodeIndex) => (starNode, starNodeIndex))) {
+                    var sourceStar = starNode.Value.DetectedStar;
+                    var sourcePoint = starNode.Point;
+                    var sourceIndex = starNode.Value.Index;
+                    var globalNeighbors = globalRegistry.RadialSearch(sourcePoint, searchRadius);
+                    foreach (var globalNeighbor in globalNeighbors) {
+                        var globalNeighborIndex = globalNeighbor.Value.Index;
+                        var distance = DotProduct(globalNeighbor.Point, sourcePoint);
+                        queue.Enqueue(new MatchingPair() { SourceIndex = sourceIndex, GlobalIndex = globalNeighborIndex }, distance);
+                    }
+                }
+
+                while (queue.Count > 0) {
+                    var nextCandidate = queue.Dequeue();
+                    if (matchedGlobalStars[nextCandidate.GlobalIndex] || matchedSourceStars[nextCandidate.SourceIndex]) {
+                        continue;
+                    }
+
+                    nextStarIndexMap.Add(nextCandidate.SourceIndex, nextCandidate.GlobalIndex);
+                    matchedGlobalStars[nextCandidate.GlobalIndex] = true;
+                    matchedSourceStars[nextCandidate.SourceIndex] = true;
+                }
+
+                for (int j = 0; j < matchedSourceStars.Length; ++j) {
+                    if (matchedSourceStars[j]) {
+                        continue;
+                    }
+
+                    // Now we've found a star that didn't match in the global registry. Add it to the registry for future matches
+                    var star = nextStarList[j];
+                    var nextGlobalIndex = globalRegistry.Count;
+                    globalRegistry.Add(new[] { star.Position.X, star.Position.Y }, new DetectedStarIndex(nextGlobalIndex, star));
+                    nextStarIndexMap.Add(j, nextGlobalIndex);
+                }
+            }
+
+            var allMatchedStars = new MatchedStars[globalRegistry.Count];
+            foreach (var globalNode in globalRegistry) {
+                var matchedStars = new MatchedStars() {
+                    StarsUsedInCalculation = new List<MatchedStar>(),
+                    RegistrationX = globalNode.Value.DetectedStar.Position.X,
+                    RegistrationY = globalNode.Value.DetectedStar.Position.Y
+                };
+                allMatchedStars[globalNode.Value.Index] = matchedStars;
+            }
+            for (int i = 0; i < starIndexMap.Length; ++i) {
+                var nextStarIndexMap = starIndexMap[i];
+                var focuserPosition = allDetectedStars[i].FocuserPosition;
+                var detectedStars = allDetectedStars[i].StarList;
+                foreach (var nextKvp in nextStarIndexMap) {
+                    var sourceIndex = nextKvp.Key;
+                    var globalIndex = nextKvp.Value;
+                    var sourceStar = detectedStars[sourceIndex];
+                    var matchedStar = new MatchedStar() {
+                        FocuserPosition = focuserPosition,
+                        Star = sourceStar
+                    };
+                    allMatchedStars[globalIndex].StarsUsedInCalculation.Add(matchedStar);
+                }
+            }
+
+            for (int i = 0; i < allMatchedStars.Length; ++i) {
+                var matchedStars = allMatchedStars[i];
+                if (matchedStars.StarsUsedInCalculation.Count < 3) {
+                    continue;
+                }
+
+                try {
+                    var points = matchedStars.StarsUsedInCalculation.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
+
+                    var fitting2 = HyperbolicFittingAlglib.Create(points);
+                    var solveResult = fitting2.Solve();
+                    if (!solveResult) {
+                        throw new Exception("WTF");
+                    }
+
+                    matchedStars.FitFocuserPosition = fitting2.Minimum.X;
+                    matchedStars.FitHFR = fitting2.Minimum.Y;
+                    matchedStars.FitRSquared = fitting2.RSquared;
+                    matchedStars.FitExpression = fitting2.Expression;
+                } catch (Exception e) {
+                    Console.WriteLine($"Failed to calculate hyperbolic at ({matchedStars.RegistrationX}, {matchedStars.RegistrationY}). Error={e.Message}");
+                }
+            }
+
+            allMatchedStars = allMatchedStars.OrderBy(s => s.RegistrationY).ThenBy(s => s.RegistrationX).ToArray();
+
+            Console.WriteLine($"{allMatchedStars.Length} registered stars");
+            var resultTargetPath = @"E:\TiltSavedAF\fits_per_star.json";
+            File.WriteAllText(resultTargetPath, JsonConvert.SerializeObject(allMatchedStars, Formatting.Indented));
+            Console.WriteLine();
+        }
+
+        private static float DotProduct(float[] x, float[] y) {
+            if (x.Length != y.Length) {
+                throw new ArgumentException($"x length ({x.Length}) must be equal to y length ({y.Length})");
+            }
+            float ssd = 0.0f;
+            for (int i = 0; i < x.Length; ++i) {
+                var diff = y[i] - x[i];
+                ssd += diff * diff;
+            }
+            return ssd;
         }
 
         private static async Task MainAsync(string[] args) {
@@ -150,15 +282,8 @@ namespace TestApp {
                 var annotator = new HocusFocusStarAnnotator(starAnnotatorOptions, null);
                 var starDetectionParams = new StarDetectionParams() { };
                 var detectorParams = new StarDetectorParams() {
-                    ModelPSF = true,
                     PSFFitType = StarDetectorPSFFitType.Moffat_40,
-                    PSFParallelPartitionSize = 0,
-                    PSFResolution = 10,
-                    PSFGoodnessOfFitThreshold = 0.9,
-                    UseILNumerics = true,
-                    PixelScale = 1.1d,
-                    // SaveIntermediateFilesPath = IntermediatePath,
-                    Region = new StarDetectionRegion(RatioRect.FromCenterROI(0.3))
+                    PSFParallelPartitionSize = 100
                 };
                 var detectorResult = await detector.Detect(srcFloat, detectorParams, null, CancellationToken.None);
                 var detectionResult = new HocusFocusStarDetectionResult() {

@@ -279,8 +279,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         PSFModel psf = null;
                         try {
                             psf = PSFModeler.Solve(modeler, ct: ct);
-                        } catch (Exception) {
+                        } catch (Exception e) {
                             // Ignore errors and continue
+                            Console.WriteLine();
                         }
 
                         if (psf != null && psf.RSquared >= p.PSFGoodnessOfFitThreshold) {

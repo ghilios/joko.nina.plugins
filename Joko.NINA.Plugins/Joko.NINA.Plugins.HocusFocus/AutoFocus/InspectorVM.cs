@@ -548,7 +548,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(two_thirds, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
+                    new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third)),
+                    // TODO: Add back when CCDI-like tilt calculations are integrated
+                    // StarDetectionRegion.Full
                 };
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
@@ -588,6 +590,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void AutoFocusEngine_MeasurementPointCompleted(object sender, AutoFocusMeasurementPointCompletedEventArgs e) {
+            if (e.RegionIndex >= RegionCurveFittings.Count) {
+                return;
+            }
+
             RegionCurveFittings[e.RegionIndex] = GetCurveFitting(e.Fittings);
             RegionLineFittings[e.RegionIndex] = GetLineFitting(e.Fittings);
             RegionPlotFocusPoints[e.RegionIndex].AddSorted(new DataPoint(e.FocuserPosition, e.Measurement.Measure), plotPointComparer);
@@ -731,17 +737,27 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             logReportBuilder.AppendLine($"Center - HFR: {centerHFR}, Focuser: {centerFocuser}");
 
             var outerHFRSum = 0.0d;
-            for (int i = 2; i < e.RegionHFRs.Count; ++i) {
+            var outerFocuserPositionSum = 0.0d;
+            for (int i = 2; i < 6; ++i) {
                 var regionName = GetRegionName(i);
                 var regionHFR = e.RegionHFRs[i];
                 outerHFRSum += regionHFR.EstimatedFinalHFR;
+                outerFocuserPositionSum += regionHFR.EstimatedFinalFocuserPosition;
                 logReportBuilder.AppendLine($"{regionName} - HFR Delta: {regionHFR.EstimatedFinalHFR - centerHFR}, Focuser Delta: {regionHFR.EstimatedFinalFocuserPosition - centerFocuser}");
 
                 RegionFinalFocusPoints[i] = new DataPoint(regionHFR.EstimatedFinalFocuserPosition, regionHFR.EstimatedFinalHFR);
             }
 
+            InnerFocuserPosition = centerFocuser;
+            OuterFocuserPosition = outerFocuserPositionSum / 4;
+            BackfocusFocuserPositionDelta = OuterFocuserPosition - InnerFocuserPosition;
+            if (BackfocusFocuserPositionDelta > 0) {
+                BackfocusDirection = "TOWARDS";
+            } else {
+                BackfocusDirection = "AWAY FROM";
+            }
             InnerHFR = centerHFR;
-            OuterHFR = outerHFRSum / (e.RegionHFRs.Count - 2);
+            OuterHFR = outerHFRSum / 4;
             BackfocusHFR = OuterHFR - InnerHFR;
             AutoFocusCompleted = true;
 
@@ -759,6 +775,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return "Bottom Left";
             } else if (regionIndex == 5) {
                 return "Bottom Right";
+            } else if (regionIndex == 6) {
+                return "Extra (Full)";
             }
             throw new ArgumentException($"{regionIndex} is not a valid region index", "regionIndex");
         }
@@ -795,6 +813,46 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public AsyncObservableCollection<Func<double, double>> RegionCurveFittings { get; private set; }
         public AsyncObservableCollection<TrendlineFitting> RegionLineFittings { get; private set; }
         public PlotModel AutoFocusChartPlotModel { get; set; }
+
+        private string backfocusDirection = "";
+
+        public string BackfocusDirection {
+            get => backfocusDirection;
+            private set {
+                backfocusDirection = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double innerFocuserPosition = double.NaN;
+
+        public double InnerFocuserPosition {
+            get => innerFocuserPosition;
+            private set {
+                innerFocuserPosition = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double outerFocuserPosition = double.NaN;
+
+        public double OuterFocuserPosition {
+            get => outerFocuserPosition;
+            private set {
+                outerFocuserPosition = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double backfocusFocuserPositionDelta = double.NaN;
+
+        public double BackfocusFocuserPositionDelta {
+            get => backfocusFocuserPositionDelta;
+            private set {
+                backfocusFocuserPositionDelta = value;
+                RaisePropertyChanged();
+            }
+        }
 
         private double innerHFR = double.NaN;
 
