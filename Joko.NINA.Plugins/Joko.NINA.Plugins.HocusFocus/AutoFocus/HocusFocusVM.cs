@@ -20,6 +20,7 @@ using NINA.Core.Utility.Notification;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
@@ -391,7 +392,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
 
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
-                        HyperbolicFitting = new HyperbolicFitting().Calculate(validFocusPoints);
+                        if (this.autoFocusOptions.EnableHyperbolicV2) {
+                            var hf = HyperbolicFittingAlglib.Create(validFocusPoints);
+                            hf.Solve();
+                            HyperbolicFitting = hf;
+                        } else {
+                            HyperbolicFitting = new HyperbolicFitting().Calculate(validFocusPoints);
+                        }
                     }
                 }
             } else if (validFocusPoints.Count() >= 3) {

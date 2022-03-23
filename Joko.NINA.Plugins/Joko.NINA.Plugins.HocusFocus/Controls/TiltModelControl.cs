@@ -155,11 +155,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                         }
 
                         points[0, i] = modelX;
-                        points[1, i] = -modelY;
+                        points[1, i] = modelY;
                         points[2, i] = autoFocusEstimatedFocuserPosition;
 
                         surfacePoints[0, i] = modelX;
-                        surfacePoints[1, i] = -modelY;
+                        surfacePoints[1, i] = modelY;
                         surfacePoints[2, i] = modeledFocuserPosition;
                     }
                     for (int i = 0; i < 4; ++i) {
@@ -202,14 +202,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                               }
                           }
                       },
-                        Rotation = Matrix4.Rotation(new Vector3(1, 0, 0), AstroUtil.ToRadians(75)) * Matrix4.Rotation(new Vector3(0, 0, 1), AstroUtil.ToRadians(195)),
+                        Rotation = Matrix4.Rotation(new Vector3(1, 0, 0), AstroUtil.ToRadians(75)) * Matrix4.Rotation(new Vector3(0, 0, 1), AstroUtil.ToRadians(15)),
                         Projection = Projection.Orthographic,
                         Children = { plotPoints, triStr }
                     };
                     plotCube.Axes.XAxis.Ticks.Add(-0.5f, "Left");
                     plotCube.Axes.XAxis.Ticks.Add(0.5f, "Right");
-                    plotCube.Axes.YAxis.Ticks.Add(0.5f, "Top");
-                    plotCube.Axes.YAxis.Ticks.Add(-0.5f, "Bottom");
+                    plotCube.Axes.YAxis.Ticks.Add(0.5f, "Bottom");
+                    plotCube.Axes.YAxis.Ticks.Add(-0.5f, "Top");
 
                     var dataScreen = plotCube.DataScreenRect;
                     plotCube.AspectRatioMode = AspectRatioMode.StretchToFill;

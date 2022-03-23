@@ -49,6 +49,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public abstract double GoodnessOfFit(double A, double x0, double y0, double sigmaX, double sigmaY, double theta);
 
         public abstract PSFModelSolution Solve(int maxIterations, double tolerance, CancellationToken ct);
+
+        public abstract PSFModelSolution SolveAbsoluteDeviation(int maxIterations, double tolerance, CancellationToken ct);
     }
 
     public abstract class PSFModelTypeILNBase : PSFModelTypeBase {
@@ -106,6 +108,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 SigmaY = solution.GetValue<double>(4),
                 Theta = solution.GetValue<double>(5)
             };
+        }
+
+        public override PSFModelSolution SolveAbsoluteDeviation(int maxIterations, double tolerance, CancellationToken ct) {
+            throw new NotImplementedException();
         }
     }
 
@@ -173,6 +179,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return 1 - rss / tss;
         }
 
+        public virtual void FitAbsoluteDeviation(double[] parameters, double[] fi, object obj) {
+            // parameters contains the 6 parameters
+            // fi will store the result - 1 for each observation
+            int pixelCount = this.Inputs.Length;
+            fi[0] = 0.0;
+            for (int i = 0; i < pixelCount; ++i) {
+                var input = this.Inputs[i];
+                var observedValue = this.Outputs[i];
+                var estimatedValue = Value(parameters, input);
+                fi[0] += Math.Abs(estimatedValue - observedValue);
+            }
+        }
+
         public override PSFModelSolution Solve(int maxIterations, double tolerance, CancellationToken ct) {
             alglib.minlmstate state = null;
             alglib.minlmreport rep = null;
@@ -206,6 +225,76 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 ct.ThrowIfCancellationRequested();
 
                 alglib.minlmresults(state, out solution, out rep);
+                if (rep.terminationtype < 0) {
+                    string reason;
+                    if (rep.terminationtype == -8) {
+                        reason = "optimizer detected NAN/INF values either in the function itself, or in its Jacobian";
+                    } else if (rep.terminationtype == -3) {
+                        reason = "constraints are inconsistent";
+                    } else {
+                        reason = "unknown";
+                    }
+                    throw new Exception($"PSF modeling failed with type {rep.terminationtype} and reason: {reason}");
+                }
+
+                return new PSFModelSolution() {
+                    A = solution[0],
+                    X0 = solution[1],
+                    Y0 = solution[2],
+                    SigmaX = solution[3],
+                    SigmaY = solution[4],
+                    Theta = solution[5]
+                };
+            } finally {
+                if (state != null) {
+                    alglib.deallocateimmediately(ref state);
+                }
+                if (rep != null) {
+                    alglib.deallocateimmediately(ref rep);
+                }
+            }
+        }
+
+        public override PSFModelSolution SolveAbsoluteDeviation(int maxIterations, double tolerance, CancellationToken ct) {
+            alglib.minnsstate state = null;
+            alglib.minnsreport rep = null;
+            try {
+                var sigmaUpperBound = Math.Sqrt(this.StarBoundingBox.Width * this.StarBoundingBox.Width + this.StarBoundingBox.Height * this.StarBoundingBox.Height) / 2;
+                var initialGuess = new double[] { this.CentroidBrightness, 0.0, 0.0, this.StarBoundingBox.Width / 2.0, this.StarBoundingBox.Height / 2.0, 0.0d };
+                var dxLimit = 0.25;
+                var dyLimit = 0.25;
+                var lowerBounds = new double[] { 0.75d * this.CentroidBrightness, -dxLimit, -dyLimit, sigmaUpperBound / 2.0, sigmaUpperBound / 2.0, -Math.PI / 2.0d };
+                var upperBounds = new double[] { 1.5d * this.CentroidBrightness, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
+                var scale = new double[] { 0.1, 0.1, 0.1, 1, 1, 1 };
+                var solution = new double[5];
+
+                // AGS settings
+                // * radius=0.1   documentation states this is a good initial value. The algorithm will decrease it over time
+                // * rho=50       penalty coefficient for nonlinear constraints. This needs to be large enough that it enforces constraints, but small enough to avoid extreme slowdown
+                var radius = 1.0;
+                var rho = 0.0;
+                var diffstep = 0.1;
+
+                // TODO: Tune this. 0 makes this unbounded?
+                maxIterations = 0;
+
+                alglib.minnscreatef(initialGuess, diffstep, out state);
+                alglib.minnssetalgoags(state, radius, rho);
+
+                // Set bounded constraints for input parameters
+                alglib.minnssetbc(state, lowerBounds, upperBounds);
+
+                // Set the termination conditions
+                alglib.minnssetcond(state, tolerance, maxIterations);
+
+                // Set all variables to the same scale, except for x0, y0. This feature is useful if the magnitude if some variables is dramatically different than others
+                alglib.minnssetscale(state, scale);
+
+                // Perform the optimization
+                alglib.minnsoptimize(state, this.FitAbsoluteDeviation, null, null, null);
+                ct.ThrowIfCancellationRequested();
+
+                alglib.minnsresults(state, out solution, out rep);
                 if (rep.terminationtype < 0) {
                     string reason;
                     if (rep.terminationtype == -8) {

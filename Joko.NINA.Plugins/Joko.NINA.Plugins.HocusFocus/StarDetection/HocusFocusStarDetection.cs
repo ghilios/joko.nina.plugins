@@ -34,6 +34,7 @@ using Star = NINA.Joko.Plugins.HocusFocus.Interfaces.Star;
 using NINA.WPF.Base.Interfaces;
 using NINA.WPF.Base.ViewModel;
 using Newtonsoft.Json;
+using NINA.Equipment.Interfaces.Mediator;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -150,6 +151,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public StarDetectorMetrics Metrics { get; set; }
         public HocusFocusDetectionParams HocusFocusParams { get; set; }
         public StarDetectionRegion Region { get; set; }
+        public int FocuserPosition { get; set; }
 
         [JsonIgnore]
         public DebugData DebugData { get; set; }
@@ -167,6 +169,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class HocusFocusDetectedStar : DetectedStar {
         public PSFModel PSF { get; set; }
+
+        public override string ToString() {
+            return $"{{{nameof(PSF)}={PSF}, {nameof(HFR)}={HFR.ToString()}, {nameof(Position)}={Position.ToString()}, {nameof(AverageBrightness)}={AverageBrightness.ToString()}, {nameof(MaxBrightness)}={MaxBrightness.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(BoundingBox)}={BoundingBox.ToString()}}}";
+        }
     }
 
     [Export(typeof(IPluggableBehavior))]
@@ -174,6 +180,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         private readonly IStarDetector starDetector;
         private readonly StarDetectionOptions starDetectionOptions;
         private readonly IProfileService profileService;
+        private readonly IFocuserMediator focuserMediator;
 
         public IImageStatisticsVM ImageStatisticsVM { get; private set; }
 
@@ -182,10 +189,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public string ContentId => GetType().FullName;
 
         [ImportingConstructor]
-        public HocusFocusStarDetection(IImageStatisticsVM imageStatisticsVM, IProfileService profileService) {
+        public HocusFocusStarDetection(IImageStatisticsVM imageStatisticsVM, IProfileService profileService, IFocuserMediator focuserMediator) {
             this.starDetector = new StarDetector();
             this.starDetectionOptions = HocusFocusPlugin.StarDetectionOptions;
             this.profileService = profileService;
+            this.focuserMediator = focuserMediator;
             ImageStatisticsVM = imageStatisticsVM;
         }
 
@@ -267,7 +275,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 HocusFocusParams = hocusFocusParams,
                 DetectorParams = detectorParams,
                 ImageSize = imageSize,
-                Region = detectorParams.Region
+                Region = detectorParams.Region,
+                FocuserPosition = focuserMediator.GetInfo().Position
             };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {

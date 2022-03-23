@@ -47,6 +47,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             savePath = optionsAccessor.GetValueString("SavePath", "");
             save = optionsAccessor.GetValueBoolean("Save", false);
             lastSelectedLoadPath = optionsAccessor.GetValueString("LastSelectedLoadPath", "");
+            focuserOffset = optionsAccessor.GetValueInt32("FocuserOffset", 0);
+            enableHyperbolicV2 = optionsAccessor.GetValueBoolean(nameof(EnableHyperbolicV2), true);
         }
 
         public void ResetDefaults() {
@@ -63,6 +65,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SavePath = "";
             Save = false;
             LastSelectedLoadPath = "";
+            EnableHyperbolicV2 = true;
+            FocuserOffset = 0;
         }
 
         private int maxConcurrent;
@@ -253,6 +257,32 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (lastSelectedLoadPath != value) {
                     lastSelectedLoadPath = value;
                     optionsAccessor.SetValueString(nameof(LastSelectedLoadPath), lastSelectedLoadPath);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int focuserOffset;
+
+        public int FocuserOffset {
+            get => focuserOffset;
+            set {
+                if (focuserOffset != value) {
+                    focuserOffset = value;
+                    optionsAccessor.SetValueInt32("FocuserOffset", focuserOffset);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool enableHyperbolicV2;
+
+        public bool EnableHyperbolicV2 {
+            get => enableHyperbolicV2;
+            set {
+                if (enableHyperbolicV2 != value) {
+                    enableHyperbolicV2 = value;
+                    optionsAccessor.SetValueBoolean(nameof(EnableHyperbolicV2), enableHyperbolicV2);
                     RaisePropertyChanged();
                 }
             }

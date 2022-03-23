@@ -26,5 +26,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         string SavePath { get; set; }
         bool Save { get; set; }
         string LastSelectedLoadPath { get; set; }
+        int FocuserOffset { get; set; }
+        bool EnableHyperbolicV2 { get; set; }
     }
 }
