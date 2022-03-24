@@ -89,13 +89,11 @@ namespace TestApp {
 
         [STAThread]
         private static async Task Main(string[] args) {
-            /*
             var stopwatch = new Stopwatch();
             stopwatch.Start();
             await MainAsync(args);
             stopwatch.Stop();
             Console.WriteLine($"Elapsed: {stopwatch.Elapsed}");
-            */
 
             /*
             var folder = @"E:\AutoFocusSaves\AutoFocus_20221102_223808\attempt01";
@@ -127,6 +125,7 @@ namespace TestApp {
             a.Run();
             */
 
+            /*
             var path = @"E:\TiltSavedAF";
             var allDetectedStars = await Task.WhenAll(Directory.GetFiles(path, "*_result.json").Select(async filePath => {
                 using (var reader = File.OpenText(filePath)) {
@@ -252,6 +251,7 @@ namespace TestApp {
             var resultTargetPath = @"E:\TiltSavedAF\fits_per_star.json";
             File.WriteAllText(resultTargetPath, JsonConvert.SerializeObject(allMatchedStars, Formatting.Indented));
             Console.WriteLine();
+            */
         }
 
         private static float DotProduct(float[] x, float[] y) {

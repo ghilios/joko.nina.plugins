@@ -36,7 +36,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Moffat_40;
 
-        public override bool UseJacobian => false;
+        public override bool UseJacobian => true;
 
         // G(x,y; x0,y0,sigx,sigy,theta)
         // Background level is normalized already to 0
@@ -81,8 +81,77 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public override void Gradient(double[] parameters, double[] input, double[] result) {
-            // TODO: Consider implementing this to evaluate whether using a jacobian can speed up modeling
-            throw new NotImplementedException();
+            // Wolfram-Alpha solutions for the partial derivatives
+            //  a = A
+            //  b = B
+            //  c = U = sigmaX
+            //  d = V = sigmaY
+            //  f = x0
+            //  g = y0
+            //  t = theta
+            var A = parameters[0];
+            var x = input[0];
+            var y = input[1];
+            var x0 = parameters[1];
+            var y0 = parameters[2];
+            var U = parameters[3];
+            var V = parameters[4];
+            var T = parameters[5];
+
+            var cosT = Math.Cos(T);
+            var sinT = Math.Sin(T);
+            var X = (x - x0) * cosT + (y - y0) * sinT;
+            var Y = -(x - x0) * sinT + (y - y0) * cosT;
+            var X2 = X * X;
+            var Y2 = Y * Y;
+            var U2 = U * U;
+            var V2 = V * V;
+            var U3 = U2 * U;
+            var V3 = V2 * V;
+
+            // d/da
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+Divide%5Ba%2CPower%5B1+%2B+Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bd%2C2%5D%5D%2Cb%5D%5D+with+respect+to+a
+            var den_common = X2 / U2 + Y2 / V2 + 1.0;
+            var d_da = Math.Pow(den_common, -this.Beta);
+
+            // d/df
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+Divide%5Ba%2CPower%5B1+%2B+Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bd%2C2%5D%5D%2Cb%5D%5D+with+respect+to+f
+            var d_df_part1 = -A * this.Beta * ((2.0 * sinT * Y / V2) - (2.0 * cosT * X / U2));
+            var d_df_part2 = Math.Pow(den_common, -this.Beta - 1);
+            var d_df = d_df_part1 * d_df_part2;
+
+            // d/dg
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+Divide%5Ba%2CPower%5B1+%2B+Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bd%2C2%5D%5D%2Cb%5D%5D+with+respect+to+g
+            var d_dg_part1 = -A * this.Beta * ((-2.0 * sinT * X / U2) - (2.0 * cosT * Y / V2));
+            var d_dg_part2 = d_df_part2;
+            var d_dg = d_dg_part1 * d_dg_part2;
+
+            // d/dt
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+Divide%5Ba%2CPower%5B1+%2B+Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bd%2C2%5D%5D%2Cb%5D%5D+with+respect+to+t
+            var YX_2 = 2.0 * Y * X;
+            var d_dt_part1 = -A * this.Beta * ((YX_2 / U2) - (YX_2 / V2));
+            var d_dt_part2 = d_df_part2;
+            var d_dt = d_dt_part1 * d_dt_part2;
+
+            // d/dc
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+Divide%5Ba%2CPower%5B1+%2B+Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bd%2C2%5D%5D%2Cb%5D%5D+with+respect+to+c
+            var AB_2 = 2.0 * A * this.Beta;
+            var d_dc_part1 = (AB_2 / U3) * X2;
+            var d_dc_part2 = d_df_part2;
+            var d_dc = d_dc_part1 * d_dc_part2;
+
+            // d/dd
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+Divide%5Ba%2CPower%5B1+%2B+Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2CPower%5Bd%2C2%5D%5D%2Cb%5D%5D+with+respect+to+d
+            var d_dd_part1 = (AB_2 / V3) * Y2;
+            var d_dd_part2 = d_df_part2;
+            var d_dd = d_dd_part1 * d_dd_part2;
+
+            result[0] = d_da;
+            result[1] = d_df;
+            result[2] = d_dg;
+            result[3] = d_dc;
+            result[4] = d_dd;
+            result[5] = d_dt;
         }
 
         public override double SigmaToFWHM(double sigma) {

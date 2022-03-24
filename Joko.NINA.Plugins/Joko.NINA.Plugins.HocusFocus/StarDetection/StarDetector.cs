@@ -25,6 +25,7 @@ using static NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility;
 using MultiStopWatch = NINA.Joko.Plugins.HocusFocus.Utility.MultiStopWatch;
 using System.IO;
 using System.Text;
+using System.Diagnostics;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -235,12 +236,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 stopWatch.RecordEntry("StarAnalysis");
 
                 // Step 10: Fit PSF models
+                var stopwatch = new Stopwatch();
+                stopwatch.Start();
                 if (p.ModelPSF) {
                     progress?.Report(new ApplicationStatus() { Status = "Modeling PSFs" });
                     await ModelPSF(srcImage, stars, p, metrics, token);
 
                     stopWatch.RecordEntry("ModelPSF");
                 }
+                stopwatch.Stop();
+                Console.WriteLine($"PSF time: {stopwatch.Elapsed}");
                 MaybeSaveIntermediateStars(stars, p, "11-detected-stars.txt");
 
                 var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
@@ -279,8 +284,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         PSFModel psf = null;
                         try {
                             psf = PSFModeler.Solve(modeler, ct: ct);
-                        } catch (Exception) {
+                        } catch (Exception e) {
                             // Ignore errors and continue
+                            Console.WriteLine(e.Message);
                         }
 
                         if (psf != null && psf.RSquared >= p.PSFGoodnessOfFitThreshold) {

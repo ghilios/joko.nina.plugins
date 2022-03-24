@@ -180,15 +180,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public virtual void FitAbsoluteDeviation(double[] parameters, double[] fi, object obj) {
-            // parameters contains the 6 parameters
-            // fi will store the result - 1 for each observation
-            int pixelCount = this.Inputs.Length;
-            fi[0] = 0.0;
-            for (int i = 0; i < pixelCount; ++i) {
-                var input = this.Inputs[i];
-                var observedValue = this.Outputs[i];
-                var estimatedValue = Value(parameters, input);
-                fi[0] += Math.Abs(estimatedValue - observedValue);
+            var residuals = new double[this.Inputs.Length];
+            FitResiduals(parameters, residuals, obj);
+            fi[0] = 0.0d;
+            for (int i = 0; i < this.Inputs.Length; ++i) {
+                fi[0] += Math.Abs(residuals[i]);
+            }
+        }
+
+        public virtual void FitAbsoluteDeviationJacobian(double[] parameters, double[] fi, double[,] jac, object obj) {
+            var residuals = new double[this.Inputs.Length];
+            FitResiduals(parameters, residuals, obj);
+            var singleGradient = new double[parameters.Length];
+            fi[0] = 0.0d;
+            for (int j = 0; j < parameters.Length; ++j) {
+                jac[0, j] = 0.0d;
+            }
+
+            for (int i = 0; i < this.Inputs.Length; ++i) {
+                var sign = Math.Sign(residuals[i]);
+                Gradient(parameters, this.Inputs[i], singleGradient);
+                for (int j = 0; j < parameters.Length; ++j) {
+                    jac[0, j] += sign * singleGradient[j];
+                }
+                fi[0] += Math.Abs(residuals[i]);
             }
         }
 
@@ -220,6 +235,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // Set all variables to the same scale, except for x0, y0. This feature is useful if the magnitude if some variables is dramatically different than others
                 alglib.minlmsetscale(state, scale);
 
+                // TODO: Remove optguard
+                // alglib.minlmoptguardgradient(state, 1E-4);
+
                 // Perform the optimization
                 alglib.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, null, null);
                 ct.ThrowIfCancellationRequested();
@@ -236,6 +254,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     throw new Exception($"PSF modeling failed with type {rep.terminationtype} and reason: {reason}");
                 }
+
+                /*
+                alglib.optguardreport ogrep;
+                alglib.minlmoptguardresults(state, out ogrep);
+                if (ogrep.badgradsuspected) {
+                    var differences = new double[ogrep.badgraduser.GetLength(0), ogrep.badgraduser.GetLength(1)];
+                    for (int i = 0; i < ogrep.badgraduser.GetLength(0); ++i) {
+                        for (int j = 0; j < ogrep.badgraduser.GetLength(1); ++j) {
+                            differences[i, j] = ogrep.badgradnum[i, j] - ogrep.badgraduser[i, j];
+                        }
+                    }
+
+                    Console.WriteLine();
+                }
+                */
 
                 return new PSFModelSolution() {
                     A = solution[0],
@@ -273,12 +306,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // * rho=50       penalty coefficient for nonlinear constraints. This needs to be large enough that it enforces constraints, but small enough to avoid extreme slowdown
                 var radius = 1.0;
                 var rho = 0.0;
+
+                // TODO: REMOVE
                 var diffstep = 0.1;
 
                 // TODO: Tune this. 0 makes this unbounded?
                 maxIterations = 0;
 
-                alglib.minnscreatef(initialGuess, diffstep, out state);
+                alglib.minnscreate(initialGuess, out state);
                 alglib.minnssetalgoags(state, radius, rho);
 
                 // Set bounded constraints for input parameters
@@ -291,7 +326,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 alglib.minnssetscale(state, scale);
 
                 // Perform the optimization
-                alglib.minnsoptimize(state, this.FitAbsoluteDeviation, null, null, null);
+                alglib.minnsoptimize(state, this.FitAbsoluteDeviationJacobian, null, null);
                 ct.ThrowIfCancellationRequested();
 
                 alglib.minnsresults(state, out solution, out rep);
@@ -389,7 +424,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public static PSFModel Solve(PSFModelTypeBase modelType, int maxIterations = 0, double tolerance = 1E-8, CancellationToken ct = default) {
-            var modelSolution = modelType.Solve(maxIterations, tolerance, ct);
+            var modelSolution = modelType.SolveAbsoluteDeviation(maxIterations, tolerance, ct);
             double sigX = modelSolution.SigmaX;
             double sigY = modelSolution.SigmaY;
             if (double.IsNaN(sigX) || double.IsNaN(sigY)) {
