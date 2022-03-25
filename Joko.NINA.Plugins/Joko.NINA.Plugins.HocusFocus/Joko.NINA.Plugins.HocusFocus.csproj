@@ -433,6 +433,7 @@
     <Compile Include="Converters\DoubleNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\DoubleNegativeToEmptyStringConverter.cs" />
     <Compile Include="Converters\InterpolateColorConverter.cs" />
+    <Compile Include="Converters\InverseNaNToVisibilityCollapsedConverter.cs" />
     <Compile Include="Interfaces\IApplicationDispatcher.cs" />
     <Compile Include="Interfaces\IAutoFocusEngine.cs" />
     <Compile Include="Converters\AutoFocusFittingToVisibilityConverter.cs" />

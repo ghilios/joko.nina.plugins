@@ -760,7 +760,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (InspectorOptions.MicronsPerFocuserStep > 0) {
                 BackfocusMicronDelta = BackfocusFocuserPositionDelta * InspectorOptions.MicronsPerFocuserStep;
             } else {
-                BackfocusMicronDelta = -1;
+                BackfocusMicronDelta = double.NaN;
             }
             InnerHFR = centerHFR;
             OuterHFR = outerHFRSum / 4;
@@ -860,7 +860,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private double backfocusMicronDelta = -1;
+        private double backfocusMicronDelta = double.NaN;
 
         public double BackfocusMicronDelta {
             get => backfocusMicronDelta;

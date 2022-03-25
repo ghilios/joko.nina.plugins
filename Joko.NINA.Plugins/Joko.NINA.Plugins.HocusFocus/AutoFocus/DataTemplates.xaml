@@ -1533,15 +1533,11 @@
                             Orientation="Vertical">
                             <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
                                 <TextBlock Text="Backfocus Error: " />
-                                <StackPanel
-                                    Orientation="Horizontal"
-                                    Visibility="{Binding BackfocusMicronDelta, Converter={StaticResource HF_InverseDoubleNegativeToVisibilityConverter}}">
+                                <StackPanel Orientation="Horizontal" Visibility="{Binding BackfocusMicronDelta, Converter={StaticResource HF_InverseNaNToVisibilityCollapsedConverter}}">
                                     <TextBlock Text="{Binding BackfocusFocuserPositionDelta, StringFormat=\{0:0\}}" />
                                     <TextBlock Text=" steps" />
                                 </StackPanel>
-                                <StackPanel
-                                    Orientation="Horizontal"
-                                    Visibility="{Binding BackfocusMicronDelta, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}">
+                                <StackPanel Orientation="Horizontal" Visibility="{Binding BackfocusMicronDelta, Converter={StaticResource NaNToVisibilityCollapsedConverter}}">
                                     <TextBlock Text="{Binding BackfocusMicronDelta, StringFormat=\{0:0\}}" />
                                     <TextBlock Text=" microns" />
                                 </StackPanel>
