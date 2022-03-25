@@ -372,14 +372,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                         if (detectedStars.Count > 0) {
                             var (eccentricityMedian, _) = detectedStars.Select(s => s.PSF.Eccentricity).MedianMAD();
-                            var (psfRotationMedian, _) = detectedStars.Select(s => s.PSF.ThetaRadians).MedianMAD();
+                            var sumEccentricity = detectedStars.Select(s => s.PSF.Eccentricity).Sum();
+                            var psfRotationWeightedMean = detectedStars.Select(s => s.PSF.ThetaRadians * s.PSF.Eccentricity).Sum() / sumEccentricity;
 
                             var scaledEccentricity = eccentricityMedian * eccentricityMedian * scalingFactor;
-                            double x = Math.Cos(psfRotationMedian) * scaledEccentricity;
-                            double y = Math.Sin(psfRotationMedian) * scaledEccentricity;
+                            double x = Math.Cos(psfRotationWeightedMean) * scaledEccentricity;
+                            double y = Math.Sin(psfRotationWeightedMean) * scaledEccentricity;
                             vectors[regionCol, regionRow] = new Vector2(x, y);
                             eccentricities[pointIndex] = eccentricityMedian;
-                            rotations[pointIndex] = Angle.ByRadians(psfRotationMedian).Degree;
+                            rotations[pointIndex] = Angle.ByRadians(psfRotationWeightedMean).Degree;
                             maxMagnitude = Math.Max(scaledEccentricity, maxMagnitude);
                         } else {
                             eccentricities[pointIndex] = double.NaN;
@@ -756,6 +757,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             } else {
                 BackfocusDirection = "AWAY FROM";
             }
+            if (InspectorOptions.MicronsPerFocuserStep > 0) {
+                BackfocusMicronDelta = BackfocusFocuserPositionDelta * InspectorOptions.MicronsPerFocuserStep;
+            } else {
+                BackfocusMicronDelta = -1;
+            }
             InnerHFR = centerHFR;
             OuterHFR = outerHFRSum / 4;
             BackfocusHFR = OuterHFR - InnerHFR;
@@ -850,6 +856,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             get => backfocusFocuserPositionDelta;
             private set {
                 backfocusFocuserPositionDelta = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double backfocusMicronDelta = -1;
+
+        public double BackfocusMicronDelta {
+            get => backfocusMicronDelta;
+            private set {
+                backfocusMicronDelta = value;
                 RaisePropertyChanged();
             }
         }

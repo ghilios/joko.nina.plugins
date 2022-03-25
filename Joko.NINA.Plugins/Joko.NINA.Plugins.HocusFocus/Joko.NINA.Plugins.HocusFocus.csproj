@@ -429,6 +429,7 @@
       <DependentUpon>ILNSceneControlBase.xaml</DependentUpon>
     </Compile>
     <Compile Include="Controls\TiltModelControl.cs" />
+    <Compile Include="Converters\InverseDoubleNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\DoubleNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\DoubleNegativeToEmptyStringConverter.cs" />
     <Compile Include="Converters\InterpolateColorConverter.cs" />

@@ -145,6 +145,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             psfParallelPartitionSize = optionsAccessor.GetValueInt32("PSFParallelPartitionSize", 100);
             psfResolution = optionsAccessor.GetValueInt32("PSFResolution", 10);
             psfFitThreshold = optionsAccessor.GetValueDouble("PSFFitThreshold", 0.9);
+            usePSFAbsoluteDeviation = optionsAccessor.GetValueBoolean(nameof(UsePSFAbsoluteDeviation), false);
             ConfigureSimpleSettings();
         }
 
@@ -180,6 +181,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFParallelPartitionSize = 100;
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
+            UsePSFAbsoluteDeviation = false;
         }
 
         private bool debugMode;
@@ -595,6 +597,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     psfFitThreshold = value;
                     optionsAccessor.SetValueDouble("PSFFitThreshold", psfFitThreshold);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool usePSFAbsoluteDeviation;
+
+        public bool UsePSFAbsoluteDeviation {
+            get => usePSFAbsoluteDeviation;
+            set {
+                if (usePSFAbsoluteDeviation != value) {
+                    usePSFAbsoluteDeviation = value;
+                    optionsAccessor.SetValueBoolean(nameof(UsePSFAbsoluteDeviation), usePSFAbsoluteDeviation);
                     RaisePropertyChanged();
                 }
             }

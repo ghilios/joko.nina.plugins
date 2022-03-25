@@ -89,13 +89,11 @@ namespace TestApp {
 
         [STAThread]
         private static async Task Main(string[] args) {
-            /*
             var stopwatch = new Stopwatch();
             stopwatch.Start();
             await MainAsync(args);
             stopwatch.Stop();
             Console.WriteLine($"Elapsed: {stopwatch.Elapsed}");
-            */
 
             /*
             var folder = @"E:\AutoFocusSaves\AutoFocus_20221102_223808\attempt01";
@@ -127,6 +125,7 @@ namespace TestApp {
             a.Run();
             */
 
+            /*
             var path = @"E:\TiltSavedAF";
             var allDetectedStars = await Task.WhenAll(Directory.GetFiles(path, "*_result.json").Select(async filePath => {
                 using (var reader = File.OpenText(filePath)) {
@@ -252,6 +251,7 @@ namespace TestApp {
             var resultTargetPath = @"E:\TiltSavedAF\fits_per_star.json";
             File.WriteAllText(resultTargetPath, JsonConvert.SerializeObject(allMatchedStars, Formatting.Indented));
             Console.WriteLine();
+            */
         }
 
         private static float DotProduct(float[] x, float[] y) {
@@ -282,8 +282,10 @@ namespace TestApp {
                 var annotator = new HocusFocusStarAnnotator(starAnnotatorOptions, null);
                 var starDetectionParams = new StarDetectionParams() { };
                 var detectorParams = new StarDetectorParams() {
-                    PSFFitType = StarDetectorPSFFitType.Moffat_40,
-                    PSFParallelPartitionSize = 100
+                    PSFFitType = StarDetectorPSFFitType.Gaussian,
+                    PSFParallelPartitionSize = 0,
+                    UsePSFAbsoluteDeviation = true
+                    //Region = new StarDetectionRegion(RatioRect.Full, RatioRect.FromCenterROI(0.5))
                 };
                 var detectorResult = await detector.Detect(srcFloat, detectorParams, null, CancellationToken.None);
                 var detectionResult = new HocusFocusStarDetectionResult() {

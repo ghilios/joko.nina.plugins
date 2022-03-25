@@ -1533,7 +1533,18 @@
                             Orientation="Vertical">
                             <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
                                 <TextBlock Text="Backfocus Error: " />
-                                <TextBlock Text="{Binding BackfocusFocuserPositionDelta, StringFormat=\{0:0\}}" />
+                                <StackPanel
+                                    Orientation="Horizontal"
+                                    Visibility="{Binding BackfocusMicronDelta, Converter={StaticResource HF_InverseDoubleNegativeToVisibilityConverter}}">
+                                    <TextBlock Text="{Binding BackfocusFocuserPositionDelta, StringFormat=\{0:0\}}" />
+                                    <TextBlock Text=" steps" />
+                                </StackPanel>
+                                <StackPanel
+                                    Orientation="Horizontal"
+                                    Visibility="{Binding BackfocusMicronDelta, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}">
+                                    <TextBlock Text="{Binding BackfocusMicronDelta, StringFormat=\{0:0\}}" />
+                                    <TextBlock Text=" microns" />
+                                </StackPanel>
                                 <TextBlock Text=" (Move sensor " />
                                 <TextBlock FontWeight="DemiBold" Text="{Binding BackfocusDirection}" />
                                 <TextBlock Text=" flattener)" />
@@ -1621,6 +1632,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="300" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
@@ -1642,8 +1654,16 @@
                                 VerticalAlignment="Center"
                                 FontStyle="Italic"
                                 Text="Use for tilt direction, not amount! Model always scaled to fit" />
-                            <controls:TiltModelControl
+                            <TextBlock
                                 Grid.Row="2"
+                                Grid.Column="0"
+                                Margin="10,0,10,5"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Text="Camera body on top. Scope aperture towards bottom." />
+                            <controls:TiltModelControl
+                                Grid.Row="3"
                                 Grid.Column="0"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch"

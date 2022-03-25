@@ -37,14 +37,32 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         [Description("HFR")]
         HFR,
 
-        [Description("FWHM")]
+        [Description("FWHM Arcseconds")]
         FWHM,
+
+        [Description("FWHM X (Pixels)")]
+        FWHM_X,
+
+        [Description("FWHM Y (Pixels)")]
+        FWHM_Y,
+
+        [Description("FWHM Pixels")]
+        FWHMPixels,
 
         [Description("Eccentricity")]
         Eccentricity,
 
         [Description("PSF Rotation")]
-        PSFTheta
+        PSFTheta,
+
+        [Description("Background")]
+        Background,
+
+        [Description("PSF Background")]
+        PSFBackground,
+
+        [Description("PSF Peak")]
+        PSFPeak
     }
 
     public interface IStarAnnotatorOptions : INotifyPropertyChanged {

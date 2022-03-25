@@ -134,7 +134,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                                         if (psf != null) {
                                             var thetaDegrees = MathUtility.RadiansToDegrees(psf.ThetaRadians);
                                             graphics.TranslateTransform(hocusFocusStar.Position.X, hocusFocusStar.Position.Y);
-                                            graphics.RotateTransform((float)thetaDegrees);
+
+                                            // Rotation is clockwise, whereas PSF rotation is counter-clockwise
+                                            graphics.RotateTransform(-(float)thetaDegrees);
                                             graphics.DrawEllipse(starBoundsPen, new RectangleF(
                                                 (float)-psf.FWHMx,
                                                 (float)-psf.FWHMy,
@@ -151,19 +153,37 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                                     graphics.DrawString(star.HFR.ToString("#0.00"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
                                 } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.FWHM && psf != null) {
                                     graphics.DrawString(psf.FWHMArcsecs.ToString("#0.00"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.FWHMPixels && psf != null) {
+                                    graphics.DrawString(psf.FWHMPixels.ToString("#0.00"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.FWHM_X && psf != null) {
+                                    graphics.DrawString(psf.FWHMx.ToString("#0.00"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.FWHM_Y && psf != null) {
+                                    graphics.DrawString(psf.FWHMy.ToString("#0.00"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
                                 } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.Eccentricity && psf != null) {
                                     graphics.DrawString(psf.Eccentricity.ToString("#.00"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
                                 } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.PSFTheta && psf != null) {
                                     var thetaDegrees = MathUtility.RadiansToDegrees(psf.ThetaRadians);
                                     graphics.DrawString(Math.Round(thetaDegrees).ToString("##0") + "°", annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.Background) {
+                                    graphics.DrawString(star.Background.ToString("#.0000"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.PSFBackground && psf != null) {
+                                    graphics.DrawString(psf.Background.ToString("#.0000"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.PSFPeak && psf != null) {
+                                    graphics.DrawString(psf.Peak.ToString("#.0000"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
                                 }
                                 if (StarAnnotatorOptions.ShowStarCenter) {
-                                    var xLength = Math.Max(1.0f, Math.Min(star.Position.X - star.BoundingBox.Left, star.BoundingBox.Right - star.Position.X)) / 2.0f;
-                                    var yLength = Math.Max(1.0f, Math.Min(star.Position.Y - star.BoundingBox.Top, star.BoundingBox.Bottom - star.Position.Y)) / 2.0f;
+                                    float starX = star.Position.X, starY = star.Position.Y;
+                                    if (psf != null && StarAnnotatorOptions.StarBoundsType == StarBoundsTypeEnum.PSF) {
+                                        starX += (float)psf.OffsetX;
+                                        starY += (float)psf.OffsetY;
+                                    }
+
+                                    var xLength = Math.Max(1.0f, Math.Min(starX - star.BoundingBox.Left, star.BoundingBox.Right - starX)) / 2.0f;
+                                    var yLength = Math.Max(1.0f, Math.Min(starY - star.BoundingBox.Top, star.BoundingBox.Bottom - starY)) / 2.0f;
                                     graphics.DrawLine(
-                                        starCenterPen, star.Position.X - xLength, star.Position.Y, star.Position.X + xLength, star.Position.Y);
+                                        starCenterPen, starX - xLength, starY, starX + xLength, starY);
                                     graphics.DrawLine(
-                                        starCenterPen, star.Position.X, star.Position.Y - yLength, star.Position.X, star.Position.Y + yLength);
+                                        starCenterPen, starX, starY - yLength, starX, starY + yLength);
                                 }
                             }
                         }

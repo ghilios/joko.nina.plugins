@@ -18,8 +18,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class PSFModel {
 
-        public PSFModel(StarDetectorPSFFitType psfType, double sigmaX, double sigmaY, double fwhmX, double fwhmY, double thetaRadians, double rSquared, double pixelScale) {
+        public PSFModel(
+            StarDetectorPSFFitType psfType,
+            double offsetX,
+            double offsetY,
+            double peak,
+            double background,
+            double sigmaX,
+            double sigmaY,
+            double fwhmX,
+            double fwhmY,
+            double thetaRadians,
+            double rSquared,
+            double pixelScale) {
             this.PSFType = psfType;
+            this.OffsetX = offsetX;
+            this.OffsetY = offsetY;
+            this.Peak = peak;
+            this.Background = background;
             this.SigmaX = sigmaX;
             this.SigmaY = sigmaY;
             this.Sigma = Math.Sqrt(sigmaX * sigmaY);
@@ -35,6 +51,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public StarDetectorPSFFitType PSFType { get; private set; }
+        public double OffsetX { get; private set; }
+        public double OffsetY { get; private set; }
+        public double Peak { get; private set; }
+        public double Background { get; private set; }
         public double SigmaX { get; private set; }
         public double SigmaY { get; private set; }
         public double Sigma { get; private set; }
@@ -47,7 +67,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double RSquared { get; private set; }
 
         public override string ToString() {
-            return $"{{{nameof(PSFType)}={PSFType.ToString()}, {nameof(SigmaX)}={SigmaX.ToString()}, {nameof(SigmaY)}={SigmaY.ToString()}, {nameof(Sigma)}={Sigma.ToString()}, {nameof(FWHMx)}={FWHMx.ToString()}, {nameof(FWHMy)}={FWHMy.ToString()}, {nameof(ThetaRadians)}={ThetaRadians.ToString()}, {nameof(FWHMPixels)}={FWHMPixels.ToString()}, {nameof(FWHMArcsecs)}={FWHMArcsecs.ToString()}, {nameof(Eccentricity)}={Eccentricity.ToString()}, {nameof(RSquared)}={RSquared.ToString()}}}";
+            return $"{{{nameof(PSFType)}={PSFType.ToString()}, {nameof(OffsetX)}={OffsetX.ToString()}, {nameof(OffsetY)}={OffsetY.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(SigmaX)}={SigmaX.ToString()}, {nameof(SigmaY)}={SigmaY.ToString()}, {nameof(Sigma)}={Sigma.ToString()}, {nameof(FWHMx)}={FWHMx.ToString()}, {nameof(FWHMy)}={FWHMy.ToString()}, {nameof(ThetaRadians)}={ThetaRadians.ToString()}, {nameof(FWHMPixels)}={FWHMPixels.ToString()}, {nameof(FWHMArcsecs)}={FWHMArcsecs.ToString()}, {nameof(Eccentricity)}={Eccentricity.ToString()}, {nameof(RSquared)}={RSquared.ToString()}}}";
         }
     }
 }

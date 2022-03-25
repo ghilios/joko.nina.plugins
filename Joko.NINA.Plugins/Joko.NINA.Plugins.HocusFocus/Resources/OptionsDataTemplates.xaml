@@ -24,6 +24,7 @@
     <hfconverters:ShowAnnotationTypeToVisibilityConverter x:Key="HF_ShowAnnotationTypeToVisibilityConverter" />
     <hfconverters:ZeroToDoubleDashConverter x:Key="HF_ZeroToDoubleDashConverter" />
     <hfconverters:DoubleNegativeToVisibilityConverter x:Key="HF_DoubleNegativeToVisibilityConverter" />
+    <hfconverters:InverseDoubleNegativeToVisibilityConverter x:Key="HF_InverseDoubleNegativeToVisibilityConverter" />
     <hfconverters:DoubleNegativeToEmptyStringConverter x:Key="HF_DoubleNegativeToEmptyStringConverter" />
     <hfconverters:InterpolateColorConverter x:Key="HF_InterpolateColorConverter" />
     <TextBlock x:Key="MaxConcurrent_Tooltip" Text="The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." />
@@ -93,6 +94,7 @@
     <TextBlock x:Key="SimpleNoiseLevel_Tooltip" Text="Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio" />
     <TextBlock x:Key="SimpleFocusRange_Tooltip" Text="As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection" />
     <TextBlock x:Key="SimplePixelScale_Tooltip" Text="At high focal lengths, pixel scale decreases and apparent star size (in pixels) increases. Setting this to a higher focal length increases the number of layers considered for star detection, which could increase false positives due from nebulosity" />
+    <TextBlock x:Key="UsePSFAbsoluteDeviation_Tooltip" Text="Enables an experimental PSF fitting approach that is more robust to noise and outlier pixels. This should more closely mimic PixInsight PSF fitting logic" />
     <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
         <Grid Margin="5" VerticalAlignment="Top">
             <Grid.Resources>
@@ -392,6 +394,7 @@
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
+                <!-- 37 -->
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
@@ -954,6 +957,22 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="30"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="PSF MAD Fitting"
+                ToolTip="{StaticResource UsePSFAbsoluteDeviation_Tooltip}" />
+            <CheckBox
+                Grid.Row="30"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.UsePSFAbsoluteDeviation}"
+                ToolTip="{StaticResource UsePSFAbsoluteDeviation_Tooltip}" />
 
             <TextBlock
                 Grid.Row="36"

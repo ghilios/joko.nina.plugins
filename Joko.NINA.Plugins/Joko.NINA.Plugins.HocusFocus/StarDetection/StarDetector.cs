@@ -25,6 +25,7 @@ using static NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility;
 using MultiStopWatch = NINA.Joko.Plugins.HocusFocus.Utility.MultiStopWatch;
 using System.IO;
 using System.Text;
+using System.Diagnostics;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -235,12 +236,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 stopWatch.RecordEntry("StarAnalysis");
 
                 // Step 10: Fit PSF models
+                var stopwatch = new Stopwatch();
+                stopwatch.Start();
                 if (p.ModelPSF) {
                     progress?.Report(new ApplicationStatus() { Status = "Modeling PSFs" });
-                    await ModelPSF(srcImage, stars, p, metrics, token);
+                    await ModelPSF(srcImage, ksigmaNoiseResultSrc.Sigma, stars, p, metrics, token);
 
                     stopWatch.RecordEntry("ModelPSF");
                 }
+                stopwatch.Stop();
+                Console.WriteLine($"PSF time: {stopwatch.Elapsed}");
                 MaybeSaveIntermediateStars(stars, p, "11-detected-stars.txt");
 
                 var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
@@ -260,7 +265,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private async Task ModelPSF(Mat srcImage, List<Star> stars, StarDetectorParams p, StarDetectorMetrics metrics, CancellationToken ct) {
+        private async Task ModelPSF(Mat srcImage, double noiseSigma, List<Star> stars, StarDetectorParams p, StarDetectorMetrics metrics, CancellationToken ct) {
             var allTasks = new List<Task>();
             Logger.Debug($"Modeling PSFs using a parallel partition size of {p.PSFParallelPartitionSize} and a pixel scale of {p.PixelScale} arcsec/pixel");
             var partitions = p.PSFParallelPartitionSize > 0 ? stars.Partition(p.PSFParallelPartitionSize) : new List<IEnumerable<Star>>() { stars };
@@ -278,7 +283,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             useILNumerics: p.UseILNumerics);
                         PSFModel psf = null;
                         try {
-                            psf = PSFModeler.Solve(modeler, ct: ct);
+                            psf = PSFModeler.Solve(modeler, useAbsoluteResiduals: p.UsePSFAbsoluteDeviation, noiseSigma: noiseSigma, ct: ct);
                         } catch (Exception) {
                             // Ignore errors and continue
                         }

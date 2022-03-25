@@ -24,28 +24,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class GaussianPSFAlglibType : PSFModelTypeAlglibBase {
 
-        public GaussianPSFAlglibType(double[][] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale) :
-            base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
+        public GaussianPSFAlglibType(double[][] inputs, double[] outputs, double centroidBrightness, double starDetectionBackground, Rect starBoundingBox, double pixelScale) :
+            base(centroidBrightness: centroidBrightness, starDetectionBackground: starDetectionBackground, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
         }
 
         public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Gaussian;
 
-        public override bool UseJacobian => false;
+        public override bool UseJacobian => true;
 
-        // G(x,y; sigx,sigy,theta)
-        // Background level is normalized to already 0
+        // G(x,y; A,B,X0,Y0,sigx,sigy,theta)
         // A is the value at the centroid
         // x0,y0 is the origin, so all x,y are relative to the centroid within the star bounding boxes
         // See Gaussian elliptical definition here: https://pixinsight.com/doc/tools/DynamicPSF/DynamicPSF.html
         public override double Value(double[] parameters, double[] input) {
             var A = parameters[0];
+            var B = parameters[1];
             var x = input[0];
             var y = input[1];
-            var x0 = parameters[1];
-            var y0 = parameters[2];
-            var U = parameters[3];
-            var V = parameters[4];
-            var T = parameters[5];
+            var x0 = parameters[2];
+            var y0 = parameters[3];
+            var U = parameters[4];
+            var V = parameters[5];
+            var T = parameters[6];
             // x0 = X0 (X offset)
             // y0 = Y0 (Y offset)
             // U = sigmaX
@@ -70,18 +70,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var E = X2 / (2 * U2) + Y2 / (2 * V2);
 
             // O = A * e^(-E)
-            return A * Math.Exp(-E);
+            return B + A * Math.Exp(-E);
         }
 
         public override void Gradient(double[] parameters, double[] input, double[] result) {
             var A = parameters[0];
+            var B = parameters[1];
             var x = input[0];
             var y = input[1];
-            var x0 = parameters[1];
-            var y0 = parameters[2];
-            var U = parameters[3];
-            var V = parameters[4];
-            var T = parameters[5];
+            var x0 = parameters[2];
+            var y0 = parameters[3];
+            var U = parameters[4];
+            var V = parameters[5];
+            var T = parameters[6];
 
             var cosT = Math.Cos(T);
             var sinT = Math.Sin(T);
@@ -94,50 +95,56 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var V2 = V * V;
             var V3 = V2 * V;
             var E = X2 / (2 * U2) + Y2 / (2 * V2);
-            var O = A * Math.Exp(-E);
+            var E_E = Math.Exp(-E);
 
-            // dX
-            // -- = 2XY
-            // dT
+            // d/da
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+h+%2B+a+*+Exp%5B-%5C%2840%29Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bd%2C2%5D%5D%5C%2841%29%5D+with+respect+to+a
+            var d_da = E_E;
 
-            // dY
-            // -- = -2XY
-            // dT
+            // d/dh
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+h+%2B+a+*+Exp%5B-%5C%2840%29Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bd%2C2%5D%5D%5C%2841%29%5D+with+respect+to+h
+            var d_dh = 1.0d;
 
-            // dE        X^2
-            // -- = -1 * ---
-            // dU        U^3
+            // d/dc
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+h+%2B+a+*+Exp%5B-%5C%2840%29Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bd%2C2%5D%5D%5C%2841%29%5D+with+respect+to+c
+            var d_dc_part1 = 1.0 / U3 * A * X2;
+            var d_dc_part2 = E_E;
+            var d_dc = d_dc_part1 * d_dc_part2;
 
-            // dE        Y^2
-            // -- = -1 * ---
-            // dV        V^3
+            // d/dd
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+h+%2B+a+*+Exp%5B-%5C%2840%29Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bd%2C2%5D%5D%5C%2841%29%5D+with+respect+to+d
+            var d_dd_part1 = 1.0 / V3 * A * Y2;
+            var d_dd_part2 = E_E;
+            var d_dd = d_dd_part1 * d_dd_part2;
 
-            //          dX       dY
-            // dE   2*X*--   2*Y*--
-            //          dT       dT   2 * X^2 * Y - 2 * X * Y^2
-            // -- = ------ + ------ = -----------   -----------
-            //                            U^2           V^2
-            // dT   2*U^2    2*V^2
-            //
+            // d/df
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+h+%2B+a+*+Exp%5B-%5C%2840%29Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bd%2C2%5D%5D%5C%2841%29%5D+with+respect+to+f
+            var d_df_part1 = A;
+            var d_df_part2 = cosT * X / U2 - sinT * Y / V2;
+            var d_df_part3 = E_E;
+            var d_df = d_df_part1 * d_df_part2 * d_df_part3;
 
-            // dO             dE       X^2
-            // -- = O * -1 *  -- = O * ---
-            // dU             dU       U^3
+            // d/dg
+            var d_dg_part1 = A;
+            var d_dg_part2 = sinT * X / U2 + cosT * Y / V2;
+            var d_dg_part3 = E_E;
+            var d_dg = d_dg_part1 * d_dg_part2 * d_dg_part3;
 
-            // dO             dE       Y^2
-            // -- = O * -1 *  -- = O * ---
-            // dV             dV       V^3
+            // d/dt
+            //  https://www.wolframalpha.com/input?i2d=true&i=differentiate+h+%2B+a+*+Exp%5B-%5C%2840%29Divide%5BPower%5B%5C%2840%29%5C%2840%29x+-+f%5C%2841%29*Cos%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Sin%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bc%2C2%5D%5D+%2B+Divide%5BPower%5B%5C%2840%29-%5C%2840%29x+-+f%5C%2841%29*Sin%5Bt%5D%2B%5C%2840%29y+-+g%5C%2841%29*Cos%5Bt%5D%5C%2841%29%2C2%5D%2C2*Power%5Bd%2C2%5D%5D%5C%2841%29%5D+with+respect+to+t
+            var d_dt_part1 = A;
+            var XY = X * Y;
+            var d_dt_part2 = XY / V2 - XY / U2;
+            var d_dt_part3 = E_E;
+            var d_dt = d_dt_part1 * d_dt_part2 * d_dt_part3;
 
-            // dO            dE         2 * X^2 * Y - 2 * X * Y^2
-            // -- = O * -1 * -- = -O * (-----------   -----------)
-            // dT            dT             U^2           V^2
-            var dO_dU = O * (X2 / U3);
-            var dO_dV = O * (Y2 / V3);
-            var dO_dT = -O * ((2 * X2 * Y) / U2 - (2 * X * Y2) / V2);
-
-            result[0] = dO_dU;
-            result[1] = dO_dV;
-            result[2] = dO_dT;
+            result[0] = d_da;
+            result[1] = d_dh;
+            result[2] = d_df;
+            result[3] = d_dg;
+            result[4] = d_dc;
+            result[5] = d_dd;
+            result[6] = d_dt;
         }
 
         public override double SigmaToFWHM(double sigma) {
@@ -147,8 +154,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class GaussianPSFILNumericsType : PSFModelTypeILNBase {
 
-        public GaussianPSFILNumericsType(double[,] inputs, double[] outputs, double centroidBrightness, Rect starBoundingBox, double pixelScale) :
-            base(centroidBrightness: centroidBrightness, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
+        public GaussianPSFILNumericsType(double[,] inputs, double[] outputs, double centroidBrightness, double starDetectionBackground, Rect starBoundingBox, double pixelScale) :
+            base(centroidBrightness: centroidBrightness, starDetectionBackground: starDetectionBackground, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
         }
 
         public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Gaussian;
@@ -158,11 +165,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Array<double> ilnInputs = this.Inputs;
                 Array<double> actualValue = this.Outputs;
                 Array<double> A = parameters.GetValue<double>(0);
-                Array<double> x0 = parameters.GetValue<double>(1);
-                Array<double> y0 = parameters.GetValue<double>(2);
-                Array<double> U = parameters.GetValue<double>(3);
-                Array<double> V = parameters.GetValue<double>(4);
-                Array<double> T = parameters.GetValue<double>(5);
+                Array<double> B = parameters.GetValue<double>(1);
+                Array<double> x0 = parameters.GetValue<double>(2);
+                Array<double> y0 = parameters.GetValue<double>(3);
+                Array<double> U = parameters.GetValue<double>(4);
+                Array<double> V = parameters.GetValue<double>(5);
+                Array<double> T = parameters.GetValue<double>(6);
                 Array<double> x = ilnInputs[0, full];
                 Array<double> y = ilnInputs[1, full];
 
@@ -176,7 +184,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Array<double> V2 = V * V;
                 Array<double> E = X2 / (2 * U2) + Y2 / (2 * V2);
 
-                Array<double> psfValue = A * ILMath.exp(-E);
+                Array<double> psfValue = B + A * ILMath.exp(-E);
                 return psfValue - actualValue.T;
             }
         }
