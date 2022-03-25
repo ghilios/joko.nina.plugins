@@ -219,8 +219,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var dxLimit = this.StarBoundingBox.Width / 8.0d;
             var dyLimit = this.StarBoundingBox.Height / 8.0d;
             var lowerBounds = new double[] { 0.0d, 0.0d, -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
-            var upperBounds = new double[] { 10.0d, 1.0d, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
-            var scale = new double[] { 0.001, 0.001, 0.1, 0.1, 1, 1, 1 };
+            var upperBounds = new double[] { 2.0d, 1.0d, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
+            var scale = new double[] { 0.01, 0.01, 0.1, 0.1, 1, 1, 1 };
             try {
                 var solution = new double[6];
 
@@ -324,8 +324,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var dxLimit = this.StarBoundingBox.Width / 8.0d;
                 var dyLimit = this.StarBoundingBox.Height / 8.0d;
                 var lowerBounds = new double[] { 0.0d, 0.0d, -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
-                var upperBounds = new double[] { 10.0d, 1.0d, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
-                var scale = new double[] { 0.001, 0.001, 0.1, 0.1, 1, 1, 1 };
+                var upperBounds = new double[] { 2.0d, 1.0d, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
+                var scale = new double[] { 0.01, 0.01, 0.1, 0.1, 1, 1, 1 };
                 var solution = new double[6];
 
                 if (this.UseJacobian) {

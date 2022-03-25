@@ -78,6 +78,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
         public static (double, double) MedianMAD(this IEnumerable<double> values) {
             var valuesArray = values.ToArray();
+            if (valuesArray.Length == 0) {
+                return (double.NaN, double.NaN);
+            }
             Array.Sort(valuesArray);
 
             var median = valuesArray.Length % 2 == 0

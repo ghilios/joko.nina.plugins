@@ -134,11 +134,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // Step 1: Perform initial noise reduction and hotpixel filtering
                 progress?.Report(new ApplicationStatus() { Status = "Noise Reduction" });
                 var hotpixelFilteringApplied = false;
+
                 if (p.HotpixelFiltering || p.NoiseReductionRadius > 0) {
                     // Apply a median box filter in place to the starting image
                     Cv2.MedianBlur(srcImage, srcImage, 3);
                     hotpixelFilteringApplied = true;
                 }
+
+                Task<KappSigmaNoiseEstimateResult> preNoiseReductionNoiseResultTask = null;
+                Mat preNoiseReductionSrc = srcImage;
+                if (p.ModelPSF && p.NoiseReductionRadius > 0) {
+                    // Only need a copy if modeling PSF and doing noise reduction
+                    preNoiseReductionSrc = resourceTracker.NewMat();
+                    srcImage.CopyTo(preNoiseReductionSrc);
+                    preNoiseReductionNoiseResultTask = Task.Run(() => {
+                        return CvImageUtility.KappaSigmaNoiseEstimate(preNoiseReductionSrc, clippingMultipler: p.NoiseClippingMultiplier);
+                    });
+                }
+
                 if (p.NoiseReductionRadius > 0) {
                     CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
                 }
@@ -159,11 +172,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 MaybeSaveIntermediateImage(structureMap, p, "03-structure-map.tif");
 
                 // Step 3: Calculate noise estimates on the noise-reduced source data. This will be used later to separate background from stars
-                var ksigmaNoiseResultSrc = CvImageUtility.KappaSigmaNoiseEstimate(srcImage, clippingMultipler: p.NoiseClippingMultiplier);
-                var ksigmaTraceSrc = $"Source K-Sigma Noise Estimate: {ksigmaNoiseResultSrc.Sigma}, Background Mean: {ksigmaNoiseResultSrc.BackgroundMean}, NumIterations={ksigmaNoiseResultSrc.NumIterations}";
-                Logger.Trace(ksigmaTraceSrc);
-                MaybeSaveIntermediateText(ksigmaTraceSrc, p, "04-ksigma-estimate-src.txt");
-                stopWatch.RecordEntry("KSigmaNoiseCalculation-Source");
+                var ksigmaNoiseResultSrcTask = Task.Run(() => {
+                    var ksigmaNoiseResult = CvImageUtility.KappaSigmaNoiseEstimate(srcImage, clippingMultipler: p.NoiseClippingMultiplier);
+                    var ksigmaTraceSrc = $"Source K-Sigma Noise Estimate: {ksigmaNoiseResult.Sigma}, Background Mean: {ksigmaNoiseResult.BackgroundMean}, NumIterations={ksigmaNoiseResult.NumIterations}";
+                    Logger.Trace(ksigmaTraceSrc);
+                    MaybeSaveIntermediateText(ksigmaTraceSrc, p, "04-ksigma-estimate-src.txt");
+                    stopWatch.RecordEntry("KSigmaNoiseCalculation-Source");
+                    return ksigmaNoiseResult;
+                });
+                if (preNoiseReductionNoiseResultTask == null) {
+                    preNoiseReductionNoiseResultTask = ksigmaNoiseResultSrcTask;
+                }
 
                 // Step 4: Compute b-spline wavelets to exclude large structures such as nebulae. If the pixel scale is very small or need a wide range for focus, you may need to increase the number of layers
                 //         to keep stars from being excluded
@@ -175,11 +194,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 stopWatch.RecordEntry("WaveletCalculation");
 
                 // Step 5: Compute noise estimates and structure map statistics, which will be used to calculate a binarization threshold
-                var ksigmaNoiseResultStructureMap = KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
-                var ksigmaTraceStructureMap = $"Structure Map K-Sigma Noise Estimate: {ksigmaNoiseResultStructureMap.Sigma}, Background Mean: {ksigmaNoiseResultStructureMap.BackgroundMean}, NumIterations={ksigmaNoiseResultStructureMap.NumIterations}";
-                Logger.Trace(ksigmaTraceStructureMap);
-                MaybeSaveIntermediateText(ksigmaTraceStructureMap, p, "06-ksigma-estimate-structure-map.txt");
-                stopWatch.RecordEntry("KSigmaNoiseCalculation-StructureMap");
+                var ksigmaNoiseResultStructureMapTask = Task.Run(() => {
+                    var kappaSigmaNoiseResult = KappaSigmaNoiseEstimate(structureMap, clippingMultipler: p.NoiseClippingMultiplier);
+                    var ksigmaTraceStructureMap = $"Structure Map K-Sigma Noise Estimate: {kappaSigmaNoiseResult.Sigma}, Background Mean: {kappaSigmaNoiseResult.BackgroundMean}, NumIterations={kappaSigmaNoiseResult.NumIterations}";
+                    Logger.Trace(ksigmaTraceStructureMap);
+                    MaybeSaveIntermediateText(ksigmaTraceStructureMap, p, "06-ksigma-estimate-structure-map.txt");
+                    stopWatch.RecordEntry("KSigmaNoiseCalculation-StructureMap");
+                    return kappaSigmaNoiseResult;
+                });
 
                 // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
                 // The difference doesn't seem worth it based on tests done so far
@@ -191,6 +213,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 MaybeSaveIntermediateImage(structureMap, p, "07-structure-map-wavelet-blurred.tif");
                 stopWatch.RecordEntry("PostWaveletConvolution");
 
+                var ksigmaNoiseResultStructureMap = await ksigmaNoiseResultStructureMapTask;
                 double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * ksigmaNoiseResultStructureMap.Sigma;
                 var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}, Clipping Multiplier: {p.NoiseClippingMultiplier}, Noise Sigma: {ksigmaNoiseResultStructureMap.Sigma}";
                 Logger.Trace(binarizeTrace);
@@ -231,6 +254,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 MaybeSaveIntermediateImage(structureMap, p, "10-structure-binarized.tif");
 
                 // Step 9: Scan structure map for stars
+                var ksigmaNoiseResultSrc = await ksigmaNoiseResultSrcTask;
                 progress?.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
                 var stars = ScanStars(srcImage, structureMap, p, ksigmaNoiseResultSrc.Sigma, metrics, token);
                 stopWatch.RecordEntry("StarAnalysis");
@@ -240,7 +264,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 stopwatch.Start();
                 if (p.ModelPSF) {
                     progress?.Report(new ApplicationStatus() { Status = "Modeling PSFs" });
-                    await ModelPSF(srcImage, ksigmaNoiseResultSrc.Sigma, stars, p, metrics, token);
+                    await ModelPSF(preNoiseReductionSrc, ksigmaNoiseResultSrc.Sigma, stars, p, metrics, token);
 
                     stopWatch.RecordEntry("ModelPSF");
                 }
