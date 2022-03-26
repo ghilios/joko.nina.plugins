@@ -1209,7 +1209,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusState state,
             AutoFocusRegionState regionState,
             AutoFocusImageState imageState,
-            SavedAutoFocusImage savedFile,
             IRenderedImage renderedImage,
             CancellationToken token) {
             try {
@@ -1286,8 +1285,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     foreach (var savedFile in files) {
                         var imageState = await state.OnNextImage(savedFile.FrameNumber, savedFile.FocuserPosition, false, token);
 
+                        var localSavedFile = savedFile;
                         var postPartialMeasurementTasksPerRegion = Enumerable.Range(0, state.FocusRegionStates.Count).Select(i => new List<Task>()).ToArray();
-                        var loadedImage = await ReloadSavedFile(state, savedFile, token);
+                        var loadedImage = await ReloadSavedFile(state, localSavedFile, token);
                         foreach (var regionState in state.FocusRegionStates) {
                             var partialMeasurementTask = Task.Run(async () => {
                                 lock (state.StatesLock) {
@@ -1295,7 +1295,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                                     state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
                                 }
 
-                                return await AnalyzeSavedFile(state, regionState, imageState, savedFile, loadedImage, token);
+                                return await AnalyzeSavedFile(state, regionState, imageState, loadedImage, token);
                             });
                             var postPartialMeasurementTask = Task.Run(async () => {
                                 var partialMeasurement = await partialMeasurementTask;

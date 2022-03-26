@@ -65,11 +65,12 @@ using Newtonsoft.Json;
 using System.IO;
 using NINA.Joko.Plugins.HocusFocus.Scottplot;
 using NINA.Astrometry;
+using NINA.Equipment.Equipment.MyTelescope;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     [Export(typeof(IDockableVM))]
-    public class InspectorVM : DockableVM, IScottPlotController, ICameraConsumer, IFocuserConsumer {
+    public class InspectorVM : DockableVM, IScottPlotController, ICameraConsumer, IFocuserConsumer, ITelescopeConsumer {
         private static readonly FocusPointComparer focusPointComparer = new FocusPointComparer();
         private static readonly PlotPointComparer plotPointComparer = new PlotPointComparer();
 
@@ -81,6 +82,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly ICameraMediator cameraMediator;
         private readonly IFocuserMediator focuserMediator;
         private readonly IFilterWheelMediator filterWheelMediator;
+        private readonly ITelescopeMediator telescopeMediator;
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IAutoFocusEngineFactory autoFocusEngineFactory;
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
@@ -96,9 +98,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ICameraMediator cameraMediator,
             IFocuserMediator focuserMediator,
             IFilterWheelMediator filterWheelMediator,
+            ITelescopeMediator telescopeMediator,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector)
-            : this(profileService, applicationStatusMediator, imagingMediator, cameraMediator, focuserMediator, filterWheelMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.InspectorOptions, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher) {
+            : this(profileService, applicationStatusMediator, imagingMediator, cameraMediator, focuserMediator, filterWheelMediator, telescopeMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.InspectorOptions, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher) {
         }
 
         public InspectorVM(
@@ -108,6 +111,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ICameraMediator cameraMediator,
             IFocuserMediator focuserMediator,
             IFilterWheelMediator filterWheelMediator,
+            ITelescopeMediator telescopeMediator,
             IStarDetectionOptions starDetectionOptions,
             IStarAnnotatorOptions starAnnotatorOptions,
             IInspectorOptions inspectorOptions,
@@ -123,6 +127,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.filterWheelMediator = filterWheelMediator;
             this.starDetectionOptions = starDetectionOptions;
             this.starAnnotatorOptions = starAnnotatorOptions;
+            this.telescopeMediator = telescopeMediator;
             this.inspectorOptions = inspectorOptions;
             this.autoFocusOptions = autoFocusOptions;
             this.autoFocusEngineFactory = autoFocusEngineFactory;
@@ -133,6 +138,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             this.cameraMediator.RegisterConsumer(this);
             this.focuserMediator.RegisterConsumer(this);
+            this.telescopeMediator.RegisterConsumer(this);
 
             this.Title = "Aberration Inspector";
 
@@ -154,6 +160,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RerunSavedAutoFocusAnalysisCommand = new AsyncCommand<bool>(AnalyzeSavedAutoFocusRun, canExecute: (o) => !AnalysisRunning());
             ClearAnalysesCommand = new RelayCommand(ClearAnalyses, canExecute: (o) => !AnalysisRunning());
             CancelAnalyzeCommand = new RelayCommand(CancelAnalyze);
+            SlewToZenithEastCommand = new AsyncCommand<bool>(() => SlewToZenith(false), canExecute: (o) => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
+            SlewToZenithWestCommand = new AsyncCommand<bool>(() => SlewToZenith(true), canExecute: (o) => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
+            CancelSlewToZenithCommand = new RelayCommand((o) => slewToZenithCts?.Cancel());
         }
 
         private bool AnalysisRunning() {
@@ -172,7 +181,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private async Task<bool> AnalyzeAutoFocus() {
             var localAnalyzeTask = analyzeTask;
-            if (analyzeTask != null && !analyzeTask.IsCompleted) {
+            if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
                 Notification.ShowError("Analysis still in progress");
                 return false;
             }
@@ -220,7 +229,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
                 ActivateExposureAnalysis();
                 return true;
-            });
+            }, localAnalyzeCts.Token);
             analyzeTask = localAnalyzeTask;
 
             try {
@@ -232,6 +241,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Notification.ShowError($"Inspection analysis failed: {e.Message}");
                 Logger.Error("Inspection analysis failed", e);
                 return false;
+            } finally {
+                analyzeTask = null;
+                analyzeCts = null;
             }
         }
 
@@ -256,7 +268,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error($"{invalidRegionCount} regions failed to produce a focus curve");
             }
 
-            TiltModel.UpdateTiltModel(result);
+            UpdateBackfocusMeasurements(result);
+            TiltModel.UpdateTiltModel(result, BackfocusFocuserPositionDelta);
+            AutoFocusCompleted = true;
             return Task.FromResult(true);
         }
 
@@ -729,24 +743,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             File.WriteAllText(path, reportText);
         }
 
-        private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusCompletedEventArgs e) {
-            Notification.ShowInformation("Aberration Inspection Complete");
-            var logReportBuilder = new StringBuilder();
-            var centerHFR = e.RegionHFRs[1].EstimatedFinalHFR;
-            var centerFocuser = e.RegionHFRs[1].EstimatedFinalFocuserPosition;
-            RegionFinalFocusPoints[1] = new DataPoint(e.RegionHFRs[1].EstimatedFinalFocuserPosition, e.RegionHFRs[1].EstimatedFinalHFR);
-            logReportBuilder.AppendLine($"Center - HFR: {centerHFR}, Focuser: {centerFocuser}");
-
+        private void UpdateBackfocusMeasurements(AutoFocusResult result) {
+            var centerRegionResult = result.RegionResults[1];
+            var centerHFR = centerRegionResult.EstimatedFinalHFR;
+            var centerFocuser = centerRegionResult.EstimatedFinalFocuserPosition;
             var outerHFRSum = 0.0d;
             var outerFocuserPositionSum = 0.0d;
             for (int i = 2; i < 6; ++i) {
-                var regionName = GetRegionName(i);
-                var regionHFR = e.RegionHFRs[i];
-                outerHFRSum += regionHFR.EstimatedFinalHFR;
-                outerFocuserPositionSum += regionHFR.EstimatedFinalFocuserPosition;
-                logReportBuilder.AppendLine($"{regionName} - HFR Delta: {regionHFR.EstimatedFinalHFR - centerHFR}, Focuser Delta: {regionHFR.EstimatedFinalFocuserPosition - centerFocuser}");
-
-                RegionFinalFocusPoints[i] = new DataPoint(regionHFR.EstimatedFinalFocuserPosition, regionHFR.EstimatedFinalHFR);
+                var regionResult = result.RegionResults[i];
+                outerHFRSum += regionResult.EstimatedFinalHFR;
+                outerFocuserPositionSum += regionResult.EstimatedFinalFocuserPosition;
             }
 
             InnerFocuserPosition = centerFocuser;
@@ -765,7 +771,23 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             InnerHFR = centerHFR;
             OuterHFR = outerHFRSum / 4;
             BackfocusHFR = OuterHFR - InnerHFR;
-            AutoFocusCompleted = true;
+        }
+
+        private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusCompletedEventArgs e) {
+            Notification.ShowInformation("Aberration Inspection Complete");
+            var logReportBuilder = new StringBuilder();
+            var centerHFR = e.RegionHFRs[1].EstimatedFinalHFR;
+            var centerFocuser = e.RegionHFRs[1].EstimatedFinalFocuserPosition;
+            RegionFinalFocusPoints[1] = new DataPoint(e.RegionHFRs[1].EstimatedFinalFocuserPosition, e.RegionHFRs[1].EstimatedFinalHFR);
+            logReportBuilder.AppendLine($"Center - HFR: {centerHFR}, Focuser: {centerFocuser}");
+
+            for (int i = 2; i < 6; ++i) {
+                var regionName = GetRegionName(i);
+                var regionHFR = e.RegionHFRs[i];
+                logReportBuilder.AppendLine($"{regionName} - HFR Delta: {regionHFR.EstimatedFinalHFR - centerHFR}, Focuser Delta: {regionHFR.EstimatedFinalFocuserPosition - centerFocuser}");
+
+                RegionFinalFocusPoints[i] = new DataPoint(regionHFR.EstimatedFinalFocuserPosition, regionHFR.EstimatedFinalHFR);
+            }
 
             Logger.Info(logReportBuilder.ToString());
         }
@@ -807,11 +829,50 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             analyzeCts?.Cancel();
         }
 
+        private Task<bool> slewToZenithTask;
+        private CancellationTokenSource slewToZenithCts;
+
+        private async Task<bool> SlewToZenith(bool west) {
+            var localTask = slewToZenithTask;
+            if (localTask != null && !localTask.IsCompleted) {
+                Notification.ShowError("Slew to zenith still in progress");
+                return false;
+            }
+
+            slewToZenithCts?.Cancel();
+            var localCts = new CancellationTokenSource();
+            slewToZenithCts = localCts;
+
+            localTask = Task.Run(async () => {
+                var latitude = Angle.ByDegree(profileService.ActiveProfile.AstrometrySettings.Latitude);
+                var longitude = Angle.ByDegree(profileService.ActiveProfile.AstrometrySettings.Longitude);
+                var azimuth = west ? Angle.ByDegree(90) : Angle.ByDegree(270);
+                return await telescopeMediator.SlewToCoordinatesAsync(new TopocentricCoordinates(azimuth, Angle.ByDegree(89), latitude, longitude), localCts.Token);
+            }, localCts.Token);
+            slewToZenithTask = localTask;
+
+            try {
+                return await localTask;
+            } catch (OperationCanceledException) {
+                Logger.Info("SlewToZenith cancelled");
+            } catch (Exception e) {
+                Notification.ShowError($"Slew to zenith failed. {e.Message}");
+                Logger.Error("Slew to zenith failed", e);
+            } finally {
+                slewToZenithTask = null;
+                slewToZenithCts = null;
+            }
+            return false;
+        }
+
         public ICommand RunAutoFocusAnalysisCommand { get; private set; }
         public ICommand RerunSavedAutoFocusAnalysisCommand { get; private set; }
         public ICommand RunExposureAnalysisCommand { get; private set; }
         public ICommand CancelAnalyzeCommand { get; private set; }
         public ICommand ClearAnalysesCommand { get; private set; }
+        public ICommand SlewToZenithEastCommand { get; private set; }
+        public ICommand SlewToZenithWestCommand { get; private set; }
+        public ICommand CancelSlewToZenithCommand { get; private set; }
 
         public AsyncObservableCollection<ScatterErrorPoint>[] RegionFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint>[] RegionPlotFocusPoints { get; private set; }
@@ -985,8 +1046,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        private TelescopeInfo telescopeInfo = DeviceInfo.CreateDefaultInstance<TelescopeInfo>();
+
+        public TelescopeInfo TelescopeInfo {
+            get => telescopeInfo;
+            private set {
+                this.telescopeInfo = value;
+                RaisePropertyChanged();
+            }
+        }
+
         public void UpdateDeviceInfo(CameraInfo deviceInfo) {
             CameraInfo = deviceInfo;
+        }
+
+        public void UpdateDeviceInfo(TelescopeInfo deviceInfo) {
+            TelescopeInfo = deviceInfo;
         }
 
         public void Dispose() {

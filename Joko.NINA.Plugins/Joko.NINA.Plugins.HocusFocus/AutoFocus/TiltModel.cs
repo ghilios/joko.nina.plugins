@@ -19,6 +19,7 @@ using System.Linq;
 using System.ComponentModel;
 using NINA.Joko.Plugins.HocusFocus.Converters;
 using System.Threading;
+using NINA.Core.Utility.Notification;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
@@ -103,7 +104,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SensorTiltHistoryModels = new AsyncObservableCollection<SensorTiltHistoryModel>();
         }
 
-        private void UpdateTiltMeasurementsTable(AutoFocusResult result, TiltPlaneModel tiltModel) {
+        private List<SensorTiltModel> SetTiltPlaneModel(AutoFocusResult result, TiltPlaneModel tiltModel) {
+            TiltPlaneModel = tiltModel;
+
             var centerFocuser = result.RegionResults[1].EstimatedFinalFocuserPosition;
             var topLeftFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
             var topRightFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
@@ -147,7 +150,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             foreach (var sensorTiltModel in newSideToTiltModels.OrderBy(x => (int)x.SensorSide)) {
                 SensorTiltModels.Add(sensorTiltModel);
             }
+            return newSideToTiltModels;
+        }
 
+        private void UpdateTiltMeasurementsTable(AutoFocusResult result, TiltPlaneModel tiltModel, double backfocusFocuserPositionDelta) {
+            var newSideToTiltModels = SetTiltPlaneModel(result, tiltModel);
             var historyId = Interlocked.Increment(ref nextHistoryId);
             SensorTiltHistoryModels.Insert(0, new SensorTiltHistoryModel(
                 historyId: historyId,
@@ -155,13 +162,34 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 topLeft: newSideToTiltModels.First(m => m.SensorSide == SensorSide.TopLeft),
                 topRight: newSideToTiltModels.First(m => m.SensorSide == SensorSide.TopRight),
                 bottomLeft: newSideToTiltModels.First(m => m.SensorSide == SensorSide.BottomLeft),
-                bottomRight: newSideToTiltModels.First(m => m.SensorSide == SensorSide.BottomRight)));
+                bottomRight: newSideToTiltModels.First(m => m.SensorSide == SensorSide.BottomRight),
+                autoFocusResult: result,
+                tiltPlaneModel: tiltPlaneModel,
+                backfocusFocuserPositionDelta: backfocusFocuserPositionDelta));
+            SelectedTiltHistoryModel = null;
         }
 
-        public void UpdateTiltModel(AutoFocusResult result) {
+        public void UpdateTiltModel(AutoFocusResult result, double backfocusFocuserPositionDelta) {
             var tiltModel = TiltPlaneModel.Create(result);
-            TiltPlaneModel = tiltModel;
-            UpdateTiltMeasurementsTable(result, tiltModel);
+            UpdateTiltMeasurementsTable(result, tiltModel, backfocusFocuserPositionDelta);
+        }
+
+        private SensorTiltHistoryModel selectedTiltHistoryModel;
+
+        public SensorTiltHistoryModel SelectedTiltHistoryModel {
+            get => selectedTiltHistoryModel;
+            set {
+                try {
+                    if (value != null) {
+                        SetTiltPlaneModel(value.AutoFocusResult, value.TiltPlaneModel);
+                    }
+                    selectedTiltHistoryModel = value;
+                    RaisePropertyChanged();
+                } catch (Exception e) {
+                    Notification.ShowError($"Failed to set tilt model. {e.Message}");
+                    Logger.Error("Failed to set tilt model", e);
+                }
+            }
         }
 
         public AsyncObservableCollection<SensorTiltModel> SensorTiltModels { get; private set; }
@@ -211,13 +239,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SensorTiltModel topLeft,
             SensorTiltModel topRight,
             SensorTiltModel bottomLeft,
-            SensorTiltModel bottomRight) {
+            SensorTiltModel bottomRight,
+            AutoFocusResult autoFocusResult,
+            TiltPlaneModel tiltPlaneModel,
+            double backfocusFocuserPositionDelta) {
             HistoryId = historyId;
             Center = center;
             TopLeft = topLeft;
             TopRight = topRight;
             BottomLeft = bottomLeft;
             BottomRight = bottomRight;
+            AutoFocusResult = autoFocusResult;
+            TiltPlaneModel = tiltPlaneModel;
+            BackfocusFocuserPositionDelta = backfocusFocuserPositionDelta;
         }
 
         public int HistoryId { get; private set; }
@@ -226,6 +260,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public SensorTiltModel TopRight { get; private set; }
         public SensorTiltModel BottomLeft { get; private set; }
         public SensorTiltModel BottomRight { get; private set; }
+        public AutoFocusResult AutoFocusResult { get; private set; }
+        public TiltPlaneModel TiltPlaneModel { get; private set; }
+        public double BackfocusFocuserPositionDelta { get; private set; }
     }
 
     public class SensorTiltModel : BaseINPC {

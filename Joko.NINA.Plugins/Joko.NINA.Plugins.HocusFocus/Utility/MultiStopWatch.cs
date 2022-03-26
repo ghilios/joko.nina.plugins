@@ -20,10 +20,11 @@ using System.Text;
 namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
     public class MultiStopWatch : IDisposable {
-        private Stopwatch stopWatch;
-        private string memberName;
-        private string filePath;
-        private List<Entry> entries;
+        private readonly Stopwatch stopWatch;
+        private readonly string memberName;
+        private readonly string filePath;
+        private readonly List<Entry> entries;
+        private readonly object lockObj = new object();
 
         private class Entry {
             public string Name;
@@ -38,33 +39,39 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         }
 
         private void Log() {
-            var sb = new StringBuilder();
-            var totalElapsed = this.stopWatch.Elapsed;
-            var previousElapsed = TimeSpan.Zero;
-            var first = true;
-            foreach (var entry in entries) {
-                var elapsed = entry.Elapsed - previousElapsed;
-                previousElapsed = entry.Elapsed;
-                if (!first) {
-                    sb.Append(", ");
+            lock (lockObj) {
+                var sb = new StringBuilder();
+                var totalElapsed = this.stopWatch.Elapsed;
+                var previousElapsed = TimeSpan.Zero;
+                var first = true;
+                foreach (var entry in entries) {
+                    var elapsed = entry.Elapsed - previousElapsed;
+                    previousElapsed = entry.Elapsed;
+                    if (!first) {
+                        sb.Append(", ");
+                    }
+                    sb.Append($"{entry.Name}: {elapsed}");
+                    first = false;
                 }
-                sb.Append($"{entry.Name}: {elapsed}");
-                first = false;
-            }
-            sb.Append($"; Elapsed: {totalElapsed}");
+                sb.Append($"; Elapsed: {totalElapsed}");
 
-            var message = sb.ToString();
-            Debug.Print($"Method: {memberName}; File: {filePath} - {message}");
-            Logger.Trace(message, memberName, filePath);
+                var message = sb.ToString();
+                Debug.Print($"Method: {memberName}; File: {filePath} - {message}");
+                Logger.Trace(message, memberName, filePath);
+            }
         }
 
         void IDisposable.Dispose() {
-            this.stopWatch.Stop();
-            Log();
+            lock (lockObj) {
+                this.stopWatch.Stop();
+                Log();
+            }
         }
 
         public void RecordEntry(string name) {
-            this.entries.Add(new Entry() { Name = name, Elapsed = stopWatch.Elapsed });
+            lock (lockObj) {
+                this.entries.Add(new Entry() { Name = name, Elapsed = stopWatch.Elapsed });
+            }
         }
 
         public static MultiStopWatch Measure(
