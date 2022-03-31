@@ -203,9 +203,15 @@
     <Reference Include="NINA.Equipment, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\NINA.Equipment.2.0.0.2051-beta\lib\net48\NINA.Equipment.dll</HintPath>
     </Reference>
+    <!--
     <Reference Include="NINA.Image, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\NINA.Image.2.0.0.2051-beta\lib\net48\NINA.Image.dll</HintPath>
     </Reference>
+    -->
+    <Reference Include="NINA.Image, Version=2.0.0.2057, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>C:\Users\ghili\src\nina\NINA.Image\bin\Debug\NINA.Image.dll</HintPath>
+    </Reference>
+    
     <Reference Include="NINA.MGEN, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\NINA.MGEN.2.0.0.2051-beta\lib\net48\NINA.MGEN.dll</HintPath>
     </Reference>
@@ -415,6 +421,7 @@
     <Compile Include="AutoFocus\InspectorVM.cs" />
     <Compile Include="AutoFocus\Models.cs" />
     <Compile Include="AutoFocus\TiltModel.cs" />
+    <Compile Include="AutoFocus\ZernikeSensorModel.cs" />
     <Compile Include="Controls\FWHMContourControl.cs" />
     <Compile Include="Controls\ILNCanvasControl.xaml.cs">
       <DependentUpon>ILNCanvasControl.xaml</DependentUpon>

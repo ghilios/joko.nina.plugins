@@ -202,7 +202,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(two_thirds, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
+                    new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third)),
+                    StarDetectionRegion.Full
                 };
 
                 var imagingFilter = GetImagingFilter();
@@ -216,6 +217,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ActivateAutoFocusChart();
                 DeactivateExposureAnalysis();
                 var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, analyzeCts.Token, this.progress);
+                if (result == null) {
+                    return false;
+                }
+
                 var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result);
                 if (!autoFocusAnalysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.");
@@ -564,8 +569,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     new StarDetectionRegion(new RatioRect(two_thirds, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third)),
-                    // TODO: Add back when CCDI-like tilt calculations are integrated
-                    // StarDetectionRegion.Full
+                    StarDetectionRegion.Full
                 };
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
@@ -578,6 +582,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ActivateAutoFocusChart();
                 DeactivateExposureAnalysis();
                 var result = await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, regions, analyzeCts.Token, this.progress);
+                if (result == null) {
+                    return false;
+                }
+
                 var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result);
                 if (!autoFocusAnalysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed");

@@ -1124,6 +1124,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private async Task<AutoFocusResult> RunImpl(AutoFocusEngineOptions options, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress) {
             if (AutoFocusInProgress) {
                 Notification.ShowError("Another AutoFocus is already in progress");
+                Logger.Error("Another AutoFocus is already in progress");
                 return null;
             }
 
@@ -1160,11 +1161,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Notification.ShowError($"Auto Focus Failure. {ex.Message}");
                 Logger.Error("Failure during AutoFocus", ex);
             } finally {
-                await PerformPostAutoFocusActions(
-                    successfulAutoFocus: completed, initialFocusPosition: autoFocusState?.InitialFocuserPosition, imagingFilter: imagingFilter, restoreTempComp: tempComp,
-                    restoreGuiding: guidingStopped, progress: progress);
-                progress.Report(new ApplicationStatus() { Status = string.Empty });
-                AutoFocusInProgress = false;
+                try {
+                    await PerformPostAutoFocusActions(
+                        successfulAutoFocus: completed, initialFocusPosition: autoFocusState?.InitialFocuserPosition, imagingFilter: imagingFilter, restoreTempComp: tempComp,
+                        restoreGuiding: guidingStopped, progress: progress);
+                } catch (Exception ex) {
+                    Logger.Warning($"Failure during post AF actions. {ex.Message}");
+                } finally {
+                    progress.Report(new ApplicationStatus() { Status = string.Empty });
+                    AutoFocusInProgress = false;
+                }
             }
 
             return new AutoFocusResult() {

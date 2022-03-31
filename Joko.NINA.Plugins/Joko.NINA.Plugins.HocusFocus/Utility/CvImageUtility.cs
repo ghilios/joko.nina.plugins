@@ -62,6 +62,56 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return data;
         }
 
+        public static Mat ToOpenCVMat16U(ushort[] imageArray, int bpp, int width, int height) {
+            var data = new Mat(new Size(width, height), MatType.CV_16U);
+            unsafe {
+                var numPixels = width * height;
+                var dest = (ushort*)data.DataPointer;
+                fixed (ushort* src = imageArray) {
+                    var srcPtr = src;
+                    for (int i = 0; i < numPixels; ++i) {
+                        *(dest++) = *(srcPtr++);
+                    }
+                }
+            }
+            return data;
+        }
+
+        public static Mat ConvertOpenCVMat_16U_32F(Mat mat, Mat dest, int bpp, int width, int height) {
+            // TODO: Ensure 16U input
+            if (dest == null) {
+                dest = new Mat(new Size(width, height), MatType.CV_32F);
+            }
+
+            var scalingRatio = (float)(1 << bpp);
+            unsafe {
+                var numPixels = width * height;
+                var src = (ushort*)mat.DataPointer;
+                var destData = (float*)dest.DataPointer;
+                var srcPtr = src;
+                for (int i = 0; i < numPixels; ++i) {
+                    *(destData++) = *(srcPtr++) / scalingRatio;
+                }
+            }
+            return dest;
+        }
+
+        public static Mat ConvertOpenCVMat_32F_16U(Mat mat, int bpp, int width, int height) {
+            // TODO: Ensure 32F input
+            var data = new Mat(new Size(width, height), MatType.CV_16U);
+            var scalingRatio = (float)(1 << bpp);
+            unsafe {
+                var numPixels = width * height;
+                var src = (float*)mat.DataPointer;
+                var dest = (ushort*)data.DataPointer;
+                var srcPtr = src;
+                for (int i = 0; i < numPixels; ++i) {
+                    *(dest++) = (ushort)(*(srcPtr++) * scalingRatio);
+                }
+            }
+            return data;
+        }
+
         public static Mat ConvolveGaussian(Mat src, Mat dst, int kernelSize, double sigma = -1.0d) {
             if (kernelSize < 3 || kernelSize % 2 == 0) {
                 throw new ArgumentException("kernelSize must be a positive odd number greater than 1", "kernelSize");
@@ -83,13 +133,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return dst;
         }
 
+        /*
         public static Mat ToOpenCVMat(IRenderedImage image) {
             Mat result = null;
             try {
                 var props = image.RawImageData.Properties;
-                if ((image as IDebayeredImage)?.SaveLumChannel == true) {
+                if ((image as IDebayeredImage) != null) {
                     var debayeredImage = (IDebayeredImage)image;
-                    result = ToOpenCVMat(debayeredImage.DebayeredData.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
+                    using (var mat = ToOpenCVMat16U(image.RawImageData.Data.FlatArray, bpp: props.BitDepth, width: props.Width, height: props.Height)) {
+                        using (var debayered = new Mat()) {
+                            using (var luminance = new Mat()) {
+                                Cv2.CvtColor(mat, debayered, ColorConversionCodes.BayerRG2RGB);
+                                Cv2.CvtColor(debayered, luminance, ColorConversionCodes.RGB2GRAY);
+                                return ConvertOpenCVMat_16U_32F(luminance, bpp: props.BitDepth, width: props.Width, height: props.Height);
+                            }
+                        }
+                    }
                 } else {
                     result = ToOpenCVMat(image.RawImageData.Data.FlatArray, bpp: props.BitDepth, width: props.Width, height: props.Height);
                 }
@@ -99,6 +158,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 throw;
             }
         }
+        */
 
         public static CvImageStatistics CalculateStatistics(Mat image, Rect? rect = null, CvImageStatisticsFlags flags = CvImageStatisticsFlags.All) {
             if (image.Type() != MatType.CV_32F) {

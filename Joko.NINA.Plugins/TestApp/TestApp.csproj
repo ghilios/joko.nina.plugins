@@ -432,6 +432,7 @@
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="SensorParaboloidModel.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

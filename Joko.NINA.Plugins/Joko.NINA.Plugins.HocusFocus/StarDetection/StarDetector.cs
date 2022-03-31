@@ -89,7 +89,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public async Task<HocusFocusStarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var resourceTracker = new ResourcesTracker();
             try {
-                var srcImage = CvImageUtility.ToOpenCVMat(image);
+                // var srcImage = CvImageUtility.ToOpenCVMat(image);
+                var props = image.RawImageData.Properties;
+                var srcImage = ToOpenCVMat(image.RawImageData.Data.FlatArray, bpp: props.BitDepth, width: props.Width, height: props.Height);
                 return await DetectImpl(srcImage, resourceTracker, p, progress, token);
             } finally {
                 // Cleanup
@@ -139,6 +141,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // Apply a median box filter in place to the starting image
                     Cv2.MedianBlur(srcImage, srcImage, 3);
                     hotpixelFilteringApplied = true;
+                }
+
+                // Debayer and swap out srcImage
+                {
+                    using (var shortSrcImage = ConvertOpenCVMat_32F_16U(srcImage, 16, srcImage.Width, srcImage.Height))
+                    using (var debayered = new Mat())
+                    using (var luminance = new Mat()) {
+                        Cv2.CvtColor(shortSrcImage, debayered, ColorConversionCodes.BayerRG2RGB);
+                        Cv2.CvtColor(debayered, luminance, ColorConversionCodes.RGB2GRAY);
+                        ConvertOpenCVMat_16U_32F(luminance, srcImage, bpp: 16, srcImage.Width, srcImage.Height);
+                    }
                 }
 
                 Task<KappSigmaNoiseEstimateResult> preNoiseReductionNoiseResultTask = null;
