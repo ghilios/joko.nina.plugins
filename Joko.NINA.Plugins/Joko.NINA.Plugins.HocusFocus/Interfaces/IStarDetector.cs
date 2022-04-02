@@ -176,6 +176,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public class StarDetectorParams {
         public bool HotpixelFiltering { get; set; } = true;
 
+        // If this is true, then the source image used for star measurement has the noise reduction settings applied to it. Otherwise, noise reduction is done only on the structure map
+        public bool StarMeasurementNoiseReductionEnabled { get; set; } = true;
+
         // Half size in pixels of a Gaussian convolution filter used for noise reduction. This is useful for low-SNR images
         // Setting this value also implies hotpixel filtering is enabled, since otherwise we would blend the hot pixels into their neighbors
         public int NoiseReductionRadius { get; set; } = 2;

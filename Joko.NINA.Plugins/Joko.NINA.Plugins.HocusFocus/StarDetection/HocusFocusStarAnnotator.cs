@@ -189,7 +189,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         }
 
                         var metrics = (result as HocusFocusStarDetectionResult)?.Metrics;
-                        if (StarAnnotatorOptions.ShowDegenerate && metrics?.TooDistortedBounds != null) {
+                        if (StarAnnotatorOptions.ShowTooDistorted && metrics?.TooDistortedBounds != null) {
                             using (var brush = new SolidBrush(StarAnnotatorOptions.TooDistortedColor.ToDrawingColor()))
                             using (var pen = new Pen(brush)) {
                                 foreach (var rect in metrics.TooDistortedBounds) {

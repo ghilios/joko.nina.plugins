@@ -558,26 +558,26 @@
       echo "Creating $(PlatformName) Plugins folder"
       mkdir  "%25localappdata%25\NINA\Plugins"
       )
-      if not exist "%25localappdata%25\NINA\Plugin\$(TargetName)" (
-      echo "Creating $(PlatformName) Plugins $(TargetName) folder"
-      mkdir  "%25localappdata%25\NINA\Plugins\$(TargetName)"
-      mkdir  "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\dll\x86"
-      mkdir  "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\dll\x64"
+      if not exist "%25localappdata%25\NINA\Plugin\Hocus Focus\" (
+      echo "Creating $(PlatformName) Plugins Hocus Focus folder"
+      mkdir  "%25localappdata%25\NINA\Plugins\Hocus Focus"
+      mkdir  "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x86"
+      mkdir  "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x64"
       )
 
-      echo "Copying $(PlatformName) $(TargetFileName)"
-      xcopy "$(TargetPath)" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
-      xcopy "$(TargetDir)\$(TargetName).pdb" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
+      echo "Copying $(PlatformName) Hocus Focus"
+      xcopy "$(TargetPath)" "%25localappdata%25\NINA\Plugins\Hocus Focus" /h/k/r/y
+      xcopy "$(TargetDir)\$(TargetName).pdb" "%25localappdata%25\NINA\Plugins\Hocus Focus" /h/k/r/y
 
-      echo "Copying $(PlatformName) $(TargetFileName) Dependencies"
-      xcopy "$(TargetDir)alglib.net.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y
-      xcopy "$(TargetDir)OpenCVSharp.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y
-      xcopy "$(TargetDir)OpenCVSharp.Extensions.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y
-      xcopy "$(TargetDir)dll\x86\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\dll\x86" /h/k/r/y
-      xcopy "$(TargetDir)dll\x64\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\dll\x64" /h/k/r/y
-      xcopy "$(TargetDir)ScottPlot*.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y
-      xcopy "$(TargetDir)ILNumerics*.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y
-      xcopy "$(TargetDir)OpenTK*.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y</PostBuildEvent>
+      echo "Copying $(PlatformName) Hocus Focus Dependencies"
+      xcopy "$(TargetDir)alglib.net.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)OpenCVSharp.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)OpenCVSharp.Extensions.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)dll\x86\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x86" /h/k/r/y
+      xcopy "$(TargetDir)dll\x64\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x64" /h/k/r/y
+      xcopy "$(TargetDir)ScottPlot*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)ILNumerics*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)OpenTK*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y</PostBuildEvent>
   </PropertyGroup>
   <Import Project="..\packages\Accord.3.8.0\build\Accord.targets" Condition="Exists('..\packages\Accord.3.8.0\build\Accord.targets')" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">

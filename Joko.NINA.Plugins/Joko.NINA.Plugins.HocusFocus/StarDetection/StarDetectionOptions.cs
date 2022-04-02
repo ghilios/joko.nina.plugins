@@ -68,11 +68,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     NoiseReductionRadius = 5;
                     break;
             }
+            StarMeasurementNoiseReductionEnabled = false;
             NoiseClippingMultiplier = 4;
             StarClippingMultiplier = 2;
             StructureLayers = 4;
+            BrightnessSensitivity = 10.0;
             if (Simple_FocusRange == FocusRangeEnum.WideRange) {
                 StructureLayers += 1;
+                BrightnessSensitivity -= 2.0;
             }
 
             MinStarBoundingBoxSize = 5;
@@ -84,8 +87,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             } else if (Simple_PixelScale == PixelScaleEnum.LongFocalLength) {
                 StructureLayers += 1;
                 MinStarBoundingBoxSize += 1;
+                BrightnessSensitivity -= 2.0;
             }
-            BrightnessSensitivity = 10.0;
             StarPeakResponse = 0.75;
             MaxDistortion = 0.5;
             StarCenterTolerance = 0.3;
@@ -120,6 +123,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             simple_FocusRange = optionsAccessor.GetValueEnum<FocusRangeEnum>("Simple_FocusRange", FocusRangeEnum.Typical);
             hotpixelFiltering = optionsAccessor.GetValueBoolean("HotpixelFiltering", true);
             useAutoFocusCrop = optionsAccessor.GetValueBoolean("UseAutoFocusCrop", true);
+            starMeasurementNoiseReductionEnabled = optionsAccessor.GetValueBoolean(nameof(StarMeasurementNoiseReductionEnabled), false);
             noiseReductionRadius = optionsAccessor.GetValueInt32("NoiseReductionRadius", 3);
             noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 4.0);
             starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 2.0);
@@ -159,6 +163,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             simple_FocusRange = FocusRangeEnum.Typical;
             HotpixelFiltering = true;
             UseAutoFocusCrop = true;
+            StarMeasurementNoiseReductionEnabled = false;
             NoiseReductionRadius = 3;
             NoiseClippingMultiplier = 4.0;
             StarClippingMultiplier = 2.0;
@@ -219,6 +224,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (modelPSF != value) {
                     modelPSF = value;
                     optionsAccessor.SetValueBoolean("ModelPSF", modelPSF);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool starMeasurementNoiseReductionEnabled;
+
+        public bool StarMeasurementNoiseReductionEnabled {
+            get => starMeasurementNoiseReductionEnabled;
+            set {
+                if (starMeasurementNoiseReductionEnabled != value) {
+                    starMeasurementNoiseReductionEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(StarMeasurementNoiseReductionEnabled), starMeasurementNoiseReductionEnabled);
                     RaisePropertyChanged();
                 }
             }
@@ -299,7 +317,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             set {
                 if (useAutoFocusCrop != value) {
                     useAutoFocusCrop = value;
-                    optionsAccessor.SetValueBoolean("UseAutoFocusCrop", hotpixelFiltering);
+                    optionsAccessor.SetValueBoolean("UseAutoFocusCrop", useAutoFocusCrop);
                     RaisePropertyChanged();
                 }
             }

@@ -37,6 +37,7 @@
     <TextBlock x:Key="SavePath_Tooltip" Text="The folder to save Auto Focus runs" />
     <TextBlock x:Key="SaveAutoFocus_Tooltip" Text="Saves details about every Auto Focus run, including a copy of the image, the star detection results, and the stretched annotated image" />
     <TextBlock x:Key="NoiseReductionRadius_Tooltip" Text="Blurs the image with a NxN gaussian convolution and a sigma automatically chosen to match this radius. Larger values blur the image further. If this is enabled, hotpixel filtering is automatically performed before to prevent the hotpixels from bleeding into the surrounding pixels" />
+    <TextBlock x:Key="StarMeasurementNoiseReductionEnabled_Tooltip" Text="Apply noise detection settings to the pixels used during star measurement. By default, it is applied only to the structure detection image." />
     <TextBlock x:Key="NoiseClippingMultiplier_Tooltip" Text="Structure map generation binarizes pixels above the noise floor after noise detection and before star detection. This floor is calculated based on the background (median of the whole image) + this multiplier times the noise standard deviation, as calculated using the Kappa-Sigma algorithm. Increasing this value more aggressively clips the background, which can be useful if star bounding boxes include too much background data." />
     <TextBlock x:Key="StarClippingMultiplier_Tooltip" Text="Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis. Decrease this if there are a large number of stars excluded for being degenerate and you can see many clear dim stars that are not detected." />
     <TextBlock x:Key="StructureLayers_Tooltip" Text="The number of dyadic (power of 2) layers to include in structure detection. At the default of 5 (2⁵=32), structures larger than 32 pixels in size are excluded from structure detection" />
@@ -535,6 +536,22 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding StarDetectionOptions.HotpixelFiltering}"
                 ToolTip="{StaticResource HotpixelFiltering_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="11"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Noise Reduced Star Measurement"
+                ToolTip="{StaticResource StarMeasurementNoiseReductionEnabled_Tooltip}" />
+            <CheckBox
+                Grid.Row="11"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.StarMeasurementNoiseReductionEnabled}"
+                ToolTip="{StaticResource StarMeasurementNoiseReductionEnabled_Tooltip}" />
 
             <TextBlock
                 Grid.Row="12"

@@ -233,6 +233,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             var detectorParams = new StarDetectorParams() {
                 ModelPSF = starDetectionOptions.ModelPSF,
+                StarMeasurementNoiseReductionEnabled = starDetectionOptions.StarMeasurementNoiseReductionEnabled,
                 PSFFitType = starDetectionOptions.PSFFitType,
                 HotpixelFiltering = starDetectionOptions.HotpixelFiltering,
                 NoiseReductionRadius = starDetectionOptions.NoiseReductionRadius,

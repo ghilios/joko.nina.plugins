@@ -493,13 +493,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             }
         }
 
-        public class KappSigmaNoiseEstimateResult {
+        public class KappaSigmaNoiseEstimateResult {
             public double Sigma { get; set; }
             public double BackgroundMean { get; set; }
             public int NumIterations { get; set; }
         }
 
-        public static KappSigmaNoiseEstimateResult KappaSigmaNoiseEstimate(Mat image, double clippingMultipler = 3.0d, double allowedError = 0.00001, int maxIterations = 5) {
+        public static KappaSigmaNoiseEstimateResult KappaSigmaNoiseEstimate(Mat image, double clippingMultipler = 3.0d, double allowedError = 0.00001, int maxIterations = 5) {
             // NOTE: This algorithm could be sped up by building a log histogram. Consider this if performance becomes problematic
             if (image.Type() != MatType.CV_32F) {
                 throw new ArgumentException("Only CV_32F supported");
@@ -533,7 +533,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     lastBackgroundMean = mean;
                 }
 
-                return new KappSigmaNoiseEstimateResult() {
+                return new KappaSigmaNoiseEstimateResult() {
                     Sigma = lastSigma,
                     BackgroundMean = lastBackgroundMean,
                     NumIterations = numIterations
