@@ -148,28 +148,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     noiseReductionApplied = true;
                 }
 
-                var srcImageNoiseEstimateTask = Task.Run(() => {
-                    return CvImageUtility.KappaSigmaNoiseEstimate(srcImage, clippingMultipler: p.NoiseClippingMultiplier);
-                });
-
                 MaybeSaveIntermediateImage(srcImage, p, "02-src-image-preparation.tif");
                 stopWatch.RecordEntry("SrcImagePreparation");
 
                 // Step 2: Prepare for structure detection by performing optional noise reduction
                 progress?.Report(new ApplicationStatus() { Status = "Preparing for Structure Detection" });
 
-                Mat structureMap = resourceTracker.NewMat();
+                Mat noiseReducedImage = resourceTracker.NewMat();
                 if (hotpixelFilteringApplied || noiseReductionApplied || p.NoiseReductionRadius <= 0) {
                     // In this case, we've already applied hotpixel filtering, so no need to do it again. The structure map can start from here
-                    srcImage.CopyTo(structureMap);
+                    srcImage.CopyTo(noiseReducedImage);
                 } else {
-                    Cv2.MedianBlur(srcImage, structureMap, 3);
+                    Cv2.MedianBlur(srcImage, noiseReducedImage, 3);
                 }
 
                 // Step 3: If we haven't yet applied noise reduction and it is configured, do so now
                 if (p.NoiseReductionRadius > 0 && !noiseReductionApplied) {
-                    CvImageUtility.ConvolveGaussian(structureMap, structureMap, p.NoiseReductionRadius * 2 + 1);
+                    CvImageUtility.ConvolveGaussian(noiseReducedImage, noiseReducedImage, p.NoiseReductionRadius * 2 + 1);
                 }
+
+                Mat structureMap = resourceTracker.NewMat();
+                noiseReducedImage.CopyTo(structureMap);
+                var noiseReducedNoiseEstimateTask = Task.Run(() => {
+                    var result = CvImageUtility.KappaSigmaNoiseEstimate(noiseReducedImage, clippingMultipler: p.NoiseClippingMultiplier);
+                    noiseReducedImage.Dispose();
+                    noiseReducedImage = null;
+                    return result;
+                });
 
                 MaybeSaveIntermediateImage(structureMap, p, "03-structure-map-start.tif");
                 stopWatch.RecordEntry("StructureMapPreparation");
@@ -244,9 +249,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 MaybeSaveIntermediateImage(structureMap, p, "10-structure-binarized.tif");
 
                 // Step 9: Scan structure map for stars
-                var srcImageNoise = await srcImageNoiseEstimateTask;
+                var noiseReducedImageNoise = await noiseReducedNoiseEstimateTask;
                 progress?.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
-                var stars = ScanStars(srcImage, structureMap, p, srcImageNoise.Sigma, metrics, token);
+                var stars = ScanStars(srcImage, structureMap, p, noiseReducedImageNoise.Sigma, metrics, token);
                 stopWatch.RecordEntry("StarAnalysis");
 
                 // Step 10: Fit PSF models
@@ -254,7 +259,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 stopwatch.Start();
                 if (p.ModelPSF) {
                     progress?.Report(new ApplicationStatus() { Status = "Modeling PSFs" });
-                    await ModelPSF(srcImage, srcImageNoise.Sigma, stars, p, metrics, token);
+                    await ModelPSF(srcImage, noiseReducedImageNoise.Sigma, stars, p, metrics, token);
 
                     stopWatch.RecordEntry("ModelPSF");
                 }

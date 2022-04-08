@@ -284,7 +284,7 @@ namespace TestApp {
                 var detectorParams = new StarDetectorParams() {
                     PSFFitType = StarDetectorPSFFitType.Gaussian,
                     PSFParallelPartitionSize = 0,
-                    UsePSFAbsoluteDeviation = true
+                    UsePSFAbsoluteDeviation = false
                     //Region = new StarDetectionRegion(RatioRect.Full, RatioRect.FromCenterROI(0.5))
                 };
                 var detectorResult = await detector.Detect(srcFloat, detectorParams, null, CancellationToken.None);

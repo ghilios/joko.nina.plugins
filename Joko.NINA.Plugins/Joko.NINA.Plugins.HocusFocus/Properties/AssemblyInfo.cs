@@ -18,8 +18,8 @@ using System.Runtime.InteropServices;
 
 // [MANDATORY] The assembly versioning
 //Should be incremented for each new release build of a plugin
-[assembly: AssemblyVersion("1.11.0.34")]
-[assembly: AssemblyFileVersion("1.11.0.34")]
+[assembly: AssemblyVersion("1.11.0.35")]
+[assembly: AssemblyFileVersion("1.11.0.35")]
 
 // [MANDATORY] The name of your plugin
 [assembly: AssemblyTitle("Hocus Focus")]
@@ -35,7 +35,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCopyright("Copyright ©  2021")]
 
 // The minimum Version of N.I.N.A. that this plugin is compatible with
-[assembly: AssemblyMetadata("MinimumApplicationVersion", "2.0.0.2051")]
+[assembly: AssemblyMetadata("MinimumApplicationVersion", "2.0.0.2059")]
 
 // The license your plugin code is using
 [assembly: AssemblyMetadata("License", "MPL-2.0")]
