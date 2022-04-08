@@ -492,6 +492,7 @@
     <Compile Include="Utility\ApplicationDispatcher.cs" />
     <Compile Include="Utility\CvImageUtility.cs" />
     <Compile Include="Utility\Extensions.cs" />
+    <Compile Include="Utility\HotpixelFiltering.cs" />
     <Compile Include="Utility\MathUtility.cs" />
     <Compile Include="Utility\MultiStopWatch.cs" />
     <Compile Include="Utility\NativeMethods.cs" />

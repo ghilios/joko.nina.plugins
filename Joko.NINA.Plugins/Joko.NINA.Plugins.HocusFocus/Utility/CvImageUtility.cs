@@ -17,6 +17,9 @@ using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using NINA.Core.Enum;
+using NINA.Core.Locale;
+using Accord.Imaging;
 
 namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
@@ -84,20 +87,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         }
 
         public static Mat ToOpenCVMat(IRenderedImage image) {
-            Mat result = null;
-            try {
+            if ((image as IDebayeredImage)?.SaveLumChannel == true) {
                 var props = image.RawImageData.Properties;
-                if ((image as IDebayeredImage)?.SaveLumChannel == true) {
-                    var debayeredImage = (IDebayeredImage)image;
-                    result = ToOpenCVMat(debayeredImage.DebayeredData.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
-                } else {
-                    result = ToOpenCVMat(image.RawImageData.Data.FlatArray, bpp: props.BitDepth, width: props.Width, height: props.Height);
-                }
-                return result;
-            } catch (Exception) {
-                result?.Dispose();
-                throw;
+                var debayeredImage = (IDebayeredImage)image;
+                return ToOpenCVMat(debayeredImage.DebayeredData.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
+            } else {
+                return ToOpenCVMat(image.RawImageData);
             }
+        }
+
+        public static Mat ToOpenCVMat(IImageData imageData) {
+            var props = imageData.Properties;
+            return ToOpenCVMat(imageData.Data.FlatArray, bpp: props.BitDepth, width: props.Width, height: props.Height);
         }
 
         public static CvImageStatistics CalculateStatistics(Mat image, Rect? rect = null, CvImageStatisticsFlags flags = CvImageStatisticsFlags.All) {
