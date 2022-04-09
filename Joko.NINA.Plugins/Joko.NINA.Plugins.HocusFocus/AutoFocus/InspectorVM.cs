@@ -257,7 +257,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result) {
-            if (!result.Succeeded) {
+            if (result == null || !result.Succeeded) {
                 Logger.Error("Inspection analysis failed, due to failed AutoFocus");
                 return Task.FromResult(false);
             }

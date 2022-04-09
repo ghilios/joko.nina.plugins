@@ -192,40 +192,40 @@
       <HintPath>..\packages\Newtonsoft.Json.13.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="nikoncswrapper, Version=1.8.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Equipment.2.0.0.2051-beta\lib\net48\nikoncswrapper.dll</HintPath>
+      <HintPath>..\packages\NINA.Equipment.2.0.0.2059-beta\lib\net48\nikoncswrapper.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Astrometry, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Astrometry.2.0.0.2051-beta\lib\net48\NINA.Astrometry.dll</HintPath>
+    <Reference Include="NINA.Astrometry, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Astrometry.2.0.0.2059-beta\lib\net48\NINA.Astrometry.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Core, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Core.2.0.0.2051-beta\lib\net48\NINA.Core.dll</HintPath>
+    <Reference Include="NINA.Core, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Core.2.0.0.2059-beta\lib\net48\NINA.Core.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Equipment, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Equipment.2.0.0.2051-beta\lib\net48\NINA.Equipment.dll</HintPath>
+    <Reference Include="NINA.Equipment, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Equipment.2.0.0.2059-beta\lib\net48\NINA.Equipment.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Image, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Image.2.0.0.2051-beta\lib\net48\NINA.Image.dll</HintPath>
+    <Reference Include="NINA.Image, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Image.2.0.0.2059-beta\lib\net48\NINA.Image.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.MGEN, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.MGEN.2.0.0.2051-beta\lib\net48\NINA.MGEN.dll</HintPath>
+    <Reference Include="NINA.MGEN, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.MGEN.2.0.0.2059-beta\lib\net48\NINA.MGEN.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.PlateSolving, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.PlateSolving.2.0.0.2051-beta\lib\net48\NINA.PlateSolving.dll</HintPath>
+    <Reference Include="NINA.PlateSolving, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.PlateSolving.2.0.0.2059-beta\lib\net48\NINA.PlateSolving.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Plugin, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Plugin.2.0.0.2051-beta\lib\net48\NINA.Plugin.dll</HintPath>
+    <Reference Include="NINA.Plugin, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Plugin.2.0.0.2059-beta\lib\net48\NINA.Plugin.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Profile, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Profile.2.0.0.2051-beta\lib\net48\NINA.Profile.dll</HintPath>
+    <Reference Include="NINA.Profile, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Profile.2.0.0.2059-beta\lib\net48\NINA.Profile.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Sequencer, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Sequencer.2.0.0.2051-beta\lib\net48\NINA.Sequencer.dll</HintPath>
+    <Reference Include="NINA.Sequencer, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Sequencer.2.0.0.2059-beta\lib\net48\NINA.Sequencer.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.WPF.Base, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.WPF.Base.2.0.0.2051-beta\lib\net48\NINA.WPF.Base.dll</HintPath>
+    <Reference Include="NINA.WPF.Base, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.WPF.Base.2.0.0.2059-beta\lib\net48\NINA.WPF.Base.dll</HintPath>
     </Reference>
-    <Reference Include="NINACustomControlLibrary, Version=2.0.0.2051, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINACustomControlLibrary.2.0.0.2051-beta\lib\net48\NINACustomControlLibrary.dll</HintPath>
+    <Reference Include="NINACustomControlLibrary, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINACustomControlLibrary.2.0.0.2059-beta\lib\net48\NINACustomControlLibrary.dll</HintPath>
     </Reference>
     <Reference Include="Nito.AsyncEx.Context, Version=5.1.2.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\Nito.AsyncEx.Context.5.1.2\lib\net461\Nito.AsyncEx.Context.dll</HintPath>
@@ -492,6 +492,7 @@
     <Compile Include="Utility\ApplicationDispatcher.cs" />
     <Compile Include="Utility\CvImageUtility.cs" />
     <Compile Include="Utility\Extensions.cs" />
+    <Compile Include="Utility\HotpixelFiltering.cs" />
     <Compile Include="Utility\MathUtility.cs" />
     <Compile Include="Utility\MultiStopWatch.cs" />
     <Compile Include="Utility\NativeMethods.cs" />
@@ -558,26 +559,26 @@
       echo "Creating $(PlatformName) Plugins folder"
       mkdir  "%25localappdata%25\NINA\Plugins"
       )
-      if not exist "%25localappdata%25\NINA\Plugin\$(TargetName)" (
-      echo "Creating $(PlatformName) Plugins $(TargetName) folder"
-      mkdir  "%25localappdata%25\NINA\Plugins\$(TargetName)"
-      mkdir  "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\dll\x86"
-      mkdir  "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\dll\x64"
+      if not exist "%25localappdata%25\NINA\Plugin\Hocus Focus\" (
+      echo "Creating $(PlatformName) Plugins Hocus Focus folder"
+      mkdir  "%25localappdata%25\NINA\Plugins\Hocus Focus"
+      mkdir  "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x86"
+      mkdir  "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x64"
       )
 
-      echo "Copying $(PlatformName) $(TargetFileName)"
-      xcopy "$(TargetPath)" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
-      xcopy "$(TargetDir)\$(TargetName).pdb" "%25localappdata%25\NINA\Plugins\$(TargetName)" /h/k/r/y
+      echo "Copying $(PlatformName) Hocus Focus"
+      xcopy "$(TargetPath)" "%25localappdata%25\NINA\Plugins\Hocus Focus" /h/k/r/y
+      xcopy "$(TargetDir)\$(TargetName).pdb" "%25localappdata%25\NINA\Plugins\Hocus Focus" /h/k/r/y
 
-      echo "Copying $(PlatformName) $(TargetFileName) Dependencies"
-      xcopy "$(TargetDir)alglib.net.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y
-      xcopy "$(TargetDir)OpenCVSharp.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y
-      xcopy "$(TargetDir)OpenCVSharp.Extensions.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y
-      xcopy "$(TargetDir)dll\x86\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\dll\x86" /h/k/r/y
-      xcopy "$(TargetDir)dll\x64\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll\dll\x64" /h/k/r/y
-      xcopy "$(TargetDir)ScottPlot*.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y
-      xcopy "$(TargetDir)ILNumerics*.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y
-      xcopy "$(TargetDir)OpenTK*.dll" "%25localappdata%25\NINA\Plugins\$(TargetName)\dll" /h/k/r/y</PostBuildEvent>
+      echo "Copying $(PlatformName) Hocus Focus Dependencies"
+      xcopy "$(TargetDir)alglib.net.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)OpenCVSharp.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)OpenCVSharp.Extensions.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)dll\x86\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x86" /h/k/r/y
+      xcopy "$(TargetDir)dll\x64\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x64" /h/k/r/y
+      xcopy "$(TargetDir)ScottPlot*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)ILNumerics*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)OpenTK*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y</PostBuildEvent>
   </PropertyGroup>
   <Import Project="..\packages\Accord.3.8.0\build\Accord.targets" Condition="Exists('..\packages\Accord.3.8.0\build\Accord.targets')" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">

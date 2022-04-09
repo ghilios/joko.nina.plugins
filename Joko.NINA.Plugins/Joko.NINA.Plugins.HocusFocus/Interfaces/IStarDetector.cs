@@ -176,9 +176,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public class StarDetectorParams {
         public bool HotpixelFiltering { get; set; } = true;
 
+        // If enabled, applies hotpixel filtering only if the difference exceeds a threshold. This is more computationally intensive, but limits blurring to more likely
+        // hotpixel candidates
+        public bool HotpixelThresholdingEnabled { get; set; } = true;
+
+        // The threshold limit for Hotpixel thresholding. If the median value for a pixel's neighbors differs from the actual pixel value by this percent
+        // of the max ADU, then the pixel is replaced
+        public double HotpixelThreshold { get; set; } = 0.01;
+
+        // If this is true, then the source image used for star measurement has the noise reduction settings applied to it. Otherwise, noise reduction is done only on the structure map
+        public bool StarMeasurementNoiseReductionEnabled { get; set; } = true;
+
         // Half size in pixels of a Gaussian convolution filter used for noise reduction. This is useful for low-SNR images
         // Setting this value also implies hotpixel filtering is enabled, since otherwise we would blend the hot pixels into their neighbors
-        public int NoiseReductionRadius { get; set; } = 2;
+        public int NoiseReductionRadius { get; set; } = 3;
 
         // Number of noise standard deviations above the median to binarize the structure map containing star candidates. Increasing this is useful for noisy images to reduce
         // spurious detected stars in combination with light noise reduction

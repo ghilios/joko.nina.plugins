@@ -424,7 +424,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
                 var options = autoFocusEngine.GetOptions();
                 var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
-                if (!result.Succeeded) {
+                if (result == null || !result.Succeeded) {
                     return null;
                 }
                 return LastReport;

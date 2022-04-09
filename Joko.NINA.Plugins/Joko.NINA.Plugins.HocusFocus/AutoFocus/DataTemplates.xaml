@@ -40,7 +40,8 @@
             <oxy:Plot
                 Background="{StaticResource BackgroundBrush}"
                 PlotAreaBackground="{StaticResource BackgroundBrush}"
-                PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}">
+                PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
+                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
 
                 <oxy:Plot.Axes>
                     <oxy:LinearAxis
@@ -1330,7 +1331,8 @@
                             MouseDoubleClick="Plot_MouseDoubleClick"
                             PlotAreaBackground="{StaticResource BackgroundBrush}"
                             PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
-                            PlotModel="{Binding AutoFocusChartPlotModel, Mode=OneWayToSource, NotifyOnTargetUpdated=True}">
+                            PlotModel="{Binding AutoFocusChartPlotModel, Mode=OneWayToSource, NotifyOnTargetUpdated=True}"
+                            TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
                             <oxy:Plot.Axes>
                                 <oxy:LinearAxis
                                     AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"

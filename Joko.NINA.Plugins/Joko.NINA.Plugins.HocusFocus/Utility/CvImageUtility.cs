@@ -17,6 +17,9 @@ using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using NINA.Core.Enum;
+using NINA.Core.Locale;
+using Accord.Imaging;
 
 namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
@@ -84,20 +87,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         }
 
         public static Mat ToOpenCVMat(IRenderedImage image) {
-            Mat result = null;
-            try {
+            if ((image as IDebayeredImage)?.SaveLumChannel == true) {
                 var props = image.RawImageData.Properties;
-                if ((image as IDebayeredImage)?.SaveLumChannel == true) {
-                    var debayeredImage = (IDebayeredImage)image;
-                    result = ToOpenCVMat(debayeredImage.DebayeredData.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
-                } else {
-                    result = ToOpenCVMat(image.RawImageData.Data.FlatArray, bpp: props.BitDepth, width: props.Width, height: props.Height);
-                }
-                return result;
-            } catch (Exception) {
-                result?.Dispose();
-                throw;
+                var debayeredImage = (IDebayeredImage)image;
+                return ToOpenCVMat(debayeredImage.DebayeredData.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
+            } else {
+                return ToOpenCVMat(image.RawImageData);
             }
+        }
+
+        public static Mat ToOpenCVMat(IImageData imageData) {
+            var props = imageData.Properties;
+            return ToOpenCVMat(imageData.Data.FlatArray, bpp: props.BitDepth, width: props.Width, height: props.Height);
         }
 
         public static CvImageStatistics CalculateStatistics(Mat image, Rect? rect = null, CvImageStatisticsFlags flags = CvImageStatisticsFlags.All) {
@@ -493,13 +494,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             }
         }
 
-        public class KappSigmaNoiseEstimateResult {
+        public class KappaSigmaNoiseEstimateResult {
             public double Sigma { get; set; }
             public double BackgroundMean { get; set; }
             public int NumIterations { get; set; }
         }
 
-        public static KappSigmaNoiseEstimateResult KappaSigmaNoiseEstimate(Mat image, double clippingMultipler = 3.0d, double allowedError = 0.00001, int maxIterations = 5) {
+        public static KappaSigmaNoiseEstimateResult KappaSigmaNoiseEstimate(Mat image, double clippingMultipler = 3.0d, double allowedError = 0.00001, int maxIterations = 5) {
             // NOTE: This algorithm could be sped up by building a log histogram. Consider this if performance becomes problematic
             if (image.Type() != MatType.CV_32F) {
                 throw new ArgumentException("Only CV_32F supported");
@@ -533,7 +534,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     lastBackgroundMean = mean;
                 }
 
-                return new KappSigmaNoiseEstimateResult() {
+                return new KappaSigmaNoiseEstimateResult() {
                     Sigma = lastSigma,
                     BackgroundMean = lastBackgroundMean,
                     NumIterations = numIterations

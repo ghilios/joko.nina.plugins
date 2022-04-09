@@ -66,6 +66,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Fine-grained configuration
         bool HotpixelFiltering { get; set; }
 
+        bool HotpixelThresholdingEnabled { get; set; }
+
         bool UseAutoFocusCrop { get; set; }
         int NoiseReductionRadius { get; set; }
         double NoiseClippingMultiplier { get; set; }
