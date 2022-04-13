@@ -664,8 +664,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void GenerateReport(AutoFocusCompletedEventArgs e) {
-            var regionReports = new HocusFocusReport[e.RegionHFRs.Count];
-            for (int regionIndex = 0; regionIndex < e.RegionHFRs.Count; ++regionIndex) {
+            var regionReports = new HocusFocusReport[RegionFocusPoints.Length];
+            for (int regionIndex = 0; regionIndex < RegionFocusPoints.Length; ++regionIndex) {
                 var region = e.RegionHFRs[regionIndex];
                 var finalFocusPoint = new DataPoint(region.EstimatedFinalFocuserPosition, region.EstimatedFinalHFR);
                 var lastAutoFocusPoint = new ReportAutoFocusPoint {
@@ -694,7 +694,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             if (!string.IsNullOrEmpty(e.SaveFolder)) {
-                for (int regionIndex = 0; regionIndex < e.RegionHFRs.Count; ++regionIndex) {
+                for (int regionIndex = 0; regionIndex < RegionFocusPoints.Length; ++regionIndex) {
                     var regionReport = regionReports[regionIndex];
                     var regionReportText = JsonConvert.SerializeObject(regionReport, Formatting.Indented);
                     var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
