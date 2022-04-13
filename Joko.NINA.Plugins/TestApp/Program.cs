@@ -267,7 +267,7 @@ namespace TestApp {
                     .ToList();
 
                 var (medianFocusPosition, _) = allMatchedStars.Where(s => s.FitFocuserPosition.HasValue).Select(s => s.FitFocuserPosition.Value).MedianMAD();
-                var sensorModelSolver = new SensorParaboloidSolver(dataPoints: sensorModelDataPoints, sensorSizeX: 9576, sensorSizeY: 6388, inFocusPosition: medianFocusPosition);
+                var sensorModelSolver = new SensorParaboloidSolver(dataPoints: sensorModelDataPoints, sensorSizeMicronsX: 9576 * 3.76, sensorSizeMicronsY: 6388 * 3.76, inFocusMicrons: medianFocusPosition);
                 var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>();
                 nlSolver.OptGuardEnabled = true;
                 var solution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver);

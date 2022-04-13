@@ -92,18 +92,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
     }
 
     public class SensorParaboloidSolver : NonLinearLeastSquaresSolverBase<SensorParaboloidDataPoint, SensorParaboloidModel> {
-        private readonly double inFocusPosition;
-        private readonly double sensorSizeX;
-        private readonly double sensorSizeY;
+        private readonly double inFocusMicrons;
+        private readonly double sensorSizeMicronsX;
+        private readonly double sensorSizeMicronsY;
 
         public SensorParaboloidSolver(
             List<SensorParaboloidDataPoint> dataPoints,
-            double sensorSizeX,
-            double sensorSizeY,
-            double inFocusPosition) : base(dataPoints, 6) {
-            this.sensorSizeX = sensorSizeX;
-            this.sensorSizeY = sensorSizeY;
-            this.inFocusPosition = inFocusPosition;
+            double sensorSizeMicronsX,
+            double sensorSizeMicronsY,
+            double inFocusMicrons) : base(dataPoints, 6) {
+            this.sensorSizeMicronsX = sensorSizeMicronsX;
+            this.sensorSizeMicronsY = sensorSizeMicronsY;
+            this.inFocusMicrons = inFocusMicrons;
         }
 
         public override bool UseJacobian => false;
@@ -118,8 +118,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var phi = parameters[4]; // p
             var c = parameters[5]; // c
 
-            var XPrime = (X - sensorSizeX / 2.0) - x0;
-            var YPrime = (Y - sensorSizeY / 2.0) - y0;
+            var XPrime = X - x0;
+            var YPrime = Y - y0;
             var XPrime2 = XPrime * XPrime;
             var YPrime2 = YPrime * YPrime;
 
@@ -129,7 +129,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var sinPhi = Math.Sin(phi);
             var cosPhi = Math.Cos(phi);
             var result = XPrime * sinPhi + (-YPrime * sinTheta + ZPrime * cosTheta) * cosPhi + z0;
-            // var result = z0 + XPrime * Math.Cos(phi) * Math.Tan(theta) + YPrime * Math.Sin(phi) * Math.Tan(theta) + c * (XPrime2 + YPrime2);
             return result;
         }
 
@@ -191,24 +190,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public override void SetInitialGuess(double[] initialGuess) {
-            initialGuess[0] = 0.0; // sensorSizeX / 2.0;
-            initialGuess[1] = 0.0; // sensorSizeY / 2.0;
-            initialGuess[2] = inFocusPosition;
+            initialGuess[0] = 0.0;
+            initialGuess[1] = 0.0;
+            initialGuess[2] = inFocusMicrons;
             initialGuess[3] = 0.0;
             initialGuess[4] = 0.0;
             initialGuess[5] = 0.0;
         }
 
         public override void SetBounds(double[] lowerBounds, double[] upperBounds) {
-            lowerBounds[0] = -sensorSizeX / 2.0;
-            lowerBounds[1] = -sensorSizeY / 2.0;
+            lowerBounds[0] = -sensorSizeMicronsX / 2.0;
+            lowerBounds[1] = -sensorSizeMicronsY / 2.0;
             lowerBounds[2] = double.NegativeInfinity;
             lowerBounds[3] = -Math.PI / 2.0;
             lowerBounds[4] = -Math.PI / 2.0;
             lowerBounds[5] = double.NegativeInfinity;
 
-            upperBounds[0] = sensorSizeX / 2.0;
-            upperBounds[1] = sensorSizeY / 2.0;
+            upperBounds[0] = sensorSizeMicronsX / 2.0;
+            upperBounds[1] = sensorSizeMicronsY / 2.0;
             upperBounds[2] = double.PositiveInfinity;
             upperBounds[3] = Math.PI / 2.0;
             upperBounds[4] = Math.PI / 2.0;

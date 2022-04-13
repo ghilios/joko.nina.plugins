@@ -415,7 +415,6 @@
     <Compile Include="AutoFocus\InspectorVM.cs" />
     <Compile Include="AutoFocus\Models.cs" />
     <Compile Include="AutoFocus\TiltModel.cs" />
-    <Compile Include="AutoFocus\ZernikeSensorModel.cs" />
     <Compile Include="Controls\FWHMContourControl.cs" />
     <Compile Include="Controls\ILNCanvasControl.xaml.cs">
       <DependentUpon>ILNCanvasControl.xaml</DependentUpon>

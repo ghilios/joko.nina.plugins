@@ -266,28 +266,42 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return imagingFilter;
         }
 
-        private async Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result, bool sensorCurveModelEnabled) {
+        private bool focuserStepSizeWarningShowed = false;
+
+        private Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result, bool sensorCurveModelEnabled) {
             if (result == null || !result.Succeeded) {
                 Logger.Error("Inspection analysis failed, due to failed AutoFocus");
-                return false;
+                return Task.FromResult(false);
             }
 
             var invalidRegionCount = result.RegionResults.Count(r => double.IsNaN(r.EstimatedFinalFocuserPosition));
             if (invalidRegionCount > 0) {
                 Notification.ShowWarning($"{invalidRegionCount} regions failed to produce a focus curve");
-                Logger.Error($"{invalidRegionCount} regions failed to produce a focus curve");
+                Logger.Warning($"{invalidRegionCount} regions failed to produce a focus curve");
             }
 
             if (sensorCurveModelEnabled) {
+                double focuserSizeMicrons = InspectorOptions.MicronsPerFocuserStep;
+                if (double.IsNaN(focuserSizeMicrons) || focuserSizeMicrons <= 0.0) {
+                    if (!focuserStepSizeWarningShowed) {
+                        Notification.ShowWarning("Focuser Step Size not set. Assuming 1 micron per focuser step. This message won't be shown again.");
+                        focuserStepSizeWarningShowed = true;
+                    }
+                    Logger.Warning("Focuser Step Size not set. Assuming 1 micron per focuser step.");
+                    focuserSizeMicrons = 1.0d;
+                }
+
                 var finalFocuserPosition = result.RegionResults[0].EstimatedFinalFocuserPosition;
-                // TODO: Make this async?
-                SensorModel.UpdateModel(FullSensorDetectedStars, imageSize: result.ImageSize, finalFocusPosition: finalFocuserPosition);
+                SensorModel.UpdateModel(
+                    FullSensorDetectedStars,
+                    focuserSizeMicrons: focuserSizeMicrons,
+                    finalFocusPosition: finalFocuserPosition);
             }
 
             UpdateBackfocusMeasurements(result);
             TiltModel.UpdateTiltModel(result, BackfocusFocuserPositionDelta);
             AutoFocusCompleted = true;
-            return true;
+            return Task.FromResult(true);
         }
 
         private Task<bool> TakeAndAnalyzeExposure(IAutoFocusEngine autoFocusEngine, CancellationToken token) {

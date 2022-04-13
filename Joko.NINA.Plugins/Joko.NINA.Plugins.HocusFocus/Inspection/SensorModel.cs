@@ -12,6 +12,7 @@
 
 using KdTree;
 using KdTree.Math;
+using NINA.Astrometry;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
@@ -22,7 +23,6 @@ using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
@@ -52,30 +52,42 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
         public void UpdateModel(
             List<SensorDetectedStars> allDetectedStars,
-            System.Drawing.Size imageSize,
+            double focuserSizeMicrons,
             double finalFocusPosition) {
-            var dataPoints = RegisterStarsAndFit(allDetectedStars);
-            var sensorModelSolver = new SensorParaboloidSolver(dataPoints: dataPoints, sensorSizeX: imageSize.Width, sensorSizeY: imageSize.Height, inFocusPosition: finalFocusPosition);
+            if (allDetectedStars.Count == 0) {
+                throw new ArgumentException("Cannot update sensor model. No detected stars provided");
+            }
+
+            ModelLoaded = false;
+            var firstStarDetectionResult = allDetectedStars.First().StarDetectionResult;
+            var imageSize = firstStarDetectionResult.ImageSize;
+            var pixelSize = firstStarDetectionResult.PixelSize;
+            var dataPoints = RegisterStarsAndFit(allDetectedStars, pixelSize: pixelSize, focuserSizeMicrons: focuserSizeMicrons, imageSize: imageSize);
+            var sensorModelSolver = new SensorParaboloidSolver(
+                dataPoints: dataPoints,
+                sensorSizeMicronsX: imageSize.Width * pixelSize,
+                sensorSizeMicronsY: imageSize.Height * pixelSize,
+                inFocusMicrons: finalFocusPosition * focuserSizeMicrons);
             var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>();
             var solution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver);
-            var goodnessOfFit = nlSolver.GoodnessOfFit(sensorModelSolver, solution);
-            var rmsError = nlSolver.RMSError(sensorModelSolver, solution);
-            Console.WriteLine($"Solved fit: {solution}. RMS = {rmsError:0.0000}, GoF = {goodnessOfFit:0.0000}");
+            PixelSizeMicrons = pixelSize;
+            FocuserSizeMicrons = focuserSizeMicrons;
+            GoodnessOfFit = nlSolver.GoodnessOfFit(sensorModelSolver, solution);
+            RMSErrorMicrons = nlSolver.RMSError(sensorModelSolver, solution);
+            CenteringErrorXMicrons = solution.X0;
+            CenteringErrorYMicrons = solution.Y0;
+            RotationErrorPhiDegrees = Angle.ByRadians(solution.Phi).Degree;
+            RotationErrorThetaDegrees = Angle.ByRadians(solution.Theta).Degree;
+            CurvatureInverseMicrons = solution.C;
+            ModelLoaded = true;
+            Logger.Info($"Solved surface model: {solution}. RMS = {RMSErrorMicrons:0.0000}, GoD: {GoodnessOfFit:0.0000}");
         }
 
-        private static float DotProduct(float[] x, float[] y) {
-            if (x.Length != y.Length) {
-                throw new ArgumentException($"x length ({x.Length}) must be equal to y length ({y.Length})");
-            }
-            float ssd = 0.0f;
-            for (int i = 0; i < x.Length; ++i) {
-                var diff = y[i] - x[i];
-                ssd += diff * diff;
-            }
-            return ssd;
-        }
-
-        private List<SensorParaboloidDataPoint> RegisterStarsAndFit(List<SensorDetectedStars> allDetectedStars) {
+        private List<SensorParaboloidDataPoint> RegisterStarsAndFit(
+            List<SensorDetectedStars> allDetectedStars,
+            System.Drawing.Size imageSize,
+            double focuserSizeMicrons,
+            double pixelSize) {
             using (var stopwatch = MultiStopWatch.Measure()) {
                 var allDetectedStarTrees = allDetectedStars.Select(result => {
                     var tree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
@@ -109,7 +121,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         var globalNeighbors = globalRegistry.RadialSearch(sourcePoint, searchRadius);
                         foreach (var globalNeighbor in globalNeighbors) {
                             var globalNeighborIndex = globalNeighbor.Value.Index;
-                            var distance = DotProduct(globalNeighbor.Point, sourcePoint);
+                            var distance = MathUtility.DotProduct(globalNeighbor.Point, sourcePoint);
                             queue.Enqueue(new MatchingPair() { SourceIndex = sourceIndex, GlobalIndex = globalNeighborIndex }, distance);
                         }
                     }
@@ -179,7 +191,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                             continue;
                         }
 
-                        var dataPoint = new SensorParaboloidDataPoint(registeredStar.RegistrationX, registeredStar.RegistrationY, fitting.Minimum.X);
+                        var dataPointX = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
+                        var dataPointY = (registeredStar.RegistrationY - (imageSize.Height / 2.0)) * pixelSize;
+                        var focuserMicrons = fitting.Minimum.X * focuserSizeMicrons;
+                        var dataPoint = new SensorParaboloidDataPoint(dataPointX, dataPointY, focuserMicrons);
                         sensorModelDataPoints.Add(dataPoint);
                     } catch (Exception e) {
                         Logger.Error(e, $"Failed to calculate hyperbolic at ({registeredStar.RegistrationX}, {registeredStar.RegistrationY}). Error={e.Message}");
@@ -225,7 +240,132 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public void Reset() {
             this.SensorTiltModels.Clear();
             this.TiltPlaneModel = null;
+            this.ModelLoaded = false;
         }
+
+        #region Properties
+
+        private bool modelLoaded = false;
+
+        public bool ModelLoaded {
+            get => modelLoaded;
+            private set {
+                if (modelLoaded != value) {
+                    modelLoaded = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double rmsErrorMicrons = 0.0d;
+
+        public double RMSErrorMicrons {
+            get => rmsErrorMicrons;
+            private set {
+                if (rmsErrorMicrons != value) {
+                    rmsErrorMicrons = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double goodnessOfFit = 0.0d;
+
+        public double GoodnessOfFit {
+            get => goodnessOfFit;
+            private set {
+                if (goodnessOfFit != value) {
+                    goodnessOfFit = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double centeringErrorXMicrons = 0.0d;
+
+        public double CenteringErrorXMicrons {
+            get => centeringErrorXMicrons;
+            private set {
+                if (centeringErrorXMicrons != value) {
+                    centeringErrorXMicrons = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double centeringErrorYMicrons = 0.0d;
+
+        public double CenteringErrorYMicrons {
+            get => centeringErrorYMicrons;
+            private set {
+                if (centeringErrorYMicrons != value) {
+                    centeringErrorYMicrons = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double rotationErrorPhiDegrees = 0.0d;
+
+        public double RotationErrorPhiDegrees {
+            get => rotationErrorPhiDegrees;
+            private set {
+                if (rotationErrorPhiDegrees != value) {
+                    rotationErrorPhiDegrees = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double rotationErrorThetaDegrees = 0.0d;
+
+        public double RotationErrorThetaDegrees {
+            get => rotationErrorThetaDegrees;
+            private set {
+                if (rotationErrorThetaDegrees != value) {
+                    rotationErrorThetaDegrees = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double curvatureInverseMicrons = 0.0d;
+
+        public double CurvatureInverseMicrons {
+            get => curvatureInverseMicrons;
+            private set {
+                if (curvatureInverseMicrons != value) {
+                    curvatureInverseMicrons = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double pixelSizeMicrons = 0.0d;
+
+        public double PixelSizeMicrons {
+            get => pixelSizeMicrons;
+            private set {
+                if (pixelSizeMicrons != value) {
+                    pixelSizeMicrons = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double focuserSizeMicrons = 0.0d;
+
+        public double FocuserSizeMicrons {
+            get => focuserSizeMicrons;
+            private set {
+                if (focuserSizeMicrons != value) {
+                    focuserSizeMicrons = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        #endregion
 
         #region Private Classes
 
