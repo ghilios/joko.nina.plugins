@@ -66,6 +66,7 @@ using System.IO;
 using NINA.Joko.Plugins.HocusFocus.Scottplot;
 using NINA.Astrometry;
 using NINA.Equipment.Equipment.MyTelescope;
+using NINA.Joko.Plugins.HocusFocus.Inspection;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
@@ -151,6 +152,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionCurveFittings = new AsyncObservableCollection<Func<double, double>>(Enumerable.Range(0, 6).Select(i => (Func<double, double>)null));
             RegionLineFittings = new AsyncObservableCollection<TrendlineFitting>(Enumerable.Range(0, 6).Select(i => (TrendlineFitting)null));
             TiltModel = new TiltModel(inspectorOptions);
+            SensorModel = new SensorModel(inspectorOptions);
 
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["InspectorSVG"];
             ImageGeometry.Freeze();
@@ -204,6 +206,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
                 };
+                var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
+                if (sensorCurveModelEnabled) {
+                    regions.Add(StarDetectionRegion.Full);
+                }
 
                 var imagingFilter = GetImagingFilter();
 
@@ -216,7 +222,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ActivateAutoFocusChart();
                 DeactivateExposureAnalysis();
                 var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, analyzeCts.Token, this.progress);
-                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result);
+                if (result == null) {
+                    return false;
+                }
+
+                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled);
                 if (!autoFocusAnalysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.");
                     return false;
@@ -256,10 +266,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return imagingFilter;
         }
 
-        private Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result) {
+        private async Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result, bool sensorCurveModelEnabled) {
             if (result == null || !result.Succeeded) {
                 Logger.Error("Inspection analysis failed, due to failed AutoFocus");
-                return Task.FromResult(false);
+                return false;
             }
 
             var invalidRegionCount = result.RegionResults.Count(r => double.IsNaN(r.EstimatedFinalFocuserPosition));
@@ -268,10 +278,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error($"{invalidRegionCount} regions failed to produce a focus curve");
             }
 
+            if (sensorCurveModelEnabled) {
+                var finalFocuserPosition = result.RegionResults[0].EstimatedFinalFocuserPosition;
+                // TODO: Make this async?
+                SensorModel.UpdateModel(FullSensorDetectedStars, imageSize: result.ImageSize, finalFocusPosition: finalFocuserPosition);
+            }
+
             UpdateBackfocusMeasurements(result);
             TiltModel.UpdateTiltModel(result, BackfocusFocuserPositionDelta);
             AutoFocusCompleted = true;
-            return Task.FromResult(true);
+            return true;
         }
 
         private Task<bool> TakeAndAnalyzeExposure(IAutoFocusEngine autoFocusEngine, CancellationToken token) {
@@ -563,22 +579,29 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(two_thirds, 0, one_third, one_third)),
                     new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third)),
-                    // TODO: Add back when CCDI-like tilt calculations are integrated
-                    // StarDetectionRegion.Full
+                    new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
                 };
+                var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
+                if (sensorCurveModelEnabled) {
+                    regions.Add(StarDetectionRegion.Full);
+                }
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
                 autoFocusEngine.Completed += AutoFocusEngine_CompletedNoReport;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+                autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
 
                 var imagingFilter = GetImagingFilter();
 
                 ActivateAutoFocusChart();
                 DeactivateExposureAnalysis();
                 var result = await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, regions, analyzeCts.Token, this.progress);
-                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result);
+                if (result == null) {
+                    return false;
+                }
+
+                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled);
                 if (!autoFocusAnalysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed");
                     return false;
@@ -615,6 +638,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             var focusPoints = RegionFocusPoints[e.RegionIndex];
             focusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, Math.Max(0.001, e.Measurement.Stdev)), focusPointComparer);
+        }
+
+        private void AutoFocusEngine_SubMeasurementPointCompleted(object sender, AutoFocusSubMeasurementPointCompletedEventArgs e) {
+            if (e.RegionIndex == 6) {
+                var hfStarDetectionResult = e.StarDetectionResult as HocusFocusStarDetectionResult;
+                if (hfStarDetectionResult != null) {
+                    FullSensorDetectedStars.Add(new SensorDetectedStars(e.FocuserPosition, hfStarDetectionResult));
+                }
+            }
         }
 
         private void GenerateReport(AutoFocusCompletedEventArgs e) {
@@ -810,6 +842,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void ClearAnalysis() {
+            FullSensorDetectedStars.Clear();
             ClearPlots();
         }
 
@@ -874,6 +907,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public ICommand SlewToZenithWestCommand { get; private set; }
         public ICommand CancelSlewToZenithCommand { get; private set; }
 
+        private readonly List<SensorDetectedStars> FullSensorDetectedStars = new List<SensorDetectedStars>();
         public AsyncObservableCollection<ScatterErrorPoint>[] RegionFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint>[] RegionPlotFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint> RegionFinalFocusPoints { get; private set; }
@@ -972,6 +1006,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public TiltModel TiltModel { get; private set; }
+        public SensorModel SensorModel { get; private set; }
         public IInspectorOptions InspectorOptions => this.inspectorOptions;
 
         private TrendlineFitting GetLineFitting(AutoFocusFitting fitting) {

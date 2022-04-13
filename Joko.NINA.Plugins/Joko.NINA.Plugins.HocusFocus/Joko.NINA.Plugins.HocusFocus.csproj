@@ -415,6 +415,7 @@
     <Compile Include="AutoFocus\InspectorVM.cs" />
     <Compile Include="AutoFocus\Models.cs" />
     <Compile Include="AutoFocus\TiltModel.cs" />
+    <Compile Include="AutoFocus\ZernikeSensorModel.cs" />
     <Compile Include="Controls\FWHMContourControl.cs" />
     <Compile Include="Controls\ILNCanvasControl.xaml.cs">
       <DependentUpon>ILNCanvasControl.xaml</DependentUpon>
@@ -434,6 +435,8 @@
     <Compile Include="Converters\DoubleNegativeToEmptyStringConverter.cs" />
     <Compile Include="Converters\InterpolateColorConverter.cs" />
     <Compile Include="Converters\InverseNaNToVisibilityCollapsedConverter.cs" />
+    <Compile Include="Inspection\SensorModel.cs" />
+    <Compile Include="Inspection\SensorParaboloidModel.cs" />
     <Compile Include="Interfaces\IApplicationDispatcher.cs" />
     <Compile Include="Interfaces\IAutoFocusEngine.cs" />
     <Compile Include="Converters\AutoFocusFittingToVisibilityConverter.cs" />
@@ -496,6 +499,8 @@
     <Compile Include="Utility\MathUtility.cs" />
     <Compile Include="Utility\MultiStopWatch.cs" />
     <Compile Include="Utility\NativeMethods.cs" />
+    <Compile Include="Utility\NonLinearLeastSquaresSolver.cs" />
+    <Compile Include="Utility\NonLinearLeastSquaresSolverBase.cs" />
     <Compile Include="Utility\PathUtility.cs" />
     <Compile Include="ValidationRules\PositiveOddIntegerRule.cs" />
     <Compile Include="ValidationRules\PositiveIntegerOrInfiniteRule.cs" />
@@ -578,7 +583,8 @@
       xcopy "$(TargetDir)dll\x64\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x64" /h/k/r/y
       xcopy "$(TargetDir)ScottPlot*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
       xcopy "$(TargetDir)ILNumerics*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
-      xcopy "$(TargetDir)OpenTK*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y</PostBuildEvent>
+      xcopy "$(TargetDir)OpenTK*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)KdTree*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y</PostBuildEvent>
   </PropertyGroup>
   <Import Project="..\packages\Accord.3.8.0\build\Accord.targets" Condition="Exists('..\packages\Accord.3.8.0\build\Accord.targets')" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">

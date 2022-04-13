@@ -28,6 +28,7 @@
     <TextBlock x:Key="EccentricityColorMapEnabled_Tooltip" Text="Enable color on the eccentricity map" />
     <TextBlock x:Key="MouseOnChartsEnabled_Tooltip" Text="Enable mouse events on charts to scroll, pan, and zoom. Disable this if you don't want the charts to intercept mouse actions" />
     <TextBlock x:Key="SlewToZenith_Tooltip" Text="Slews to zenith while leaving tracking running. Doing this is optional, but you may find better seeing conditions and consistency as far from the horizon as possible" />
+    <TextBlock x:Key="SensorCurveModelEnabled_Tooltip" Text="In addition to analyzing AutoFocus curves for the corners and center, create a paraboloid model of the sensor by creating focus curves for every star. This enables calculation of centering error and curvature, and is similar to the type of analysis done by CCD Inspector" />
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
@@ -1004,6 +1005,8 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock
                             Grid.Row="0"
@@ -1151,15 +1154,15 @@
                         </ninactrl:UnitTextBox>
 
                         <TextBlock
-                            Grid.Row="5"
-                            Grid.Column="0"
+                            Grid.Row="0"
+                            Grid.Column="2"
                             Margin="5"
                             VerticalAlignment="Center"
                             Text="Focuser Step Size"
                             ToolTip="{StaticResource MicronsPerFocuserStep_Tooltip}" />
                         <StackPanel
-                            Grid.Row="5"
-                            Grid.Column="1"
+                            Grid.Row="0"
+                            Grid.Column="3"
                             Orientation="Horizontal">
                             <ninactrl:HintTextBox
                                 MinWidth="40"
@@ -1187,31 +1190,45 @@
                         </StackPanel>
 
                         <TextBlock
-                            Grid.Row="6"
-                            Grid.Column="0"
+                            Grid.Row="1"
+                            Grid.Column="2"
                             Margin="5"
                             VerticalAlignment="Center"
                             Text="Eccentricity Color Enabled"
                             ToolTip="{StaticResource EccentricityColorMapEnabled_Tooltip}" />
                         <StackPanel
-                            Grid.Row="6"
-                            Grid.Column="1"
+                            Grid.Row="1"
+                            Grid.Column="3"
                             Orientation="Horizontal">
                             <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.EccentricityColorMapEnabled}" />
                         </StackPanel>
 
                         <TextBlock
-                            Grid.Row="7"
-                            Grid.Column="0"
+                            Grid.Row="2"
+                            Grid.Column="2"
                             Margin="5"
                             VerticalAlignment="Center"
                             Text="Mouse Events Enabled"
                             ToolTip="{StaticResource MouseOnChartsEnabled_Tooltip}" />
                         <StackPanel
-                            Grid.Row="7"
-                            Grid.Column="1"
+                            Grid.Row="2"
+                            Grid.Column="3"
                             Orientation="Horizontal">
                             <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.MouseOnChartsEnabled}" />
+                        </StackPanel>
+
+                        <TextBlock
+                            Grid.Row="3"
+                            Grid.Column="2"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Sensor Curve Model Enabled"
+                            ToolTip="{StaticResource SensorCurveModelEnabled_Tooltip}" />
+                        <StackPanel
+                            Grid.Row="3"
+                            Grid.Column="3"
+                            Orientation="Horizontal">
+                            <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.SensorCurveModelEnabled}" />
                         </StackPanel>
                     </Grid>
                 </Expander>
