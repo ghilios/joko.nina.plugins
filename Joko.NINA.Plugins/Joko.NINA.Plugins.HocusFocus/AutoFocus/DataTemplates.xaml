@@ -28,6 +28,7 @@
     <TextBlock x:Key="EccentricityColorMapEnabled_Tooltip" Text="Enable color on the eccentricity map" />
     <TextBlock x:Key="MouseOnChartsEnabled_Tooltip" Text="Enable mouse events on charts to scroll, pan, and zoom. Disable this if you don't want the charts to intercept mouse actions" />
     <TextBlock x:Key="SlewToZenith_Tooltip" Text="Slews to zenith while leaving tracking running. Doing this is optional, but you may find better seeing conditions and consistency as far from the horizon as possible" />
+    <TextBlock x:Key="SensorCurveModelEnabled_Tooltip" Text="In addition to analyzing AutoFocus curves for the corners and center, create a paraboloid model of the sensor by creating focus curves for every star. This enables calculation of centering error and curvature, and is similar to the type of analysis done by CCD Inspector" />
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
@@ -792,6 +793,8 @@
                     <RowDefinition Height="Auto" />
                     <!--  AF curves  -->
                     <RowDefinition Height="Auto" />
+                    <!--  Sensor Curve Model  -->
+                    <RowDefinition Height="Auto" />
                     <!--  Tilt measurements + Tilt graphic  -->
                     <RowDefinition Height="Auto" />
                     <!--  Tilt history  -->
@@ -1004,6 +1007,8 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock
                             Grid.Row="0"
@@ -1151,15 +1156,15 @@
                         </ninactrl:UnitTextBox>
 
                         <TextBlock
-                            Grid.Row="5"
-                            Grid.Column="0"
+                            Grid.Row="0"
+                            Grid.Column="2"
                             Margin="5"
                             VerticalAlignment="Center"
                             Text="Focuser Step Size"
                             ToolTip="{StaticResource MicronsPerFocuserStep_Tooltip}" />
                         <StackPanel
-                            Grid.Row="5"
-                            Grid.Column="1"
+                            Grid.Row="0"
+                            Grid.Column="3"
                             Orientation="Horizontal">
                             <ninactrl:HintTextBox
                                 MinWidth="40"
@@ -1187,31 +1192,45 @@
                         </StackPanel>
 
                         <TextBlock
-                            Grid.Row="6"
-                            Grid.Column="0"
+                            Grid.Row="1"
+                            Grid.Column="2"
                             Margin="5"
                             VerticalAlignment="Center"
                             Text="Eccentricity Color Enabled"
                             ToolTip="{StaticResource EccentricityColorMapEnabled_Tooltip}" />
                         <StackPanel
-                            Grid.Row="6"
-                            Grid.Column="1"
+                            Grid.Row="1"
+                            Grid.Column="3"
                             Orientation="Horizontal">
                             <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.EccentricityColorMapEnabled}" />
                         </StackPanel>
 
                         <TextBlock
-                            Grid.Row="7"
-                            Grid.Column="0"
+                            Grid.Row="2"
+                            Grid.Column="2"
                             Margin="5"
                             VerticalAlignment="Center"
                             Text="Mouse Events Enabled"
                             ToolTip="{StaticResource MouseOnChartsEnabled_Tooltip}" />
                         <StackPanel
-                            Grid.Row="7"
-                            Grid.Column="1"
+                            Grid.Row="2"
+                            Grid.Column="3"
                             Orientation="Horizontal">
                             <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.MouseOnChartsEnabled}" />
+                        </StackPanel>
+
+                        <TextBlock
+                            Grid.Row="3"
+                            Grid.Column="2"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Sensor Curve Model Enabled"
+                            ToolTip="{StaticResource SensorCurveModelEnabled_Tooltip}" />
+                        <StackPanel
+                            Grid.Row="3"
+                            Grid.Column="3"
+                            Orientation="Horizontal">
+                            <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.SensorCurveModelEnabled}" />
                         </StackPanel>
                     </Grid>
                 </Expander>
@@ -1613,6 +1632,90 @@
                 </Expander>
                 <Expander
                     Grid.Row="3"
+                    Header="Sensor Curve Model (Experimental)"
+                    IsExpanded="{Binding SensorCurveModelActive}"
+                    Visibility="{Binding SensorModel.ModelLoaded, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            Margin="10,0,10,5"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            FontStyle="Italic"
+                            Text="These experimental data are purely informational for now. Later releases will make these more useful." />
+                        <StackPanel
+                            Grid.Row="1"
+                            HorizontalAlignment="Center"
+                            Orientation="Vertical">
+                            <StackPanel
+                                Margin="0,2,0,0"
+                                HorizontalAlignment="Center"
+                                Orientation="Horizontal">
+                                <TextBlock Text="Stars: " />
+                                <TextBlock Text="{Binding SensorModel.StarsInModel}" />
+                                <TextBlock Text=", R²: " />
+                                <TextBlock Text="{Binding SensorModel.GoodnessOfFit, StringFormat=\{0:0.0000\}}" />
+                                <TextBlock Text=", RMS Error (microns²): " />
+                                <TextBlock Text="{Binding SensorModel.RMSErrorMicrons, StringFormat=\{0:0.00\}}" />
+                            </StackPanel>
+                            <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                                <TextBlock Text="Pixel Size: " />
+                                <TextBlock Text="{Binding SensorModel.PixelSizeMicrons, StringFormat=\{0:0.00\}}" />
+                                <TextBlock Text=" microns, Focuser Step Size: " />
+                                <TextBlock Text="{Binding SensorModel.FocuserSizeMicrons, StringFormat=\{0:0.000\}}" />
+                                <TextBlock Text=" microns" />
+                            </StackPanel>
+                            <StackPanel
+                                Margin="0,2,0,0"
+                                HorizontalAlignment="Center"
+                                Orientation="Horizontal">
+                                <TextBlock Text="Top/Bottom Centering Error: " />
+                                <TextBlock Text="{Binding SensorModel.CenteringErrorYMicrons, StringFormat=\{0:0.00\}}" />
+                                <TextBlock Text=" microns. Bottom is positive" />
+                            </StackPanel>
+                            <StackPanel
+                                Margin="0,2,0,0"
+                                HorizontalAlignment="Center"
+                                Orientation="Horizontal">
+                                <TextBlock Text="Left/Right Centering Error: " />
+                                <TextBlock Text="{Binding SensorModel.CenteringErrorXMicrons, StringFormat=\{0:0.00\}}" />
+                                <TextBlock Text=" microns. Right is positive" />
+                            </StackPanel>
+                            <StackPanel
+                                Margin="0,2,0,0"
+                                HorizontalAlignment="Center"
+                                Orientation="Horizontal">
+                                <TextBlock Text="Top/Bottom Tilt: " />
+                                <TextBlock Text="{Binding SensorModel.RotationErrorPhiDegrees, StringFormat=\{0:0.00\}}" />
+                                <TextBlock Text="°. Positive means bottom is tilted up" />
+                            </StackPanel>
+                            <StackPanel
+                                Margin="0,2,0,0"
+                                HorizontalAlignment="Center"
+                                Orientation="Horizontal">
+                                <TextBlock Text="Left/Right Tilt: " />
+                                <TextBlock Text="{Binding SensorModel.RotationErrorThetaDegrees, StringFormat=\{0:0.00\}}" />
+                                <TextBlock Text="°. Positive means right is tilted up" />
+                            </StackPanel>
+                            <StackPanel
+                                Margin="0,2,0,0"
+                                HorizontalAlignment="Center"
+                                Orientation="Horizontal">
+                                <TextBlock Text="Curvature: " />
+                                <TextBlock Text="{Binding SensorModel.CurvatureInverseMicrons, StringFormat=\{0:0.000000000\}}" />
+                                <TextBlock Text=" 1/microns. Smaller is flatter" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Expander>
+
+                <Expander
+                    Grid.Row="4"
                     Header="Tilt Measurement"
                     IsExpanded="{Binding TiltMeasurementActive}"
                     Visibility="{Binding TiltMeasurementActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -1717,7 +1820,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="4"
+                    Grid.Row="5"
                     Header="Tilt Measurement History"
                     IsExpanded="{Binding TiltMeasurementHistoryActive}"
                     Visibility="{Binding TiltMeasurementActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -1837,7 +1940,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="5"
+                    Grid.Row="6"
                     Header="FWHM Contour Map"
                     IsExpanded="{Binding FWHMContoursActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -1868,7 +1971,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="6"
+                    Grid.Row="7"
                     Header="Eccentricity Vectors"
                     IsExpanded="{Binding EccentricityVectorsActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">

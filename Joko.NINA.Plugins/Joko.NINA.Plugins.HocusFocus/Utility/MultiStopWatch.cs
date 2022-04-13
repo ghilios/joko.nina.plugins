@@ -39,6 +39,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         }
 
         private void Log() {
+            var message = GenerateString();
+            Debug.Print($"Method: {memberName}; File: {filePath} - {message}");
+            Logger.Trace(message, memberName, filePath);
+        }
+
+        public string GenerateString() {
             lock (lockObj) {
                 var sb = new StringBuilder();
                 var totalElapsed = this.stopWatch.Elapsed;
@@ -55,9 +61,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 }
                 sb.Append($"; Elapsed: {totalElapsed}");
 
-                var message = sb.ToString();
-                Debug.Print($"Method: {memberName}; File: {filePath} - {message}");
-                Logger.Trace(message, memberName, filePath);
+                return sb.ToString();
             }
         }
 

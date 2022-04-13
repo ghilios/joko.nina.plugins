@@ -25,5 +25,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double MicronsPerFocuserStep { get; set; }
         bool EccentricityColorMapEnabled { get; set; }
         bool MouseOnChartsEnabled { get; set; }
+        bool SensorCurveModelEnabled { get; set; }
     }
 }

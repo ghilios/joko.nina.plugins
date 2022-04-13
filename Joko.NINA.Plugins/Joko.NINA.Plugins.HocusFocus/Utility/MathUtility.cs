@@ -97,5 +97,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
               : valuesArray[valuesArray.Length / 2];
             return (median, mad);
         }
+
+        public static float DotProduct(float[] x, float[] y) {
+            if (x.Length != y.Length) {
+                throw new ArgumentException($"x length ({x.Length}) must be equal to y length ({y.Length})");
+            }
+            float ssd = 0.0f;
+            for (int i = 0; i < x.Length; ++i) {
+                var diff = y[i] - x[i];
+                ssd += diff * diff;
+            }
+            return ssd;
+        }
     }
 }

@@ -183,7 +183,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // In this case, we've already applied hotpixel filtering, so no need to do it again. The structure map can start from here
                     srcImage.CopyTo(noiseReducedImage);
                 } else {
-                    ApplyHotpixelFilter(srcImage, p);
+                    srcImage.CopyTo(noiseReducedImage);
+                    ApplyHotpixelFilter(noiseReducedImage, p);
                 }
 
                 // Step 3: If we haven't yet applied noise reduction and it is configured, do so now

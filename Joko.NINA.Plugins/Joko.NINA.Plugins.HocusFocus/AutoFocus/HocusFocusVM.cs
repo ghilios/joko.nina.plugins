@@ -392,13 +392,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
 
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
-                        if (this.autoFocusOptions.EnableHyperbolicV2) {
-                            var hf = HyperbolicFittingAlglib.Create(validFocusPoints);
-                            hf.Solve();
-                            HyperbolicFitting = hf;
-                        } else {
-                            HyperbolicFitting = new HyperbolicFitting().Calculate(validFocusPoints);
-                        }
+                        var hf = HyperbolicFittingAlglib.Create(validFocusPoints);
+                        hf.Solve();
+                        HyperbolicFitting = hf;
                     }
                 }
             } else if (validFocusPoints.Count() >= 3) {

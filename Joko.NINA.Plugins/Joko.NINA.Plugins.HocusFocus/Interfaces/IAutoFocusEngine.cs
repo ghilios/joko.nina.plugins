@@ -13,6 +13,7 @@
 using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
+using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.WPF.Base.Utility.AutoFocus;
 using NINA.WPF.Base.ViewModel.AutoFocus;
@@ -59,7 +60,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public string SavePath { get; set; }
         public TimeSpan AutoFocusTimeout { get; set; }
         public double HFRImprovementThreshold { get; set; }
-        public bool EnableHyperbolicV2 { get; set; }
         public int FocuserOffset { get; set; }
     }
 
@@ -89,6 +89,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         event EventHandler<AutoFocusStartedEventArgs> Started;
 
         event EventHandler<AutoFocusMeasurementPointCompletedEventArgs> MeasurementPointCompleted;
+
+        event EventHandler<AutoFocusSubMeasurementPointCompletedEventArgs> SubMeasurementPointCompleted;
 
         event EventHandler<AutoFocusCompletedEventArgs> Completed;
 
@@ -171,6 +173,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public StarDetectionRegion Region { get; set; }
         public MeasureAndError Measurement { get; set; }
         public AutoFocusFitting Fittings { get; set; }
+    }
+
+    public class AutoFocusSubMeasurementPointCompletedEventArgs : EventArgs {
+        public int FocuserPosition { get; set; }
+        public int RegionIndex { get; set; }
+        public StarDetectionRegion Region { get; set; }
+        public StarDetectionResult StarDetectionResult { get; set; }
     }
 
     public class AutoFocusRegionHFR {

@@ -165,6 +165,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double Eccentricity { get; set; } = double.NaN;
         public double EccentricityMAD { get; set; } = double.NaN;
         public Size ImageSize { get; set; }
+        public double PixelSize { get; set; } = double.NaN;
     }
 
     public class HocusFocusDetectedStar : DetectedStar {
@@ -273,13 +274,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            var pixelSize = image.RawImageData.MetaData.Camera.PixelSize;
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var result = new HocusFocusStarDetectionResult() {
                 HocusFocusParams = hocusFocusParams,
                 DetectorParams = detectorParams,
                 ImageSize = imageSize,
                 Region = detectorParams.Region,
-                FocuserPosition = focuserMediator.GetInfo().Position
+                FocuserPosition = focuserMediator.GetInfo().Position,
+                PixelSize = pixelSize
             };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
