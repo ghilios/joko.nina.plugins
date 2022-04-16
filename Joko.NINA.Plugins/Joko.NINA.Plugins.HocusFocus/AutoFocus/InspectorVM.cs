@@ -718,7 +718,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private void MaybeSaveFailedAutoFocusReports(AutoFocusFailedEventArgs e) {
             if (!string.IsNullOrEmpty(e.SaveFolder)) {
-                for (int regionIndex = 0; regionIndex < e.RegionHFRs.Count; ++regionIndex) {
+                for (int regionIndex = 0; regionIndex < RegionFocusPoints.Length; ++regionIndex) {
                     var region = e.RegionHFRs[regionIndex];
                     var finalFocusPoint = new DataPoint(-1.0d, 0.0d);
                     var lastAutoFocusPoint = new ReportAutoFocusPoint {
