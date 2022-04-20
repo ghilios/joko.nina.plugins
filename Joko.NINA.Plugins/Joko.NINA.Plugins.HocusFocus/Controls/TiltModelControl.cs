@@ -129,8 +129,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             }
 
             try {
-                var autoFocusResult = tiltPlaneModel.AutoFocusResult;
-                var imageSize = autoFocusResult.ImageSize;
+                var imageSize = tiltPlaneModel.ImageSize;
                 using (Scope.Enter()) {
                     var scene = new Scene();
 
@@ -142,13 +141,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
                     Array<double> points = zeros<double>(3, 4);
                     Array<double> surfacePoints = zeros<double>(3, 4);
+                    var estimatedFinalFocuserPositions = new double[] { tiltPlaneModel.TopLeft.FocuserPosition, tiltPlaneModel.TopRight.FocuserPosition, tiltPlaneModel.BottomLeft.FocuserPosition, tiltPlaneModel.BottomRight.FocuserPosition };
                     for (int i = 0; i < 4; ++i) {
                         var imageX = imageXs[i];
                         var imageY = imageYs[i];
                         var modelX = modelXs[i];
                         var modelY = modelYs[i];
                         var modeledFocuserPosition = tiltPlaneModel.EstimateFocusPosition(imageX, imageY);
-                        var autoFocusEstimatedFocuserPosition = autoFocusResult.RegionResults[i + 2].EstimatedFinalFocuserPosition;
+                        var autoFocusEstimatedFocuserPosition = estimatedFinalFocuserPositions[i];
                         if (double.IsNaN(autoFocusEstimatedFocuserPosition)) {
                             Logger.Error("One or more of the corners failed to produce a focus curve. Not producing a tilt model");
                             return null;

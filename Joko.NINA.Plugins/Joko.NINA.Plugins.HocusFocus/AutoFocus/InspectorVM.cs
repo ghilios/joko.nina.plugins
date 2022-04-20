@@ -218,6 +218,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
                 autoFocusEngine.Completed += AutoFocusEngine_Completed;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+                autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
 
                 ActivateAutoFocusChart();
                 DeactivateExposureAnalysis();
@@ -294,6 +295,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var finalFocuserPosition = result.RegionResults[0].EstimatedFinalFocuserPosition;
                 SensorModel.UpdateModel(
                     FullSensorDetectedStars,
+                    fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio,
                     focuserSizeMicrons: focuserSizeMicrons,
                     finalFocusPosition: finalFocuserPosition);
             }

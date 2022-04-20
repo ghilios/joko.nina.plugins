@@ -12,7 +12,7 @@
 
 using KdTree;
 using KdTree.Math;
-using NINA.Astrometry;
+using Newtonsoft.Json;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
@@ -22,7 +22,9 @@ using NINA.Joko.Plugins.HocusFocus.Utility;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
@@ -41,17 +43,52 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
     }
 
+    public class SensorParaboloidTiltHistoryModel {
+
+        public SensorParaboloidTiltHistoryModel(
+            int historyId,
+            System.Drawing.Size imageSize,
+            double pixelSizeMicrons,
+            double fRatio,
+            double focuserSizeMicrons,
+            double finalFocusPosition,
+            TiltPlaneModel tiltPlaneModel,
+            double backfocusFocuserPositionDelta,
+            SensorParaboloidModel sensorModel) {
+            HistoryId = historyId;
+            ImageSize = imageSize;
+            PixelSizeMicrons = pixelSizeMicrons;
+            FRatio = fRatio;
+            FocuserSizeMicrons = focuserSizeMicrons;
+            FinalFocusPosition = finalFocusPosition;
+            TiltPlaneModel = tiltPlaneModel;
+            BackfocusFocuserPositionDelta = backfocusFocuserPositionDelta;
+            SensorModel = sensorModel;
+        }
+
+        public int HistoryId { get; private set; }
+        public System.Drawing.Size ImageSize { get; private set; }
+        public double PixelSizeMicrons { get; private set; }
+        public double FRatio { get; private set; }
+        public double FocuserSizeMicrons { get; private set; }
+        public double FinalFocusPosition { get; private set; }
+        public TiltPlaneModel TiltPlaneModel { get; private set; }
+        public double BackfocusFocuserPositionDelta { get; private set; }
+        public SensorParaboloidModel SensorModel { get; private set; }
+    }
+
     public class SensorModel : BaseINPC {
         private readonly IInspectorOptions inspectorOptions;
+        private int nextHistoryId = 0;
 
         public SensorModel(IInspectorOptions inspectorOptions) {
             this.inspectorOptions = inspectorOptions;
-            SensorTiltModels = new AsyncObservableCollection<SensorTiltModel>();
-            SensorTiltHistoryModels = new AsyncObservableCollection<SensorTiltHistoryModel>();
+            SensorTiltHistoryModels = new AsyncObservableCollection<SensorParaboloidTiltHistoryModel>();
         }
 
         public void UpdateModel(
             List<SensorDetectedStars> allDetectedStars,
+            double fRatio,
             double focuserSizeMicrons,
             double finalFocusPosition) {
             if (allDetectedStars.Count == 0) {
@@ -63,6 +100,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var imageSize = firstStarDetectionResult.ImageSize;
             var pixelSize = firstStarDetectionResult.PixelSize;
             var dataPoints = RegisterStarsAndFit(allDetectedStars, pixelSize: pixelSize, focuserSizeMicrons: focuserSizeMicrons, imageSize: imageSize);
+
+            var outPath = @"E:\AP\out.json";
+            File.WriteAllText(outPath, JsonConvert.SerializeObject(dataPoints, Formatting.Indented));
+
             var sensorModelSolver = new SensorParaboloidSolver(
                 dataPoints: dataPoints,
                 sensorSizeMicronsX: imageSize.Width * pixelSize,
@@ -70,18 +111,26 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 inFocusMicrons: finalFocusPosition * focuserSizeMicrons);
             var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>();
             var solution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver);
-            PixelSizeMicrons = pixelSize;
-            FocuserSizeMicrons = focuserSizeMicrons;
-            StarsInModel = nlSolver.InputEnabledCount;
-            GoodnessOfFit = nlSolver.GoodnessOfFit(sensorModelSolver, solution);
-            RMSErrorMicrons = nlSolver.RMSError(sensorModelSolver, solution);
-            CenteringErrorXMicrons = solution.X0;
-            CenteringErrorYMicrons = solution.Y0;
-            RotationErrorPhiDegrees = Angle.ByRadians(solution.Phi).Degree;
-            RotationErrorThetaDegrees = Angle.ByRadians(solution.Theta).Degree;
-            CurvatureInverseMicrons = solution.C;
+            solution.EvaluateFit(nlSolver, sensorModelSolver);
+            Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, Stars: {solution.StarsInModel}");
+
+            DisplayedSensorModel = solution;
+            SensorModelResult.Update(solution, imageSize, pixelSizeMicrons: pixelSize, fRatio: fRatio, focuserStepSizeMicrons: focuserSizeMicrons, finalFocusPosition: finalFocusPosition);
+
+            var backfocusFocuserPositionDelta = SensorModelResult.TiltPlaneModel.MeanFocuserPosition - SensorModelResult.TiltPlaneModel.Center.FocuserPosition;
+            var historyId = Interlocked.Increment(ref nextHistoryId);
+            SensorTiltHistoryModels.Insert(0, new SensorParaboloidTiltHistoryModel(
+                historyId: historyId,
+                pixelSizeMicrons: pixelSize,
+                fRatio: fRatio,
+                imageSize: imageSize,
+                focuserSizeMicrons: focuserSizeMicrons,
+                finalFocusPosition: finalFocusPosition,
+                sensorModel: solution,
+                tiltPlaneModel: SensorModelResult.TiltPlaneModel,
+                backfocusFocuserPositionDelta: backfocusFocuserPositionDelta));
+            SelectedTiltHistoryModel = null;
             ModelLoaded = true;
-            Logger.Info($"Solved surface model: {solution}. RMS = {RMSErrorMicrons:0.0000}, GoD: {GoodnessOfFit:0.0000}");
         }
 
         private List<SensorParaboloidDataPoint> RegisterStarsAndFit(
@@ -206,41 +255,47 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }
         }
 
-        private SensorTiltHistoryModel selectedTiltHistoryModel;
+        private void UpdateTiltModels(SensorParaboloidTiltHistoryModel historyModel) {
+            SensorModelResult.Update(
+                sensorModel: historyModel.SensorModel, imageSize: historyModel.ImageSize, pixelSizeMicrons: historyModel.PixelSizeMicrons,
+                fRatio: historyModel.FRatio, focuserStepSizeMicrons: historyModel.FocuserSizeMicrons, finalFocusPosition: historyModel.FinalFocusPosition);
+            DisplayedSensorModel = historyModel.SensorModel;
+        }
 
-        public SensorTiltHistoryModel SelectedTiltHistoryModel {
+        private SensorParaboloidTiltHistoryModel selectedTiltHistoryModel;
+
+        public SensorParaboloidTiltHistoryModel SelectedTiltHistoryModel {
             get => selectedTiltHistoryModel;
             set {
                 try {
                     if (value != null) {
-                        // SetTiltPlaneModel(value.AutoFocusResult, value.TiltPlaneModel);
+                        UpdateTiltModels(value);
                     }
                     selectedTiltHistoryModel = value;
                     RaisePropertyChanged();
                 } catch (Exception e) {
-                    Notification.ShowError($"Failed to set tilt model. {e.Message}");
-                    Logger.Error("Failed to set tilt model", e);
+                    Notification.ShowError($"Failed to set selected tilt history model. {e.Message}");
+                    Logger.Error("Failed to set selected tilt history model", e);
                 }
             }
         }
 
-        public AsyncObservableCollection<SensorTiltModel> SensorTiltModels { get; private set; }
+        public AsyncObservableCollection<SensorParaboloidTiltHistoryModel> SensorTiltHistoryModels { get; private set; }
 
-        public AsyncObservableCollection<SensorTiltHistoryModel> SensorTiltHistoryModels { get; private set; }
+        public SensorModelAberrationResult SensorModelResult { get; private set; } = new SensorModelAberrationResult();
 
-        private TiltPlaneModel tiltPlaneModel;
+        private SensorParaboloidModel displayedSensorModel;
 
-        public TiltPlaneModel TiltPlaneModel {
-            get => tiltPlaneModel;
+        public SensorParaboloidModel DisplayedSensorModel {
+            get => displayedSensorModel;
             private set {
-                tiltPlaneModel = value;
+                displayedSensorModel = value;
                 RaisePropertyChanged();
             }
         }
 
         public void Reset() {
-            this.SensorTiltModels.Clear();
-            this.TiltPlaneModel = null;
+            SensorModelResult.Reset();
             this.ModelLoaded = false;
         }
 
@@ -253,126 +308,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             private set {
                 if (modelLoaded != value) {
                     modelLoaded = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private int starsInModel = 0;
-
-        public int StarsInModel {
-            get => starsInModel;
-            private set {
-                if (starsInModel != value) {
-                    starsInModel = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double rmsErrorMicrons = 0.0d;
-
-        public double RMSErrorMicrons {
-            get => rmsErrorMicrons;
-            private set {
-                if (rmsErrorMicrons != value) {
-                    rmsErrorMicrons = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double goodnessOfFit = 0.0d;
-
-        public double GoodnessOfFit {
-            get => goodnessOfFit;
-            private set {
-                if (goodnessOfFit != value) {
-                    goodnessOfFit = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double centeringErrorXMicrons = 0.0d;
-
-        public double CenteringErrorXMicrons {
-            get => centeringErrorXMicrons;
-            private set {
-                if (centeringErrorXMicrons != value) {
-                    centeringErrorXMicrons = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double centeringErrorYMicrons = 0.0d;
-
-        public double CenteringErrorYMicrons {
-            get => centeringErrorYMicrons;
-            private set {
-                if (centeringErrorYMicrons != value) {
-                    centeringErrorYMicrons = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double rotationErrorPhiDegrees = 0.0d;
-
-        public double RotationErrorPhiDegrees {
-            get => rotationErrorPhiDegrees;
-            private set {
-                if (rotationErrorPhiDegrees != value) {
-                    rotationErrorPhiDegrees = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double rotationErrorThetaDegrees = 0.0d;
-
-        public double RotationErrorThetaDegrees {
-            get => rotationErrorThetaDegrees;
-            private set {
-                if (rotationErrorThetaDegrees != value) {
-                    rotationErrorThetaDegrees = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double curvatureInverseMicrons = 0.0d;
-
-        public double CurvatureInverseMicrons {
-            get => curvatureInverseMicrons;
-            private set {
-                if (curvatureInverseMicrons != value) {
-                    curvatureInverseMicrons = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double pixelSizeMicrons = 0.0d;
-
-        public double PixelSizeMicrons {
-            get => pixelSizeMicrons;
-            private set {
-                if (pixelSizeMicrons != value) {
-                    pixelSizeMicrons = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double focuserSizeMicrons = 0.0d;
-
-        public double FocuserSizeMicrons {
-            get => focuserSizeMicrons;
-            private set {
-                if (focuserSizeMicrons != value) {
-                    focuserSizeMicrons = value;
                     RaisePropertyChanged();
                 }
             }

@@ -13,8 +13,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
@@ -39,11 +37,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         protected NonLinearLeastSquaresSolverBase(List<T> dataPoints, int numParameters) {
             this.Inputs = dataPoints.Select(p => p.ToInput()).ToArray();
             this.Outputs = dataPoints.Select(p => p.ToOutput()).ToArray();
-            this.dataPoints = dataPoints;
             this.NumParameters = numParameters;
         }
-
-        private readonly List<T> dataPoints;
 
         public double[][] Inputs { get; private set; }
         public double[] Outputs { get; private set; }
