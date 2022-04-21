@@ -26,5 +26,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool EccentricityColorMapEnabled { get; set; }
         bool MouseOnChartsEnabled { get; set; }
         bool SensorCurveModelEnabled { get; set; }
+        bool ShowSensorModel { get; set; }
     }
 }

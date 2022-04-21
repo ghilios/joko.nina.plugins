@@ -395,7 +395,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     continue;
                 }
 
-                var regionRow = (int)Math.Floor(detectedStar.Position.Y / imageSize.Height * numRegionsTall);
+                var regionRow = (int)Math.Floor((imageSize.Height - detectedStar.Position.Y - 1) / imageSize.Height * numRegionsTall);
                 var regionCol = (int)Math.Floor(detectedStar.Position.X / imageSize.Width * numRegionsWide);
                 regionDetectedStars[regionCol, regionRow].Add(detectedStar);
             }

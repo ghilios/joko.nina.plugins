@@ -104,8 +104,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var YPrime = y - Y0;
             var XPrime2 = XPrime * XPrime;
             var YPrime2 = YPrime * YPrime;
+            var C2 = Math.Sign(C) * C * C;
 
-            var ZPrime = C * (XPrime2 + YPrime2);
+            var ZPrime = C2 * (XPrime2 + YPrime2);
             var tanTheta = Math.Tan(Theta);
             var sinPhi = Math.Sin(Phi);
             var cosPhi = Math.Cos(Phi);
@@ -114,15 +115,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public double TiltAt(double x, double y) {
+            var XPrime = x;
+            var YPrime = y;
             var tanTheta = Math.Tan(Theta);
             var sinPhi = Math.Sin(Phi);
             var cosPhi = Math.Cos(Phi);
-            var result = (x * cosPhi + y * sinPhi) * tanTheta;
+            var result = (XPrime * cosPhi + YPrime * sinPhi) * tanTheta;
             return result;
         }
 
         public double CurvatureAt(double x, double y) {
-            var result = C * (x * x + y * y);
+            var XPrime = x;
+            var YPrime = y;
+            var C2 = Math.Sign(C) * C * C;
+            var result = C2 * (XPrime * XPrime + YPrime * YPrime);
             return result;
         }
 
@@ -131,13 +137,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var w3 = w * w * w;
             var h = heightMicrons;
             var h3 = h * h * h;
+            var C2 = Math.Sign(C) * C * C;
 
             var cosP = Math.Cos(Phi);
             var sinP = Math.Sin(Phi);
             var tanT = Math.Tan(Theta);
 
             // Double integral from [-w/2,w/2] and [-h/2,h/2]
-            var result = -h * w * X0 * cosP * tanT - h * w * Y0 * sinP * tanT + h * C * w3 / 12.0 + w * C * h3 / 12.0 + Z0 * w * h;
+            var result = -h * w * X0 * cosP * tanT - h * w * Y0 * sinP * tanT + h * C2 * w3 / 12.0 + w * C2 * h3 / 12.0 + Z0 * w * h;
             return result;
         }
     }
@@ -173,8 +180,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var YPrime = Y - y0;
             var XPrime2 = XPrime * XPrime;
             var YPrime2 = YPrime * YPrime;
+            var C2 = Math.Sign(c) * c * c;
 
-            var ZPrime = c * (XPrime2 + YPrime2);
+            var ZPrime = C2 * (XPrime2 + YPrime2);
             var tanTheta = Math.Tan(theta);
             var sinPhi = Math.Sin(phi);
             var cosPhi = Math.Cos(phi);
@@ -196,15 +204,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public override void SetBounds(double[] lowerBounds, double[] upperBounds) {
-            lowerBounds[0] = -sensorSizeMicronsX / 2.0;
-            lowerBounds[1] = -sensorSizeMicronsY / 2.0;
+            lowerBounds[0] = -sensorSizeMicronsX * 2.0;
+            lowerBounds[1] = -sensorSizeMicronsY * 2.0;
             lowerBounds[2] = double.NegativeInfinity;
             lowerBounds[3] = 0.0;
             lowerBounds[4] = -Math.PI;
             lowerBounds[5] = double.NegativeInfinity;
 
-            upperBounds[0] = sensorSizeMicronsX / 2.0;
-            upperBounds[1] = sensorSizeMicronsY / 2.0;
+            upperBounds[0] = sensorSizeMicronsX * 2.0;
+            upperBounds[1] = sensorSizeMicronsY * 2.0;
             upperBounds[2] = double.PositiveInfinity;
             upperBounds[3] = Math.PI - double.Epsilon;
             upperBounds[4] = Math.PI - double.Epsilon;
@@ -217,7 +225,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             scales[2] = 1.0;
             scales[3] = 1.0;
             scales[4] = 1.0;
-            scales[5] = 1E-4;
+            scales[5] = 1E-2;
         }
     }
 }

@@ -43,6 +43,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             eccentricityColorMapEnabled = optionsAccessor.GetValueBoolean(nameof(EccentricityColorMapEnabled), true);
             mouseOnChartsEnabled = optionsAccessor.GetValueBoolean(nameof(MouseOnChartsEnabled), true);
             sensorCurveModelEnabled = optionsAccessor.GetValueBoolean(nameof(SensorCurveModelEnabled), false);
+            showSensorModel = optionsAccessor.GetValueBoolean(nameof(ShowSensorModel), true);
         }
 
         public void ResetDefaults() {
@@ -57,6 +58,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             EccentricityColorMapEnabled = true;
             MouseOnChartsEnabled = true;
             SensorCurveModelEnabled = false;
+            ShowSensorModel = true;
         }
 
         private int stepCount;
@@ -197,6 +199,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (sensorCurveModelEnabled != value) {
                     sensorCurveModelEnabled = value;
                     optionsAccessor.SetValueBoolean(nameof(SensorCurveModelEnabled), sensorCurveModelEnabled);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool showSensorModel;
+
+        public bool ShowSensorModel {
+            get => showSensorModel;
+            set {
+                if (showSensorModel != value) {
+                    showSensorModel = value;
+                    optionsAccessor.SetValueBoolean(nameof(ShowSensorModel), showSensorModel);
                     RaisePropertyChanged();
                 }
             }

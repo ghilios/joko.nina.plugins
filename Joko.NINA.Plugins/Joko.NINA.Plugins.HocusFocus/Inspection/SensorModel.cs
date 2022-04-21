@@ -52,8 +52,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             double fRatio,
             double focuserSizeMicrons,
             double finalFocusPosition,
+            double tiltEffectMicrons,
+            double curvatureEffectMicrons,
+            double autoFocusOffset,
             TiltPlaneModel tiltPlaneModel,
-            double backfocusFocuserPositionDelta,
             SensorParaboloidModel sensorModel) {
             HistoryId = historyId;
             ImageSize = imageSize;
@@ -61,8 +63,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             FRatio = fRatio;
             FocuserSizeMicrons = focuserSizeMicrons;
             FinalFocusPosition = finalFocusPosition;
+            TiltEffectMicrons = tiltEffectMicrons;
+            CurvatureEffectMicrons = curvatureEffectMicrons;
+            AutoFocusOffset = autoFocusOffset;
             TiltPlaneModel = tiltPlaneModel;
-            BackfocusFocuserPositionDelta = backfocusFocuserPositionDelta;
             SensorModel = sensorModel;
         }
 
@@ -72,8 +76,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public double FRatio { get; private set; }
         public double FocuserSizeMicrons { get; private set; }
         public double FinalFocusPosition { get; private set; }
+        public double TiltEffectMicrons { get; private set; }
+        public double CurvatureEffectMicrons { get; private set; }
+        public double AutoFocusOffset { get; private set; }
         public TiltPlaneModel TiltPlaneModel { get; private set; }
-        public double BackfocusFocuserPositionDelta { get; private set; }
         public SensorParaboloidModel SensorModel { get; private set; }
     }
 
@@ -100,10 +106,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var imageSize = firstStarDetectionResult.ImageSize;
             var pixelSize = firstStarDetectionResult.PixelSize;
             var dataPoints = RegisterStarsAndFit(allDetectedStars, pixelSize: pixelSize, focuserSizeMicrons: focuserSizeMicrons, imageSize: imageSize);
-
-            var outPath = @"E:\AP\out.json";
-            File.WriteAllText(outPath, JsonConvert.SerializeObject(dataPoints, Formatting.Indented));
-
             var sensorModelSolver = new SensorParaboloidSolver(
                 dataPoints: dataPoints,
                 sensorSizeMicronsX: imageSize.Width * pixelSize,
@@ -117,7 +119,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             DisplayedSensorModel = solution;
             SensorModelResult.Update(solution, imageSize, pixelSizeMicrons: pixelSize, fRatio: fRatio, focuserStepSizeMicrons: focuserSizeMicrons, finalFocusPosition: finalFocusPosition);
 
-            var backfocusFocuserPositionDelta = SensorModelResult.TiltPlaneModel.MeanFocuserPosition - SensorModelResult.TiltPlaneModel.Center.FocuserPosition;
             var historyId = Interlocked.Increment(ref nextHistoryId);
             SensorTiltHistoryModels.Insert(0, new SensorParaboloidTiltHistoryModel(
                 historyId: historyId,
@@ -127,8 +128,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 focuserSizeMicrons: focuserSizeMicrons,
                 finalFocusPosition: finalFocusPosition,
                 sensorModel: solution,
-                tiltPlaneModel: SensorModelResult.TiltPlaneModel,
-                backfocusFocuserPositionDelta: backfocusFocuserPositionDelta));
+                tiltEffectMicrons: SensorModelResult.TiltEffectMicrons,
+                curvatureEffectMicrons: SensorModelResult.CurvatureEffectMicrons,
+                autoFocusOffset: SensorModelResult.AutoFocusMeanOffset,
+                tiltPlaneModel: SensorModelResult.TiltPlaneModel));
             SelectedTiltHistoryModel = null;
             ModelLoaded = true;
         }
@@ -296,6 +299,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
         public void Reset() {
             SensorModelResult.Reset();
+            SensorTiltHistoryModels.Clear();
             this.ModelLoaded = false;
         }
 

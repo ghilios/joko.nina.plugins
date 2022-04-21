@@ -430,6 +430,7 @@
     </Compile>
     <Compile Include="Controls\SensorModelContourMapControl.cs" />
     <Compile Include="Controls\TiltModelControl.cs" />
+    <Compile Include="Converters\InverseBooleanConverter.cs" />
     <Compile Include="Converters\InverseDoubleNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\DoubleNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\DoubleNegativeToEmptyStringConverter.cs" />

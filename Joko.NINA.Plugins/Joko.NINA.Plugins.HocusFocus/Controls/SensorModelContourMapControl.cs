@@ -287,7 +287,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                             },
                             ZAxis = {
                                 Label = {
-                                    Text = "Focuser Offset"
+                                    Text = "Offset (microns)"
                                 },
                                 Ticks = {
                                     Mode = TickMode.Auto
