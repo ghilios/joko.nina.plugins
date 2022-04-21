@@ -204,7 +204,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     } else {
                         reason = "unknown";
                     }
-                    throw new Exception($"PSF modeling failed with type {rep.terminationtype} and reason: {reason}");
+                    throw new Exception($"Modeling failed with type {rep.terminationtype} and reason: {reason}");
                 }
 
                 if (OptGuardEnabled) {

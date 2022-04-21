@@ -199,11 +199,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 }
                 using (var ms = new MemoryStream()) {
                     var backColor = PlotBackgroundColor.ToDrawingColor();
-                    var driver = new GDIDriver(width: (int)width, height: (int)height, scene: scene, BackColor: backColor);
-                    driver.Render();
+                    using (var driver = new GDIDriver(width: (int)width, height: (int)height, scene: scene, BackColor: backColor)) {
+                        driver.Render();
 
-                    this.SceneImage.Source = ImageUtility.ConvertBitmap(driver.BackBuffer.Bitmap);
-                    this.SceneImage.Visibility = System.Windows.Visibility.Visible;
+                        this.SceneImage.Source = ImageUtility.ConvertBitmap(driver.BackBuffer.Bitmap);
+                        this.SceneImage.Visibility = System.Windows.Visibility.Visible;
+                    }
                 }
             } catch (Exception e) {
                 Logger.Error(e, "Failed updating scene image");

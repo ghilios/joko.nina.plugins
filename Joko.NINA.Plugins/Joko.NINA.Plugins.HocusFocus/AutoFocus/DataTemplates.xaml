@@ -30,6 +30,15 @@
     <TextBlock x:Key="SlewToZenith_Tooltip" Text="Slews to zenith while leaving tracking running. Doing this is optional, but you may find better seeing conditions and consistency as far from the horizon as possible" />
     <TextBlock x:Key="SensorCurveModelEnabled_Tooltip" Text="In addition to analyzing AutoFocus curves for the corners and center, create a paraboloid model of the sensor by creating focus curves for every star. This enables calculation of centering error and curvature, and is similar to the type of analysis done by CCD Inspector" />
 
+    <TextBlock x:Key="SensorModel_Tilt_Tooltip" Text="The angle the sensor is tilted. 0 indicates no tilt, and values here are typically very small" />
+    <TextBlock x:Key="SensorModel_CriticalFocus_Tooltip" Text="The focuser distance a pixel can be from optimal focus before the effects can be noticed. This value increases with larger (slower) F/ratios, which can tolerate more curvature before affecting image quality" />
+    <TextBlock x:Key="SensorModel_CurvatureRadius_Tooltip" Text="Near focus, the base of the sensor parabola is close to a sphere. This value represents the radius of that sphere. Larger values indicate flatter curves, which are better." />
+    <TextBlock x:Key="SensorModel_MeanFocuserPosition_Tooltip" Text="The weighted mean focuser position under the sensor curve, which serves as a focus point where pixels throughout the sensor have minimum absolute distance from optimal focus" />
+    <TextBlock x:Key="SensorModel_CurvatureEffect_Tooltip" Text="The nominal distance from the corner of the sensor to the center, due purely to the modeled curvature. Curvature effect is more exaggerated on larger sensors." />
+    <TextBlock x:Key="SensorModel_TiltEffect_Tooltip" Text="The maximum nominal distance from the corners of the sensor to the center, due purely to the modeled tilt." />
+    <TextBlock x:Key="SensorModel_AutoFocusOffset_Tooltip" Text="The number of focuser steps between the AutoFocus position and the Sensor Mean Focuser Position. You can set this value in the AF Offset setting in Auto Focus Options." />
+    <TextBlock x:Key="SensorModel_StarsInModel_Tooltip" Text="The number of stars used in the sensor model. Each star needs to be matched across at least 5 of the frames, and some star fits are rejected as outliers during modeling." />
+
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
             <Grid.RowDefinitions>
@@ -785,11 +794,22 @@
             Name="SV"
             HorizontalScrollBarVisibility="Disabled"
             VerticalScrollBarVisibility="Auto">
+            <ScrollViewer.Resources>
+                <Style BasedOn="{StaticResource MyDataGridCell}" TargetType="{x:Type DataGridCell}">
+                    <Setter Property="TextBlock.VerticalAlignment" Value="Center" />
+                    <Setter Property="TextBlock.Margin" Value="1" />
+                </Style>
+                <Style BasedOn="{StaticResource StandardDataGridColumnHeader}" TargetType="{x:Type DataGridColumnHeader}">
+                    <Setter Property="Padding" Value="3,2,3,2" />
+                </Style>
+            </ScrollViewer.Resources>
             <Grid>
                 <Grid.RowDefinitions>
                     <!--  Buttons  -->
                     <RowDefinition Height="Auto" />
                     <!--  Options  -->
+                    <RowDefinition Height="Auto" />
+                    <!--  Show Sensor Model Toggle  -->
                     <RowDefinition Height="Auto" />
                     <!--  AF curves  -->
                     <RowDefinition Height="Auto" />
@@ -799,11 +819,60 @@
                     <RowDefinition Height="Auto" />
                     <!--  Tilt history  -->
                     <RowDefinition Height="Auto" />
+                    <!--  Sensor Model Tilt measurements + Tilt graphic  -->
+                    <RowDefinition Height="Auto" />
+                    <!--  Sensor Model Tilt history  -->
+                    <RowDefinition Height="Auto" />
                     <!--  FWHM contours  -->
                     <RowDefinition Height="Auto" />
                     <!--  Eccentricity field  -->
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
+
+                <!--  https://stackoverflow.com/a/61977964  -->
+                <FrameworkElement x:Name="ShowSensorModel">
+                    <FrameworkElement.Tag>
+                        <MultiBinding Converter="{StaticResource BooleanAndConverter}">
+                            <Binding Mode="OneWay" Path="InspectorOptions.SensorCurveModelEnabled" />
+                            <Binding Mode="OneWay" Path="InspectorOptions.ShowSensorModel" />
+                        </MultiBinding>
+                    </FrameworkElement.Tag>
+                </FrameworkElement>
+                <FrameworkElement x:Name="ShowLoadedSensorModel">
+                    <FrameworkElement.Tag>
+                        <MultiBinding Converter="{StaticResource BooleanAndConverter}">
+                            <Binding
+                                ElementName="ShowSensorModel"
+                                Mode="OneWay"
+                                Path="Tag" />
+                            <Binding Mode="OneWay" Path="SensorModel.ModelLoaded" />
+                        </MultiBinding>
+                    </FrameworkElement.Tag>
+                </FrameworkElement>
+                <FrameworkElement x:Name="ShowSensorModelTiltMeasurementActivatedOnce">
+                    <FrameworkElement.Tag>
+                        <MultiBinding Converter="{StaticResource BooleanAndConverter}">
+                            <Binding
+                                ElementName="ShowLoadedSensorModel"
+                                Mode="OneWay"
+                                Path="Tag" />
+                            <Binding Mode="OneWay" Path="TiltMeasurementActivatedOnce" />
+                        </MultiBinding>
+                    </FrameworkElement.Tag>
+                </FrameworkElement>
+                <FrameworkElement x:Name="ShowAutoFocusTiltMeasurementActivatedOnce">
+                    <FrameworkElement.Tag>
+                        <MultiBinding Converter="{StaticResource BooleanAndConverter}">
+                            <Binding
+                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                ElementName="ShowSensorModel"
+                                Mode="OneWay"
+                                Path="Tag" />
+                            <Binding Mode="OneWay" Path="TiltMeasurementActivatedOnce" />
+                        </MultiBinding>
+                    </FrameworkElement.Tag>
+                </FrameworkElement>
+
                 <Grid Grid.Row="0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -1234,8 +1303,16 @@
                         </StackPanel>
                     </Grid>
                 </Expander>
-                <Expander
+                <StackPanel
                     Grid.Row="2"
+                    Margin="5"
+                    Orientation="Horizontal"
+                    Visibility="{Binding InspectorOptions.SensorCurveModelEnabled, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                    <TextBlock VerticalAlignment="Center" Text="Show Sensor Model" />
+                    <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.ShowSensorModel}" />
+                </StackPanel>
+                <Expander
+                    Grid.Row="3"
                     Header="Focus Chart"
                     IsExpanded="{Binding AutoFocusChartActive}"
                     Visibility="{Binding AutoFocusChartActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -1593,7 +1670,8 @@
                         <StackPanel
                             Grid.Row="2"
                             HorizontalAlignment="Center"
-                            Orientation="Vertical">
+                            Orientation="Vertical"
+                            Visibility="{Binding Path=Tag, ElementName=ShowLoadedSensorModel, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
                             <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
                                 <TextBlock Text="Backfocus Error: " />
                                 <StackPanel Orientation="Horizontal" Visibility="{Binding BackfocusMicronDelta, Converter={StaticResource HF_InverseNaNToVisibilityCollapsedConverter}}">
@@ -1612,7 +1690,8 @@
                         <StackPanel
                             Grid.Row="3"
                             HorizontalAlignment="Center"
-                            Orientation="Vertical">
+                            Orientation="Vertical"
+                            Visibility="{Binding Path=Tag, ElementName=ShowLoadedSensorModel, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
                             <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
                                 <TextBlock Text="HFR difference: " />
                                 <TextBlock Text="{Binding BackfocusHFR, StringFormat=\{0:0.##\}}" />
@@ -1631,94 +1710,336 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="3"
-                    Header="Sensor Curve Model (Experimental)"
+                    Grid.Row="4"
+                    Header="Sensor Curve Model"
                     IsExpanded="{Binding SensorCurveModelActive}"
-                    Visibility="{Binding SensorModel.ModelLoaded, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                    Visibility="{Binding Path=Tag, ElementName=ShowLoadedSensorModel, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="400" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Margin="10,5,0,5">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="400" />
+                            </Grid.RowDefinitions>
+                            <TextBlock
+                                Grid.Row="0"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Text="Deep red indicates elevation difference exceeding critical focus" />
+                            <TextBlock
+                                Grid.Row="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Text="Top faces Telescope, Bottom faces Sensor" />
+                            <controls:SensorModelContourMapControl
+                                Grid.Row="2"
+                                Margin="5"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                AxisColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
+                                FRatio="{Binding SensorModel.SensorModelResult.FRatio, Mode=OneWay}"
+                                ImageSize="{Binding SensorModel.SensorModelResult.ImageSize, Mode=OneWay}"
+                                PixelSize="{Binding SensorModel.SensorModelResult.PixelSizeMicrons, Mode=OneWay}"
+                                PlotBackgroundColor="{Binding Path=Color, Source={StaticResource BackgroundBrush}}"
+                                SensorMeanElevation="{Binding SensorModel.SensorModelResult.SensorMeanElevation, Mode=OneWay}"
+                                SensorModel="{Binding SensorModel.SensorModelResult.Model, Mode=OneWay}"
+                                SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonForegroundDisabledBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
+                                SurfaceExtremeColor="Red"
+                                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
+                        </Grid>
+
                         <TextBlock
                             Grid.Row="0"
-                            Grid.Column="0"
-                            Margin="10,0,10,5"
+                            Grid.Column="1"
+                            Margin="10,0,10,0"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            FontStyle="Italic"
-                            Text="These experimental data are purely informational for now. Later releases will make these more useful." />
-                        <StackPanel
+                            FontWeight="DemiBold"
+                            Text="Model Properties" />
+                        <Grid
                             Grid.Row="1"
+                            Grid.Column="1"
+                            Margin="10,5,10,0"
                             HorizontalAlignment="Center"
-                            Orientation="Vertical">
-                            <StackPanel
-                                Margin="0,2,0,0"
+                            VerticalAlignment="Center">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                Grid.Row="0"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Stars in Model"
+                                ToolTip="{StaticResource SensorModel_StarsInModel_Tooltip}" />
+                            <TextBlock
+                                Grid.Row="0"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="{Binding SensorModel.SensorModelResult.Model.StarsInModel, Mode=OneWay}"
+                                ToolTip="{StaticResource SensorModel_StarsInModel_Tooltip}" />
+                            <TextBlock
+                                Grid.Row="1"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Model R²" />
+                            <TextBlock
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="{Binding SensorModel.SensorModelResult.Model.GoodnessOfFit, StringFormat=\{0:0.00\}, Mode=OneWay}" />
+                            <TextBlock
+                                Grid.Row="2"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Model RMS" />
+                            <TextBlock
+                                Grid.Row="2"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center">
+                                <Run Text="{Binding SensorModel.SensorModelResult.Model.RMSErrorMicrons, StringFormat=\{0:0.0\}, Mode=OneWay}" /> <Run Text="microns" />
+                            </TextBlock>
+                            <TextBlock
+                                Grid.Row="3"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Tilt"
+                                ToolTip="{StaticResource SensorModel_Tilt_Tooltip}" />
+                            <TextBlock
+                                Grid.Row="3"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                ToolTip="{StaticResource SensorModel_Tilt_Tooltip}">
+                                <Run Text="{Binding SensorModel.SensorModelResult.Tilt.Degree, StringFormat=\{0:0.000\}, Mode=OneWay}" /><Run Text="°" />
+                            </TextBlock>
+                            <TextBlock
+                                Grid.Row="4"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Curvature Radius"
+                                ToolTip="{StaticResource SensorModel_CurvatureRadius_Tooltip}" />
+                            <TextBlock
+                                Grid.Row="4"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                ToolTip="{StaticResource SensorModel_CurvatureRadius_Tooltip}">
+                                <Run Text="{Binding SensorModel.SensorModelResult.CurvatureRadiusMillimeters, StringFormat=\{0:0.\}, Mode=OneWay}" /> <Run Text="mm" />
+                            </TextBlock>
+                            <TextBlock
+                                Grid.Row="5"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Curvature Effect"
+                                ToolTip="{StaticResource SensorModel_CurvatureEffect_Tooltip}" />
+                            <TextBlock
+                                Grid.Row="5"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                ToolTip="{StaticResource SensorModel_CurvatureEffect_Tooltip}">
+                                <Run Text="{Binding SensorModel.SensorModelResult.CurvatureEffectMicrons, StringFormat=\{0:0.\}, Mode=OneWay}" /> <Run Text="mm" />
+                            </TextBlock>
+                            <TextBlock
+                                Grid.Row="6"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Tilt Effect"
+                                ToolTip="{StaticResource SensorModel_TiltEffect_Tooltip}" />
+                            <TextBlock
+                                Grid.Row="6"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                ToolTip="{StaticResource SensorModel_TiltEffect_Tooltip}">
+                                <Run Text="{Binding SensorModel.SensorModelResult.TiltEffectMicrons, StringFormat=\{0:0.\}, Mode=OneWay}" /> <Run Text="mm" />
+                            </TextBlock>
+                            <TextBlock
+                                Grid.Row="7"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Mean Focuser Position"
+                                ToolTip="{StaticResource SensorModel_MeanFocuserPosition_Tooltip}" />
+                            <TextBlock
+                                Grid.Row="7"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                ToolTip="{StaticResource SensorModel_MeanFocuserPosition_Tooltip}">
+                                <Run Text="{Binding SensorModel.SensorModelResult.SensorMeanPosition, StringFormat=\{0:0.\}, Mode=OneWay}" />
+                            </TextBlock>
+                            <TextBlock
+                                Grid.Row="8"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Auto Focus Offset"
+                                ToolTip="{StaticResource SensorModel_AutoFocusOffset_Tooltip}" />
+                            <TextBlock
+                                Grid.Row="8"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                ToolTip="{StaticResource SensorModel_AutoFocusOffset_Tooltip}">
+                                <Run Text="{Binding SensorModel.SensorModelResult.AutoFocusMeanOffset, StringFormat=\{0:0.\}, Mode=OneWay}" /> <Run Text="steps" />
+                            </TextBlock>
+                            <TextBlock
+                                Grid.Row="9"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Pixel Size" />
+                            <TextBlock
+                                Grid.Row="9"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center">
+                                <Run Text="{Binding SensorModel.SensorModelResult.PixelSizeMicrons, StringFormat=\{0:0.00\}, Mode=OneWay}" /> <Run Text="microns" />
+                            </TextBlock>
+                            <TextBlock
+                                Grid.Row="10"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Focuser Step Size" />
+                            <TextBlock
+                                Grid.Row="10"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center">
+                                <Run Text="{Binding SensorModel.SensorModelResult.FocuserStepSizeMicrons, StringFormat=\{0:0.00\}, Mode=OneWay}" /> <Run Text="microns" />
+                            </TextBlock>
+                            <TextBlock
+                                Grid.Row="11"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="F/Ratio" />
+                            <TextBlock
+                                Grid.Row="11"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="{Binding SensorModel.SensorModelResult.FRatio, StringFormat=\{0:0.0\}, Mode=OneWay}" />
+                            <TextBlock
+                                Grid.Row="12"
+                                Grid.Column="0"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                Text="Critical Focus"
+                                ToolTip="{StaticResource SensorModel_CriticalFocus_Tooltip}" />
+                            <TextBlock
+                                Grid.Row="12"
+                                Grid.Column="1"
+                                Margin="5"
+                                VerticalAlignment="Center"
+                                ToolTip="{StaticResource SensorModel_CriticalFocus_Tooltip}">
+                                <Run Text="{Binding SensorModel.SensorModelResult.CriticalFocusMicrons, StringFormat=\{0:0.0\}, Mode=OneWay}" /> <Run Text="microns" />
+                            </TextBlock>
+                        </Grid>
+                        <Grid
+                            Grid.Row="2"
+                            Grid.Column="0"
+                            Grid.ColumnSpan="2"
+                            HorizontalAlignment="Center">
+                            <Grid.Resources>
+                                <DataTemplate x:Key="AnalysisResultAcceptableTemplate">
+                                    <CheckBox
+                                        Width="20"
+                                        Height="20"
+                                        Margin="5,0,0,0"
+                                        HorizontalAlignment="Center"
+                                        BorderBrush="Transparent"
+                                        IsChecked="{Binding Acceptable, FallbackValue=False, Mode=OneWay}"
+                                        IsEnabled="False"
+                                        Style="{StaticResource CheckmarkCheckbox}" />
+                                </DataTemplate>
+                            </Grid.Resources>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock
+                                Grid.Row="0"
+                                Margin="10,5,10,0"
                                 HorizontalAlignment="Center"
-                                Orientation="Horizontal">
-                                <TextBlock Text="Stars: " />
-                                <TextBlock Text="{Binding SensorModel.StarsInModel}" />
-                                <TextBlock Text=", R²: " />
-                                <TextBlock Text="{Binding SensorModel.GoodnessOfFit, StringFormat=\{0:0.0000\}}" />
-                                <TextBlock Text=", RMS Error (microns²): " />
-                                <TextBlock Text="{Binding SensorModel.RMSErrorMicrons, StringFormat=\{0:0.00\}}" />
-                            </StackPanel>
-                            <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
-                                <TextBlock Text="Pixel Size: " />
-                                <TextBlock Text="{Binding SensorModel.PixelSizeMicrons, StringFormat=\{0:0.00\}}" />
-                                <TextBlock Text=" microns, Focuser Step Size: " />
-                                <TextBlock Text="{Binding SensorModel.FocuserSizeMicrons, StringFormat=\{0:0.000\}}" />
-                                <TextBlock Text=" microns" />
-                            </StackPanel>
-                            <StackPanel
-                                Margin="0,2,0,0"
+                                VerticalAlignment="Center"
+                                FontWeight="DemiBold"
+                                Text="Model Analysis" />
+                            <DataGrid
+                                Grid.Row="1"
+                                Margin="10,5,10,0"
                                 HorizontalAlignment="Center"
-                                Orientation="Horizontal">
-                                <TextBlock Text="Top/Bottom Centering Error: " />
-                                <TextBlock Text="{Binding SensorModel.CenteringErrorYMicrons, StringFormat=\{0:0.00\}}" />
-                                <TextBlock Text=" microns. Bottom is positive" />
-                            </StackPanel>
-                            <StackPanel
-                                Margin="0,2,0,0"
-                                HorizontalAlignment="Center"
-                                Orientation="Horizontal">
-                                <TextBlock Text="Left/Right Centering Error: " />
-                                <TextBlock Text="{Binding SensorModel.CenteringErrorXMicrons, StringFormat=\{0:0.00\}}" />
-                                <TextBlock Text=" microns. Right is positive" />
-                            </StackPanel>
-                            <StackPanel
-                                Margin="0,2,0,0"
-                                HorizontalAlignment="Center"
-                                Orientation="Horizontal">
-                                <TextBlock Text="Top/Bottom Tilt: " />
-                                <TextBlock Text="{Binding SensorModel.RotationErrorPhiDegrees, StringFormat=\{0:0.00\}}" />
-                                <TextBlock Text="°. Positive means bottom is tilted up" />
-                            </StackPanel>
-                            <StackPanel
-                                Margin="0,2,0,0"
-                                HorizontalAlignment="Center"
-                                Orientation="Horizontal">
-                                <TextBlock Text="Left/Right Tilt: " />
-                                <TextBlock Text="{Binding SensorModel.RotationErrorThetaDegrees, StringFormat=\{0:0.00\}}" />
-                                <TextBlock Text="°. Positive means right is tilted up" />
-                            </StackPanel>
-                            <StackPanel
-                                Margin="0,2,0,0"
-                                HorizontalAlignment="Center"
-                                Orientation="Horizontal">
-                                <TextBlock Text="Curvature: " />
-                                <TextBlock Text="{Binding SensorModel.CurvatureInverseMicrons, StringFormat=\{0:0.000000000\}}" />
-                                <TextBlock Text=" 1/microns. Smaller is flatter" />
-                            </StackPanel>
-                        </StackPanel>
+                                AutoGenerateColumns="False"
+                                ColumnWidth="Auto"
+                                IsReadOnly="True"
+                                ItemsSource="{Binding SensorModel.SensorModelResult.AnalysisResults}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn
+                                        Width="Auto"
+                                        Binding="{Binding Name, Mode=OneWay}"
+                                        Header="Check" />
+                                    <DataGridTextColumn
+                                        Width="Auto"
+                                        Binding="{Binding Value, Mode=OneWay}"
+                                        Header="Value" />
+                                    <DataGridTemplateColumn CellTemplate="{StaticResource AnalysisResultAcceptableTemplate}" Header="OK" />
+                                    <DataGridTextColumn
+                                        Width="Auto"
+                                        Binding="{Binding Details, Mode=OneWay}"
+                                        Header="Details" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
                     </Grid>
                 </Expander>
 
                 <Expander
-                    Grid.Row="4"
+                    Grid.Row="5"
                     Header="Tilt Measurement"
                     IsExpanded="{Binding TiltMeasurementActive}"
-                    Visibility="{Binding TiltMeasurementActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                    Visibility="{Binding ElementName=ShowAutoFocusTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                     <Grid HorizontalAlignment="Stretch">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -1820,53 +2141,11 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="5"
+                    Grid.Row="6"
                     Header="Tilt Measurement History"
                     IsExpanded="{Binding TiltMeasurementHistoryActive}"
-                    Visibility="{Binding TiltMeasurementActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                    Visibility="{Binding ElementName=ShowAutoFocusTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                     <Grid Grid.Column="0" HorizontalAlignment="Center">
-                        <Grid.Resources>
-                            <!--  TODO: Add names to built in styles in NINA core so we could extend instead of copy  -->
-                            <Style TargetType="{x:Type DataGridColumnHeader}">
-                                <Setter Property="HorizontalContentAlignment" Value="Center" />
-                                <Setter Property="Padding" Value="3,0,3,0" />
-                                <Setter Property="Background" Value="{StaticResource BackgroundBrush}" />
-                                <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
-                                <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
-                                <Setter Property="BorderThickness" Value="0,0,0,1" />
-                                <Style.Triggers>
-                                    <Trigger Property="SortDirection" Value="{x:Null}">
-                                        <Setter Property="Background" Value="{StaticResource BackgroundBrush}" />
-                                        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
-                                    </Trigger>
-                                    <MultiTrigger>
-                                        <MultiTrigger.Conditions>
-                                            <Condition Property="IsMouseOver" Value="True" />
-                                            <Condition Property="SortDirection" Value="{x:Null}" />
-                                        </MultiTrigger.Conditions>
-
-                                        <Setter Property="Foreground" Value="{StaticResource ButtonForegroundBrush}" />
-                                        <Setter Property="Background" Value="{StaticResource SecondaryBackgroundBrush}" />
-                                    </MultiTrigger>
-
-                                    <MultiTrigger>
-                                        <MultiTrigger.Conditions>
-                                            <Condition Property="IsMouseOver" Value="true" />
-                                            <Condition Property="SortDirection" Value="{x:Null}" />
-                                        </MultiTrigger.Conditions>
-
-                                        <Setter Property="Foreground" Value="{StaticResource ButtonForegroundBrush}" />
-                                        <Setter Property="Background" Value="{StaticResource SecondaryBackgroundBrush}" />
-                                    </MultiTrigger>
-                                    <Trigger Property="SortDirection" Value="Ascending">
-                                        <Setter Property="Background" Value="{StaticResource SecondaryBrush}" />
-                                    </Trigger>
-                                    <Trigger Property="SortDirection" Value="Descending">
-                                        <Setter Property="Background" Value="{StaticResource SecondaryBrush}" />
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Grid.Resources>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -1897,19 +2176,19 @@
                                     Header="Id" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=TopLeft.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TiltPlaneModel.TopLeft.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Top Left" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=TopRight.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TiltPlaneModel.TopRight.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Top Right" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=BottomLeft.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TiltPlaneModel.BottomLeft.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Bottom Left" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=BottomRight.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TiltPlaneModel.BottomRight.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Bottom Right" />
                                 <DataGridTextColumn
                                     Width="Auto"
@@ -1917,30 +2196,208 @@
                                     Header="Backfocus Steps" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=Center.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TiltPlaneModel.Center.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Center R²" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=TopLeft.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TiltPlaneModel.TopLeft.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Top Left R²" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=TopRight.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TiltPlaneModel.TopRight.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Top Right R²" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=BottomLeft.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TiltPlaneModel.BottomLeft.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Bottom Left R²" />
                                 <DataGridTextColumn
                                     Width="Auto"
-                                    Binding="{Binding Path=BottomRight.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Binding="{Binding Path=TiltPlaneModel.BottomRight.RSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}"
                                     Header="Bottom Right R²" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </Grid>
                 </Expander>
+
                 <Expander
-                    Grid.Row="6"
+                    Grid.Row="7"
+                    Header="Sensor Model Tilt Measurement"
+                    IsExpanded="{Binding TiltMeasurementActive}"
+                    Visibility="{Binding ElementName=ShowSensorModelTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                    <Grid HorizontalAlignment="Stretch">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid Grid.Column="0" HorizontalAlignment="Center">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock
+                                Grid.Row="0"
+                                Margin="10"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontWeight="DemiBold"
+                                Text="Tilt Corner Measurements" />
+                            <TextBlock
+                                Grid.Row="1"
+                                Margin="10"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Text="Focuser positions below are based on isolated tilt calculations added to the sensor peak position"
+                                TextWrapping="Wrap" />
+                            <DataGrid
+                                Grid.Row="2"
+                                Margin="10"
+                                HorizontalAlignment="Center"
+                                AutoGenerateColumns="False"
+                                ColumnWidth="Auto"
+                                IsReadOnly="True"
+                                ItemsSource="{Binding SensorModel.SensorModelResult.SensorTiltModels}">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn
+                                        Width="*"
+                                        Binding="{Binding SensorSide, Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}"
+                                        Header="Side" />
+                                    <DataGridTextColumn
+                                        Width="*"
+                                        Binding="{Binding FocuserPosition, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                        Header="Position" />
+                                    <DataGridTextColumn
+                                        Width="*"
+                                        Binding="{Binding AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                        Header="Adj Steps" />
+                                    <DataGridTextColumn
+                                        Width="*"
+                                        Binding="{Binding AdjustmentRequiredMicrons, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                        Header="Adj Microns" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                        <Grid Grid.Column="1" HorizontalAlignment="Stretch">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="300" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                Grid.Row="0"
+                                Grid.Column="0"
+                                Margin="10,10,10,5"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontWeight="DemiBold"
+                                Text="Sensor Tilt Visualization" />
+                            <TextBlock
+                                Grid.Row="1"
+                                Grid.Column="0"
+                                Margin="10,0,10,5"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Text="Use for tilt direction, not amount! Model always scaled to fit" />
+                            <TextBlock
+                                Grid.Row="2"
+                                Grid.Column="0"
+                                Margin="10,0,10,5"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Text="Camera body on top. Scope aperture towards bottom." />
+                            <controls:TiltModelControl
+                                Grid.Row="3"
+                                Grid.Column="0"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                AxisColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
+                                PlotBackgroundColor="{Binding Path=Color, Source={StaticResource BackgroundBrush}}"
+                                PointColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
+                                SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonBackgroundBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
+                                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                                TiltPlaneModel="{Binding SensorModel.SensorModelResult.TiltPlaneModel, Mode=OneWay}" />
+                        </Grid>
+                    </Grid>
+                </Expander>
+                <Expander
+                    Grid.Row="8"
+                    Header="Sensor Model Tilt Measurement History"
+                    IsExpanded="{Binding TiltMeasurementHistoryActive}"
+                    Visibility="{Binding ElementName=ShowSensorModelTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                    <Grid Grid.Column="0" HorizontalAlignment="Center">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Row="0"
+                            Margin="10"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            FontWeight="DemiBold"
+                            Text="Tilt Adjustment History" />
+                        <DataGrid
+                            Grid.Row="1"
+                            Margin="10"
+                            HorizontalAlignment="Center"
+                            AutoGenerateColumns="False"
+                            ColumnWidth="Auto"
+                            IsReadOnly="True"
+                            ItemsSource="{Binding SensorModel.SensorTiltHistoryModels}"
+                            SelectedItem="{Binding SensorModel.SelectedTiltHistoryModel}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding HistoryId}"
+                                    Header="Id" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=TiltPlaneModel.TopLeft.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Top Left" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=TiltPlaneModel.TopRight.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Top Right" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=TiltPlaneModel.BottomLeft.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Bottom Left" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=TiltPlaneModel.BottomRight.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Bottom Right" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=TiltEffectMicrons, StringFormat=\{0:0.\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Tilt Effect" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=CurvatureEffectMicrons, StringFormat=\{0:0.\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Curvature Effect" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding Path=AutoFocusOffset, StringFormat=\{0:0.\}, Converter={StaticResource NaNToDoubleDashConverter}}"
+                                    Header="Auto Focus Offset" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </Expander>
+
+                <Expander
+                    Grid.Row="9"
                     Header="FWHM Contour Map"
                     IsExpanded="{Binding FWHMContoursActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -1971,7 +2428,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="7"
+                    Grid.Row="9"
                     Header="Eccentricity Vectors"
                     IsExpanded="{Binding EccentricityVectorsActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">

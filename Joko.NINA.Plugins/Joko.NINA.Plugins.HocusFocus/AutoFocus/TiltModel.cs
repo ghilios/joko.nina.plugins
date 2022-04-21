@@ -14,7 +14,6 @@ using Accord.Statistics.Models.Regression.Linear;
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.ComponentModel;
 using NINA.Joko.Plugins.HocusFocus.Converters;
@@ -25,22 +24,65 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
     public class TiltPlaneModel {
 
-        public TiltPlaneModel(AutoFocusResult autoFocusResult, double a, double b, double c, double mean) {
-            if (autoFocusResult.ImageSize.Width == 0 || autoFocusResult.ImageSize.Height <= 0) {
-                throw new ArgumentException($"ImageSize ({autoFocusResult.ImageSize.Width}, {autoFocusResult.ImageSize.Height}) dimensions must be positive");
+        public TiltPlaneModel(
+            System.Drawing.Size imageSize,
+            double a,
+            double b,
+            double c,
+            double mean,
+            double focuserStepSizeMicrons,
+            double centerPosition,
+            double topLeftPosition,
+            double topRightPosition,
+            double bottomLeftPosition,
+            double bottomRightPosition) {
+            if (imageSize.Width == 0 || imageSize.Height <= 0) {
+                throw new ArgumentException($"ImageSize ({imageSize.Width}, {imageSize.Height}) dimensions must be positive");
             }
 
-            AutoFocusResult = autoFocusResult;
+            ImageSize = imageSize;
             A = a;
             B = b;
             C = c;
+            FocuserStepSizeMicrons = focuserStepSizeMicrons;
             MeanFocuserPosition = mean;
+            Center = new SensorTiltModel(SensorSide.Center) {
+                FocuserPosition = centerPosition,
+                AdjustmentRequiredSteps = double.NaN,
+                AdjustmentRequiredMicrons = double.NaN
+            };
+            TopLeft = new SensorTiltModel(SensorSide.TopLeft) {
+                FocuserPosition = topLeftPosition,
+                AdjustmentRequiredSteps = MeanFocuserPosition - topLeftPosition,
+                AdjustmentRequiredMicrons = (MeanFocuserPosition - topLeftPosition) * FocuserStepSizeMicrons
+            };
+            TopRight = new SensorTiltModel(SensorSide.TopRight) {
+                FocuserPosition = topRightPosition,
+                AdjustmentRequiredSteps = MeanFocuserPosition - topRightPosition,
+                AdjustmentRequiredMicrons = (MeanFocuserPosition - topRightPosition) * FocuserStepSizeMicrons
+            };
+            BottomLeft = new SensorTiltModel(SensorSide.BottomLeft) {
+                FocuserPosition = bottomLeftPosition,
+                AdjustmentRequiredSteps = MeanFocuserPosition - bottomLeftPosition,
+                AdjustmentRequiredMicrons = (MeanFocuserPosition - bottomLeftPosition) * FocuserStepSizeMicrons
+            };
+            BottomRight = new SensorTiltModel(SensorSide.BottomRight) {
+                FocuserPosition = bottomRightPosition,
+                AdjustmentRequiredSteps = MeanFocuserPosition - bottomRightPosition,
+                AdjustmentRequiredMicrons = (MeanFocuserPosition - bottomRightPosition) * FocuserStepSizeMicrons
+            };
         }
 
-        public AutoFocusResult AutoFocusResult { get; private set; }
+        public System.Drawing.Size ImageSize { get; private set; }
         public double A { get; private set; }
         public double B { get; private set; }
         public double C { get; private set; }
+        public double FocuserStepSizeMicrons { get; private set; }
+        public SensorTiltModel Center { get; private set; }
+        public SensorTiltModel TopLeft { get; private set; }
+        public SensorTiltModel TopRight { get; private set; }
+        public SensorTiltModel BottomLeft { get; private set; }
+        public SensorTiltModel BottomRight { get; private set; }
         public double MeanFocuserPosition { get; private set; }
 
         public double EstimateFocusPosition(int x, int y) {
@@ -50,22 +92,47 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public double GetModelX(int x) {
-            if (x < 0 || x >= AutoFocusResult.ImageSize.Width) {
-                throw new ArgumentException($"X ({x}) must be within the image size dimensions ({AutoFocusResult.ImageSize.Width}x{AutoFocusResult.ImageSize.Height})");
+            if (x < 0 || x >= ImageSize.Width) {
+                throw new ArgumentException($"X ({x}) must be within the image size dimensions ({ImageSize.Width}x{ImageSize.Height})");
             }
 
-            return (double)x / AutoFocusResult.ImageSize.Width - 0.5;
+            return (double)x / ImageSize.Width - 0.5;
         }
 
         public double GetModelY(int y) {
-            if (y < 0 || y >= AutoFocusResult.ImageSize.Height) {
-                throw new ArgumentException($"Y ({y}) must be within the image size dimensions ({AutoFocusResult.ImageSize.Width}x{AutoFocusResult.ImageSize.Height})");
+            if (y < 0 || y >= ImageSize.Height) {
+                throw new ArgumentException($"Y ({y}) must be within the image size dimensions ({ImageSize.Width}x{ImageSize.Height})");
             }
 
-            return (double)y / AutoFocusResult.ImageSize.Height - 0.5;
+            return (double)y / ImageSize.Height - 0.5;
         }
 
-        public static TiltPlaneModel Create(AutoFocusResult result) {
+        public static TiltPlaneModel Create(AutoFocusResult result, double focuserStepSizeMicrons) {
+            var centerFocuser = result.RegionResults[1].EstimatedFinalFocuserPosition;
+            var topLeftFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
+            var topRightFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
+            var bottomLeftFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
+            var bottomRightFocuser = result.RegionResults[5].EstimatedFinalFocuserPosition;
+            var tiltPlaneModel = Create(
+                imageSize: result.ImageSize, focuserStepSizeMicrons: focuserStepSizeMicrons, centerFocuser: centerFocuser, topLeftFocuser: topLeftFocuser,
+                topRightFocuser: topRightFocuser, bottomLeftFocuser: bottomLeftFocuser, bottomRightFocuser: bottomRightFocuser);
+
+            tiltPlaneModel.Center.RSquared = result.RegionResults[1].Fittings.GetRSquared();
+            tiltPlaneModel.TopLeft.RSquared = result.RegionResults[2].Fittings.GetRSquared();
+            tiltPlaneModel.TopRight.RSquared = result.RegionResults[3].Fittings.GetRSquared();
+            tiltPlaneModel.BottomLeft.RSquared = result.RegionResults[4].Fittings.GetRSquared();
+            tiltPlaneModel.BottomRight.RSquared = result.RegionResults[5].Fittings.GetRSquared();
+            return tiltPlaneModel;
+        }
+
+        public static TiltPlaneModel Create(
+            System.Drawing.Size imageSize,
+            double focuserStepSizeMicrons,
+            double centerFocuser,
+            double topLeftFocuser,
+            double topRightFocuser,
+            double bottomLeftFocuser,
+            double bottomRightFocuser) {
             var ols = new OrdinaryLeastSquares() {
                 UseIntercept = true
             };
@@ -77,11 +144,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 new double[] { -0.5, 0.5 },
                 new double[] { 0.5, 0.5 },
             };
-
-            var topLeftFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
-            var topRightFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
-            var bottomLeftFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
-            var bottomRightFocuser = result.RegionResults[5].EstimatedFinalFocuserPosition;
             double[] outputs = { topLeftFocuser, topRightFocuser, bottomLeftFocuser, bottomRightFocuser };
 
             MultipleLinearRegression regression = ols.Learn(inputs, outputs);
@@ -90,7 +152,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             double b = regression.Weights[1];
             double c = regression.Intercept;
             double mean = outputs.Average();
-            return new TiltPlaneModel(result, a, b, c, mean);
+            return new TiltPlaneModel(
+                imageSize: imageSize, a: a, b: b, c: c, mean: mean, focuserStepSizeMicrons: focuserStepSizeMicrons, centerPosition: centerFocuser,
+                topLeftPosition: topLeftFocuser, topRightPosition: topRightFocuser,
+                bottomLeftPosition: bottomLeftFocuser, bottomRightPosition: bottomRightFocuser);
         }
     }
 
@@ -104,74 +169,34 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SensorTiltHistoryModels = new AsyncObservableCollection<SensorTiltHistoryModel>();
         }
 
-        private List<SensorTiltModel> SetTiltPlaneModel(AutoFocusResult result, TiltPlaneModel tiltModel) {
-            TiltPlaneModel = tiltModel;
-
-            var centerFocuser = result.RegionResults[1].EstimatedFinalFocuserPosition;
-            var topLeftFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
-            var topRightFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
-            var bottomLeftFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
-            var bottomRightFocuser = result.RegionResults[5].EstimatedFinalFocuserPosition;
-            var micronsPerFocuserStep = inspectorOptions.MicronsPerFocuserStep > 0 ? inspectorOptions.MicronsPerFocuserStep : double.NaN;
-
-            var newSideToTiltModels = new List<SensorTiltModel>();
-            newSideToTiltModels.Add(new SensorTiltModel(SensorSide.Center) {
-                FocuserPosition = centerFocuser,
-                AdjustmentRequiredSteps = double.NaN,
-                AdjustmentRequiredMicrons = double.NaN,
-                RSquared = result.RegionResults[1].Fittings.GetRSquared()
-            });
-            newSideToTiltModels.Add(new SensorTiltModel(SensorSide.TopLeft) {
-                FocuserPosition = topLeftFocuser,
-                AdjustmentRequiredSteps = tiltModel.MeanFocuserPosition - topLeftFocuser,
-                AdjustmentRequiredMicrons = (tiltModel.MeanFocuserPosition - topLeftFocuser) * micronsPerFocuserStep,
-                RSquared = result.RegionResults[2].Fittings.GetRSquared()
-            });
-            newSideToTiltModels.Add(new SensorTiltModel(SensorSide.TopRight) {
-                FocuserPosition = topRightFocuser,
-                AdjustmentRequiredSteps = tiltModel.MeanFocuserPosition - topRightFocuser,
-                AdjustmentRequiredMicrons = (tiltModel.MeanFocuserPosition - topRightFocuser) * micronsPerFocuserStep,
-                RSquared = result.RegionResults[3].Fittings.GetRSquared()
-            });
-            newSideToTiltModels.Add(new SensorTiltModel(SensorSide.BottomLeft) {
-                FocuserPosition = bottomLeftFocuser,
-                AdjustmentRequiredSteps = tiltModel.MeanFocuserPosition - bottomLeftFocuser,
-                AdjustmentRequiredMicrons = (tiltModel.MeanFocuserPosition - bottomLeftFocuser) * micronsPerFocuserStep,
-                RSquared = result.RegionResults[4].Fittings.GetRSquared()
-            });
-            newSideToTiltModels.Add(new SensorTiltModel(SensorSide.BottomRight) {
-                FocuserPosition = bottomRightFocuser,
-                AdjustmentRequiredSteps = tiltModel.MeanFocuserPosition - bottomRightFocuser,
-                AdjustmentRequiredMicrons = (tiltModel.MeanFocuserPosition - bottomRightFocuser) * micronsPerFocuserStep,
-                RSquared = result.RegionResults[5].Fittings.GetRSquared()
-            });
-
-            SensorTiltModels.Clear();
-            foreach (var sensorTiltModel in newSideToTiltModels.OrderBy(x => (int)x.SensorSide)) {
-                SensorTiltModels.Add(sensorTiltModel);
-            }
-            return newSideToTiltModels;
+        private void UpdateTiltModels(SensorTiltHistoryModel historyModel) {
+            UpdateTiltModels(historyModel.TiltPlaneModel);
         }
 
-        private void UpdateTiltMeasurementsTable(AutoFocusResult result, TiltPlaneModel tiltModel, double backfocusFocuserPositionDelta) {
-            var newSideToTiltModels = SetTiltPlaneModel(result, tiltModel);
+        private void UpdateTiltModels(TiltPlaneModel tiltPlaneModel) {
+            SensorTiltModels.Clear();
+            SensorTiltModels.Add(tiltPlaneModel.Center);
+            SensorTiltModels.Add(tiltPlaneModel.TopLeft);
+            SensorTiltModels.Add(tiltPlaneModel.TopRight);
+            SensorTiltModels.Add(tiltPlaneModel.BottomLeft);
+            SensorTiltModels.Add(tiltPlaneModel.BottomRight);
+        }
+
+        private void UpdateTiltMeasurementsTable(TiltPlaneModel tiltModel, double backfocusFocuserPositionDelta) {
+            TiltPlaneModel = tiltModel;
+            UpdateTiltModels(tiltModel);
             var historyId = Interlocked.Increment(ref nextHistoryId);
             SensorTiltHistoryModels.Insert(0, new SensorTiltHistoryModel(
                 historyId: historyId,
-                center: newSideToTiltModels.First(m => m.SensorSide == SensorSide.Center),
-                topLeft: newSideToTiltModels.First(m => m.SensorSide == SensorSide.TopLeft),
-                topRight: newSideToTiltModels.First(m => m.SensorSide == SensorSide.TopRight),
-                bottomLeft: newSideToTiltModels.First(m => m.SensorSide == SensorSide.BottomLeft),
-                bottomRight: newSideToTiltModels.First(m => m.SensorSide == SensorSide.BottomRight),
-                autoFocusResult: result,
                 tiltPlaneModel: tiltPlaneModel,
                 backfocusFocuserPositionDelta: backfocusFocuserPositionDelta));
             SelectedTiltHistoryModel = null;
         }
 
         public void UpdateTiltModel(AutoFocusResult result, double backfocusFocuserPositionDelta) {
-            var tiltModel = TiltPlaneModel.Create(result);
-            UpdateTiltMeasurementsTable(result, tiltModel, backfocusFocuserPositionDelta);
+            var micronsPerFocuserStep = inspectorOptions.MicronsPerFocuserStep > 0 ? inspectorOptions.MicronsPerFocuserStep : double.NaN;
+            var tiltModel = TiltPlaneModel.Create(result, micronsPerFocuserStep);
+            UpdateTiltMeasurementsTable(tiltModel, backfocusFocuserPositionDelta);
         }
 
         private SensorTiltHistoryModel selectedTiltHistoryModel;
@@ -181,7 +206,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             set {
                 try {
                     if (value != null) {
-                        SetTiltPlaneModel(value.AutoFocusResult, value.TiltPlaneModel);
+                        UpdateTiltModels(value);
                     }
                     selectedTiltHistoryModel = value;
                     RaisePropertyChanged();
@@ -235,32 +260,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public SensorTiltHistoryModel(
             int historyId,
-            SensorTiltModel center,
-            SensorTiltModel topLeft,
-            SensorTiltModel topRight,
-            SensorTiltModel bottomLeft,
-            SensorTiltModel bottomRight,
-            AutoFocusResult autoFocusResult,
             TiltPlaneModel tiltPlaneModel,
             double backfocusFocuserPositionDelta) {
             HistoryId = historyId;
-            Center = center;
-            TopLeft = topLeft;
-            TopRight = topRight;
-            BottomLeft = bottomLeft;
-            BottomRight = bottomRight;
-            AutoFocusResult = autoFocusResult;
             TiltPlaneModel = tiltPlaneModel;
             BackfocusFocuserPositionDelta = backfocusFocuserPositionDelta;
         }
 
         public int HistoryId { get; private set; }
-        public SensorTiltModel Center { get; private set; }
-        public SensorTiltModel TopLeft { get; private set; }
-        public SensorTiltModel TopRight { get; private set; }
-        public SensorTiltModel BottomLeft { get; private set; }
-        public SensorTiltModel BottomRight { get; private set; }
-        public AutoFocusResult AutoFocusResult { get; private set; }
         public TiltPlaneModel TiltPlaneModel { get; private set; }
         public double BackfocusFocuserPositionDelta { get; private set; }
     }
