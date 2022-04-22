@@ -32,23 +32,43 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
     public class SensorModelContourMapControl : ILNSceneControlBase {
 
-        public static readonly DependencyProperty SurfaceExtremeColorProperty = DependencyProperty.Register(
-            "SurfaceExtremeColor",
+        public static readonly DependencyProperty SurfaceHighExtremeColorProperty = DependencyProperty.Register(
+            "SurfaceHighExtremeColor",
             typeof(MediaColor),
             typeof(SensorModelContourMapControl),
             new FrameworkPropertyMetadata(
                 default(MediaColor),
                 FrameworkPropertyMetadataOptions.AffectsRender,
-                OnSurfaceExtremeColorPropertyChanged));
+                OnSurfaceHighExtremeColorPropertyChanged));
 
-        public MediaColor SurfaceExtremeColor {
-            get { return (MediaColor)GetValue(SurfaceExtremeColorProperty); }
-            set { SetValue(SurfaceExtremeColorProperty, value); }
+        public MediaColor SurfaceHighExtremeColor {
+            get { return (MediaColor)GetValue(SurfaceHighExtremeColorProperty); }
+            set { SetValue(SurfaceHighExtremeColorProperty, value); }
         }
 
-        private static void OnSurfaceExtremeColorPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
+        private static void OnSurfaceHighExtremeColorPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
             var thisControl = (SensorModelContourMapControl)d;
-            thisControl.OnSurfaceExtremeColorChanged((MediaColor)e.NewValue);
+            thisControl.OnSurfaceHighExtremeColorChanged((MediaColor)e.NewValue);
+            thisControl.UpdateSceneImage();
+        }
+
+        public static readonly DependencyProperty SurfaceLowExtremeColorProperty = DependencyProperty.Register(
+            "SurfaceLowExtremeColor",
+            typeof(MediaColor),
+            typeof(SensorModelContourMapControl),
+            new FrameworkPropertyMetadata(
+                default(MediaColor),
+                FrameworkPropertyMetadataOptions.AffectsRender,
+                OnSurfaceLowExtremeColorPropertyChanged));
+
+        public MediaColor SurfaceLowExtremeColor {
+            get { return (MediaColor)GetValue(SurfaceLowExtremeColorProperty); }
+            set { SetValue(SurfaceLowExtremeColorProperty, value); }
+        }
+
+        private static void OnSurfaceLowExtremeColorPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
+            var thisControl = (SensorModelContourMapControl)d;
+            thisControl.OnSurfaceLowExtremeColorChanged((MediaColor)e.NewValue);
             thisControl.UpdateSceneImage();
         }
 
@@ -155,11 +175,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             }
         }
 
-        protected void OnSurfaceExtremeColorChanged(MediaColor newColor) {
+        protected void OnSurfaceHighExtremeColorChanged(MediaColor newColor) {
             var contourPlotCube = PlotCube;
             var contourSurface = ContourSurface;
             if (contourPlotCube != null && contourSurface != null) {
-                UpdateColorMap(contourPlotCube, contourSurface, FRatio, closeColor: SurfaceColor.ToDrawingColor(), extremeColor: newColor.ToDrawingColor());
+                UpdateColorMap(contourPlotCube, contourSurface, FRatio, closeColor: SurfaceColor.ToDrawingColor(), lowExtremeColor: SurfaceLowExtremeColor.ToDrawingColor(), highExtremeColor: newColor.ToDrawingColor());
+            }
+        }
+
+        protected void OnSurfaceLowExtremeColorChanged(MediaColor newColor) {
+            var contourPlotCube = PlotCube;
+            var contourSurface = ContourSurface;
+            if (contourPlotCube != null && contourSurface != null) {
+                UpdateColorMap(contourPlotCube, contourSurface, FRatio, closeColor: SurfaceColor.ToDrawingColor(), lowExtremeColor: newColor.ToDrawingColor(), highExtremeColor: SurfaceHighExtremeColor.ToDrawingColor());
             }
         }
 
@@ -169,7 +197,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             var contourPlotCube = PlotCube;
             var contourSurface = ContourSurface;
             if (contourPlotCube != null && contourSurface != null) {
-                UpdateColorMap(contourPlotCube, contourSurface, FRatio, closeColor: newColor.ToDrawingColor(), extremeColor: SurfaceExtremeColor.ToDrawingColor());
+                UpdateColorMap(contourPlotCube, contourSurface, FRatio, closeColor: newColor.ToDrawingColor(), lowExtremeColor: SurfaceLowExtremeColor.ToDrawingColor(), highExtremeColor: SurfaceHighExtremeColor.ToDrawingColor());
             }
         }
 
@@ -198,14 +226,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             surfaceStrip.Configure();
         }
 
-        private Colormap GetSceneColorMap(double fRatio, DrawingColor closeColor, DrawingColor extremeColor) {
+        private Colormap GetSceneColorMap(double fRatio, DrawingColor closeColor, DrawingColor lowExtremeColor, DrawingColor highExtremeColor) {
             using (Scope.Enter()) {
                 var lambdaLimitMicrons = GetLambdaColorMapLimit(fRatio);
 
                 Array<float> colormapData = new float[3, 5] {
-                    { 0.0f, (float)extremeColor.R / byte.MaxValue, (float)extremeColor.G / byte.MaxValue, (float)extremeColor.B / byte.MaxValue, (float)extremeColor.A / byte.MaxValue },
+                    { 0.0f, (float)lowExtremeColor.R / byte.MaxValue, (float)lowExtremeColor.G / byte.MaxValue, (float)lowExtremeColor.B / byte.MaxValue, (float)lowExtremeColor.A / byte.MaxValue },
                     { 0.5f, (float)closeColor.R / byte.MaxValue, (float)closeColor.G / byte.MaxValue, (float)closeColor.B / byte.MaxValue, (float)closeColor.A / byte.MaxValue },
-                    { 1.0f, (float)extremeColor.R / byte.MaxValue, (float)extremeColor.G / byte.MaxValue, (float)extremeColor.B / byte.MaxValue, (float)extremeColor.A / byte.MaxValue }
+                    { 1.0f, (float)highExtremeColor.R / byte.MaxValue, (float)highExtremeColor.G / byte.MaxValue, (float)highExtremeColor.B / byte.MaxValue, (float)highExtremeColor.A / byte.MaxValue }
                 };
                 return new Colormap(colormapData);
             }
@@ -222,8 +250,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             Surface contourSurface,
             double fRatio,
             DrawingColor closeColor,
-            DrawingColor extremeColor) {
-            var colormap = GetSceneColorMap(fRatio, closeColor: closeColor, extremeColor: extremeColor);
+            DrawingColor lowExtremeColor,
+            DrawingColor highExtremeColor) {
+            var colormap = GetSceneColorMap(fRatio, closeColor: closeColor, lowExtremeColor: lowExtremeColor, highExtremeColor: highExtremeColor);
             contourSurface.Colormap = colormap;
             contourPlotCube.Configure();
             contourSurface.Configure();
@@ -248,7 +277,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     var imageCenterValue = (float)SensorMeanElevation;
 
                     var colormapLambdaLimit = (float)GetLambdaColorMapLimit(fRatio);
-                    var colormap = GetSceneColorMap(fRatio, closeColor: SurfaceColor.ToDrawingColor(), extremeColor: SurfaceExtremeColor.ToDrawingColor());
+                    var colormap = GetSceneColorMap(fRatio, closeColor: SurfaceColor.ToDrawingColor(), lowExtremeColor: SurfaceLowExtremeColor.ToDrawingColor(), highExtremeColor: SurfaceHighExtremeColor.ToDrawingColor());
                     var contourSurface = new Surface(
                         (x, y) => (float)sensorModel.ValueAt(x - imageCenterX, y - imageCenterY) - imageCenterValue,
                         xmin: 0.0f,

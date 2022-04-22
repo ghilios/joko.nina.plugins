@@ -257,7 +257,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             TiltPlaneModel = tiltPlaneModel;
 
             AnalysisResults.Clear();
-            AnalyzeCurvature(CurvatureEffectMicrons, criticalFocusMicrons);
+            AnalyzeCurvature(CurvatureRadiusMillimeters, CurvatureEffectMicrons, criticalFocusMicrons);
             AnalyzeTilt(TiltEffectMicrons, Tilt, criticalFocusMicrons);
             AnalyzeCentering(sensorModel, pixelSizeMicrons);
 
@@ -269,43 +269,43 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 Name = "Tilt",
                 Value = $"{tilt.Degree:0.000}°",
                 Acceptable = Math.Abs(tiltEffectMicrons) < (0.25 * criticalFocus),
-                Details = $"Tilt effect is within 0.25x the critical focus of {criticalFocus:0.0} microns"
+                Details = $"Tilt effect {tiltEffectMicrons:0.0} microns is within 0.25x critical focus"
             };
             if (!result.Acceptable) {
-                result.Details = $"Tilt effect of {tiltEffectMicrons:0.0} microns is too large. Adjust tilt based on the sensor tilt diagram";
+                result.Details = $"Tilt effect of {tiltEffectMicrons:0.0} microns is > 0.25x critical focus. Adjust tilt based on the sensor tilt diagram";
             }
             AnalysisResults.Add(result);
         }
 
-        private void AnalyzeCurvature(double curvatureElevationMicrons, double criticalFocus) {
+        private void AnalyzeCurvature(double curvatureRadius, double curvatureElevationMicrons, double criticalFocus) {
             var result = new SensorModelAnalysisResult() {
                 Name = "Curvature",
-                Value = $"{curvatureElevationMicrons:0.} microns",
+                Value = $"{curvatureRadius:0.} mm",
                 Acceptable = Math.Abs(curvatureElevationMicrons) < (1.5 * criticalFocus),
-                Details = $"Curvature elevation is within 1.5x the critical focus of {criticalFocus:0.0} microns"
+                Details = $"Curvature effect of {curvatureElevationMicrons:0.} microns is within 1.5x critical focus"
             };
             if (!result.Acceptable) {
                 var direction = curvatureElevationMicrons > 0 ? "REDUCING" : "INCREASING";
-                result.Details = $"Large curvature detected. Try {direction} backfocus";
+                result.Details = $"Curvature effect of {curvatureElevationMicrons:0.} microns is > 1.5x critical focus. Try {direction} backfocus";
             }
             AnalysisResults.Add(result);
         }
 
         private void AnalyzeCentering(SensorParaboloidModel sensorModel, double pixelSize) {
             var centeringXResult = new SensorModelAnalysisResult() {
-                Name = "Left/Right Centered",
+                Name = "Left/Right",
                 Value = $"{sensorModel.X0 / 1000.0:0.0} mm",
                 Acceptable = true,
                 Details = $"Offset is less than 10 pixels"
             };
             var centeringYResult = new SensorModelAnalysisResult() {
-                Name = "Up/Down Centered",
+                Name = "Up/Down",
                 Value = $"{sensorModel.Y0 / 1000.0:0.0} mm",
                 Acceptable = true,
                 Details = $"Offset is less than 10 pixels"
             };
 
-            const string offsetDetected = "Large offset detected. This is just for informational purposes, as it can be due to flexure, tilt, or other reasons";
+            const string offsetDetected = "Large offset detected. This can be due to flexure, tilt, or other reasons";
             if (Math.Abs(sensorModel.X0) >= 10.0 * pixelSize) {
                 centeringXResult.Details = offsetDetected;
             }
