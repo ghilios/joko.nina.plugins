@@ -288,8 +288,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                         Wireframe = { Visible = false },
                         Children = {
                             new Colorbar() {
-                                Anchor = new PointF(1.0f, 0.5f),
-                                Location = new PointF(0.9f, 0.5f)
+                                Anchor = new PointF(1.0f, 1.0f),
+                                Location = new PointF(0.99f, 0.99f)
                             }
                         }
                     };
@@ -336,6 +336,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     contourPlotCube.AspectRatioMode = AspectRatioMode.MaintainRatios;
                     contourPlotCube.AllowZoom = false;
                     contourPlotCube.AllowPan = false;
+                    contourPlotCube.DataScreenRect = new RectangleF(0.1f, 0.1f, 0.9f, 0.9f);
                     contourPlotCube = scene.Add(contourPlotCube);
                     scene.Screen.First<Label>().Visible = false;
 

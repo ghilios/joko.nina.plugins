@@ -29,6 +29,11 @@
     <hfconverters:InterpolateColorConverter x:Key="HF_InterpolateColorConverter" />
     <hfconverters:InverseNaNToVisibilityCollapsedConverter x:Key="HF_InverseNaNToVisibilityCollapsedConverter" />
     <hfconverters:InverseBooleanConverter x:Key="HF_InverseBooleanConverter" />
+    <hfconverters:MultiBooleanToVisibilityCollapsedConverter x:Key="HF_MultiBooleanToVisibilityCollapsedConverter" />
+    <hfconverters:MultiBooleanToZeroConverter x:Key="HF_MultiBooleanToZeroConverter" />
+    <hfconverters:IsNegativeToBooleanConverter x:Key="HF_IsNegativeToBooleanConverter" />
+    <hfconverters:IsNotNegativeToBooleanConverter x:Key="HF_IsNotNegativeToBooleanConverter" />
+
     <TextBlock x:Key="MaxConcurrent_Tooltip" Text="The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long an Auto Focus operation can take before we cancel it and move on." />
     <TextBlock x:Key="ValidateHfrImprovement_Tooltip" Text="If enabled, takes an extra exposure before and after to ensure HFR improved. This check may be done in addition to the R² validation configured in NINA's Auto Focus options." />

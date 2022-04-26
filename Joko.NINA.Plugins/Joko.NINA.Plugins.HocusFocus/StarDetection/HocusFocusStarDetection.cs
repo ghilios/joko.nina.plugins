@@ -182,6 +182,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         private readonly StarDetectionOptions starDetectionOptions;
         private readonly IProfileService profileService;
         private readonly IFocuserMediator focuserMediator;
+        private bool pixelScaleWarningShown = false;
 
         public IImageStatisticsVM ImageStatisticsVM { get; private set; }
 
@@ -229,7 +230,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var binning = Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
             var pixelScale = MathUtility.ArcsecPerPixel(profileService.ActiveProfile.CameraSettings.PixelSize, profileService.ActiveProfile.TelescopeSettings.FocalLength) * binning;
             if (double.IsNaN(pixelScale)) {
-                Notification.ShowWarning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
+                if (!pixelScaleWarningShown) {
+                    pixelScaleWarningShown = true;
+                    Notification.ShowWarning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
+                }
+                Logger.Warning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
             }
 
             var detectorParams = new StarDetectorParams() {
@@ -274,7 +279,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
-            var pixelSize = image.RawImageData.MetaData.Camera.PixelSize;
+            var pixelSize = image.RawImageData.MetaData.Camera.PixelSize * Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var result = new HocusFocusStarDetectionResult() {
                 HocusFocusParams = hocusFocusParams,

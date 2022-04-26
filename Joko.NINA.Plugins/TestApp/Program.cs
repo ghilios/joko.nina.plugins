@@ -263,7 +263,7 @@ namespace TestApp {
 
                 var sensorModelDataPoints = allMatchedStars
                     .Where(s => s.FitFocuserPosition.HasValue)
-                    .Select(s => new SensorParaboloidDataPoint(s.RegistrationX, s.RegistrationY, s.FitFocuserPosition.Value))
+                    .Select(s => new SensorParaboloidDataPoint(s.RegistrationX, s.RegistrationY, s.FitFocuserPosition.Value, s.FitRSquared.Value))
                     .ToList();
 
                 var (medianFocusPosition, _) = allMatchedStars.Where(s => s.FitFocuserPosition.HasValue).Select(s => s.FitFocuserPosition.Value).MedianMAD();

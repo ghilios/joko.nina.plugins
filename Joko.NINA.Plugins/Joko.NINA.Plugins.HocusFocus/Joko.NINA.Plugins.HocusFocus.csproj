@@ -430,12 +430,16 @@
     </Compile>
     <Compile Include="Controls\SensorModelContourMapControl.cs" />
     <Compile Include="Controls\TiltModelControl.cs" />
+    <Compile Include="Converters\IsNotNegativeToBooleanConverter.cs" />
+    <Compile Include="Converters\IsNegativeToBooleanConverter.cs" />
     <Compile Include="Converters\InverseBooleanConverter.cs" />
     <Compile Include="Converters\InverseDoubleNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\DoubleNegativeToVisibilityConverter.cs" />
     <Compile Include="Converters\DoubleNegativeToEmptyStringConverter.cs" />
     <Compile Include="Converters\InterpolateColorConverter.cs" />
     <Compile Include="Converters\InverseNaNToVisibilityCollapsedConverter.cs" />
+    <Compile Include="Converters\MultiBooleanToZeroConverter.cs" />
+    <Compile Include="Converters\MultiBooleanToVisibilityCollapsedConverter.cs" />
     <Compile Include="Inspection\SensorModel.cs" />
     <Compile Include="Inspection\SensorModelAberrationResult.cs" />
     <Compile Include="Inspection\SensorModelAnalysisResult.cs" />

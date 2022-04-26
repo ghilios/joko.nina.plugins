@@ -116,6 +116,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             solution.EvaluateFit(nlSolver, sensorModelSolver);
             Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, Stars: {solution.StarsInModel}");
 
+            if (solution.GoodnessOfFit < 0.3) {
+                throw new Exception($"Sensor modeling failed. R² = {solution.GoodnessOfFit:#.00}");
+            }
+
             DisplayedSensorModel = solution;
             SensorModelResult.Update(solution, imageSize, pixelSizeMicrons: pixelSize, fRatio: fRatio, focuserStepSizeMicrons: focuserSizeMicrons, finalFocusPosition: finalFocusPosition);
 
@@ -229,6 +233,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 }
                 stopwatch.RecordEntry("registration");
 
+                int discardedStarCount = 0;
                 var sensorModelDataPoints = new List<SensorParaboloidDataPoint>();
                 foreach (var registeredStar in registeredStars) {
                     if (registeredStar.MatchedStars.Count < 5) {
@@ -241,19 +246,29 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         var solveResult = fitting.Solve();
                         if (!solveResult) {
                             Logger.Trace($"Failed to fit hyperbolic curve to star matches at ({registeredStar.RegistrationX:0.00}, {registeredStar.RegistrationY:0.00})");
+                            discardedStarCount++;
+                            continue;
+                        }
+
+                        if (fitting.RSquared < 0.8) {
+                            // Discard bad fitting
+                            discardedStarCount++;
                             continue;
                         }
 
                         var dataPointX = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
                         var dataPointY = (registeredStar.RegistrationY - (imageSize.Height / 2.0)) * pixelSize;
                         var focuserMicrons = fitting.Minimum.X * focuserSizeMicrons;
-                        var dataPoint = new SensorParaboloidDataPoint(dataPointX, dataPointY, focuserMicrons);
+                        var dataPoint = new SensorParaboloidDataPoint(dataPointX, dataPointY, focuserMicrons, fitting.RSquared);
                         sensorModelDataPoints.Add(dataPoint);
                     } catch (Exception e) {
                         Logger.Error(e, $"Failed to calculate hyperbolic at ({registeredStar.RegistrationX}, {registeredStar.RegistrationY}). Error={e.Message}");
                     }
                 }
                 stopwatch.RecordEntry("fitcurves");
+                if (discardedStarCount > 0) {
+                    Logger.Warning($"Discarded {discardedStarCount} stars during sensor modeling due to poor fits");
+                }
                 return sensorModelDataPoints;
             }
         }
@@ -298,6 +313,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public void Reset() {
+            this.ModelLoaded = false;
+        }
+
+        public void Clear() {
             SensorModelResult.Reset();
             SensorTiltHistoryModels.Clear();
             this.ModelLoaded = false;

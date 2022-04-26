@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using System;
 using System.Collections.Generic;
@@ -18,15 +19,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
     public class SensorParaboloidDataPoint : INonLinearLeastSquaresDataPoint {
 
-        public SensorParaboloidDataPoint(double x, double y, double focuserPosition) {
+        public SensorParaboloidDataPoint(double x, double y, double focuserPosition, double rSquared) {
             this.X = x;
             this.Y = y;
             this.FocuserPosition = focuserPosition;
+            this.RSquared = rSquared;
         }
 
         public double X { get; private set; }
         public double Y { get; private set; }
         public double FocuserPosition { get; private set; }
+        public double RSquared { get; private set; }
 
         public double[] ToInput() {
             return new double[] { X, Y };
@@ -37,7 +40,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public override string ToString() {
-            return $"{{{nameof(X)}={X.ToString()}, {nameof(Y)}={Y.ToString()}, {nameof(FocuserPosition)}={FocuserPosition.ToString()}}}";
+            return $"{{{nameof(X)}={X.ToString()}, {nameof(Y)}={Y.ToString()}, {nameof(FocuserPosition)}={FocuserPosition.ToString()}, {nameof(RSquared)}={RSquared.ToString()}}}";
         }
     }
 
@@ -134,9 +137,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
         public double Volume(double widthMicrons, double heightMicrons) {
             var w = widthMicrons;
-            var w3 = w * w * w;
             var h = heightMicrons;
-            var h3 = h * h * h;
             var C2 = Math.Sign(C) * C * C;
 
             var cosP = Math.Cos(Phi);
@@ -144,7 +145,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var tanT = Math.Tan(Theta);
 
             // Double integral from [-w/2,w/2] and [-h/2,h/2]
-            var result = -h * w * X0 * cosP * tanT - h * w * Y0 * sinP * tanT + h * C2 * w3 / 12.0 + w * C2 * h3 / 12.0 + Z0 * w * h;
+            var part1 = C2 * w * h * (X0 * X0 + Y0 + Y0);
+            var part2 = 1.0 / 12.0 * C2 * w * h * (w * w + h * h);
+            var part3 = -w * h * tanT * (X0 * cosP + Y0 * sinP);
+            var part4 = Z0 * w * h;
+            var result = part1 + part2 + part3 + part4;
             return result;
         }
     }
@@ -204,15 +209,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public override void SetBounds(double[] lowerBounds, double[] upperBounds) {
-            lowerBounds[0] = -sensorSizeMicronsX * 2.0;
-            lowerBounds[1] = -sensorSizeMicronsY * 2.0;
+            lowerBounds[0] = -sensorSizeMicronsX / 2.0;
+            lowerBounds[1] = -sensorSizeMicronsY / 2.0;
             lowerBounds[2] = double.NegativeInfinity;
             lowerBounds[3] = 0.0;
             lowerBounds[4] = -Math.PI;
             lowerBounds[5] = double.NegativeInfinity;
 
-            upperBounds[0] = sensorSizeMicronsX * 2.0;
-            upperBounds[1] = sensorSizeMicronsY * 2.0;
+            upperBounds[0] = sensorSizeMicronsX / 2.0;
+            upperBounds[1] = sensorSizeMicronsY / 2.0;
             upperBounds[2] = double.PositiveInfinity;
             upperBounds[3] = Math.PI - double.Epsilon;
             upperBounds[4] = Math.PI - double.Epsilon;

@@ -423,7 +423,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                             var scaledEccentricity = eccentricityMedian * eccentricityMedian * scalingFactor;
                             double x = Math.Cos(psfRotationWeightedMean) * scaledEccentricity;
-                            double y = Math.Sin(psfRotationWeightedMean) * scaledEccentricity;
+                            // Since y is inverted to render top-down, we must also invert the y part of the angle vector
+                            double y = -Math.Sin(psfRotationWeightedMean) * scaledEccentricity;
                             vectors[regionCol, regionRow] = new Vector2(x, y);
                             eccentricities[pointIndex] = eccentricityMedian;
                             rotations[pointIndex] = Angle.ByRadians(psfRotationWeightedMean).Degree;
@@ -871,6 +872,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 RegionFocusPoints[i].Clear();
             }
             AutoFocusChartPlotModel?.ResetAllAxes();
+            SensorModel.Reset();
             AutoFocusCompleted = false;
         }
 
@@ -1329,7 +1331,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ExposureAnalysisActivatedOnce = false;
             FWHMContourSceneContainer = null;
             TiltModel.Reset();
-            SensorModel.Reset();
+            SensorModel.Clear();
             AutoFocusCompleted = false;
         }
 

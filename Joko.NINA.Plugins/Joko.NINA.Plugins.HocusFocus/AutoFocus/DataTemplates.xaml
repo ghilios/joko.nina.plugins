@@ -1314,8 +1314,17 @@
                 <Expander
                     Grid.Row="3"
                     Header="Focus Chart"
-                    IsExpanded="{Binding AutoFocusChartActive}"
-                    Visibility="{Binding AutoFocusChartActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                    IsExpanded="{Binding AutoFocusChartActive}">
+                    <Expander.Visibility>
+                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToVisibilityCollapsedConverter}">
+                            <Binding Path="AutoFocusChartActivatedOnce" />
+                            <Binding
+                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                ElementName="ShowLoadedSensorModel"
+                                Mode="OneWay"
+                                Path="Tag" />
+                        </MultiBinding>
+                    </Expander.Visibility>
                     <Grid>
                         <Grid.Resources>
                             <Style x:Key="ShowOnAutoFocusComplete" TargetType="{x:Type RowDefinition}">
@@ -1414,13 +1423,12 @@
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             FontWeight="DemiBold"
-                            Text="Auto Focus for Corners vs Center" />
+                            Text="Auto Focus" />
                         <controls:OxyPlotExtended
                             Grid.Row="1"
                             MinWidth="400"
                             MinHeight="400"
                             Background="{StaticResource BackgroundBrush}"
-                            IsLegendVisible="True"
                             LegendOrientation="Vertical"
                             LegendPlacement="Inside"
                             LegendPosition="RightBottom"
@@ -1429,6 +1437,13 @@
                             PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
                             PlotModel="{Binding AutoFocusChartPlotModel, Mode=OneWayToSource, NotifyOnTargetUpdated=True}"
                             TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+                            <oxy:Plot.IsLegendVisible>
+                                <Binding
+                                    Converter="{StaticResource HF_InverseBooleanConverter}"
+                                    ElementName="ShowSensorModel"
+                                    Mode="OneWay"
+                                    Path="Tag" />
+                            </oxy:Plot.IsLegendVisible>
                             <oxy:Plot.Axes>
                                 <oxy:LinearAxis
                                     AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
@@ -1460,6 +1475,28 @@
                             </oxy:Plot.Axes>
                             <oxy:Plot.Series>
                                 <oxy:ScatterErrorSeries
+                                    Name="AFPoints"
+                                    Title="AF Points"
+                                    DataFieldX="FocusPosition"
+                                    DataFieldY="HFR"
+                                    ErrorBarColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                                    ErrorBarStopWidth="2"
+                                    ErrorBarStrokeThickness="2"
+                                    ItemsSource="{Binding RegionFocusPoints[0]}"
+                                    MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                                    MarkerSize="3"
+                                    MarkerType="Circle"
+                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+                                    <oxy:ScatterErrorSeries.Visibility>
+                                        <Binding
+                                            Converter="{StaticResource BooleanToVisibilityCollapsedConverter}"
+                                            ElementName="ShowSensorModel"
+                                            Mode="OneWay"
+                                            Path="Tag" />
+                                    </oxy:ScatterErrorSeries.Visibility>
+                                </oxy:ScatterErrorSeries>
+
+                                <oxy:ScatterErrorSeries
                                     Name="CenterFocusPoints"
                                     Title="Center"
                                     DataFieldX="FocusPosition"
@@ -1471,7 +1508,15 @@
                                     MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                                     MarkerSize="3"
                                     MarkerType="Circle"
-                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+                                    <oxy:ScatterErrorSeries.Visibility>
+                                        <Binding
+                                            Converter="{StaticResource InverseBooleanToVisibilityCollapsedConverter}"
+                                            ElementName="ShowSensorModel"
+                                            Mode="OneWay"
+                                            Path="Tag" />
+                                    </oxy:ScatterErrorSeries.Visibility>
+                                </oxy:ScatterErrorSeries>
                                 <oxy:ScatterErrorSeries
                                     Name="TopLeftFocusPoints"
                                     Title="Top Left"
@@ -1484,7 +1529,15 @@
                                     MarkerFill="{Binding Path=Color, Source={StaticResource TopLeftBrush}}"
                                     MarkerSize="3"
                                     MarkerType="Circle"
-                                    Color="{Binding Path=Color, Source={StaticResource TopLeftBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource TopLeftBrush}}">
+                                    <oxy:ScatterErrorSeries.Visibility>
+                                        <Binding
+                                            Converter="{StaticResource InverseBooleanToVisibilityCollapsedConverter}"
+                                            ElementName="ShowSensorModel"
+                                            Mode="OneWay"
+                                            Path="Tag" />
+                                    </oxy:ScatterErrorSeries.Visibility>
+                                </oxy:ScatterErrorSeries>
                                 <oxy:ScatterErrorSeries
                                     Name="TopRightFocusPoints"
                                     Title="Top Right"
@@ -1497,7 +1550,15 @@
                                     MarkerFill="{Binding Path=Color, Source={StaticResource TopRightBrush}}"
                                     MarkerSize="3"
                                     MarkerType="Circle"
-                                    Color="{Binding Path=Color, Source={StaticResource TopRightBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource TopRightBrush}}">
+                                    <oxy:ScatterErrorSeries.Visibility>
+                                        <Binding
+                                            Converter="{StaticResource InverseBooleanToVisibilityCollapsedConverter}"
+                                            ElementName="ShowSensorModel"
+                                            Mode="OneWay"
+                                            Path="Tag" />
+                                    </oxy:ScatterErrorSeries.Visibility>
+                                </oxy:ScatterErrorSeries>
                                 <oxy:ScatterErrorSeries
                                     Name="BottomLeftFocusPoints"
                                     Title="Bottom Left"
@@ -1510,7 +1571,15 @@
                                     MarkerFill="{Binding Path=Color, Source={StaticResource BottomLeftBrush}}"
                                     MarkerSize="3"
                                     MarkerType="Circle"
-                                    Color="{Binding Path=Color, Source={StaticResource BottomLeftBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource BottomLeftBrush}}">
+                                    <oxy:ScatterErrorSeries.Visibility>
+                                        <Binding
+                                            Converter="{StaticResource InverseBooleanToVisibilityCollapsedConverter}"
+                                            ElementName="ShowSensorModel"
+                                            Mode="OneWay"
+                                            Path="Tag" />
+                                    </oxy:ScatterErrorSeries.Visibility>
+                                </oxy:ScatterErrorSeries>
                                 <oxy:ScatterErrorSeries
                                     Name="BottomRightFocusPoints"
                                     Title="Bottom Right"
@@ -1523,108 +1592,266 @@
                                     MarkerFill="{Binding Path=Color, Source={StaticResource BottomRightBrush}}"
                                     MarkerSize="3"
                                     MarkerType="Circle"
-                                    Color="{Binding Path=Color, Source={StaticResource BottomRightBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource BottomRightBrush}}">
+                                    <oxy:ScatterErrorSeries.Visibility>
+                                        <Binding
+                                            Converter="{StaticResource InverseBooleanToVisibilityCollapsedConverter}"
+                                            ElementName="ShowSensorModel"
+                                            Mode="OneWay"
+                                            Path="Tag" />
+                                    </oxy:ScatterErrorSeries.Visibility>
+                                </oxy:ScatterErrorSeries>
                             </oxy:Plot.Series>
                             <oxy:Plot.Annotations>
+                                <oxy:FunctionAnnotation
+                                    Name="AFPointsCurveFitting"
+                                    Equation="{Binding RegionCurveFittings[0]}"
+                                    LineStyle="LongDash"
+                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+                                    <oxy:FunctionAnnotation.StrokeThickness>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>1.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding Path="RegionCurveFittings[0]" />
+                                            <Binding
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:FunctionAnnotation.StrokeThickness>
+                                </oxy:FunctionAnnotation>
+                                <oxy:LineAnnotation
+                                    Name="AFPointsLeftLineFitting"
+                                    Intercept="{Binding RegionLineFittings[0].LeftTrend.Offset}"
+                                    Slope="{Binding RegionLineFittings[0].LeftTrend.Slope}"
+                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+                                </oxy:LineAnnotation>
+                                <oxy:LineAnnotation
+                                    Name="AFPointsRightLineFitting"
+                                    Intercept="{Binding RegionLineFittings[0].RightTrend.Offset}"
+                                    Slope="{Binding RegionLineFittings[0].RightTrend.Slope}"
+                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+                                </oxy:LineAnnotation>
+
                                 <oxy:FunctionAnnotation
                                     Name="CenterCurveFitting"
                                     Equation="{Binding RegionCurveFittings[1]}"
                                     LineStyle="LongDash"
-                                    Visibility="{Binding RegionCurveFittings[1], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+                                    <oxy:FunctionAnnotation.StrokeThickness>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>1.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding Path="RegionCurveFittings[1]" />
+                                            <Binding
+                                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:FunctionAnnotation.StrokeThickness>
+                                </oxy:FunctionAnnotation>
                                 <oxy:LineAnnotation
                                     Name="CenterLeftLineFitting"
                                     Intercept="{Binding RegionLineFittings[1].LeftTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[1].LeftTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[1], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+                                </oxy:LineAnnotation>
                                 <oxy:LineAnnotation
                                     Name="CenterRightLineFitting"
                                     Intercept="{Binding RegionLineFittings[1].RightTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[1].RightTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[1], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+                                </oxy:LineAnnotation>
 
                                 <oxy:FunctionAnnotation
                                     Name="TopLeftCurveFitting"
                                     Equation="{Binding RegionCurveFittings[2]}"
-                                    Visibility="{Binding RegionCurveFittings[2], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource TopLeftBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource TopLeftBrush}}">
+                                    <oxy:FunctionAnnotation.StrokeThickness>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>1.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding Path="RegionCurveFittings[2]" />
+                                            <Binding
+                                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:FunctionAnnotation.StrokeThickness>
+                                </oxy:FunctionAnnotation>
                                 <oxy:LineAnnotation
                                     Name="TopLeftLeftLineFitting"
                                     Intercept="{Binding RegionLineFittings[2].LeftTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[2].LeftTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[2], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource TopLeftBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource TopLeftBrush}}">
+                                </oxy:LineAnnotation>
                                 <oxy:LineAnnotation
                                     Name="TopLeftRightLineFitting"
                                     Intercept="{Binding RegionLineFittings[2].RightTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[2].RightTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[2], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource TopLeftBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource TopLeftBrush}}">
+                                </oxy:LineAnnotation>
 
                                 <oxy:FunctionAnnotation
                                     Name="TopRightCurveFitting"
                                     Equation="{Binding RegionCurveFittings[3]}"
-                                    Visibility="{Binding RegionCurveFittings[3], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource TopRightBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource TopRightBrush}}">
+                                    <oxy:FunctionAnnotation.StrokeThickness>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>1.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding Path="RegionCurveFittings[3]" />
+                                            <Binding
+                                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:FunctionAnnotation.StrokeThickness>
+                                </oxy:FunctionAnnotation>
                                 <oxy:LineAnnotation
                                     Name="TopRightLeftLineFitting"
                                     Intercept="{Binding RegionLineFittings[3].LeftTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[3].LeftTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[3], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource TopRightBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource TopRightBrush}}">
+                                </oxy:LineAnnotation>
                                 <oxy:LineAnnotation
                                     Name="TopRightRightLineFitting"
                                     Intercept="{Binding RegionLineFittings[3].RightTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[3].RightTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[3], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource TopRightBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource TopRightBrush}}">
+                                </oxy:LineAnnotation>
 
                                 <oxy:FunctionAnnotation
                                     Name="BottomLeftCurveFitting"
                                     Equation="{Binding RegionCurveFittings[4]}"
-                                    Visibility="{Binding RegionCurveFittings[4], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource BottomLeftBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource BottomLeftBrush}}">
+                                    <oxy:FunctionAnnotation.StrokeThickness>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>1.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding Path="RegionCurveFittings[4]" />
+                                            <Binding
+                                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:FunctionAnnotation.StrokeThickness>
+                                </oxy:FunctionAnnotation>
                                 <oxy:LineAnnotation
                                     Name="BottomLeftLeftLineFitting"
                                     Intercept="{Binding RegionLineFittings[4].LeftTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[4].LeftTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[4], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource BottomLeftBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource BottomLeftBrush}}">
+                                </oxy:LineAnnotation>
                                 <oxy:LineAnnotation
                                     Name="BottomLeftRightLineFitting"
                                     Intercept="{Binding RegionLineFittings[4].RightTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[4].RightTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[4], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource BottomLeftBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource BottomLeftBrush}}">
+                                </oxy:LineAnnotation>
 
                                 <oxy:FunctionAnnotation
                                     Name="BottomRightCurveFitting"
                                     Equation="{Binding RegionCurveFittings[5]}"
-                                    Visibility="{Binding RegionCurveFittings[5], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource BottomRightBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource BottomRightBrush}}">
+                                    <oxy:FunctionAnnotation.StrokeThickness>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>1.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding Path="RegionCurveFittings[5]" />
+                                            <Binding
+                                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:FunctionAnnotation.StrokeThickness>
+                                </oxy:FunctionAnnotation>
                                 <oxy:LineAnnotation
                                     Name="BottomRightLeftLineFitting"
                                     Intercept="{Binding RegionLineFittings[5].LeftTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[5].LeftTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[5], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource BottomRightBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource BottomRightBrush}}">
+                                </oxy:LineAnnotation>
                                 <oxy:LineAnnotation
                                     Name="BottomRightRightLineFitting"
                                     Intercept="{Binding RegionLineFittings[5].RightTrend.Offset}"
                                     Slope="{Binding RegionLineFittings[5].RightTrend.Slope}"
-                                    Visibility="{Binding RegionLineFittings[5], Converter={StaticResource NullToVisibilityCollapsedConverter}}"
-                                    Color="{Binding Path=Color, Source={StaticResource BottomRightBrush}}" />
+                                    Color="{Binding Path=Color, Source={StaticResource BottomRightBrush}}">
+                                </oxy:LineAnnotation>
+
+                                <oxy:PointAnnotation
+                                    Name="AFFinalFocusPoint"
+                                    Fill="{Binding Path=Color, Source={StaticResource AltPrimaryBrush}}"
+                                    Shape="Diamond"
+                                    Stroke="{Binding Path=Color, Source={StaticResource AltPrimaryBrush}}"
+                                    X="{Binding RegionFinalFocusPoints[0].X}"
+                                    Y="{Binding RegionFinalFocusPoints[0].Y}">
+                                    <oxy:PointAnnotation.Size>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>4.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding
+                                                Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}"
+                                                Path="RegionFinalFocusPoints[0].X" />
+                                            <Binding
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:PointAnnotation.Size>
+                                </oxy:PointAnnotation>
 
                                 <oxy:PointAnnotation
                                     Name="CenterFinalFocusPoint"
                                     Fill="{Binding Path=Color, Source={StaticResource AltPrimaryBrush}}"
                                     Shape="Diamond"
                                     Stroke="{Binding Path=Color, Source={StaticResource AltPrimaryBrush}}"
-                                    Visibility="{Binding RegionFinalFocusPoints[1].X, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}"
                                     X="{Binding RegionFinalFocusPoints[1].X}"
-                                    Y="{Binding RegionFinalFocusPoints[1].Y}" />
+                                    Y="{Binding RegionFinalFocusPoints[1].Y}">
+                                    <oxy:PointAnnotation.Size>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>4.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding
+                                                Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}"
+                                                Path="RegionFinalFocusPoints[1].X" />
+                                            <Binding
+                                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:PointAnnotation.Size>
+                                </oxy:PointAnnotation>
 
                                 <oxy:PointAnnotation
                                     Name="TopLeftFinalFocusPoint"
@@ -1634,7 +1861,25 @@
                                     StrokeThickness="1"
                                     Visibility="{Binding RegionFinalFocusPoints[2].X, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}"
                                     X="{Binding RegionFinalFocusPoints[2].X}"
-                                    Y="{Binding RegionFinalFocusPoints[2].Y}" />
+                                    Y="{Binding RegionFinalFocusPoints[2].Y}">
+                                    <oxy:PointAnnotation.Size>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>4.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding
+                                                Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}"
+                                                Path="RegionFinalFocusPoints[2].X" />
+                                            <Binding
+                                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:PointAnnotation.Size>
+                                </oxy:PointAnnotation>
 
                                 <oxy:PointAnnotation
                                     Name="TopRightFinalFocusPoint"
@@ -1644,7 +1889,25 @@
                                     StrokeThickness="1"
                                     Visibility="{Binding RegionFinalFocusPoints[3].X, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}"
                                     X="{Binding RegionFinalFocusPoints[3].X}"
-                                    Y="{Binding RegionFinalFocusPoints[3].Y}" />
+                                    Y="{Binding RegionFinalFocusPoints[3].Y}">
+                                    <oxy:PointAnnotation.Size>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>4.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding
+                                                Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}"
+                                                Path="RegionFinalFocusPoints[3].X" />
+                                            <Binding
+                                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:PointAnnotation.Size>
+                                </oxy:PointAnnotation>
 
                                 <oxy:PointAnnotation
                                     Name="BottomLeftFinalFocusPoint"
@@ -1654,7 +1917,25 @@
                                     StrokeThickness="1"
                                     Visibility="{Binding RegionFinalFocusPoints[4].X, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}"
                                     X="{Binding RegionFinalFocusPoints[4].X}"
-                                    Y="{Binding RegionFinalFocusPoints[4].Y}" />
+                                    Y="{Binding RegionFinalFocusPoints[4].Y}">
+                                    <oxy:PointAnnotation.Size>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>4.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding
+                                                Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}"
+                                                Path="RegionFinalFocusPoints[4].X" />
+                                            <Binding
+                                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:PointAnnotation.Size>
+                                </oxy:PointAnnotation>
 
                                 <oxy:PointAnnotation
                                     Name="BottomRightFinalFocusPoint"
@@ -1664,7 +1945,25 @@
                                     StrokeThickness="1"
                                     Visibility="{Binding RegionFinalFocusPoints[5].X, Converter={StaticResource HF_DoubleNegativeToVisibilityConverter}}"
                                     X="{Binding RegionFinalFocusPoints[5].X}"
-                                    Y="{Binding RegionFinalFocusPoints[5].Y}" />
+                                    Y="{Binding RegionFinalFocusPoints[5].Y}">
+                                    <oxy:PointAnnotation.Size>
+                                        <MultiBinding Converter="{StaticResource HF_MultiBooleanToZeroConverter}">
+                                            <Binding>
+                                                <Binding.Source>
+                                                    <s:Double>4.0</s:Double>
+                                                </Binding.Source>
+                                            </Binding>
+                                            <Binding
+                                                Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}"
+                                                Path="RegionFinalFocusPoints[5].X" />
+                                            <Binding
+                                                Converter="{StaticResource HF_InverseBooleanConverter}"
+                                                ElementName="ShowSensorModel"
+                                                Mode="OneWay"
+                                                Path="Tag" />
+                                        </MultiBinding>
+                                    </oxy:PointAnnotation.Size>
+                                </oxy:PointAnnotation>
                             </oxy:Plot.Annotations>
                         </controls:OxyPlotExtended>
                         <StackPanel
@@ -1716,29 +2015,32 @@
                     Visibility="{Binding Path=Tag, ElementName=ShowLoadedSensorModel, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                     <Grid>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="500" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="400" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="2*" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Grid
-                            Grid.Row="1"
+                            Grid.Row="0"
                             Grid.Column="0"
                             Margin="10,5,0,5">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="400" />
+                                <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
                             <TextBlock
                                 Grid.Row="0"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 FontStyle="Italic"
-                                Text="Deep red indicates elevation difference exceeding critical focus" />
+                                Text="Deep red or blue indicate elevation difference exceeding critical focus" />
                             <TextBlock
                                 Grid.Row="1"
                                 HorizontalAlignment="Center"
@@ -1763,16 +2065,16 @@
                         </Grid>
 
                         <TextBlock
-                            Grid.Row="0"
-                            Grid.Column="1"
+                            Grid.Row="1"
+                            Grid.Column="0"
                             Margin="10,0,10,0"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             FontWeight="DemiBold"
                             Text="Model Properties" />
                         <Grid
-                            Grid.Row="1"
-                            Grid.Column="1"
+                            Grid.Row="2"
+                            Grid.Column="0"
                             Margin="10,5,10,0"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center">
@@ -1782,16 +2084,12 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
@@ -1810,39 +2108,39 @@
                                 Text="{Binding SensorModel.SensorModelResult.Model.StarsInModel, Mode=OneWay}"
                                 ToolTip="{StaticResource SensorModel_StarsInModel_Tooltip}" />
                             <TextBlock
-                                Grid.Row="1"
-                                Grid.Column="0"
+                                Grid.Row="0"
+                                Grid.Column="2"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Model R²" />
                             <TextBlock
-                                Grid.Row="1"
-                                Grid.Column="1"
+                                Grid.Row="0"
+                                Grid.Column="3"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="{Binding SensorModel.SensorModelResult.Model.GoodnessOfFit, StringFormat=\{0:0.00\}, Mode=OneWay}" />
                             <TextBlock
-                                Grid.Row="2"
-                                Grid.Column="0"
+                                Grid.Row="0"
+                                Grid.Column="4"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Model RMS" />
                             <TextBlock
-                                Grid.Row="2"
-                                Grid.Column="1"
+                                Grid.Row="0"
+                                Grid.Column="5"
                                 Margin="5"
                                 VerticalAlignment="Center">
                                 <Run Text="{Binding SensorModel.SensorModelResult.Model.RMSErrorMicrons, StringFormat=\{0:0.0\}, Mode=OneWay}" /> <Run Text="microns" />
                             </TextBlock>
                             <TextBlock
-                                Grid.Row="3"
+                                Grid.Row="1"
                                 Grid.Column="0"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Tilt"
                                 ToolTip="{StaticResource SensorModel_Tilt_Tooltip}" />
                             <TextBlock
-                                Grid.Row="3"
+                                Grid.Row="1"
                                 Grid.Column="1"
                                 Margin="5"
                                 VerticalAlignment="Center"
@@ -1850,44 +2148,44 @@
                                 <Run Text="{Binding SensorModel.SensorModelResult.Tilt.Degree, StringFormat=\{0:0.000\}, Mode=OneWay}" /><Run Text="°" />
                             </TextBlock>
                             <TextBlock
-                                Grid.Row="4"
-                                Grid.Column="0"
+                                Grid.Row="1"
+                                Grid.Column="2"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Curvature Radius"
                                 ToolTip="{StaticResource SensorModel_CurvatureRadius_Tooltip}" />
                             <TextBlock
-                                Grid.Row="4"
-                                Grid.Column="1"
+                                Grid.Row="1"
+                                Grid.Column="3"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 ToolTip="{StaticResource SensorModel_CurvatureRadius_Tooltip}">
                                 <Run Text="{Binding SensorModel.SensorModelResult.CurvatureRadiusMillimeters, StringFormat=\{0:0.\}, Mode=OneWay}" /> <Run Text="mm" />
                             </TextBlock>
                             <TextBlock
-                                Grid.Row="5"
-                                Grid.Column="0"
+                                Grid.Row="1"
+                                Grid.Column="4"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Curvature Effect"
                                 ToolTip="{StaticResource SensorModel_CurvatureEffect_Tooltip}" />
                             <TextBlock
-                                Grid.Row="5"
-                                Grid.Column="1"
+                                Grid.Row="1"
+                                Grid.Column="5"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 ToolTip="{StaticResource SensorModel_CurvatureEffect_Tooltip}">
                                 <Run Text="{Binding SensorModel.SensorModelResult.CurvatureEffectMicrons, StringFormat=\{0:0.\}, Mode=OneWay}" /> <Run Text="microns" />
                             </TextBlock>
                             <TextBlock
-                                Grid.Row="6"
+                                Grid.Row="2"
                                 Grid.Column="0"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Tilt Effect"
                                 ToolTip="{StaticResource SensorModel_TiltEffect_Tooltip}" />
                             <TextBlock
-                                Grid.Row="6"
+                                Grid.Row="2"
                                 Grid.Column="1"
                                 Margin="5"
                                 VerticalAlignment="Center"
@@ -1895,82 +2193,82 @@
                                 <Run Text="{Binding SensorModel.SensorModelResult.TiltEffectMicrons, StringFormat=\{0:0.\}, Mode=OneWay}" /> <Run Text="microns" />
                             </TextBlock>
                             <TextBlock
-                                Grid.Row="7"
-                                Grid.Column="0"
+                                Grid.Row="2"
+                                Grid.Column="2"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Mean Focuser Position"
                                 ToolTip="{StaticResource SensorModel_MeanFocuserPosition_Tooltip}" />
                             <TextBlock
-                                Grid.Row="7"
-                                Grid.Column="1"
+                                Grid.Row="2"
+                                Grid.Column="3"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 ToolTip="{StaticResource SensorModel_MeanFocuserPosition_Tooltip}">
                                 <Run Text="{Binding SensorModel.SensorModelResult.SensorMeanPosition, StringFormat=\{0:0.\}, Mode=OneWay}" />
                             </TextBlock>
                             <TextBlock
-                                Grid.Row="8"
-                                Grid.Column="0"
+                                Grid.Row="2"
+                                Grid.Column="4"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Auto Focus Offset"
                                 ToolTip="{StaticResource SensorModel_AutoFocusOffset_Tooltip}" />
                             <TextBlock
-                                Grid.Row="8"
-                                Grid.Column="1"
+                                Grid.Row="2"
+                                Grid.Column="5"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 ToolTip="{StaticResource SensorModel_AutoFocusOffset_Tooltip}">
                                 <Run Text="{Binding SensorModel.SensorModelResult.AutoFocusMeanOffset, StringFormat=\{0:0.\}, Mode=OneWay}" /> <Run Text="steps" />
                             </TextBlock>
                             <TextBlock
-                                Grid.Row="9"
+                                Grid.Row="3"
                                 Grid.Column="0"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Pixel Size" />
                             <TextBlock
-                                Grid.Row="9"
+                                Grid.Row="3"
                                 Grid.Column="1"
                                 Margin="5"
                                 VerticalAlignment="Center">
                                 <Run Text="{Binding SensorModel.SensorModelResult.PixelSizeMicrons, StringFormat=\{0:0.00\}, Mode=OneWay}" /> <Run Text="microns" />
                             </TextBlock>
                             <TextBlock
-                                Grid.Row="10"
-                                Grid.Column="0"
+                                Grid.Row="3"
+                                Grid.Column="2"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Focuser Step Size" />
                             <TextBlock
-                                Grid.Row="10"
-                                Grid.Column="1"
+                                Grid.Row="3"
+                                Grid.Column="3"
                                 Margin="5"
                                 VerticalAlignment="Center">
                                 <Run Text="{Binding SensorModel.SensorModelResult.FocuserStepSizeMicrons, StringFormat=\{0:0.00\}, Mode=OneWay}" /> <Run Text="microns" />
                             </TextBlock>
                             <TextBlock
-                                Grid.Row="11"
-                                Grid.Column="0"
+                                Grid.Row="3"
+                                Grid.Column="4"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="F/Ratio" />
                             <TextBlock
-                                Grid.Row="11"
-                                Grid.Column="1"
+                                Grid.Row="3"
+                                Grid.Column="5"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="{Binding SensorModel.SensorModelResult.FRatio, StringFormat=\{0:0.0\}, Mode=OneWay}" />
                             <TextBlock
-                                Grid.Row="12"
+                                Grid.Row="4"
                                 Grid.Column="0"
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 Text="Critical Focus"
                                 ToolTip="{StaticResource SensorModel_CriticalFocus_Tooltip}" />
                             <TextBlock
-                                Grid.Row="12"
+                                Grid.Row="4"
                                 Grid.Column="1"
                                 Margin="5"
                                 VerticalAlignment="Center"
@@ -1979,9 +2277,8 @@
                             </TextBlock>
                         </Grid>
                         <Grid
-                            Grid.Row="2"
+                            Grid.Row="3"
                             Grid.Column="0"
-                            Grid.ColumnSpan="2"
                             HorizontalAlignment="Center">
                             <Grid.Resources>
                                 <DataTemplate x:Key="AnalysisResultAcceptableTemplate">
@@ -2428,7 +2725,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="9"
+                    Grid.Row="10"
                     Header="Eccentricity Vectors"
                     IsExpanded="{Binding EccentricityVectorsActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
