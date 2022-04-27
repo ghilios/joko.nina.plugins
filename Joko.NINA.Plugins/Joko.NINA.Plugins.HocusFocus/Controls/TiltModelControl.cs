@@ -20,6 +20,7 @@ using NINA.Joko.Plugins.HocusFocus.Utility;
 using static ILNumerics.ILMath;
 using ILNLines = ILNumerics.Drawing.Lines;
 using ILNLabel = ILNumerics.Drawing.Label;
+using ILNAxis = ILNumerics.Drawing.Plotting.Axis;
 using DrawingColor = System.Drawing.Color;
 using MediaColor = System.Windows.Media.Color;
 using ILNumerics.Drawing.Plotting;
@@ -101,6 +102,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             foreach (var label in plotCube.Find<ILNLabel>()) {
                 label.Color = textColor;
                 label.Fringe.Width = 0;
+            }
+            foreach (var axis in plotCube.Find<ILNAxis>()) {
+                axis.Ticks.DefaultLabel.Color = textColor;
+                axis.Ticks.DefaultLabel.Fringe.Width = 0;
             }
             plotCube.Configure();
         }

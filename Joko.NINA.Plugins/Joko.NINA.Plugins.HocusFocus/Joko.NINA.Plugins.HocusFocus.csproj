@@ -413,7 +413,6 @@
     <Compile Include="AutoFocus\HocusFocusVMFactory.cs" />
     <Compile Include="AutoFocus\InspectorOptions.cs" />
     <Compile Include="AutoFocus\InspectorVM.cs" />
-    <Compile Include="AutoFocus\Models.cs" />
     <Compile Include="AutoFocus\TiltModel.cs" />
     <Compile Include="Controls\FWHMContourControl.cs" />
     <Compile Include="Controls\ILNCanvasControl.xaml.cs">

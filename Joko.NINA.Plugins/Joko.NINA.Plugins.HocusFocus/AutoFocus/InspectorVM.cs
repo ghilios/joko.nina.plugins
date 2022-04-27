@@ -1323,6 +1323,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        private bool sensorModel3DEnabled = true;
+
+        public bool SensorModel3DEnabled {
+            get => sensorModel3DEnabled;
+            set {
+                if (sensorModel3DEnabled != value) {
+                    this.sensorModel3DEnabled = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private void ClearAnalyses(object o) {
             DeactivateAutoFocusAnalysis();
             DeactivateExposureAnalysis();

@@ -19,6 +19,7 @@ using NINA.Joko.Plugins.HocusFocus.Utility;
 using static ILNumerics.ILMath;
 using ILNLines = ILNumerics.Drawing.Lines;
 using ILNLabel = ILNumerics.Drawing.Label;
+using ILNAxis = ILNumerics.Drawing.Plotting.Axis;
 using DrawingColor = System.Drawing.Color;
 using MediaColor = System.Windows.Media.Color;
 using ILNumerics.Drawing.Plotting;
@@ -135,6 +136,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 label.Color = textColor;
                 label.Fringe.Width = 0;
             }
+            foreach (var axis in plotCube.Find<ILNAxis>()) {
+                axis.Ticks.DefaultLabel.Color = textColor;
+                axis.Ticks.DefaultLabel.Fringe.Width = 0;
+            }
 
             plotCube.Configure();
         }
@@ -184,7 +189,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 using (Scope.Enter()) {
                     var scene = new Scene();
 
-                    var originalPoints = new float[numRegionsTall, numRegionsTall];
+                    var originalPoints = new float[numRegionsTall, numRegionsWide];
                     var originalPointCount = 0;
                     for (int regionRow = 0; regionRow < numRegionsTall; ++regionRow) {
                         for (int regionCol = 0; regionCol < numRegionsWide; ++regionCol) {
@@ -199,8 +204,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                         }
                     }
 
-                    var X1 = new float[originalPointCount];
-                    var Y1 = new float[originalPointCount];
                     Array<float> scatteredPointPositions = zeros<float>(2, originalPointCount);
                     Array<float> scatteredPointValues = zeros<float>(1, originalPointCount);
                     var pointIndex = 0;
@@ -212,16 +215,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                             scatteredPointValues[0, pointIndex] = originalPoints[regionRow, regionCol];
                             scatteredPointPositions[0, pointIndex] = regionCol;
                             scatteredPointPositions[1, pointIndex] = regionRow;
-                            X1[pointIndex] = regionCol;
-                            Y1[pointIndex++] = regionRow;
                         }
                     }
-
-                    Func<InArray<double>, InArray<double>, RetArray<double>> myFunc = (x, y) => {
-                        using (Scope.Enter(x, y)) {
-                            return sin(x) * cos(y) * exp(-(x * x * y * y) / 14.4);
-                        }
-                    };
 
                     // interpolated grid positions
                     const int upscalingFactor = 5;

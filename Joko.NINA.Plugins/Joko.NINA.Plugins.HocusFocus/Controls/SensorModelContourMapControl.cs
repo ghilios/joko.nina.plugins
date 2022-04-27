@@ -18,13 +18,12 @@ using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using System;
 using System.Drawing;
-using System.Linq;
 using System.Windows;
-using static ILNumerics.ILMath;
 using DrawingSize = System.Drawing.Size;
 using DrawingColor = System.Drawing.Color;
 using ILNLabel = ILNumerics.Drawing.Label;
 using ILNLines = ILNumerics.Drawing.Lines;
+using ILNAxis = ILNumerics.Drawing.Plotting.Axis;
 using MediaColor = System.Windows.Media.Color;
 using NINA.Astrometry;
 
@@ -98,6 +97,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         public double FRatio {
             get { return (double)GetValue(FRatioProperty); }
             set { SetValue(FRatioProperty, value); }
+        }
+
+        public static readonly DependencyProperty Show3DProperty = DependencyProperty.Register(
+            "Show3D",
+            typeof(bool),
+            typeof(SensorModelContourMapControl),
+            new FrameworkPropertyMetadata(
+                true,
+                FrameworkPropertyMetadataOptions.AffectsRender,
+                OnAnyPropertyChanged));
+
+        public bool Show3D {
+            get { return (bool)GetValue(Show3DProperty); }
+            set { SetValue(Show3DProperty, value); }
         }
 
         public static readonly DependencyProperty ImageSizeProperty = DependencyProperty.Register(
@@ -206,6 +219,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 label.Color = textColor;
                 label.Fringe.Width = 0;
             }
+            foreach (var axis in plotCube.Find<ILNAxis>()) {
+                axis.Ticks.DefaultLabel.Color = textColor;
+                axis.Ticks.DefaultLabel.Fringe.Width = 0;
+            }
             plotCube.Configure();
         }
 
@@ -289,7 +306,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                         Children = {
                             new Colorbar() {
                                 Anchor = new PointF(1.0f, 1.0f),
-                                Location = new PointF(0.99f, 0.99f)
+                                Location = new PointF(0.99f, 0.99f),
+                                Background = {
+                                    Color = PlotBackgroundColor.ToDrawingColor()
+                                }
                             }
                         }
                     };
@@ -328,10 +348,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                             contourSurface
                         }
                     };
-                    contourPlotCube.Axes.XAxis.Ticks.Add(0f, "Left");
-                    contourPlotCube.Axes.XAxis.Ticks.Add(imageWidth, "Right");
-                    contourPlotCube.Axes.YAxis.Ticks.Add(imageHeight, "Bottom");
-                    contourPlotCube.Axes.YAxis.Ticks.Add(0f, "Top");
+                    if (Show3D) {
+                        contourPlotCube.Axes.XAxis.Ticks.Add(0f, "Left");
+                        contourPlotCube.Axes.XAxis.Ticks.Add(imageWidth, "Right");
+                        contourPlotCube.Axes.YAxis.Ticks.Add(imageHeight, "Bottom");
+                        contourPlotCube.Axes.YAxis.Ticks.Add(0f, "Top");
+                    }
 
                     contourPlotCube.AspectRatioMode = AspectRatioMode.MaintainRatios;
                     contourPlotCube.AllowZoom = false;
@@ -345,7 +367,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
                     contourPlotCube.Configure();
                     contourPlotCube.Reset();
-                    scene.First<PlotCube>().Rotation = Matrix4.Rotation(new Vector3(1, 0, 0), AstroUtil.ToRadians(45)) * Matrix4.Rotation(new Vector3(0, 0, 1), AstroUtil.ToRadians(25));
+                    if (Show3D) {
+                        scene.First<PlotCube>().Rotation = Matrix4.Rotation(new Vector3(1, 0, 0), AstroUtil.ToRadians(45)) * Matrix4.Rotation(new Vector3(0, 0, 1), AstroUtil.ToRadians(25));
+                    }
+
                     this.PlotCube = contourPlotCube;
                     this.ContourSurface = contourSurface;
                     return scene;

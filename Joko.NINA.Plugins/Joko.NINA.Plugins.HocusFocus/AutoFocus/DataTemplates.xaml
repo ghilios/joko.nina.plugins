@@ -2029,26 +2029,47 @@
                             Margin="10,5,0,5">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock
-                                Grid.Row="0"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                FontStyle="Italic"
-                                Text="Deep red or blue indicate elevation difference exceeding critical focus" />
-                            <TextBlock
-                                Grid.Row="1"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                FontStyle="Italic"
-                                Text="Telescope is up, Sensor is down" />
+                            <Grid Grid.Row="0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock
+                                    Grid.Column="0"
+                                    Margin="5,0,0,0"
+                                    Text="Show 3D" />
+                                <CheckBox
+                                    Grid.Column="1"
+                                    Margin="5,0,0,0"
+                                    IsChecked="{Binding SensorModel3DEnabled}" />
+                                <TextBlock
+                                    Grid.Row="1"
+                                    Grid.ColumnSpan="3"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    FontStyle="Italic"
+                                    Text="Deep red or blue indicate elevation difference exceeding critical focus" />
+                                <TextBlock
+                                    Grid.Row="2"
+                                    Grid.ColumnSpan="3"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    FontStyle="Italic"
+                                    Text="Telescope is up, Sensor is down" />
+                            </Grid>
                             <controls:SensorModelContourMapControl
-                                Grid.Row="2"
+                                Grid.Row="1"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch"
                                 AxisColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
@@ -2061,7 +2082,8 @@
                                 SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonForegroundDisabledBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
                                 SurfaceHighExtremeColor="Blue"
                                 SurfaceLowExtremeColor="Red"
-                                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
+                                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                                Show3D="{Binding SensorModel3DEnabled}" />
                         </Grid>
 
                         <TextBlock
