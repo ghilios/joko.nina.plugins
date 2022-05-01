@@ -2345,9 +2345,16 @@
                                         Header="Value" />
                                     <DataGridTemplateColumn CellTemplate="{StaticResource AnalysisResultAcceptableTemplate}" Header="OK" />
                                     <DataGridTextColumn
-                                        Width="Auto"
+                                        Width="*"
                                         Binding="{Binding Details, Mode=OneWay}"
-                                        Header="Details" />
+                                        Header="Details">
+                                        <DataGridTextColumn.ElementStyle>
+                                            <Style>
+                                                <Setter Property="TextBlock.TextWrapping" Value="Wrap" />
+                                                <Setter Property="TextBlock.TextAlignment" Value="Center" />
+                                            </Style>
+                                        </DataGridTextColumn.ElementStyle>
+                                    </DataGridTextColumn>
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>

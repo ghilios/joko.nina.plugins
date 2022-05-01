@@ -257,11 +257,25 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             TiltPlaneModel = tiltPlaneModel;
 
             AnalysisResults.Clear();
+            AnalyzeSensorModelFit(sensorModel);
             AnalyzeCurvature(CurvatureRadiusMillimeters, CurvatureEffectMicrons, criticalFocusMicrons);
             AnalyzeTilt(TiltEffectMicrons, Tilt, criticalFocusMicrons);
             AnalyzeCentering(sensorModel, pixelSizeMicrons);
 
             Model = sensorModel;
+        }
+
+        private void AnalyzeSensorModelFit(SensorParaboloidModel sensorModel) {
+            var result = new SensorModelAnalysisResult() {
+                Name = "Model Fit",
+                Value = $"{sensorModel.GoodnessOfFit:0.00} R²",
+                Acceptable = sensorModel.GoodnessOfFit > 0.6,
+                Details = "Sensor model fits well"
+            };
+            if (!result.Acceptable) {
+                result.Details = "Sensor model R² is below 0.6, which indicates a weak model fit. You might need to review your star detection options, but your equipment might not be capable of better around the edges";
+            }
+            AnalysisResults.Add(result);
         }
 
         private void AnalyzeTilt(double tiltEffectMicrons, Angle tilt, double criticalFocus) {

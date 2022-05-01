@@ -116,7 +116,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             solution.EvaluateFit(nlSolver, sensorModelSolver);
             Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, Stars: {solution.StarsInModel}");
 
-            if (solution.GoodnessOfFit < 0.3) {
+            if (solution.GoodnessOfFit < 0.05) {
                 throw new Exception($"Sensor modeling failed. R² = {solution.GoodnessOfFit:#.00}");
             }
 

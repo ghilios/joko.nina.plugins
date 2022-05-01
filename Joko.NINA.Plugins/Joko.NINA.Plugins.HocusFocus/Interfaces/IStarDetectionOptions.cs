@@ -27,7 +27,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         None,
 
         [Description("High")]
-        High
+        High,
+
+        [Description("Low")]
+        Low
     }
 
     [TypeConverter(typeof(EnumStaticDescriptionConverter))]

@@ -151,6 +151,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public class AutoFocusResult {
         public bool Succeeded { get; set; }
+        public int InitialFocuserPosition { get; set; }
 
         public DrawingSize ImageSize { get; set; }
         public AutoFocusRegionResult[] RegionResults { get; set; }

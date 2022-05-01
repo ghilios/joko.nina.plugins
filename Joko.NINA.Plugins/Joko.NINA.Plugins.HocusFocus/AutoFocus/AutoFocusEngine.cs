@@ -1176,6 +1176,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             return new AutoFocusResult() {
                 Succeeded = completed,
+                InitialFocuserPosition = autoFocusState.InitialFocuserPosition,
                 ImageSize = autoFocusState.ImageSize,
                 RegionResults = autoFocusState.FocusRegionStates.Select(rs => new AutoFocusRegionResult() {
                     RegionIndex = rs.RegionIndex,
@@ -1342,6 +1343,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 OnCompleted(state, 0.0d, TimeSpan.Zero);
                 return new AutoFocusResult() {
                     Succeeded = true,
+                    InitialFocuserPosition = -1, // Not known
                     ImageSize = state.ImageSize,
                     RegionResults = state.FocusRegionStates.Select(rs => new AutoFocusRegionResult() {
                         RegionIndex = rs.RegionIndex,

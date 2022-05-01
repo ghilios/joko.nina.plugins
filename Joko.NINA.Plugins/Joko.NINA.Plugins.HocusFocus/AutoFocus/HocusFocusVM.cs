@@ -423,6 +423,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (result == null || !result.Succeeded) {
                     return null;
                 }
+                InitialFocuserPosition = result.InitialFocuserPosition;
                 return LastReport;
             } finally {
                 AutoFocusInProgress = false;
@@ -592,7 +593,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var options = autoFocusEngine.GetOptions();
                 var result = await autoFocusEngine.Rerun(options, savedAttempt, imagingFilter, loadSavedAutoFocusRunCts.Token, this.progress);
-                return result.Succeeded;
+                if (result != null) {
+                    InitialFocuserPosition = result.InitialFocuserPosition;
+                    return result.Succeeded;
+                }
+                return false;
             } catch (OperationCanceledException) {
                 Logger.Info("Load saved auto focus run canceled");
                 return false;

@@ -57,25 +57,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             HotpixelFiltering = Simple_NoiseLevel != NoiseLevelEnum.None;
             switch (Simple_NoiseLevel) {
                 case NoiseLevelEnum.None:
+                    StarMeasurementNoiseReductionEnabled = false;
                     NoiseReductionRadius = 0;
                     break;
 
+                case NoiseLevelEnum.Low:
+                    StarMeasurementNoiseReductionEnabled = false;
+                    NoiseReductionRadius = 3;
+                    break;
+
                 case NoiseLevelEnum.Typical:
+                    StarMeasurementNoiseReductionEnabled = true;
                     NoiseReductionRadius = 3;
                     break;
 
                 case NoiseLevelEnum.High:
+                    StarMeasurementNoiseReductionEnabled = true;
                     NoiseReductionRadius = 5;
                     break;
             }
-            StarMeasurementNoiseReductionEnabled = false;
             NoiseClippingMultiplier = 4;
             StarClippingMultiplier = 2;
             StructureLayers = 4;
             BrightnessSensitivity = 10.0;
             if (Simple_FocusRange == FocusRangeEnum.WideRange) {
                 StructureLayers += 1;
-                BrightnessSensitivity -= 2.0;
+                // As we get further from focus, we want to be more sensitive as the chance for bad data increases
+                BrightnessSensitivity += 2.0;
             }
 
             MinStarBoundingBoxSize = 5;
@@ -87,7 +95,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             } else if (Simple_PixelScale == PixelScaleEnum.LongFocalLength) {
                 StructureLayers += 1;
                 MinStarBoundingBoxSize += 1;
-                BrightnessSensitivity -= 2.0;
+                BrightnessSensitivity += 2.0;
             }
 
             if (HotpixelThresholdingEnabled && HotpixelFiltering) {

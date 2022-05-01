@@ -89,3 +89,5 @@ ClientBin/
 *.pfx
 *.publishsettings
 orleans.codegen.cs
+
+**/ILNumerics_deploy/*
