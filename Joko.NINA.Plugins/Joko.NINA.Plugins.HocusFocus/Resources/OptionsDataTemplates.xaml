@@ -33,6 +33,7 @@
     <hfconverters:MultiBooleanToZeroConverter x:Key="HF_MultiBooleanToZeroConverter" />
     <hfconverters:IsNegativeToBooleanConverter x:Key="HF_IsNegativeToBooleanConverter" />
     <hfconverters:IsNotNegativeToBooleanConverter x:Key="HF_IsNotNegativeToBooleanConverter" />
+    <hfconverters:DoubleGreaterOneToEmptyStringConverter x:Key="HF_DoubleGreaterOneToEmptyStringConverter" />
 
     <TextBlock x:Key="MaxConcurrent_Tooltip" Text="The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long an Auto Focus operation can take before we cancel it and move on." />
@@ -103,6 +104,7 @@
     <TextBlock x:Key="SimpleFocusRange_Tooltip" Text="As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection" />
     <TextBlock x:Key="SimplePixelScale_Tooltip" Text="At high focal lengths, pixel scale decreases and apparent star size (in pixels) increases. Setting this to a higher focal length increases the number of layers considered for star detection, which could increase false positives due from nebulosity" />
     <TextBlock x:Key="UsePSFAbsoluteDeviation_Tooltip" Text="Enables an experimental PSF fitting approach that is more robust to noise and outlier pixels. This should more closely mimic PixInsight PSF fitting logic" />
+    <TextBlock x:Key="RotatedHyperbolicFit_Tooltip" Text="Allows hyperbolic fitting to rotate. This can be useful if your focus curve is asymmetrical." />
     <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
         <Grid Margin="5" VerticalAlignment="Top">
             <Grid.Resources>
@@ -127,6 +129,7 @@
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource HideOnSaveOff}" />
+                <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
             </Grid.RowDefinitions>
@@ -308,6 +311,24 @@
                 Unit="steps">
                 <Binding Path="AutoFocusOptions.FocuserOffset" UpdateSourceTrigger="LostFocus" />
             </ninactrl:UnitTextBox>
+
+            <!--
+            <TextBlock
+                Grid.Row="8"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Rotated Hyperbolic Fit"
+                ToolTip="{StaticResource RotatedHyperbolicFit_Tooltip}" />
+            <CheckBox
+                Grid.Row="8"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding AutoFocusOptions.AllowHyperbolaRotation}"
+                ToolTip="{StaticResource RotatedHyperbolicFit_Tooltip}" />
+            -->
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">

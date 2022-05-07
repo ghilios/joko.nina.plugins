@@ -429,6 +429,7 @@
     </Compile>
     <Compile Include="Controls\SensorModelContourMapControl.cs" />
     <Compile Include="Controls\TiltModelControl.cs" />
+    <Compile Include="Converters\DoubleGreaterOneToEmptyStringConverter.cs" />
     <Compile Include="Converters\IsNotNegativeToBooleanConverter.cs" />
     <Compile Include="Converters\IsNegativeToBooleanConverter.cs" />
     <Compile Include="Converters\InverseBooleanConverter.cs" />

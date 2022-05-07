@@ -27,5 +27,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool MouseOnChartsEnabled { get; set; }
         bool SensorCurveModelEnabled { get; set; }
         bool ShowSensorModel { get; set; }
+        double SensorModelROI { get; set; }
     }
 }

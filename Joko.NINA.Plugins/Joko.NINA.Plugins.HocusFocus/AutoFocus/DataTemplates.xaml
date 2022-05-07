@@ -29,6 +29,7 @@
     <TextBlock x:Key="MouseOnChartsEnabled_Tooltip" Text="Enable mouse events on charts to scroll, pan, and zoom. Disable this if you don't want the charts to intercept mouse actions" />
     <TextBlock x:Key="SlewToZenith_Tooltip" Text="Slews to zenith while leaving tracking running. Doing this is optional, but you may find better seeing conditions and consistency as far from the horizon as possible" />
     <TextBlock x:Key="SensorCurveModelEnabled_Tooltip" Text="In addition to analyzing AutoFocus curves for the corners and center, create a paraboloid model of the sensor by creating focus curves for every star. This enables calculation of centering error and curvature, and is similar to the type of analysis done by CCD Inspector" />
+    <TextBlock x:Key="SensorCurveModelROI_Tooltip" Text="Uses only a centered portion of the full sensor when calculating a sensor model. This is useful if you have a flattener that cannot produce a flat field for your sensor." />
 
     <TextBlock x:Key="SensorModel_Tilt_Tooltip" Text="The angle the sensor is tilted. 0 indicates no tilt, and values here are typically very small" />
     <TextBlock x:Key="SensorModel_CriticalFocus_Tooltip" Text="The focuser distance a pixel can be from optimal focus before the effects can be noticed. This value increases with larger (slower) F/ratios, which can tolerate more curvature before affecting image quality" />
@@ -1067,11 +1068,6 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -1300,6 +1296,37 @@
                             Grid.Column="3"
                             Orientation="Horizontal">
                             <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.SensorCurveModelEnabled}" />
+                        </StackPanel>
+
+                        <TextBlock
+                            Grid.Row="4"
+                            Grid.Column="2"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Sensor Model ROI"
+                            ToolTip="{StaticResource SensorCurveModelROI_Tooltip}" />
+                        <StackPanel
+                            Grid.Row="4"
+                            Grid.Column="3"
+                            Orientation="Horizontal">
+                            <ninactrl:HintTextBox
+                                MinWidth="40"
+                                VerticalAlignment="Center"
+                                HorizontalContentAlignment="Left"
+                                VerticalContentAlignment="Center"
+                                Foreground="{StaticResource PrimaryBrush}"
+                                HintText="(1.00)"
+                                TextAlignment="Left"
+                                IsEnabled="{Binding InspectorOptions.SensorCurveModelEnabled}"
+                                ToolTip="{StaticResource MicronsPerFocuserStep_Tooltip}">
+                                <ninactrl:HintTextBox.Text>
+                                    <Binding
+                                        Converter="{StaticResource HF_DoubleGreaterOneToEmptyStringConverter}"
+                                        Mode="TwoWay"
+                                        Path="InspectorOptions.SensorModelROI"
+                                        UpdateSourceTrigger="LostFocus" />
+                                </ninactrl:HintTextBox.Text>
+                            </ninactrl:HintTextBox>
                         </StackPanel>
                     </Grid>
                 </Expander>

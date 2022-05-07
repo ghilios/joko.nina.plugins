@@ -63,11 +63,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         public U SolveWinsorizedResiduals(
             S solver,
             int maxWinsorizedIterations = 0,
-            double winsorizationSigma = 4.0d,
+            double winsorizationSigma = 2.5d,
             int maxIterationsLS = 0,
             double toleranceLS = 1E-8,
             CancellationToken ct = default(CancellationToken)) {
-            maxWinsorizedIterations = maxWinsorizedIterations > 0 ? Math.Min(maxWinsorizedIterations, 10) : 10;
+            maxWinsorizedIterations = maxWinsorizedIterations > 0 ? Math.Min(maxWinsorizedIterations, 40) : 40;
             var initialGuess = new double[solver.NumParameters];
             InitializeWeights(solver);
 
@@ -106,7 +106,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     }
                 }
 
-                initialGuess = iterationSolutionArray; // next starting point is the most recent solution
+                solver.SetInitialGuess(initialGuess);
             }
             SolutionIterations = winsorizedIterations;
             return lastSolution;

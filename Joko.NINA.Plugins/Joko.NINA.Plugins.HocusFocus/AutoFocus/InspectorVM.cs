@@ -208,7 +208,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 };
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                 if (sensorCurveModelEnabled) {
-                    regions.Add(StarDetectionRegion.Full);
+                    var roiValue = (1.0d - inspectorOptions.SensorModelROI) / 2.0;
+                    regions.Add(new StarDetectionRegion(new RatioRect(roiValue, roiValue, 1.0d - roiValue, 1.0d - roiValue)));
                 }
 
                 var imagingFilter = GetImagingFilter();
@@ -600,7 +601,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 };
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                 if (sensorCurveModelEnabled) {
-                    regions.Add(StarDetectionRegion.Full);
+                    var roiValue = (1.0d - inspectorOptions.SensorModelROI) / 2.0;
+                    regions.Add(new StarDetectionRegion(new RatioRect(roiValue, roiValue, 1.0d - roiValue, 1.0d - roiValue)));
                 }
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;

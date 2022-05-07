@@ -26,17 +26,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double[] Outputs { get; private set; }
         public bool UseJacobian { get; set; } = false;
         public bool OptGuardEnabled { get; set; } = false;
+        private bool allowRotation;
 
-        private HyperbolicFittingAlglib(double[][] inputs, double[] outputs) {
+        private HyperbolicFittingAlglib(double[][] inputs, double[] outputs, bool allowRotation) {
             this.Inputs = inputs;
             this.Outputs = outputs;
+            this.allowRotation = allowRotation;
         }
 
-        public static HyperbolicFittingAlglib Create(ICollection<ScatterErrorPoint> points) {
+        public static HyperbolicFittingAlglib Create(ICollection<ScatterErrorPoint> points, bool allowRotation) {
             var nonzeroPoints = points.Where((dp) => dp.Y >= 0.1).ToList();
             var inputs = nonzeroPoints.Select(dp => new double[] { dp.X }).ToArray();
             var outputs = nonzeroPoints.Select(dp => dp.Y).ToArray();
-            return new HyperbolicFittingAlglib(inputs, outputs);
+            return new HyperbolicFittingAlglib(inputs, outputs, allowRotation);
         }
 
         private Func<double, double> GetFittingForParameters(double[] parameters) {
@@ -44,7 +46,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var y0 = parameters[1];
             var a = parameters[2];
             var b = parameters[3];
+            var T = parameters[4];
             return x => a / b * Math.Sqrt((x - x0) * (x - x0) + b * b) + y0;
+
+            /*
+            if (!allowRotation) {
+                return x => a / b * Math.Sqrt((x - x0) * (x - x0) + b * b) + y0;
+            }
+
+            var cosT = Math.Cos(T);
+            var sinT = Math.Sin(T);
+            // x = a * cosh(t) * cos(T) - b * sinh(t) * sin(T)
+            // y = a * cosh(t) * sin(T) + b * sinh(t) * cos(T)
+
+            // Use Newton-Raphson to solve for t
+            var term1Constant = a * cosT;
+            var term2Constant = b * sinT;
+            const double tErrorTolerance = 1.0e-11;
+            const int MAX_TSOLVE_ITERATIONS = 2000;
+            return x => {
+                double estimate = Math.Log(x);
+                double estimateError = double.PositiveInfinity;
+                int iterations = 0;
+                while (Math.Abs(estimateError) > tErrorTolerance && iterations++ < MAX_TSOLVE_ITERATIONS) {
+                    estimateError = term1Constant * Math.Cosh(estimate) - term2Constant * Math.Sinh(estimate) - x;
+                    var d_dx = term1Constant * Math.Sinh(estimate) + term2Constant * Math.Cosh(estimate);
+                    estimate -= estimate / d_dx;
+                }
+
+                if (iterations >= MAX_TSOLVE_ITERATIONS) {
+                    throw new Exception($"Solution for rotated hyperbola parameter did not converge");
+                }
+                return a * Math.Cosh(estimate) * sinT + b * Math.Sinh(estimate) * cosT;
+            };
+            */
         }
 
         private Action<double, double[]> GetGradientForParameters(double[] parameters) {
@@ -136,10 +171,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             alglib.minlmstate state = null;
             alglib.minlmreport rep = null;
             try {
-                var initialGuess = new double[] { initialX0, initialY0, initialA, initialB };
-                var lowerBounds = new double[] { 0.0d, -lowestOutput, 0.001d, 0.001d };
-                var upperBounds = new double[] { double.PositiveInfinity, lowestOutput, double.PositiveInfinity, double.PositiveInfinity };
-                var scale = new double[] { lowestInput / lowestOutput, 1, 1, lowestInput / lowestOutput };
+                var rotationRadiansBound = allowRotation ? Math.PI / 8 : 0.0d;
+                var initialGuess = new double[] { initialX0, initialY0, initialA, initialB, 0.0d };
+                var lowerBounds = new double[] { 0.0d, -lowestOutput, 0.001d, 0.001d, -rotationRadiansBound };
+                var upperBounds = new double[] { double.PositiveInfinity, lowestOutput, double.PositiveInfinity, double.PositiveInfinity, rotationRadiansBound };
+                var scale = new double[] { lowestInput / lowestOutput, 1, 1, 1, 0.1 };
                 var solution = new double[4];
                 var tolerance = 1E-6;
                 var maxIterations = 0; // Keep going until the solution is found

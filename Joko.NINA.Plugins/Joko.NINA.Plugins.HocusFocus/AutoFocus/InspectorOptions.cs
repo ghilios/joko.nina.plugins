@@ -44,6 +44,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             mouseOnChartsEnabled = optionsAccessor.GetValueBoolean(nameof(MouseOnChartsEnabled), true);
             sensorCurveModelEnabled = optionsAccessor.GetValueBoolean(nameof(SensorCurveModelEnabled), false);
             showSensorModel = optionsAccessor.GetValueBoolean(nameof(ShowSensorModel), true);
+            sensorModelROI = optionsAccessor.GetValueDouble(nameof(SensorModelROI), 1.0);
         }
 
         public void ResetDefaults() {
@@ -59,6 +60,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             MouseOnChartsEnabled = true;
             SensorCurveModelEnabled = false;
             ShowSensorModel = true;
+            SensorModelROI = 1.0;
         }
 
         private int stepCount;
@@ -212,6 +214,26 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (showSensorModel != value) {
                     showSensorModel = value;
                     optionsAccessor.SetValueBoolean(nameof(ShowSensorModel), showSensorModel);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double sensorModelROI;
+
+        public double SensorModelROI {
+            get => sensorModelROI;
+            set {
+                if (sensorModelROI != value) {
+                    if (value < 0.1) {
+                        sensorModelROI = 0.1;
+                    } else if (value > 1.0 || double.IsNaN(value)) {
+                        sensorModelROI = 1.0;
+                    } else {
+                        sensorModelROI = value;
+                    }
+
+                    optionsAccessor.SetValueDouble(nameof(SensorModelROI), sensorModelROI);
                     RaisePropertyChanged();
                 }
             }

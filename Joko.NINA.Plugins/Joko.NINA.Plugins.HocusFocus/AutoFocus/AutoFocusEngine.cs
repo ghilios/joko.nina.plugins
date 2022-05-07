@@ -35,6 +35,7 @@ using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -140,7 +141,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             }
 
                             if (AFCurveFittingEnum.HYPERBOLIC == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC == fitting) {
-                                var hf = HyperbolicFittingAlglib.Create(validFocusPoints);
+                                var hf = HyperbolicFittingAlglib.Create(validFocusPoints, this.State.Options.AllowHyperbolaRotation);
                                 if (!hf.Solve()) {
                                     Logger.Trace($"Hyperbolic fit failed");
                                 }
@@ -1209,7 +1210,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             CancellationToken token) {
             var isBayered = savedFile.IsBayered;
             var bitDepth = savedFile.BitDepth;
+
+            var sw = new Stopwatch();
+            sw.Start();
             var imageData = await this.imageDataFactory.CreateFromFile(savedFile.Path, bitDepth, isBayered, profileService.ActiveProfile.CameraSettings.RawConverter, token);
+            sw.Stop();
+            Logger.Info($"Load file took {sw.Elapsed}");
             return await PrepareExposure(state, imageData, token);
         }
 
@@ -1483,7 +1489,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 AutoFocusTimeout = TimeSpan.FromSeconds(autoFocusOptions.AutoFocusTimeoutSeconds),
                 AutoFocusInitialOffsetSteps = profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
                 AutoFocusStepSize = profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize,
-                FocuserOffset = autoFocusOptions.FocuserOffset
+                FocuserOffset = autoFocusOptions.FocuserOffset,
+                AllowHyperbolaRotation = autoFocusOptions.AllowHyperbolaRotation
             };
         }
 

@@ -392,7 +392,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
 
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
-                        var hf = HyperbolicFittingAlglib.Create(validFocusPoints);
+                        var hf = HyperbolicFittingAlglib.Create(validFocusPoints, this.autoFocusOptions.AllowHyperbolaRotation);
                         hf.Solve();
                         HyperbolicFitting = hf;
                     }

@@ -379,10 +379,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var endX = star.StarBoundingBox.Right;
             var endY = star.StarBoundingBox.Bottom;
             var noiseThreshold = p.StarClippingMultiplier * noiseSigma;
-            for (var y = startY; y < endY; y += p.AnalysisSamplingSize) {
-                for (var x = startX; x < endX; x += p.AnalysisSamplingSize) {
-                    var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x) - background;
-                    if (value > noiseThreshold) {
+            for (var y = startY; y <= endY; y += p.AnalysisSamplingSize) {
+                for (var x = startX; x <= endX; x += p.AnalysisSamplingSize) {
+                    var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x) - background - noiseThreshold;
+                    if (value > 0.0f) {
                         var dx = x - star.Center.X;
                         var dy = y - star.Center.Y;
                         var distance = Math.Sqrt(dx * dx + dy * dy);

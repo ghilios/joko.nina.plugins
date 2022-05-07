@@ -61,6 +61,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public TimeSpan AutoFocusTimeout { get; set; }
         public double HFRImprovementThreshold { get; set; }
         public int FocuserOffset { get; set; }
+        public bool AllowHyperbolaRotation { get; set; }
     }
 
     public interface IAutoFocusEngine {
