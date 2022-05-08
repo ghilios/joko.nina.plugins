@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using NINA.Core.Utility;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -67,18 +68,29 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             int maxIterationsLS = 0,
             double toleranceLS = 1E-8,
             CancellationToken ct = default(CancellationToken)) {
-            maxWinsorizedIterations = maxWinsorizedIterations > 0 ? Math.Min(maxWinsorizedIterations, 40) : 40;
+            maxWinsorizedIterations = maxWinsorizedIterations > 0 ? Math.Min(maxWinsorizedIterations, 10) : 10;
             var initialGuess = new double[solver.NumParameters];
             InitializeWeights(solver);
 
             var winsorizedIterations = 0;
-            U lastSolution = null;
+            var initialGuessSolution = new U();
+            initialGuessSolution.FromArray(initialGuess);
+            U lastSolution = initialGuessSolution;
+
             solver.SetInitialGuess(initialGuess);
             int disabledCount = int.MaxValue;
             SolutionIterations = 0;
             while (disabledCount > 0 && winsorizedIterations++ < maxWinsorizedIterations) {
-                lastSolution = SolveWithInitialGuess(solver, initialGuess, maxIterationsLS, toleranceLS, ct);
-                var iterationSolutionArray = lastSolution.ToArray();
+                var gofBefore = this.GoodnessOfFit(solver, lastSolution);
+
+                var nextSolution = SolveWithInitialGuess(solver, initialGuess, maxIterationsLS, toleranceLS, ct);
+                var iterationSolutionArray = nextSolution.ToArray();
+
+                var gofAfter = this.GoodnessOfFit(solver, nextSolution);
+                if (gofBefore >= gofAfter) {
+                    Logger.Warning("Non-linear iteration did not improve model quality. Returning the solution from the previous iteration");
+                    return lastSolution;
+                }
 
                 var sumOfResiduals = 0.0d;
                 var residuals = new List<(int, double)>();
@@ -107,6 +119,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 }
 
                 solver.SetInitialGuess(initialGuess);
+                lastSolution = nextSolution;
             }
             SolutionIterations = winsorizedIterations;
             return lastSolution;

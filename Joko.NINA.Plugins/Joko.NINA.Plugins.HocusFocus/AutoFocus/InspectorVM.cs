@@ -223,12 +223,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 ActivateAutoFocusChart();
                 DeactivateExposureAnalysis();
-                var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, analyzeCts.Token, this.progress);
+                var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
                 if (result == null) {
                     return false;
                 }
 
-                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled);
+                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token);
                 if (!autoFocusAnalysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.");
                     return false;
@@ -270,10 +270,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private bool focuserStepSizeWarningShowed = false;
 
-        private Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result, bool sensorCurveModelEnabled) {
+        private async Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result, bool sensorCurveModelEnabled, CancellationToken ct) {
             if (result == null || !result.Succeeded) {
                 Logger.Error("Inspection analysis failed, due to failed AutoFocus");
-                return Task.FromResult(false);
+                return false;
             }
 
             var invalidRegionCount = result.RegionResults.Count(r => double.IsNaN(r.EstimatedFinalFocuserPosition));
@@ -294,17 +294,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 var finalFocuserPosition = result.RegionResults[0].EstimatedFinalFocuserPosition;
-                SensorModel.UpdateModel(
+                await SensorModel.UpdateModel(
                     FullSensorDetectedStars,
                     fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio,
                     focuserSizeMicrons: focuserSizeMicrons,
-                    finalFocusPosition: finalFocuserPosition);
+                    finalFocusPosition: finalFocuserPosition,
+                    ct: ct);
             }
 
             UpdateBackfocusMeasurements(result);
             TiltModel.UpdateTiltModel(result, BackfocusFocuserPositionDelta);
             AutoFocusCompleted = true;
-            return Task.FromResult(true);
+            return true;
         }
 
         private Task<bool> TakeAndAnalyzeExposure(IAutoFocusEngine autoFocusEngine, CancellationToken token) {
@@ -615,12 +616,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 ActivateAutoFocusChart();
                 DeactivateExposureAnalysis();
-                var result = await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, regions, analyzeCts.Token, this.progress);
+                var result = await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
                 if (result == null) {
                     return false;
                 }
 
-                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled);
+                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled, localAnalyzeCts.Token);
                 if (!autoFocusAnalysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed");
                     return false;
