@@ -573,6 +573,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return System.Drawing.Color.FromArgb(color.A, color.R, color.G, color.B);
         }
 
+        public static System.Drawing.Color SetAlpha(this System.Drawing.Color color, byte a) {
+            return System.Drawing.Color.FromArgb(a, color.R, color.G, color.B);
+        }
+
         public static System.Drawing.FontFamily ToDrawingFontFamily(this System.Windows.Media.FontFamily fontFamily) {
             return new System.Drawing.FontFamily(fontFamily.FamilyNames.Select(fn => fn.Value).First());
         }

@@ -47,7 +47,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
         public virtual bool UseJacobian => false;
 
-        public virtual double NumericIntegrationIntervalSize => 1E-8;
+        public virtual double NumericIntegrationIntervalSize => 1E-6;
 
         public abstract double Value(double[] parameters, double[] input);
 

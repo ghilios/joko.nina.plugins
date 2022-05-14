@@ -235,7 +235,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                 int discardedStarCount = 0;
                 var sensorModelDataPoints = new List<SensorParaboloidDataPoint>();
-                var fits = new List<double>();
                 foreach (var registeredStar in registeredStars) {
                     if (registeredStar.MatchedStars.Count < 5) {
                         continue;
@@ -252,7 +251,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                             continue;
                         }
 
-                        fits.Add(fitting.RSquared);
                         if (fitting.RSquared < 0.90) {
                             // Discard bad fitting
                             discardedStarCount++;
@@ -268,9 +266,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         Logger.Error(e, $"Failed to calculate hyperbolic at ({registeredStar.RegistrationX}, {registeredStar.RegistrationY}). Error={e.Message}");
                     }
                 }
-
-                fits.Sort();
-                Console.WriteLine();
 
                 stopwatch.RecordEntry("fitcurves");
                 if (discardedStarCount > 0) {

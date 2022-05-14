@@ -26,6 +26,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public TiltPlaneModel(
             System.Drawing.Size imageSize,
+            double fRatio,
             double a,
             double b,
             double c,
@@ -53,24 +54,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             };
             TopLeft = new SensorTiltModel(SensorSide.TopLeft) {
                 FocuserPosition = topLeftPosition,
-                AdjustmentRequiredSteps = MeanFocuserPosition - topLeftPosition,
-                AdjustmentRequiredMicrons = (MeanFocuserPosition - topLeftPosition) * FocuserStepSizeMicrons
+                AdjustmentRequiredSteps = topLeftPosition - MeanFocuserPosition,
+                AdjustmentRequiredMicrons = (topLeftPosition - MeanFocuserPosition) * FocuserStepSizeMicrons
             };
             TopRight = new SensorTiltModel(SensorSide.TopRight) {
                 FocuserPosition = topRightPosition,
-                AdjustmentRequiredSteps = MeanFocuserPosition - topRightPosition,
-                AdjustmentRequiredMicrons = (MeanFocuserPosition - topRightPosition) * FocuserStepSizeMicrons
+                AdjustmentRequiredSteps = topRightPosition - MeanFocuserPosition,
+                AdjustmentRequiredMicrons = (topRightPosition - MeanFocuserPosition) * FocuserStepSizeMicrons
             };
             BottomLeft = new SensorTiltModel(SensorSide.BottomLeft) {
                 FocuserPosition = bottomLeftPosition,
-                AdjustmentRequiredSteps = MeanFocuserPosition - bottomLeftPosition,
-                AdjustmentRequiredMicrons = (MeanFocuserPosition - bottomLeftPosition) * FocuserStepSizeMicrons
+                AdjustmentRequiredSteps = bottomLeftPosition - MeanFocuserPosition,
+                AdjustmentRequiredMicrons = (bottomLeftPosition - MeanFocuserPosition) * FocuserStepSizeMicrons
             };
             BottomRight = new SensorTiltModel(SensorSide.BottomRight) {
                 FocuserPosition = bottomRightPosition,
-                AdjustmentRequiredSteps = MeanFocuserPosition - bottomRightPosition,
-                AdjustmentRequiredMicrons = (MeanFocuserPosition - bottomRightPosition) * FocuserStepSizeMicrons
+                AdjustmentRequiredSteps = bottomRightPosition - MeanFocuserPosition,
+                AdjustmentRequiredMicrons = (bottomRightPosition - MeanFocuserPosition) * FocuserStepSizeMicrons
             };
+            FRatio = double.IsNaN(fRatio) ? 5.0 : fRatio;
         }
 
         public System.Drawing.Size ImageSize { get; private set; }
@@ -84,6 +86,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public SensorTiltModel BottomLeft { get; private set; }
         public SensorTiltModel BottomRight { get; private set; }
         public double MeanFocuserPosition { get; private set; }
+        public double FRatio { get; private set; }
 
         public double EstimateFocusPosition(int x, int y) {
             var xRatio = GetModelX(x);
@@ -107,14 +110,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return (double)y / ImageSize.Height - 0.5;
         }
 
-        public static TiltPlaneModel Create(AutoFocusResult result, double focuserStepSizeMicrons) {
+        public static TiltPlaneModel Create(AutoFocusResult result, double fRatio, double focuserStepSizeMicrons) {
             var centerFocuser = result.RegionResults[1].EstimatedFinalFocuserPosition;
             var topLeftFocuser = result.RegionResults[2].EstimatedFinalFocuserPosition;
             var topRightFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
             var bottomLeftFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
             var bottomRightFocuser = result.RegionResults[5].EstimatedFinalFocuserPosition;
             var tiltPlaneModel = Create(
-                imageSize: result.ImageSize, focuserStepSizeMicrons: focuserStepSizeMicrons, centerFocuser: centerFocuser, topLeftFocuser: topLeftFocuser,
+                imageSize: result.ImageSize, fRatio: fRatio,
+                focuserStepSizeMicrons: focuserStepSizeMicrons, centerFocuser: centerFocuser, topLeftFocuser: topLeftFocuser,
                 topRightFocuser: topRightFocuser, bottomLeftFocuser: bottomLeftFocuser, bottomRightFocuser: bottomRightFocuser);
 
             tiltPlaneModel.Center.RSquared = result.RegionResults[1].Fittings.GetRSquared();
@@ -127,6 +131,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public static TiltPlaneModel Create(
             System.Drawing.Size imageSize,
+            double fRatio,
             double focuserStepSizeMicrons,
             double centerFocuser,
             double topLeftFocuser,
@@ -153,7 +158,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             double c = regression.Intercept;
             double mean = outputs.Average();
             return new TiltPlaneModel(
-                imageSize: imageSize, a: a, b: b, c: c, mean: mean, focuserStepSizeMicrons: focuserStepSizeMicrons, centerPosition: centerFocuser,
+                imageSize: imageSize, fRatio: fRatio,
+                a: a, b: b, c: c, mean: mean, focuserStepSizeMicrons: focuserStepSizeMicrons, centerPosition: centerFocuser,
                 topLeftPosition: topLeftFocuser, topRightPosition: topRightFocuser,
                 bottomLeftPosition: bottomLeftFocuser, bottomRightPosition: bottomRightFocuser);
         }
@@ -193,9 +199,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SelectedTiltHistoryModel = null;
         }
 
-        public void UpdateTiltModel(AutoFocusResult result, double backfocusFocuserPositionDelta) {
+        public void UpdateTiltModel(AutoFocusResult result, double fRatio, double backfocusFocuserPositionDelta) {
             var micronsPerFocuserStep = inspectorOptions.MicronsPerFocuserStep > 0 ? inspectorOptions.MicronsPerFocuserStep : double.NaN;
-            var tiltModel = TiltPlaneModel.Create(result, micronsPerFocuserStep);
+            var tiltModel = TiltPlaneModel.Create(result, fRatio: fRatio, focuserStepSizeMicrons: micronsPerFocuserStep);
             UpdateTiltMeasurementsTable(tiltModel, backfocusFocuserPositionDelta);
         }
 

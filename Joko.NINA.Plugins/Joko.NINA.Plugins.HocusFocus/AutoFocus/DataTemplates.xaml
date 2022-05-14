@@ -2405,17 +2405,26 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <TextBlock
                                 Grid.Row="0"
-                                Margin="10"
+                                Margin="5,0,0,0"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 FontWeight="DemiBold"
                                 Text="Tilt Corner Measurements" />
-                            <DataGrid
+                            <TextBlock
                                 Grid.Row="1"
-                                Margin="10"
+                                Margin="5,5,5,0"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Text="Positive values = Move away from objective"
+                                TextWrapping="Wrap" />
+                            <DataGrid
+                                Grid.Row="2"
+                                Margin="5,5,5,0"
                                 HorizontalAlignment="Center"
                                 AutoGenerateColumns="False"
                                 ColumnWidth="Auto"
@@ -2471,19 +2480,14 @@
                                 VerticalAlignment="Center"
                                 FontStyle="Italic"
                                 Text="Use for tilt direction, not amount! Model always scaled to fit" />
-                            <TextBlock
-                                Grid.Row="2"
-                                Grid.Column="0"
-                                Margin="10,0,10,5"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                FontStyle="Italic"
-                                Text="Camera body on top. Scope aperture towards bottom." />
                             <controls:TiltModelControl
                                 Grid.Row="3"
                                 Grid.Column="0"
+                                Margin="0,5,0,0"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch"
+                                SurfaceHighExtremeColor="Red"
+                                SurfaceLowExtremeColor="Blue"
                                 AxisColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
                                 PlotBackgroundColor="{Binding Path=Color, Source={StaticResource BackgroundBrush}}"
                                 PointColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
@@ -2590,25 +2594,34 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <TextBlock
                                 Grid.Row="0"
-                                Margin="10"
+                                Margin="5,0,5,0"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 FontWeight="DemiBold"
                                 Text="Tilt Corner Measurements" />
                             <TextBlock
                                 Grid.Row="1"
-                                Margin="10"
+                                Margin="5,5,5,0"
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Center"
                                 FontStyle="Italic"
                                 Text="Focuser positions below are based on isolated tilt calculations added to the sensor peak position"
                                 TextWrapping="Wrap" />
-                            <DataGrid
+                            <TextBlock
                                 Grid.Row="2"
-                                Margin="10"
+                                Margin="5,5,5,0"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Text="Positive values = Move away from objective"
+                                TextWrapping="Wrap" />
+                            <DataGrid
+                                Grid.Row="3"
+                                Margin="5,5,5,0"
                                 HorizontalAlignment="Center"
                                 AutoGenerateColumns="False"
                                 ColumnWidth="Auto"
@@ -2652,27 +2665,14 @@
                                 VerticalAlignment="Center"
                                 FontWeight="DemiBold"
                                 Text="Sensor Tilt Visualization" />
-                            <TextBlock
-                                Grid.Row="1"
-                                Grid.Column="0"
-                                Margin="10,0,10,5"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                FontStyle="Italic"
-                                Text="Use for tilt direction, not amount! Model always scaled to fit" />
-                            <TextBlock
-                                Grid.Row="2"
-                                Grid.Column="0"
-                                Margin="10,0,10,5"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"
-                                FontStyle="Italic"
-                                Text="Camera body on top. Scope aperture towards bottom." />
                             <controls:TiltModelControl
                                 Grid.Row="3"
                                 Grid.Column="0"
+                                Margin="0,5,0,0"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch"
+                                SurfaceHighExtremeColor="Red"
+                                SurfaceLowExtremeColor="Blue"
                                 AxisColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
                                 PlotBackgroundColor="{Binding Path=Color, Source={StaticResource BackgroundBrush}}"
                                 PointColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
