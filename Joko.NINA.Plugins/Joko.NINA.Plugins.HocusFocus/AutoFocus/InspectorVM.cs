@@ -303,7 +303,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             UpdateBackfocusMeasurements(result);
-            TiltModel.UpdateTiltModel(result, BackfocusFocuserPositionDelta);
+            TiltModel.UpdateTiltModel(result, fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio, backfocusFocuserPositionDelta: BackfocusFocuserPositionDelta);
             AutoFocusCompleted = true;
             return true;
         }

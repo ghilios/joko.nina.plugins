@@ -238,10 +238,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var sensorHeightMicrons = imageSize.Height * pixelSizeMicrons;
             CurvatureEffectMicrons = sensorModel.CurvatureAt(sensorWidthMicrons / 2, sensorHeightMicrons / 2);
             var tiltCorners = new double[] {
-                sensorModel.TiltAt(-sensorWidthMicrons / 2.0, -sensorWidthMicrons / 2.0),
-                sensorModel.TiltAt(sensorWidthMicrons / 2.0, -sensorWidthMicrons / 2.0),
-                sensorModel.TiltAt(-sensorWidthMicrons / 2.0, sensorWidthMicrons / 2.0),
-                sensorModel.TiltAt(sensorWidthMicrons / 2.0, sensorWidthMicrons / 2.0)
+                sensorModel.TiltAt(-sensorWidthMicrons / 2.0, -sensorHeightMicrons / 2.0),
+                sensorModel.TiltAt(sensorWidthMicrons / 2.0, -sensorHeightMicrons / 2.0),
+                sensorModel.TiltAt(-sensorWidthMicrons / 2.0, sensorHeightMicrons / 2.0),
+                sensorModel.TiltAt(sensorWidthMicrons / 2.0, sensorHeightMicrons / 2.0)
             };
             var sensorVolume = sensorModel.Volume(widthMicrons: sensorWidthMicrons, heightMicrons: sensorHeightMicrons);
             var sensorArea = sensorHeightMicrons * sensorWidthMicrons;
@@ -252,7 +252,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
             TiltEffectMicrons = (tiltCorners.Max() - tiltCorners.Min()) / 2.0;
             Tilt = Angle.ByRadians(sensorModel.Theta);
-            var tiltPlaneModel = CreateTiltPlaneModel(imageSize, focuserStepSizeMicrons, sensorModel);
+            var tiltPlaneModel = CreateTiltPlaneModel(imageSize, focuserStepSizeMicrons, pixelSizeMicrons, sensorModel);
             UpdateTiltModels(tiltPlaneModel);
             TiltPlaneModel = tiltPlaneModel;
 
@@ -292,15 +292,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         private void AnalyzeCurvature(double curvatureRadius, double curvatureElevationMicrons, double criticalFocus) {
+            var direction = curvatureElevationMicrons > 0 ? "REMOVING" : "ADDING";
             var result = new SensorModelAnalysisResult() {
                 Name = "Curvature",
                 Value = $"{curvatureRadius:0.} mm",
                 Acceptable = Math.Abs(curvatureElevationMicrons) < (1.5 * criticalFocus),
-                Details = $"Curvature effect of {curvatureElevationMicrons:0.} microns is within 1.5x critical focus"
+                Details = $"Curvature effect of {curvatureElevationMicrons:0.} microns is within 1.5x critical focus. You could still try {direction} spacers"
             };
             if (!result.Acceptable) {
-                var direction = curvatureElevationMicrons > 0 ? "REDUCING" : "INCREASING";
-                result.Details = $"Curvature effect of {curvatureElevationMicrons:0.} microns is > 1.5x critical focus. Try {direction} backfocus";
+                result.Details = $"Curvature effect of {curvatureElevationMicrons:0.} microns is > 1.5x critical focus. Try {direction} spacers";
             }
             AnalysisResults.Add(result);
         }
@@ -348,16 +348,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         private TiltPlaneModel CreateTiltPlaneModel(
             DrawingSize imageSize,
             double focuserStepSizeMicrons,
+            double pixelSizeMicrons,
             SensorParaboloidModel sensorModel) {
-            var width = (double)imageSize.Width;
-            var height = (double)imageSize.Height;
+            var width = (double)imageSize.Width * pixelSizeMicrons;
+            var height = (double)imageSize.Height * pixelSizeMicrons;
             var centerFocuser = sensorModel.ValueAt(x: sensorModel.X0, y: sensorModel.Y0) / focuserStepSizeMicrons;
-            var topLeftFocuser = centerFocuser - sensorModel.TiltAt(x: -1.0 / 2.0 * width, y: -1.0 / 2.0 * height) / focuserStepSizeMicrons;
-            var topRightFocuser = centerFocuser - sensorModel.TiltAt(x: 1.0 / 2.0 * width, y: -1.0 / 2.0 * height) / focuserStepSizeMicrons;
-            var bottomLeftFocuser = centerFocuser - sensorModel.TiltAt(x: -1.0 / 2.0 * width, y: 1.0 / 2.0 * height) / focuserStepSizeMicrons;
-            var bottomRightFocuser = centerFocuser - sensorModel.TiltAt(x: 1.0 / 2.0 * width, y: 1.0 / 2.0 * height) / focuserStepSizeMicrons;
+            var topLeftFocuser = centerFocuser - sensorModel.TiltAt(x: -width / 2.0, y: -height / 2.0) / focuserStepSizeMicrons;
+            var topRightFocuser = centerFocuser - sensorModel.TiltAt(x: width / 2.0, y: -height / 2.0) / focuserStepSizeMicrons;
+            var bottomLeftFocuser = centerFocuser - sensorModel.TiltAt(x: -width / 2.0, y: height / 2.0) / focuserStepSizeMicrons;
+            var bottomRightFocuser = centerFocuser - sensorModel.TiltAt(x: width / 2.0, y: height / 2.0) / focuserStepSizeMicrons;
 
-            return TiltPlaneModel.Create(imageSize: imageSize, focuserStepSizeMicrons: focuserStepSizeMicrons, centerFocuser: centerFocuser,
+            return TiltPlaneModel.Create(imageSize: imageSize, fRatio: fRatio,
+                focuserStepSizeMicrons: focuserStepSizeMicrons, centerFocuser: centerFocuser,
                 topLeftFocuser: topLeftFocuser, topRightFocuser: topRightFocuser, bottomLeftFocuser: bottomLeftFocuser, bottomRightFocuser: bottomRightFocuser);
         }
     }

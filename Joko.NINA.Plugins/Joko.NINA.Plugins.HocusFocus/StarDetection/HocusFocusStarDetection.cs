@@ -279,7 +279,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
-            var pixelSize = image.RawImageData.MetaData.Camera.PixelSize * Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
+            var binX = double.IsNaN(image.RawImageData.MetaData.Camera.BinX) ? 1 : image.RawImageData.MetaData.Camera.BinX;
+            var metadataPixelSize = double.IsNaN(image.RawImageData.MetaData.Camera.PixelSize) ? 3.76 : image.RawImageData.MetaData.Camera.PixelSize;
+            var pixelSize = metadataPixelSize * Math.Max(binX, 1);
             var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
             var result = new HocusFocusStarDetectionResult() {
                 HocusFocusParams = hocusFocusParams,
