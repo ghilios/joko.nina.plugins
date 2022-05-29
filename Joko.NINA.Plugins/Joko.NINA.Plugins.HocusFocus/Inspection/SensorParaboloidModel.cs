@@ -169,7 +169,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             this.inFocusMicrons = inFocusMicrons;
         }
 
-        public override bool UseJacobian => false;
+        public override bool UseJacobian => true;
+
+        public bool PositiveCurvature { get; set; } = true;
 
         public override double Value(double[] parameters, double[] input) {
             var X = input[0];
@@ -196,7 +198,52 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public override void Gradient(double[] parameters, double[] input, double[] result) {
-            throw new NotImplementedException();
+            var X = input[0];
+            var Y = input[1];
+            var x0 = parameters[0]; // u
+            var y0 = parameters[1]; // v
+            var z0 = parameters[2]; // w
+            var theta = parameters[3]; // t
+            var phi = parameters[4]; // p
+            var c = parameters[5]; // c
+
+            var C2 = c * c;
+            var SignedC2 = Math.Sign(c) * C2;
+            var XPrime = X - x0;
+            var XPrime2 = XPrime * XPrime;
+            var YPrime = Y - y0;
+            var YPrime2 = YPrime * YPrime;
+            var cosPhi = Math.Cos(phi);
+            var sinPhi = Math.Sin(phi);
+            var tanTheta = Math.Tan(theta);
+            var cosTheta = Math.Cos(theta);
+            var cosTheta2 = cosTheta * cosTheta;
+            var secTheta2 = 1.0 / cosTheta2;
+
+            // d/du = https://www.wolframalpha.com/input?i2d=true&i=differentiate+%5C%2840%29%5C%2840%29x+-+u%5C%2841%29*Cos%5Bp%5D%2B%5C%2840%29y-v%5C%2841%29*Sin%5Bp%5D%5C%2841%29*Tan%5Bt%5D%2Bsign%5C%2840%29c%5C%2841%29*Power%5Bc%2C2%5D*%5C%2840%29Power%5B%5C%2840%29x-u%5C%2841%29%2C2%5D%2BPower%5B%5C%2840%29y-v%5C%2841%29%2C2%5D%5C%2841%29%2Bw+with+respect+to+u
+            var d_du = -2.0 * SignedC2 * XPrime - cosPhi * tanTheta;
+
+            // d/dv = https://www.wolframalpha.com/input?i2d=true&i=differentiate+%5C%2840%29%5C%2840%29x+-+u%5C%2841%29*Cos%5Bp%5D%2B%5C%2840%29y-v%5C%2841%29*Sin%5Bp%5D%5C%2841%29*Tan%5Bt%5D%2Bsign%5C%2840%29c%5C%2841%29*Power%5Bc%2C2%5D*%5C%2840%29Power%5B%5C%2840%29x-u%5C%2841%29%2C2%5D%2BPower%5B%5C%2840%29y-v%5C%2841%29%2C2%5D%5C%2841%29%2Bw+with+respect+to+v
+            var d_dv = -2.0 * SignedC2 * YPrime - sinPhi * tanTheta;
+
+            // d/dw = https://www.wolframalpha.com/input?i2d=true&i=differentiate+%5C%2840%29%5C%2840%29x+-+u%5C%2841%29*Cos%5Bp%5D%2B%5C%2840%29y-v%5C%2841%29*Sin%5Bp%5D%5C%2841%29*Tan%5Bt%5D%2Bsign%5C%2840%29c%5C%2841%29*Power%5Bc%2C2%5D*%5C%2840%29Power%5B%5C%2840%29x-u%5C%2841%29%2C2%5D%2BPower%5B%5C%2840%29y-v%5C%2841%29%2C2%5D%5C%2841%29%2Bw+with+respect+to+w
+            var d_dw = 1.0;
+
+            // d/dt = https://www.wolframalpha.com/input?i2d=true&i=differentiate+%5C%2840%29%5C%2840%29x+-+u%5C%2841%29*Cos%5Bp%5D%2B%5C%2840%29y-v%5C%2841%29*Sin%5Bp%5D%5C%2841%29*Tan%5Bt%5D%2Bsign%5C%2840%29c%5C%2841%29*Power%5Bc%2C2%5D*%5C%2840%29Power%5B%5C%2840%29x-u%5C%2841%29%2C2%5D%2BPower%5B%5C%2840%29y-v%5C%2841%29%2C2%5D%5C%2841%29%2Bw+with+respect+to+t
+            var d_dt = secTheta2 * (cosPhi * XPrime + sinPhi * YPrime);
+
+            // d/dp = https://www.wolframalpha.com/input?i2d=true&i=differentiate+%5C%2840%29%5C%2840%29x+-+u%5C%2841%29*Cos%5Bp%5D%2B%5C%2840%29y-v%5C%2841%29*Sin%5Bp%5D%5C%2841%29*Tan%5Bt%5D%2Bsign%5C%2840%29c%5C%2841%29*Power%5Bc%2C2%5D*%5C%2840%29Power%5B%5C%2840%29x-u%5C%2841%29%2C2%5D%2BPower%5B%5C%2840%29y-v%5C%2841%29%2C2%5D%5C%2841%29%2Bw+with+respect+to+p
+            var d_dp = tanTheta * (cosPhi * YPrime - sinPhi * XPrime);
+
+            // d/dc = https://www.wolframalpha.com/input?i2d=true&i=differentiate+%5C%2840%29%5C%2840%29x+-+u%5C%2841%29*Cos%5Bp%5D%2B%5C%2840%29y-v%5C%2841%29*Sin%5Bp%5D%5C%2841%29*Tan%5Bt%5D%2Bsign%5C%2840%29c%5C%2841%29*Power%5Bc%2C2%5D*%5C%2840%29Power%5B%5C%2840%29x-u%5C%2841%29%2C2%5D%2BPower%5B%5C%2840%29y-v%5C%2841%29%2C2%5D%5C%2841%29%2Bw+with+respect+to+c
+            var d_dc = 2.0 * c * Math.Sign(c) * (XPrime2 + YPrime2);
+
+            result[0] = d_du;
+            result[1] = d_dv;
+            result[2] = d_dw;
+            result[3] = d_dt;
+            result[4] = d_dp;
+            result[5] = d_dc;
         }
 
         public override void SetInitialGuess(double[] initialGuess) {
@@ -205,7 +252,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             initialGuess[2] = inFocusMicrons;
             initialGuess[3] = 0.0;
             initialGuess[4] = 0.0;
-            initialGuess[5] = 0.0;
+            initialGuess[5] = PositiveCurvature ? 1E-4 : -1E-4;
         }
 
         public override void SetBounds(double[] lowerBounds, double[] upperBounds) {
@@ -214,21 +261,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             lowerBounds[2] = double.NegativeInfinity;
             lowerBounds[3] = 0.0;
             lowerBounds[4] = -Math.PI;
-            lowerBounds[5] = double.NegativeInfinity;
+            lowerBounds[5] = PositiveCurvature ? 1E-4 : double.NegativeInfinity;
 
             upperBounds[0] = sensorSizeMicronsX / 2.0;
             upperBounds[1] = sensorSizeMicronsY / 2.0;
             upperBounds[2] = double.PositiveInfinity;
             upperBounds[3] = Math.PI - double.Epsilon;
             upperBounds[4] = Math.PI - double.Epsilon;
-            upperBounds[5] = double.PositiveInfinity;
+            upperBounds[5] = PositiveCurvature ? double.PositiveInfinity : -1E-4;
         }
 
         public override void SetScale(double[] scales) {
             scales[0] = 1.0;
             scales[1] = 1.0;
             scales[2] = 1.0;
-            scales[3] = 1.0;
+            scales[3] = 1E-1;
             scales[4] = 1.0;
             scales[5] = 1E-2;
         }
