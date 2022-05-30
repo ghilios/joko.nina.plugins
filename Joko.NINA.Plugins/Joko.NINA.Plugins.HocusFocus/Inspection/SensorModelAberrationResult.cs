@@ -353,10 +353,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var width = (double)imageSize.Width * pixelSizeMicrons;
             var height = (double)imageSize.Height * pixelSizeMicrons;
             var centerFocuser = sensorModel.ValueAt(x: sensorModel.X0, y: sensorModel.Y0) / focuserStepSizeMicrons;
-            var topLeftFocuser = centerFocuser - sensorModel.TiltAt(x: -width / 2.0, y: -height / 2.0) / focuserStepSizeMicrons;
-            var topRightFocuser = centerFocuser - sensorModel.TiltAt(x: width / 2.0, y: -height / 2.0) / focuserStepSizeMicrons;
-            var bottomLeftFocuser = centerFocuser - sensorModel.TiltAt(x: -width / 2.0, y: height / 2.0) / focuserStepSizeMicrons;
-            var bottomRightFocuser = centerFocuser - sensorModel.TiltAt(x: width / 2.0, y: height / 2.0) / focuserStepSizeMicrons;
+            var topLeftFocuser = centerFocuser + sensorModel.TiltAt(x: -width / 2.0, y: -height / 2.0) / focuserStepSizeMicrons;
+            var topRightFocuser = centerFocuser + sensorModel.TiltAt(x: width / 2.0, y: -height / 2.0) / focuserStepSizeMicrons;
+            var bottomLeftFocuser = centerFocuser + sensorModel.TiltAt(x: -width / 2.0, y: height / 2.0) / focuserStepSizeMicrons;
+            var bottomRightFocuser = centerFocuser + sensorModel.TiltAt(x: width / 2.0, y: height / 2.0) / focuserStepSizeMicrons;
 
             return TiltPlaneModel.Create(imageSize: imageSize, fRatio: fRatio,
                 focuserStepSizeMicrons: focuserStepSizeMicrons, centerFocuser: centerFocuser,

@@ -116,10 +116,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     sensorSizeMicronsY: imageSize.Height * pixelSize,
                     inFocusMicrons: finalFocusPosition * focuserSizeMicrons);
                 var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>();
-                var solution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);
+                sensorModelSolver.PositiveCurvature = true;
+                var positiveCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);
                 ct.ThrowIfCancellationRequested();
+                positiveCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
 
-                solution.EvaluateFit(nlSolver, sensorModelSolver);
+                sensorModelSolver.PositiveCurvature = false;
+                var negativeCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);
+                ct.ThrowIfCancellationRequested();
+                negativeCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
+
+                var solution = positiveCurvatureSolution.RMSErrorMicrons < negativeCurvatureSolution.RMSErrorMicrons ? positiveCurvatureSolution : negativeCurvatureSolution;
                 Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, Stars: {solution.StarsInModel}");
 
                 if (solution.GoodnessOfFit < 0.05) {

@@ -186,10 +186,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SensorTiltModels.Add(tiltPlaneModel.TopRight);
             SensorTiltModels.Add(tiltPlaneModel.BottomLeft);
             SensorTiltModels.Add(tiltPlaneModel.BottomRight);
+            TiltPlaneModel = tiltPlaneModel;
         }
 
         private void UpdateTiltMeasurementsTable(TiltPlaneModel tiltModel, double backfocusFocuserPositionDelta) {
-            TiltPlaneModel = tiltModel;
             UpdateTiltModels(tiltModel);
             var historyId = Interlocked.Increment(ref nextHistoryId);
             SensorTiltHistoryModels.Insert(0, new SensorTiltHistoryModel(

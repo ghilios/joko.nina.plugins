@@ -44,7 +44,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             mouseOnChartsEnabled = optionsAccessor.GetValueBoolean(nameof(MouseOnChartsEnabled), true);
             sensorCurveModelEnabled = optionsAccessor.GetValueBoolean(nameof(SensorCurveModelEnabled), false);
             showSensorModel = optionsAccessor.GetValueBoolean(nameof(ShowSensorModel), true);
-            sensorModelROI = optionsAccessor.GetValueDouble(nameof(SensorModelROI), 1.0);
+            sensorROI = optionsAccessor.GetValueDouble(nameof(SensorROI), 1.0);
+            cornersROI = optionsAccessor.GetValueDouble(nameof(CornersROI), 1.0);
         }
 
         public void ResetDefaults() {
@@ -60,7 +61,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             MouseOnChartsEnabled = true;
             SensorCurveModelEnabled = false;
             ShowSensorModel = true;
-            SensorModelROI = 1.0;
+            SensorROI = 1.0;
+            CornersROI = 1.0;
         }
 
         private int stepCount;
@@ -219,21 +221,41 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private double sensorModelROI;
+        private double sensorROI;
 
-        public double SensorModelROI {
-            get => sensorModelROI;
+        public double SensorROI {
+            get => sensorROI;
             set {
-                if (sensorModelROI != value) {
+                if (sensorROI != value) {
                     if (value < 0.1) {
-                        sensorModelROI = 0.1;
+                        sensorROI = 0.1;
                     } else if (value > 1.0 || double.IsNaN(value)) {
-                        sensorModelROI = 1.0;
+                        sensorROI = 1.0;
                     } else {
-                        sensorModelROI = value;
+                        sensorROI = value;
                     }
 
-                    optionsAccessor.SetValueDouble(nameof(SensorModelROI), sensorModelROI);
+                    optionsAccessor.SetValueDouble(nameof(SensorROI), sensorROI);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double cornersROI;
+
+        public double CornersROI {
+            get => cornersROI;
+            set {
+                if (cornersROI != value) {
+                    if (value < 0.1) {
+                        cornersROI = 0.1;
+                    } else if (value > 1.0 || double.IsNaN(value)) {
+                        cornersROI = 1.0;
+                    } else {
+                        cornersROI = value;
+                    }
+
+                    optionsAccessor.SetValueDouble(nameof(CornersROI), cornersROI);
                     RaisePropertyChanged();
                 }
             }
