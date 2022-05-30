@@ -175,7 +175,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var initialGuess = new double[] { initialX0, initialY0, initialA, initialB, 0.0d };
                 var lowerBounds = new double[] { 0.0d, -lowestOutput, 0.001d, 0.001d, -rotationRadiansBound };
                 var upperBounds = new double[] { double.PositiveInfinity, lowestOutput, double.PositiveInfinity, double.PositiveInfinity, rotationRadiansBound };
-                var scale = new double[] { lowestInput / lowestOutput, 1, 1, 1, 0.1 };
+                var positionScale = lowestOutput > 0 ? lowestInput / lowestOutput : lowestInput;
+                var scale = new double[] { Math.Max(1.0, positionScale), 1, 1, 1, 0.1 };
                 var solution = new double[4];
                 var tolerance = 1E-6;
                 var maxIterations = 0; // Keep going until the solution is found

@@ -195,23 +195,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             localAnalyzeTask = Task.Run(async () => {
                 var autoFocusEngine = autoFocusEngineFactory.Create();
                 var options = GetAutoFocusEngineOptions(autoFocusEngine);
-                var starDetectionRegion = GetAutoFocusRegion(options);
-                var one_third = 1.0d / 3.0d;
-                var two_thirds = 2.0d / 3.0d;
-                var regions = new List<StarDetectionRegion>() {
-                    starDetectionRegion, // Use regular AF star detection ROI for the first region, which drives the auto focus routine
-                    new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(two_thirds, 0, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
-                };
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
-                if (sensorCurveModelEnabled) {
-                    var roiValue = (1.0d - inspectorOptions.SensorModelROI) / 2.0;
-                    regions.Add(new StarDetectionRegion(new RatioRect(roiValue, roiValue, 1.0d - roiValue, 1.0d - roiValue)));
-                }
-
+                var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
                 var imagingFilter = GetImagingFilter();
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
@@ -228,7 +213,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return false;
                 }
 
-                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled);
+                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token);
                 if (!autoFocusAnalysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.");
                     return false;
@@ -270,10 +255,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private bool focuserStepSizeWarningShowed = false;
 
-        private Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result, bool sensorCurveModelEnabled) {
+        private async Task<bool> AnalyzeAutoFocusResult(AutoFocusResult result, bool sensorCurveModelEnabled, CancellationToken ct) {
             if (result == null || !result.Succeeded) {
                 Logger.Error("Inspection analysis failed, due to failed AutoFocus");
-                return Task.FromResult(false);
+                return false;
             }
 
             var invalidRegionCount = result.RegionResults.Count(r => double.IsNaN(r.EstimatedFinalFocuserPosition));
@@ -294,17 +279,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 var finalFocuserPosition = result.RegionResults[0].EstimatedFinalFocuserPosition;
-                SensorModel.UpdateModel(
+                await SensorModel.UpdateModel(
                     FullSensorDetectedStars,
                     fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio,
                     focuserSizeMicrons: focuserSizeMicrons,
-                    finalFocusPosition: finalFocuserPosition);
+                    finalFocusPosition: finalFocuserPosition,
+                    ct: ct);
             }
 
             UpdateBackfocusMeasurements(result);
             TiltModel.UpdateTiltModel(result, fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio, backfocusFocuserPositionDelta: BackfocusFocuserPositionDelta);
             AutoFocusCompleted = true;
-            return Task.FromResult(true);
+            return true;
         }
 
         private Task<bool> TakeAndAnalyzeExposure(IAutoFocusEngine autoFocusEngine, CancellationToken token) {
@@ -588,22 +574,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             localAnalyzeTask = Task.Run(async () => {
                 var options = GetAutoFocusEngineOptions(autoFocusEngine);
-                var starDetectionRegion = GetAutoFocusRegion(options);
-                var one_third = 1.0d / 3.0d;
-                var two_thirds = 2.0d / 3.0d;
-                var regions = new List<StarDetectionRegion>() {
-                    starDetectionRegion,
-                    new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(0, 0, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(two_thirds, 0, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(0, two_thirds, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(two_thirds, two_thirds, one_third, one_third))
-                };
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
-                if (sensorCurveModelEnabled) {
-                    var roiValue = (1.0d - inspectorOptions.SensorModelROI) / 2.0;
-                    regions.Add(new StarDetectionRegion(new RatioRect(roiValue, roiValue, 1.0d - roiValue, 1.0d - roiValue)));
-                }
+                var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
@@ -620,7 +592,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return false;
                 }
 
-                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled);
+                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token);
                 if (!autoFocusAnalysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed");
                     return false;
@@ -640,6 +612,29 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Inspection auto focus rerun analysis failed", e);
                 return false;
             }
+        }
+
+        private List<StarDetectionRegion> GetStarDetectionRegions(AutoFocusEngineOptions options, bool sensorCurveModelEnabled) {
+            var starDetectionRegion = GetAutoFocusRegion(options);
+            var one_third = 1.0d / 3.0d;
+            var width = one_third * inspectorOptions.CornersROI * inspectorOptions.SensorROI;
+            var distanceFromBoundary = (1.0 - inspectorOptions.SensorROI) / 2.0;
+            var innerStart = distanceFromBoundary;
+            var outerStart = 1.0 - distanceFromBoundary - width;
+
+            var regions = new List<StarDetectionRegion>() {
+                    starDetectionRegion,
+                    new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
+                    new StarDetectionRegion(new RatioRect(innerStart, innerStart, width, width)),
+                    new StarDetectionRegion(new RatioRect(outerStart, innerStart, width, width)),
+                    new StarDetectionRegion(new RatioRect(innerStart, outerStart, width, width)),
+                    new StarDetectionRegion(new RatioRect(outerStart, outerStart, width, width))
+                };
+            if (sensorCurveModelEnabled) {
+                var roiValue = (1.0d - inspectorOptions.SensorROI) / 2.0;
+                regions.Add(new StarDetectionRegion(new RatioRect(roiValue, roiValue, 1.0d - roiValue, 1.0d - roiValue)));
+            }
+            return regions;
         }
 
         private void AutoFocusEngine_Started(object sender, AutoFocusStartedEventArgs e) {

@@ -331,7 +331,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                         Size = 6
                     };
 
-                    var colormapLambdaLimit = (float)GetLambdaColorMapLimit(TiltPlaneModel.FRatio);
+                    var colormapLambdaLimit = (float)(GetLambdaColorMapLimit(TiltPlaneModel.FRatio) / tiltPlaneModel.FocuserStepSizeMicrons);
                     var colormap = GetSceneColorMap(closeColor: SurfaceColor.ToDrawingColor(), lowExtremeColor: SurfaceLowExtremeColor.ToDrawingColor(), highExtremeColor: SurfaceHighExtremeColor.ToDrawingColor());
                     var contourSurface = new Surface(
                         tosingle(tiltPlaneSurfaceZXY),

@@ -25,6 +25,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
@@ -92,52 +93,65 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             SensorTiltHistoryModels = new AsyncObservableCollection<SensorParaboloidTiltHistoryModel>();
         }
 
-        public void UpdateModel(
+        public Task UpdateModel(
             List<SensorDetectedStars> allDetectedStars,
             double fRatio,
             double focuserSizeMicrons,
-            double finalFocusPosition) {
+            double finalFocusPosition,
+            CancellationToken ct) {
             if (allDetectedStars.Count == 0) {
                 throw new ArgumentException("Cannot update sensor model. No detected stars provided");
             }
 
-            ModelLoaded = false;
-            var firstStarDetectionResult = allDetectedStars.First().StarDetectionResult;
-            var imageSize = firstStarDetectionResult.ImageSize;
-            var pixelSize = firstStarDetectionResult.PixelSize;
-            var dataPoints = RegisterStarsAndFit(allDetectedStars, pixelSize: pixelSize, focuserSizeMicrons: focuserSizeMicrons, imageSize: imageSize);
-            var sensorModelSolver = new SensorParaboloidSolver(
-                dataPoints: dataPoints,
-                sensorSizeMicronsX: imageSize.Width * pixelSize,
-                sensorSizeMicronsY: imageSize.Height * pixelSize,
-                inFocusMicrons: finalFocusPosition * focuserSizeMicrons);
-            var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>();
-            var solution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver);
-            solution.EvaluateFit(nlSolver, sensorModelSolver);
-            Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, Stars: {solution.StarsInModel}");
+            return Task.Run(() => {
+                ModelLoaded = false;
+                var firstStarDetectionResult = allDetectedStars.First().StarDetectionResult;
+                var imageSize = firstStarDetectionResult.ImageSize;
+                var pixelSize = firstStarDetectionResult.PixelSize;
+                Logger.Info($"Building Sensor Model. FRatio ({fRatio}), Focuser Size ({focuserSizeMicrons}), Pixel Size ({pixelSize}), Image size ({imageSize})");
+                var dataPoints = RegisterStarsAndFit(allDetectedStars, pixelSize: pixelSize, focuserSizeMicrons: focuserSizeMicrons, imageSize: imageSize);
+                var sensorModelSolver = new SensorParaboloidSolver(
+                    dataPoints: dataPoints,
+                    sensorSizeMicronsX: imageSize.Width * pixelSize,
+                    sensorSizeMicronsY: imageSize.Height * pixelSize,
+                    inFocusMicrons: finalFocusPosition * focuserSizeMicrons);
+                var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>();
+                sensorModelSolver.PositiveCurvature = true;
+                var positiveCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);
+                ct.ThrowIfCancellationRequested();
+                positiveCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
 
-            if (solution.GoodnessOfFit < 0.05) {
-                throw new Exception($"Sensor modeling failed. R² = {solution.GoodnessOfFit:#.00}");
-            }
+                sensorModelSolver.PositiveCurvature = false;
+                var negativeCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);
+                ct.ThrowIfCancellationRequested();
+                negativeCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
 
-            DisplayedSensorModel = solution;
-            SensorModelResult.Update(solution, imageSize, pixelSizeMicrons: pixelSize, fRatio: fRatio, focuserStepSizeMicrons: focuserSizeMicrons, finalFocusPosition: finalFocusPosition);
+                var solution = positiveCurvatureSolution.RMSErrorMicrons < negativeCurvatureSolution.RMSErrorMicrons ? positiveCurvatureSolution : negativeCurvatureSolution;
+                Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, Stars: {solution.StarsInModel}");
 
-            var historyId = Interlocked.Increment(ref nextHistoryId);
-            SensorTiltHistoryModels.Insert(0, new SensorParaboloidTiltHistoryModel(
-                historyId: historyId,
-                pixelSizeMicrons: pixelSize,
-                fRatio: fRatio,
-                imageSize: imageSize,
-                focuserSizeMicrons: focuserSizeMicrons,
-                finalFocusPosition: finalFocusPosition,
-                sensorModel: solution,
-                tiltEffectMicrons: SensorModelResult.TiltEffectMicrons,
-                curvatureEffectMicrons: SensorModelResult.CurvatureEffectMicrons,
-                autoFocusOffset: SensorModelResult.AutoFocusMeanOffset,
-                tiltPlaneModel: SensorModelResult.TiltPlaneModel));
-            SelectedTiltHistoryModel = null;
-            ModelLoaded = true;
+                if (solution.GoodnessOfFit < 0.05) {
+                    throw new Exception($"Sensor modeling failed. R² = {solution.GoodnessOfFit:#.00}");
+                }
+
+                DisplayedSensorModel = solution;
+                SensorModelResult.Update(solution, imageSize, pixelSizeMicrons: pixelSize, fRatio: fRatio, focuserStepSizeMicrons: focuserSizeMicrons, finalFocusPosition: finalFocusPosition);
+
+                var historyId = Interlocked.Increment(ref nextHistoryId);
+                SensorTiltHistoryModels.Insert(0, new SensorParaboloidTiltHistoryModel(
+                    historyId: historyId,
+                    pixelSizeMicrons: pixelSize,
+                    fRatio: fRatio,
+                    imageSize: imageSize,
+                    focuserSizeMicrons: focuserSizeMicrons,
+                    finalFocusPosition: finalFocusPosition,
+                    sensorModel: solution,
+                    tiltEffectMicrons: SensorModelResult.TiltEffectMicrons,
+                    curvatureEffectMicrons: SensorModelResult.CurvatureEffectMicrons,
+                    autoFocusOffset: SensorModelResult.AutoFocusMeanOffset,
+                    tiltPlaneModel: SensorModelResult.TiltPlaneModel));
+                SelectedTiltHistoryModel = null;
+                ModelLoaded = true;
+            });
         }
 
         private List<SensorParaboloidDataPoint> RegisterStarsAndFit(

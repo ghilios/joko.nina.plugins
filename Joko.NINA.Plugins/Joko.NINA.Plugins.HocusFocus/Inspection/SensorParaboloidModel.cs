@@ -250,7 +250,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             initialGuess[0] = 0.0;
             initialGuess[1] = 0.0;
             initialGuess[2] = inFocusMicrons;
-            initialGuess[3] = 0.0;
+            initialGuess[3] = 1E-5;
             initialGuess[4] = 0.0;
             initialGuess[5] = PositiveCurvature ? 1E-4 : -1E-4;
         }
@@ -259,7 +259,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             lowerBounds[0] = -sensorSizeMicronsX / 2.0;
             lowerBounds[1] = -sensorSizeMicronsY / 2.0;
             lowerBounds[2] = double.NegativeInfinity;
-            lowerBounds[3] = 0.0;
+            lowerBounds[3] = 1E-5; // Ensure tilt never goes to 0, since perfection is impossible. This forces calculation of phi, and avoids situations where we're stuck at a local minima
             lowerBounds[4] = -Math.PI;
             lowerBounds[5] = PositiveCurvature ? 1E-4 : double.NegativeInfinity;
 
@@ -275,7 +275,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             scales[0] = 1.0;
             scales[1] = 1.0;
             scales[2] = 1.0;
-            scales[3] = 1E-1;
+            scales[3] = 1E-2;
             scales[4] = 1.0;
             scales[5] = 1E-2;
         }
