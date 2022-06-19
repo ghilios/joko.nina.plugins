@@ -193,39 +193,45 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             analyzeCts = localAnalyzeCts;
 
             localAnalyzeTask = Task.Run(async () => {
-                var autoFocusEngine = autoFocusEngineFactory.Create();
-                var options = GetAutoFocusEngineOptions(autoFocusEngine);
-                var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
-                var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
-                var imagingFilter = GetImagingFilter();
+                try {
+                    this.cameraMediator.RegisterCaptureBlock(this);
 
-                autoFocusEngine.Started += AutoFocusEngine_Started;
-                autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
-                autoFocusEngine.Failed += AutoFocusEngine_Failed;
-                autoFocusEngine.Completed += AutoFocusEngine_Completed;
-                autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
-                autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
+                    var autoFocusEngine = autoFocusEngineFactory.Create();
+                    var options = GetAutoFocusEngineOptions(autoFocusEngine);
+                    var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
+                    var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
+                    var imagingFilter = GetImagingFilter();
 
-                ActivateAutoFocusChart();
-                DeactivateExposureAnalysis();
-                var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
-                if (result == null) {
-                    return false;
-                }
+                    autoFocusEngine.Started += AutoFocusEngine_Started;
+                    autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
+                    autoFocusEngine.Failed += AutoFocusEngine_Failed;
+                    autoFocusEngine.Completed += AutoFocusEngine_Completed;
+                    autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+                    autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
 
-                var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token);
-                if (!autoFocusAnalysisResult) {
-                    Notification.ShowError("AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.");
-                    return false;
+                    ActivateAutoFocusChart();
+                    DeactivateExposureAnalysis();
+                    var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
+                    if (result == null) {
+                        return false;
+                    }
+
+                    var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token);
+                    if (!autoFocusAnalysisResult) {
+                        Notification.ShowError("AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.");
+                        return false;
+                    }
+                    ActivateTiltMeasurement();
+                    var exposureAnalysisResult = await TakeAndAnalyzeExposureImpl(autoFocusEngine, analyzeCts.Token);
+                    if (!exposureAnalysisResult) {
+                        Notification.ShowError("Exposure Analysis Failed");
+                        return false;
+                    }
+                    ActivateExposureAnalysis();
+                    return true;
+                } finally {
+                    this.cameraMediator.ReleaseCaptureBlock(this);
                 }
-                ActivateTiltMeasurement();
-                var exposureAnalysisResult = await TakeAndAnalyzeExposureImpl(autoFocusEngine, analyzeCts.Token);
-                if (!exposureAnalysisResult) {
-                    Notification.ShowError("Exposure Analysis Failed");
-                    return false;
-                }
-                ActivateExposureAnalysis();
-                return true;
             }, localAnalyzeCts.Token);
             analyzeTask = localAnalyzeTask;
 

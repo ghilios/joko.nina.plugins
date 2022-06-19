@@ -29,6 +29,7 @@ using System.Diagnostics;
 using NINA.Image.ImageAnalysis;
 using System.Windows.Media;
 using NINA.Image.ImageData;
+using NINA.Core.Utility.Notification;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -113,6 +114,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     srcImage = resourceTracker.T(CvImageUtility.ToOpenCVMat(image));
                 }
                 return await DetectImpl(srcImage, resourceTracker, p, hotpixelFilteringApplied, progress, token);
+            } catch (TypeInitializationException e) {
+                Logger.Error(e, "TypeInitialization exception while performing star detection. This indicates the OpenCV library couldn't be loaded. If you have a Windows N SKU, install the Media Pack");
+                Notification.ShowError("Could ont load the OpenCV library. If you have a Windows N SKU, install the Media Pack");
+                throw;
             } finally {
                 // Cleanup
                 resourceTracker.Dispose();

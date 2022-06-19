@@ -201,11 +201,11 @@
     <Reference Include="nikoncswrapper, Version=1.8.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\NINA.Equipment.2.0.0.2059-beta\lib\net48\nikoncswrapper.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Astrometry, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Astrometry.2.0.0.2059-beta\lib\net48\NINA.Astrometry.dll</HintPath>
+    <Reference Include="NINA.Astrometry, Version=2.0.0.9001, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Astrometry.2.0.0.9001\lib\net48\NINA.Astrometry.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Core, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Core.2.0.0.2059-beta\lib\net48\NINA.Core.dll</HintPath>
+    <Reference Include="NINA.Core, Version=2.0.0.9001, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Core.2.0.0.9001\lib\net48\NINA.Core.dll</HintPath>
     </Reference>
     <Reference Include="NINA.Equipment, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\NINA.Equipment.2.0.0.2059-beta\lib\net48\NINA.Equipment.dll</HintPath>
@@ -222,8 +222,8 @@
     <Reference Include="NINA.Plugin, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\NINA.Plugin.2.0.0.2059-beta\lib\net48\NINA.Plugin.dll</HintPath>
     </Reference>
-    <Reference Include="NINA.Profile, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Profile.2.0.0.2059-beta\lib\net48\NINA.Profile.dll</HintPath>
+    <Reference Include="NINA.Profile, Version=2.0.0.9001, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NINA.Profile.2.0.0.9001\lib\net48\NINA.Profile.dll</HintPath>
     </Reference>
     <Reference Include="NINA.Sequencer, Version=2.0.0.2059, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\NINA.Sequencer.2.0.0.2059-beta\lib\net48\NINA.Sequencer.dll</HintPath>
