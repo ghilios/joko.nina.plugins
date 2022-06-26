@@ -303,6 +303,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         }
 
         public double GoodnessOfFit(S solver, U model) {
+            if (solver.Outputs.Length == 0) {
+                return 0.0;
+            }
+
             var parameters = model.ToArray();
             var rss = 0.0d;
             var tss = 0.0d;

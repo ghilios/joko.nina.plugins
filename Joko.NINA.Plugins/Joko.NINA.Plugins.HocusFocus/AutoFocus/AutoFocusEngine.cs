@@ -450,6 +450,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (filter != null && filter.AutoFocusExposureTime > -1) {
                     expTime = filter.AutoFocusExposureTime;
                 }
+
+                if (state.Options.OverrideAutoFocusExposureTime > TimeSpan.Zero) {
+                    Logger.Debug($"Overriding AutoFocus exposure time to {state.Options.OverrideAutoFocusExposureTime}");
+                    expTime = state.Options.OverrideAutoFocusExposureTime.TotalSeconds;
+                }
                 var seq = new CaptureSequence(expTime, CaptureSequence.ImageTypes.SNAPSHOT, filter, null, 1);
 
                 var subSampleRectangle = GetSubSampleRectangle(state);
@@ -1001,7 +1006,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     if (rSquaredThreshold > 0) {
                         var hyperbolicBad = fittings.HyperbolicFitting != null && fittings.HyperbolicFitting.RSquared < rSquaredThreshold;
                         var quadraticBad = fittings.QuadraticFitting != null && fittings.QuadraticFitting.RSquared < rSquaredThreshold;
-                        var trendlineBad = fittings.TrendlineFitting != null && (fittings.TrendlineFitting.LeftTrend.RSquared < rSquaredThreshold || fittings.TrendlineFitting.RightTrend.RSquared < rSquaredThreshold);
+                        var trendlineBad = (fittings.TrendlineFitting?.LeftTrend != null && fittings.TrendlineFitting.LeftTrend.RSquared < rSquaredThreshold) ||
+                            (fittings.TrendlineFitting?.RightTrend != null && fittings.TrendlineFitting.RightTrend.RSquared < rSquaredThreshold);
 
                         var fitting = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
 
@@ -1497,13 +1503,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private static readonly Regex ATTEMPT_REGEX = new Regex(@"^attempt(?<ATTEMPT>\d+)$", RegexOptions.Compiled);
         private static readonly Regex IMAGE_FILE_REGEX = new Regex(@"^(?<IMAGE_INDEX>\d+)_Frame(?<FRAME_NUMBER>\d+)_BitDepth(?<BITDEPTH>\d+)_Bayered(?<BAYERED>\d)_Focuser(?<FOCUSER>\d+)(_HFR(?<HFR>(\d+)(\.\d+)?))?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        public SavedAutoFocusAttempt LoadSavedFinalAttempt(string path) {
+            var attemptFolder = new DirectoryInfo(path);
+            return LoadSavedAttemptImpl(attemptFolder, -1, 0);
+        }
+
         public SavedAutoFocusAttempt LoadSavedAutoFocusAttempt(string path) {
             var attemptFolder = new DirectoryInfo(path);
             var attemptMatch = ATTEMPT_REGEX.Match(attemptFolder.Name);
             if (!attemptMatch.Success || !int.TryParse(attemptMatch.Groups["ATTEMPT"].Value, out var attemptNumber)) {
                 throw new Exception("A folder named attemptXX must be selected");
             }
+            return LoadSavedAttemptImpl(attemptFolder, attemptNumber, 3);
+        }
 
+        private SavedAutoFocusAttempt LoadSavedAttemptImpl(DirectoryInfo attemptFolder, int attemptNumber, int minNumImages) {
             var allFiles = attemptFolder.GetFiles();
             var savedImages = new List<SavedAutoFocusImage>();
             foreach (var file in allFiles) {
@@ -1539,8 +1553,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 };
                 savedImages.Add(savedImage);
             }
-            if (savedImages.Count < 3) {
-                throw new Exception($"Must be at least 3 saved AF images in {path}");
+            if (savedImages.Count < minNumImages) {
+                throw new Exception($"Must be at least {minNumImages} saved AF images in {attemptFolder.FullName}");
             }
 
             return new SavedAutoFocusAttempt() {

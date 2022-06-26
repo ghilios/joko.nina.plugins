@@ -56,6 +56,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int AutoFocusStepSize { get; set; }
         public int FramesPerPoint { get; set; }
         public int MaxConcurrent { get; set; }
+        public TimeSpan OverrideAutoFocusExposureTime { get; set; } = TimeSpan.Zero;
         public bool Save { get; set; }
         public string SavePath { get; set; }
         public TimeSpan AutoFocusTimeout { get; set; }
@@ -80,6 +81,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Task<FilterInfo> SetAutofocusFilter(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
 
         SavedAutoFocusAttempt LoadSavedAutoFocusAttempt(string path);
+
+        SavedAutoFocusAttempt LoadSavedFinalAttempt(string path);
 
         event EventHandler<AutoFocusInitialHFRCalculatedEventArgs> InitialHFRCalculated;
 
@@ -194,7 +197,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public AutoFocusFitting Fittings { get; set; }
     }
 
-    public class AutoFocusCompletedEventArgs : EventArgs {
+    public class AutoFocusFinishedEventArgsBase : EventArgs {
         public int Iteration { get; set; }
         public int InitialFocusPosition { get; set; }
         public ImmutableList<AutoFocusRegionHFR> RegionHFRs { get; set; }
@@ -205,14 +208,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public string SaveFolder { get; set; }
     }
 
-    public class AutoFocusFailedEventArgs : EventArgs {
-        public int Iteration { get; set; }
-        public int InitialFocusPosition { get; set; }
-        public ImmutableList<AutoFocusRegionHFR> RegionHFRs { get; set; }
-        public string Filter { get; set; }
-        public double Temperature { get; set; }
-        public DrawingSize ImageSize { get; set; }
-        public TimeSpan Duration { get; set; }
-        public string SaveFolder { get; set; }
+    public class AutoFocusCompletedEventArgs : AutoFocusFinishedEventArgsBase {
+    }
+
+    public class AutoFocusFailedEventArgs : AutoFocusFinishedEventArgsBase {
     }
 }

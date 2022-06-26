@@ -215,6 +215,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                             scatteredPointValues[0, pointIndex] = originalPoints[regionRow, regionCol];
                             scatteredPointPositions[0, pointIndex] = regionCol;
                             scatteredPointPositions[1, pointIndex] = regionRow;
+                            ++pointIndex;
                         }
                     }
 

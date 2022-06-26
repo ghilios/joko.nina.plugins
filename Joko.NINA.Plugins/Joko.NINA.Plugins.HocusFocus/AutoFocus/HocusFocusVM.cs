@@ -460,6 +460,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private void AutoFocusEngine_Failed(object sender, AutoFocusFailedEventArgs e) {
             var firstRegion = e.RegionHFRs[0];
+            AutoFocusEngine_CompletedNoReport(sender, e);
             var report = GenerateReport(
                 initialFocusPosition: e.InitialFocusPosition,
                 initialHFR: firstRegion.InitialHFR ?? 0.0d,
@@ -483,6 +484,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (!string.IsNullOrEmpty(e.SaveFolder)) {
                 var regionIndex = 0;
                 var firstRegion = e.RegionHFRs[regionIndex];
+                AutoFocusEngine_CompletedNoReport(sender, e);
                 var report = HocusFocusReport.GenerateReport(
                     profileService: this.profileService,
                     starDetector: starDetectionSelector.GetBehavior(),
@@ -509,7 +511,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             PlotFocusPoints.Clear();
         }
 
-        private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusCompletedEventArgs e) {
+        private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusFinishedEventArgsBase e) {
             var firstRegion = e.RegionHFRs[0];
             FinalFocusPoint = new DataPoint(firstRegion.EstimatedFinalFocuserPosition, firstRegion.EstimatedFinalHFR);
             LastAutoFocusPoint = new ReportAutoFocusPoint {

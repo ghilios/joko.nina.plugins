@@ -37,6 +37,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             framesPerPoint = optionsAccessor.GetValueInt32(nameof(FramesPerPoint), -1);
             timeoutSeconds = optionsAccessor.GetValueInt32(nameof(TimeoutSeconds), -1);
             simpleExposureSeconds = optionsAccessor.GetValueDouble(nameof(SimpleExposureSeconds), -1);
+            detailedAnalysisExposureSeconds = optionsAccessor.GetValueDouble(nameof(DetailedAnalysisExposureSeconds), -1);
             numRegionsWide = optionsAccessor.GetValueInt32(nameof(NumRegionsWide), 7);
             loopingExposureAnalysisEnabled = optionsAccessor.GetValueBoolean(nameof(LoopingExposureAnalysisEnabled), false);
             micronsPerFocuserStep = optionsAccessor.GetValueDouble(nameof(MicronsPerFocuserStep), -1);
@@ -125,6 +126,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (simpleExposureSeconds != value) {
                     simpleExposureSeconds = value;
                     optionsAccessor.SetValueDouble(nameof(SimpleExposureSeconds), simpleExposureSeconds);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double detailedAnalysisExposureSeconds;
+
+        public double DetailedAnalysisExposureSeconds {
+            get => detailedAnalysisExposureSeconds;
+            set {
+                if (detailedAnalysisExposureSeconds != value) {
+                    detailedAnalysisExposureSeconds = value;
+                    optionsAccessor.SetValueDouble(nameof(DetailedAnalysisExposureSeconds), detailedAnalysisExposureSeconds);
                     RaisePropertyChanged();
                 }
             }
