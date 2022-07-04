@@ -114,6 +114,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // TODO: Consider increasing the resolution for long focal lengths
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
+            HotpixelThreshold = 0.001d;
         }
 
         private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -165,6 +166,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             psfResolution = optionsAccessor.GetValueInt32("PSFResolution", 10);
             psfFitThreshold = optionsAccessor.GetValueDouble("PSFFitThreshold", 0.9);
             usePSFAbsoluteDeviation = optionsAccessor.GetValueBoolean(nameof(UsePSFAbsoluteDeviation), false);
+            hotpixelThreshold = optionsAccessor.GetValueDouble(nameof(HotpixelThreshold), 0.001d);
             ConfigureSimpleSettings();
         }
 
@@ -203,6 +205,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
             UsePSFAbsoluteDeviation = false;
+            HotpixelThreshold = 0.001d;
         }
 
         private bool debugMode;
@@ -657,6 +660,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (usePSFAbsoluteDeviation != value) {
                     usePSFAbsoluteDeviation = value;
                     optionsAccessor.SetValueBoolean(nameof(UsePSFAbsoluteDeviation), usePSFAbsoluteDeviation);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double hotpixelThreshold;
+
+        public double HotpixelThreshold {
+            get => hotpixelThreshold;
+            set {
+                if (hotpixelThreshold != value) {
+                    if (value <= 0.0 || value > 1.0) {
+                        throw new ArgumentException("HotpixelThreshold must be within (0, 1]", "HotpixelThreshold");
+                    }
+                    hotpixelThreshold = value;
+                    optionsAccessor.SetValueDouble("HotpixelThreshold", hotpixelThreshold);
                     RaisePropertyChanged();
                 }
             }

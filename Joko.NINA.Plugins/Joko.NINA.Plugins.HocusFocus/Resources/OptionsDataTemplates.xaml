@@ -41,6 +41,7 @@
     <TextBlock x:Key="HFRImprovementThreshold_Tooltip" Text="How much wiggle room when validating HFR improvements. The default value of 15% means that the Auto Focus fails if the initial HFR is 15% or more better than the final HFR" />
     <TextBlock x:Key="HotpixelFiltering_Tooltip" Text="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
     <TextBlock x:Key="HotpixelThresholdingEnabled_Tooltip" Text="A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy" />
+    <TextBlock x:Key="HotpixelThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value" />
     <TextBlock x:Key="UseAutoFocusCrop_Tooltip" Text="Uses the inner and outer crop from the Auto Focus options for regular exposures (ie, those that aren't done during focusing)" />
     <TextBlock x:Key="SavePath_Tooltip" Text="The folder to save Auto Focus runs" />
     <TextBlock x:Key="SaveAutoFocus_Tooltip" Text="Saves details about every Auto Focus run, including a copy of the image, the star detection results, and the stretched annotated image" />
@@ -354,6 +355,18 @@
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
+                <Style x:Key="ShowOnUseHotpixelThresholding_Advanced" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="0" />
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding StarDetectionOptions.HotpixelThresholdingEnabled}" Value="True" />
+                                <Condition Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="True" />
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Height" Value="Auto" />
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
                 <Style x:Key="HideOnSaveIntermediateOff" TargetType="{x:Type RowDefinition}">
                     <Setter Property="Height" Value="Auto" />
                     <Style.Triggers>
@@ -400,14 +413,17 @@
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <!--  31  -->
+                <RowDefinition Style="{StaticResource ShowOnUseHotpixelThresholding_Advanced}" />
+
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition />
-                <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
+
                 <!--  37  -->
+                <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
@@ -1018,6 +1034,35 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding StarDetectionOptions.UsePSFAbsoluteDeviation}"
                 ToolTip="{StaticResource UsePSFAbsoluteDeviation_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="31"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Hotpixel Threshold"
+                ToolTip="{StaticResource HotpixelThreshold_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="31"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ToolTip="{StaticResource HotpixelThreshold_Tooltip}"
+                Unit="%">
+                <Binding
+                    Converter="{StaticResource PercentageConverter}"
+                    Path="StarDetectionOptions.HotpixelThreshold"
+                    UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="100.0" Minimum="0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
 
             <TextBlock
                 Grid.Row="36"

@@ -182,7 +182,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         // The threshold limit for Hotpixel thresholding. If the median value for a pixel's neighbors differs from the actual pixel value by this percent
         // of the max ADU, then the pixel is replaced
-        public double HotpixelThreshold { get; set; } = 0.01;
+        public double HotpixelThreshold { get; set; } = 0.001;
 
         // If this is true, then the source image used for star measurement has the noise reduction settings applied to it. Otherwise, noise reduction is done only on the structure map
         public bool StarMeasurementNoiseReductionEnabled { get; set; } = true;

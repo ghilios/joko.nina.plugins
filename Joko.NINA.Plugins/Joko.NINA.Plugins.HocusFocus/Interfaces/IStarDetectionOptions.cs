@@ -93,5 +93,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         StarDetectorPSFFitType PSFFitType { get; set; }
         int PSFResolution { get; set; }
         bool UsePSFAbsoluteDeviation { get; set; }
+        double HotpixelThreshold { get; set; }
     }
 }
