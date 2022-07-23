@@ -55,20 +55,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             Cv2.MedianBlur(m, m, 3);
         }
 
-        public static void HotpixelFilterWithThresholding(Mat m, double threshold) {
+        public static long HotpixelFilterWithThresholding(Mat m, double threshold) {
             using (var blurred = new Mat())
             using (var diff = new Mat()) {
+                long numHotpixels;
                 Cv2.MedianBlur(m, blurred, 3);
                 Cv2.Absdiff(m, blurred, diff);
                 using (var mask = new Mat()) {
                     Cv2.Threshold(diff, mask, threshold, 1.0, ThresholdTypes.Binary);
+                    numHotpixels = Cv2.CountNonZero(mask);
                     mask.ConvertTo(mask, MatType.CV_8UC1, 255);
                     Cv2.CopyTo(blurred, m, mask);
+                    return numHotpixels;
                 }
             }
         }
 
-        public static void CFAHotpixelFilter(RawImageData imageData, SensorType bayerPattern, ushort threshold) {
+        public static long CFAHotpixelFilter(RawImageData imageData, SensorType bayerPattern, ushort threshold) {
+            long numHotpixels = 0;
             int firstRowG, secondRowG;
             if (bayerPattern == SensorType.BGGR) {
                 firstRowG = 1;
@@ -108,10 +112,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 }
 
                 for (int x = 0; x < imageData.Width; ++x) {
-                    ApplyHotpixelFilter(imageData, x: x, y: y, useAdjacent: useAdjacent, threshold: intThreshold);
+                    if (ApplyHotpixelFilter(imageData, x: x, y: y, useAdjacent: useAdjacent, threshold: intThreshold)) {
+                        ++numHotpixels;
+                    }
                     useAdjacent = !useAdjacent;
                 }
             }
+            return numHotpixels;
         }
 
         private static ushort CalculateMedianPixel(RawImageData imageData, int x, int y, bool useAdjacent, ushort centerPixel) {
@@ -167,12 +174,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 imageData.GetPixel(x: x + distance, y: y + distance));
         }
 
-        private static void ApplyHotpixelFilter(RawImageData imageData, int x, int y, bool useAdjacent, int threshold) {
+        private static bool ApplyHotpixelFilter(RawImageData imageData, int x, int y, bool useAdjacent, int threshold) {
             var centerPixel = imageData.GetPixel(x: x, y: y);
             var medianPixelValue = CalculateMedianPixel(imageData, x: x, y: y, useAdjacent: useAdjacent, centerPixel: centerPixel);
             if (Math.Abs(medianPixelValue - centerPixel) >= threshold) {
                 imageData.SetPixel(x: x, y: y, medianPixelValue);
+                return true;
             }
+            return false;
         }
 
         private static ushort Median_3(ushort a, ushort b, ushort c) {

@@ -787,6 +787,30 @@
                                     Text="{Binding Metrics.PSFFitFailed, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Saturated Pixels" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.SaturatedPixelCount, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Hotpixels" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.HotpixelCount, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
                     </StackPanel>
                 </GroupBox>
             </Grid>

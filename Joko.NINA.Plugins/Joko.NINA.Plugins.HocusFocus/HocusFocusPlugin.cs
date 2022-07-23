@@ -27,6 +27,10 @@ using System.Reflection;
 using System.IO;
 using System;
 using NINA.Joko.Plugins.HocusFocus.Utility;
+using System.Threading.Tasks;
+using NINA.WPF.Base.Interfaces.Mediator;
+using NINA.Core.Model;
+using NINA.WPF.Base.Interfaces.ViewModel;
 
 namespace NINA.Joko.Plugins.HocusFocus {
 
@@ -42,6 +46,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
             IGuiderMediator guiderMediator,
             IImagingMediator imagingMediator,
             IImageDataFactory imageDataFactory,
+            IImageSaveMediator imageSaveMediator,
+            IOptionsVM options,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector) {
             if (Settings.Default.UpdateSettings) {
@@ -83,6 +89,9 @@ namespace NINA.Joko.Plugins.HocusFocus {
             var thisAssemblyFileInfo = new FileInfo(thisAssembly.Location);
             ILNumerics.Settings.DefaultRenderer = ILNumerics.Drawing.RendererTypes.OpenGL;
 
+            options.AddImagePattern(fwhmImagePattern);
+            options.AddImagePattern(eccentricityImagePattern);
+            imageSaveMediator.BeforeFinalizeImageSaved += ImageSaveMediator_BeforeFinalizeImageSaved;
             ResetStarDetectionDefaultsCommand = new RelayCommand((object o) => StarDetectionOptions.ResetDefaults());
             ResetStarAnnotatorDefaultsCommand = new RelayCommand((object o) => StarAnnotatorOptions.ResetDefaults());
             ResetAutoFocusDefaultsCommand = new RelayCommand((object o) => AutoFocusOptions.ResetDefaults());
@@ -109,6 +118,22 @@ namespace NINA.Joko.Plugins.HocusFocus {
                 }
             }
         }
+
+        private async Task ImageSaveMediator_BeforeFinalizeImageSaved(object sender, BeforeFinalizeImageSavedEventArgs e) {
+            var hfAnalysis = (e.Image?.RawImageData?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis);
+            if (hfAnalysis != null) {
+                e.AddImagePattern(new ImagePattern(fwhmImagePattern.Key, fwhmImagePattern.Description, fwhmImagePattern.Category) {
+                    Value = $"{hfAnalysis.FWHM:0.00}"
+                });
+                e.AddImagePattern(new ImagePattern(eccentricityImagePattern.Key, eccentricityImagePattern.Description, eccentricityImagePattern.Category) {
+                    Value = $"{hfAnalysis.Eccentricity:0.00}"
+                });
+            }
+        }
+
+        private readonly ImagePattern fwhmImagePattern = new ImagePattern("$$FWHM$$", "Full Width Half Maximum", "Hocus Focus") { Value = "4.23" };
+
+        private readonly ImagePattern eccentricityImagePattern = new ImagePattern("$$ECCENTRICITY$$", "Eccentricity", "Hocus Focus") { Value = "0.66" };
 
         public static StarDetectionOptions StarDetectionOptions { get; private set; }
 

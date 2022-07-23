@@ -42,6 +42,7 @@
     <TextBlock x:Key="HotpixelFiltering_Tooltip" Text="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
     <TextBlock x:Key="HotpixelThresholdingEnabled_Tooltip" Text="A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy" />
     <TextBlock x:Key="HotpixelThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value" />
+    <TextBlock x:Key="SaturationThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a saturated pixel. Star candidates containing any saturated pixels are rejected" />
     <TextBlock x:Key="UseAutoFocusCrop_Tooltip" Text="Uses the inner and outer crop from the Auto Focus options for regular exposures (ie, those that aren't done during focusing)" />
     <TextBlock x:Key="SavePath_Tooltip" Text="The folder to save Auto Focus runs" />
     <TextBlock x:Key="SaveAutoFocus_Tooltip" Text="Saves details about every Auto Focus run, including a copy of the image, the star detection results, and the stretched annotated image" />
@@ -1053,6 +1054,35 @@
                 <Binding
                     Converter="{StaticResource PercentageConverter}"
                     Path="StarDetectionOptions.HotpixelThreshold"
+                    UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="100.0" Minimum="0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="32"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Saturation Threshold"
+                ToolTip="{StaticResource SaturationThreshold_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="32"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ToolTip="{StaticResource SaturationThreshold_Tooltip}"
+                Unit="%">
+                <Binding
+                    Converter="{StaticResource PercentageConverter}"
+                    Path="StarDetectionOptions.SaturationThreshold"
                     UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:DoubleRangeRule>

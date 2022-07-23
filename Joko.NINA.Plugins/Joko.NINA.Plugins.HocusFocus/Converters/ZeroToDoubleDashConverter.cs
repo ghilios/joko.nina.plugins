@@ -23,6 +23,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
                 case int i when i == 0:
                     return "--";
 
+                case long i when i == 0:
+                    return "--";
+
                 default:
                     return value;
             }
