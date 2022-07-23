@@ -94,5 +94,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         int PSFResolution { get; set; }
         bool UsePSFAbsoluteDeviation { get; set; }
         double HotpixelThreshold { get; set; }
+        double SaturationThreshold { get; set; }
     }
 }

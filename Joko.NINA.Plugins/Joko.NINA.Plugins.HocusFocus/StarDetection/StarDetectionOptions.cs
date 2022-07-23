@@ -167,6 +167,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             psfFitThreshold = optionsAccessor.GetValueDouble("PSFFitThreshold", 0.9);
             usePSFAbsoluteDeviation = optionsAccessor.GetValueBoolean(nameof(UsePSFAbsoluteDeviation), false);
             hotpixelThreshold = optionsAccessor.GetValueDouble(nameof(HotpixelThreshold), 0.001d);
+            saturationThreshold = optionsAccessor.GetValueDouble(nameof(SaturationThreshold), 0.99d);
             ConfigureSimpleSettings();
         }
 
@@ -206,6 +207,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFFitThreshold = 0.9;
             UsePSFAbsoluteDeviation = false;
             HotpixelThreshold = 0.001d;
+            SaturationThreshold = 0.99d;
         }
 
         private bool debugMode;
@@ -676,6 +678,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     hotpixelThreshold = value;
                     optionsAccessor.SetValueDouble("HotpixelThreshold", hotpixelThreshold);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double saturationThreshold;
+
+        public double SaturationThreshold {
+            get => saturationThreshold;
+            set {
+                if (saturationThreshold != value) {
+                    if (value <= 0.0 || value > 1.0) {
+                        throw new ArgumentException("SaturationThreshold must be within (0, 1]", "SaturationThreshold");
+                    }
+                    saturationThreshold = value;
+                    optionsAccessor.SetValueDouble(nameof(SaturationThreshold), saturationThreshold);
                     RaisePropertyChanged();
                 }
             }

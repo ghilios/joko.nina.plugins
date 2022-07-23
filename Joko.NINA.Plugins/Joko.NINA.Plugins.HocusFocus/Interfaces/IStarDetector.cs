@@ -312,6 +312,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int HFRAnalysisFailed { get; set; } = 0;
         public int PSFFitFailed { get; set; } = 0;
         public int OutsideROI { get; set; } = 0;
+        public long SaturatedPixelCount { get; set; } = 0L;
+        public long HotpixelCount { get; set; } = 0L;
 
         public void AddROIOffset(int xOffset, int yOffset) {
             var allRectBounds = new List<List<Rect>>() {
