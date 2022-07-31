@@ -28,5 +28,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         string LastSelectedLoadPath { get; set; }
         int FocuserOffset { get; set; }
         bool AllowHyperbolaRotation { get; set; }
+        bool RegisterStars { get; set; }
     }
 }

@@ -281,94 +281,104 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
-            var binX = double.IsNaN(image.RawImageData.MetaData.Camera.BinX) ? 1 : image.RawImageData.MetaData.Camera.BinX;
-            var metadataPixelSize = double.IsNaN(image.RawImageData.MetaData.Camera.PixelSize) ? 3.76 : image.RawImageData.MetaData.Camera.PixelSize;
-            var pixelSize = metadataPixelSize * Math.Max(binX, 1);
-            var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
-            var result = new HocusFocusStarDetectionResult() {
-                HocusFocusParams = hocusFocusParams,
-                DetectorParams = detectorParams,
-                ImageSize = imageSize,
-                Region = detectorParams.Region,
-                FocuserPosition = focuserMediator.GetInfo().Position,
-                PixelSize = pixelSize
-            };
-            var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
-            if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
-                Notification.ShowInformation("Saved intermediate star detection files");
-                Logger.Info($"Saved intermediate star detection files to {detectorParams.SaveIntermediateFilesPath}");
-            }
-
-            var starList = starDetectorResult.DetectedStars;
-
-            if (!detectorParams.Region.IsFull() && detectorParams.Region.InnerCropBoundary != null) {
-                var innerRegion = detectorParams.Region.InnerCropBoundary.ToRectangle(imageSize);
-                var before = starList.Count;
-                starList = starList.Where(s => OutsideROI(s, innerRegion)).ToList();
-                var outsideRoi = before - starList.Count;
-                if (outsideRoi > 0) {
-                    starDetectorResult.Metrics.OutsideROI = outsideRoi;
+            using (var stopwatch = MyStopWatch.Measure()) {
+                var binX = double.IsNaN(image.RawImageData.MetaData.Camera.BinX) ? 1 : image.RawImageData.MetaData.Camera.BinX;
+                var metadataPixelSize = double.IsNaN(image.RawImageData.MetaData.Camera.PixelSize) ? 3.76 : image.RawImageData.MetaData.Camera.PixelSize;
+                var pixelSize = metadataPixelSize * Math.Max(binX, 1);
+                var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
+                var result = new HocusFocusStarDetectionResult() {
+                    HocusFocusParams = hocusFocusParams,
+                    DetectorParams = detectorParams,
+                    ImageSize = imageSize,
+                    Region = detectorParams.Region,
+                    FocuserPosition = focuserMediator.GetInfo().Position,
+                    PixelSize = pixelSize
+                };
+                var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
+                if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
+                    Notification.ShowInformation("Saved intermediate star detection files");
+                    Logger.Info($"Saved intermediate star detection files to {detectorParams.SaveIntermediateFilesPath}");
                 }
-            }
 
-            if (starList.Count > 1) {
-                int countBefore = starList.Count;
+                var starList = starDetectorResult.DetectedStars;
 
-                // Now that we have a properly filtered star list, let's compute stats and further filter out from the average
-                // Median and MAD are used as they are more robust to outliers
-                var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
-                starList = starList.Where(s => s.HFR <= hfrMedian + hocusFocusParams.HighSigmaOutlierRejection * hfrMAD && s.HFR >= hfrMedian - hocusFocusParams.LowSigmaOutlierRejection * hfrMAD).ToList<Star>();
-
-                int countAfter = starList.Count;
-                Logger.Trace($"Discarded {countBefore - countAfter} outlier stars");
-            }
-
-            if (detectorParams.ModelPSF) {
-                var psfStarList = starList.Where(s => s.PSF != null).ToList();
-                if (psfStarList.Count > 1) {
-                    result.PSFType = detectorParams.PSFFitType;
-
-                    var (sigma, _) = psfStarList.Select(s => s.PSF.Sigma).MedianMAD();
-                    result.Sigma = sigma;
-
-                    var (psfRSquared, _) = psfStarList.Select(s => s.PSF.RSquared).MedianMAD();
-                    result.PSFRSquared = psfRSquared;
-
-                    var (fwhm, fwhmMAD) = psfStarList.Select(s => s.PSF.FWHMArcsecs).MedianMAD();
-                    result.FWHM = fwhm;
-                    result.FWHMMAD = fwhmMAD;
-
-                    var (eccentricity, eccentricityMAD) = psfStarList.Select(s => s.PSF.Eccentricity).MedianMAD();
-                    result.Eccentricity = eccentricity;
-                    result.EccentricityMAD = eccentricityMAD;
-                }
-            }
-
-            result.DetectedStars = starList.Count;
-            if (hocusFocusParams.NumberOfAFStars > 0) {
-                if (starList.Count != 0 && (hocusFocusParams.MatchStarPositions == null || hocusFocusParams.MatchStarPositions.Count == 0)) {
-                    if (starList.Count > hocusFocusParams.NumberOfAFStars) {
-                        starList = starList.OrderByDescending(s => s.HFR * 0.3 + s.MeanBrightness * 0.7).Take(hocusFocusParams.NumberOfAFStars).ToList<Star>();
+                if (!detectorParams.Region.IsFull() && detectorParams.Region.InnerCropBoundary != null) {
+                    var innerRegion = detectorParams.Region.InnerCropBoundary.ToRectangle(imageSize);
+                    var before = starList.Count;
+                    starList = starList.Where(s => OutsideROI(s, innerRegion)).ToList();
+                    var outsideRoi = before - starList.Count;
+                    if (outsideRoi > 0) {
+                        starDetectorResult.Metrics.OutsideROI = outsideRoi;
                     }
-                    result.BrightestStarPositions = starList.Select(s => s.Center.ToAccordPoint()).ToList();
-                } else { // find the closest stars to the brightest stars previously identified
-                    var topStars = new List<Star>();
-                    hocusFocusParams.MatchStarPositions.ForEach(pos => topStars.Add(starList.Aggregate((min, next) => min.Center.ToAccordPoint().DistanceTo(pos) < next.Center.ToAccordPoint().DistanceTo(pos) ? min : next)));
-                    starList = topStars;
                 }
-            }
 
-            result.StarList = starList.Select(s => ToDetectedStar(s)).ToList();
-            if (starList.Count > 1) {
-                result.AverageHFR = starList.Average(s => s.HFR);
-                var hfrVariance = starList.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (starList.Count - 1);
-                result.HFRStdDev = Math.Sqrt(hfrVariance);
+                if (starList.Count > 1) {
+                    int countBefore = starList.Count;
 
-                Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}");
+                    // Now that we have a properly filtered star list, let's compute stats and further filter out from the average
+                    // Median and MAD are used as they are more robust to outliers
+                    var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
+                    starList = starList.Where(s => s.HFR <= hfrMedian + hocusFocusParams.HighSigmaOutlierRejection * hfrMAD && s.HFR >= hfrMedian - hocusFocusParams.LowSigmaOutlierRejection * hfrMAD).ToList<Star>();
+
+                    int countAfter = starList.Count;
+                    Logger.Trace($"Discarded {countBefore - countAfter} outlier stars");
+                }
+
+                if (detectorParams.ModelPSF) {
+                    var psfStarList = starList.Where(s => s.PSF != null).ToList();
+                    if (psfStarList.Count > 1) {
+                        result.PSFType = detectorParams.PSFFitType;
+
+                        var (sigma, _) = psfStarList.Select(s => s.PSF.Sigma).MedianMAD();
+                        result.Sigma = sigma;
+
+                        var (psfRSquared, _) = psfStarList.Select(s => s.PSF.RSquared).MedianMAD();
+                        result.PSFRSquared = psfRSquared;
+
+                        var (fwhm, fwhmMAD) = psfStarList.Select(s => s.PSF.FWHMArcsecs).MedianMAD();
+                        result.FWHM = fwhm;
+                        result.FWHMMAD = fwhmMAD;
+
+                        var (eccentricity, eccentricityMAD) = psfStarList.Select(s => s.PSF.Eccentricity).MedianMAD();
+                        result.Eccentricity = eccentricity;
+                        result.EccentricityMAD = eccentricityMAD;
+                    }
+                }
+
+                result.DetectedStars = starList.Count;
+                if (hocusFocusParams.NumberOfAFStars > 0) {
+                    if (starList.Count != 0 && (hocusFocusParams.MatchStarPositions == null || hocusFocusParams.MatchStarPositions.Count == 0)) {
+                        if (starList.Count > hocusFocusParams.NumberOfAFStars) {
+                            starList = starList.OrderByDescending(s => s.HFR * 0.3 + s.MeanBrightness * 0.7).Take(hocusFocusParams.NumberOfAFStars).ToList<Star>();
+                        }
+                        result.BrightestStarPositions = starList.Select(s => s.Center.ToAccordPoint()).ToList();
+                    } else { // find the closest stars to the brightest stars previously identified
+                        var topStars = new List<Star>();
+                        hocusFocusParams.MatchStarPositions.ForEach(pos => topStars.Add(starList.Aggregate((min, next) => min.Center.ToAccordPoint().DistanceTo(pos) < next.Center.ToAccordPoint().DistanceTo(pos) ? min : next)));
+                        starList = topStars;
+                    }
+                }
+
+                var detectionTime = stopwatch.Elapsed;
+                result.StarList = starList.Select(s => ToDetectedStar(s)).ToList();
+                if (starList.Count > 1) {
+                    result.AverageHFR = starList.Average(s => s.HFR);
+                    var hfrVariance = starList.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (starList.Count - 1);
+                    result.HFRStdDev = Math.Sqrt(hfrVariance);
+
+                    Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars: {result.StarList.Count}, Time: {detectionTime}");
+                } else if (starList.Count == 1) {
+                    result.AverageHFR = starList.Average(s => s.HFR);
+                    result.HFRStdDev = 0.0d;
+
+                    Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars: {result.StarList.Count}, Time: {detectionTime}");
+                } else {
+                    Logger.Warning($"No stars detected. Time: {detectionTime}");
+                }
+                result.DebugData = starDetectorResult.DebugData;
+                result.Metrics = starDetectorResult.Metrics;
+                return result;
             }
-            result.DebugData = starDetectorResult.DebugData;
-            result.Metrics = starDetectorResult.Metrics;
-            return result;
         }
 
         public static DetectedStar ToDetectedStar(Star star) {

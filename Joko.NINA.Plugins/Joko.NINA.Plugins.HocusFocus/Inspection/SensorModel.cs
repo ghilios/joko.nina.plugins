@@ -12,7 +12,6 @@
 
 using KdTree;
 using KdTree.Math;
-using Newtonsoft.Json;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
@@ -22,27 +21,11 @@ using NINA.Joko.Plugins.HocusFocus.Utility;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.Inspection {
-
-    public class SensorDetectedStars {
-
-        public SensorDetectedStars(double focuserPosition, HocusFocusStarDetectionResult starDetectionResult) {
-            this.FocuserPosition = focuserPosition;
-            this.StarDetectionResult = starDetectionResult;
-        }
-
-        public double FocuserPosition { get; private set; }
-        public HocusFocusStarDetectionResult StarDetectionResult { get; private set; }
-
-        public override string ToString() {
-            return $"{{{nameof(FocuserPosition)}={FocuserPosition.ToString()}, {nameof(StarDetectionResult)}={StarDetectionResult}}}";
-        }
-    }
 
     public class SensorParaboloidTiltHistoryModel {
 
@@ -160,102 +143,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             double focuserSizeMicrons,
             double pixelSize) {
             using (var stopwatch = MultiStopWatch.Measure()) {
-                var allDetectedStarTrees = allDetectedStars.Select(result => {
-                    var tree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
-                    foreach (var (star, starIndex) in result.StarDetectionResult.StarList.Select((star, starIndex) => (star, starIndex))) {
-                        tree.Add(new[] { star.Position.X, star.Position.Y }, new DetectedStarIndex(starIndex, (HocusFocusDetectedStar)star));
-                    }
-                    return tree;
-                }).ToArray();
-                stopwatch.RecordEntry("build trees");
-
-                const float searchRadius = 30;
-                var globalRegistry = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
-                var starIndexMap = Enumerable.Range(0, allDetectedStars.Count).Select(i => new Dictionary<int, int>()).ToArray();
-                foreach (var starNode in allDetectedStarTrees[0]) {
-                    var nextIndex = globalRegistry.Count;
-                    globalRegistry.Add(starNode.Point, new DetectedStarIndex(nextIndex, starNode.Value.DetectedStar));
-                    starIndexMap[0].Add(starNode.Value.Index, nextIndex);
+                var starRegistry = new StarRegistry();
+                foreach (var sensorDetectedStars in allDetectedStars) {
+                    starRegistry.AddStarField(sensorDetectedStars.FocuserPosition, sensorDetectedStars.StarDetectionResult);
                 }
-
-                for (int i = 1; i < allDetectedStars.Count; ++i) {
-                    var nextStarList = allDetectedStars[i].StarDetectionResult.StarList;
-                    var nextStarTree = allDetectedStarTrees[i];
-                    var nextStarIndexMap = starIndexMap[i];
-                    var matchedGlobalStars = new bool[globalRegistry.Count];
-                    var matchedSourceStars = new bool[nextStarTree.Count];
-                    var queue = new PriorityQueue<MatchingPair, double>(new DoubleMath());
-                    foreach (var (starNode, starNodeIndex) in nextStarTree.Select((starNode, starNodeIndex) => (starNode, starNodeIndex))) {
-                        var sourceStar = starNode.Value.DetectedStar;
-                        var sourcePoint = starNode.Point;
-                        var sourceIndex = starNode.Value.Index;
-                        var globalNeighbors = globalRegistry.RadialSearch(sourcePoint, searchRadius);
-                        foreach (var globalNeighbor in globalNeighbors) {
-                            var globalNeighborIndex = globalNeighbor.Value.Index;
-                            var distance = MathUtility.DotProduct(globalNeighbor.Point, sourcePoint);
-                            queue.Enqueue(new MatchingPair() { SourceIndex = sourceIndex, GlobalIndex = globalNeighborIndex }, distance);
-                        }
-                    }
-
-                    while (queue.Count > 0) {
-                        var nextCandidate = queue.Dequeue();
-                        if (matchedGlobalStars[nextCandidate.GlobalIndex] || matchedSourceStars[nextCandidate.SourceIndex]) {
-                            continue;
-                        }
-
-                        nextStarIndexMap.Add(nextCandidate.SourceIndex, nextCandidate.GlobalIndex);
-                        matchedGlobalStars[nextCandidate.GlobalIndex] = true;
-                        matchedSourceStars[nextCandidate.SourceIndex] = true;
-                    }
-
-                    for (int j = 0; j < matchedSourceStars.Length; ++j) {
-                        if (matchedSourceStars[j]) {
-                            continue;
-                        }
-
-                        // Now we've found a star that didn't match in the global registry. Add it to the registry for future matches
-                        var star = nextStarList[j];
-                        var nextGlobalIndex = globalRegistry.Count;
-                        globalRegistry.Add(new[] { star.Position.X, star.Position.Y }, new DetectedStarIndex(nextGlobalIndex, (HocusFocusDetectedStar)star));
-                        nextStarIndexMap.Add(j, nextGlobalIndex);
-                    }
-                }
-
-                var registeredStars = new RegisteredStar[globalRegistry.Count];
-                foreach (var globalNode in globalRegistry) {
-                    var registeredStar = new RegisteredStar() {
-                        RegistrationX = globalNode.Value.DetectedStar.Position.X,
-                        RegistrationY = globalNode.Value.DetectedStar.Position.Y
-                    };
-                    registeredStars[globalNode.Value.Index] = registeredStar;
-                }
-
-                for (int i = 0; i < starIndexMap.Length; ++i) {
-                    var nextStarIndexMap = starIndexMap[i];
-                    var focuserPosition = allDetectedStars[i].FocuserPosition;
-                    var detectedStars = allDetectedStars[i].StarDetectionResult.StarList;
-                    foreach (var nextKvp in nextStarIndexMap) {
-                        var sourceIndex = nextKvp.Key;
-                        var globalIndex = nextKvp.Value;
-                        var sourceStar = (HocusFocusDetectedStar)detectedStars[sourceIndex];
-                        var matchedStar = new MatchedStar() {
-                            FocuserPosition = focuserPosition,
-                            Star = sourceStar
-                        };
-                        registeredStars[globalIndex].MatchedStars.Add(matchedStar);
-                    }
-                }
-                stopwatch.RecordEntry("registration");
 
                 int discardedStarCount = 0;
                 var sensorModelDataPoints = new List<SensorParaboloidDataPoint>();
-                foreach (var registeredStar in registeredStars) {
+                foreach (var registeredStar in starRegistry) {
                     if (registeredStar.MatchedStars.Count < 5) {
                         continue;
                     }
 
                     try {
-                        var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
+                        var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.StarField.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
                         // TODO: Figure out if I need to allow rotations here. This is probably an inspection option?
                         var fitting = HyperbolicFittingAlglib.Create(points, false);
                         var solveResult = fitting.Solve();

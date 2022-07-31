@@ -429,6 +429,7 @@
     </Compile>
     <Compile Include="Controls\SensorModelContourMapControl.cs" />
     <Compile Include="Controls\TiltModelControl.cs" />
+    <Compile Include="Converters\AutoFocusFittingToColorConverter.cs" />
     <Compile Include="Converters\DoubleGreaterOneToEmptyStringConverter.cs" />
     <Compile Include="Converters\IsNotNegativeToBooleanConverter.cs" />
     <Compile Include="Converters\IsNegativeToBooleanConverter.cs" />
@@ -468,6 +469,7 @@
     <Compile Include="Interfaces\IStarDetectionOptions.cs" />
     <Compile Include="Interfaces\IStarDetector.cs" />
     <Compile Include="HocusFocusPlugin.cs" />
+    <Compile Include="Interfaces\IStarRegistry.cs" />
     <Compile Include="Options.xaml.cs">
       <DependentUpon>Options.xaml</DependentUpon>
     </Compile>
@@ -509,6 +511,8 @@
     <Compile Include="Utility\NonLinearLeastSquaresSolver.cs" />
     <Compile Include="Utility\NonLinearLeastSquaresSolverBase.cs" />
     <Compile Include="Utility\PathUtility.cs" />
+    <Compile Include="Utility\SensorDetectedStars.cs" />
+    <Compile Include="Utility\StarRegistry.cs" />
     <Compile Include="ValidationRules\PositiveOddIntegerRule.cs" />
     <Compile Include="ValidationRules\PositiveIntegerOrInfiniteRule.cs" />
   </ItemGroup>

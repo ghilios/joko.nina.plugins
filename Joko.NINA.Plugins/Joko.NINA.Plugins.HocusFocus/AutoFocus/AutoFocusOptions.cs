@@ -49,6 +49,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             lastSelectedLoadPath = optionsAccessor.GetValueString("LastSelectedLoadPath", "");
             focuserOffset = optionsAccessor.GetValueInt32("FocuserOffset", 0);
             allowHyperbolaRotation = optionsAccessor.GetValueBoolean(nameof(AllowHyperbolaRotation), false);
+            registerStars = optionsAccessor.GetValueBoolean(nameof(RegisterStars), false);
         }
 
         public void ResetDefaults() {
@@ -67,6 +68,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             LastSelectedLoadPath = "";
             FocuserOffset = 0;
             AllowHyperbolaRotation = false;
+            RegisterStars = false;
         }
 
         private int maxConcurrent;
@@ -283,6 +285,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (allowHyperbolaRotation != value) {
                     allowHyperbolaRotation = value;
                     optionsAccessor.SetValueBoolean(nameof(AllowHyperbolaRotation), allowHyperbolaRotation);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool registerStars;
+
+        public bool RegisterStars {
+            get => registerStars;
+            set {
+                if (registerStars != value) {
+                    registerStars = value;
+                    optionsAccessor.SetValueBoolean(nameof(RegisterStars), value);
                     RaisePropertyChanged();
                 }
             }

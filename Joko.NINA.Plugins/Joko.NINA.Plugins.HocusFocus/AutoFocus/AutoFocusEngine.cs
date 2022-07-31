@@ -94,28 +94,37 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 this.Region = region;
                 this.Fittings.Method = afMethod;
                 this.Fittings.CurveFittingType = afCurveFittingType;
+                this.RegisteredFittings.Method = afMethod;
+                this.RegisteredFittings.CurveFittingType = afCurveFittingType;
+                this.StarRegistry = new StarRegistry();
             }
 
             public AutoFocusState State { get; private set; }
             public int RegionIndex { get; private set; }
             public StarDetectionRegion Region { get; private set; }
             public object SubMeasurementsLock { get; private set; } = new object();
+            public IStarRegistry StarRegistry { get; private set; }
             public DataPoint? FinalFocusPoint { get; private set; }
             public MeasureAndError? InitialHFR { get; set; }
             public MeasureAndError? FinalHFR { get; set; }
             public List<MeasureAndError> InitialHFRSubMeasurements { get; private set; } = new List<MeasureAndError>();
             public List<MeasureAndError> FinalHFRSubMeasurements { get; private set; } = new List<MeasureAndError>();
             public Dictionary<int, MeasureAndError> MeasurementsByFocuserPoint { get; private set; } = new Dictionary<int, MeasureAndError>();
+            public Dictionary<int, MeasureAndError> RegisteredMeasurementsByFocuserPoint { get; private set; } = new Dictionary<int, MeasureAndError>();
             public Dictionary<int, List<MeasureAndError>> SubMeasurementsByFocuserPoints { get; private set; } = new Dictionary<int, List<MeasureAndError>>();
             public AutoFocusFitting Fittings { get; private set; } = new AutoFocusFitting();
+            public AutoFocusFitting RegisteredFittings { get; private set; } = new AutoFocusFitting();
 
             public void ResetMeasurements() {
                 lock (SubMeasurementsLock) {
                     this.MeasurementsByFocuserPoint.Clear();
+                    this.RegisteredMeasurementsByFocuserPoint.Clear();
                     this.SubMeasurementsByFocuserPoints.Clear();
                     this.FinalHFRSubMeasurements.Clear();
                     this.FinalHFR = null;
                     this.Fittings.Reset();
+                    this.RegisteredFittings.Reset();
+                    this.StarRegistry = new StarRegistry();
                 }
             }
 
@@ -126,32 +135,42 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }
 
+            private void UpdateCurveFittingsInternal(List<ScatterErrorPoint> validFocusPoints, AutoFocusFitting fittings) {
+                var method = fittings.Method;
+                var fitting = fittings.CurveFittingType;
+                if (AFMethodEnum.STARHFR == method) {
+                    if (validFocusPoints.Count() >= 2) {
+                        // Always calculate a trendline fit, since that is used to determine when to end the focus routine
+                        fittings.TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method.ToString());
+                    }
+                    if (validFocusPoints.Count() >= 3) {
+                        if (AFCurveFittingEnum.PARABOLIC == fitting || AFCurveFittingEnum.TRENDPARABOLIC == fitting) {
+                            fittings.QuadraticFitting = new QuadraticFitting().Calculate(validFocusPoints);
+                        }
+
+                        if (AFCurveFittingEnum.HYPERBOLIC == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC == fitting) {
+                            var hf = HyperbolicFittingAlglib.Create(validFocusPoints, this.State.Options.AllowHyperbolaRotation);
+                            if (!hf.Solve()) {
+                                Logger.Trace($"Hyperbolic fit failed");
+                            }
+                            fittings.HyperbolicFitting = hf;
+                        }
+                    }
+                } else if (validFocusPoints.Count() >= 3) {
+                    fittings.TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method.ToString());
+                    fittings.GaussianFitting = new GaussianFitting().Calculate(validFocusPoints);
+                }
+            }
+
             public void UpdateCurveFittings(List<ScatterErrorPoint> validFocusPoints) {
                 lock (SubMeasurementsLock) {
-                    var method = this.Fittings.Method;
-                    var fitting = this.Fittings.CurveFittingType;
-                    if (AFMethodEnum.STARHFR == method) {
-                        if (validFocusPoints.Count() >= 2) {
-                            // Always calculate a trendline fit, since that is used to determine when to end the focus routine
-                            Fittings.TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method.ToString());
-                        }
-                        if (validFocusPoints.Count() >= 3) {
-                            if (AFCurveFittingEnum.PARABOLIC == fitting || AFCurveFittingEnum.TRENDPARABOLIC == fitting) {
-                                Fittings.QuadraticFitting = new QuadraticFitting().Calculate(validFocusPoints);
-                            }
+                    UpdateCurveFittingsInternal(validFocusPoints, this.Fittings);
+                }
+            }
 
-                            if (AFCurveFittingEnum.HYPERBOLIC == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC == fitting) {
-                                var hf = HyperbolicFittingAlglib.Create(validFocusPoints, this.State.Options.AllowHyperbolaRotation);
-                                if (!hf.Solve()) {
-                                    Logger.Trace($"Hyperbolic fit failed");
-                                }
-                                Fittings.HyperbolicFitting = hf;
-                            }
-                        }
-                    } else if (validFocusPoints.Count() >= 3) {
-                        Fittings.TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method.ToString());
-                        Fittings.GaussianFitting = new GaussianFitting().Calculate(validFocusPoints);
-                    }
+            public void UpdateRegisteredCurveFittings(List<ScatterErrorPoint> validFocusPoints) {
+                lock (SubMeasurementsLock) {
+                    UpdateCurveFittingsInternal(validFocusPoints, this.RegisteredFittings);
                 }
             }
 
@@ -416,6 +435,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
                 }
 
+                if (state.Options.RegisterStars) {
+                    regionState.StarRegistry.AddStarField(imageState.FocuserPosition, analysisResult);
+                }
                 imageState.StarDetectionResult = analysisResult;
 
                 Logger.Debug($"Current Focus - Position: {imageState.FocuserPosition}, HFR: {analysisResult.AverageHFR}");
@@ -519,8 +541,49 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var validFocusPoints = regionState.MeasurementsByFocuserPoint.Where(fp => fp.Value.Measure > 0.0).Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, Math.Max(0.001, fp.Value.Stdev))).ToList();
                 if (validFocusPoints.Count >= 3) {
-                    var autoFocusMethod = state.Options.AutoFocusMethod.ToString();
                     regionState.UpdateCurveFittings(validFocusPoints);
+                }
+
+                if (state.Options.RegisterStars) {
+                    var subMeasurementsByFocuserPosition = new Dictionary<int, List<MeasureAndError>>();
+
+                    var starFieldCount = regionState.StarRegistry.StarFieldCount;
+                    var allValidStars = regionState.StarRegistry.Where(s => s.MatchedStars.Count == starFieldCount).ToList();
+                    Dictionary<int, List<HocusFocusDetectedStar>> validStarsByFieldIndex =
+                        allValidStars
+                            .SelectMany(ms => ms.MatchedStars)
+                            .GroupBy(k => k.StarField.RegistrationIndex, v => v.Star)
+                            .ToDictionary(k => k.Key, v => v.ToList());
+                    for (var starFieldIndex = 0; starFieldIndex < regionState.StarRegistry.StarFieldCount; ++starFieldIndex) {
+                        if (!validStarsByFieldIndex.ContainsKey(starFieldIndex)) {
+                            continue;
+                        }
+
+                        var starField = regionState.StarRegistry.GetStarField(starFieldIndex);
+                        var validStars = validStarsByFieldIndex[starFieldIndex];
+
+                        // TODO: Unify averaging approach
+                        var (hfrMedian, hfrMAD) = validStars.Select(s => s.HFR).MedianMAD();
+                        if (!subMeasurementsByFocuserPosition.TryGetValue(starField.FocuserPosition, out var subMeasurements)) {
+                            subMeasurements = new List<MeasureAndError>();
+                            subMeasurementsByFocuserPosition.Add(starField.FocuserPosition, subMeasurements);
+                        }
+                        subMeasurements.Add(new MeasureAndError() { Measure = hfrMedian, Stdev = hfrMAD });
+                    }
+
+                    regionState.RegisteredMeasurementsByFocuserPoint.Clear();
+                    var registeredMeasurements = new Dictionary<int, MeasureAndError>();
+                    foreach (var kvp in subMeasurementsByFocuserPosition) {
+                        var registeredFocuserPosition = kvp.Key;
+                        var registeredMeasurement = kvp.Value.AverageMeasurement();
+                        regionState.RegisteredMeasurementsByFocuserPoint.Add(registeredFocuserPosition, registeredMeasurement);
+                    }
+
+                    // TODO: Consolidate this fitting logic?
+                    var validRegisteredFocusPoints = regionState.RegisteredMeasurementsByFocuserPoint.Where(fp => fp.Value.Measure > 0.0).Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, Math.Max(0.001, fp.Value.Stdev))).ToList();
+                    if (validRegisteredFocusPoints.Count >= 3) {
+                        regionState.UpdateRegisteredCurveFittings(validRegisteredFocusPoints);
+                    }
                 }
 
                 this.OnMeasurementPointCompleted(imageState, regionState, measurement);
@@ -1396,13 +1459,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void OnMeasurementPointCompleted(AutoFocusImageState imageState, AutoFocusRegionState regionState, MeasureAndError measurement) {
-            MeasurementPointCompleted?.Invoke(this, new AutoFocusMeasurementPointCompletedEventArgs() {
+            var eventArgs = new AutoFocusMeasurementPointCompletedEventArgs() {
                 RegionIndex = regionState.RegionIndex,
                 Region = regionState.Region,
                 FocuserPosition = imageState.FocuserPosition,
                 Measurement = measurement,
                 Fittings = regionState.Fittings.Clone()
-            });
+            };
+            if (regionState.State.Options.RegisterStars) {
+                eventArgs.RegisteredMeasurements = new MeasurementsFittings() {
+                    MeasurementsByFocuserPosition = new Dictionary<int, MeasureAndError>(regionState.RegisteredMeasurementsByFocuserPoint),
+                    Fittings = regionState.RegisteredFittings.Clone()
+                };
+            }
+            MeasurementPointCompleted?.Invoke(this, eventArgs);
         }
 
         private void OnSubMeasurementPointCompleted(AutoFocusImageState imageState, AutoFocusRegionState regionState) {
@@ -1496,7 +1566,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 AutoFocusInitialOffsetSteps = profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
                 AutoFocusStepSize = profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize,
                 FocuserOffset = autoFocusOptions.FocuserOffset,
-                AllowHyperbolaRotation = autoFocusOptions.AllowHyperbolaRotation
+                AllowHyperbolaRotation = autoFocusOptions.AllowHyperbolaRotation,
+                RegisterStars = autoFocusOptions.RegisterStars
             };
         }
 

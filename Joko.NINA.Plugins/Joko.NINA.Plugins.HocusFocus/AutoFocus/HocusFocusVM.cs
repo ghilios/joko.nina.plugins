@@ -44,17 +44,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private static readonly FocusPointComparer focusPointComparer = new FocusPointComparer();
         private static readonly PlotPointComparer plotPointComparer = new PlotPointComparer();
 
-        private AFCurveFittingEnum autoFocusChartCurveFitting;
-        private AFMethodEnum autoFocusChartMethod;
+        private AutoFocusFitting autoFocusFitting = new AutoFocusFitting();
         private DataPoint finalFocusPoint;
         private AsyncObservableCollection<ScatterErrorPoint> focusPointsObservable;
-        private GaussianFitting gaussianFitting;
-        private HyperbolicFitting hyperbolicFitting;
         private ReportAutoFocusPoint lastAutoFocusPoint;
         private AsyncObservableCollection<DataPoint> plotFocusPointsObservable;
-        private QuadraticFitting quadraticFitting;
-        private TrendlineFitting trendLineFitting;
+        private AsyncObservableCollection<DataPoint> plotRegisteredFocusPointsObservable;
         private TimeSpan autoFocusDuration;
+        private IStarRegistry starRegistry;
+        private bool registerStarsEnabled;
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IStarDetectionOptions starDetectionOptions;
         private readonly IFocuserMediator focuserMediator;
@@ -91,6 +89,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             FocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             PlotFocusPoints = new AsyncObservableCollection<DataPoint>();
+            PlotRegisteredFocusPoints = new AsyncObservableCollection<DataPoint>();
             ClearCharts();
 
             this.progress = ProgressFactory.Create(applicationStatusMediator, "Hocus Focus");
@@ -113,22 +112,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             CancelLoadSavedAutoFocusRunCommand = new RelayCommand(CancelLoadSavedAutoFocusRun);
         }
 
-        public AFCurveFittingEnum AutoFocusChartCurveFitting {
-            get {
-                return autoFocusChartCurveFitting;
-            }
+        public AutoFocusFitting Fitting {
+            get => autoFocusFitting;
             set {
-                autoFocusChartCurveFitting = value;
-                RaisePropertyChanged();
-            }
-        }
-
-        public AFMethodEnum AutoFocusChartMethod {
-            get {
-                return autoFocusChartMethod;
-            }
-            set {
-                autoFocusChartMethod = value;
+                autoFocusFitting = value;
                 RaisePropertyChanged();
             }
         }
@@ -205,26 +192,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        public GaussianFitting GaussianFitting {
-            get {
-                return gaussianFitting;
-            }
-            set {
-                gaussianFitting = value;
-                RaisePropertyChanged();
-            }
-        }
-
-        public HyperbolicFitting HyperbolicFitting {
-            get {
-                return hyperbolicFitting;
-            }
-            set {
-                hyperbolicFitting = value;
-                RaisePropertyChanged();
-            }
-        }
-
         public ReportAutoFocusPoint LastAutoFocusPoint {
             get {
                 return lastAutoFocusPoint;
@@ -245,18 +212,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        public QuadraticFitting QuadraticFitting {
-            get => quadraticFitting;
-            set {
-                quadraticFitting = value;
-                RaisePropertyChanged();
+        public AsyncObservableCollection<DataPoint> PlotRegisteredFocusPoints {
+            get {
+                return plotRegisteredFocusPointsObservable;
             }
-        }
-
-        public TrendlineFitting TrendlineFitting {
-            get => trendLineFitting;
             set {
-                trendLineFitting = value;
+                plotRegisteredFocusPointsObservable = value;
                 RaisePropertyChanged();
             }
         }
@@ -276,14 +237,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             FinalHFR = 0.0d;
             InitialFocuserPosition = -1;
             FinalFocuserPosition = -1;
-            AutoFocusChartMethod = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod;
-            AutoFocusChartCurveFitting = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
+            Fitting.Reset();
+            Fitting.Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod;
+            Fitting.CurveFittingType = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
             FocusPoints.Clear();
             PlotFocusPoints.Clear();
-            TrendlineFitting = null;
-            QuadraticFitting = null;
-            HyperbolicFitting = null;
-            GaussianFitting = null;
             FinalFocusPoint = new DataPoint(-1.0d, 0);
             LastAutoFocusPoint = new ReportAutoFocusPoint() {
                 Focuspoint = new DataPoint(-1.0d, 0.0d),
@@ -307,19 +265,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             StarDetectionRegion region,
             TimeSpan duration) {
             var temperature = focuserMediator.GetInfo().Temperature;
-            var fittings = new AutoFocusFitting() {
-                GaussianFitting = GaussianFitting,
-                QuadraticFitting = QuadraticFitting,
-                HyperbolicFitting = HyperbolicFitting,
-                TrendlineFitting = TrendlineFitting,
-                Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod,
-                CurveFittingType = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting
-            };
             return GenerateReport(
                 profileService: profileService,
                 starDetector: starDetectionSelector.GetBehavior(),
                 focusPoints: FocusPoints,
-                fittings: fittings,
+                fittings: Fitting.Clone(),
                 initialFocusPosition: initialFocusPosition,
                 initialHFR: initialHFR,
                 finalHFR: finalHFR,
@@ -384,22 +334,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (AFMethodEnum.STARHFR.ToString() == method) {
                 if (validFocusPoints.Count() >= 3) {
                     if (AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDPARABOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDLINES.ToString() == fitting) {
-                        TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method);
+                        Fitting.TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method);
                     }
 
                     if (AFCurveFittingEnum.PARABOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDPARABOLIC.ToString() == fitting) {
-                        QuadraticFitting = new QuadraticFitting().Calculate(validFocusPoints);
+                        Fitting.QuadraticFitting = new QuadraticFitting().Calculate(validFocusPoints);
                     }
 
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
                         var hf = HyperbolicFittingAlglib.Create(validFocusPoints, this.autoFocusOptions.AllowHyperbolaRotation);
                         hf.Solve();
-                        HyperbolicFitting = hf;
+                        Fitting.HyperbolicFitting = hf;
                     }
                 }
             } else if (validFocusPoints.Count() >= 3) {
-                TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method);
-                GaussianFitting = new GaussianFitting().Calculate(validFocusPoints);
+                Fitting.TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method);
+                Fitting.GaussianFitting = new GaussianFitting().Calculate(validFocusPoints);
             }
         }
 
@@ -416,10 +366,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+                autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
                 autoFocusEngine.Completed += AutoFocusEngine_Completed;
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
                 var options = autoFocusEngine.GetOptions();
+                this.registerStarsEnabled = this.autoFocusOptions.RegisterStars;
+                if (this.registerStarsEnabled) {
+                    this.starRegistry = new StarRegistry();
+                }
+
                 var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
+                this.starRegistry = null;
                 if (result == null || !result.Succeeded) {
                     return null;
                 }
@@ -427,6 +384,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return LastReport;
             } finally {
                 AutoFocusInProgress = false;
+            }
+        }
+
+        private void AutoFocusEngine_SubMeasurementPointCompleted(object sender, AutoFocusSubMeasurementPointCompletedEventArgs e) {
+            if (this.registerStarsEnabled) {
+                if (e.StarDetectionResult.DetectedStars == 0) {
+                    // No detected stars. Ignore and move on
+                    return;
+                }
+
+                this.starRegistry.AddStarField(e.FocuserPosition, e.StarDetectionResult);
+                // TODO: Update data points
             }
         }
 
@@ -509,6 +478,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             FocusPoints.Clear();
             PlotFocusPoints.Clear();
+            PlotRegisteredFocusPoints.Clear();
+            if (this.registerStarsEnabled) {
+                this.starRegistry = new StarRegistry();
+            } else {
+                this.starRegistry = null;
+            }
         }
 
         private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusFinishedEventArgsBase e) {
@@ -534,11 +509,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             FocusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, Math.Max(0.001, e.Measurement.Stdev)), focusPointComparer);
             PlotFocusPoints.AddSorted(new DataPoint(e.FocuserPosition, e.Measurement.Measure), plotPointComparer);
-
-            this.TrendlineFitting = e.Fittings.TrendlineFitting;
-            this.GaussianFitting = e.Fittings.GaussianFitting;
-            this.HyperbolicFitting = e.Fittings.HyperbolicFitting;
-            this.QuadraticFitting = e.Fittings.QuadraticFitting;
+            Fitting = e.Fittings.Clone();
         }
 
         private void AutoFocusEngine_InitialHFRCalculated(object sender, AutoFocusInitialHFRCalculatedEventArgs e) {
@@ -627,5 +598,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }
         }
+
+        public GaussianFitting GaussianFitting { get => Fitting.GaussianFitting; set => Fitting.GaussianFitting = value; }
+        public HyperbolicFitting HyperbolicFitting { get => Fitting.HyperbolicFitting; set => Fitting.HyperbolicFitting = value; }
+        public QuadraticFitting QuadraticFitting { get => Fitting.QuadraticFitting; set => Fitting.QuadraticFitting = value; }
+        public TrendlineFitting TrendlineFitting { get => Fitting.TrendlineFitting; set => Fitting.TrendlineFitting = value; }
+        public AFMethodEnum AutoFocusChartMethod { get => Fitting.Method; set => Fitting.Method = value; }
+        public AFCurveFittingEnum AutoFocusChartCurveFitting { get => Fitting.CurveFittingType; set => Fitting.CurveFittingType = value; }
     }
 }

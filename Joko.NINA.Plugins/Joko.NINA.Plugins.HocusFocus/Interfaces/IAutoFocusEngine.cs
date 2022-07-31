@@ -13,6 +13,7 @@
 using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
+using NINA.Core.Utility;
 using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.WPF.Base.Utility.AutoFocus;
@@ -29,6 +30,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public interface IAutoFocusEngineFactory {
 
         IAutoFocusEngine Create();
+    }
+
+    public enum AutoFocusType {
+        Default,
+        Registered
     }
 
     public class SavedAutoFocusAttempt {
@@ -63,6 +69,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double HFRImprovementThreshold { get; set; }
         public int FocuserOffset { get; set; }
         public bool AllowHyperbolaRotation { get; set; }
+        public bool RegisterStars { get; set; }
     }
 
     public interface IAutoFocusEngine {
@@ -101,18 +108,66 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         event EventHandler<AutoFocusFailedEventArgs> Failed;
     }
 
-    public class AutoFocusFitting {
-        public AFMethodEnum Method { get; set; }
+    public class AutoFocusFitting : BaseINPC {
+        private AFMethodEnum method;
 
-        public AFCurveFittingEnum CurveFittingType { get; set; }
+        public AFMethodEnum Method {
+            get => method;
+            set {
+                method = value;
+                RaisePropertyChanged();
+            }
+        }
 
-        public TrendlineFitting TrendlineFitting { get; set; } = new TrendlineFitting();
+        private AFCurveFittingEnum curveFittingType;
 
-        public QuadraticFitting QuadraticFitting { get; set; } = null;
+        public AFCurveFittingEnum CurveFittingType {
+            get => curveFittingType;
+            set {
+                curveFittingType = value;
+                RaisePropertyChanged();
+            }
+        }
 
-        public HyperbolicFitting HyperbolicFitting { get; set; } = null;
+        private TrendlineFitting trendlineFitting = new TrendlineFitting();
 
-        public GaussianFitting GaussianFitting { get; set; } = null;
+        public TrendlineFitting TrendlineFitting {
+            get => trendlineFitting;
+            set {
+                trendlineFitting = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private QuadraticFitting quadraticFitting;
+
+        public QuadraticFitting QuadraticFitting {
+            get => quadraticFitting;
+            set {
+                quadraticFitting = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private HyperbolicFitting hyperbolicFitting;
+
+        public HyperbolicFitting HyperbolicFitting {
+            get => hyperbolicFitting;
+            set {
+                hyperbolicFitting = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private GaussianFitting gaussianFitting;
+
+        public GaussianFitting GaussianFitting {
+            get => gaussianFitting;
+            set {
+                gaussianFitting = value;
+                RaisePropertyChanged();
+            }
+        }
 
         public void Reset() {
             TrendlineFitting = new TrendlineFitting();
@@ -172,12 +227,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public class AutoFocusStartedEventArgs : EventArgs { }
 
+    public class MeasurementsFittings {
+        public Dictionary<int, MeasureAndError> MeasurementsByFocuserPosition { get; set; }
+        public AutoFocusFitting Fittings { get; set; }
+    }
+
     public class AutoFocusMeasurementPointCompletedEventArgs : EventArgs {
         public int FocuserPosition { get; set; }
         public int RegionIndex { get; set; }
         public StarDetectionRegion Region { get; set; }
         public MeasureAndError Measurement { get; set; }
         public AutoFocusFitting Fittings { get; set; }
+        public MeasurementsFittings RegisteredMeasurements { get; set; }
     }
 
     public class AutoFocusSubMeasurementPointCompletedEventArgs : EventArgs {
