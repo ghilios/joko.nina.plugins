@@ -50,6 +50,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             focuserOffset = optionsAccessor.GetValueInt32("FocuserOffset", 0);
             allowHyperbolaRotation = optionsAccessor.GetValueBoolean(nameof(AllowHyperbolaRotation), false);
             registerStars = optionsAccessor.GetValueBoolean(nameof(RegisterStars), false);
+            registerStarsSearchRadius = optionsAccessor.GetValueInt32(nameof(RegisterStarsSearchRadius), 100);
         }
 
         public void ResetDefaults() {
@@ -69,6 +70,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             FocuserOffset = 0;
             AllowHyperbolaRotation = false;
             RegisterStars = false;
+            RegisterStarsSearchRadius = 100;
         }
 
         private int maxConcurrent;
@@ -298,6 +300,23 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (registerStars != value) {
                     registerStars = value;
                     optionsAccessor.SetValueBoolean(nameof(RegisterStars), value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int registerStarsSearchRadius;
+
+        public int RegisterStarsSearchRadius {
+            get => registerStarsSearchRadius;
+            set {
+                if (value <= 0) {
+                    throw new ArgumentException("RegisterStarsSearchRadius must be positive", "RegisterStarsSearchRadius");
+                }
+
+                if (registerStarsSearchRadius != value) {
+                    registerStarsSearchRadius = value;
+                    optionsAccessor.SetValueInt32(nameof(RegisterStarsSearchRadius), registerStarsSearchRadius);
                     RaisePropertyChanged();
                 }
             }

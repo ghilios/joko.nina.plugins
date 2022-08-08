@@ -12,9 +12,11 @@
 
 using KdTree;
 using KdTree.Math;
+using NINA.Core.Utility;
 using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,10 +25,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
     public class StarRegistry : IStarRegistry {
         private readonly List<StarField> registeredStarFields = new List<StarField>();
-        private readonly KdTree<float, RegisteredStar> globalStarRegistry = new KdTree<float, RegisteredStar>(2, new FloatMath(), AddDuplicateBehavior.Error);
+        private KdTree<float, RegisteredStar> globalStarRegistry = new KdTree<float, RegisteredStar>(2, new FloatMath(), AddDuplicateBehavior.Error);
         private readonly List<RegisteredStar> globalStarRegistryList = new List<RegisteredStar>();
+        private double minAverageHFR = double.MaxValue;
 
-        public StarRegistry(float searchRadiusPixels = 30) {
+        // TODO: Remove default value to force it to be provided
+        public StarRegistry(float searchRadiusPixels = 100) {
             this.SearchRadiusPixels = searchRadiusPixels;
         }
 
@@ -43,9 +47,31 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         }
 
         public void AddStarField(int focuserPosition, StarDetectionResult starDetectionResult) {
-            var addedStarField = new StarField(registeredStarFields.Count, focuserPosition, starDetectionResult);
-            registeredStarFields.Add(addedStarField);
+            if (starDetectionResult.DetectedStars == 0) {
+                return;
+            }
 
+            var addedStarField = new StarField(registeredStarFields.Count, focuserPosition, starDetectionResult);
+            if (addedStarField.StarDetectionResult.AverageHFR < this.minAverageHFR) {
+                if (registeredStarFields.Count > 0) {
+                    Logger.Debug($"Resetting star field due to new field with smaller HFR {addedStarField.StarDetectionResult.AverageHFR}");
+                    // KdTree Clear doesn't properly reset the count, so we initialize a new one from scratch
+                    this.globalStarRegistry = new KdTree<float, RegisteredStar>(2, new FloatMath(), AddDuplicateBehavior.Error);
+                    globalStarRegistryList.Clear();
+                }
+                AddStarFieldInternal(addedStarField);
+                foreach (var previousStarField in registeredStarFields) {
+                    AddStarFieldInternal(previousStarField);
+                }
+                this.minAverageHFR = addedStarField.StarDetectionResult.AverageHFR;
+            } else {
+                AddStarFieldInternal(addedStarField);
+            }
+            registeredStarFields.Add(addedStarField);
+        }
+
+        private void AddStarFieldInternal(StarField addedStarField) {
+            var starDetectionResult = addedStarField.StarDetectionResult;
             var starFieldTree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
             foreach (var (star, starIndex) in starDetectionResult.StarList.Select((star, starIndex) => (star, starIndex))) {
                 starFieldTree.Add(new[] { star.Position.X, star.Position.Y }, new DetectedStarIndex(starIndex, (HocusFocusDetectedStar)star));
@@ -82,11 +108,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 }
 
                 // Now we've found a star that didn't match in the global registry. Add it to the registry for future matches
+                // TODO: REMOVE THIS TRYCATCH after debugging
                 var star = (HocusFocusDetectedStar)starDetectionResult.StarList[j];
                 var nextGlobalIndex = globalStarRegistry.Count;
                 var registeredStar = new RegisteredStar(nextGlobalIndex, new MatchedStar(addedStarField, star));
-                globalStarRegistry.Add(new[] { star.Position.X, star.Position.Y }, registeredStar);
-                globalStarRegistryList.Add(registeredStar);
+                try {
+                    globalStarRegistry.Add(new[] { star.Position.X, star.Position.Y }, registeredStar);
+                    globalStarRegistryList.Add(registeredStar);
+                } catch (Exception e) {
+                    Console.WriteLine(e);
+                    throw;
+                }
             }
         }
 

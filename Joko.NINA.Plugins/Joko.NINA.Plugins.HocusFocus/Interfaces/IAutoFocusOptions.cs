@@ -29,5 +29,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         int FocuserOffset { get; set; }
         bool AllowHyperbolaRotation { get; set; }
         bool RegisterStars { get; set; }
+        int RegisterStarsSearchRadius { get; set; }
     }
 }

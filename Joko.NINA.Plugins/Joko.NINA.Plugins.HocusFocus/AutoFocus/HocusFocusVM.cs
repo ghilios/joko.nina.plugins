@@ -45,13 +45,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private static readonly PlotPointComparer plotPointComparer = new PlotPointComparer();
 
         private AutoFocusFitting autoFocusFitting = new AutoFocusFitting();
+        private AutoFocusFitting autoFocusRegisteredFitting = new AutoFocusFitting();
         private DataPoint finalFocusPoint;
+
         private AsyncObservableCollection<ScatterErrorPoint> focusPointsObservable;
         private ReportAutoFocusPoint lastAutoFocusPoint;
         private AsyncObservableCollection<DataPoint> plotFocusPointsObservable;
         private AsyncObservableCollection<DataPoint> plotRegisteredFocusPointsObservable;
         private TimeSpan autoFocusDuration;
-        private IStarRegistry starRegistry;
         private bool registerStarsEnabled;
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IStarDetectionOptions starDetectionOptions;
@@ -116,6 +117,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             get => autoFocusFitting;
             set {
                 autoFocusFitting = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        public AutoFocusFitting RegisteredFitting {
+            get => autoFocusRegisteredFitting;
+            set {
+                autoFocusRegisteredFitting = value;
                 RaisePropertyChanged();
             }
         }
@@ -240,8 +249,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Fitting.Reset();
             Fitting.Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod;
             Fitting.CurveFittingType = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
+            RegisteredFitting.Reset();
+            RegisteredFitting.Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod;
+            RegisteredFitting.CurveFittingType = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
             FocusPoints.Clear();
             PlotFocusPoints.Clear();
+            PlotRegisteredFocusPoints.Clear();
             FinalFocusPoint = new DataPoint(-1.0d, 0);
             LastAutoFocusPoint = new ReportAutoFocusPoint() {
                 Focuspoint = new DataPoint(-1.0d, 0.0d),
@@ -265,6 +278,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             StarDetectionRegion region,
             TimeSpan duration) {
             var temperature = focuserMediator.GetInfo().Temperature;
+            // TODO: Use correct fittings
             return GenerateReport(
                 profileService: profileService,
                 starDetector: starDetectionSelector.GetBehavior(),
@@ -366,17 +380,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
-                autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
                 autoFocusEngine.Completed += AutoFocusEngine_Completed;
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
                 var options = autoFocusEngine.GetOptions();
                 this.registerStarsEnabled = this.autoFocusOptions.RegisterStars;
-                if (this.registerStarsEnabled) {
-                    this.starRegistry = new StarRegistry();
-                }
 
                 var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
-                this.starRegistry = null;
                 if (result == null || !result.Succeeded) {
                     return null;
                 }
@@ -384,18 +393,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return LastReport;
             } finally {
                 AutoFocusInProgress = false;
-            }
-        }
-
-        private void AutoFocusEngine_SubMeasurementPointCompleted(object sender, AutoFocusSubMeasurementPointCompletedEventArgs e) {
-            if (this.registerStarsEnabled) {
-                if (e.StarDetectionResult.DetectedStars == 0) {
-                    // No detected stars. Ignore and move on
-                    return;
-                }
-
-                this.starRegistry.AddStarField(e.FocuserPosition, e.StarDetectionResult);
-                // TODO: Update data points
             }
         }
 
@@ -479,11 +476,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             FocusPoints.Clear();
             PlotFocusPoints.Clear();
             PlotRegisteredFocusPoints.Clear();
-            if (this.registerStarsEnabled) {
-                this.starRegistry = new StarRegistry();
-            } else {
-                this.starRegistry = null;
-            }
         }
 
         private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusFinishedEventArgsBase e) {
@@ -507,9 +499,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return;
             }
 
-            FocusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, Math.Max(0.001, e.Measurement.Stdev)), focusPointComparer);
-            PlotFocusPoints.AddSorted(new DataPoint(e.FocuserPosition, e.Measurement.Measure), plotPointComparer);
-            Fitting = e.Fittings.Clone();
+            if (this.registerStarsEnabled && e.RegisteredMeasurements != null) {
+                var orderedRegisteredFocusPoints = e.RegisteredMeasurements.MeasurementsByFocuserPosition.Select(p => new ScatterErrorPoint(p.Key, p.Value.Measure, 0, Math.Max(0.001, p.Value.Stdev))).OrderBy(p => p, focusPointComparer);
+                var orderedRegisteredPlotFocusPoints = e.RegisteredMeasurements.MeasurementsByFocuserPosition.Select(p => new DataPoint(p.Key, p.Value.Measure)).OrderBy(p => p, plotPointComparer);
+                FocusPoints = new AsyncObservableCollection<ScatterErrorPoint>(orderedRegisteredFocusPoints);
+                PlotFocusPoints = new AsyncObservableCollection<DataPoint>(orderedRegisteredPlotFocusPoints);
+                Fitting = e.RegisteredMeasurements.Fittings.Clone();
+            } else {
+                // TODO: Fix fallback path? Probably reset these all post-hoc
+                FocusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, Math.Max(0.001, e.Measurement.Stdev)), focusPointComparer);
+                PlotFocusPoints.AddSorted(new DataPoint(e.FocuserPosition, e.Measurement.Measure), plotPointComparer);
+                Fitting = e.Fittings.Clone();
+            }
         }
 
         private void AutoFocusEngine_InitialHFRCalculated(object sender, AutoFocusInitialHFRCalculatedEventArgs e) {
@@ -552,6 +553,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return false;
                 }
 
+                this.registerStarsEnabled = this.autoFocusOptions.RegisterStars;
                 autoFocusEngine.Started += AutoFocusEngine_AutoFocusStarted;
                 autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;

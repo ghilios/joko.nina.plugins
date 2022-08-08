@@ -41,6 +41,7 @@
     <TextBlock x:Key="ValidateHfrImprovement_Tooltip" Text="If enabled, takes an extra exposure before and after to ensure HFR improved. This check may be done in addition to the R² validation configured in NINA's Auto Focus options." />
     <TextBlock x:Key="HFRImprovementThreshold_Tooltip" Text="How much wiggle room when validating HFR improvements. The default value of 15% means that the Auto Focus fails if the initial HFR is 15% or more better than the final HFR" />
     <TextBlock x:Key="RegisterStars_Tooltip" Text="If enabled, registers stars across images and only uses stars found in all of them" />
+    <TextBlock x:Key="RegisterStarsSearchRadius_Tooltip" Text="Searches a radius of this many pixels from the first image for star registration. Increase if stars are failing to register across exposures, which may happen if your system involves a changing focal length during focuser movement. Having too large of a value at low focal lengths can negatively impact performance, so 100 is a reasonable default." />
     <TextBlock x:Key="HotpixelFiltering_Tooltip" Text="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
     <TextBlock x:Key="HotpixelThresholdingEnabled_Tooltip" Text="A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy" />
     <TextBlock x:Key="HotpixelThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value" />
@@ -120,6 +121,14 @@
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
+                <Style x:Key="HideOnRegisterStarsOff" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="Auto" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding AutoFocusOptions.RegisterStars}" Value="False">
+                            <Setter Property="Height" Value="0" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
             </Grid.Resources>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -136,6 +145,7 @@
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
+                <RowDefinition Style="{StaticResource HideOnRegisterStarsOff}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -338,7 +348,7 @@
                 Grid.Row="8"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Text="RegisterStars"
+                Text="Register Stars"
                 ToolTip="{StaticResource RegisterStars_Tooltip}" />
             <CheckBox
                 Grid.Row="8"
@@ -349,6 +359,24 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding AutoFocusOptions.RegisterStars}"
                 ToolTip="{StaticResource RegisterStars_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="9"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Registration Search Radius"
+                ToolTip="{StaticResource RegisterStarsSearchRadius_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="9"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ToolTip="{StaticResource RegisterStarsSearchRadius_Tooltip}"
+                Unit="pixels">
+                <Binding Path="AutoFocusOptions.RegisterStarsSearchRadius" UpdateSourceTrigger="LostFocus" />
+            </ninactrl:UnitTextBox>
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">

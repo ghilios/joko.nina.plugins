@@ -64,7 +64,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public List<MatchedStar> MatchedStars { get; private set; }
 
         public override string ToString() {
-            return $"{{{nameof(Index)}={Index.ToString()}, {nameof(RegistrationX)}={RegistrationX.ToString()}, {nameof(RegistrationY)}={RegistrationY.ToString()}, {nameof(MatchedStars)}={MatchedStars}}}";
+            return $"{{{nameof(Index)}={Index.ToString()}, {nameof(RegistrationX)}={RegistrationX.ToString()}, {nameof(RegistrationY)}={RegistrationY.ToString()}, {nameof(MatchedStars)}={MatchedStars.Count}}}";
         }
     }
 

@@ -70,6 +70,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int FocuserOffset { get; set; }
         public bool AllowHyperbolaRotation { get; set; }
         public bool RegisterStars { get; set; }
+        public int RegisterStarsSearchRadius { get; set; }
     }
 
     public interface IAutoFocusEngine {

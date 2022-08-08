@@ -86,6 +86,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 throw new ArgumentException("Cannot update sensor model. No detected stars provided");
             }
 
+            if (double.IsNaN(fRatio)) {
+                Notification.ShowWarning("FRatio not set in Equipment Options");
+            }
+
             return Task.Run(() => {
                 ModelLoaded = false;
                 var firstStarDetectionResult = allDetectedStars.First().StarDetectionResult;
@@ -180,6 +184,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     } catch (Exception e) {
                         Logger.Error(e, $"Failed to calculate hyperbolic at ({registeredStar.RegistrationX}, {registeredStar.RegistrationY}). Error={e.Message}");
                     }
+                }
+
+                if (sensorModelDataPoints.Count < 5) {
+                    throw new Exception($"Not enough registered points ({sensorModelDataPoints.Count}) across the field of view to build a model");
                 }
 
                 stopwatch.RecordEntry("fitcurves");

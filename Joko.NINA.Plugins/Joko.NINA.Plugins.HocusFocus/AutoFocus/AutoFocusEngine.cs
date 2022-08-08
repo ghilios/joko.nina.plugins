@@ -96,7 +96,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 this.Fittings.CurveFittingType = afCurveFittingType;
                 this.RegisteredFittings.Method = afMethod;
                 this.RegisteredFittings.CurveFittingType = afCurveFittingType;
-                this.StarRegistry = new StarRegistry();
+                this.StarRegistry = new StarRegistry(searchRadiusPixels: state.Options.RegisterStarsSearchRadius);
             }
 
             public AutoFocusState State { get; private set; }
@@ -124,7 +124,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     this.FinalHFR = null;
                     this.Fittings.Reset();
                     this.RegisteredFittings.Reset();
-                    this.StarRegistry = new StarRegistry();
+                    this.StarRegistry = new StarRegistry(searchRadiusPixels: this.State.Options.RegisterStarsSearchRadius);
                 }
             }
 
@@ -1567,7 +1567,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 AutoFocusStepSize = profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize,
                 FocuserOffset = autoFocusOptions.FocuserOffset,
                 AllowHyperbolaRotation = autoFocusOptions.AllowHyperbolaRotation,
-                RegisterStars = autoFocusOptions.RegisterStars
+                RegisterStars = autoFocusOptions.RegisterStars,
+                RegisterStarsSearchRadius = autoFocusOptions.RegisterStarsSearchRadius
             };
         }
 
