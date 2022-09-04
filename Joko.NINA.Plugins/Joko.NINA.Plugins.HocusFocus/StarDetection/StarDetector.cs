@@ -34,6 +34,11 @@ using NINA.Core.Utility.Notification;
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class StarDetector : IStarDetector {
+        private readonly IAlglibAPI alglibAPI;
+
+        public StarDetector(IAlglibAPI alglibAPI) {
+            this.alglibAPI = alglibAPI;
+        }
 
         private class StarCandidate {
             public Point2d Center;
@@ -332,6 +337,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         ct.ThrowIfCancellationRequested();
 
                         var modeler = PSFModeler.Create(
+                            alglibAPI: alglibAPI,
                             fitType: p.PSFFitType,
                             psfResolution: p.PSFResolution,
                             detectedStar: detectedStar,

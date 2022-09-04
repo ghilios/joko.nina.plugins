@@ -136,6 +136,7 @@ namespace TestApp {
             a.Run();
             */
 
+            var alglibAPI = new AlglibAPI();
             using (var stopwatch = MultiStopWatch.Measure()) {
                 var path = @"E:\TiltSavedAF";
                 var allDetectedStars = await Task.WhenAll(Directory.GetFiles(path, "*_result.json").Select(async filePath => {
@@ -242,7 +243,7 @@ namespace TestApp {
                     try {
                         var points = matchedStars.StarsUsedInCalculation.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
 
-                        var fitting2 = HyperbolicFittingAlglib.Create(points, false);
+                        var fitting2 = HyperbolicFittingAlglib.Create(alglibAPI, points, false);
                         var solveResult = fitting2.Solve();
                         if (!solveResult) {
                             throw new Exception("WTF");
@@ -268,7 +269,7 @@ namespace TestApp {
 
                 var (medianFocusPosition, _) = allMatchedStars.Where(s => s.FitFocuserPosition.HasValue).Select(s => s.FitFocuserPosition.Value).MedianMAD();
                 var sensorModelSolver = new SensorParaboloidSolver(dataPoints: sensorModelDataPoints, sensorSizeMicronsX: 9576 * 3.76, sensorSizeMicronsY: 6388 * 3.76, inFocusMicrons: medianFocusPosition);
-                var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>();
+                var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(alglibAPI);
                 nlSolver.OptGuardEnabled = true;
                 var solution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver);
                 var goodnessOfFit = nlSolver.GoodnessOfFit(sensorModelSolver, solution);
@@ -307,6 +308,7 @@ namespace TestApp {
 
         private static async Task MainAsync(string[] args) {
             var starAnnotatorOptions = StaticStarAnnotatorOptions.CreateDefault();
+            var alglibAPI = new AlglibAPI();
             using (var t = new ResourcesTracker()) {
                 var src = t.T(new Mat(InputFilePath, ImreadModes.Unchanged));
                 var srcFloat = t.NewMat();
@@ -317,7 +319,7 @@ namespace TestApp {
                 var stretchedSrc = t.NewMat();
                 CvImageUtility.ApplyLUT(src, srcLut, stretchedSrc);
 
-                var detector = new StarDetector();
+                var detector = new StarDetector(alglibAPI);
                 var annotator = new HocusFocusStarAnnotator(starAnnotatorOptions, null);
                 var starDetectionParams = new StarDetectionParams() { };
                 var detectorParams = new StarDetectorParams() {

@@ -80,7 +80,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IStarDetectionOptions starDetectionOptions,
             IFilterWheelMediator filterWheelMediator,
             IApplicationStatusMediator applicationStatusMediator,
-            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector
+            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
+            IAlglibAPI alglibAPI
         ) : base(profileService) {
             this.focuserMediator = focuserMediator;
             this.autoFocusEngineFactory = autoFocusEngineFactory;
@@ -88,6 +89,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.starDetectionSelector = starDetectionSelector;
             this.starDetectionOptions = starDetectionOptions;
             this.autoFocusOptions = autoFocusOptions;
+            this.alglibAPI = alglibAPI;
 
             FocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             PlotFocusPoints = new AsyncObservableCollection<DataPoint>();
@@ -112,6 +114,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             });
             CancelLoadSavedAutoFocusRunCommand = new RelayCommand(CancelLoadSavedAutoFocusRun);
         }
+
+        private readonly IAlglibAPI alglibAPI;
 
         public AFCurveFittingEnum AutoFocusChartCurveFitting {
             get {
@@ -392,7 +396,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
 
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
-                        var hf = HyperbolicFittingAlglib.Create(validFocusPoints, this.autoFocusOptions.AllowHyperbolaRotation);
+                        var hf = HyperbolicFittingAlglib.Create(this.alglibAPI, validFocusPoints, this.autoFocusOptions.AllowHyperbolaRotation);
                         hf.Solve();
                         HyperbolicFitting = hf;
                     }

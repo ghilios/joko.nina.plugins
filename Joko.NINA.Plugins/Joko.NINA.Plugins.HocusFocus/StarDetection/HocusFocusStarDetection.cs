@@ -179,7 +179,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     [Export(typeof(IPluggableBehavior))]
     public class HocusFocusStarDetection : IHocusFocusStarDetection {
         private readonly IStarDetector starDetector;
-        private readonly StarDetectionOptions starDetectionOptions;
+        private readonly IStarDetectionOptions starDetectionOptions;
         private readonly IProfileService profileService;
         private readonly IFocuserMediator focuserMediator;
         private bool pixelScaleWarningShown = false;
@@ -191,9 +191,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public string ContentId => GetType().FullName;
 
         [ImportingConstructor]
-        public HocusFocusStarDetection(IImageStatisticsVM imageStatisticsVM, IProfileService profileService, IFocuserMediator focuserMediator) {
-            this.starDetector = new StarDetector();
-            this.starDetectionOptions = HocusFocusPlugin.StarDetectionOptions;
+        public HocusFocusStarDetection(IImageStatisticsVM imageStatisticsVM, IProfileService profileService, IFocuserMediator focuserMediator) :
+            this(imageStatisticsVM, profileService, focuserMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.AlglibAPI) {
+        }
+
+        public HocusFocusStarDetection(
+            IImageStatisticsVM imageStatisticsVM,
+            IProfileService profileService,
+            IFocuserMediator focuserMediator,
+            IStarDetectionOptions starDetectionOptions,
+            IAlglibAPI alglibAPI) {
+            this.starDetector = new StarDetector(alglibAPI);
+            this.starDetectionOptions = starDetectionOptions;
             this.profileService = profileService;
             this.focuserMediator = focuserMediator;
             ImageStatisticsVM = imageStatisticsVM;

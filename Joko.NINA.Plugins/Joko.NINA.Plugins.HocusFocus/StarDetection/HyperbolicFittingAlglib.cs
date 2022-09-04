@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using Accord.Math.Optimization.Losses;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.WPF.Base.Utility.AutoFocus;
 using OxyPlot;
 using OxyPlot.Series;
@@ -27,18 +28,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public bool UseJacobian { get; set; } = false;
         public bool OptGuardEnabled { get; set; } = false;
         private bool allowRotation;
+        private readonly IAlglibAPI alglibAPI;
 
-        private HyperbolicFittingAlglib(double[][] inputs, double[] outputs, bool allowRotation) {
+        private HyperbolicFittingAlglib(IAlglibAPI alglibAPI, double[][] inputs, double[] outputs, bool allowRotation) {
             this.Inputs = inputs;
             this.Outputs = outputs;
             this.allowRotation = allowRotation;
+            this.alglibAPI = alglibAPI;
         }
 
-        public static HyperbolicFittingAlglib Create(ICollection<ScatterErrorPoint> points, bool allowRotation) {
+        public static HyperbolicFittingAlglib Create(IAlglibAPI alglibAPI, ICollection<ScatterErrorPoint> points, bool allowRotation) {
             var nonzeroPoints = points.Where((dp) => dp.Y >= 0.1).ToList();
             var inputs = nonzeroPoints.Select(dp => new double[] { dp.X }).ToArray();
             var outputs = nonzeroPoints.Select(dp => dp.Y).ToArray();
-            return new HyperbolicFittingAlglib(inputs, outputs, allowRotation);
+            return new HyperbolicFittingAlglib(alglibAPI, inputs, outputs, allowRotation);
         }
 
         private Func<double, double> GetFittingForParameters(double[] parameters) {
@@ -182,28 +185,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var maxIterations = 0; // Keep going until the solution is found
                 const double deltaForNumericIntegration = 1E-6;
                 if (UseJacobian) {
-                    alglib.minlmcreatevj(this.Inputs.Length, initialGuess, out state);
-                    alglib.minlmsetacctype(state, 1);
+                    this.alglibAPI.minlmcreatevj(this.Inputs.Length, initialGuess, out state);
+                    this.alglibAPI.minlmsetacctype(state, 1);
                 } else {
-                    alglib.minlmcreatev(this.Inputs.Length, initialGuess, deltaForNumericIntegration, out state);
+                    this.alglibAPI.minlmcreatev(this.Inputs.Length, initialGuess, deltaForNumericIntegration, out state);
                 }
 
-                alglib.minlmsetbc(state, lowerBounds, upperBounds);
+                this.alglibAPI.minlmsetbc(state, lowerBounds, upperBounds);
 
                 // Set the termination conditions
-                alglib.minlmsetcond(state, tolerance, maxIterations);
+                this.alglibAPI.minlmsetcond(state, tolerance, maxIterations);
 
                 // Set all variables to the same scale, except for x0, y0. This feature is useful if the magnitude if some variables is dramatically different than others
-                alglib.minlmsetscale(state, scale);
+                this.alglibAPI.minlmsetscale(state, scale);
 
                 if (OptGuardEnabled) {
-                    alglib.minlmoptguardgradient(state, deltaForNumericIntegration);
+                    this.alglibAPI.minlmoptguardgradient(state, deltaForNumericIntegration);
                 }
 
                 // Perform the optimization
-                alglib.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, null, null);
+                this.alglibAPI.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, null, null);
 
-                alglib.minlmresults(state, out solution, out rep);
+                this.alglibAPI.minlmresults(state, out solution, out rep);
                 if (rep.terminationtype < 0) {
                     string reason;
                     if (rep.terminationtype == -8) {
@@ -218,7 +221,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 if (OptGuardEnabled) {
                     alglib.optguardreport ogrep;
-                    alglib.minlmoptguardresults(state, out ogrep);
+                    this.alglibAPI.minlmoptguardresults(state, out ogrep);
                     try {
                         if (ogrep.badgradsuspected) {
                             var differences = new double[ogrep.badgraduser.GetLength(0), ogrep.badgraduser.GetLength(1)];
@@ -231,7 +234,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             throw new Exception();
                         }
                     } finally {
-                        alglib.deallocateimmediately(ref ogrep);
+                        this.alglibAPI.deallocateimmediately(ref ogrep);
                     }
                 }
 
@@ -254,10 +257,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return true;
             } finally {
                 if (state != null) {
-                    alglib.deallocateimmediately(ref state);
+                    this.alglibAPI.deallocateimmediately(ref state);
                 }
                 if (rep != null) {
-                    alglib.deallocateimmediately(ref rep);
+                    this.alglibAPI.deallocateimmediately(ref rep);
                 }
             }
         }

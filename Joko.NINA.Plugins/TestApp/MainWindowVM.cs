@@ -432,7 +432,8 @@ plt.YLabel("dθ/dt");
                 var srcFloat = t.NewMat();
                 ConvertToFloat(src, srcFloat);
 
-                var detector = new StarDetector();
+                var alglibAPI = new AlglibAPI();
+                var detector = new StarDetector(alglibAPI);
                 var starDetectionParams = new StarDetectionParams() { };
                 var detectorParams = new StarDetectorParams() {
                     NoiseReductionRadius = 3,

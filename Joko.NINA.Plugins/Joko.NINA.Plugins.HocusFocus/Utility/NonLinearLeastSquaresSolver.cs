@@ -44,6 +44,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
         private double[] weights;
         private bool[] inputEnabled;
+        private readonly IAlglibAPI alglibAPI;
+
+        public NonLinearLeastSquaresSolver(IAlglibAPI alglibAPI) {
+            this.alglibAPI = alglibAPI;
+        }
 
         public int InputEnabledCount {
             get => inputEnabled.Count(i => i);
@@ -183,30 +188,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
                 var solution = new double[solver.NumParameters];
                 if (solver.UseJacobian) {
-                    alglib.minlmcreatevj(solver.Inputs.Length, initialGuess, out state);
-                    alglib.minlmsetacctype(state, 1);
+                    this.alglibAPI.minlmcreatevj(solver.Inputs.Length, initialGuess, out state);
+                    this.alglibAPI.minlmsetacctype(state, 1);
                 } else {
-                    alglib.minlmcreatev(solver.Inputs.Length, initialGuess, solver.NumericIntegrationIntervalSize, out state);
+                    this.alglibAPI.minlmcreatev(solver.Inputs.Length, initialGuess, solver.NumericIntegrationIntervalSize, out state);
                 }
-                alglib.minlmsetbc(state, lowerBounds, upperBounds);
+                this.alglibAPI.minlmsetbc(state, lowerBounds, upperBounds);
 
                 // Set the termination conditions
-                alglib.minlmsetcond(state, tolerance, maxIterations);
+                this.alglibAPI.minlmsetcond(state, tolerance, maxIterations);
 
                 // Set all variables to the same scale, except for x0, y0. This feature is useful if the magnitude if some variables is dramatically different than others
-                alglib.minlmsetscale(state, scales);
+                this.alglibAPI.minlmsetscale(state, scales);
 
                 if (OptGuardEnabled) {
-                    alglib.minlmoptguardgradient(state, 1E-4);
+                    this.alglibAPI.minlmoptguardgradient(state, 1E-4);
                 }
 
                 // Perform the optimization
                 this.Solver = solver;
                 this.solverCancellationToken = ct;
-                alglib.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, null, null);
+                this.alglibAPI.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, null, null);
                 ct.ThrowIfCancellationRequested();
 
-                alglib.minlmresults(state, out solution, out rep);
+                this.alglibAPI.minlmresults(state, out solution, out rep);
                 if (rep.terminationtype < 0) {
                     // TODO: terminationtype=5 means max iterations were taken
                     string reason;
@@ -222,7 +227,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
                 if (OptGuardEnabled) {
                     alglib.optguardreport ogrep;
-                    alglib.minlmoptguardresults(state, out ogrep);
+                    this.alglibAPI.minlmoptguardresults(state, out ogrep);
                     try {
                         if (ogrep.badgradsuspected) {
                             var differences = new double[ogrep.badgraduser.GetLength(0), ogrep.badgraduser.GetLength(1)];
@@ -234,7 +239,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                             throw new OptGuardBadGradientException(differences);
                         }
                     } finally {
-                        alglib.deallocateimmediately(ref ogrep);
+                        this.alglibAPI.deallocateimmediately(ref ogrep);
                     }
                 }
 
@@ -243,10 +248,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 return solutionModel;
             } finally {
                 if (state != null) {
-                    alglib.deallocateimmediately(ref state);
+                    this.alglibAPI.deallocateimmediately(ref state);
                 }
                 if (rep != null) {
-                    alglib.deallocateimmediately(ref rep);
+                    this.alglibAPI.deallocateimmediately(ref rep);
                 }
             }
         }

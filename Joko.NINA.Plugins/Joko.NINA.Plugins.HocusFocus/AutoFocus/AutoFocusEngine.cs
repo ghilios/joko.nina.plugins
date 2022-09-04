@@ -57,6 +57,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
         private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
         private readonly IAutoFocusOptions autoFocusOptions;
+        private readonly IAlglibAPI alglibAPI;
 
         public AutoFocusEngine(
             IProfileService profileService,
@@ -68,7 +69,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IImageDataFactory imageDataFactory,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
-            IAutoFocusOptions autoFocusOptions) {
+            IAutoFocusOptions autoFocusOptions,
+            IAlglibAPI alglibAPI) {
             this.profileService = profileService;
             this.cameraMediator = cameraMediator;
             this.filterWheelMediator = filterWheelMediator;
@@ -79,6 +81,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.starDetectionSelector = starDetectionSelector;
             this.starAnnotatorSelector = starAnnotatorSelector;
             this.autoFocusOptions = autoFocusOptions;
+            this.alglibAPI = alglibAPI;
         }
 
         private class AutoFocusRegionState {
@@ -141,7 +144,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             }
 
                             if (AFCurveFittingEnum.HYPERBOLIC == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC == fitting) {
-                                var hf = HyperbolicFittingAlglib.Create(validFocusPoints, this.State.Options.AllowHyperbolaRotation);
+                                var hf = HyperbolicFittingAlglib.Create(this.State.AlglibAPI, validFocusPoints, this.State.Options.AllowHyperbolaRotation);
                                 if (!hf.Solve()) {
                                     Logger.Trace($"Hyperbolic fit failed");
                                 }
@@ -256,7 +259,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             public AutoFocusState(
                 AutoFocusEngineOptions options,
                 FilterInfo autoFocusFilter,
-                List<StarDetectionRegion> regions) {
+                List<StarDetectionRegion> regions,
+                IAlglibAPI alglibAPI) {
                 this.Options = options;
                 this.AutoFocusFilter = autoFocusFilter;
                 this.ExposureSemaphore = new SemaphoreSlim(options.MaxConcurrent, options.MaxConcurrent);
@@ -270,8 +274,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 } else {
                     this.FocusRegionStates = ImmutableList.ToImmutableList(regions.Select((r, i) => new AutoFocusRegionState(this, i, r, options.AutoFocusMethod, options.AutoFocusCurveFitting)));
                 }
+                this.AlglibAPI = alglibAPI;
             }
 
+            public IAlglibAPI AlglibAPI { get; private set; }
             public AutoFocusEngineOptions Options { get; private set; }
             public DrawingSize ImageSize { get; set; }
             public ImmutableList<StarDetectionRegion> FocusRegions { get; private set; }
@@ -828,7 +834,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return new AutoFocusState(
                 options,
                 autofocusFilter,
-                regions);
+                regions,
+                this.alglibAPI);
         }
 
         private async Task<bool> RunAutoFocus(

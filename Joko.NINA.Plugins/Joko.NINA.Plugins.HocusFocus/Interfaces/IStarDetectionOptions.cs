@@ -90,8 +90,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         string IntermediateSavePath { get; set; }
         bool SaveIntermediateImages { get; set; }
         int PSFParallelPartitionSize { get; set; }
+        bool StarMeasurementNoiseReductionEnabled { get; set; }
         StarDetectorPSFFitType PSFFitType { get; set; }
         int PSFResolution { get; set; }
+        double PSFFitThreshold { get; set; }
         bool UsePSFAbsoluteDeviation { get; set; }
         double HotpixelThreshold { get; set; }
         double SaturationThreshold { get; set; }

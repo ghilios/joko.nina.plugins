@@ -82,6 +82,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
         private readonly IApplicationDispatcher applicationDispatcher;
         private readonly IProgress<ApplicationStatus> progress;
+        private readonly IAlglibAPI alglibAPI;
 
         [ImportingConstructor]
         public InspectorVM(
@@ -96,7 +97,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector)
             : this(profileService, applicationStatusMediator, imagingMediator, cameraMediator, focuserMediator, filterWheelMediator, telescopeMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.InspectorOptions, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory,
-                  imageDataFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher) {
+                  imageDataFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.AlglibAPI) {
         }
 
         public InspectorVM(
@@ -115,7 +116,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IImageDataFactory imageDataFactory,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
-            IApplicationDispatcher applicationDispatcher) : base(profileService) {
+            IApplicationDispatcher applicationDispatcher,
+            IAlglibAPI alglibAPI) : base(profileService) {
             this.applicationStatusMediator = applicationStatusMediator;
             this.imagingMediator = imagingMediator;
             this.cameraMediator = cameraMediator;
@@ -131,6 +133,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.starDetectionSelector = starDetectionSelector;
             this.starAnnotatorSelector = starAnnotatorSelector;
             this.applicationDispatcher = applicationDispatcher;
+            this.alglibAPI = alglibAPI;
             this.progress = ProgressFactory.Create(applicationStatusMediator, "Aberration Inspector");
 
             this.cameraMediator.RegisterConsumer(this);
@@ -148,7 +151,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionCurveFittings = new AsyncObservableCollection<Func<double, double>>(Enumerable.Range(0, 6).Select(i => (Func<double, double>)null));
             RegionLineFittings = new AsyncObservableCollection<TrendlineFitting>(Enumerable.Range(0, 6).Select(i => (TrendlineFitting)null));
             TiltModel = new TiltModel(inspectorOptions);
-            SensorModel = new SensorModel(inspectorOptions);
+            SensorModel = new SensorModel(inspectorOptions, alglibAPI);
 
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["InspectorSVG"];
             ImageGeometry.Freeze();

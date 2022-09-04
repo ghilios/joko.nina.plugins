@@ -12,6 +12,7 @@
 
 using ILNumerics;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using OpenCvSharp;
 using System;
 using static ILNumerics.Globals;
@@ -24,8 +25,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class GaussianPSFAlglibType : PSFModelTypeAlglibBase {
 
-        public GaussianPSFAlglibType(double[][] inputs, double[] outputs, double centroidBrightness, double starDetectionBackground, Rect starBoundingBox, double pixelScale) :
-            base(centroidBrightness: centroidBrightness, starDetectionBackground: starDetectionBackground, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
+        public GaussianPSFAlglibType(IAlglibAPI alglibAPI, double[][] inputs, double[] outputs, double centroidBrightness, double starDetectionBackground, Rect starBoundingBox, double pixelScale) :
+            base(alglibAPI: alglibAPI, centroidBrightness: centroidBrightness, starDetectionBackground: starDetectionBackground, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
         }
 
         public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Gaussian;

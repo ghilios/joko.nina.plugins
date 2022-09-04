@@ -86,10 +86,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
     public class SensorModel : BaseINPC {
         private readonly IInspectorOptions inspectorOptions;
+        private readonly IAlglibAPI alglibAPI;
         private int nextHistoryId = 0;
 
-        public SensorModel(IInspectorOptions inspectorOptions) {
+        public SensorModel(IInspectorOptions inspectorOptions, IAlglibAPI alglibAPI) {
             this.inspectorOptions = inspectorOptions;
+            this.alglibAPI = alglibAPI;
             SensorTiltHistoryModels = new AsyncObservableCollection<SensorParaboloidTiltHistoryModel>();
         }
 
@@ -115,7 +117,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     sensorSizeMicronsX: imageSize.Width * pixelSize,
                     sensorSizeMicronsY: imageSize.Height * pixelSize,
                     inFocusMicrons: finalFocusPosition * focuserSizeMicrons);
-                var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>();
+                var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(this.alglibAPI);
                 sensorModelSolver.PositiveCurvature = true;
                 var positiveCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);
                 ct.ThrowIfCancellationRequested();
@@ -257,7 +259,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     try {
                         var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
                         // TODO: Figure out if I need to allow rotations here. This is probably an inspection option?
-                        var fitting = HyperbolicFittingAlglib.Create(points, false);
+                        var fitting = HyperbolicFittingAlglib.Create(this.alglibAPI, points, false);
                         var solveResult = fitting.Solve();
                         if (!solveResult) {
                             Logger.Trace($"Failed to fit hyperbolic curve to star matches at ({registeredStar.RegistrationX:0.00}, {registeredStar.RegistrationY:0.00})");

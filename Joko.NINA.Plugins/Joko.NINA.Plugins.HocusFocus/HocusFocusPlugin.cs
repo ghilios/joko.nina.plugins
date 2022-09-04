@@ -68,6 +68,9 @@ namespace NINA.Joko.Plugins.HocusFocus {
             if (InspectorOptions == null) {
                 InspectorOptions = new InspectorOptions(profileService);
             }
+            if (AlglibAPI == null) {
+                AlglibAPI = new AlglibAPI();
+            }
             if (AutoFocusEngineFactory == null) {
                 AutoFocusEngineFactory = new AutoFocusEngineFactory(
                     profileService,
@@ -79,7 +82,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     imageDataFactory,
                     starDetectionSelector,
                     starAnnotatorSelector,
-                    AutoFocusOptions);
+                    AutoFocusOptions,
+                    AlglibAPI);
             }
             if (ApplicationDispatcher == null) {
                 ApplicationDispatcher = new ApplicationDispatcher();
@@ -119,7 +123,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
             }
         }
 
-        private async Task ImageSaveMediator_BeforeFinalizeImageSaved(object sender, BeforeFinalizeImageSavedEventArgs e) {
+        private Task ImageSaveMediator_BeforeFinalizeImageSaved(object sender, BeforeFinalizeImageSavedEventArgs e) {
             var hfAnalysis = (e.Image?.RawImageData?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis);
             if (hfAnalysis != null) {
                 e.AddImagePattern(new ImagePattern(fwhmImagePattern.Key, fwhmImagePattern.Description, fwhmImagePattern.Category) {
@@ -129,6 +133,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     Value = $"{hfAnalysis.Eccentricity:0.00}"
                 });
             }
+            return Task.CompletedTask;
         }
 
         private readonly ImagePattern fwhmImagePattern = new ImagePattern("$$FWHM$$", "Full Width Half Maximum", "Hocus Focus") { Value = "4.23" };
@@ -146,6 +151,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public static AutoFocusEngineFactory AutoFocusEngineFactory { get; private set; }
 
         public static ApplicationDispatcher ApplicationDispatcher { get; private set; }
+
+        public static IAlglibAPI AlglibAPI { get; private set; }
 
         public ICommand ResetStarDetectionDefaultsCommand { get; private set; }
 

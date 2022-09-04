@@ -12,6 +12,7 @@
 
 using ILNumerics;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using OpenCvSharp;
 using System;
 using System.Threading;
@@ -29,8 +30,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     public class MoffatPSFAlglibType : PSFModelTypeAlglibBase {
         public double Beta { get; private set; }
 
-        public MoffatPSFAlglibType(double beta, double[][] inputs, double[] outputs, double centroidBrightness, double starDetectionBackground, Rect starBoundingBox, double pixelScale) :
-            base(centroidBrightness: centroidBrightness, starDetectionBackground: starDetectionBackground, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
+        public MoffatPSFAlglibType(IAlglibAPI alglibAPI, double beta, double[][] inputs, double[] outputs, double centroidBrightness, double starDetectionBackground, Rect starBoundingBox, double pixelScale) :
+            base(alglibAPI: alglibAPI, centroidBrightness: centroidBrightness, starDetectionBackground: starDetectionBackground, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
             this.Beta = beta;
         }
 

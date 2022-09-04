@@ -124,8 +124,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     }
 
     public abstract class PSFModelTypeAlglibBase : PSFModelTypeBase {
+        private readonly IAlglibAPI alglibAPI;
 
-        protected PSFModelTypeAlglibBase(double centroidBrightness, double starDetectionBackground, double pixelScale, Rect starBoundingBox, double[][] inputs, double[] outputs)
+        protected PSFModelTypeAlglibBase(IAlglibAPI alglibAPI, double centroidBrightness, double starDetectionBackground, double pixelScale, Rect starBoundingBox, double[][] inputs, double[] outputs)
             : base(centroidBrightness, starDetectionBackground, pixelScale, starBoundingBox) {
             this.Inputs = inputs;
             this.Outputs = outputs;
@@ -133,6 +134,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             for (int i = 0; i < this.weights.Length; ++i) {
                 this.weights[i] = 1.0d;
             }
+            this.alglibAPI = alglibAPI;
         }
 
         public abstract bool UseJacobian { get; }
@@ -236,28 +238,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var prevSumOfResiduals = double.PositiveInfinity;
                 while (sumOfResidualsDelta > toleranceIRLS && iterations++ < maxIterationsLM) {
                     if (this.UseJacobian) {
-                        alglib.minlmcreatevj(this.Inputs.Length, initialGuess, out state);
-                        alglib.minlmsetacctype(state, 1);
+                        this.alglibAPI.minlmcreatevj(this.Inputs.Length, initialGuess, out state);
+                        this.alglibAPI.minlmsetacctype(state, 1);
                     } else {
                         const double deltaForNumericIntegration = 1E-4;
-                        alglib.minlmcreatev(this.Inputs.Length, initialGuess, deltaForNumericIntegration, out state);
+                        this.alglibAPI.minlmcreatev(this.Inputs.Length, initialGuess, deltaForNumericIntegration, out state);
                     }
-                    alglib.minlmsetbc(state, lowerBounds, upperBounds);
+                    this.alglibAPI.minlmsetbc(state, lowerBounds, upperBounds);
 
                     // Set the termination conditions
-                    alglib.minlmsetcond(state, toleranceLM, maxIterationsLM);
+                    this.alglibAPI.minlmsetcond(state, toleranceLM, maxIterationsLM);
 
                     // Set all variables to the same scale, except for x0, y0. This feature is useful if the magnitude if some variables is dramatically different than others
-                    alglib.minlmsetscale(state, scale);
+                    this.alglibAPI.minlmsetscale(state, scale);
 
                     // TODO: Remove optguard
                     // alglib.minlmoptguardgradient(state, 1E-4);
 
                     // Perform the optimization
-                    alglib.minlmoptimize(state, this.FitResidualsWeighted, this.FitResidualsJacobianWeighted, null, null);
+                    this.alglibAPI.minlmoptimize(state, this.FitResidualsWeighted, this.FitResidualsJacobianWeighted, null, null);
                     ct.ThrowIfCancellationRequested();
 
-                    alglib.minlmresults(state, out solution, out rep);
+                    this.alglibAPI.minlmresults(state, out solution, out rep);
                     if (rep.terminationtype < 0) {
                         string reason;
                         if (rep.terminationtype == -8) {
@@ -288,7 +290,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 /*
                 alglib.optguardreport ogrep;
-                alglib.minlmoptguardresults(state, out ogrep);
+                this.alglibAPI.minlmoptguardresults(state, out ogrep);
                 if (ogrep.badgradsuspected) {
                     var differences = new double[ogrep.badgraduser.GetLength(0), ogrep.badgraduser.GetLength(1)];
                     for (int i = 0; i < ogrep.badgraduser.GetLength(0); ++i) {
@@ -332,10 +334,10 @@ NegativeWeights = {this.weights.Count(w => w < 0 && !double.IsNaN(w))}
                 throw new Exception("AccessViolation during PSF Fitting. Attempting to recover", ave);
             } finally {
                 if (state != null) {
-                    alglib.deallocateimmediately(ref state);
+                    this.alglibAPI.deallocateimmediately(ref state);
                 }
                 if (rep != null) {
-                    alglib.deallocateimmediately(ref rep);
+                    this.alglibAPI.deallocateimmediately(ref rep);
                 }
             }
         }
@@ -357,28 +359,28 @@ NegativeWeights = {this.weights.Count(w => w < 0 && !double.IsNaN(w))}
                 var solution = new double[6];
 
                 if (this.UseJacobian) {
-                    alglib.minlmcreatevj(this.Inputs.Length, initialGuess, out state);
-                    alglib.minlmsetacctype(state, 1);
+                    this.alglibAPI.minlmcreatevj(this.Inputs.Length, initialGuess, out state);
+                    this.alglibAPI.minlmsetacctype(state, 1);
                 } else {
                     const double deltaForNumericIntegration = 1E-4;
-                    alglib.minlmcreatev(this.Inputs.Length, initialGuess, deltaForNumericIntegration, out state);
+                    this.alglibAPI.minlmcreatev(this.Inputs.Length, initialGuess, deltaForNumericIntegration, out state);
                 }
-                alglib.minlmsetbc(state, lowerBounds, upperBounds);
+                this.alglibAPI.minlmsetbc(state, lowerBounds, upperBounds);
 
                 // Set the termination conditions
-                alglib.minlmsetcond(state, tolerance, maxIterations);
+                this.alglibAPI.minlmsetcond(state, tolerance, maxIterations);
 
                 // Set all variables to the same scale, except for x0, y0. This feature is useful if the magnitude if some variables is dramatically different than others
-                alglib.minlmsetscale(state, scale);
+                this.alglibAPI.minlmsetscale(state, scale);
 
                 // TODO: Remove optguard
                 // alglib.minlmoptguardgradient(state, 1E-4);
 
                 // Perform the optimization
-                alglib.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, null, null);
+                this.alglibAPI.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, null, null);
                 ct.ThrowIfCancellationRequested();
 
-                alglib.minlmresults(state, out solution, out rep);
+                this.alglibAPI.minlmresults(state, out solution, out rep);
                 if (rep.terminationtype < 0) {
                     string reason;
                     if (rep.terminationtype == -8) {
@@ -393,7 +395,7 @@ NegativeWeights = {this.weights.Count(w => w < 0 && !double.IsNaN(w))}
 
                 /*
                 alglib.optguardreport ogrep;
-                alglib.minlmoptguardresults(state, out ogrep);
+                this.alglibAPI.minlmoptguardresults(state, out ogrep);
                 if (ogrep.badgradsuspected) {
                     var differences = new double[ogrep.badgraduser.GetLength(0), ogrep.badgraduser.GetLength(1)];
                     for (int i = 0; i < ogrep.badgraduser.GetLength(0); ++i) {
@@ -436,10 +438,10 @@ NegativeWeights = {this.weights.Count(w => w < 0 && !double.IsNaN(w))}
                 throw new Exception("AccessViolation during PSF Fitting. Attempting to recover", ave);
             } finally {
                 if (state != null) {
-                    alglib.deallocateimmediately(ref state);
+                    this.alglibAPI.deallocateimmediately(ref state);
                 }
                 if (rep != null) {
-                    alglib.deallocateimmediately(ref rep);
+                    this.alglibAPI.deallocateimmediately(ref rep);
                 }
             }
         }
@@ -453,7 +455,8 @@ NegativeWeights = {this.weights.Count(w => w < 0 && !double.IsNaN(w))}
             Star detectedStar,
             Mat srcImage,
             double pixelScale,
-            bool useILNumerics) {
+            bool useILNumerics,
+            IAlglibAPI alglibAPI) {
             var background = detectedStar.Background;
             var nominalBoundingBoxWidth = Math.Sqrt(detectedStar.StarBoundingBox.Width * detectedStar.StarBoundingBox.Height);
             var samplingSize = nominalBoundingBoxWidth / psfResolution;
@@ -504,9 +507,9 @@ NegativeWeights = {this.weights.Count(w => w < 0 && !double.IsNaN(w))}
                 }
 
                 if (fitType == StarDetectorPSFFitType.Gaussian) {
-                    return new GaussianPSFAlglibType(inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
+                    return new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
                 } else if (fitType == StarDetectorPSFFitType.Moffat_40) {
-                    return new MoffatPSFAlglibType(beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
+                    return new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
                 } else {
                     throw new ArgumentException($"Unknown PSF fit type {fitType}");
                 }

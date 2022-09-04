@@ -499,6 +499,7 @@
     <Compile Include="StarDetection\StarDetectionResultsVM.cs" />
     <Compile Include="StarDetection\StarDetector.cs" />
     <Compile Include="StarDetection\StarDetectionOptionsVM.cs" />
+    <Compile Include="Utility\AlglibAPI.cs" />
     <Compile Include="Utility\ApplicationDispatcher.cs" />
     <Compile Include="Utility\CvImageUtility.cs" />
     <Compile Include="Utility\Extensions.cs" />
@@ -509,6 +510,7 @@
     <Compile Include="Utility\NonLinearLeastSquaresSolver.cs" />
     <Compile Include="Utility\NonLinearLeastSquaresSolverBase.cs" />
     <Compile Include="Utility\PathUtility.cs" />
+    <Compile Include="Utility\SynchronizationEx.cs" />
     <Compile Include="ValidationRules\PositiveOddIntegerRule.cs" />
     <Compile Include="ValidationRules\PositiveIntegerOrInfiniteRule.cs" />
   </ItemGroup>
