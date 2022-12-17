@@ -1,563 +1,41 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\build\Microsoft.CodeAnalysis.Analyzers.props" Condition="Exists('..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\build\Microsoft.CodeAnalysis.Analyzers.props')" />
-  <Import Project="..\packages\ILNumerics.Tools.CodeTransforms.6.0.127\build\net461\ILNumerics.Tools.CodeTransforms.props" Condition="Exists('..\packages\ILNumerics.Tools.CodeTransforms.6.0.127\build\net461\ILNumerics.Tools.CodeTransforms.props')" />
-  <Import Project="..\packages\OpenCvSharp4.runtime.win.4.5.3.20210817\build\net\OpenCvSharp4.runtime.win.props" Condition="Exists('..\packages\OpenCvSharp4.runtime.win.4.5.3.20210817\build\net\OpenCvSharp4.runtime.win.props')" />
-  <Import Project="..\packages\EntityFramework.6.4.4\build\EntityFramework.props" Condition="Exists('..\packages\EntityFramework.6.4.4\build\EntityFramework.props')" />
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{141704E0-505C-492C-9E74-3B85F1C05D12}</ProjectGuid>
+    <TargetFramework>net7.0-windows8.0</TargetFramework>
     <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>NINA.Joko.Plugins.HocusFocus</RootNamespace>
     <AssemblyName>NINA.Joko.Plugins.HocusFocus</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <ProjectTypeGuids>{60dc8134-eba5-43b8-bcc9-bb4bc16c2548};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
-    <FileAlignment>512</FileAlignment>
-    <Deterministic>true</Deterministic>
-    <NuGetPackageImportStamp>
-    </NuGetPackageImportStamp>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <ImportWindowsDesktopTargets>true</ImportWindowsDesktopTargets>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>AnyCPU;x64</Platforms>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
-    <DebugSymbols>true</DebugSymbols>
     <OutputPath>bin\x64\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoStdLib>true</NoStdLib>
-    <DebugType>full</DebugType>
-    <PlatformTarget>x64</PlatformTarget>
-    <LangVersion>7.3</LangVersion>
-    <ErrorReport>prompt</ErrorReport>
+    <NoWarn>1701;1702;CA1416</NoWarn>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
     <OutputPath>bin\x64\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Optimize>true</Optimize>
     <NoStdLib>true</NoStdLib>
-    <DebugType>pdbonly</DebugType>
-    <PlatformTarget>x64</PlatformTarget>
-    <LangVersion>7.3</LangVersion>
-    <ErrorReport>prompt</ErrorReport>
+    <NoWarn>1701;1702;CA1416</NoWarn>
   </PropertyGroup>
+  <!--
   <ItemGroup>
-    <Reference Include="Accord, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
-      <HintPath>..\packages\Accord.3.8.0\lib\net462\Accord.dll</HintPath>
-    </Reference>
-    <Reference Include="Accord.Imaging, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
-      <HintPath>..\packages\Accord.Imaging.3.8.0\lib\net462\Accord.Imaging.dll</HintPath>
-    </Reference>
-    <Reference Include="Accord.Math, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
-      <HintPath>..\packages\Accord.Math.3.8.0\lib\net462\Accord.Math.dll</HintPath>
-    </Reference>
-    <Reference Include="Accord.Math.Core, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
-      <HintPath>..\packages\Accord.Math.3.8.0\lib\net462\Accord.Math.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="Accord.Statistics, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
-      <HintPath>..\packages\Accord.Statistics.3.8.0\lib\net462\Accord.Statistics.dll</HintPath>
-    </Reference>
-    <Reference Include="alglib.net, Version=3.18.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\alglib.net.3.18.2\lib\net48\alglib.net.dll</HintPath>
-    </Reference>
-    <Reference Include="AsyncEnumerable, Version=4.0.2.0, Culture=neutral, PublicKeyToken=0426b068161bd1d1, processorArchitecture=MSIL">
-      <HintPath>..\packages\AsyncEnumerator.4.0.2\lib\net461\AsyncEnumerable.dll</HintPath>
-    </Reference>
-    <Reference Include="AvalonDock, Version=4.60.0.0, Culture=neutral, PublicKeyToken=3e4669d2f30244f4, processorArchitecture=MSIL">
-      <HintPath>..\packages\Dirkster.AvalonDock.4.60.0\lib\net40\AvalonDock.dll</HintPath>
-    </Reference>
-    <Reference Include="Castle.Core, Version=4.0.0.0, Culture=neutral, PublicKeyToken=407dd0808d44fbdc, processorArchitecture=MSIL">
-      <HintPath>..\packages\Castle.Core.4.4.1\lib\net45\Castle.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="Castle.Core.AsyncInterceptor, Version=2.0.0.0, Culture=neutral, PublicKeyToken=e33b67d3bb5581e4, processorArchitecture=MSIL">
-      <HintPath>..\packages\Castle.Core.AsyncInterceptor.2.0.0\lib\net45\Castle.Core.AsyncInterceptor.dll</HintPath>
-    </Reference>
-    <Reference Include="CommonServiceLocator, Version=2.0.6.0, Culture=neutral, PublicKeyToken=489b6accfaf20ef0, processorArchitecture=MSIL">
-      <HintPath>..\packages\CommonServiceLocator.2.0.6\lib\net48\CommonServiceLocator.dll</HintPath>
-    </Reference>
-    <Reference Include="CSharpFITS_v1.1, Version=1.1.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\CSharpFITS.1.1\lib\Net20\CSharpFITS_v1.1.dll</HintPath>
-    </Reference>
-    <Reference Include="CsvHelper, Version=27.0.0.0, Culture=neutral, PublicKeyToken=8c4959082be5c823, processorArchitecture=MSIL">
-      <HintPath>..\packages\CsvHelper.27.2.1\lib\net47\CsvHelper.dll</HintPath>
-    </Reference>
-    <Reference Include="DotNetProjects.Wpf.Extended.Toolkit, Version=5.0.100.0, Culture=neutral, PublicKeyToken=3e4669d2f30244f4, processorArchitecture=MSIL">
-      <HintPath>..\packages\DotNetProjects.Extended.Wpf.Toolkit.5.0.100\lib\net40\DotNetProjects.Wpf.Extended.Toolkit.dll</HintPath>
-    </Reference>
-    <Reference Include="EntityFramework, Version=6.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089, processorArchitecture=MSIL">
-      <HintPath>..\packages\EntityFramework.6.4.4\lib\net45\EntityFramework.dll</HintPath>
-    </Reference>
-    <Reference Include="EntityFramework.SqlServer, Version=6.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089, processorArchitecture=MSIL">
-      <HintPath>..\packages\EntityFramework.6.4.4\lib\net45\EntityFramework.SqlServer.dll</HintPath>
-    </Reference>
-    <Reference Include="Fastenshtein, Version=1.0.0.8, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Fastenshtein.1.0.0.8\lib\net452\Fastenshtein.dll</HintPath>
-    </Reference>
-    <Reference Include="Google.Protobuf, Version=3.18.1.0, Culture=neutral, PublicKeyToken=a7d26565bac4d604, processorArchitecture=MSIL">
-      <HintPath>..\packages\Google.Protobuf.3.18.1\lib\net45\Google.Protobuf.dll</HintPath>
-    </Reference>
-    <Reference Include="Grpc.Core.Api, Version=2.0.0.0, Culture=neutral, PublicKeyToken=d754f35622e28bad, processorArchitecture=MSIL">
-      <HintPath>..\packages\Grpc.Core.Api.2.41.0\lib\net45\Grpc.Core.Api.dll</HintPath>
-    </Reference>
-    <Reference Include="GrpcDotNetNamedPipes, Version=1.4.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\GrpcDotNetNamedPipes.1.4.2\lib\net46\GrpcDotNetNamedPipes.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.Computing, Version=6.0.0.0, Culture=neutral, PublicKeyToken=8d9bf50ef854734d, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.Computing.6.0.127\lib\net461\ILNumerics.Computing.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.Core, Version=6.0.0.0, Culture=neutral, PublicKeyToken=9651adc37f12bb00, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.Core.6.0.127\lib\net461\ILNumerics.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.Core.Platforms, Version=6.0.0.0, Culture=neutral, PublicKeyToken=c056f8654c508336, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.Core.Platforms.6.0.127\lib\net461\ILNumerics.Core.Platforms.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.Core.Runtime, Version=6.0.0.0, Culture=neutral, PublicKeyToken=95aef34ba6191753, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.Core.Runtime.6.0.127\lib\net461\ILNumerics.Core.Runtime.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.Drawing, Version=6.0.0.0, Culture=neutral, PublicKeyToken=e22c8a010c3b081a, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.Drawing.6.0.127\lib\net461\ILNumerics.Drawing.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.Drawing.Platforms, Version=6.0.0.0, Culture=neutral, PublicKeyToken=0a23ecb2dfe3fc7e, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.Drawing.Platforms.6.0.127\lib\net461\ILNumerics.Drawing.Platforms.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.F2NET.LAPACK, Version=6.0.0.0, Culture=neutral, PublicKeyToken=003ce85f99479f88, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.F2NET.LAPACK.6.0.127\lib\net461\ILNumerics.F2NET.LAPACK.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.numpy, Version=6.0.0.0, Culture=neutral, PublicKeyToken=5191cdff9aceda71, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.numpy.6.0.127\lib\net461\ILNumerics.numpy.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.Toolboxes.Drawing2, Version=6.0.0.0, Culture=neutral, PublicKeyToken=97141307a4f391e9, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.Toolboxes.Drawing2.6.0.127\lib\net461\ILNumerics.Toolboxes.Drawing2.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.Toolboxes.Interpolation, Version=6.0.0.0, Culture=neutral, PublicKeyToken=feb6e2cd77588932, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.Toolboxes.Interpolation.6.0.127\lib\net461\ILNumerics.Toolboxes.Interpolation.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.Toolboxes.Optimization, Version=6.0.0.0, Culture=neutral, PublicKeyToken=d11317283e0d33b5, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.Toolboxes.Optimization.6.0.127\lib\net461\ILNumerics.Toolboxes.Optimization.dll</HintPath>
-    </Reference>
-    <Reference Include="ILNumerics.Toolboxes.Statistics, Version=6.0.0.0, Culture=neutral, PublicKeyToken=176aaed3d023b64c, processorArchitecture=MSIL">
-      <HintPath>..\packages\ILNumerics.Toolboxes.Statistics.6.0.127\lib\net461\ILNumerics.Toolboxes.Statistics.dll</HintPath>
-    </Reference>
-    <Reference Include="K4os.Compression.LZ4, Version=1.2.16.0, Culture=neutral, PublicKeyToken=2186fa9121ef231d, processorArchitecture=MSIL">
-      <HintPath>..\packages\K4os.Compression.LZ4.1.2.16\lib\net46\K4os.Compression.LZ4.dll</HintPath>
-    </Reference>
-    <Reference Include="KdTreeLib, Version=1.4.1.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\KdTree.1.4.1\lib\net471\KdTreeLib.dll</HintPath>
-    </Reference>
-    <Reference Include="MathNet.Numerics, Version=5.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\MathNet.Numerics.5.0.0-alpha08\lib\net48\MathNet.Numerics.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Bcl.AsyncInterfaces, Version=6.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.Bcl.AsyncInterfaces.6.0.0\lib\net461\Microsoft.Bcl.AsyncInterfaces.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Bcl.HashCode, Version=1.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.Bcl.HashCode.1.1.1\lib\net461\Microsoft.Bcl.HashCode.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.CodeAnalysis, Version=3.11.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.CodeAnalysis.Common.3.11.0\lib\netstandard2.0\Microsoft.CodeAnalysis.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.CodeAnalysis.CSharp, Version=3.11.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.CodeAnalysis.CSharp.3.11.0\lib\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Win32.Registry, Version=5.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.Win32.Registry.5.0.0\lib\net461\Microsoft.Win32.Registry.dll</HintPath>
-    </Reference>
-    <Reference Include="Microsoft.Xaml.Behaviors, Version=1.1.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\Microsoft.Xaml.Behaviors.Wpf.1.1.39\lib\net45\Microsoft.Xaml.Behaviors.dll</HintPath>
-    </Reference>
-    <Reference Include="Namotion.Reflection, Version=2.0.10.0, Culture=neutral, PublicKeyToken=c2f9c3bdfae56102, processorArchitecture=MSIL">
-      <HintPath>..\packages\Namotion.Reflection.2.0.10\lib\net45\Namotion.Reflection.dll</HintPath>
-    </Reference>
-    <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
-      <HintPath>..\packages\Newtonsoft.Json.13.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
-    </Reference>
-    <Reference Include="nikoncswrapper, Version=1.8.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Equipment.2.0.1.2001-beta\lib\net48\nikoncswrapper.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Astrometry, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Astrometry.2.0.1.2001-beta\lib\net48\NINA.Astrometry.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Core, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Core.2.0.1.2001-beta\lib\net48\NINA.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Equipment, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Equipment.2.0.1.2001-beta\lib\net48\NINA.Equipment.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Image, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Image.2.0.1.2001-beta\lib\net48\NINA.Image.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.MGEN, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.MGEN.2.0.1.2001-beta\lib\net48\NINA.MGEN.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.PlateSolving, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.PlateSolving.2.0.1.2001-beta\lib\net48\NINA.PlateSolving.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Plugin, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Plugin.2.0.1.2001-beta\lib\net48\NINA.Plugin.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Profile, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Profile.2.0.1.2001-beta\lib\net48\NINA.Profile.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.Sequencer, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.Sequencer.2.0.1.2001-beta\lib\net48\NINA.Sequencer.dll</HintPath>
-    </Reference>
-    <Reference Include="NINA.WPF.Base, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINA.WPF.Base.2.0.1.2001-beta\lib\net48\NINA.WPF.Base.dll</HintPath>
-    </Reference>
-    <Reference Include="NINACustomControlLibrary, Version=2.0.1.2001, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NINACustomControlLibrary.2.0.1.2001-beta\lib\net48\NINACustomControlLibrary.dll</HintPath>
-    </Reference>
-    <Reference Include="Nito.AsyncEx.Context, Version=5.1.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Nito.AsyncEx.Context.5.1.2\lib\net461\Nito.AsyncEx.Context.dll</HintPath>
-    </Reference>
-    <Reference Include="Nito.AsyncEx.Coordination, Version=5.1.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Nito.AsyncEx.Coordination.5.1.2\lib\net461\Nito.AsyncEx.Coordination.dll</HintPath>
-    </Reference>
-    <Reference Include="Nito.AsyncEx.Interop.WaitHandles, Version=5.1.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Nito.AsyncEx.Interop.WaitHandles.5.1.2\lib\net461\Nito.AsyncEx.Interop.WaitHandles.dll</HintPath>
-    </Reference>
-    <Reference Include="Nito.AsyncEx.Oop, Version=5.1.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Nito.AsyncEx.Oop.5.1.2\lib\net461\Nito.AsyncEx.Oop.dll</HintPath>
-    </Reference>
-    <Reference Include="Nito.AsyncEx.Tasks, Version=5.1.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Nito.AsyncEx.Tasks.5.1.2\lib\net461\Nito.AsyncEx.Tasks.dll</HintPath>
-    </Reference>
-    <Reference Include="Nito.Cancellation, Version=1.1.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Nito.Cancellation.1.1.2\lib\net461\Nito.Cancellation.dll</HintPath>
-    </Reference>
-    <Reference Include="Nito.Collections.Deque, Version=1.1.1.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Nito.Collections.Deque.1.1.1\lib\net461\Nito.Collections.Deque.dll</HintPath>
-    </Reference>
-    <Reference Include="Nito.Disposables, Version=2.3.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Nito.Disposables.2.3.0\lib\net461\Nito.Disposables.dll</HintPath>
-    </Reference>
-    <Reference Include="Nito.Mvvm.Async, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Nito.Mvvm.Async.1.0.0-pre-03\lib\netstandard2.0\Nito.Mvvm.Async.dll</HintPath>
-    </Reference>
-    <Reference Include="Nito.Mvvm.Core, Version=1.3.1.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Nito.Mvvm.Core.1.3.1\lib\net461\Nito.Mvvm.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="NJsonSchema, Version=10.6.10.0, Culture=neutral, PublicKeyToken=c2f9c3bdfae56102, processorArchitecture=MSIL">
-      <HintPath>..\packages\NJsonSchema.10.6.10\lib\net45\NJsonSchema.dll</HintPath>
-    </Reference>
-    <Reference Include="NmeaParser, Version=2.2.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\SharpGIS.NmeaParser.2.2.2\lib\net452\NmeaParser.dll</HintPath>
-    </Reference>
-    <Reference Include="OpenCvSharp, Version=1.0.0.0, Culture=neutral, PublicKeyToken=6adad1e807fea099, processorArchitecture=MSIL">
-      <HintPath>..\packages\OpenCvSharp4.4.5.3.20210817\lib\net461\OpenCvSharp.dll</HintPath>
-    </Reference>
-    <Reference Include="OpenCvSharp.Extensions, Version=1.0.0.0, Culture=neutral, PublicKeyToken=6adad1e807fea099, processorArchitecture=MSIL">
-      <HintPath>..\packages\OpenCvSharp4.4.5.3.20210817\lib\net461\OpenCvSharp.Extensions.dll</HintPath>
-    </Reference>
-    <Reference Include="OpenTK, Version=3.1.0.0, Culture=neutral, PublicKeyToken=bad199fe84eb3df4, processorArchitecture=MSIL">
-      <HintPath>..\packages\OpenTK.3.1.0\lib\net20\OpenTK.dll</HintPath>
-    </Reference>
-    <Reference Include="OpenTK.GLControl, Version=3.1.0.0, Culture=neutral, PublicKeyToken=bad199fe84eb3df4, processorArchitecture=MSIL">
-      <HintPath>..\packages\OpenTK.GLControl.3.1.0\lib\net20\OpenTK.GLControl.dll</HintPath>
-    </Reference>
-    <Reference Include="OxyPlot, Version=2.0.0.0, Culture=neutral, PublicKeyToken=638079a8f0bd61e9, processorArchitecture=MSIL">
-      <HintPath>..\packages\OxyPlot.Core.2.0.0\lib\net45\OxyPlot.dll</HintPath>
-    </Reference>
-    <Reference Include="OxyPlot.Wpf, Version=2.0.0.0, Culture=neutral, PublicKeyToken=75e952ba404cdbb0, processorArchitecture=MSIL">
-      <HintPath>..\packages\OxyPlot.Wpf.2.0.0\lib\net45\OxyPlot.Wpf.dll</HintPath>
-    </Reference>
-    <Reference Include="PresentationCore" />
-    <Reference Include="PresentationFramework" />
     <Reference Include="ReachFramework" />
-    <Reference Include="ScottPlot, Version=4.1.33.0, Culture=neutral, PublicKeyToken=86698dc10387c39e, processorArchitecture=MSIL">
-      <HintPath>..\packages\ScottPlot.4.1.33\lib\net461\ScottPlot.dll</HintPath>
-    </Reference>
-    <Reference Include="ScottPlot.WPF, Version=4.1.33.0, Culture=neutral, PublicKeyToken=e53b06131e34a3aa, processorArchitecture=MSIL">
-      <HintPath>..\packages\ScottPlot.WPF.4.1.33\lib\net48\ScottPlot.WPF.dll</HintPath>
-    </Reference>
-    <Reference Include="SHA3, Version=0.9.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\SHA3.0.9.2\lib\net40\SHA3.dll</HintPath>
-    </Reference>
-    <Reference Include="SHA3Managed, Version=0.9.2.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\SHA3.0.9.2\lib\net40\SHA3Managed.dll</HintPath>
-    </Reference>
-    <Reference Include="System" />
-    <Reference Include="System.Buffers, Version=4.0.3.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Buffers.4.5.1\lib\net461\System.Buffers.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Collections.Immutable, Version=6.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Collections.Immutable.6.0.0\lib\net461\System.Collections.Immutable.dll</HintPath>
-    </Reference>
-    <Reference Include="System.ComponentModel.Annotations, Version=4.2.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.ComponentModel.Annotations.5.0.0\lib\net461\System.ComponentModel.Annotations.dll</HintPath>
-    </Reference>
-    <Reference Include="System.ComponentModel.Composition" />
-    <Reference Include="System.ComponentModel.DataAnnotations" />
-    <Reference Include="System.Configuration" />
-    <Reference Include="System.Configuration.ConfigurationManager, Version=5.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Configuration.ConfigurationManager.5.0.0\lib\net461\System.Configuration.ConfigurationManager.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Core" />
     <Reference Include="System.Data.OracleClient" />
-    <Reference Include="System.Data.SQLite, Version=1.0.115.5, Culture=neutral, PublicKeyToken=db937bc2d44ff139, processorArchitecture=MSIL">
-      <HintPath>..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.5\lib\net46\System.Data.SQLite.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Data.SQLite.EF6, Version=1.0.115.5, Culture=neutral, PublicKeyToken=db937bc2d44ff139, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Data.SQLite.EF6.1.0.115.5\lib\net46\System.Data.SQLite.EF6.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Data.SQLite.Linq, Version=1.0.115.5, Culture=neutral, PublicKeyToken=db937bc2d44ff139, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Data.SQLite.Linq.1.0.115.5\lib\net46\System.Data.SQLite.Linq.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Diagnostics.EventLog, Version=5.0.0.1, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Diagnostics.EventLog.5.0.1\lib\net461\System.Diagnostics.EventLog.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Drawing" />
-    <Reference Include="System.Drawing.Common, Version=4.0.0.2, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Drawing.Common.5.0.2\lib\net461\System.Drawing.Common.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Management" />
-    <Reference Include="System.Memory, Version=4.0.1.1, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Memory.4.5.4\lib\net461\System.Memory.dll</HintPath>
-    </Reference>
     <Reference Include="System.Net" />
-    <Reference Include="System.Numerics" />
-    <Reference Include="System.Numerics.Vectors, Version=4.1.4.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Numerics.Vectors.4.5.0\lib\net46\System.Numerics.Vectors.dll</HintPath>
-    </Reference>
     <Reference Include="System.Printing" />
-    <Reference Include="System.Reflection.Metadata, Version=5.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Reflection.Metadata.5.0.0\lib\net461\System.Reflection.Metadata.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Runtime, Version=4.1.1.1, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Runtime.4.3.1\lib\net462\System.Runtime.dll</HintPath>
-      <Private>True</Private>
-      <Private>True</Private>
-    </Reference>
-    <Reference Include="System.Runtime.CompilerServices.Unsafe, Version=6.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Runtime.CompilerServices.Unsafe.6.0.0\lib\net461\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Runtime.InteropServices.RuntimeInformation, Version=4.0.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Runtime.InteropServices.RuntimeInformation.4.3.0\lib\net45\System.Runtime.InteropServices.RuntimeInformation.dll</HintPath>
-      <Private>True</Private>
-      <Private>True</Private>
-    </Reference>
-    <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Security" />
-    <Reference Include="System.Security.AccessControl, Version=5.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Security.AccessControl.5.0.0\lib\net461\System.Security.AccessControl.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Security.Permissions, Version=5.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Security.Permissions.5.0.0\lib\net461\System.Security.Permissions.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Security.Principal.Windows, Version=5.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Security.Principal.Windows.5.0.0\lib\net461\System.Security.Principal.Windows.dll</HintPath>
-    </Reference>
     <Reference Include="System.ServiceProcess" />
-    <Reference Include="System.Text.Encoding.CodePages, Version=4.1.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Text.Encoding.CodePages.4.5.1\lib\net461\System.Text.Encoding.CodePages.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Threading.Tasks.Extensions, Version=4.2.0.1, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.Threading.Tasks.Extensions.4.5.4\lib\net461\System.Threading.Tasks.Extensions.dll</HintPath>
-    </Reference>
     <Reference Include="System.Transactions" />
-    <Reference Include="System.ValueTuple, Version=4.0.3.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
-      <HintPath>..\packages\System.ValueTuple.4.5.0\lib\net47\System.ValueTuple.dll</HintPath>
-    </Reference>
     <Reference Include="System.Windows" />
-    <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Xaml" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Net.Http" />
-    <Reference Include="System.Xml" />
-    <Reference Include="ToggleSwitch, Version=1.2.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\ToggleSwitch.1.2.0\lib\net46\ToggleSwitch.dll</HintPath>
-    </Reference>
-    <Reference Include="Trinet.Core.IO.Ntfs, Version=4.1.1.0, Culture=neutral, PublicKeyToken=0aeaaa20a328a46c, processorArchitecture=MSIL">
-      <HintPath>..\packages\Trinet.Core.IO.Ntfs.4.1.1\lib\net462\Trinet.Core.IO.Ntfs.dll</HintPath>
-    </Reference>
-    <Reference Include="WindowsBase" />
-    <Reference Include="WindowsFormsIntegration" />
-    <Reference Include="Zlib.Portable, Version=1.11.0.0, Culture=neutral, PublicKeyToken=431cba815f6a8b5b, processorArchitecture=MSIL">
-      <HintPath>..\packages\Zlib.Portable.Signed.1.11.0\lib\portable-net4+sl5+wp8+win8+wpa81+MonoTouch+MonoAndroid\Zlib.Portable.dll</HintPath>
-    </Reference>
   </ItemGroup>
-  <ItemGroup>
-    <Compile Include="AutoFocus\AutoFocusEngine.cs" />
-    <Compile Include="AutoFocus\AutoFocusEngineFactory.cs" />
-    <Compile Include="AutoFocus\AutoFocusOptions.cs" />
-    <Compile Include="AutoFocus\DataTemplates.xaml.cs">
-      <DependentUpon>DataTemplates.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="AutoFocus\Dictionary.cs" />
-    <Compile Include="AutoFocus\Exceptions.cs" />
-    <Compile Include="AutoFocus\HocusFocusReport.cs" />
-    <Compile Include="AutoFocus\HocusFocusVM.cs" />
-    <Compile Include="AutoFocus\HocusFocusVMFactory.cs" />
-    <Compile Include="AutoFocus\InspectorOptions.cs" />
-    <Compile Include="AutoFocus\InspectorVM.cs" />
-    <Compile Include="AutoFocus\TiltModel.cs" />
-    <Compile Include="Controls\FWHMContourControl.cs" />
-    <Compile Include="Controls\ILNCanvasControl.xaml.cs">
-      <DependentUpon>ILNCanvasControl.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="Controls\ILNSceneContainer.cs" />
-    <Compile Include="Controls\OxyPlotExtended.cs" />
-    <Compile Include="Controls\ScottPlotControl.xaml.cs">
-      <DependentUpon>ScottPlotControl.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="Controls\ScrollViewerWindowsFormsHost.cs" />
-    <Compile Include="Controls\ILNSceneControlBase.xaml.cs">
-      <DependentUpon>ILNSceneControlBase.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="Controls\SensorModelContourMapControl.cs" />
-    <Compile Include="Controls\TiltModelControl.cs" />
-    <Compile Include="Converters\DoubleGreaterOneToEmptyStringConverter.cs" />
-    <Compile Include="Converters\IsNotNegativeToBooleanConverter.cs" />
-    <Compile Include="Converters\IsNegativeToBooleanConverter.cs" />
-    <Compile Include="Converters\InverseBooleanConverter.cs" />
-    <Compile Include="Converters\InverseDoubleNegativeToVisibilityConverter.cs" />
-    <Compile Include="Converters\DoubleNegativeToVisibilityConverter.cs" />
-    <Compile Include="Converters\DoubleNegativeToEmptyStringConverter.cs" />
-    <Compile Include="Converters\InterpolateColorConverter.cs" />
-    <Compile Include="Converters\InverseNaNToVisibilityCollapsedConverter.cs" />
-    <Compile Include="Converters\MultiBooleanToZeroConverter.cs" />
-    <Compile Include="Converters\MultiBooleanToVisibilityCollapsedConverter.cs" />
-    <Compile Include="Inspection\SensorModel.cs" />
-    <Compile Include="Inspection\SensorModelAberrationResult.cs" />
-    <Compile Include="Inspection\SensorModelAnalysisResult.cs" />
-    <Compile Include="Inspection\SensorParaboloidModel.cs" />
-    <Compile Include="Interfaces\IApplicationDispatcher.cs" />
-    <Compile Include="Interfaces\IAutoFocusEngine.cs" />
-    <Compile Include="Converters\AutoFocusFittingToVisibilityConverter.cs" />
-    <Compile Include="Converters\DecimalDegreesToArcsecDoubleDashConverter.cs" />
-    <Compile Include="Converters\DecimalMinToDoubleDashConverter.cs" />
-    <Compile Include="Converters\DoubleDegreesToArcsecDoubleDashConverter.cs" />
-    <Compile Include="Converters\DoubleZeroToVisibilityConverter.cs" />
-    <Compile Include="Converters\EnumStaticDescriptionConverter.cs" />
-    <Compile Include="Converters\EnumStaticDescriptionValueConverter.cs" />
-    <Compile Include="Converters\FloatPercentageConverter.cs" />
-    <Compile Include="Converters\IntNegativeToVisibilityConverter.cs" />
-    <Compile Include="Converters\InverseDoubleZeroToVisibilityConverter.cs" />
-    <Compile Include="Converters\PositiveToBooleanConverter.cs" />
-    <Compile Include="Converters\ShowAnnotationTypeToVisibilityConverter.cs" />
-    <Compile Include="Converters\StructureMapTypeToVisibilityConverter.cs" />
-    <Compile Include="Converters\ZeroToDoubleDashConverter.cs" />
-    <Compile Include="Converters\ZeroToInfinityConverter.cs" />
-    <Compile Include="Interfaces\IAutoFocusOptions.cs" />
-    <Compile Include="Interfaces\IHocusFocusStarDetection.cs" />
-    <Compile Include="Interfaces\IInspectorOptions.cs" />
-    <Compile Include="Interfaces\IStarAnnotatorOptions.cs" />
-    <Compile Include="Interfaces\IStarDetectionOptions.cs" />
-    <Compile Include="Interfaces\IStarDetector.cs" />
-    <Compile Include="HocusFocusPlugin.cs" />
-    <Compile Include="Options.xaml.cs">
-      <DependentUpon>Options.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Properties\Settings.Designer.cs">
-      <AutoGen>True</AutoGen>
-      <DesignTimeSharedInput>True</DesignTimeSharedInput>
-      <DependentUpon>Settings.settings</DependentUpon>
-    </Compile>
-    <Compile Include="Resources\OptionsDataTemplates.xaml.cs">
-      <DependentUpon>OptionsDataTemplates.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="Scottplot\HFArrowStyle.cs" />
-    <Compile Include="Scottplot\HFVectorField.cs" />
-    <Compile Include="Scottplot\LinearColormap.cs" />
-    <Compile Include="StarDetection\DataTemplates.xaml.cs">
-      <DependentUpon>DataTemplates.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="StarDetection\GaussianPSFType.cs" />
-    <Compile Include="StarDetection\HocusFocusStarAnnotator.cs" />
-    <Compile Include="StarDetection\HocusFocusStarDetection.cs" />
-    <Compile Include="StarDetection\HyperbolicFittingAlglib.cs" />
-    <Compile Include="StarDetection\MoffatPSFType.cs" />
-    <Compile Include="StarDetection\PSFModel.cs" />
-    <Compile Include="StarDetection\PSFModeler.cs" />
-    <Compile Include="StarDetection\StarAnnotatorOptions.cs" />
-    <Compile Include="StarDetection\StarDetectionOptions.cs" />
-    <Compile Include="StarDetection\StarAnnotatorOptionsVM.cs" />
-    <Compile Include="StarDetection\StarDetectionResultsVM.cs" />
-    <Compile Include="StarDetection\StarDetector.cs" />
-    <Compile Include="StarDetection\StarDetectionOptionsVM.cs" />
-    <Compile Include="Utility\AlglibAPI.cs" />
-    <Compile Include="Utility\ApplicationDispatcher.cs" />
-    <Compile Include="Utility\CvImageUtility.cs" />
-    <Compile Include="Utility\Extensions.cs" />
-    <Compile Include="Utility\HotpixelFiltering.cs" />
-    <Compile Include="Utility\MathUtility.cs" />
-    <Compile Include="Utility\MultiStopWatch.cs" />
-    <Compile Include="Utility\NativeMethods.cs" />
-    <Compile Include="Utility\NonLinearLeastSquaresSolver.cs" />
-    <Compile Include="Utility\NonLinearLeastSquaresSolverBase.cs" />
-    <Compile Include="Utility\PathUtility.cs" />
-    <Compile Include="Utility\SynchronizationEx.cs" />
-    <Compile Include="ValidationRules\PositiveOddIntegerRule.cs" />
-    <Compile Include="ValidationRules\PositiveIntegerOrInfiniteRule.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="app.config" />
-    <None Include="OpenTK.dll.config" />
-    <None Include="packages.config" />
-    <None Include="Properties\Settings.settings">
-      <Generator>SettingsSingleFileGenerator</Generator>
-      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
-    </None>
-  </ItemGroup>
-  <ItemGroup>
-    <Page Include="AutoFocus\DataTemplates.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="Controls\ILNCanvasControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Include="Controls\ScottPlotControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Include="Controls\ILNSceneControlBase.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="Options.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Include="Properties\DesignTimeResources.xaml" Condition="'$(DesignTime)'=='true' OR ('$(SolutionPath)'!='' AND Exists('$(SolutionPath)') AND '$(BuildingInsideVisualStudio)'!='true' AND '$(BuildingInsideExpressionBlend)'!='true')">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-      <ContainsDesignTimeResources>true</ContainsDesignTimeResources>
-    </Page>
-    <Page Include="Resources\OptionsDataTemplates.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="StarDetection\DataTemplates.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-  </ItemGroup>
+  -->
   <ItemGroup>
     <Service Include="{508349B6-6B84-4DF5-91F0-309BEEBAD82D}" />
   </ItemGroup>
@@ -565,59 +43,41 @@
     <Analyzer Include="..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\analyzers\dotnet\cs\Microsoft.CodeAnalysis.Analyzers.dll" />
     <Analyzer Include="..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\analyzers\dotnet\cs\Microsoft.CodeAnalysis.CSharp.Analyzers.dll" />
   </ItemGroup>
-  <ItemGroup />
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <ItemGroup>
+    <PackageReference Include="OpenCvSharp4.Extensions" Version="4.6.0.20220608" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="4.1.0" />
+    <PackageReference Include="System.Data.DataSetExtensions" Version="4.5.0" />
+    <PackageReference Include="Microsoft.DotNet.UpgradeAssistant.Extensions.Default.Analyzers" Version="0.4.355802">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Windows.Compatibility" Version="7.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="alglib.net" Version="3.18.2" />
+    <PackageReference Include="Dirkster.AvalonDock" Version="4.70.3" />
+    <PackageReference Include="ILNumerics.Drawing.Platforms" Version="7.0.58-beta01" />
+    <PackageReference Include="ILNumerics.Toolboxes.Drawing2" Version="7.0.58-beta01" />
+    <PackageReference Include="ILNumerics.Toolboxes.Optimization" Version="7.0.58-beta01" />
+    <PackageReference Include="KdTree" Version="1.4.1" />
+    <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+    <PackageReference Include="NINA.Plugin" Version="3.0.0.1001-nightly" />
+    <PackageReference Include="OpenCvSharp4" Version="4.6.0.20220608" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.6.0.20220608" />
+    <PackageReference Include="ScottPlot.WPF" Version="4.1.59" />
+  </ItemGroup>
+  <ItemGroup>
+    <Page Remove="Properties\DesignTimeResources.xaml" />
+  </ItemGroup>
   <PropertyGroup>
-    <PostBuildEvent>
-      if not exist "%25localappdata%25\NINA\Plugins" (
-      echo "Creating $(PlatformName) Plugins folder"
-      mkdir  "%25localappdata%25\NINA\Plugins"
-      )
-      if not exist "%25localappdata%25\NINA\Plugin\Hocus Focus\" (
-      echo "Creating $(PlatformName) Plugins Hocus Focus folder"
-      mkdir  "%25localappdata%25\NINA\Plugins\Hocus Focus"
-      mkdir  "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x86"
-      mkdir  "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x64"
-      )
-
-      echo "Copying $(PlatformName) Hocus Focus"
-      xcopy "$(TargetPath)" "%25localappdata%25\NINA\Plugins\Hocus Focus" /h/k/r/y
-      xcopy "$(TargetDir)\$(TargetName).pdb" "%25localappdata%25\NINA\Plugins\Hocus Focus" /h/k/r/y
-
-      echo "Copying $(PlatformName) Hocus Focus Dependencies"
-      xcopy "$(TargetDir)alglib.net.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
-      xcopy "$(TargetDir)OpenCVSharp.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
-      xcopy "$(TargetDir)OpenCVSharp.Extensions.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
-      xcopy "$(TargetDir)dll\x86\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x86" /h/k/r/y
-      xcopy "$(TargetDir)dll\x64\OpenCvSharpExtern.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll\dll\x64" /h/k/r/y
-      xcopy "$(TargetDir)ScottPlot*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
-      xcopy "$(TargetDir)ILNumerics*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
-      xcopy "$(TargetDir)OpenTK*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
-      xcopy "$(TargetDir)KdTree*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y</PostBuildEvent>
+    <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
-  <Import Project="..\packages\Accord.3.8.0\build\Accord.targets" Condition="Exists('..\packages\Accord.3.8.0\build\Accord.targets')" />
-  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
-    <PropertyGroup>
-      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
-    </PropertyGroup>
-    <Error Condition="!Exists('..\packages\Accord.3.8.0\build\Accord.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Accord.3.8.0\build\Accord.targets'))" />
-    <Error Condition="!Exists('..\packages\EntityFramework.6.4.4\build\EntityFramework.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\EntityFramework.6.4.4\build\EntityFramework.props'))" />
-    <Error Condition="!Exists('..\packages\EntityFramework.6.4.4\build\EntityFramework.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\EntityFramework.6.4.4\build\EntityFramework.targets'))" />
-    <Error Condition="!Exists('..\packages\Google.Protobuf.Tools.3.18.1\build\Google.Protobuf.Tools.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Google.Protobuf.Tools.3.18.1\build\Google.Protobuf.Tools.targets'))" />
-    <Error Condition="!Exists('..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets'))" />
-    <Error Condition="!Exists('..\packages\OpenCvSharp4.runtime.win.4.5.3.20210817\build\net\OpenCvSharp4.runtime.win.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\OpenCvSharp4.runtime.win.4.5.3.20210817\build\net\OpenCvSharp4.runtime.win.props'))" />
-    <Error Condition="!Exists('..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets'))" />
-    <Error Condition="!Exists('..\packages\ILNumerics.Tools.CodeTransforms.6.0.127\build\net461\ILNumerics.Tools.CodeTransforms.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\ILNumerics.Tools.CodeTransforms.6.0.127\build\net461\ILNumerics.Tools.CodeTransforms.props'))" />
-    <Error Condition="!Exists('..\packages\ILNumerics.Tools.CodeTransforms.6.0.127\build\net461\ILNumerics.Tools.CodeTransforms.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\ILNumerics.Tools.CodeTransforms.6.0.127\build\net461\ILNumerics.Tools.CodeTransforms.targets'))" />
-    <Error Condition="!Exists('..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\build\Microsoft.CodeAnalysis.Analyzers.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\build\Microsoft.CodeAnalysis.Analyzers.props'))" />
-    <Error Condition="!Exists('..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\build\Microsoft.CodeAnalysis.Analyzers.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\build\Microsoft.CodeAnalysis.Analyzers.targets'))" />
-    <Error Condition="!Exists('..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.5\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.5\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets'))" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <NoWarn>1701;1702;CA1416</NoWarn>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <NoWarn>1701;1702;CA1416</NoWarn>
+  </PropertyGroup>
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="echo TargetDir: $(TargetDir)&#xD;&#xA;&#xD;&#xA;      if not exist &quot;%25localappdata%25\NINA\Plugins&quot; (&#xD;&#xA;      echo Creating $(PlatformName) Plugins folder&#xD;&#xA;      mkdir  &quot;%25localappdata%25\NINA\Plugins&quot;&#xD;&#xA;      )&#xD;&#xA;      if not exist &quot;%25localappdata%25\NINA\Plugin\Hocus Focus\&quot; (&#xD;&#xA;      echo &quot;Creating $(PlatformName) Plugins Hocus Focus folder&quot;&#xD;&#xA;      mkdir  &quot;%25localappdata%25\NINA\Plugins\Hocus Focus&quot;&#xD;&#xA;      mkdir  &quot;%25localappdata%25\NINA\Plugins\Hocus Focus\dll\x86&quot;&#xD;&#xA;      mkdir  &quot;%25localappdata%25\NINA\Plugins\Hocus Focus\dll\x64&quot;&#xD;&#xA;      )&#xD;&#xA;&#xD;&#xA;&#xD;&#xA;      echo &quot;Copying $(PlatformName) Hocus Focus&quot;&#xD;&#xA;      xcopy &quot;$(TargetPath)&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus&quot; /h/k/r/y&#xD;&#xA;      xcopy &quot;$(TargetDir)\$(TargetName).pdb&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus&quot; /h/k/r/y&#xD;&#xA;&#xD;&#xA;      echo &quot;Copying $(PlatformName) Hocus Focus Dependencies&quot;&#xD;&#xA;      xcopy &quot;$(TargetDir)alglib.net.dll&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus&quot; /h/k/r/y&#xD;&#xA;      xcopy &quot;$(TargetDir)OpenCVSharp.dll&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus&quot; /h/k/r/y&#xD;&#xA;      xcopy &quot;$(TargetDir)OpenCVSharp.Extensions.dll&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus&quot; /h/k/r/y&#xD;&#xA;      xcopy &quot;$(TargetDir)runtimes\win-x86\native\OpenCvSharpExtern.dll&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus\dll\x86&quot; /h/k/r/y&#xD;&#xA;      xcopy &quot;$(TargetDir)runtimes\win-x64\native\OpenCvSharpExtern.dll&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus\dll\x64&quot; /h/k/r/y&#xD;&#xA;      xcopy &quot;$(TargetDir)ScottPlot*.dll&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus&quot; /h/k/r/y&#xD;&#xA;      xcopy &quot;$(TargetDir)ILNumerics*.dll&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus&quot; /h/k/r/y&#xD;&#xA;      xcopy &quot;$(TargetDir)OpenTK*.dll&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus&quot; /h/k/r/y&#xD;&#xA;      xcopy &quot;$(TargetDir)KdTree*.dll&quot; &quot;%25localappdata%25\NINA\Plugins\Hocus Focus&quot; /h/k/r/y" />
   </Target>
-  <Import Project="..\packages\EntityFramework.6.4.4\build\EntityFramework.targets" Condition="Exists('..\packages\EntityFramework.6.4.4\build\EntityFramework.targets')" />
-  <Import Project="..\packages\Google.Protobuf.Tools.3.18.1\build\Google.Protobuf.Tools.targets" Condition="Exists('..\packages\Google.Protobuf.Tools.3.18.1\build\Google.Protobuf.Tools.targets')" />
-  <Import Project="..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets" Condition="Exists('..\packages\Microsoft.NETFramework.ReferenceAssemblies.net48.1.0.0\build\Microsoft.NETFramework.ReferenceAssemblies.net48.targets')" />
-  <Import Project="..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets" Condition="Exists('..\packages\VVVV.FreeImage.3.15.1.1\build\net40\VVVV.FreeImage.targets')" />
-  <Import Project="..\packages\ILNumerics.Tools.CodeTransforms.6.0.127\build\net461\ILNumerics.Tools.CodeTransforms.targets" Condition="Exists('..\packages\ILNumerics.Tools.CodeTransforms.6.0.127\build\net461\ILNumerics.Tools.CodeTransforms.targets')" />
-  <Import Project="..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\build\Microsoft.CodeAnalysis.Analyzers.targets" Condition="Exists('..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\build\Microsoft.CodeAnalysis.Analyzers.targets')" />
-  <Import Project="..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.5\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets" Condition="Exists('..\packages\Stub.System.Data.SQLite.Core.NetFramework.1.0.115.5\build\net46\Stub.System.Data.SQLite.Core.NetFramework.targets')" />
 </Project>

@@ -172,7 +172,7 @@ namespace TestApp {
                     var nextStarIndexMap = starIndexMap[i];
                     var matchedGlobalStars = new bool[globalRegistry.Count];
                     var matchedSourceStars = new bool[nextStarTree.Count];
-                    var queue = new PriorityQueue<MatchingPair, float>(new FloatMath());
+                    var queue = new KdTree.PriorityQueue<MatchingPair, float>(new FloatMath());
                     foreach (var (starNode, starNodeIndex) in nextStarTree.Select((starNode, starNodeIndex) => (starNode, starNodeIndex))) {
                         var sourceStar = starNode.Value.DetectedStar;
                         var sourcePoint = starNode.Point;

@@ -186,7 +186,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     var nextStarIndexMap = starIndexMap[i];
                     var matchedGlobalStars = new bool[globalRegistry.Count];
                     var matchedSourceStars = new bool[nextStarTree.Count];
-                    var queue = new PriorityQueue<MatchingPair, double>(new DoubleMath());
+                    var queue = new KdTree.PriorityQueue<MatchingPair, double>(new DoubleMath());
                     foreach (var (starNode, starNodeIndex) in nextStarTree.Select((starNode, starNodeIndex) => (starNode, starNodeIndex))) {
                         var sourceStar = starNode.Value.DetectedStar;
                         var sourcePoint = starNode.Point;
