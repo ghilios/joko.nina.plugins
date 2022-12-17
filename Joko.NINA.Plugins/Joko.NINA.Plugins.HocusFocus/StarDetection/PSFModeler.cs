@@ -211,8 +211,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return 1 - rss / tss;
         }
 
-        [HandleProcessCorruptedStateExceptions]
-        [SecurityCritical]
         public override PSFModelSolution SolveIRLS(
             int maxIterationsIRLS,
             double toleranceIRLS,
@@ -312,26 +310,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     SigmaY = solution[5],
                     Theta = solution[6]
                 };
-            } catch (System.AccessViolationException ave) {
-                Notification.ShowError($"AccessViolation during PSF fitting. Please show your logs to jokogeo so he can figure out why");
-                var logMessage = $@"
-NoiseSigma = {noiseSigma},
-ToleranceLM = {toleranceLM},
-ToleranceIRLS = {toleranceIRLS},
-CentroidBrightness = {this.CentroidBrightness},
-InputsLength = {this.Inputs.Length},
-OutputsLength = {this.Outputs.Length},
-PixelScale = {this.PixelScale},
-PSFType = {this.PSFType},
-StarBoundingBox = {this.StarBoundingBox},
-StarDetectionBackground = {this.StarDetectionBackground},
-UseJacobian = {this.UseJacobian},
-NonZeroWeights = {this.weights.Count(w => w != 0 && !double.IsNaN(w))},
-ZeroWeights = {this.weights.Count(w => w == 0)},
-NegativeWeights = {this.weights.Count(w => w < 0 && !double.IsNaN(w))}
-";
-                Logger.Error(ave, $"AccessViolation during PSF Fitting. {logMessage}");
-                throw new Exception("AccessViolation during PSF Fitting. Attempting to recover", ave);
             } finally {
                 if (state != null) {
                     this.alglibAPI.deallocateimmediately(ref state);
@@ -342,8 +320,6 @@ NegativeWeights = {this.weights.Count(w => w < 0 && !double.IsNaN(w))}
             }
         }
 
-        [HandleProcessCorruptedStateExceptions]
-        [SecurityCritical]
         public override PSFModelSolution Solve(int maxIterations, double tolerance, CancellationToken ct) {
             alglib.minlmstate state = null;
             alglib.minlmreport rep = null;
@@ -417,25 +393,6 @@ NegativeWeights = {this.weights.Count(w => w < 0 && !double.IsNaN(w))}
                     SigmaY = solution[5],
                     Theta = solution[6]
                 };
-            } catch (System.AccessViolationException ave) {
-                Notification.ShowError($"AccessViolation during PSF fitting. Please show your logs to jokogeo so he can figure out why");
-                var logMessage = $@"
-Tolerance = {tolerance},
-MaxIterations = {maxIterations},
-CentroidBrightness = {this.CentroidBrightness},
-InputsLength = {this.Inputs.Length},
-OutputsLength = {this.Outputs.Length},
-PixelScale = {this.PixelScale},
-PSFType = {this.PSFType},
-StarBoundingBox = {this.StarBoundingBox},
-StarDetectionBackground = {this.StarDetectionBackground},
-UseJacobian = {this.UseJacobian},
-NonZeroWeights = {this.weights.Count(w => w != 0 && !double.IsNaN(w))},
-ZeroWeights = {this.weights.Count(w => w == 0)},
-NegativeWeights = {this.weights.Count(w => w < 0 && !double.IsNaN(w))}
-";
-                Logger.Error(ave, $"AccessViolation during PSF Fitting. {logMessage}");
-                throw new Exception("AccessViolation during PSF Fitting. Attempting to recover", ave);
             } finally {
                 if (state != null) {
                     this.alglibAPI.deallocateimmediately(ref state);

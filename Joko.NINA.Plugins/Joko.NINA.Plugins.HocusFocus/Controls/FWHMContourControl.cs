@@ -220,9 +220,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     }
 
                     // interpolated grid positions
-                    const int upscalingFactor = 5;
+                    const int upscalingFactor = 10;
                     const float meshInterval = 1.0f / upscalingFactor;
-                    Array<float> interpPositionsY = 1, interpPositions = meshgrid(arange(0.0f, meshInterval, numRegionsTall - 1), arange(0.0f, meshInterval, numRegionsWide - 1), interpPositionsY);
+                    Array<float> interpPositionsY = 1, interpPositions = meshgrid(arange(0.0f, meshInterval, (float)(numRegionsTall - 1)), arange(0.0f, meshInterval, (float)(numRegionsWide - 1)), interpPositionsY);
                     Array<float> interpPositionsReshaped = interpPositions[":"].T.Concat(interpPositionsY[":"].T, 0);
 
                     Array<float> smoothedPoints = Interpolation.kriging(scatteredPointValues, scatteredPointPositions, interpPositionsReshaped);

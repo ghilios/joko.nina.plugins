@@ -85,6 +85,9 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     AutoFocusOptions,
                     AlglibAPI);
             }
+
+            var thisAssembly = Assembly.GetAssembly(typeof(HocusFocusPlugin));
+            var thisAssemblyFileInfo = new FileInfo(thisAssembly.Location);
             if (ApplicationDispatcher == null) {
                 ApplicationDispatcher = new ApplicationDispatcher();
 
@@ -93,8 +96,6 @@ namespace NINA.Joko.Plugins.HocusFocus {
                 OpenCvSharp.Internal.WindowsLibraryLoader.Instance.AdditionalPaths.Add(dllPath);
             }
 
-            var thisAssembly = Assembly.GetAssembly(typeof(HocusFocusPlugin));
-            var thisAssemblyFileInfo = new FileInfo(thisAssembly.Location);
             ILNumerics.Settings.DefaultRenderer = ILNumerics.Drawing.RendererTypes.OpenGL;
 
             options.AddImagePattern(fwhmImagePattern);
@@ -104,7 +105,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
             ResetStarAnnotatorDefaultsCommand = new RelayCommand((object o) => StarAnnotatorOptions.ResetDefaults());
             ResetAutoFocusDefaultsCommand = new RelayCommand((object o) => AutoFocusOptions.ResetDefaults());
             ChooseIntermediatePathDiagCommand = new RelayCommand(ChooseIntermediatePathDiag);
-            ChooseSavePathDiagCommand = new RelayCommand(ChooseSavePathDiag);            
+            ChooseSavePathDiagCommand = new RelayCommand(ChooseSavePathDiag);
         }
 
         private void ChooseIntermediatePathDiag(object obj) {
