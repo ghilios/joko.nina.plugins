@@ -67,7 +67,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     break;
 
                 case NoiseLevelEnum.Typical:
-                    StarMeasurementNoiseReductionEnabled = true;
+                    StarMeasurementNoiseReductionEnabled = false;
                     NoiseReductionRadius = 3;
                     break;
 
@@ -168,6 +168,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             usePSFAbsoluteDeviation = optionsAccessor.GetValueBoolean(nameof(UsePSFAbsoluteDeviation), false);
             hotpixelThreshold = optionsAccessor.GetValueDouble(nameof(HotpixelThreshold), 0.001d);
             saturationThreshold = optionsAccessor.GetValueDouble(nameof(SaturationThreshold), 0.99d);
+            measurementAverage = optionsAccessor.GetValueEnum<MeasurementAverageEnum>(nameof(MeasurementAverage), MeasurementAverageEnum.Median);
             ConfigureSimpleSettings();
         }
 
@@ -208,6 +209,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             UsePSFAbsoluteDeviation = false;
             HotpixelThreshold = 0.001d;
             SaturationThreshold = 0.99d;
+            MeasurementAverage = MeasurementAverageEnum.Median;
         }
 
         private bool debugMode;
@@ -694,6 +696,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     saturationThreshold = value;
                     optionsAccessor.SetValueDouble(nameof(SaturationThreshold), saturationThreshold);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private MeasurementAverageEnum measurementAverage;
+
+        public MeasurementAverageEnum MeasurementAverage {
+            get => measurementAverage;
+            set {
+                if (measurementAverage != value) {
+                    measurementAverage = value;
+                    optionsAccessor.SetValueEnum(nameof(MeasurementAverageEnum), value);
                     RaisePropertyChanged();
                 }
             }

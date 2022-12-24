@@ -63,6 +63,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double HFRImprovementThreshold { get; set; }
         public int FocuserOffset { get; set; }
         public bool AllowHyperbolaRotation { get; set; }
+        public int MaxOutlierRejections { get; set; }
+        public double OutlierRejectionConfidence { get; set; }
     }
 
     public interface IAutoFocusEngine {
@@ -145,12 +147,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         }
     }
 
+    public class AutoFocusRegionPoint {
+        public int FocuserPosition { get; set; }
+        public MeasureAndError Measurement { get; set; }
+    }
+
     public class AutoFocusRegionResult {
         public int RegionIndex { get; set; }
         public StarDetectionRegion Region { get; set; }
         public AutoFocusFitting Fittings { get; set; }
         public double EstimatedFinalFocuserPosition { get; set; }
         public double EstimatedFinalHFR { get; set; }
+        public AutoFocusRegionPoint[] RejectedPoints { get; set; }
     }
 
     public class AutoFocusResult {
@@ -178,6 +186,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public StarDetectionRegion Region { get; set; }
         public MeasureAndError Measurement { get; set; }
         public AutoFocusFitting Fittings { get; set; }
+        public AutoFocusRegionPoint[] RejectedPoints { get; set; }
     }
 
     public class AutoFocusSubMeasurementPointCompletedEventArgs : EventArgs {
@@ -195,6 +204,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double EstimatedFinalFocuserPosition { get; set; }
         public int FinalFocuserPosition { get; set; }
         public AutoFocusFitting Fittings { get; set; }
+        public AutoFocusRegionPoint[] RejectedPoints { get; set; }
     }
 
     public class AutoFocusFinishedEventArgsBase : EventArgs {

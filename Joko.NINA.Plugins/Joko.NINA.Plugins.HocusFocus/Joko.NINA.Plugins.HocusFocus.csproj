@@ -438,6 +438,7 @@
     <Compile Include="Converters\DoubleNegativeToEmptyStringConverter.cs" />
     <Compile Include="Converters\InterpolateColorConverter.cs" />
     <Compile Include="Converters\InverseNaNToVisibilityCollapsedConverter.cs" />
+    <Compile Include="Converters\MeasurementAverageDisplayConverter.cs" />
     <Compile Include="Converters\MultiBooleanToZeroConverter.cs" />
     <Compile Include="Converters\MultiBooleanToVisibilityCollapsedConverter.cs" />
     <Compile Include="Inspection\SensorModel.cs" />
@@ -593,7 +594,8 @@
       xcopy "$(TargetDir)ScottPlot*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
       xcopy "$(TargetDir)ILNumerics*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
       xcopy "$(TargetDir)OpenTK*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
-      xcopy "$(TargetDir)KdTree*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y</PostBuildEvent>
+      xcopy "$(TargetDir)KdTree*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y
+      xcopy "$(TargetDir)MathNet*.dll" "%25localappdata%25\NINA\Plugins\Hocus Focus\dll" /h/k/r/y</PostBuildEvent>
   </PropertyGroup>
   <Import Project="..\packages\Accord.3.8.0\build\Accord.targets" Condition="Exists('..\packages\Accord.3.8.0\build\Accord.targets')" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">

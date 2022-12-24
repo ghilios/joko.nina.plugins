@@ -107,6 +107,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        public double PixelScale {
+            get {
+                return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.PixelScale ?? double.NaN;
+            }
+        }
+
+        public MeasurementAverageEnum MeasurementAverage {
+            get {
+                return (Statistics?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis)?.MeasurementAverage ?? MeasurementAverageEnum.MeanOutliers;
+            }
+        }
+
         private void Statistics_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
             this.ChildChanged(sender, e);
             RaisePropertyChanged(nameof(Statistics));
@@ -118,6 +130,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             RaisePropertyChanged(nameof(FWHMMAD));
             RaisePropertyChanged(nameof(Eccentricity));
             RaisePropertyChanged(nameof(EccentricityMAD));
+            RaisePropertyChanged(nameof(MeasurementAverage));
+            RaisePropertyChanged(nameof(PixelScale));
         }
     }
 }

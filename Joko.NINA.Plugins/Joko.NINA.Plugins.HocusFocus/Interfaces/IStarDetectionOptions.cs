@@ -56,6 +56,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         WideRange
     }
 
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum MeasurementAverageEnum {
+
+        [Description("Median")]
+        Median,
+
+        [Description("Mean + Outlier Detection")]
+        MeanOutliers
+    }
+
     public interface IStarDetectionOptions {
         bool UseAdvanced { get; set; }
         bool ModelPSF { get; set; }
@@ -97,5 +107,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool UsePSFAbsoluteDeviation { get; set; }
         double HotpixelThreshold { get; set; }
         double SaturationThreshold { get; set; }
+        MeasurementAverageEnum MeasurementAverage { get; set; }
     }
 }
