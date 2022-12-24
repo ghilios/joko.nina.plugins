@@ -100,6 +100,12 @@
                         DataFieldY="HFR"
                         ItemsSource="{Binding PlotFocusPoints}"
                         Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" />
+                    <oxy:ScatterSeries
+                        ItemsSource="{Binding PlotRejectedFocusPoints}"
+                        MarkerType="Cross"
+                        MarkerStroke="Red"
+                        MarkerStrokeThickness="2"
+                        MarkerSize="10" />
                 </oxy:Plot.Series>
                 <oxy:Plot.Annotations>
                     <oxy:LineAnnotation Intercept="{Binding TrendlineFitting.LeftTrend.Offset}" Slope="{Binding TrendlineFitting.LeftTrend.Slope}">
@@ -502,7 +508,7 @@
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding Statistics.StarDetectionAnalysis.DetectedStars, StringFormat=\{0:0\}, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
+                                    Text="{Binding Statistics.StarDetectionAnalysis.DetectedStars, StringFormat=\{0:0\}, Mode=OneWay, Converter={StaticResource IntNegativeOneToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
                         <UniformGrid Columns="2">
@@ -514,19 +520,20 @@
                                 <TextBlock
                                     Width="70"
                                     HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Text="{Binding Statistics.StarDetectionAnalysis.HFR, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                                    VerticalAlignment="Center">
+                                    <Run Text="{Binding Statistics.StarDetectionAnalysis.HFR, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" /><Run Text=' px' />
+                                </TextBlock>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
                                     Width="100"
                                     VerticalAlignment="Center"
-                                    Text="{ns:Loc LblHFRStDev}" />
+                                    Text="{Binding Statistics.StarDetectionAnalysis.MeasurementAverage, Mode=OneWay, Converter={StaticResource HF_MeasurementAverageDisplayConverter}}" />
                                 <TextBlock
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding Statistics.StarDetectionAnalysis.HFRStDev, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                                    Text="{Binding Statistics.StarDetectionAnalysis.HFRStDev, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
                         <UniformGrid Columns="2">
@@ -539,8 +546,8 @@
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding PSFType, Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}"
-                                    Visibility="{Binding FWHM, Converter={StaticResource NaNToVisibilityConverter}}" />
+                                    Text="{Binding PSFType, Mode=OneWay, Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}"
+                                    Visibility="{Binding FWHM, Mode=OneWay, Converter={StaticResource NaNToVisibilityConverter}}" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
@@ -551,7 +558,7 @@
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding PSFRSquared, StringFormat=\{0:0.0000\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                                    Text="{Binding PSFRSquared, StringFormat=\{0:0.0000\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
                         <UniformGrid Columns="2">
@@ -563,8 +570,9 @@
                                 <TextBlock
                                     Width="70"
                                     HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Text="{Binding FWHM, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                                    VerticalAlignment="Center">
+                                    <Run Text="{Binding FWHM, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" /><Run Text='"' />
+                                </TextBlock>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
@@ -575,7 +583,7 @@
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding FWHMMAD, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                                    Text="{Binding FWHMMAD, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
                         <UniformGrid Columns="2">
@@ -588,7 +596,7 @@
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding Eccentricity, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                                    Text="{Binding Eccentricity, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
@@ -599,7 +607,7 @@
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding EccentricityMAD, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                                    Text="{Binding EccentricityMAD, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
                         <UniformGrid Columns="2">
@@ -612,7 +620,20 @@
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding Sigma, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                                    Text="{Binding Sigma, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="100"
+                                    VerticalAlignment="Center"
+                                    Text="Pixel Scale" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="">
+                                    <Run Text="{Binding PixelScale, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" /><Run Text='"/px' />
+                                </TextBlock>
                             </StackPanel>
                         </UniformGrid>
                     </StackPanel>
@@ -1575,10 +1596,10 @@
                             PlotModel="{Binding AutoFocusChartPlotModel, Mode=OneWayToSource, NotifyOnTargetUpdated=True}"
                             TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
                             <oxy:Plot.Legends>
-                                <oxy:Legend 
-                                    LegendOrientation="Vertical" 
-                                    LegendPlacement="Inside" 
-                                    LegendPosition="RightBottom" 
+                                <oxy:Legend
+                                    LegendOrientation="Vertical"
+                                    LegendPlacement="Inside"
+                                    LegendPosition="RightBottom"
                                     Visibility="{Binding ElementName=ShowSensorModel, Path=Tag, Converter={StaticResource HF_InverseBooleanConverter}, Mode=OneWay}" />
                             </oxy:Plot.Legends>
                             <oxy:Plot.Axes>

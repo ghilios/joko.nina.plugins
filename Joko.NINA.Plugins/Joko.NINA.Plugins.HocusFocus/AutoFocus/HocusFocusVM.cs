@@ -52,6 +52,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private HyperbolicFitting hyperbolicFitting;
         private ReportAutoFocusPoint lastAutoFocusPoint;
         private AsyncObservableCollection<DataPoint> plotFocusPointsObservable;
+        private AsyncObservableCollection<ScatterPoint> plotRejectedFocusPointsObservable;
         private QuadraticFitting quadraticFitting;
         private TrendlineFitting trendLineFitting;
         private TimeSpan autoFocusDuration;
@@ -93,6 +94,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             FocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             PlotFocusPoints = new AsyncObservableCollection<DataPoint>();
+            PlotRejectedFocusPoints = new AsyncObservableCollection<ScatterPoint>();
             ClearCharts();
 
             this.progress = ProgressFactory.Create(applicationStatusMediator, "Hocus Focus");
@@ -249,6 +251,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        public AsyncObservableCollection<ScatterPoint> PlotRejectedFocusPoints {
+            get {
+                return plotRejectedFocusPointsObservable;
+            }
+            set {
+                plotRejectedFocusPointsObservable = value;
+                RaisePropertyChanged();
+            }
+        }
+
         public QuadraticFitting QuadraticFitting {
             get => quadraticFitting;
             set {
@@ -284,6 +296,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusChartCurveFitting = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
             FocusPoints.Clear();
             PlotFocusPoints.Clear();
+            PlotRejectedFocusPoints.Clear();
             TrendlineFitting = null;
             QuadraticFitting = null;
             HyperbolicFitting = null;
@@ -513,10 +526,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             FocusPoints.Clear();
             PlotFocusPoints.Clear();
+            PlotRejectedFocusPoints.Clear();
         }
 
         private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusFinishedEventArgsBase e) {
             var firstRegion = e.RegionHFRs[0];
+
             FinalFocusPoint = new DataPoint(firstRegion.EstimatedFinalFocuserPosition, firstRegion.EstimatedFinalHFR);
             LastAutoFocusPoint = new ReportAutoFocusPoint {
                 Focuspoint = FinalFocusPoint,
@@ -538,6 +553,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             FocusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, Math.Max(0.001, e.Measurement.Stdev)), focusPointComparer);
             PlotFocusPoints.AddSorted(new DataPoint(e.FocuserPosition, e.Measurement.Measure), plotPointComparer);
+
+            PlotRejectedFocusPoints.Clear();
+            foreach (var rp in e.RejectedPoints) {
+                PlotRejectedFocusPoints.Add(new ScatterPoint(rp.FocuserPosition, rp.Measurement.Measure));
+            }
 
             this.TrendlineFitting = e.Fittings.TrendlineFitting;
             this.GaussianFitting = e.Fittings.GaussianFitting;

@@ -32,7 +32,6 @@ using NINA.Core.Utility.Notification;
 using NINA.Profile.Interfaces;
 using Star = NINA.Joko.Plugins.HocusFocus.Interfaces.Star;
 using NINA.WPF.Base.Interfaces;
-using NINA.WPF.Base.ViewModel;
 using Newtonsoft.Json;
 using NINA.Equipment.Interfaces.Mediator;
 
@@ -134,6 +133,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
         }
+
+        private MeasurementAverageEnum measurementAverage;
+
+        public MeasurementAverageEnum MeasurementAverage {
+            get => measurementAverage;
+            set {
+                if (measurementAverage != value) {
+                    measurementAverage = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double pixelScale;
+
+        public double PixelScale {
+            get => pixelScale;
+            set {
+                if (pixelScale != value) {
+                    pixelScale = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
     }
 
     public class DebugData {
@@ -166,6 +189,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double EccentricityMAD { get; set; } = double.NaN;
         public Size ImageSize { get; set; }
         public double PixelSize { get; set; } = double.NaN;
+        public double PixelScale { get; set; } = double.NaN;
+        public MeasurementAverageEnum MeasurementAverage { get; set; } = MeasurementAverageEnum.Median;
     }
 
     public class HocusFocusDetectedStar : DetectedStar {
@@ -300,7 +325,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 ImageSize = imageSize,
                 Region = detectorParams.Region,
                 FocuserPosition = focuserMediator.GetInfo().Position,
-                PixelSize = pixelSize
+                PixelSize = pixelSize,
+                PixelScale = detectorParams.PixelScale,
+                MeasurementAverage = this.starDetectionOptions.MeasurementAverage
             };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
@@ -320,7 +347,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            if (starList.Count > 1) {
+            if (starList.Count > 1 && this.starDetectionOptions.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
                 int countBefore = starList.Count;
 
                 // Now that we have a properly filtered star list, let's compute stats and further filter out from the average
@@ -369,11 +396,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             result.StarList = starList.Select(s => ToDetectedStar(s)).ToList();
             if (starList.Count > 1) {
-                result.AverageHFR = starList.Average(s => s.HFR);
-                var hfrVariance = starList.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (starList.Count - 1);
-                result.HFRStdDev = Math.Sqrt(hfrVariance);
+                if (this.starDetectionOptions.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
+                    result.AverageHFR = starList.Average(s => s.HFR);
+                    var hfrVariance = starList.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (starList.Count - 1);
+                    result.HFRStdDev = Math.Sqrt(hfrVariance);
 
-                Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}");
+                    Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}");
+                } else {
+                    var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
+                    result.AverageHFR = hfrMedian;
+                    result.HFRStdDev = hfrMAD;
+
+                    Logger.Info($"Average HFR: {result.AverageHFR}, HFR MAD: {result.HFRStdDev}, Detected Stars {result.StarList.Count}");
+                }
             }
             result.DebugData = starDetectorResult.DebugData;
             result.Metrics = starDetectorResult.Metrics;
@@ -418,6 +453,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             hocusFocusAnalysis.FWHMMAD = hocusFocusResult.FWHMMAD;
             hocusFocusAnalysis.Eccentricity = hocusFocusResult.Eccentricity;
             hocusFocusAnalysis.EccentricityMAD = hocusFocusResult.EccentricityMAD;
+            hocusFocusAnalysis.MeasurementAverage = hocusFocusResult.MeasurementAverage;
+            hocusFocusAnalysis.PixelScale = hocusFocusResult.PixelScale;
         }
     }
 }

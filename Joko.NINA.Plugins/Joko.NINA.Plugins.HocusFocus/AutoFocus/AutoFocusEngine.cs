@@ -84,6 +84,97 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.alglibAPI = alglibAPI;
         }
 
+        private class CurveFittingResult {
+
+            private CurveFittingResult() {
+            }
+
+            public AutoFocusFitting Fittings { get; private set; }
+
+            public ImmutableList<ScatterErrorPoint> RejectedPoints { get; private set; }
+
+            private static ScatterErrorPoint RejectionTest(
+                List<ScatterErrorPoint> points,
+                Func<double, double> fitting,
+                double confidence) {
+                if (points.Count <= 3) {
+                    return null;
+                }
+
+                var errors = points.Select(p => p.Y - fitting(p.X)).ToArray();
+                var (errorsMean, errorsStdDev) = MathNet.Numerics.Statistics.Statistics.MeanStandardDeviation(errors);
+                var N = points.Count;
+                var p = (1.0 - confidence) / (2 * N); // Two-tailed test
+                var t = MathNet.Numerics.Distributions.StudentT.InvCDF(location: 0.0d, scale: 1.0d, freedom: (double)(N - 2), p: p);
+                var t2 = t * t;
+                var grubbZLimit = (double)(N - 1) / Math.Sqrt(N) * Math.Sqrt(t2 / (t2 + N - 2));
+
+                var maxError = errors.Select((e, i) => (e, i)).MaxBy(v => Math.Abs(v.e));
+                var maxErrorZScore = Math.Abs(maxError.e) / errorsStdDev;
+                if (maxErrorZScore < grubbZLimit) {
+                    return null;
+                }
+                return points[maxError.i];
+            }
+
+            public static CurveFittingResult Calculate(
+                AutoFocusState state,
+                AFMethodEnum method,
+                AFCurveFittingEnum fitting,
+                List<ScatterErrorPoint> focusPoints) {
+                var validFocusPoints = focusPoints.Where(p => p.Y > 0.0).ToList();
+                if (validFocusPoints.Count < 3) {
+                    return null;
+                }
+
+                var maxOutlierRejectedPoints = state.Options.MaxOutlierRejections;
+                var rejectionConfidence = state.Options.OutlierRejectionConfidence;
+                var outlierRejectedPoints = 0;
+
+                var rejectedPoints = focusPoints.Where(p => p.Y <= 0.0).ToList();
+                while (true) {
+                    var fittings = new AutoFocusFitting() { Method = method, CurveFittingType = fitting };
+                    ScatterErrorPoint rejectedPoint = null;
+                    if (AFMethodEnum.STARHFR == method) {
+                        if (validFocusPoints.Count >= 2) {
+                            // Always calculate a trendline fit, since that is used to determine when to end the focus routine
+                            fittings.TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method.ToString());
+                        }
+                        if (validFocusPoints.Count >= 3) {
+                            if (AFCurveFittingEnum.PARABOLIC == fitting || AFCurveFittingEnum.TRENDPARABOLIC == fitting) {
+                                fittings.QuadraticFitting = new QuadraticFitting().Calculate(validFocusPoints);
+                                rejectedPoint = RejectionTest(points: validFocusPoints, fitting: fittings.QuadraticFitting.Fitting, confidence: rejectionConfidence);
+                            }
+
+                            if (AFCurveFittingEnum.HYPERBOLIC == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC == fitting) {
+                                var hf = HyperbolicFittingAlglib.Create(state.AlglibAPI, validFocusPoints, state.Options.AllowHyperbolaRotation);
+                                if (!hf.Solve()) {
+                                    Logger.Trace($"Hyperbolic fit failed");
+                                }
+                                fittings.HyperbolicFitting = hf;
+                                rejectedPoint = RejectionTest(points: validFocusPoints, fitting: fittings.HyperbolicFitting.Fitting, confidence: rejectionConfidence);
+                            }
+                        }
+                    } else if (validFocusPoints.Count >= 3) {
+                        fittings.TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method.ToString());
+                        fittings.GaussianFitting = new GaussianFitting().Calculate(validFocusPoints);
+                        rejectedPoint = RejectionTest(points: validFocusPoints, fitting: fittings.GaussianFitting.Fitting, confidence: rejectionConfidence);
+                    }
+
+                    if (rejectedPoint == null || outlierRejectedPoints >= maxOutlierRejectedPoints) {
+                        return new CurveFittingResult() {
+                            Fittings = fittings,
+                            RejectedPoints = ImmutableList.CreateRange(rejectedPoints)
+                        };
+                    }
+
+                    outlierRejectedPoints++;
+                    rejectedPoints.Add(rejectedPoint);
+                    validFocusPoints.Remove(rejectedPoint);
+                }
+            }
+        }
+
         private class AutoFocusRegionState {
 
             public AutoFocusRegionState(
@@ -111,11 +202,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             public Dictionary<int, MeasureAndError> MeasurementsByFocuserPoint { get; private set; } = new Dictionary<int, MeasureAndError>();
             public Dictionary<int, List<MeasureAndError>> SubMeasurementsByFocuserPoints { get; private set; } = new Dictionary<int, List<MeasureAndError>>();
             public AutoFocusFitting Fittings { get; private set; } = new AutoFocusFitting();
+            public Dictionary<int, MeasureAndError> RejectedPoints { get; private set; } = new Dictionary<int, MeasureAndError>();
 
             public void ResetMeasurements() {
                 lock (SubMeasurementsLock) {
                     this.MeasurementsByFocuserPoint.Clear();
                     this.SubMeasurementsByFocuserPoints.Clear();
+                    this.RejectedPoints.Clear();
                     this.FinalHFRSubMeasurements.Clear();
                     this.FinalHFR = null;
                     this.Fittings.Reset();
@@ -130,30 +223,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             public void UpdateCurveFittings(List<ScatterErrorPoint> validFocusPoints) {
-                lock (SubMeasurementsLock) {
-                    var method = this.Fittings.Method;
-                    var fitting = this.Fittings.CurveFittingType;
-                    if (AFMethodEnum.STARHFR == method) {
-                        if (validFocusPoints.Count() >= 2) {
-                            // Always calculate a trendline fit, since that is used to determine when to end the focus routine
-                            Fittings.TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method.ToString());
-                        }
-                        if (validFocusPoints.Count() >= 3) {
-                            if (AFCurveFittingEnum.PARABOLIC == fitting || AFCurveFittingEnum.TRENDPARABOLIC == fitting) {
-                                Fittings.QuadraticFitting = new QuadraticFitting().Calculate(validFocusPoints);
-                            }
+                var fittingsResult = CurveFittingResult.Calculate(state: this.State, method: this.Fittings.Method, fitting: this.Fittings.CurveFittingType, focusPoints: validFocusPoints);
+                if (fittingsResult == null) {
+                    return;
+                }
 
-                            if (AFCurveFittingEnum.HYPERBOLIC == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC == fitting) {
-                                var hf = HyperbolicFittingAlglib.Create(this.State.AlglibAPI, validFocusPoints, this.State.Options.AllowHyperbolaRotation);
-                                if (!hf.Solve()) {
-                                    Logger.Trace($"Hyperbolic fit failed");
-                                }
-                                Fittings.HyperbolicFitting = hf;
-                            }
-                        }
-                    } else if (validFocusPoints.Count() >= 3) {
-                        Fittings.TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method.ToString());
-                        Fittings.GaussianFitting = new GaussianFitting().Calculate(validFocusPoints);
+                lock (SubMeasurementsLock) {
+                    this.Fittings.TrendlineFitting = fittingsResult.Fittings.TrendlineFitting;
+                    this.Fittings.GaussianFitting = fittingsResult.Fittings.GaussianFitting;
+                    this.Fittings.QuadraticFitting = fittingsResult.Fittings.QuadraticFitting;
+                    this.Fittings.HyperbolicFitting = fittingsResult.Fittings.HyperbolicFitting;
+                    this.RejectedPoints.Clear();
+                    foreach (var rp in fittingsResult.RejectedPoints) {
+                        var focuserPosition = (int)Math.Round(rp.X);
+                        this.RejectedPoints[focuserPosition] = new MeasureAndError() { Measure = rp.Y, Stdev = rp.ErrorY };
                     }
                 }
             }
@@ -523,11 +606,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var averageMeasurement = values.AverageMeasurement();
                 regionState.MeasurementsByFocuserPoint.Add(focuserPosition, averageMeasurement);
 
-                var validFocusPoints = regionState.MeasurementsByFocuserPoint.Where(fp => fp.Value.Measure > 0.0).Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, Math.Max(0.001, fp.Value.Stdev))).ToList();
-                if (validFocusPoints.Count >= 3) {
-                    var autoFocusMethod = state.Options.AutoFocusMethod.ToString();
-                    regionState.UpdateCurveFittings(validFocusPoints);
-                }
+                var focusPoints = regionState.MeasurementsByFocuserPoint.Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, Math.Max(0.001, fp.Value.Stdev))).ToList();
+                regionState.UpdateCurveFittings(focusPoints);
 
                 this.OnMeasurementPointCompleted(imageState, regionState, measurement);
             }
@@ -1197,7 +1277,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Region = rs.Region,
                     EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X ?? double.NaN,
                     EstimatedFinalHFR = rs.FinalFocusPoint?.Y ?? double.NaN,
-                    Fittings = rs.Fittings
+                    Fittings = rs.Fittings,
+                    RejectedPoints = rs.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
                 }).OrderBy(r => r.RegionIndex).ToArray()
             };
         }
@@ -1369,7 +1450,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         Region = rs.Region,
                         EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X ?? double.NaN,
                         EstimatedFinalHFR = rs.FinalFocusPoint?.Y ?? double.NaN,
-                        Fittings = rs.Fittings
+                        Fittings = rs.Fittings,
+                        RejectedPoints = rs.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
                     }).OrderBy(r => r.RegionIndex).ToArray()
                 };
             } finally {
@@ -1408,7 +1490,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Region = regionState.Region,
                 FocuserPosition = imageState.FocuserPosition,
                 Measurement = measurement,
-                Fittings = regionState.Fittings.Clone()
+                Fittings = regionState.Fittings.Clone(),
+                RejectedPoints = regionState.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
             });
         }
 
@@ -1436,7 +1519,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     FinalHFR = s.FinalHFR?.Measure,
                     EstimatedFinalFocuserPosition = s.FinalFocusPoint?.X ?? double.NaN,
                     FinalFocuserPosition = (int)Math.Round(s.FinalFocusPoint?.X ?? -1),
-                    Fittings = s.Fittings
+                    Fittings = s.Fittings,
+                    RejectedPoints = s.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
                 }).ToImmutableList();
             Completed?.Invoke(this, new AutoFocusCompletedEventArgs() {
                 Iteration = iteration,
@@ -1503,7 +1587,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 AutoFocusInitialOffsetSteps = profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
                 AutoFocusStepSize = profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize,
                 FocuserOffset = autoFocusOptions.FocuserOffset,
-                AllowHyperbolaRotation = autoFocusOptions.AllowHyperbolaRotation
+                AllowHyperbolaRotation = autoFocusOptions.AllowHyperbolaRotation,
+                MaxOutlierRejections = autoFocusOptions.MaxOutlierRejections,
+                OutlierRejectionConfidence = autoFocusOptions.OutlierRejectionConfidence
             };
         }
 

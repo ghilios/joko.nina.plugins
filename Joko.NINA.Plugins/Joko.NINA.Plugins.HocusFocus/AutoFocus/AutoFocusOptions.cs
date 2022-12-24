@@ -49,6 +49,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             lastSelectedLoadPath = optionsAccessor.GetValueString("LastSelectedLoadPath", "");
             focuserOffset = optionsAccessor.GetValueInt32("FocuserOffset", 0);
             allowHyperbolaRotation = optionsAccessor.GetValueBoolean(nameof(AllowHyperbolaRotation), false);
+            maxOutlierRejections = optionsAccessor.GetValueInt32(nameof(MaxOutlierRejections), 1);
+            outlierRejectionConfidence = optionsAccessor.GetValueDouble(nameof(OutlierRejectionConfidence), 0.90);
         }
 
         public void ResetDefaults() {
@@ -67,6 +69,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             LastSelectedLoadPath = "";
             FocuserOffset = 0;
             AllowHyperbolaRotation = false;
+            MaxOutlierRejections = 1;
+            OutlierRejectionConfidence = 0.90;
         }
 
         private int maxConcurrent;
@@ -283,6 +287,40 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (allowHyperbolaRotation != value) {
                     allowHyperbolaRotation = value;
                     optionsAccessor.SetValueBoolean(nameof(AllowHyperbolaRotation), allowHyperbolaRotation);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int maxOutlierRejections;
+
+        public int MaxOutlierRejections {
+            get => maxOutlierRejections;
+            set {
+                if (maxOutlierRejections != value) {
+                    if (value < 0) {
+                        throw new ArgumentException("MaxOutlierRejections must be non-negative", nameof(MaxOutlierRejections));
+                    }
+
+                    maxOutlierRejections = value;
+                    optionsAccessor.SetValueInt32(nameof(MaxOutlierRejections), maxOutlierRejections);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double outlierRejectionConfidence;
+
+        public double OutlierRejectionConfidence {
+            get => outlierRejectionConfidence;
+            set {
+                if (outlierRejectionConfidence != value) {
+                    if (value <= 0.5 || value >= 1.0) {
+                        throw new ArgumentException("OutlierRejectionConfidence must be between 0.5 and 1.0, exclusive", nameof(OutlierRejectionConfidence));
+                    }
+
+                    outlierRejectionConfidence = value;
+                    optionsAccessor.SetValueDouble(nameof(OutlierRejectionConfidence), outlierRejectionConfidence);
                     RaisePropertyChanged();
                 }
             }
