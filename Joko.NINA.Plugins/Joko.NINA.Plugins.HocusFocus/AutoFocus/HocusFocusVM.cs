@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using CommunityToolkit.Mvvm.Input;
 using Newtonsoft.Json;
 using NINA.Core.Enum;
 using NINA.Core.Interfaces;
@@ -37,6 +38,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
@@ -99,7 +101,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             this.progress = ProgressFactory.Create(applicationStatusMediator, "Hocus Focus");
 
-            LoadSavedAutoFocusRunCommand = new AsyncCommand<bool>(() => {
+            LoadSavedAutoFocusRunCommand = new AsyncRelayCommand(() => {
                 string path = "";
                 using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
                     if (!String.IsNullOrEmpty(autoFocusOptions.LastSelectedLoadPath)) {
@@ -636,7 +638,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private void CancelLoadSavedAutoFocusRun(object o) {
+        private void CancelLoadSavedAutoFocusRun() {
             loadSavedAutoFocusRunCts?.Cancel();
         }
 

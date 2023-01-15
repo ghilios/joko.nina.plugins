@@ -31,6 +31,7 @@ using System.Threading.Tasks;
 using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.Core.Model;
 using NINA.WPF.Base.Interfaces.ViewModel;
+using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 
 namespace NINA.Joko.Plugins.HocusFocus {
 
@@ -101,14 +102,14 @@ namespace NINA.Joko.Plugins.HocusFocus {
             options.AddImagePattern(fwhmImagePattern);
             options.AddImagePattern(eccentricityImagePattern);
             imageSaveMediator.BeforeFinalizeImageSaved += ImageSaveMediator_BeforeFinalizeImageSaved;
-            ResetStarDetectionDefaultsCommand = new RelayCommand((object o) => StarDetectionOptions.ResetDefaults());
-            ResetStarAnnotatorDefaultsCommand = new RelayCommand((object o) => StarAnnotatorOptions.ResetDefaults());
-            ResetAutoFocusDefaultsCommand = new RelayCommand((object o) => AutoFocusOptions.ResetDefaults());
+            ResetStarDetectionDefaultsCommand = new RelayCommand(StarDetectionOptions.ResetDefaults);
+            ResetStarAnnotatorDefaultsCommand = new RelayCommand(StarAnnotatorOptions.ResetDefaults);
+            ResetAutoFocusDefaultsCommand = new RelayCommand(AutoFocusOptions.ResetDefaults);
             ChooseIntermediatePathDiagCommand = new RelayCommand(ChooseIntermediatePathDiag);
             ChooseSavePathDiagCommand = new RelayCommand(ChooseSavePathDiag);
         }
 
-        private void ChooseIntermediatePathDiag(object obj) {
+        private void ChooseIntermediatePathDiag() {
             using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
                 dialog.SelectedPath = StarDetectionOptions.IntermediateSavePath;
 
@@ -118,7 +119,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
             }
         }
 
-        private void ChooseSavePathDiag(object obj) {
+        private void ChooseSavePathDiag() {
             using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
                 dialog.SelectedPath = AutoFocusOptions.SavePath;
 

@@ -455,6 +455,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             hocusFocusAnalysis.EccentricityMAD = hocusFocusResult.EccentricityMAD;
             hocusFocusAnalysis.MeasurementAverage = hocusFocusResult.MeasurementAverage;
             hocusFocusAnalysis.PixelScale = hocusFocusResult.PixelScale;
+            hocusFocusAnalysis.StarList = hocusFocusResult.StarList;
         }
     }
 }

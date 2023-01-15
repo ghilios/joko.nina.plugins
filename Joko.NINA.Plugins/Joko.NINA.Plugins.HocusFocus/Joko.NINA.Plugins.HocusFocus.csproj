@@ -51,7 +51,7 @@
     <PackageReference Include="ILNumerics.Toolboxes.Optimization" Version="7.0.58-beta01" />
     <PackageReference Include="KdTree" Version="1.4.1" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
-    <PackageReference Include="NINA.Plugin" Version="3.0.0.1001-nightly3" />
+    <PackageReference Include="NINA.Plugin" Version="3.0.0.1010-nightly" />
     <PackageReference Include="OpenCvSharp4" Version="4.6.0.20220608" />
     <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.6.0.20220608" />
     <PackageReference Include="ScottPlot.WPF" Version="4.1.59" />
