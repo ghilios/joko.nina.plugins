@@ -28,7 +28,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             this.optionsAccessor = new PluginOptionsAccessor(profileService, guid.Value);
+            profileService.ProfileChanged += ProfileService_ProfileChanged;
             InitializeOptions();
+        }
+
+        private void ProfileService_ProfileChanged(object sender, EventArgs e) {
+            InitializeOptions();
+            RaiseAllPropertiesChanged();
         }
 
         private void InitializeOptions() {
