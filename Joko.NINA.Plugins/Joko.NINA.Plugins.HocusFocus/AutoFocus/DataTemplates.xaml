@@ -2231,7 +2231,8 @@
                                 SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonForegroundDisabledBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
                                 SurfaceHighExtremeColor="Blue"
                                 SurfaceLowExtremeColor="Red"
-                                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
+                                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                                RenderingEnabled="{Binding InspectorOptions.RenderingEnabled, Mode=OneWay}" />
                         </Grid>
 
                         <TextBlock
@@ -2575,7 +2576,10 @@
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>
-                        <Grid Grid.Column="1" HorizontalAlignment="Stretch">
+                        <Grid
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            Visibility="{Binding InspectorOptions.RenderingEnabled, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -2614,7 +2618,8 @@
                                 SurfaceHighExtremeColor="Red"
                                 SurfaceLowExtremeColor="Blue"
                                 TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                                TiltPlaneModel="{Binding TiltModel.TiltPlaneModel, Mode=OneWay}" />
+                                TiltPlaneModel="{Binding TiltModel.TiltPlaneModel, Mode=OneWay}"
+                                RenderingEnabled="{Binding InspectorOptions.RenderingEnabled, Mode=OneWay}" />
                         </Grid>
                     </Grid>
                 </Expander>
@@ -2918,7 +2923,8 @@
                             PointColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
                             StarDetectionResult="{Binding SnapshotAnalysisStarDetectionResult, Mode=OneWay}"
                             SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonBackgroundBrush}}"
-                            TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
+                            TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                            RenderingEnabled="{Binding InspectorOptions.RenderingEnabled, Mode=OneWay}" />
                     </Grid>
                 </Expander>
                 <Expander

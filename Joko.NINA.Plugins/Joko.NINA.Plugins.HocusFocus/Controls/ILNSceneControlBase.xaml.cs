@@ -72,6 +72,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 FrameworkPropertyMetadataOptions.AffectsRender,
                 OnSurfaceColorChangedPropertyChanged));
 
+        public static readonly DependencyProperty RenderingEnabledProperty = DependencyProperty.Register(
+            "RenderingEnabled",
+            typeof(bool),
+            typeof(ILNSceneControlBase),
+            new FrameworkPropertyMetadata(
+                false,
+                FrameworkPropertyMetadataOptions.AffectsRender));
+
         public MediaColor PlotBackgroundColor {
             get { return (MediaColor)GetValue(PlotBackgroundColorProperty); }
             set { SetValue(PlotBackgroundColorProperty, value); }
@@ -95,6 +103,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         public MediaColor SurfaceColor {
             get { return (MediaColor)GetValue(SurfaceColorProperty); }
             set { SetValue(SurfaceColorProperty, value); }
+        }
+
+        public bool RenderingEnabled {
+            get { return (bool)GetValue(RenderingEnabledProperty); }
+            set { SetValue(RenderingEnabledProperty, value); }
         }
 
         public ILNSceneControlBase() {
@@ -182,7 +195,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         protected virtual void OnUpdateSceneImage() {
             try {
                 var scene = this.LocalScene;
-                if (scene == null) {
+                if (scene == null || !RenderingEnabled) {
                     this.SceneImage.Visibility = System.Windows.Visibility.Collapsed;
                     return;
                 }
