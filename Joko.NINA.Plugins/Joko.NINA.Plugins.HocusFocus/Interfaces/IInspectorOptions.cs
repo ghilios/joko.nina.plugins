@@ -30,5 +30,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool ShowSensorModel { get; set; }
         double SensorROI { get; set; }
         double CornersROI { get; set; }
+        bool RenderingEnabled { get; set; }
     }
 }

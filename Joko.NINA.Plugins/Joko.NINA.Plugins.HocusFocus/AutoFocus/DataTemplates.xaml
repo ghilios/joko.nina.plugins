@@ -931,6 +931,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -1107,6 +1108,18 @@
                             Text="Clear Analyses"
                             TextWrapping="Wrap" />
                     </Button>
+                    <TextBlock
+                        Grid.Row="4"
+                        Grid.Column="0"
+                        Margin="5"
+                        VerticalAlignment="Center"
+                        Text="3D Rendering Enabled"
+                        ToolTip="The library used for 3D graphics has a bug in .NET Core that can cause crashes. If you can't avoid the crash, leave this off until its fixed." />
+                    <CheckBox
+                        Grid.Row="4"
+                        Grid.Column="1"
+                        Margin="5"
+                        IsChecked="{Binding InspectorOptions.RenderingEnabled}" />
                 </Grid>
                 <Expander
                     Grid.Row="1"
@@ -2160,7 +2173,8 @@
                         <Grid
                             Grid.Row="0"
                             Grid.Column="0"
-                            Margin="10,5,0,5">
+                            Margin="10,5,0,5"
+                            Visibility="{Binding InspectorOptions.RenderingEnabled, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
@@ -2754,7 +2768,10 @@
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>
-                        <Grid Grid.Column="1" HorizontalAlignment="Stretch">
+                        <Grid
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            Visibility="{Binding InspectorOptions.RenderingEnabled, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -2877,7 +2894,8 @@
                     Header="FWHM Contour Map"
                     IsExpanded="{Binding FWHMContoursActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                    <Grid>
+                    <Grid
+                        Visibility="{Binding InspectorOptions.RenderingEnabled, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="400" />

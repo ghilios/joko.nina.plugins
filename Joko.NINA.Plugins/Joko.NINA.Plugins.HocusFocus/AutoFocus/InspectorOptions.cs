@@ -47,6 +47,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             showSensorModel = optionsAccessor.GetValueBoolean(nameof(ShowSensorModel), true);
             sensorROI = optionsAccessor.GetValueDouble(nameof(SensorROI), 1.0);
             cornersROI = optionsAccessor.GetValueDouble(nameof(CornersROI), 1.0);
+            renderingEnabled = optionsAccessor.GetValueBoolean(nameof(RenderingEnabled), false);
         }
 
         public void ResetDefaults() {
@@ -64,6 +65,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ShowSensorModel = true;
             SensorROI = 1.0;
             CornersROI = 1.0;
+            RenderingEnabled = false;
         }
 
         private int stepCount;
@@ -270,6 +272,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
 
                     optionsAccessor.SetValueDouble(nameof(CornersROI), cornersROI);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool renderingEnabled;
+
+        public bool RenderingEnabled {
+            get => renderingEnabled;
+            set {
+                if (renderingEnabled != value) {
+                    renderingEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(RenderingEnabled), renderingEnabled);
                     RaisePropertyChanged();
                 }
             }
