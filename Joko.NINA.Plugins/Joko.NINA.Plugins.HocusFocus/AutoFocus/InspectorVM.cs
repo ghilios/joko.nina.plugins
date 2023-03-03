@@ -606,7 +606,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SavedAutoFocusAttempt savedAttempt;
             try {
                 using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
-                    if (!String.IsNullOrEmpty(autoFocusOptions.LastSelectedLoadPath)) {
+                    dialog.RootFolder = Environment.SpecialFolder.MyComputer;
+                    if (!String.IsNullOrEmpty(autoFocusOptions.LastSelectedLoadPath) && Directory.Exists(autoFocusOptions.LastSelectedLoadPath)) {
                         dialog.SelectedPath = autoFocusOptions.LastSelectedLoadPath;
                     }
                     if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) {

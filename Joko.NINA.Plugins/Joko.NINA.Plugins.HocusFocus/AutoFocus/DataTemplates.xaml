@@ -2160,10 +2160,12 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
+                        <!--  ILNumerics licensing issue. Re-enable after fixed  -->
                         <Grid
                             Grid.Row="0"
                             Grid.Column="0"
-                            Margin="10,5,0,5">
+                            Margin="10,5,0,5"
+                            Visibility="Collapsed">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
@@ -2564,7 +2566,11 @@
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>
-                        <Grid Grid.Column="1" HorizontalAlignment="Stretch">
+                        <!--  ILNumerics licensing issue. Re-enable after fixed  -->
+                        <Grid
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            Visibility="Collapsed">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -2757,7 +2763,11 @@
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>
-                        <Grid Grid.Column="1" HorizontalAlignment="Stretch">
+                        <!--  ILNumerics licensing issue. Re-enable after fixed  -->
+                        <Grid
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            Visibility="Collapsed">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -2880,7 +2890,8 @@
                     Header="FWHM Contour Map"
                     IsExpanded="{Binding FWHMContoursActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                    <Grid>
+                    <!--  ILNumerics licensing issue. Re-enable after fixed  -->
+                    <Grid Visibility="Collapsed">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="400" />
