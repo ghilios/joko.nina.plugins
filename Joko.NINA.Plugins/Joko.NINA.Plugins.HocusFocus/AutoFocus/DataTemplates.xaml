@@ -2807,7 +2807,8 @@
                                 SurfaceHighExtremeColor="Red"
                                 SurfaceLowExtremeColor="Blue"
                                 TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                                TiltPlaneModel="{Binding SensorModel.SensorModelResult.TiltPlaneModel, Mode=OneWay}" />
+                                TiltPlaneModel="{Binding SensorModel.SensorModelResult.TiltPlaneModel, Mode=OneWay}"
+                                RenderingEnabled="{Binding InspectorOptions.RenderingEnabled, Mode=OneWay}" />
                         </Grid>
                     </Grid>
                 </Expander>
