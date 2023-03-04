@@ -2160,12 +2160,10 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <!--  ILNumerics licensing issue. Re-enable after fixed  -->
                         <Grid
                             Grid.Row="0"
                             Grid.Column="0"
-                            Margin="10,5,0,5"
-                            Visibility="Collapsed">
+                            Margin="10,5,0,5">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
@@ -2216,6 +2214,7 @@
                                 ImageSize="{Binding SensorModel.SensorModelResult.ImageSize, Mode=OneWay}"
                                 PixelSize="{Binding SensorModel.SensorModelResult.PixelSizeMicrons, Mode=OneWay}"
                                 PlotBackgroundColor="{Binding Path=Color, Source={StaticResource BackgroundBrush}}"
+                                RenderingEnabled="True"
                                 SensorMeanElevation="{Binding SensorModel.SensorModelResult.SensorMeanElevation, Mode=OneWay}"
                                 SensorModel="{Binding SensorModel.SensorModelResult.Model, Mode=OneWay}"
                                 Show3D="{Binding SensorModel3DEnabled}"
@@ -2566,11 +2565,7 @@
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>
-                        <!--  ILNumerics licensing issue. Re-enable after fixed  -->
-                        <Grid
-                            Grid.Column="1"
-                            HorizontalAlignment="Stretch"
-                            Visibility="Collapsed">
+                        <Grid Grid.Column="1" HorizontalAlignment="Stretch">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -2605,6 +2600,7 @@
                                 AxisColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
                                 PlotBackgroundColor="{Binding Path=Color, Source={StaticResource BackgroundBrush}}"
                                 PointColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
+                                RenderingEnabled="True"
                                 SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonBackgroundBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
                                 SurfaceHighExtremeColor="Red"
                                 SurfaceLowExtremeColor="Blue"
@@ -2763,11 +2759,7 @@
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>
-                        <!--  ILNumerics licensing issue. Re-enable after fixed  -->
-                        <Grid
-                            Grid.Column="1"
-                            HorizontalAlignment="Stretch"
-                            Visibility="Collapsed">
+                        <Grid Grid.Column="1" HorizontalAlignment="Stretch">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -2794,6 +2786,7 @@
                                 AxisColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
                                 PlotBackgroundColor="{Binding Path=Color, Source={StaticResource BackgroundBrush}}"
                                 PointColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
+                                RenderingEnabled="True"
                                 SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonBackgroundBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
                                 SurfaceHighExtremeColor="Red"
                                 SurfaceLowExtremeColor="Blue"
@@ -2890,8 +2883,7 @@
                     Header="FWHM Contour Map"
                     IsExpanded="{Binding FWHMContoursActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                    <!--  ILNumerics licensing issue. Re-enable after fixed  -->
-                    <Grid Visibility="Collapsed">
+                    <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="400" />
@@ -2912,6 +2904,7 @@
                             NumRegionsWide="{Binding InspectorOptions.NumRegionsWide, Mode=OneWay}"
                             PlotBackgroundColor="{Binding Path=Color, Source={StaticResource BackgroundBrush}}"
                             PointColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
+                            RenderingEnabled="True"
                             StarDetectionResult="{Binding SnapshotAnalysisStarDetectionResult, Mode=OneWay}"
                             SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonBackgroundBrush}}"
                             TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
