@@ -56,7 +56,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var c = parameters[4];
             return x => {
                 var t = (x0 - x) / this.StepSize;
-                t = Math.Min(0.0d, Math.Max(1.0d, t));
+                t = Math.Max(0.0d, Math.Min(1.0d, t));
                 var leftSide = t * a / b * Math.Sqrt((x - x0) * (x - x0) + b * b);
                 var rightSide = (1.0d - t) * a / c * Math.Sqrt((x - x0) * (x - x0) + c * c);
                 return leftSide + rightSide + y0;

@@ -149,10 +149,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                             if (AFCurveFittingEnum.HYPERBOLIC == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC == fitting) {
                                 AlglibHyperbolicFitting hf;
-                                if (!state.Options.UnevenHyperbolicFitEnabled) {
-                                    hf = HyperbolicFittingAlglib.Create(state.AlglibAPI, validFocusPoints, state.Options.WeightedHyperbolicFitEnabled);
-                                } else {
+                                if (state.Options.UnevenHyperbolicFitEnabled) {
                                     hf = HyperbolicUnevenFittingAlglib.Create(state.AlglibAPI, validFocusPoints, state.Options.AutoFocusStepSize, state.Options.WeightedHyperbolicFitEnabled);
+                                } else {
+                                    hf = HyperbolicFittingAlglib.Create(state.AlglibAPI, validFocusPoints, state.Options.WeightedHyperbolicFitEnabled);
                                 }
                                 if (!hf.Solve()) {
                                     Logger.Trace($"Hyperbolic fit failed");

@@ -410,7 +410,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
                         AlglibHyperbolicFitting hf;
-                        if (!autoFocusOptions.UnevenHyperbolicFitEnabled) {
+                        if (autoFocusOptions.UnevenHyperbolicFitEnabled) {
                             hf = HyperbolicUnevenFittingAlglib.Create(this.alglibAPI, validFocusPoints, profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
                         } else {
                             hf = HyperbolicFittingAlglib.Create(this.alglibAPI, validFocusPoints, autoFocusOptions.WeightedHyperbolicFitEnabled);
