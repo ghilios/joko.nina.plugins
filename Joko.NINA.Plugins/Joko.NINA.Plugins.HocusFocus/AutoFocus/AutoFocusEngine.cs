@@ -1666,8 +1666,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 throw new Exception($"Must be at least {minNumImages} saved AF images in {attemptFolder.FullName}");
             }
 
-            var focuserPositions = savedImages.Select(i => i.FocuserPosition).OrderBy(i => i).Take(2).ToList();
-            var stepSize = Math.Abs(focuserPositions[0] - focuserPositions[1]);
+            int? stepSize = null;
+            if (savedImages.Count >= 2) {
+                var focuserPositions = savedImages.Select(i => i.FocuserPosition).OrderBy(i => i).Take(2).ToList();
+                stepSize = Math.Abs(focuserPositions[0] - focuserPositions[1]);
+            }
             return new SavedAutoFocusAttempt() {
                 Attempt = attemptNumber,
                 SavedImages = savedImages,
