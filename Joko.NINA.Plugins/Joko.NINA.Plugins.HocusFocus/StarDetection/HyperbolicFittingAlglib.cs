@@ -40,7 +40,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 inputStdDevs = nonzeroPoints.Select(dp => dp.ErrorY).ToArray();
             } else {
                 inputStdDevs = new double[nonzeroPoints.Count];
-                Array.Fill(inputStdDevs, 1.0d);
+                for (int i = 0; i < inputStdDevs.Length; ++i) {
+                    inputStdDevs[i] = 1.0d;
+                }
             }
             var outputs = nonzeroPoints.Select(dp => dp.Y).ToArray();
             return new HyperbolicFittingAlglib(alglibAPI, inputs, inputStdDevs, outputs);

@@ -40,7 +40,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 inputStdDevs = nonzeroPoints.Select(dp => dp.ErrorY).ToArray();
             } else {
                 inputStdDevs = new double[nonzeroPoints.Count];
-                Array.Fill(inputStdDevs, 1.0d);
+                for (int i = 0; i < inputStdDevs.Length; ++i) {
+                    inputStdDevs[i] = 1.0d;
+                }
             }
             var outputs = nonzeroPoints.Select(dp => dp.Y).ToArray();
             return new HyperbolicUnevenFittingAlglib(alglibAPI, inputs, inputStdDevs, outputs, stepSize);
@@ -53,7 +55,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var b = parameters[3];
             var c = parameters[4];
             return x => {
-                var t = Math.Clamp((x0 - x) / this.StepSize, 0.0d, 1.0d);
+                var t = (x0 - x) / this.StepSize;
+                t = Math.Min(0.0d, Math.Max(1.0d, t));
                 var leftSide = t * a / b * Math.Sqrt((x - x0) * (x - x0) + b * b);
                 var rightSide = (1.0d - t) * a / c * Math.Sqrt((x - x0) * (x - x0) + c * c);
                 return leftSide + rightSide + y0;

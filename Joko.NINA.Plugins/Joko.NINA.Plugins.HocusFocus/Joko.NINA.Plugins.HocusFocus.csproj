@@ -484,6 +484,7 @@
     <Compile Include="Scottplot\HFArrowStyle.cs" />
     <Compile Include="Scottplot\HFVectorField.cs" />
     <Compile Include="Scottplot\LinearColormap.cs" />
+    <Compile Include="StarDetection\AlglibHyperbolicFitting.cs" />
     <Compile Include="StarDetection\DataTemplates.xaml.cs">
       <DependentUpon>DataTemplates.xaml</DependentUpon>
     </Compile>
@@ -491,6 +492,7 @@
     <Compile Include="StarDetection\HocusFocusStarAnnotator.cs" />
     <Compile Include="StarDetection\HocusFocusStarDetection.cs" />
     <Compile Include="StarDetection\HyperbolicFittingAlglib.cs" />
+    <Compile Include="StarDetection\HyperbolicUnevenFittingAlglib.cs" />
     <Compile Include="StarDetection\MoffatPSFType.cs" />
     <Compile Include="StarDetection\PSFModel.cs" />
     <Compile Include="StarDetection\PSFModeler.cs" />

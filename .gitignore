@@ -90,5 +90,5 @@ ClientBin/
 *.publishsettings
 orleans.codegen.cs
 
-ilnumerics.*
+**/ilnumerics.*
 
