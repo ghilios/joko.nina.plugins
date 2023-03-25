@@ -21,18 +21,18 @@ using System.Linq;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
-    public class HyperbolicFittingAlglib : AlglibHyperbolicFitting {
-        public bool UseJacobian { get; set; } = false;
+    public class HyperbolicUnevenFittingAlglib : AlglibHyperbolicFitting {
         private readonly IAlglibAPI alglibAPI;
 
-        private HyperbolicFittingAlglib(IAlglibAPI alglibAPI, double[][] inputs, double[] inputStdDevs, double[] outputs) {
+        private HyperbolicUnevenFittingAlglib(IAlglibAPI alglibAPI, double[][] inputs, double[] inputStdDevs, double[] outputs, int stepSize) {
             this.Inputs = inputs;
             this.Outputs = outputs;
+            this.StepSize = stepSize;
             this.alglibAPI = alglibAPI;
             this.Weights = inputStdDevs.Select(sd => 1.0d / Math.Max(Math.Abs(sd), 1e-6)).ToArray();
         }
 
-        public static HyperbolicFittingAlglib Create(IAlglibAPI alglibAPI, ICollection<ScatterErrorPoint> points, bool useWeights) {
+        public static HyperbolicUnevenFittingAlglib Create(IAlglibAPI alglibAPI, ICollection<ScatterErrorPoint> points, int stepSize, bool useWeights) {
             var nonzeroPoints = points.Where((dp) => dp.Y >= 0.1).ToList();
             var inputs = nonzeroPoints.Select(dp => new double[] { dp.X }).ToArray();
             double[] inputStdDevs;
@@ -43,7 +43,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Array.Fill(inputStdDevs, 1.0d);
             }
             var outputs = nonzeroPoints.Select(dp => dp.Y).ToArray();
-            return new HyperbolicFittingAlglib(alglibAPI, inputs, inputStdDevs, outputs);
+            return new HyperbolicUnevenFittingAlglib(alglibAPI, inputs, inputStdDevs, outputs, stepSize);
         }
 
         private Func<double, double> GetFittingForParameters(double[] parameters) {
@@ -51,35 +51,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var y0 = parameters[1];
             var a = parameters[2];
             var b = parameters[3];
-            return x => a / b * Math.Sqrt((x - x0) * (x - x0) + b * b) + y0;
-        }
-
-        private Action<double, double[]> GetGradientForParameters(double[] parameters) {
-            var x0 = parameters[0];
-            var y0 = parameters[1];
-            var a = parameters[2];
-            var b = parameters[3];
-            return (x, fi) => {
-                var XPrime = x - x0;
-                var XPrime2 = XPrime * XPrime;
-                var B2 = b * b;
-                var SQRT_TERM = Math.Sqrt(B2 + XPrime2);
-
-                var da = SQRT_TERM / b;
-
-                var db_part1 = -a * XPrime2;
-                var db_part2 = B2 * SQRT_TERM;
-                var db = db_part1 / db_part2;
-
-                var dx0_part1 = -a * XPrime;
-                var dx0_part2 = b * SQRT_TERM;
-                var dx0 = dx0_part1 / dx0_part2;
-
-                var dy0 = 1.0d;
-                fi[0] = dx0;
-                fi[1] = dy0;
-                fi[2] = da;
-                fi[3] = db;
+            var c = parameters[4];
+            return x => {
+                var t = Math.Clamp((x0 - x) / this.StepSize, 0.0d, 1.0d);
+                var leftSide = t * a / b * Math.Sqrt((x - x0) * (x - x0) + b * b);
+                var rightSide = (1.0d - t) * a / c * Math.Sqrt((x - x0) * (x - x0) + c * c);
+                return leftSide + rightSide + y0;
             };
         }
 
@@ -132,21 +109,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             alglib.minlmstate state = null;
             alglib.minlmreport rep = null;
             try {
-                var initialGuess = new double[] { initialX0, initialY0, initialA, initialB };
-                var lowerBounds = new double[] { 0.0d, -lowestOutput, 0.001d, 0.001d };
-                var upperBounds = new double[] { double.PositiveInfinity, lowestOutput, double.PositiveInfinity, double.PositiveInfinity };
+                var initialGuess = new double[] { initialX0, initialY0, initialA, initialB, initialB };
+                var lowerBounds = new double[] { 0.0d, -lowestOutput, 0.001d, 0.001d, 0.001d };
+                var upperBounds = new double[] { double.PositiveInfinity, lowestOutput, double.PositiveInfinity, double.PositiveInfinity, double.PositiveInfinity };
                 var positionScale = lowestOutput > 0 ? lowestInput / lowestOutput : lowestInput;
-                var scale = new double[] { Math.Max(1.0, positionScale), 1, 1, 1 };
-                var solution = new double[4];
+                var scale = new double[] { Math.Max(1.0, positionScale), 1, 1, 1, 1 };
+                var solution = new double[6];
                 var tolerance = 1E-6;
                 var maxIterations = 0; // Keep going until the solution is found
                 const double deltaForNumericIntegration = 1E-6;
-                if (UseJacobian) {
-                    this.alglibAPI.minlmcreatevj(this.Inputs.Length, initialGuess, out state);
-                    this.alglibAPI.minlmsetacctype(state, 1);
-                } else {
-                    this.alglibAPI.minlmcreatev(this.Inputs.Length, initialGuess, deltaForNumericIntegration, out state);
-                }
+                this.alglibAPI.minlmcreatev(this.Inputs.Length, initialGuess, deltaForNumericIntegration, out state);
 
                 this.alglibAPI.minlmsetbc(state, lowerBounds, upperBounds);
 
@@ -167,7 +139,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (rep.terminationtype < 0) {
                     string reason;
                     if (rep.terminationtype == -8) {
-                        reason = "optimizer detected NAN/INF values either in the function itself, or in its Jacobian";
+                        reason = "optimizer detected NAN/INF values in the function itself";
                     } else if (rep.terminationtype == -3) {
                         reason = "constraints are inconsistent";
                     } else {
@@ -199,8 +171,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var y0 = solution[1];
                 var a = solution[2];
                 var b = solution[3];
+                var c = solution[4];
 
-                FormattableString expression = $"y = {a:0.###}/{b:0.###} * √((x - {x0:0.###})² + {b:0.###}²) + {y0:0.###}";
+                FormattableString expression = $"y = {{ 0, ({x0:0.###} - x) / {StepSize}, 1 }} * {a:0.###}/{b:0.###} * √((x - {x0:0.###})² + {b:0.###}²) + {{ 0, (x - {x0:0.###}) / {StepSize}, 1 }} * {a:0.###}/{c:0.###} * √((x - {x0:0.###})² + {c:0.###}²) + {y0:0.###}";
                 Expression = expression.ToString(CultureInfo.InvariantCulture);
                 Fitting = GetFittingForParameters(solution);
                 Minimum = new DataPoint(x0, a + y0);
