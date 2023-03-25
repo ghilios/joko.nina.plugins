@@ -27,8 +27,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool Save { get; set; }
         string LastSelectedLoadPath { get; set; }
         int FocuserOffset { get; set; }
-        bool AllowHyperbolaRotation { get; set; }
         int MaxOutlierRejections { get; set; }
         double OutlierRejectionConfidence { get; set; }
+        bool UnevenHyperbolicFitEnabled { get; set; }
+        bool WeightedHyperbolicFitEnabled { get; set; }
     }
 }

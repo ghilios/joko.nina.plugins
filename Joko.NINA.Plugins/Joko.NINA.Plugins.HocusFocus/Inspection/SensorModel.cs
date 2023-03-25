@@ -19,6 +19,7 @@ using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
+using NINA.Profile.Interfaces;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
@@ -85,12 +86,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
     }
 
     public class SensorModel : BaseINPC {
+        private readonly IProfileService profileService;
         private readonly IInspectorOptions inspectorOptions;
+        private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IAlglibAPI alglibAPI;
         private int nextHistoryId = 0;
 
-        public SensorModel(IInspectorOptions inspectorOptions, IAlglibAPI alglibAPI) {
+        public SensorModel(IProfileService profileService, IInspectorOptions inspectorOptions, IAutoFocusOptions autoFocusOptions, IAlglibAPI alglibAPI) {
+            this.profileService = profileService;
             this.inspectorOptions = inspectorOptions;
+            this.autoFocusOptions = autoFocusOptions;
             this.alglibAPI = alglibAPI;
             SensorTiltHistoryModels = new AsyncObservableCollection<SensorParaboloidTiltHistoryModel>();
         }
@@ -258,8 +263,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                     try {
                         var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
-                        // TODO: Figure out if I need to allow rotations here. This is probably an inspection option?
-                        var fitting = HyperbolicFittingAlglib.Create(this.alglibAPI, points, false);
+                        AlglibHyperbolicFitting fitting;
+                        if (!autoFocusOptions.UnevenHyperbolicFitEnabled) {
+                            fitting = HyperbolicUnevenFittingAlglib.Create(this.alglibAPI, points, profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                        } else {
+                            fitting = HyperbolicFittingAlglib.Create(this.alglibAPI, points, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                        }
+
                         var solveResult = fitting.Solve();
                         if (!solveResult) {
                             Logger.Trace($"Failed to fit hyperbolic curve to star matches at ({registeredStar.RegistrationX:0.00}, {registeredStar.RegistrationY:0.00})");

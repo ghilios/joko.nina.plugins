@@ -409,7 +409,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
 
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
-                        var hf = HyperbolicFittingAlglib.Create(this.alglibAPI, validFocusPoints, this.autoFocusOptions.AllowHyperbolaRotation);
+                        AlglibHyperbolicFitting hf;
+                        if (!autoFocusOptions.UnevenHyperbolicFitEnabled) {
+                            hf = HyperbolicUnevenFittingAlglib.Create(this.alglibAPI, validFocusPoints, profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                        } else {
+                            hf = HyperbolicFittingAlglib.Create(this.alglibAPI, validFocusPoints, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                        }
+
                         hf.Solve();
                         HyperbolicFitting = hf;
                     }
@@ -617,7 +623,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     imagingFilter = profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.Where(x => x.Position == filterInfo.SelectedFilter.Position).FirstOrDefault();
                 }
 
-                var options = autoFocusEngine.GetOptions();
+                var options = autoFocusEngine.GetOptions(savedAttempt);
                 var result = await autoFocusEngine.Rerun(options, savedAttempt, imagingFilter, loadSavedAutoFocusRunCts.Token, this.progress);
                 if (result != null) {
                     InitialFocuserPosition = result.InitialFocuserPosition;

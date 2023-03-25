@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using Accord.IO;
 using Newtonsoft.Json;
 using NINA.Core.Enum;
 using NINA.Core.Interfaces;
@@ -147,7 +148,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             }
 
                             if (AFCurveFittingEnum.HYPERBOLIC == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC == fitting) {
-                                var hf = HyperbolicFittingAlglib.Create(state.AlglibAPI, validFocusPoints, state.Options.AllowHyperbolaRotation);
+                                AlglibHyperbolicFitting hf;
+                                if (!state.Options.UnevenHyperbolicFitEnabled) {
+                                    hf = HyperbolicFittingAlglib.Create(state.AlglibAPI, validFocusPoints, state.Options.WeightedHyperbolicFitEnabled);
+                                } else {
+                                    hf = HyperbolicUnevenFittingAlglib.Create(state.AlglibAPI, validFocusPoints, state.Options.AutoFocusStepSize, state.Options.WeightedHyperbolicFitEnabled);
+                                }
                                 if (!hf.Solve()) {
                                     Logger.Trace($"Hyperbolic fit failed");
                                 }
@@ -222,8 +228,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }
 
+            private List<ScatterErrorPoint> lastValidFocusPoints;
+
             public void UpdateCurveFittings(List<ScatterErrorPoint> validFocusPoints) {
-                var fittingsResult = CurveFittingResult.Calculate(state: this.State, method: this.Fittings.Method, fitting: this.Fittings.CurveFittingType, focusPoints: validFocusPoints);
+                this.lastValidFocusPoints = validFocusPoints;
+                CalculateCurveFittings();
+            }
+
+            private void CalculateCurveFittings() {
+                var fittingsResult = CurveFittingResult.Calculate(state: this.State, method: this.Fittings.Method, fitting: this.Fittings.CurveFittingType, focusPoints: this.lastValidFocusPoints);
                 if (fittingsResult == null) {
                     return;
                 }
@@ -242,6 +255,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             public void CalculateFinalFocusPoint() {
+                // TODO: Only do this for Hyperbolic fit when uneven is configured
+                // this.CalculateCurveFittings(true);
                 this.FinalFocusPoint = DetermineFinalFocusPoint();
             }
 
@@ -1570,7 +1585,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Failed?.Invoke(this, GetFailedEventArgs(state, temperature, duration));
         }
 
-        public AutoFocusEngineOptions GetOptions() {
+        public AutoFocusEngineOptions GetOptions(SavedAutoFocusAttempt savedAttempt = null) {
             return new AutoFocusEngineOptions() {
                 DebayerImage = profileService.ActiveProfile.ImageSettings.DebayerImage,
                 NumberOfAFStars = profileService.ActiveProfile.FocuserSettings.AutoFocusUseBrightestStars,
@@ -1585,11 +1600,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 HFRImprovementThreshold = autoFocusOptions.HFRImprovementThreshold,
                 AutoFocusTimeout = TimeSpan.FromSeconds(autoFocusOptions.AutoFocusTimeoutSeconds),
                 AutoFocusInitialOffsetSteps = profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
-                AutoFocusStepSize = profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize,
+                AutoFocusStepSize = savedAttempt?.StepSize ?? profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize,
                 FocuserOffset = autoFocusOptions.FocuserOffset,
-                AllowHyperbolaRotation = autoFocusOptions.AllowHyperbolaRotation,
                 MaxOutlierRejections = autoFocusOptions.MaxOutlierRejections,
-                OutlierRejectionConfidence = autoFocusOptions.OutlierRejectionConfidence
+                OutlierRejectionConfidence = autoFocusOptions.OutlierRejectionConfidence,
+                UnevenHyperbolicFitEnabled = autoFocusOptions.UnevenHyperbolicFitEnabled,
+                WeightedHyperbolicFitEnabled = autoFocusOptions.WeightedHyperbolicFitEnabled,
             };
         }
 
@@ -1650,9 +1666,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 throw new Exception($"Must be at least {minNumImages} saved AF images in {attemptFolder.FullName}");
             }
 
+            var focuserPositions = savedImages.Select(i => i.FocuserPosition).OrderBy(i => i).Take(2).ToList();
+            var stepSize = Math.Abs(focuserPositions[0] - focuserPositions[1]);
             return new SavedAutoFocusAttempt() {
                 Attempt = attemptNumber,
-                SavedImages = savedImages
+                SavedImages = savedImages,
+                StepSize = stepSize
             };
         }
 

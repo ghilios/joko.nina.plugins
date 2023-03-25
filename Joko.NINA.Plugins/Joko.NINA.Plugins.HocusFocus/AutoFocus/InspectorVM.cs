@@ -151,7 +151,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionCurveFittings = new AsyncObservableCollection<Func<double, double>>(Enumerable.Range(0, 6).Select(i => (Func<double, double>)null));
             RegionLineFittings = new AsyncObservableCollection<TrendlineFitting>(Enumerable.Range(0, 6).Select(i => (TrendlineFitting)null));
             TiltModel = new TiltModel(inspectorOptions);
-            SensorModel = new SensorModel(inspectorOptions, alglibAPI);
+            SensorModel = new SensorModel(profileService, inspectorOptions, autoFocusOptions, alglibAPI);
 
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["InspectorSVG"];
             ImageGeometry.Freeze();

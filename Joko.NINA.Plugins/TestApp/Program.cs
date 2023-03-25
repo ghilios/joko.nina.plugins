@@ -243,7 +243,7 @@ namespace TestApp {
                     try {
                         var points = matchedStars.StarsUsedInCalculation.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
 
-                        var fitting2 = HyperbolicFittingAlglib.Create(alglibAPI, points, false);
+                        var fitting2 = HyperbolicFittingAlglib.Create(alglibAPI, points, true);
                         var solveResult = fitting2.Solve();
                         if (!solveResult) {
                             throw new Exception("WTF");

@@ -54,9 +54,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             save = optionsAccessor.GetValueBoolean("Save", false);
             lastSelectedLoadPath = optionsAccessor.GetValueString("LastSelectedLoadPath", "");
             focuserOffset = optionsAccessor.GetValueInt32("FocuserOffset", 0);
-            allowHyperbolaRotation = optionsAccessor.GetValueBoolean(nameof(AllowHyperbolaRotation), false);
             maxOutlierRejections = optionsAccessor.GetValueInt32(nameof(MaxOutlierRejections), 1);
             outlierRejectionConfidence = optionsAccessor.GetValueDouble(nameof(OutlierRejectionConfidence), 0.90);
+            unevenHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(UnevenHyperbolicFitEnabled), true);
+            weightedHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(WeightedHyperbolicFitEnabled), true);
         }
 
         public void ResetDefaults() {
@@ -74,9 +75,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Save = false;
             LastSelectedLoadPath = "";
             FocuserOffset = 0;
-            AllowHyperbolaRotation = false;
             MaxOutlierRejections = 1;
             OutlierRejectionConfidence = 0.90;
+            UnevenHyperbolicFitEnabled = true;
+            WeightedHyperbolicFitEnabled = true;
         }
 
         private int maxConcurrent;
@@ -285,19 +287,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private bool allowHyperbolaRotation;
-
-        public bool AllowHyperbolaRotation {
-            get => allowHyperbolaRotation;
-            set {
-                if (allowHyperbolaRotation != value) {
-                    allowHyperbolaRotation = value;
-                    optionsAccessor.SetValueBoolean(nameof(AllowHyperbolaRotation), allowHyperbolaRotation);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
         private int maxOutlierRejections;
 
         public int MaxOutlierRejections {
@@ -327,6 +316,32 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                     outlierRejectionConfidence = value;
                     optionsAccessor.SetValueDouble(nameof(OutlierRejectionConfidence), outlierRejectionConfidence);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool unevenHyperbolicFitEnabled;
+
+        public bool UnevenHyperbolicFitEnabled {
+            get => unevenHyperbolicFitEnabled;
+            set {
+                if (unevenHyperbolicFitEnabled != value) {
+                    unevenHyperbolicFitEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(UnevenHyperbolicFitEnabled), unevenHyperbolicFitEnabled);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool weightedHyperbolicFitEnabled;
+
+        public bool WeightedHyperbolicFitEnabled {
+            get => weightedHyperbolicFitEnabled;
+            set {
+                if (weightedHyperbolicFitEnabled != value) {
+                    weightedHyperbolicFitEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(WeightedHyperbolicFitEnabled), weightedHyperbolicFitEnabled);
                     RaisePropertyChanged();
                 }
             }

@@ -34,6 +34,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public class SavedAutoFocusAttempt {
         public int Attempt { get; set; }
         public List<SavedAutoFocusImage> SavedImages { get; set; }
+        public int StepSize { get; set; }
     }
 
     public class SavedAutoFocusImage {
@@ -62,9 +63,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public TimeSpan AutoFocusTimeout { get; set; }
         public double HFRImprovementThreshold { get; set; }
         public int FocuserOffset { get; set; }
-        public bool AllowHyperbolaRotation { get; set; }
         public int MaxOutlierRejections { get; set; }
         public double OutlierRejectionConfidence { get; set; }
+        public bool UnevenHyperbolicFitEnabled { get; set; }
+        public bool WeightedHyperbolicFitEnabled { get; set; }
     }
 
     public interface IAutoFocusEngine {
@@ -78,7 +80,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         Task<AutoFocusResult> RerunWithRegions(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress);
 
-        AutoFocusEngineOptions GetOptions();
+        AutoFocusEngineOptions GetOptions(SavedAutoFocusAttempt savedAttempt = null);
 
         Task<FilterInfo> SetAutofocusFilter(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
 
