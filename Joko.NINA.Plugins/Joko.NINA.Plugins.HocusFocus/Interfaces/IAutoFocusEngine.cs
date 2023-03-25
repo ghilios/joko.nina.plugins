@@ -34,7 +34,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public class SavedAutoFocusAttempt {
         public int Attempt { get; set; }
         public List<SavedAutoFocusImage> SavedImages { get; set; }
-        public int StepSize { get; set; }
+        public int? StepSize { get; set; }
     }
 
     public class SavedAutoFocusImage {
