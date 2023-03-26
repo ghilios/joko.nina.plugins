@@ -299,6 +299,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio,
                     focuserSizeMicrons: focuserSizeMicrons,
                     finalFocusPosition: finalFocuserPosition,
+                    stepSize: result.StepSize,
                     ct: ct);
             }
 
@@ -555,15 +556,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private AutoFocusEngineOptions GetAutoFocusEngineOptions(IAutoFocusEngine autoFocusEngine) {
-            var options = autoFocusEngine.GetOptions();
+        private AutoFocusEngineOptions GetAutoFocusEngineOptions(IAutoFocusEngine autoFocusEngine, SavedAutoFocusAttempt savedAutoFocusAttempt = null) {
+            var options = autoFocusEngine.GetOptions(savedAutoFocusAttempt);
             if (inspectorOptions.FramesPerPoint > 0) {
                 options.FramesPerPoint = inspectorOptions.FramesPerPoint;
             }
             if (inspectorOptions.StepCount > 0) {
                 options.AutoFocusInitialOffsetSteps = inspectorOptions.StepCount;
             }
-            if (inspectorOptions.StepSize > 0) {
+            if (inspectorOptions.StepSize > 0 && savedAutoFocusAttempt != null) {
                 options.AutoFocusStepSize = inspectorOptions.StepSize;
             }
             if (inspectorOptions.TimeoutSeconds > 0) {
@@ -626,7 +627,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             localAnalyzeTask = Task.Run(async () => {
-                var options = GetAutoFocusEngineOptions(autoFocusEngine);
+                var options = GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt);
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                 var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
 

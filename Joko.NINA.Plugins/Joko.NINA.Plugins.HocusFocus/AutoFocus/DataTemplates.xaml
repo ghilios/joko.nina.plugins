@@ -4,13 +4,15 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:b="http://schemas.microsoft.com/xaml/behaviors"
     xmlns:controls="clr-namespace:NINA.Joko.Plugins.HocusFocus.Controls"
+    xmlns:hfenum="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
     xmlns:hfrules="clr-namespace:NINA.Joko.Plugins.HocusFocus.ValidationRules"
     xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus"
     xmlns:ninactrl="clr-namespace:NINACustomControlLibrary;assembly=NINACustomControlLibrary"
     xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
     xmlns:oxy="clr-namespace:OxyPlot.Wpf;assembly=OxyPlot.Wpf"
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
-    xmlns:s="clr-namespace:System;assembly=mscorlib">
+    xmlns:s="clr-namespace:System;assembly=mscorlib"
+    xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core">
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="../Resources/OptionsDataTemplates.xaml" />
     </ResourceDictionary.MergedDictionaries>
@@ -41,6 +43,7 @@
     <TextBlock x:Key="SensorModel_TiltEffect_Tooltip" Text="The maximum nominal distance from the corners of the sensor to the center, due purely to the modeled tilt." />
     <TextBlock x:Key="SensorModel_AutoFocusOffset_Tooltip" Text="The number of focuser steps between the AutoFocus position and the Sensor Mean Focuser Position. You can set this value in the AF Offset setting in Auto Focus Options." />
     <TextBlock x:Key="SensorModel_StarsInModel_Tooltip" Text="The number of stars used in the sensor model. Each star needs to be matched across at least 5 of the frames, and some star fits are rejected as outliers during modeling." />
+    <TextBlock x:Key="InterpolationEnabled_Tooltip" Text="Use interpolated points evenly spaced along a grid instead of the individual stars themselves. This should improve consistency of results and prevent overfitting where there are more stars." />
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
@@ -1113,6 +1116,16 @@
                     VerticalAlignment="Center"
                     Header="Options">
                     <Grid>
+                        <Grid.Resources>
+                            <Style x:Key="HideOnInterpolationOff" TargetType="{x:Type RowDefinition}">
+                                <Setter Property="Height" Value="Auto" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding InspectorOptions.InterpolationEnabled}" Value="False">
+                                        <Setter Property="Height" Value="0" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Resources>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -1120,6 +1133,8 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Style="{StaticResource HideOnInterpolationOff}" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -1445,6 +1460,66 @@
                                 </ninactrl:HintTextBox.Text>
                             </ninactrl:HintTextBox>
                         </StackPanel>
+
+                        <TextBlock
+                            Grid.Row="6"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Interpolation Enabled"
+                            ToolTip="{StaticResource InterpolationEnabled_Tooltip}" />
+                        <StackPanel
+                            Grid.Row="6"
+                            Grid.Column="1"
+                            Orientation="Horizontal">
+                            <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.InterpolationEnabled}" />
+                        </StackPanel>
+
+                        <TextBlock
+                            Grid.Row="7"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Interpolation Algorithm" />
+                        <ComboBox
+                            Name="PART_InterpolationAlgoList"
+                            Grid.Row="7"
+                            Grid.Column="1"
+                            MinWidth="80"
+                            Margin="5,5,0,0"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            ItemsSource="{Binding Source={util:EnumBindingSource {x:Type hfenum:InterpolationAlgoEnum}}}"
+                            SelectedItem="{Binding InspectorOptions.InterpolationAlgo}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <TextBlock
+                            Grid.Row="7"
+                            Grid.Column="2"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Interpolation Smoothing" />
+                        <ComboBox
+                            Name="PART_InterpolationAmountList"
+                            Grid.Row="7"
+                            Grid.Column="3"
+                            MinWidth="80"
+                            Margin="5,5,0,0"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            ItemsSource="{Binding Source={util:EnumBindingSource {x:Type hfenum:InterpolationAmountEnum}}}"
+                            SelectedItem="{Binding InspectorOptions.InterpolationAmount}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                     </Grid>
                 </Expander>
                 <StackPanel
@@ -2258,7 +2333,7 @@
                                 Grid.Column="0"
                                 Margin="5"
                                 VerticalAlignment="Center"
-                                Text="Stars in Model"
+                                Text="Points in Model"
                                 ToolTip="{StaticResource SensorModel_StarsInModel_Tooltip}" />
                             <TextBlock
                                 Grid.Row="0"

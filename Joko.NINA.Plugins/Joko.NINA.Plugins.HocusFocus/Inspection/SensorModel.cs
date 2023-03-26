@@ -12,7 +12,6 @@
 
 using KdTree;
 using KdTree.Math;
-using Newtonsoft.Json;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
@@ -23,7 +22,6 @@ using NINA.Profile.Interfaces;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -105,6 +103,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             double fRatio,
             double focuserSizeMicrons,
             double finalFocusPosition,
+            int stepSize,
             CancellationToken ct) {
             if (allDetectedStars.Count == 0) {
                 throw new ArgumentException("Cannot update sensor model. No detected stars provided");
@@ -116,7 +115,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 var imageSize = firstStarDetectionResult.ImageSize;
                 var pixelSize = firstStarDetectionResult.PixelSize;
                 Logger.Info($"Building Sensor Model. FRatio ({fRatio}), Focuser Size ({focuserSizeMicrons}), Pixel Size ({pixelSize}), Image size ({imageSize})");
-                var dataPoints = RegisterStarsAndFit(allDetectedStars, pixelSize: pixelSize, focuserSizeMicrons: focuserSizeMicrons, imageSize: imageSize);
+                var dataPoints = RegisterStarsAndFit(allDetectedStars, pixelSize: pixelSize, focuserSizeMicrons: focuserSizeMicrons, imageSize: imageSize, stepSize: stepSize);
+                if (dataPoints.Count < 9) {
+                    throw new Exception($"Need at least 9 registered stars. Found {dataPoints.Count}");
+                }
+
                 var sensorModelSolver = new SensorParaboloidSolver(
                     dataPoints: dataPoints,
                     sensorSizeMicronsX: imageSize.Width * pixelSize,
@@ -161,11 +164,128 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }, ct);
         }
 
+        private List<SensorParaboloidDataPoint> ToInterpolatedGrid(
+            List<SensorParaboloidDataPoint> dataPoints,
+            System.Drawing.Size imageSize) {
+            var numPixels = imageSize.Width * imageSize.Height;
+            var gridCellSize = Math.Sqrt(numPixels / dataPoints.Count) * 1.5;
+            var gridCellWidthCount = Math.Max(3, (int)(imageSize.Width / gridCellSize));
+            if (gridCellWidthCount % 2 == 0) {
+                // Ensure odd to cover the center point
+                ++gridCellWidthCount;
+            }
+            var gridCellHeightCount = Math.Max(3, (int)(imageSize.Height / gridCellSize));
+            if (gridCellHeightCount % 2 == 0) {
+                // Ensure odd to cover the center point
+                ++gridCellHeightCount;
+            }
+
+            var allPointsTree = new KdTree<double, object>(2, new DoubleMath(), AddDuplicateBehavior.Error);
+            foreach (var dataPoint in dataPoints) {
+                allPointsTree.Add(new[] { dataPoint.X, dataPoint.Y }, null);
+            }
+
+            alglib.rbfmodel model = null;
+            alglib.rbfreport rep = null;
+            try {
+                this.alglibAPI.rbfcreate(2, 1, out model);
+
+                double[,] xy = new double[dataPoints.Count, 3];
+                for (int i = 0; i < dataPoints.Count; ++i) {
+                    var dataPoint = dataPoints[i];
+                    xy[i, 0] = dataPoint.X;
+                    xy[i, 1] = dataPoint.Y;
+                    xy[i, 2] = dataPoint.FocuserPosition;
+                }
+
+                alglib.rbfsetpoints(model, xy);
+                double lambda;
+                switch (this.inspectorOptions.InterpolationAmount) {
+                    case InterpolationAmountEnum.Small:
+                        lambda = 1.0e-6;
+                        break;
+
+                    case InterpolationAmountEnum.Medium:
+                        lambda = 1.0e-3;
+                        break;
+
+                    default:
+                        lambda = 1.0;
+                        break;
+                }
+
+                if (this.inspectorOptions.InterpolationAlgo == InterpolationAlgoEnum.ThinPlateSpline) {
+                    alglib.rbfsetalgothinplatespline(model, lambda);
+                } else if (this.inspectorOptions.InterpolationAlgo == InterpolationAlgoEnum.MultiQuadric) {
+                    alglib.rbfsetalgomultiquadricauto(model, lambda);
+                } else if (this.inspectorOptions.InterpolationAlgo == InterpolationAlgoEnum.BiHarmonic) {
+                    alglib.rbfsetalgobiharmonic(model, lambda);
+                } else {
+                    throw new ArgumentException($"InterpolationAlgo {this.inspectorOptions.InterpolationAlgo} not expected");
+                }
+
+                alglib.rbfbuildmodel(model, out rep);
+                if (rep.terminationtype != 1) {
+                    string reason;
+                    if (rep.terminationtype == -5) {
+                        reason = "non-distinct basis function centers were detected";
+                    } else if (rep.terminationtype == -4) {
+                        reason = "non-convergence";
+                    } else if (rep.terminationtype == -3) {
+                        reason = "incorrect model construction algorithm was chosen";
+                    } else {
+                        reason = "Unknown";
+                    }
+                    throw new Exception($"RBF interpolation failed with type {rep.terminationtype} and reason: {reason}");
+                }
+
+                double[] gridWidthNodes = new double[gridCellWidthCount];
+                var gridWidthInterval = Math.Ceiling((double)imageSize.Width / (gridCellWidthCount - 1));
+                var nextPosition = 0.0d;
+                for (int i = 0; i < gridCellWidthCount; ++i) {
+                    gridWidthNodes[i] = Math.Min(nextPosition, imageSize.Width - 1);
+                    nextPosition += gridWidthInterval;
+                }
+
+                double[] gridHeightNodes = new double[gridCellHeightCount];
+                var gridHeightInterval = Math.Ceiling((double)imageSize.Height / (gridCellHeightCount - 1));
+                nextPosition = 0.0d;
+                for (int i = 0; i < gridCellHeightCount; ++i) {
+                    gridHeightNodes[i] = Math.Min(nextPosition, imageSize.Height - 1);
+                    nextPosition += gridHeightInterval;
+                }
+
+                double[] outputNodes;
+                alglib.rbfgridcalc2v(model, gridWidthNodes, gridWidthNodes.Length, gridHeightNodes, gridHeightNodes.Length, out outputNodes);
+
+                var outputDataPoints = new List<SensorParaboloidDataPoint>();
+                int outIdx = 0;
+                for (int yIdx = 0; yIdx < gridCellHeightCount; ++yIdx) {
+                    var y = gridHeightNodes[yIdx];
+                    for (int xIdx = 0; xIdx < gridCellWidthCount; ++xIdx, ++outIdx) {
+                        var x = gridWidthNodes[xIdx];
+                        if (allPointsTree.RadialSearch(new double[] { x, y }, gridCellSize, 1).Length > 0) {
+                            outputDataPoints.Add(new SensorParaboloidDataPoint(x: x, y: y, focuserPosition: outputNodes[outIdx], rSquared: 1.0d));
+                        }
+                    }
+                }
+                return outputDataPoints;
+            } finally {
+                if (rep != null) {
+                    this.alglibAPI.deallocateimmediately(ref rep);
+                }
+                if (model != null) {
+                    this.alglibAPI.deallocateimmediately(ref model);
+                }
+            }
+        }
+
         private List<SensorParaboloidDataPoint> RegisterStarsAndFit(
             List<SensorDetectedStars> allDetectedStars,
             System.Drawing.Size imageSize,
             double focuserSizeMicrons,
-            double pixelSize) {
+            double pixelSize,
+            int stepSize) {
             using (var stopwatch = MultiStopWatch.Measure()) {
                 var allDetectedStarTrees = allDetectedStars.Select(result => {
                     var tree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
@@ -264,8 +384,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     try {
                         var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
                         AlglibHyperbolicFitting fitting;
-                        if (!autoFocusOptions.UnevenHyperbolicFitEnabled) {
-                            fitting = HyperbolicUnevenFittingAlglib.Create(this.alglibAPI, points, profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                        if (autoFocusOptions.UnevenHyperbolicFitEnabled) {
+                            fitting = HyperbolicUnevenFittingAlglib.Create(this.alglibAPI, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
                         } else {
                             fitting = HyperbolicFittingAlglib.Create(this.alglibAPI, points, autoFocusOptions.WeightedHyperbolicFitEnabled);
                         }
@@ -297,7 +417,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 if (discardedStarCount > 0) {
                     Logger.Warning($"Discarded {discardedStarCount} stars during sensor modeling due to poor fits");
                 }
-                return sensorModelDataPoints;
+
+                if (this.inspectorOptions.InterpolationEnabled && sensorModelDataPoints.Count > 5) {
+                    return ToInterpolatedGrid(sensorModelDataPoints, imageSize);
+                } else {
+                    return sensorModelDataPoints;
+                }
             }
         }
 
