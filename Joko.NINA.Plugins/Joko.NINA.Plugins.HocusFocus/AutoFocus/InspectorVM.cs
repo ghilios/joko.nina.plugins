@@ -902,6 +902,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 outerFocuserPositionSum += regionResult.EstimatedFinalFocuserPosition;
             }
 
+            var fRatio = profileService.ActiveProfile.TelescopeSettings.FocalRatio;
+            CriticalFocusMicrons = 2.44 * fRatio * fRatio * 0.55;
             InnerFocuserPosition = centerFocuser;
             OuterFocuserPosition = outerFocuserPositionSum / 4;
             BackfocusFocuserPositionDelta = OuterFocuserPosition - InnerFocuserPosition;
@@ -915,6 +917,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             } else {
                 BackfocusMicronDelta = double.NaN;
             }
+
+            BackfocusWithinCFZ = Math.Abs(BackfocusMicronDelta) < criticalFocusMicrons;
             InnerHFR = centerHFR;
             OuterHFR = outerHFRSum / 4;
             BackfocusHFR = OuterHFR - InnerHFR;
@@ -1076,6 +1080,26 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             get => backfocusMicronDelta;
             private set {
                 backfocusMicronDelta = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double criticalFocusMicrons = double.NaN;
+
+        public double CriticalFocusMicrons {
+            get => criticalFocusMicrons;
+            private set {
+                criticalFocusMicrons = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private bool backfocusWithinCFZ = false;
+
+        public bool BackfocusWithinCFZ {
+            get => backfocusWithinCFZ;
+            private set {
+                backfocusWithinCFZ = value;
                 RaisePropertyChanged();
             }
         }
