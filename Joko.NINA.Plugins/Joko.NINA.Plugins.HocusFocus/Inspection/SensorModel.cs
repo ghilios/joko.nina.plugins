@@ -167,8 +167,27 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         private List<SensorParaboloidDataPoint> ToInterpolatedGrid(
             List<SensorParaboloidDataPoint> dataPoints,
             System.Drawing.Size imageSize) {
-            var numPixels = imageSize.Width * imageSize.Height;
-            var gridCellSize = Math.Sqrt(numPixels / dataPoints.Count) * 1.5;
+            var allPointsTree = new KdTree<double, object>(2, new DoubleMath(), AddDuplicateBehavior.Error);
+            foreach (var dataPoint in dataPoints) {
+                allPointsTree.Add(new[] { dataPoint.X, dataPoint.Y }, null);
+            }
+
+            int starCount = 0;
+            double totalDistance = 0.0d;
+            foreach (var node in allPointsTree) {
+                var nearestNeighbors = allPointsTree.GetNearestNeighbours(node.Point, 2);
+                if (nearestNeighbors.Length < 2) {
+                    continue;
+                }
+
+                var nearestPoint = nearestNeighbors[1].Point;
+                var distance = Math.Sqrt((node.Point[0] - nearestPoint[0]) * (node.Point[0] - nearestPoint[0]) + (node.Point[1] - nearestPoint[1]) * (node.Point[1] - nearestPoint[1]));
+                ++starCount;
+                totalDistance += distance;
+            }
+
+            var meanDistance = totalDistance / starCount;
+            var gridCellSize = meanDistance;
             var gridCellWidthCount = Math.Max(3, (int)(imageSize.Width / gridCellSize));
             if (gridCellWidthCount % 2 == 0) {
                 // Ensure odd to cover the center point
@@ -178,11 +197,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             if (gridCellHeightCount % 2 == 0) {
                 // Ensure odd to cover the center point
                 ++gridCellHeightCount;
-            }
-
-            var allPointsTree = new KdTree<double, object>(2, new DoubleMath(), AddDuplicateBehavior.Error);
-            foreach (var dataPoint in dataPoints) {
-                allPointsTree.Add(new[] { dataPoint.X, dataPoint.Y }, null);
             }
 
             alglib.rbfmodel model = null;
@@ -199,22 +213,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 }
 
                 alglib.rbfsetpoints(model, xy);
-                double lambda;
-                switch (this.inspectorOptions.InterpolationAmount) {
-                    case InterpolationAmountEnum.Small:
-                        lambda = 1.0e-6;
-                        break;
-
-                    case InterpolationAmountEnum.Medium:
-                        lambda = 1.0e-3;
-                        break;
-
-                    default:
-                        lambda = 1.0;
-                        break;
+                double lambda, lambdaNS;
+                if (this.inspectorOptions.InterpolationAmount == InterpolationAmountEnum.Small) {
+                    lambda = 1.0e-6;
+                    lambdaNS = 1.0e-6;
+                } else if (this.inspectorOptions.InterpolationAmount == InterpolationAmountEnum.Medium) {
+                    lambda = 1.0e-3;
+                    lambdaNS = 1.0e-4;
+                } else if (this.inspectorOptions.InterpolationAmount == InterpolationAmountEnum.Large) {
+                    lambda = 1.0;
+                    lambdaNS = 1.0e-2;
+                } else {
+                    throw new ArgumentException($"Interpolation Smoothing Amount {this.inspectorOptions.InterpolationAmount} not expected");
                 }
 
-                if (this.inspectorOptions.InterpolationAlgo == InterpolationAlgoEnum.ThinPlateSpline) {
+                if (this.inspectorOptions.InterpolationAlgo == InterpolationAlgoEnum.Hierarchical) {
+                    alglib.rbfsetalgohierarchical(model, meanDistance * 3.0d, 5, lambdaNS);
+                } else if (this.inspectorOptions.InterpolationAlgo == InterpolationAlgoEnum.ThinPlateSpline) {
                     alglib.rbfsetalgothinplatespline(model, lambda);
                 } else if (this.inspectorOptions.InterpolationAlgo == InterpolationAlgoEnum.MultiQuadric) {
                     alglib.rbfsetalgomultiquadricauto(model, lambda);
@@ -264,7 +279,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     var y = gridHeightNodes[yIdx];
                     for (int xIdx = 0; xIdx < gridCellWidthCount; ++xIdx, ++outIdx) {
                         var x = gridWidthNodes[xIdx];
-                        if (allPointsTree.RadialSearch(new double[] { x, y }, gridCellSize, 1).Length > 0) {
+                        if (allPointsTree.RadialSearch(new double[] { x, y }, meanDistance, 1).Length > 0) {
                             outputDataPoints.Add(new SensorParaboloidDataPoint(x: x, y: y, focuserPosition: outputNodes[outIdx], rSquared: 1.0d));
                         }
                     }

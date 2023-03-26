@@ -18,6 +18,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     [TypeConverter(typeof(EnumStaticDescriptionConverter))]
     public enum InterpolationAlgoEnum {
 
+        [Description("Hierarchical")]
+        Hierarchical,
+
         [Description("Thin Plate Spline")]
         ThinPlateSpline,
 

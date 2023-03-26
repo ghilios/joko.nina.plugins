@@ -2183,7 +2183,10 @@
                             HorizontalAlignment="Center"
                             Orientation="Vertical"
                             Visibility="{Binding Path=Tag, ElementName=ShowLoadedSensorModel, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
-                            <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
+                            <StackPanel
+                                HorizontalAlignment="Center"
+                                Orientation="Horizontal"
+                                Visibility="{Binding Path=BackfocusWithinCFZ, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
                                 <TextBlock Text="Backfocus Error: " />
                                 <StackPanel Orientation="Horizontal" Visibility="{Binding BackfocusMicronDelta, Converter={StaticResource HF_InverseNaNToVisibilityCollapsedConverter}}">
                                     <TextBlock Text="{Binding BackfocusFocuserPositionDelta, StringFormat=\{0:0\}}" />
@@ -2196,6 +2199,17 @@
                                 <TextBlock Text=" (Move sensor " />
                                 <TextBlock FontWeight="DemiBold" Text="{Binding BackfocusDirection}" />
                                 <TextBlock Text=" flattener)" />
+                            </StackPanel>
+                            <StackPanel
+                                HorizontalAlignment="Center"
+                                Orientation="Horizontal"
+                                Visibility="{Binding Path=BackfocusWithinCFZ, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <TextBlock Text="Backfocus Error (" />
+                                <TextBlock Text="{Binding BackfocusMicronDelta, StringFormat=\{0:0\}}" />
+                                <TextBlock Text=" microns)" />
+                                <TextBlock Text=" within Critical Focus (" />
+                                <TextBlock Text="{Binding CriticalFocusMicrons, StringFormat=\{0:0\}}" />
+                                <TextBlock Text=" microns)" />
                             </StackPanel>
                         </StackPanel>
                         <StackPanel
