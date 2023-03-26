@@ -10,9 +10,36 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.Converters;
 using System.ComponentModel;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
+
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum InterpolationAlgoEnum {
+
+        [Description("Thin Plate Spline")]
+        ThinPlateSpline,
+
+        [Description("Multi Quadric")]
+        MultiQuadric,
+
+        [Description("Bi-Harmonic")]
+        BiHarmonic
+    }
+
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum InterpolationAmountEnum {
+
+        [Description("Small")]
+        Small,
+
+        [Description("Medium")]
+        Medium,
+
+        [Description("Large")]
+        Large
+    }
 
     public interface IInspectorOptions : INotifyPropertyChanged {
         int StepCount { get; set; }
@@ -30,6 +57,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool ShowSensorModel { get; set; }
         double SensorROI { get; set; }
         double CornersROI { get; set; }
+        bool InterpolationEnabled { get; set; }
+        InterpolationAlgoEnum InterpolationAlgo { get; set; }
+        InterpolationAmountEnum InterpolationAmount { get; set; }
         bool RenderingEnabled { get; set; }
     }
 }

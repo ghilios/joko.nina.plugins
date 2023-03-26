@@ -255,8 +255,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             public void CalculateFinalFocusPoint() {
-                // TODO: Only do this for Hyperbolic fit when uneven is configured
-                // this.CalculateCurveFittings(true);
                 this.FinalFocusPoint = DetermineFinalFocusPoint();
             }
 
@@ -1287,6 +1285,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Succeeded = completed,
                 InitialFocuserPosition = autoFocusState.InitialFocuserPosition,
                 ImageSize = autoFocusState.ImageSize,
+                StepSize = autoFocusState.Options.AutoFocusStepSize,
                 RegionResults = autoFocusState.FocusRegionStates.Select(rs => new AutoFocusRegionResult() {
                     RegionIndex = rs.RegionIndex,
                     Region = rs.Region,
@@ -1460,6 +1459,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Succeeded = true,
                     InitialFocuserPosition = -1, // Not known
                     ImageSize = state.ImageSize,
+                    StepSize = state.Options.AutoFocusStepSize,
                     RegionResults = state.FocusRegionStates.Select(rs => new AutoFocusRegionResult() {
                         RegionIndex = rs.RegionIndex,
                         Region = rs.Region,

@@ -23,6 +23,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
         void minlmcreatev(int m, double[] x, double diffstep, out minlmstate state);
 
+        void rbfcreate(int nx, int ny, out rbfmodel s);
+
         void minlmsetbc(minlmstate state, double[] bndl, double[] bndu);
 
         void minlmsetcond(minlmstate state, double epsx, int maxits);
@@ -54,63 +56,53 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         }
 
         public void minlmcreatev(int m, double[] x, double diffstep, out minlmstate state) {
-            using (this.allocationLock.LockWrite()) {
+            using (this.allocationLock.LockRead()) {
                 alglib.minlmcreatev(m, x, diffstep, out state);
             }
         }
 
         public void minlmcreatevj(int m, double[] x, out minlmstate state) {
-            using (this.allocationLock.LockWrite()) {
+            using (this.allocationLock.LockRead()) {
                 alglib.minlmcreatevj(m, x, out state);
             }
         }
 
-        public void minlmoptguardgradient(minlmstate state, double teststep) {
+        public void rbfcreate(int nx, int ny, out rbfmodel s) {
             using (this.allocationLock.LockRead()) {
-                alglib.minlmoptguardgradient(state, teststep);
+                alglib.rbfcreate(nx, ny, out s);
             }
+        }
+
+        public void minlmoptguardgradient(minlmstate state, double teststep) {
+            alglib.minlmoptguardgradient(state, teststep);
         }
 
         public void minlmoptguardresults(minlmstate state, out optguardreport rep) {
-            using (this.allocationLock.LockRead()) {
-                alglib.minlmoptguardresults(state, out rep);
-            }
+            alglib.minlmoptguardresults(state, out rep);
         }
 
         public void minlmoptimize(minlmstate state, ndimensional_fvec fvec, ndimensional_jac jac, ndimensional_rep rep, object obj) {
-            using (this.allocationLock.LockRead()) {
-                alglib.minlmoptimize(state, fvec, jac, rep, obj);
-            }
+            alglib.minlmoptimize(state, fvec, jac, rep, obj);
         }
 
         public void minlmresults(minlmstate state, out double[] x, out minlmreport rep) {
-            using (this.allocationLock.LockRead()) {
-                alglib.minlmresults(state, out x, out rep);
-            }
+            alglib.minlmresults(state, out x, out rep);
         }
 
         public void minlmsetacctype(minlmstate state, int acctype) {
-            using (this.allocationLock.LockRead()) {
-                alglib.minlmsetacctype(state, acctype);
-            }
+            alglib.minlmsetacctype(state, acctype);
         }
 
         public void minlmsetbc(minlmstate state, double[] bndl, double[] bndu) {
-            using (this.allocationLock.LockRead()) {
-                alglib.minlmsetbc(state, bndl, bndu);
-            }
+            alglib.minlmsetbc(state, bndl, bndu);
         }
 
         public void minlmsetcond(minlmstate state, double epsx, int maxits) {
-            using (this.allocationLock.LockRead()) {
-                alglib.minlmsetcond(state, epsx, maxits);
-            }
+            alglib.minlmsetcond(state, epsx, maxits);
         }
 
         public void minlmsetscale(minlmstate state, double[] s) {
-            using (this.allocationLock.LockRead()) {
-                alglib.minlmsetscale(state, s);
-            }
+            alglib.minlmsetscale(state, s);
         }
     }
 }

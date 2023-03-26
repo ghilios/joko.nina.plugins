@@ -16,6 +16,7 @@ using OxyPlot;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 
@@ -103,6 +104,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return false;
             }
 
+            var lowestInputX = Inputs.Min(i => i[0]);
+            var highestInputX = Inputs.Max(i => i[0]);
+
             var lowestOutputIndex = Outputs.Select((o, i) => (o, i)).Aggregate((l, r) => l.o < r.o ? l : r).i;
             var highestOutputIndex = Outputs.Select((o, i) => (o, i)).Aggregate((l, r) => l.o > r.o ? l : r).i;
             var lowestOutput = Outputs[lowestOutputIndex];
@@ -133,13 +137,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             alglib.minlmreport rep = null;
             try {
                 var initialGuess = new double[] { initialX0, initialY0, initialA, initialB };
-                var lowerBounds = new double[] { 0.0d, -lowestOutput, 0.001d, 0.001d };
-                var upperBounds = new double[] { double.PositiveInfinity, lowestOutput, double.PositiveInfinity, double.PositiveInfinity };
+                var lowerBounds = new double[] { lowestInputX, -lowestOutput, 0.001d, 0.001d };
+                var upperBounds = new double[] { highestInputX, lowestOutput, lowestOutput * 2, double.PositiveInfinity, double.PositiveInfinity };
                 var positionScale = lowestOutput > 0 ? lowestInput / lowestOutput : lowestInput;
                 var scale = new double[] { Math.Max(1.0, positionScale), 1, 1, 1 };
                 var solution = new double[4];
                 var tolerance = 1E-6;
-                var maxIterations = 0; // Keep going until the solution is found
+                var maxIterations = 1000;
                 const double deltaForNumericIntegration = 1E-6;
                 if (UseJacobian) {
                     this.alglibAPI.minlmcreatevj(this.Inputs.Length, initialGuess, out state);
@@ -164,7 +168,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 this.alglibAPI.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, null, null);
 
                 this.alglibAPI.minlmresults(state, out solution, out rep);
-                if (rep.terminationtype < 0) {
+                if (rep.terminationtype < 0 && rep.terminationtype != -5) {
                     string reason;
                     if (rep.terminationtype == -8) {
                         reason = "optimizer detected NAN/INF values either in the function itself, or in its Jacobian";

@@ -85,9 +85,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             solver.SetInitialGuess(initialGuess);
             int disabledCount = int.MaxValue;
             SolutionIterations = 0;
+            var gofBefore = this.GoodnessOfFit(solver, lastSolution);
             while (disabledCount > 0 && winsorizedIterations++ < maxWinsorizedIterations) {
-                var gofBefore = this.GoodnessOfFit(solver, lastSolution);
-
                 var nextSolution = SolveWithInitialGuess(solver, initialGuess, maxIterationsLS, toleranceLS, ct);
                 var iterationSolutionArray = nextSolution.ToArray();
 
@@ -97,7 +96,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     return lastSolution;
                 }
 
-                var sumOfResiduals = 0.0d;
+                gofBefore = gofAfter;
                 var residuals = new List<(int, double)>();
                 for (int i = 0; i < this.weights.Length; ++i) {
                     if (!inputEnabled[i]) {
@@ -106,17 +105,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
                     var observedValue = solver.Outputs[i];
                     var estimatedValue = solver.Value(iterationSolutionArray, solver.Inputs[i]);
-                    var residual = Math.Abs(estimatedValue - observedValue);
-                    sumOfResiduals += residual;
+                    var residual = estimatedValue - observedValue;
                     residuals.Add((i, residual));
                 }
 
                 var (median, mad) = residuals.Select(p => p.Item2).MedianMAD();
-                var upperBound = median + mad * winsorizationSigma;
+                var upperBound = mad * winsorizationSigma;
+                var lowerBound = -mad * winsorizationSigma;
                 disabledCount = 0;
                 for (int i = 0; i < residuals.Count; ++i) {
                     var residual = residuals[i].Item2;
-                    if (residual > upperBound) {
+                    if (residual > upperBound || residual < lowerBound) {
                         var residualIdx = residuals[i].Item1;
                         inputEnabled[residualIdx] = false;
                         ++disabledCount;
@@ -324,9 +323,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
                 var input = solver.Inputs[i];
                 var observedValue = solver.Outputs[i];
+                var weight = this.weights[i];
                 var estimatedValue = solver.Value(parameters, input);
-                var residual = estimatedValue - observedValue;
-                var observedDispersion = observedValue - yBar;
+                var residual = weight * (estimatedValue - observedValue);
+                var observedDispersion = weight * (observedValue - yBar);
                 tss += observedDispersion * observedDispersion;
                 rss += residual * residual;
             }
@@ -336,7 +336,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         public double RMSError(S solver, U model) {
             var parameters = model.ToArray();
             var rss = 0.0d;
-            int pixelCount = 0;
+            double weightedPixelCount = 0.0d;
             for (int i = 0; i < solver.Inputs.Length; ++i) {
                 if (!inputEnabled[i]) {
                     continue;
@@ -344,12 +344,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
                 var input = solver.Inputs[i];
                 var observedValue = solver.Outputs[i];
+                var weight = this.weights[i];
                 var estimatedValue = solver.Value(parameters, input);
-                var residual = estimatedValue - observedValue;
+                var residual = weight * (estimatedValue - observedValue);
                 rss += residual * residual;
-                ++pixelCount;
+                weightedPixelCount += weight;
             }
-            return Math.Sqrt(rss / pixelCount);
+            return Math.Sqrt(rss / weightedPixelCount);
         }
     }
 }

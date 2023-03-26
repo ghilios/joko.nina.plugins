@@ -53,6 +53,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             showSensorModel = optionsAccessor.GetValueBoolean(nameof(ShowSensorModel), true);
             sensorROI = optionsAccessor.GetValueDouble(nameof(SensorROI), 1.0);
             cornersROI = optionsAccessor.GetValueDouble(nameof(CornersROI), 1.0);
+            interpolationEnabled = optionsAccessor.GetValueBoolean(nameof(InterpolationEnabled), false);
+            interpolationAlgo = optionsAccessor.GetValueEnum(nameof(InterpolationAlgo), InterpolationAlgoEnum.MultiQuadric);
+            interpolationAmount = optionsAccessor.GetValueEnum(nameof(InterpolationAmount), InterpolationAmountEnum.Medium);
             renderingEnabled = optionsAccessor.GetValueBoolean(nameof(RenderingEnabled), false);
         }
 
@@ -71,6 +74,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ShowSensorModel = true;
             SensorROI = 1.0;
             CornersROI = 1.0;
+            InterpolationEnabled = false;
+            InterpolationAlgo = InterpolationAlgoEnum.MultiQuadric;
+            InterpolationAmount = InterpolationAmountEnum.Medium;
             RenderingEnabled = false;
         }
 
@@ -278,6 +284,45 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
 
                     optionsAccessor.SetValueDouble(nameof(CornersROI), cornersROI);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool interpolationEnabled;
+
+        public bool InterpolationEnabled {
+            get => interpolationEnabled;
+            set {
+                if (interpolationEnabled != value) {
+                    interpolationEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(InterpolationEnabled), interpolationEnabled);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private InterpolationAlgoEnum interpolationAlgo;
+
+        public InterpolationAlgoEnum InterpolationAlgo {
+            get => interpolationAlgo;
+            set {
+                if (interpolationAlgo != value) {
+                    interpolationAlgo = value;
+                    optionsAccessor.SetValueEnum(nameof(InterpolationAlgo), value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private InterpolationAmountEnum interpolationAmount;
+
+        public InterpolationAmountEnum InterpolationAmount {
+            get => interpolationAmount;
+            set {
+                if (interpolationAmount != value) {
+                    interpolationAmount = value;
+                    optionsAccessor.SetValueEnum(nameof(InterpolationAmount), value);
                     RaisePropertyChanged();
                 }
             }

@@ -98,6 +98,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return (median, mad);
         }
 
+        public static (double, double) MeanVar(this IEnumerable<double> values) {
+            var mean = values.Average();
+            var count = values.Count();
+            var variance = values.Sum(s => (s - mean) * (s - mean)) / (count - 1);
+            return (mean, variance);
+        }
+
         public static float DotProduct(float[] x, float[] y) {
             if (x.Length != y.Length) {
                 throw new ArgumentException($"x length ({x.Length}) must be equal to y length ({y.Length})");
