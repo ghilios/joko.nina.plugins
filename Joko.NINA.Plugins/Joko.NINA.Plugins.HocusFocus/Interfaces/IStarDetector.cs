@@ -130,10 +130,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public class StarDetectionRegion {
         public static readonly StarDetectionRegion Full = new StarDetectionRegion(RatioRect.Full);
 
-        public StarDetectionRegion(RatioRect outerBoundary) : this(outerBoundary, null) {
+        public StarDetectionRegion(RatioRect outerBoundary, int index = 0) : this(outerBoundary, null, index) {
         }
 
-        public StarDetectionRegion(RatioRect outerBoundary, RatioRect innerCropBoundary) {
+        public StarDetectionRegion(RatioRect outerBoundary, RatioRect innerCropBoundary, int index = 0) {
             if (outerBoundary == null) {
                 throw new ArgumentException("outerBoundary cannot be null", "outerBoundary");
             }
@@ -145,8 +145,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
             this.OuterBoundary = outerBoundary;
             this.InnerCropBoundary = innerCropBoundary;
+            this.Index = index;
         }
 
+        public int Index { get; set; }
         public RatioRect OuterBoundary { get; private set; }
         public RatioRect InnerCropBoundary { get; private set; }
 

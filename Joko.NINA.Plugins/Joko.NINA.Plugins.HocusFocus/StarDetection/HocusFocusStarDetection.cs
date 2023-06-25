@@ -401,13 +401,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     var hfrVariance = starList.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (starList.Count - 1);
                     result.HFRStdDev = Math.Sqrt(hfrVariance);
 
-                    Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}");
+                    Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result?.Region.Index ?? 0}");
                 } else {
                     var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
                     result.AverageHFR = hfrMedian;
                     result.HFRStdDev = hfrMAD;
 
-                    Logger.Info($"Average HFR: {result.AverageHFR}, HFR MAD: {result.HFRStdDev}, Detected Stars {result.StarList.Count}");
+                    Logger.Info($"Average HFR: {result.AverageHFR}, HFR MAD: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result?.Region.Index ?? 0}");
                 }
             }
             result.DebugData = starDetectorResult.DebugData;

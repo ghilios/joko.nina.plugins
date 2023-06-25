@@ -53,7 +53,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             showSensorModel = optionsAccessor.GetValueBoolean(nameof(ShowSensorModel), true);
             sensorROI = optionsAccessor.GetValueDouble(nameof(SensorROI), 1.0);
             cornersROI = optionsAccessor.GetValueDouble(nameof(CornersROI), 1.0);
-            interpolationEnabled = optionsAccessor.GetValueBoolean(nameof(InterpolationEnabled), false);
             interpolationAlgo = optionsAccessor.GetValueEnum(nameof(InterpolationAlgo), InterpolationAlgoEnum.MultiQuadric);
             interpolationAmount = optionsAccessor.GetValueEnum(nameof(InterpolationAmount), InterpolationAmountEnum.Medium);
         }
@@ -73,7 +72,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ShowSensorModel = true;
             SensorROI = 1.0;
             CornersROI = 1.0;
-            InterpolationEnabled = false;
             InterpolationAlgo = InterpolationAlgoEnum.MultiQuadric;
             InterpolationAmount = InterpolationAmountEnum.Medium;
         }
@@ -287,6 +285,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        public bool InterpolationEnabled { get; private set; } = false;
+
+        /*
         private bool interpolationEnabled;
 
         public bool InterpolationEnabled {
@@ -299,6 +300,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }
         }
+        */
 
         private InterpolationAlgoEnum interpolationAlgo;
 

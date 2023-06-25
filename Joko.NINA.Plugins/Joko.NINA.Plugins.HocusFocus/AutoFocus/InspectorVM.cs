@@ -724,15 +724,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             var regions = new List<StarDetectionRegion>() {
                     starDetectionRegion,
-                    new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third)),
-                    new StarDetectionRegion(new RatioRect(innerStart, innerStart, width, width)),
-                    new StarDetectionRegion(new RatioRect(outerStart, innerStart, width, width)),
-                    new StarDetectionRegion(new RatioRect(innerStart, outerStart, width, width)),
-                    new StarDetectionRegion(new RatioRect(outerStart, outerStart, width, width))
+                    new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third), index: 1),
+                    new StarDetectionRegion(new RatioRect(innerStart, innerStart, width, width), index: 2),
+                    new StarDetectionRegion(new RatioRect(outerStart, innerStart, width, width), index: 2),
+                    new StarDetectionRegion(new RatioRect(innerStart, outerStart, width, width), index: 4),
+                    new StarDetectionRegion(new RatioRect(outerStart, outerStart, width, width), index: 5)
                 };
             if (sensorCurveModelEnabled) {
                 var roiValue = (1.0d - inspectorOptions.SensorROI) / 2.0;
-                regions.Add(new StarDetectionRegion(new RatioRect(roiValue, roiValue, 1.0d - roiValue, 1.0d - roiValue)));
+                regions.Add(new StarDetectionRegion(new RatioRect(roiValue, roiValue, 1.0d - roiValue, 1.0d - roiValue), index: 6));
             }
             return regions;
         }

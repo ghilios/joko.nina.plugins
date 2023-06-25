@@ -60,7 +60,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool ShowSensorModel { get; set; }
         double SensorROI { get; set; }
         double CornersROI { get; set; }
-        bool InterpolationEnabled { get; set; }
+        bool InterpolationEnabled { get; }
         InterpolationAlgoEnum InterpolationAlgo { get; set; }
         InterpolationAmountEnum InterpolationAmount { get; set; }
     }
