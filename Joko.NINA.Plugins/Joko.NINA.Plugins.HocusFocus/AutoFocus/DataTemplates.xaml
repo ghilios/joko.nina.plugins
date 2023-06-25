@@ -1474,6 +1474,7 @@
                             </ninactrl:HintTextBox>
                         </StackPanel>
 
+                        <!--
                         <TextBlock
                             Grid.Row="6"
                             Grid.Column="0"
@@ -1533,6 +1534,7 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
+                        -->
                     </Grid>
                 </Expander>
                 <StackPanel

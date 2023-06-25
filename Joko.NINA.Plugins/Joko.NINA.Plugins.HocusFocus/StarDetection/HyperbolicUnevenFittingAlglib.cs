@@ -178,7 +178,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var b = solution[3];
                 var c = solution[4];
 
-                FormattableString expression = $"y = {{ 0, ({x0:0.###} - x) / {StepSize}, 1 }} * {a:0.###}/{b:0.###} * √((x - {x0:0.###})² + {b:0.###}²) + {{ 0, (x - {x0:0.###}) / {StepSize}, 1 }} * {a:0.###}/{c:0.###} * √((x - {x0:0.###})² + {c:0.###}²) + {y0:0.###}";
+                FormattableString expression = $"y = min(max(0, ({x0:0.###} - x) / {StepSize}), 1) * {a:0.###}/{b:0.###} * √((x - {x0:0.###})² + {b:0.###}²) + (1 - min(max(0, ({x0:0.###} - x) / {StepSize}), 1)) * {a:0.###}/{c:0.###} * √((x - {x0:0.###})² + {c:0.###}²) + {y0:0.###}";
                 Expression = expression.ToString(CultureInfo.InvariantCulture);
                 Fitting = GetFittingForParameters(solution);
                 Minimum = new DataPoint(x0, a + y0);
