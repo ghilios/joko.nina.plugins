@@ -158,15 +158,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         private readonly double inFocusMicrons;
         private readonly double sensorSizeMicronsX;
         private readonly double sensorSizeMicronsY;
+        private readonly bool fixedSensorCenter;
 
         public SensorParaboloidSolver(
             List<SensorParaboloidDataPoint> dataPoints,
             double sensorSizeMicronsX,
             double sensorSizeMicronsY,
-            double inFocusMicrons) : base(dataPoints, 6) {
+            double inFocusMicrons,
+            bool fixedSensorCenter) : base(dataPoints, 6) {
             this.sensorSizeMicronsX = sensorSizeMicronsX;
             this.sensorSizeMicronsY = sensorSizeMicronsY;
             this.inFocusMicrons = inFocusMicrons;
+            this.fixedSensorCenter = fixedSensorCenter;
         }
 
         public override bool UseJacobian => true;
@@ -256,15 +259,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public override void SetBounds(double[] lowerBounds, double[] upperBounds) {
-            lowerBounds[0] = -sensorSizeMicronsX / 2.0;
-            lowerBounds[1] = -sensorSizeMicronsY / 2.0;
+            if (fixedSensorCenter) {
+                lowerBounds[0] = 0.0;
+                lowerBounds[1] = 0.0;
+                upperBounds[0] = 0.0;
+                upperBounds[1] = 0.0;
+            } else {
+                lowerBounds[0] = -sensorSizeMicronsX / 2.0;
+                lowerBounds[1] = -sensorSizeMicronsY / 2.0;
+                upperBounds[0] = sensorSizeMicronsX / 2.0;
+                upperBounds[1] = sensorSizeMicronsY / 2.0;
+            }
+
             lowerBounds[2] = double.NegativeInfinity;
             lowerBounds[3] = 1E-5; // Ensure tilt never goes to 0, since perfection is impossible. This forces calculation of phi, and avoids situations where we're stuck at a local minima
             lowerBounds[4] = -Math.PI;
             lowerBounds[5] = PositiveCurvature ? 1E-4 : double.NegativeInfinity;
 
-            upperBounds[0] = sensorSizeMicronsX / 2.0;
-            upperBounds[1] = sensorSizeMicronsY / 2.0;
             upperBounds[2] = double.PositiveInfinity;
             upperBounds[3] = Math.PI - double.Epsilon;
             upperBounds[4] = Math.PI - double.Epsilon;
