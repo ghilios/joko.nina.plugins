@@ -389,7 +389,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 );
 
                 var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
-                string path = Path.Combine(ReportDirectory, DateTime.Now.ToString("yyyy-MM-dd--HH-mm-ss") + ".json");
+                string path = Path.Combine(ReportDirectory, $"{DateTime.Now:yyyy-MM-dd--HH-mm-ss}--{profileService.ActiveProfile.Id}.json");
                 File.WriteAllText(path, reportText);
                 return report;
             } catch (Exception ex) {
