@@ -124,7 +124,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     dataPoints: dataPoints,
                     sensorSizeMicronsX: imageSize.Width * pixelSize,
                     sensorSizeMicronsY: imageSize.Height * pixelSize,
-                    inFocusMicrons: finalFocusPosition * focuserSizeMicrons);
+                    inFocusMicrons: finalFocusPosition * focuserSizeMicrons,
+                    fixedSensorCenter: inspectorOptions.FixedSensorCenter);
                 var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(this.alglibAPI);
                 sensorModelSolver.PositiveCurvature = true;
                 var positiveCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);

@@ -44,6 +44,7 @@
     <TextBlock x:Key="SensorModel_AutoFocusOffset_Tooltip" Text="The number of focuser steps between the AutoFocus position and the Sensor Mean Focuser Position. You can set this value in the AF Offset setting in Auto Focus Options." />
     <TextBlock x:Key="SensorModel_StarsInModel_Tooltip" Text="The number of stars used in the sensor model. Each star needs to be matched across at least 5 of the frames, and some star fits are rejected as outliers during modeling." />
     <TextBlock x:Key="InterpolationEnabled_Tooltip" Text="Use interpolated points evenly spaced along a grid instead of the individual stars themselves. This should improve consistency of results and prevent overfitting where there are more stars." />
+    <TextBlock x:Key="FixedSensorCenter_Tooltip" Text="Assume the sensor is perfectly centered in the optical train. If this option is off, the sensor location will be modeled along with the other model parameters." />
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
@@ -1459,6 +1460,19 @@
                                         UpdateSourceTrigger="LostFocus" />
                                 </ninactrl:HintTextBox.Text>
                             </ninactrl:HintTextBox>
+                        </StackPanel>
+                        <TextBlock
+                            Grid.Row="6"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Sensor Centered"
+                            ToolTip="{StaticResource FixedSensorCenter_Tooltip}" />
+                        <StackPanel
+                            Grid.Row="6"
+                            Grid.Column="1"
+                            Orientation="Horizontal">
+                            <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.FixedSensorCenter}" />
                         </StackPanel>
 
                         <!--

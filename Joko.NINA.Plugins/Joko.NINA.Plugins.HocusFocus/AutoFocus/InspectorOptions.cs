@@ -55,6 +55,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             cornersROI = optionsAccessor.GetValueDouble(nameof(CornersROI), 1.0);
             interpolationAlgo = optionsAccessor.GetValueEnum(nameof(InterpolationAlgo), InterpolationAlgoEnum.MultiQuadric);
             interpolationAmount = optionsAccessor.GetValueEnum(nameof(InterpolationAmount), InterpolationAmountEnum.Medium);
+            fixedSensorCenter = optionsAccessor.GetValueBoolean(nameof(FixedSensorCenter), true);
         }
 
         public void ResetDefaults() {
@@ -74,6 +75,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             CornersROI = 1.0;
             InterpolationAlgo = InterpolationAlgoEnum.MultiQuadric;
             InterpolationAmount = InterpolationAmountEnum.Medium;
+            FixedSensorCenter = true;
         }
 
         private int stepCount;
@@ -323,6 +325,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (interpolationAmount != value) {
                     interpolationAmount = value;
                     optionsAccessor.SetValueEnum(nameof(InterpolationAmount), value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool fixedSensorCenter;
+
+        public bool FixedSensorCenter {
+            get => fixedSensorCenter;
+            set {
+                if (fixedSensorCenter != value) {
+                    fixedSensorCenter = value;
+                    optionsAccessor.SetValueBoolean(nameof(FixedSensorCenter), fixedSensorCenter);
                     RaisePropertyChanged();
                 }
             }
