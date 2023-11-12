@@ -160,7 +160,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         protected override Scene GetScene() {
             var starDetectionResult = StarDetectionResult;
             var numRegionsWide = NumRegionsWide;
-            if (starDetectionResult == null || numRegionsWide <= 0 || !RenderingEnabled) {
+            if (starDetectionResult == null || numRegionsWide <= 0) {
                 return null;
             }
 

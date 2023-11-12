@@ -1112,18 +1112,6 @@
                             Text="Clear Analyses"
                             TextWrapping="Wrap" />
                     </Button>
-                    <TextBlock
-                        Grid.Row="4"
-                        Grid.Column="0"
-                        Margin="5"
-                        VerticalAlignment="Center"
-                        Text="3D Rendering Enabled"
-                        ToolTip="The library used for 3D graphics has a bug in .NET Core that can cause crashes. If you can't avoid the crash, leave this off until its fixed." />
-                    <CheckBox
-                        Grid.Row="4"
-                        Grid.Column="1"
-                        Margin="5"
-                        IsChecked="{Binding InspectorOptions.RenderingEnabled}" />
                 </Grid>
                 <Expander
                     Grid.Row="1"
@@ -2278,8 +2266,7 @@
                         <Grid
                             Grid.Row="0"
                             Grid.Column="0"
-                            Margin="10,5,0,5"
-                            Visibility="{Binding InspectorOptions.RenderingEnabled, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            Margin="10,5,0,5">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
@@ -2336,8 +2323,7 @@
                                 SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonForegroundDisabledBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=80}"
                                 SurfaceHighExtremeColor="Blue"
                                 SurfaceLowExtremeColor="Red"
-                                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                                RenderingEnabled="{Binding InspectorOptions.RenderingEnabled, Mode=OneWay}" />
+                                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
                         </Grid>
 
                         <TextBlock
@@ -2683,8 +2669,7 @@
                         </Grid>
                         <Grid
                             Grid.Column="1"
-                            HorizontalAlignment="Stretch"
-                            Visibility="{Binding InspectorOptions.RenderingEnabled, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            HorizontalAlignment="Stretch">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -2723,8 +2708,7 @@
                                 SurfaceHighExtremeColor="Red"
                                 SurfaceLowExtremeColor="Blue"
                                 TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                                TiltPlaneModel="{Binding TiltModel.TiltPlaneModel, Mode=OneWay}"
-                                RenderingEnabled="{Binding InspectorOptions.RenderingEnabled, Mode=OneWay}" />
+                                TiltPlaneModel="{Binding TiltModel.TiltPlaneModel, Mode=OneWay}" />
                         </Grid>
                     </Grid>
                 </Expander>
@@ -2880,8 +2864,7 @@
                         </Grid>
                         <Grid
                             Grid.Column="1"
-                            HorizontalAlignment="Stretch"
-                            Visibility="{Binding InspectorOptions.RenderingEnabled, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            HorizontalAlignment="Stretch">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -2912,8 +2895,7 @@
                                 SurfaceHighExtremeColor="Red"
                                 SurfaceLowExtremeColor="Blue"
                                 TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                                TiltPlaneModel="{Binding SensorModel.SensorModelResult.TiltPlaneModel, Mode=OneWay}"
-                                RenderingEnabled="{Binding InspectorOptions.RenderingEnabled, Mode=OneWay}" />
+                                TiltPlaneModel="{Binding SensorModel.SensorModelResult.TiltPlaneModel, Mode=OneWay}" />
                         </Grid>
                     </Grid>
                 </Expander>
@@ -3005,8 +2987,7 @@
                     Header="FWHM Contour Map"
                     IsExpanded="{Binding FWHMContoursActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                    <Grid
-                        Visibility="{Binding InspectorOptions.RenderingEnabled, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                    <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="400" />
@@ -3029,8 +3010,7 @@
                             PointColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
                             StarDetectionResult="{Binding SnapshotAnalysisStarDetectionResult, Mode=OneWay}"
                             SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonBackgroundBrush}}"
-                            TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                            RenderingEnabled="{Binding InspectorOptions.RenderingEnabled, Mode=OneWay}" />
+                            TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}" />
                     </Grid>
                 </Expander>
                 <Expander
