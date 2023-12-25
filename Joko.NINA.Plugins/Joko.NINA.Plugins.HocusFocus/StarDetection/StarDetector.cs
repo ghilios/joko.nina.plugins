@@ -30,6 +30,10 @@ using NINA.Image.ImageAnalysis;
 using System.Windows.Media;
 using NINA.Image.ImageData;
 using NINA.Core.Utility.Notification;
+using NINA.Profile.Interfaces;
+using NINA.Equipment.Interfaces.Mediator;
+using NINA.Core.Enum;
+using NINA.Core.Interfaces;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -87,7 +91,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public async Task<HocusFocusStarDetectorResult> Detect(Mat srcImage, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var resourceTracker = new ResourcesTracker();
             try {
-                return await DetectImpl(srcImage, resourceTracker, p, false, progress, token);
+                return await DetectImpl(srcImage, resourceTracker, p, progress, token);
             } finally {
                 // Cleanup
                 resourceTracker.Dispose();
@@ -95,38 +99,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        public async Task<HocusFocusStarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        public async Task<HocusFocusStarDetectorResult> Detect(PreparedImage preparedImage, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var resourceTracker = new ResourcesTracker();
             try {
-                Mat srcImage;
-                var debayeredImage = image as IDebayeredImage;
-                var hotpixelFilteringApplied = false;
-                long? numHotpixels = null;
-                if (debayeredImage != null && p.HotpixelFiltering && p.HotpixelThresholdingEnabled) {
-                    var rawImageDataCopy = new ushort[debayeredImage.RawImageData.Data.FlatArray.Length];
-                    Buffer.BlockCopy(debayeredImage.RawImageData.Data.FlatArray, 0, rawImageDataCopy, 0, debayeredImage.RawImageData.Data.FlatArray.Length * sizeof(ushort));
-
-                    var props = debayeredImage.RawImageData.Properties;
-                    var rawImageData = new RawImageData(rawImageDataCopy, width: props.Width, height: props.Height);
-
-                    var threshold = (ushort)(p.HotpixelThreshold * (1 << props.BitDepth));
-                    numHotpixels = HotpixelFiltering.CFAHotpixelFilter(rawImageData, debayeredImage.BayerPattern, threshold);
-                    var bitmapSource = ImageUtility.CreateSourceFromArray(new ImageArray(rawImageDataCopy), props, PixelFormats.Gray16);
-                    var debayeredImageData = ImageUtility.Debayer(bitmapSource, pf: System.Drawing.Imaging.PixelFormat.Format16bppGrayScale, saveColorChannels: false, saveLumChannel: true, bayerPattern: debayeredImage.BayerPattern);
-                    hotpixelFilteringApplied = true;
-
-                    srcImage = resourceTracker.T(CvImageUtility.ToOpenCVMat(debayeredImageData.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height));
-                } else {
-                    srcImage = resourceTracker.T(CvImageUtility.ToOpenCVMat(image));
-                }
-                var result = await DetectImpl(srcImage, resourceTracker, p, hotpixelFilteringApplied, progress, token);
-                if (numHotpixels.HasValue) {
-                    result.Metrics.HotpixelCount = numHotpixels.Value;
+                var result = await DetectImpl(preparedImage.SrcImage, resourceTracker, p, progress, token);
+                if (preparedImage.HotpixelFilteringApplied) {
+                    result.Metrics.HotpixelCount = preparedImage.HotpixelCount;
                 }
                 return result;
             } catch (TypeInitializationException e) {
                 Logger.Error(e, "TypeInitialization exception while performing star detection. This indicates the OpenCV library couldn't be loaded. If you have a Windows N SKU, install the Media Pack");
-                Notification.ShowError("Could ont load the OpenCV library. If you have a Windows N SKU, install the Media Pack");
+                Notification.ShowError("Could not load the OpenCV library. If you have a Windows N SKU, install the Media Pack");
                 throw;
             } finally {
                 // Cleanup
@@ -135,11 +118,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private async Task<HocusFocusStarDetectorResult> DetectImpl(Mat srcImage, ResourcesTracker resourceTracker, StarDetectorParams p, bool hotpixelFilterAlreadyApplied, IProgress<ApplicationStatus> progress, CancellationToken token) {
-            if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
-                throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
-            }
-
+        private async Task<HocusFocusStarDetectorResult> DetectImpl(
+            Mat srcImage,
+            ResourcesTracker resourceTracker,
+            StarDetectorParams p,
+            IProgress<ApplicationStatus> progress,
+            CancellationToken token) {
             MaybeSaveIntermediateText(p.ToString(), p, "00-params.txt");
             var metrics = new StarDetectorMetrics();
             using (var stopWatch = MultiStopWatch.Measure()) {
@@ -168,18 +152,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 stopWatch.RecordEntry("LoadImage");
 
-                // Step 1: Perform initial noise reduction and hotpixel filtering
+                // Step 1: Perform initial noise reduction
                 progress?.Report(new ApplicationStatus() { Status = "Noise Reduction" });
-                var hotpixelFilteringApplied = hotpixelFilterAlreadyApplied;
-
-                // Also apply hotpixel filtering if noise reduction will be done to the source image
-                if (p.HotpixelFiltering || (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled)) {
-                    // Apply a median box filter in place to the starting image
-                    if (!hotpixelFilterAlreadyApplied) {
-                        metrics.HotpixelCount = ApplyHotpixelFilter(srcImage, p);
-                    }
-                    hotpixelFilteringApplied = true;
-                }
 
                 var noiseReductionApplied = false;
                 if (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled) {
@@ -194,13 +168,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 progress?.Report(new ApplicationStatus() { Status = "Preparing for Structure Detection" });
 
                 Mat noiseReducedImage = resourceTracker.NewMat();
-                if (hotpixelFilteringApplied || noiseReductionApplied || p.NoiseReductionRadius <= 0) {
-                    // In this case, we've already applied hotpixel filtering, so no need to do it again. The structure map can start from here
-                    srcImage.CopyTo(noiseReducedImage);
-                } else {
-                    srcImage.CopyTo(noiseReducedImage);
-                    metrics.HotpixelCount = ApplyHotpixelFilter(noiseReducedImage, p);
-                }
+                srcImage.CopyTo(noiseReducedImage);
 
                 // Step 3: If we haven't yet applied noise reduction and it is configured, do so now
                 if (p.NoiseReductionRadius > 0 && !noiseReductionApplied) {
@@ -315,15 +283,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     Metrics = metrics,
                     DebugData = debugData
                 };
-            }
-        }
-
-        private long ApplyHotpixelFilter(Mat img, StarDetectorParams p) {
-            if (p.HotpixelThresholdingEnabled) {
-                return HotpixelFiltering.HotpixelFilterWithThresholding(img, p.HotpixelThreshold);
-            } else {
-                HotpixelFiltering.HotpixelFilter(img);
-                return 0L;
             }
         }
 

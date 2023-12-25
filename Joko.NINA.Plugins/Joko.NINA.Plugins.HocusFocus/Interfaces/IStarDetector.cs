@@ -342,8 +342,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public DebugData DebugData { get; set; }
     }
 
+    public class PreparedImage {
+        public Mat SrcImage { get; init; }
+        public IRenderedImage Image { get; init; }
+        public bool HotpixelFilteringApplied { get; init; }
+        public long HotpixelCount { get; init; }
+    }
+
     public interface IStarDetector {
 
-        Task<HocusFocusStarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token);
+        Task<HocusFocusStarDetectorResult> Detect(PreparedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token);
+    }
+
+    public interface IImagePreparer {
+
+        Task<PreparedImage> PrepareImage(IImageData imageData, StarDetectorParams p);
+
+        Task<PreparedImage> PrepareImage(IRenderedImage imageData, StarDetectorParams p);
     }
 }

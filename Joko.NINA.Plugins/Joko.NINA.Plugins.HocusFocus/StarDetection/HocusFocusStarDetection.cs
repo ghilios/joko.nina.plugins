@@ -216,17 +216,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public string ContentId => GetType().FullName;
 
         [ImportingConstructor]
-        public HocusFocusStarDetection(IImageStatisticsVM imageStatisticsVM, IProfileService profileService, IFocuserMediator focuserMediator) :
-            this(imageStatisticsVM, profileService, focuserMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.AlglibAPI) {
+        public HocusFocusStarDetection(
+            IImageStatisticsVM imageStatisticsVM,
+            IProfileService profileService,
+            IFocuserMediator focuserMediator,
+            IImagingMediator imagingMediator,
+            ICameraMediator cameraMediator,
+            IPluggableBehaviorSelector<IStarDetection> starDetectorSelector,
+            IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector) :
+            this(imageStatisticsVM, profileService, focuserMediator, imagingMediator, cameraMediator, starDetectorSelector, starAnnotatorSelector, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.AlglibAPI) {
         }
 
         public HocusFocusStarDetection(
             IImageStatisticsVM imageStatisticsVM,
             IProfileService profileService,
             IFocuserMediator focuserMediator,
+            IImagingMediator imagingMediator,
+            ICameraMediator cameraMediator,
+            IPluggableBehaviorSelector<IStarDetection> starDetectorSelector,
+            IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IStarDetectionOptions starDetectionOptions,
             IAlglibAPI alglibAPI) {
-            this.starDetector = new StarDetector(alglibAPI);
+            this.starDetector = new StarDetector(alglibAPI, profileService, imagingMediator, cameraMediator, starDetectorSelector, starAnnotatorSelector);
             this.starDetectionOptions = starDetectionOptions;
             this.profileService = profileService;
             this.focuserMediator = focuserMediator;
@@ -244,8 +255,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var starDetectionRegion = StarDetectionRegion.FromStarDetectionParams(p);
             var detectorParams = GetStarDetectorParams(image, starDetectionRegion, p.IsAutoFocus);
             var hocusFocusParams = ToHocusFocusParams(p);
+            var preparedImage = await starDetector.PrepareImage(image, detectorParams);
 
-            var detectionResult = await Detect(image, hocusFocusParams, detectorParams, progress, token);
+            var detectionResult = await Detect(preparedImage, hocusFocusParams, detectorParams, progress, token);
+            detectionResult.Params = p;
+            return detectionResult;
+        }
+
+        public async Task<StarDetectionResult> Detect(PreparedImage preparedImage, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            var selectedAutoFocusBehavior = profileService.ActiveProfile.ApplicationSettings.SelectedPluggableBehaviors.Where(k => k.Key == typeof(IAutoFocusVMFactory).FullName).ToList();
+            var ninaStockAutoFocus = selectedAutoFocusBehavior.Count == 0 || selectedAutoFocusBehavior.First().Value == "NINA";
+            var isNinaAutoFocus = ninaStockAutoFocus && p.IsAutoFocus;
+            if (!starDetectionOptions.UseAutoFocusCrop && !isNinaAutoFocus) {
+                p.UseROI = false;
+            }
+
+            var starDetectionRegion = StarDetectionRegion.FromStarDetectionParams(p);
+            var image = preparedImage.Image;
+            var detectorParams = GetStarDetectorParams(image, starDetectionRegion, p.IsAutoFocus);
+            var hocusFocusParams = ToHocusFocusParams(p);
+
+            var detectionResult = await Detect(preparedImage, hocusFocusParams, detectorParams, progress, token);
             detectionResult.Params = p;
             return detectionResult;
         }
@@ -314,7 +344,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return detectorParams;
         }
 
-        public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        public async Task<StarDetectionResult> Detect(PreparedImage preparedImage, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            var image = preparedImage.Image;
             var binX = double.IsNaN(image.RawImageData.MetaData.Camera.BinX) ? 1 : image.RawImageData.MetaData.Camera.BinX;
             var metadataPixelSize = double.IsNaN(image.RawImageData.MetaData.Camera.PixelSize) ? 3.76 : image.RawImageData.MetaData.Camera.PixelSize;
             var pixelSize = metadataPixelSize * Math.Max(binX, 1);
@@ -329,7 +360,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 PixelScale = detectorParams.PixelScale,
                 MeasurementAverage = this.starDetectionOptions.MeasurementAverage
             };
-            var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
+            var starDetectorResult = await this.starDetector.Detect(preparedImage, detectorParams, progress, token);
             if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
                 Notification.ShowInformation("Saved intermediate star detection files");
                 Logger.Info($"Saved intermediate star detection files to {detectorParams.SaveIntermediateFilesPath}");

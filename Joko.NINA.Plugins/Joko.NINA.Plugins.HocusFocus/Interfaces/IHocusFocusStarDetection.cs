@@ -17,6 +17,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Media;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
@@ -34,6 +35,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus);
 
-        Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token);
+        Task<StarDetectionResult> Detect(PreparedImage preparedImage, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token);
+
+        Task<StarDetectionResult> Detect(PreparedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token);
     }
 }

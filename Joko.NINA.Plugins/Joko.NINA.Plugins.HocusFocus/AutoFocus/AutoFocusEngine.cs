@@ -59,6 +59,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IAlglibAPI alglibAPI;
+        private readonly IImagePreparer imagePreparer;
 
         public AutoFocusEngine(
             IProfileService profileService,
@@ -71,7 +72,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IAutoFocusOptions autoFocusOptions,
-            IAlglibAPI alglibAPI) {
+            IAlglibAPI alglibAPI,
+            IImagePreparer imagePreparer) {
             this.profileService = profileService;
             this.cameraMediator = cameraMediator;
             this.filterWheelMediator = filterWheelMediator;
@@ -83,6 +85,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.starAnnotatorSelector = starAnnotatorSelector;
             this.autoFocusOptions = autoFocusOptions;
             this.alglibAPI = alglibAPI;
+            this.imagePreparer = imagePreparer;
         }
 
         private class CurveFittingResult {
@@ -444,10 +447,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusState state,
             AutoFocusRegionState regionState,
             AutoFocusImageState imageState,
-            IRenderedImage image,
+            PreparedImage preparedImage,
             CancellationToken token) {
             Logger.Trace($"Evaluating auto focus exposure at position {imageState.FocuserPosition}");
 
+            var image = preparedImage.Image;
             var imageProperties = image.RawImageData.Properties;
 
             // Very simple to directly provide result if we use statistics based contrast detection
@@ -480,12 +484,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         analysisParams.InnerCropRatio = profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio;
                         analysisParams.OuterCropRatio = profileService.ActiveProfile.FocuserSettings.AutoFocusOuterCropRatio;
                     }
-                    analysisResult = await starDetection.Detect(image, pixelFormat, analysisParams, progress: null, token);
+                    if (starDetection is IHocusFocusStarDetection) {
+                        var hfStarDetection = (IHocusFocusStarDetection)starDetection;
+                        analysisResult = await hfStarDetection.Detect(preparedImage, pixelFormat, analysisParams, progress: null, token);
+                    } else {
+                        analysisResult = await starDetection.Detect(image, pixelFormat, analysisParams, progress: null, token);
+                    }
                 } else {
                     var hfStarDetection = (IHocusFocusStarDetection)starDetection;
                     var hfParams = hfStarDetection.ToHocusFocusParams(analysisParams);
                     var starDetectorParams = hfStarDetection.GetStarDetectorParams(image, regionState.Region, true);
-                    var hfAnalysisResult = (HocusFocusStarDetectionResult)await hfStarDetection.Detect(image, hfParams, starDetectorParams, null, token);
+                    var hfAnalysisResult = (HocusFocusStarDetectionResult)await hfStarDetection.Detect(preparedImage, hfParams, starDetectorParams, null, token);
                     hfAnalysisResult.FocuserPosition = imageState.FocuserPosition;
                     analysisResult = hfAnalysisResult;
                 }
@@ -652,7 +661,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return Task.CompletedTask;
         }
 
-        private async Task<IRenderedImage> PrepareExposure(AutoFocusState state, AutoFocusImageState imageState, IExposureData exposureData, CancellationToken token) {
+        private async Task<PreparedImage> PrepareExposure(AutoFocusState state, AutoFocusImageState imageState, IExposureData exposureData, CancellationToken token) {
             var preparedImage = await PrepareExposure(state, await exposureData.ToImageData(null, token), token);
             if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
                 var bitDepth = preparedImage.RawImageData.Properties.BitDepth;
@@ -668,19 +677,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return preparedImage;
         }
 
-        private async Task<IRenderedImage> PrepareExposure(AutoFocusState state, IImageData imageData, CancellationToken token) {
+        private async Task<PreparedImage> PrepareExposure(AutoFocusState state, IImageData imageData, CancellationToken token) {
             var autoStretch = true;
             // If using contrast based statistics, no need to stretch
             if (state.Options.AutoFocusMethod == AFMethodEnum.CONTRASTDETECTION && profileService.ActiveProfile.FocuserSettings.ContrastDetectionMethod == ContrastDetectionMethodEnum.Statistics) {
                 autoStretch = false;
             }
 
-            var prepareParameters = new PrepareImageParameters(autoStretch: autoStretch, detectStars: false);
-            return await imagingMediator.PrepareImage(imageData, prepareParameters, token);
+            state.Para
+
+            return await imagePreparer.PrepareImage(imageData, )
         }
 
         private async Task AnalyzeExposure(
-            IRenderedImage preparedImage,
+            PreparedImage preparedImage,
             AutoFocusImageState imageState,
             AutoFocusState state,
             AutoFocusRegionState regionState,
