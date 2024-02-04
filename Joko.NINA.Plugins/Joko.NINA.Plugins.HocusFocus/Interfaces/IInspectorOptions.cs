@@ -45,6 +45,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     }
 
     public interface IInspectorOptions : INotifyPropertyChanged {
+
+        void ResetDeveloperSettings();
+
         int StepCount { get; set; }
         int StepSize { get; set; }
         int FramesPerPoint { get; set; }
@@ -64,5 +67,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         InterpolationAlgoEnum InterpolationAlgo { get; set; }
         InterpolationAmountEnum InterpolationAmount { get; set; }
         bool FixedSensorCenter { get; set; }
+        bool SensorModelStartFromPrior { get; set; }
+        int SensorModelMaxWinsorizationIterations { get; set; }
+        double SensorModelWinsorizationSigma { get; set; }
+        int SensorModelMaxSolverIterations { get; set; }
+        double SensorModelSolverErrorTolerance { get; set; }
     }
 }

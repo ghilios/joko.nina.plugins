@@ -45,6 +45,11 @@
     <TextBlock x:Key="SensorModel_StarsInModel_Tooltip" Text="The number of stars used in the sensor model. Each star needs to be matched across at least 5 of the frames, and some star fits are rejected as outliers during modeling." />
     <TextBlock x:Key="InterpolationEnabled_Tooltip" Text="Use interpolated points evenly spaced along a grid instead of the individual stars themselves. This should improve consistency of results and prevent overfitting where there are more stars." />
     <TextBlock x:Key="FixedSensorCenter_Tooltip" Text="Assume the sensor is perfectly centered in the optical train. If this option is off, the sensor location will be modeled along with the other model parameters." />
+    <TextBlock x:Key="SensorModelStartFromPrior_Tooltip" Text="Initialize sensor model parameters using the most recent run in an effort to improve reproducibility. Clearing the history will reset this." />
+    <TextBlock x:Key="SensorModelMaxWinsorizationIterations_Tooltip" Text="The first pass of Sensor Modeling is a winsorization process to pre-filter potential outliers to improve the odds of a good model fit. This is the maximum number of iterations allowed for this process. If not set, defaults to 10." />
+    <TextBlock x:Key="SensorModelWinsorizationSigma_Tooltip" Text="The sigma to use for winsorization outlier filtering. A smaller sigma will exclude more." />
+    <TextBlock x:Key="SensorModelMaxSolverIterations_Tooltip" Text="The maximum number of iterations allowed for non-linear sensor model solving. Defaults to infinite." />
+    <TextBlock x:Key="SensorModelSolverErrorTolerance_Tooltip" Text="The error threshold used to end non-linear solving. A smaller threshold will require longer solving times but could yield more consistent results." />
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
@@ -1136,6 +1141,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Style="{StaticResource HideOnInterpolationOff}" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
@@ -1539,8 +1545,150 @@
                         -->
                     </Grid>
                 </Expander>
-                <StackPanel
+                <Expander
                     Grid.Row="2"
+                    VerticalAlignment="Center"
+                    Visibility="{Binding AutoFocusOptions.DeveloperSettingsEnabled, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                    Header="Developer Settings (Advanced)">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Start Model From Previous"
+                            ToolTip="{StaticResource SensorModelStartFromPrior_Tooltip}" />
+                        <StackPanel
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            Orientation="Horizontal">
+                            <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.SensorModelStartFromPrior}" />
+                        </StackPanel>
+
+                        <TextBlock
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Sensor Model Max Winsorization Iterations"
+                            ToolTip="{StaticResource SensorModelMaxWinsorizationIterations_Tooltip}" />
+                        <ninactrl:HintTextBox
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            MinWidth="40"
+                            VerticalAlignment="Center"
+                            HorizontalContentAlignment="Left"
+                            VerticalContentAlignment="Center"
+                            Foreground="{StaticResource PrimaryBrush}"
+                            HintText="(10)"
+                            TextAlignment="Left"
+                            ToolTip="{StaticResource SensorModelMaxWinsorizationIterations_Tooltip}">
+                            <ninactrl:HintTextBox.Text>
+                                <Binding
+                                    Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                    Mode="TwoWay"
+                                    Path="InspectorOptions.SensorModelMaxWinsorizationIterations"
+                                    UpdateSourceTrigger="LostFocus" />
+                            </ninactrl:HintTextBox.Text>
+                        </ninactrl:HintTextBox>
+
+                        <TextBlock
+                            Grid.Row="1"
+                            Grid.Column="2"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Sensor Model Winsorization Sigma"
+                            ToolTip="{StaticResource SensorModelWinsorizationSigma_Tooltip}" />
+                        <ninactrl:HintTextBox
+                            Grid.Row="1"
+                            Grid.Column="3"
+                            MinWidth="40"
+                            VerticalAlignment="Center"
+                            HorizontalContentAlignment="Left"
+                            VerticalContentAlignment="Center"
+                            Foreground="{StaticResource PrimaryBrush}"
+                            HintText="(2.5)"
+                            TextAlignment="Left"
+                            ToolTip="{StaticResource SensorModelWinsorizationSigma_Tooltip}">
+                            <ninactrl:HintTextBox.Text>
+                                <Binding
+                                    Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                    Mode="TwoWay"
+                                    Path="InspectorOptions.SensorModelWinsorizationSigma"
+                                    UpdateSourceTrigger="LostFocus" />
+                            </ninactrl:HintTextBox.Text>
+                        </ninactrl:HintTextBox>
+
+                        <TextBlock
+                            Grid.Row="2"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Sensor Model Max Solver Iterations"
+                            ToolTip="{StaticResource SensorModelMaxSolverIterations_Tooltip}" />
+                        <ninactrl:HintTextBox
+                            Grid.Row="2"
+                            Grid.Column="1"
+                            MinWidth="40"
+                            VerticalAlignment="Center"
+                            HorizontalContentAlignment="Left"
+                            VerticalContentAlignment="Center"
+                            Foreground="{StaticResource PrimaryBrush}"
+                            HintText="(∞)"
+                            TextAlignment="Left"
+                            ToolTip="{StaticResource SensorModelMaxSolverIterations_Tooltip}">
+                            <ninactrl:HintTextBox.Text>
+                                <Binding
+                                    Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                    Mode="TwoWay"
+                                    Path="InspectorOptions.SensorModelMaxSolverIterations"
+                                    UpdateSourceTrigger="LostFocus" />
+                            </ninactrl:HintTextBox.Text>
+                        </ninactrl:HintTextBox>
+
+                        <TextBlock
+                            Grid.Row="2"
+                            Grid.Column="2"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Sensor Model Solver Error Tolerance"
+                            ToolTip="{StaticResource SensorModelSolverErrorTolerance_Tooltip}" />
+                        <ninactrl:HintTextBox
+                            Grid.Row="2"
+                            Grid.Column="3"
+                            MinWidth="40"
+                            VerticalAlignment="Center"
+                            HorizontalContentAlignment="Left"
+                            VerticalContentAlignment="Center"
+                            Foreground="{StaticResource PrimaryBrush}"
+                            HintText="(1E-8)"
+                            TextAlignment="Left"
+                            ToolTip="{StaticResource SensorModelSolverErrorTolerance_Tooltip}">
+                            <ninactrl:HintTextBox.Text>
+                                <Binding
+                                    Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                    Mode="TwoWay"
+                                    Path="InspectorOptions.SensorModelSolverErrorTolerance"
+                                    UpdateSourceTrigger="LostFocus" />
+                            </ninactrl:HintTextBox.Text>
+                        </ninactrl:HintTextBox>
+                    </Grid>
+                </Expander>
+
+                <StackPanel
+                    Grid.Row="3"
                     Margin="5"
                     Orientation="Horizontal"
                     Visibility="{Binding InspectorOptions.SensorCurveModelEnabled, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -1549,7 +1697,7 @@
                 </StackPanel>
 
                 <Border
-                    Grid.Row="3"
+                    Grid.Row="4"
                     Margin="5"
                     HorizontalAlignment="Center"
                     BorderBrush="Red"
@@ -1565,7 +1713,7 @@
                 </Border>
 
                 <Expander
-                    Grid.Row="4"
+                    Grid.Row="5"
                     Header="Focus Chart"
                     IsExpanded="{Binding AutoFocusChartActive}">
                     <Expander.Visibility>
@@ -2249,7 +2397,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="5"
+                    Grid.Row="6"
                     Header="Sensor Curve Model"
                     IsExpanded="{Binding SensorCurveModelActive}"
                     Visibility="{Binding Path=Tag, ElementName=ShowLoadedSensorModel, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2602,7 +2750,7 @@
                 </Expander>
 
                 <Expander
-                    Grid.Row="6"
+                    Grid.Row="7"
                     Header="Tilt Measurement"
                     IsExpanded="{Binding TiltMeasurementActive}"
                     Visibility="{Binding ElementName=ShowAutoFocusTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2713,7 +2861,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="7"
+                    Grid.Row="8"
                     Header="Tilt Measurement History"
                     IsExpanded="{Binding TiltMeasurementHistoryActive}"
                     Visibility="{Binding ElementName=ShowAutoFocusTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2792,7 +2940,7 @@
                 </Expander>
 
                 <Expander
-                    Grid.Row="8"
+                    Grid.Row="9"
                     Header="Sensor Model Tilt Measurement"
                     IsExpanded="{Binding TiltMeasurementActive}"
                     Visibility="{Binding ElementName=ShowSensorModelTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2900,7 +3048,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="9"
+                    Grid.Row="10"
                     Header="Sensor Model Tilt Measurement History"
                     IsExpanded="{Binding TiltMeasurementHistoryActive}"
                     Visibility="{Binding ElementName=ShowSensorModelTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2967,7 +3115,7 @@
                 </Expander>
 
                 <Border
-                    Grid.Row="10"
+                    Grid.Row="11"
                     Margin="5"
                     HorizontalAlignment="Center"
                     BorderBrush="Red"
@@ -2983,7 +3131,7 @@
                 </Border>
 
                 <Expander
-                    Grid.Row="11"
+                    Grid.Row="12"
                     Header="FWHM Contour Map"
                     IsExpanded="{Binding FWHMContoursActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -3014,7 +3162,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="12"
+                    Grid.Row="13"
                     Header="Eccentricity Vectors"
                     IsExpanded="{Binding EccentricityVectorsActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">

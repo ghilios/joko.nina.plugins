@@ -151,7 +151,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionCurveFittings = new AsyncObservableCollection<Func<double, double>>(Enumerable.Range(0, 6).Select(i => (Func<double, double>)null));
             RegionLineFittings = new AsyncObservableCollection<TrendlineFitting>(Enumerable.Range(0, 6).Select(i => (TrendlineFitting)null));
             TiltModel = new TiltModel(inspectorOptions);
-            SensorModel = new SensorModel(profileService, inspectorOptions, autoFocusOptions, alglibAPI);
+            SensorModel = new SensorModel(inspectorOptions, autoFocusOptions, alglibAPI);
 
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["InspectorSVG"];
             ImageGeometry.Freeze();
@@ -164,6 +164,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SlewToZenithEastCommand = new AsyncCommand<bool>(() => SlewToZenith(false), canExecute: (o) => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
             SlewToZenithWestCommand = new AsyncCommand<bool>(() => SlewToZenith(true), canExecute: (o) => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
             CancelSlewToZenithCommand = new RelayCommand((o) => slewToZenithCts?.Cancel());
+
+            this.autoFocusOptions.PropertyChanged += AutoFocusOptions_PropertyChanged;
+        }
+
+        private void AutoFocusOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
+            if (e.PropertyName == nameof(IAutoFocusOptions.DeveloperSettingsEnabled)) {
+                if (!this.autoFocusOptions.DeveloperSettingsEnabled) {
+                    // Reset all developer-settings after disabled
+                    this.inspectorOptions.ResetDeveloperSettings();
+                }
+            }
         }
 
         private bool AnalysisRunning() {
@@ -1147,6 +1158,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public TiltModel TiltModel { get; private set; }
         public SensorModel SensorModel { get; private set; }
         public IInspectorOptions InspectorOptions => this.inspectorOptions;
+        public IAutoFocusOptions AutoFocusOptions => this.autoFocusOptions;
 
         private TrendlineFitting GetLineFitting(AutoFocusFitting fitting) {
             if (fitting.Method == AFMethodEnum.STARHFR) {

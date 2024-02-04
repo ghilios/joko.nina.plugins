@@ -58,6 +58,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             outlierRejectionConfidence = optionsAccessor.GetValueDouble(nameof(OutlierRejectionConfidence), 0.90);
             unevenHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(UnevenHyperbolicFitEnabled), true);
             weightedHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(WeightedHyperbolicFitEnabled), true);
+            developerSettingsEnabled = optionsAccessor.GetValueBoolean(nameof(DeveloperSettingsEnabled), false);
+            initialDirection = optionsAccessor.GetValueEnum(nameof(InitialDirection), FocuserDirectionEnum.Out);
         }
 
         public void ResetDefaults() {
@@ -79,6 +81,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             OutlierRejectionConfidence = 0.90;
             UnevenHyperbolicFitEnabled = true;
             WeightedHyperbolicFitEnabled = true;
+            DeveloperSettingsEnabled = false;
+            InitialDirection = FocuserDirectionEnum.Out;
+        }
+
+        public void ResetDeveloperSettings() {
         }
 
         private int maxConcurrent;
@@ -342,6 +349,32 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (weightedHyperbolicFitEnabled != value) {
                     weightedHyperbolicFitEnabled = value;
                     optionsAccessor.SetValueBoolean(nameof(WeightedHyperbolicFitEnabled), weightedHyperbolicFitEnabled);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool developerSettingsEnabled;
+
+        public bool DeveloperSettingsEnabled {
+            get => developerSettingsEnabled;
+            set {
+                if (developerSettingsEnabled != value) {
+                    developerSettingsEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(DeveloperSettingsEnabled), developerSettingsEnabled);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private FocuserDirectionEnum initialDirection;
+
+        public FocuserDirectionEnum InitialDirection {
+            get => initialDirection;
+            set {
+                if (initialDirection != value) {
+                    initialDirection = value;
+                    optionsAccessor.SetValueEnum(nameof(InitialDirection), initialDirection);
                     RaisePropertyChanged();
                 }
             }

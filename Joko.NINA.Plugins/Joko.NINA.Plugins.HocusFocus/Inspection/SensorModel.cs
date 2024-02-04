@@ -18,7 +18,6 @@ using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
-using NINA.Profile.Interfaces;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
@@ -84,14 +83,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
     }
 
     public class SensorModel : BaseINPC {
-        private readonly IProfileService profileService;
         private readonly IInspectorOptions inspectorOptions;
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IAlglibAPI alglibAPI;
         private int nextHistoryId = 0;
 
-        public SensorModel(IProfileService profileService, IInspectorOptions inspectorOptions, IAutoFocusOptions autoFocusOptions, IAlglibAPI alglibAPI) {
-            this.profileService = profileService;
+        public SensorModel(IInspectorOptions inspectorOptions, IAutoFocusOptions autoFocusOptions, IAlglibAPI alglibAPI) {
             this.inspectorOptions = inspectorOptions;
             this.autoFocusOptions = autoFocusOptions;
             this.alglibAPI = alglibAPI;
@@ -120,20 +117,45 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     throw new Exception($"Need at least 9 registered stars. Found {dataPoints.Count}");
                 }
 
+                SensorParaboloidModel modelStart = null;
+                if (inspectorOptions.SensorModelStartFromPrior) {
+                    SensorParaboloidTiltHistoryModel lastModel = SensorTiltHistoryModels.LastOrDefault();
+                    if (lastModel != null) {
+                        modelStart = lastModel.SensorModel;
+                    }
+                }
+
+                if (autoFocusOptions.DeveloperSettingsEnabled) {
+                    Logger.Warning("DEVELOPER SETTINGS ENABLED. You will not be helped if you report issues, unless jokogeo specifically asked you to turn this on");
+                }
                 var sensorModelSolver = new SensorParaboloidSolver(
                     dataPoints: dataPoints,
                     sensorSizeMicronsX: imageSize.Width * pixelSize,
                     sensorSizeMicronsY: imageSize.Height * pixelSize,
                     inFocusMicrons: finalFocusPosition * focuserSizeMicrons,
-                    fixedSensorCenter: inspectorOptions.FixedSensorCenter);
+                    fixedSensorCenter: inspectorOptions.FixedSensorCenter,
+                    modelStart: modelStart);
                 var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(this.alglibAPI);
                 sensorModelSolver.PositiveCurvature = true;
-                var positiveCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);
+
+                var positiveCurvatureSolution = nlSolver.SolveWinsorizedResiduals(
+                    sensorModelSolver,
+                    maxWinsorizedIterations: inspectorOptions.SensorModelMaxWinsorizationIterations,
+                    winsorizationSigma: inspectorOptions.SensorModelWinsorizationSigma,
+                    maxIterationsLS: inspectorOptions.SensorModelMaxSolverIterations,
+                    toleranceLS: inspectorOptions.SensorModelSolverErrorTolerance,
+                    ct: ct);
                 ct.ThrowIfCancellationRequested();
                 positiveCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
 
                 sensorModelSolver.PositiveCurvature = false;
-                var negativeCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);
+                var negativeCurvatureSolution = nlSolver.SolveWinsorizedResiduals(
+                    sensorModelSolver,
+                    maxWinsorizedIterations: inspectorOptions.SensorModelMaxWinsorizationIterations,
+                    winsorizationSigma: inspectorOptions.SensorModelWinsorizationSigma,
+                    maxIterationsLS: inspectorOptions.SensorModelMaxSolverIterations,
+                    toleranceLS: inspectorOptions.SensorModelSolverErrorTolerance,
+                    ct: ct);
                 ct.ThrowIfCancellationRequested();
                 negativeCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
 

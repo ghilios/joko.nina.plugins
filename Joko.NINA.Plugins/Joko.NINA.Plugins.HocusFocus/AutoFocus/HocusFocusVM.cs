@@ -118,6 +118,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return Task.Run(() => LoadSavedAutoFocusRun(path));
             });
             CancelLoadSavedAutoFocusRunCommand = new RelayCommand(CancelLoadSavedAutoFocusRun);
+
+            this.autoFocusOptions.PropertyChanged += AutoFocusOptions_PropertyChanged;
+        }
+
+        private void AutoFocusOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
+            if (e.PropertyName == nameof(IAutoFocusOptions.DeveloperSettingsEnabled)) {
+                if (!this.autoFocusOptions.DeveloperSettingsEnabled) {
+                    // Reset all developer-settings after disabled
+                    this.autoFocusOptions.ResetDeveloperSettings();
+                }
+            }
         }
 
         private readonly IAlglibAPI alglibAPI;

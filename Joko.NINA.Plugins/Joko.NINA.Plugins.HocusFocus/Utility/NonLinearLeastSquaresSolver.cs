@@ -73,7 +73,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             int maxIterationsLS = 0,
             double toleranceLS = 1E-8,
             CancellationToken ct = default(CancellationToken)) {
-            maxWinsorizedIterations = maxWinsorizedIterations > 0 ? Math.Min(maxWinsorizedIterations, 10) : 10;
+            maxWinsorizedIterations = maxWinsorizedIterations > 0 ? maxWinsorizedIterations : 10;
+            maxIterationsLS = maxIterationsLS > 0 ? maxIterationsLS : 0; // unlimited by default
+            winsorizationSigma = winsorizationSigma > 0.0d ? winsorizationSigma : 2.5d;
+            toleranceLS = toleranceLS > 0.0d ? toleranceLS : 1E-8d;
+            Logger.Info($"Solving Winsorized Residuals with parameters: maxWinsorizedIterations ({maxWinsorizedIterations}), winsorizationSigma ({winsorizationSigma}), maxIterationsLS ({maxIterationsLS}), toleranceLS ({toleranceLS}), solver ({solver.ToString()})");
+
             var initialGuess = new double[solver.NumParameters];
             InitializeWeights(solver);
 
@@ -86,6 +91,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             int disabledCount = int.MaxValue;
             SolutionIterations = 0;
             var gofBefore = this.GoodnessOfFit(solver, lastSolution);
+            int totalDisabled = 0;
             while (disabledCount > 0 && winsorizedIterations++ < maxWinsorizedIterations) {
                 var nextSolution = SolveWithInitialGuess(solver, initialGuess, maxIterationsLS, toleranceLS, ct);
                 var iterationSolutionArray = nextSolution.ToArray();
@@ -122,9 +128,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     }
                 }
 
+                totalDisabled += disabledCount;
                 solver.SetInitialGuess(initialGuess);
                 lastSolution = nextSolution;
             }
+            Logger.Debug($"Winsorization removed {totalDisabled} points over {winsorizedIterations} iterations");
             SolutionIterations = winsorizedIterations;
             return lastSolution;
         }
@@ -242,6 +250,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     }
                 }
 
+                Logger.Debug($"Non-Linear Solver completed after {rep.iterationscount} iterations.");
                 var solutionModel = new U();
                 solutionModel.FromArray(solution);
                 return solutionModel;

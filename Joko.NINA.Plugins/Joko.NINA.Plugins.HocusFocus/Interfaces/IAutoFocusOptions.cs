@@ -10,9 +10,25 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.Converters;
+using System.ComponentModel;
+
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
-    public interface IAutoFocusOptions {
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum FocuserDirectionEnum {
+
+        [Description("Out")]
+        Out = 0,
+
+        [Description("In")]
+        In = 1
+    }
+
+    public interface IAutoFocusOptions : INotifyPropertyChanged {
+
+        void ResetDeveloperSettings();
+
         int MaxConcurrent { get; set; }
         bool FastFocusModeEnabled { get; set; }
         int FastStepSize { get; set; }
@@ -31,5 +47,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double OutlierRejectionConfidence { get; set; }
         bool UnevenHyperbolicFitEnabled { get; set; }
         bool WeightedHyperbolicFitEnabled { get; set; }
+        bool DeveloperSettingsEnabled { get; set; }
+        FocuserDirectionEnum InitialDirection { get; set; }
     }
 }

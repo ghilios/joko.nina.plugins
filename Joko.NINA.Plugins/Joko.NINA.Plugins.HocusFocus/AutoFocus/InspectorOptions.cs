@@ -56,6 +56,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             interpolationAlgo = optionsAccessor.GetValueEnum(nameof(InterpolationAlgo), InterpolationAlgoEnum.MultiQuadric);
             interpolationAmount = optionsAccessor.GetValueEnum(nameof(InterpolationAmount), InterpolationAmountEnum.Medium);
             fixedSensorCenter = optionsAccessor.GetValueBoolean(nameof(FixedSensorCenter), true);
+            sensorModelStartFromPrior = optionsAccessor.GetValueBoolean(nameof(SensorModelStartFromPrior), false);
+            sensorModelMaxSolverIterations = optionsAccessor.GetValueInt32(nameof(SensorModelMaxSolverIterations), -1);
+            sensorModelMaxWinsorizationIterations = optionsAccessor.GetValueInt32(nameof(SensorModelMaxWinsorizationIterations), -1);
+            sensorModelSolverErrorTolerance = optionsAccessor.GetValueDouble(nameof(SensorModelSolverErrorTolerance), -1.0);
+            sensorModelWinsorizationSigma = optionsAccessor.GetValueDouble(nameof(SensorModelWinsorizationSigma), -1.0);
         }
 
         public void ResetDefaults() {
@@ -76,6 +81,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             InterpolationAlgo = InterpolationAlgoEnum.MultiQuadric;
             InterpolationAmount = InterpolationAmountEnum.Medium;
             FixedSensorCenter = true;
+            ResetDeveloperSettings();
+        }
+
+        public void ResetDeveloperSettings() {
+            SensorModelStartFromPrior = false;
+            SensorModelMaxSolverIterations = -1;
+            SensorModelMaxWinsorizationIterations = -1;
+            SensorModelSolverErrorTolerance = -1.0d;
+            SensorModelWinsorizationSigma = -1.0d;
         }
 
         private int stepCount;
@@ -338,6 +352,87 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (fixedSensorCenter != value) {
                     fixedSensorCenter = value;
                     optionsAccessor.SetValueBoolean(nameof(FixedSensorCenter), fixedSensorCenter);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool sensorModelStartFromPrior;
+
+        public bool SensorModelStartFromPrior {
+            get => sensorModelStartFromPrior;
+            set {
+                if (sensorModelStartFromPrior != value) {
+                    sensorModelStartFromPrior = value;
+                    optionsAccessor.SetValueBoolean(nameof(SensorModelStartFromPrior), sensorModelStartFromPrior);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int sensorModelMaxWinsorizationIterations;
+
+        public int SensorModelMaxWinsorizationIterations {
+            get => sensorModelMaxWinsorizationIterations;
+            set {
+                if (sensorModelMaxWinsorizationIterations != value) {
+                    if (value <= 0) {
+                        sensorModelMaxWinsorizationIterations = -1;
+                    } else {
+                        sensorModelMaxWinsorizationIterations = value;
+                    }
+                    optionsAccessor.SetValueInt32(nameof(SensorModelMaxWinsorizationIterations), sensorModelMaxWinsorizationIterations);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double sensorModelWinsorizationSigma;
+
+        public double SensorModelWinsorizationSigma {
+            get => sensorModelWinsorizationSigma;
+            set {
+                if (sensorModelWinsorizationSigma != value) {
+                    if (value <= 0.0d) {
+                        sensorModelWinsorizationSigma = -1.0d;
+                    } else {
+                        sensorModelWinsorizationSigma = value;
+                    }
+                    optionsAccessor.SetValueDouble(nameof(SensorModelWinsorizationSigma), sensorModelWinsorizationSigma);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int sensorModelMaxSolverIterations;
+
+        public int SensorModelMaxSolverIterations {
+            get => sensorModelMaxSolverIterations;
+            set {
+                if (sensorModelMaxSolverIterations != value) {
+                    if (value <= 0) {
+                        sensorModelMaxSolverIterations = -1;
+                    } else {
+                        sensorModelMaxSolverIterations = value;
+                    }
+                    optionsAccessor.SetValueInt32(nameof(SensorModelMaxSolverIterations), sensorModelMaxSolverIterations);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double sensorModelSolverErrorTolerance;
+
+        public double SensorModelSolverErrorTolerance {
+            get => sensorModelSolverErrorTolerance;
+            set {
+                if (sensorModelSolverErrorTolerance != value) {
+                    if (value <= 0.0d) {
+                        sensorModelSolverErrorTolerance = -1.0d;
+                    } else {
+                        sensorModelSolverErrorTolerance = value;
+                    }
+                    optionsAccessor.SetValueDouble(nameof(SensorModelSolverErrorTolerance), sensorModelSolverErrorTolerance);
                     RaisePropertyChanged();
                 }
             }

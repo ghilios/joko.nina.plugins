@@ -798,12 +798,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // Initial set of focus point acquisition getting back to at least the starting point
             var offsetSteps = autoFocusState.Options.AutoFocusInitialOffsetSteps;
             var stepSize = autoFocusState.Options.AutoFocusStepSize;
-            var targetFocuserPosition = initialFocusPosition + ((offsetSteps + 1) * stepSize);
+            var initialDirectionSign = autoFocusState.Options.InitialDirection == FocuserDirectionEnum.Out ? 1 : -1;
+
+            var targetFocuserPosition = initialFocusPosition + initialDirectionSign * ((offsetSteps + 1) * stepSize);
             int leftMostPosition = int.MaxValue;
             int rightMostPosition = int.MinValue;
             for (int i = 0; i < offsetSteps; ++i) {
                 var previousFocuserPosition = targetFocuserPosition;
-                targetFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition - stepSize, token);
+                targetFocuserPosition = await focuserMediator.MoveFocuser(targetFocuserPosition - (initialDirectionSign * stepSize), token);
                 if (targetFocuserPosition >= previousFocuserPosition) {
                     throw new Exception($"Focuser reached its limit at {targetFocuserPosition}");
                 }
@@ -874,34 +876,40 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     break;
                 }
 
-                if (leftTrendCount < offsetSteps) {
-                    var previousTarget = leftMostPosition;
-                    leftMostPosition -= stepSize;
-                    var actualFocuserPosition = await focuserMediator.MoveFocuser(leftMostPosition, token);
-                    if (actualFocuserPosition >= previousTarget) {
-                        throw new Exception($"Focuser reached its limit at {actualFocuserPosition}");
+                if (autoFocusState.Options.InitialDirection == FocuserDirectionEnum.Out) {
+                    // Initial movement was out, so keep going left/in until we've reached enough points to the left of the minima
+                    if (leftTrendCount < offsetSteps) {
+                        var previousTarget = leftMostPosition;
+                        leftMostPosition -= stepSize;
+                        var actualFocuserPosition = await focuserMediator.MoveFocuser(leftMostPosition, token);
+                        if (actualFocuserPosition >= previousTarget) {
+                            throw new Exception($"Focuser reached its limit at {actualFocuserPosition}");
+                        }
+
+                        token.ThrowIfCancellationRequested();
+                        await StartAutoFocusPoint(actualFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
+                        token.ThrowIfCancellationRequested();
+
+                        Logger.Info("Waiting on next left movement analysis");
+                        await Task.WhenAll(autoFocusState.AnalysisTasks);
                     }
+                } else {
+                    // Initial movement was in, so keep going right/out until we've reached enough points to the left of the minima
+                    if (rightTrendCount < offsetSteps) {
+                        var previousTarget = rightMostPosition;
+                        rightMostPosition += stepSize;
+                        var actualFocuserPosition = await focuserMediator.MoveFocuser(rightMostPosition, token);
+                        if (actualFocuserPosition <= previousTarget) {
+                            throw new Exception($"Focuser reached its limit at {actualFocuserPosition}");
+                        }
 
-                    token.ThrowIfCancellationRequested();
-                    await StartAutoFocusPoint(actualFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
-                    token.ThrowIfCancellationRequested();
+                        token.ThrowIfCancellationRequested();
+                        await StartAutoFocusPoint(actualFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
+                        token.ThrowIfCancellationRequested();
 
-                    Logger.Info("Waiting on next left movement analysis");
-                    await Task.WhenAll(autoFocusState.AnalysisTasks);
-                } else { // if (rightTrendCount < offsetSteps) {
-                    var previousTarget = rightMostPosition;
-                    rightMostPosition += stepSize;
-                    var actualFocuserPosition = await focuserMediator.MoveFocuser(rightMostPosition, token);
-                    if (actualFocuserPosition <= previousTarget) {
-                        throw new Exception($"Focuser reached its limit at {actualFocuserPosition}");
+                        Logger.Info("Waiting on next right movement analysis");
+                        await Task.WhenAll(autoFocusState.AnalysisTasks);
                     }
-
-                    token.ThrowIfCancellationRequested();
-                    await StartAutoFocusPoint(actualFocuserPosition, autoFocusState, FocusPointMeasurementAction, false, token, progress);
-                    token.ThrowIfCancellationRequested();
-
-                    Logger.Info("Waiting on next right movement analysis");
-                    await Task.WhenAll(autoFocusState.AnalysisTasks);
                 }
 
                 // Ensure we don't have too many measurements in flight, since we need completed analyses to determine stopping conditions
@@ -1606,6 +1614,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 OutlierRejectionConfidence = autoFocusOptions.OutlierRejectionConfidence,
                 UnevenHyperbolicFitEnabled = autoFocusOptions.UnevenHyperbolicFitEnabled,
                 WeightedHyperbolicFitEnabled = autoFocusOptions.WeightedHyperbolicFitEnabled,
+                InitialDirection = autoFocusOptions.InitialDirection,
             };
         }
 

@@ -159,17 +159,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         private readonly double sensorSizeMicronsX;
         private readonly double sensorSizeMicronsY;
         private readonly bool fixedSensorCenter;
+        private readonly SensorParaboloidModel modelStart;
 
         public SensorParaboloidSolver(
             List<SensorParaboloidDataPoint> dataPoints,
             double sensorSizeMicronsX,
             double sensorSizeMicronsY,
             double inFocusMicrons,
-            bool fixedSensorCenter) : base(dataPoints, 6) {
+            bool fixedSensorCenter,
+            SensorParaboloidModel modelStart = null) : base(dataPoints, 6) {
             this.sensorSizeMicronsX = sensorSizeMicronsX;
             this.sensorSizeMicronsY = sensorSizeMicronsY;
             this.inFocusMicrons = inFocusMicrons;
             this.fixedSensorCenter = fixedSensorCenter;
+            this.modelStart = modelStart;
         }
 
         public override bool UseJacobian => true;
@@ -250,12 +253,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public override void SetInitialGuess(double[] initialGuess) {
-            initialGuess[0] = 0.0;
-            initialGuess[1] = 0.0;
-            initialGuess[2] = inFocusMicrons;
-            initialGuess[3] = 1E-5;
-            initialGuess[4] = 0.0;
-            initialGuess[5] = PositiveCurvature ? 1E-4 : -1E-4;
+            if (modelStart != null) {
+                initialGuess[0] = modelStart.X0;
+                initialGuess[1] = modelStart.Y0;
+                initialGuess[2] = modelStart.Z0;
+                initialGuess[3] = modelStart.Theta;
+                initialGuess[4] = modelStart.Phi;
+                initialGuess[5] = modelStart.C;
+            } else {
+                initialGuess[0] = 0.0;
+                initialGuess[1] = 0.0;
+                initialGuess[2] = inFocusMicrons;
+                initialGuess[3] = 1E-5;
+                initialGuess[4] = 0.0;
+                initialGuess[5] = PositiveCurvature ? 1E-4 : -1E-4;
+            }
         }
 
         public override void SetBounds(double[] lowerBounds, double[] upperBounds) {

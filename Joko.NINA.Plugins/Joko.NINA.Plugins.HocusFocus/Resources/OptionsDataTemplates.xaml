@@ -55,6 +55,8 @@
     <TextBlock x:Key="StarClippingMultiplier_Tooltip" Text="Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis. Decrease this if there are a large number of stars excluded for being degenerate and you can see many clear dim stars that are not detected." />
     <TextBlock x:Key="StructureLayers_Tooltip" Text="The number of dyadic (power of 2) layers to include in structure detection. At the default of 5 (2⁵=32), structures larger than 32 pixels in size are excluded from structure detection" />
     <TextBlock x:Key="FocuserOffset_Tooltip" Text="Advanced Only! Moves the focuser this fixed amount at the end of an AutoFocus" />
+    <TextBlock x:Key="InitialFocuserDirection_Tooltip" Text="Initial direction to move the focuser at the start of an AutoFocus" />
+
     <TextBlock x:Key="BrightnessSensitivity_Tooltip">
         Given a star with a normalized brightness measure of<Bold>s</Bold>
         , a local background of<Bold>b</Bold>
@@ -113,6 +115,8 @@
     <TextBlock x:Key="MeasurementAverage_Tooltip" Text="Controls how the average star measurement across the frame is calculated. Median is robust to outliers, and is the default." />
     <TextBlock x:Key="MaxAutoFocusOutlierRejections_Tooltip" Text="Controls the maximum number of points that can be rejected as outliers during Auto Focus curve fitting." />
     <TextBlock x:Key="AutoFocusOutlierRejectionConfidence_Tooltip" Text="Confidence level for a two-tailed Grubbs statistical test of outliers to use during Auto Focus curve fitting. 0.90 is a reasonable default." />
+    <TextBlock x:Key="DeveloperSettingsEnabled_Tooltip" Text="**FOR ADVANCED USE ONLY** Enables additional settings for use during development" />
+
     <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
         <Grid Margin="5" VerticalAlignment="Top">
             <Grid.Resources>
@@ -137,6 +141,8 @@
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource HideOnSaveOff}" />
+                <RowDefinition />
+                <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
@@ -405,6 +411,46 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding AutoFocusOptions.WeightedHyperbolicFitEnabled}"
                 ToolTip="{StaticResource WeightedHyperbolicFit_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="13"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Initial Focuser Direction"
+                ToolTip="{StaticResource InitialFocuserDirection_Tooltip}" />
+            <ComboBox
+                Name="PART_FocuserDirectionEnumList"
+                Grid.Row="13"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:FocuserDirectionEnum}}}"
+                SelectedItem="{Binding AutoFocusOptions.InitialDirection}"
+                ToolTip="{StaticResource InitialFocuserDirection_Tooltip}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock
+                Grid.Row="14"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Enable Developer Settings"
+                ToolTip="{StaticResource DeveloperSettingsEnabled_Tooltip}" />
+            <CheckBox
+                Grid.Row="14"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding AutoFocusOptions.DeveloperSettingsEnabled}"
+                ToolTip="{StaticResource DeveloperSettingsEnabled_Tooltip}" />
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">
