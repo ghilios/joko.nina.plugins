@@ -458,6 +458,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public AutoFocusReport LastReport { get; private set; }
 
+        private String GetAttemptSaveFolder(string saveFolder, int iteration) {
+            var parentFolder = Path.Combine(saveFolder, $"attempt{iteration:00}");
+            if (!Directory.Exists(parentFolder)) {
+                Directory.CreateDirectory(parentFolder);
+            }
+            return parentFolder;
+        }
+
         private void AutoFocusEngine_Completed(object sender, AutoFocusCompletedEventArgs e) {
             var firstRegion = e.RegionHFRs[0];
             AutoFocusEngine_CompletedNoReport(sender, e);
@@ -474,7 +482,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (!string.IsNullOrEmpty(e.SaveFolder)) {
                 var regionIndex = 0;
                 var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
-                var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
+                var targetFilePath = Path.Combine(GetAttemptSaveFolder(e.SaveFolder, e.Iteration), $"autofocus_report_Region{regionIndex}.json");
                 File.WriteAllText(targetFilePath, reportText);
             }
 
@@ -500,7 +508,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (!string.IsNullOrEmpty(e.SaveFolder)) {
                 var regionIndex = 0;
                 var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
-                var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
+                var targetFilePath = Path.Combine(GetAttemptSaveFolder(e.SaveFolder, e.Iteration), $"autofocus_report_Region{regionIndex}.json");
                 File.WriteAllText(targetFilePath, reportText);
             }
             LastReport = report;
@@ -529,7 +537,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     duration: e.Duration);
 
                 var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
-                var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
+                var targetFilePath = Path.Combine(GetAttemptSaveFolder(e.SaveFolder, e.Iteration), $"autofocus_report_Region{regionIndex}.json");
                 File.WriteAllText(targetFilePath, reportText);
             }
 

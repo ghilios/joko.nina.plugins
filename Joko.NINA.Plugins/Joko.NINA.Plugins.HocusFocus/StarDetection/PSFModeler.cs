@@ -353,7 +353,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // alglib.minlmoptguardgradient(state, 1E-4);
 
                 // Perform the optimization
-                this.alglibAPI.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, null, null);
+                this.alglibAPI.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, (a, f, o) => ct.ThrowIfCancellationRequested(), null);
                 ct.ThrowIfCancellationRequested();
 
                 this.alglibAPI.minlmresults(state, out solution, out rep);

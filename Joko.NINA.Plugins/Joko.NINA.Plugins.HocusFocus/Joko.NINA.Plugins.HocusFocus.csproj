@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net7.0-windows8.0</TargetFramework>
+    <TargetFramework>net8.0-windows7.0</TargetFramework>
     <OutputType>Library</OutputType>
     <RootNamespace>NINA.Joko.Plugins.HocusFocus</RootNamespace>
     <AssemblyName>NINA.Joko.Plugins.HocusFocus</AssemblyName>
@@ -37,12 +37,12 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.Common" Version="4.2.0" />
     <PackageReference Include="OpenCvSharp4.Extensions" Version="4.6.0.20220608" />
-    <PackageReference Include="Serilog.Sinks.Console" Version="4.1.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="5.0.0" />
     <PackageReference Include="System.Data.DataSetExtensions" Version="4.5.0" />
     <PackageReference Include="Microsoft.DotNet.UpgradeAssistant.Extensions.Default.Analyzers" Version="0.4.355802">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Windows.Compatibility" Version="7.0.0" />
+    <PackageReference Include="Microsoft.Windows.Compatibility" Version="8.0.1" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="alglib.net" Version="3.19.0" />
@@ -52,7 +52,7 @@
     <PackageReference Include="ILNumerics.Toolboxes.Optimization" Version="6.0.148" />
     <PackageReference Include="KdTree" Version="1.4.1" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
-    <PackageReference Include="NINA.Plugin" Version="3.0.0.1056-nightly" />
+    <PackageReference Include="NINA.Plugin" Version="3.0.0.3001-rc" />
     <PackageReference Include="OpenCvSharp4" Version="4.6.0.20220608" />
     <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.6.0.20220608" />
     <PackageReference Include="ScottPlot.WPF" Version="4.1.59" />

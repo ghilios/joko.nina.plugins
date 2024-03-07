@@ -725,7 +725,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     starDetectionRegion,
                     new StarDetectionRegion(new RatioRect(one_third, one_third, one_third, one_third), index: 1),
                     new StarDetectionRegion(new RatioRect(innerStart, innerStart, width, width), index: 2),
-                    new StarDetectionRegion(new RatioRect(outerStart, innerStart, width, width), index: 2),
+                    new StarDetectionRegion(new RatioRect(outerStart, innerStart, width, width), index: 3),
                     new StarDetectionRegion(new RatioRect(innerStart, outerStart, width, width), index: 4),
                     new StarDetectionRegion(new RatioRect(outerStart, outerStart, width, width), index: 5)
                 };

@@ -361,7 +361,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 allTasks.Add(psfPartitionTask);
             }
 
-            await Task.WhenAll(allTasks);
+            var tcs = new TaskCompletionSource();
+            using (ct.Register(() => tcs.SetCanceled(), useSynchronizationContext: false)) {
+                await Task.WhenAny(Task.WhenAll(allTasks), tcs.Task);
+            }
         }
 
         /// <summary>
