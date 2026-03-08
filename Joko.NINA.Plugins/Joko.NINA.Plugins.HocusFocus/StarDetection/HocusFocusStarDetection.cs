@@ -396,7 +396,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            result.StarList = starList.Select(s => ToDetectedStar(s)).ToList();
+            // TODO: Consider whether to remove the ordering to get reproducibility between runs
+            result.StarList = starList.Select(s => ToDetectedStar(s)).OrderBy(s => s.Position.Y * imageSize.Width + s.Position.X).ToList();
             if (starList.Count > 1) {
                 if (this.starDetectionOptions.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
                     result.AverageHFR = starList.Average(s => s.HFR);

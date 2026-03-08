@@ -25,6 +25,9 @@
     <NoStdLib>true</NoStdLib>
     <NoWarn>1701;1702;CA1416</NoWarn>
   </PropertyGroup>
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);DISABLE_ILNUMERICS</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <Service Include="{508349B6-6B84-4DF5-91F0-309BEEBAD82D}" />
   </ItemGroup>

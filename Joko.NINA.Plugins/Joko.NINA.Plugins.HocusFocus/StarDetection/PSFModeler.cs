@@ -421,8 +421,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var startY = detectedStar.Center.Y - samplingSize * Math.Floor((detectedStar.Center.Y - detectedStar.StarBoundingBox.Top) / samplingSize);
             var endX = detectedStar.StarBoundingBox.Right;
             var endY = detectedStar.StarBoundingBox.Bottom;
-            var widthPixels = (int)Math.Floor((endX - startX - 1E-4) / samplingSize) + 1;
-            var heightPixels = (int)Math.Floor((endY - startY - 1E-4) / samplingSize) + 1;
+            var widthPixels = (int)Math.Floor((endX - startX - 1E-12) / samplingSize) + 1;
+            var heightPixels = (int)Math.Floor((endY - startY - 1E-12) / samplingSize) + 1;
             var numPixels = widthPixels * heightPixels;
             var centroidBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: detectedStar.Center.Y, x: detectedStar.Center.X);
 

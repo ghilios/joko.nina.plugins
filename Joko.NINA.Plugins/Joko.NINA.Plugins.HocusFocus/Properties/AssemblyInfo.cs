@@ -30,8 +30,8 @@ using System.Runtime.InteropServices;
 
 // [MANDATORY] The assembly versioning
 //Should be incremented for each new release build of a plugin
-[assembly: AssemblyVersion("3.0.0.24")]
-[assembly: AssemblyFileVersion("3.0.0.24")]
+[assembly: AssemblyVersion("3.0.0.25")]
+[assembly: AssemblyFileVersion("3.0.0.25")]
 
 // [MANDATORY] The name of your plugin
 [assembly: AssemblyTitle("Hocus Focus")]
@@ -77,6 +77,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyMetadata("LongDescription", @"This plugin improves Star Detection, Star Annotation, and Auto Focus for NINA. It also includes an aberration inspector that measures backfocus and sensor tilt errors.
 
 *Special thanks to Frank Freestar8n, Ph.D. Optical Sciences, for his guidance and expertise creating the Sensor Model in the Aberration Inspector*
+*Special thanks as well to Steve Smith for his work implementation RANSAC star registration in Aberration Inspection to improve robustness of modeling*
 
 Check out his website at [https://www.smallstarspot.com](https://www.smallstarspot.com)
 
