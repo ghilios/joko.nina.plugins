@@ -195,6 +195,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class HocusFocusDetectedStar : DetectedStar {
         public PSFModel PSF { get; set; }
+        public float NormalisedBrightness { get; set; }
+        public Accord.Point OriginalPosition { get; set; }
 
         public override string ToString() {
             return $"{{{nameof(PSF)}={PSF}, {nameof(HFR)}={HFR.ToString()}, {nameof(Position)}={Position.ToString()}, {nameof(AverageBrightness)}={AverageBrightness.ToString()}, {nameof(MaxBrightness)}={MaxBrightness.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(BoundingBox)}={BoundingBox.ToString()}}}";

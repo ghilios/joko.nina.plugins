@@ -10,18 +10,29 @@
 
 #endregion "copyright"
 
+using Accord.Imaging.Filters;
+using ILNumerics;
+using Newtonsoft.Json;
+using NINA.Astrometry;
 using NINA.Core.Enum;
 using NINA.Core.Interfaces;
 using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
+using NINA.Equipment.Equipment;
+using NINA.Equipment.Equipment.MyCamera;
+using NINA.Equipment.Equipment.MyFocuser;
+using NINA.Equipment.Equipment.MyTelescope;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Equipment.Model;
 using NINA.Image.ImageAnalysis;
+using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Controls;
+using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Scottplot;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
@@ -32,35 +43,26 @@ using NINA.WPF.Base.ViewModel.AutoFocus;
 using OxyPlot;
 using OxyPlot.Series;
 using ScottPlot;
+using ScottPlot.Statistics;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
-
-using Logger = NINA.Core.Utility.Logger;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using static NINA.Joko.Plugins.HocusFocus.Inspection.SensorModel;
 using DrawingColor = System.Drawing.Color;
+using Logger = NINA.Core.Utility.Logger;
 using SPPlot = ScottPlot.Plot;
 using SPVector2 = ScottPlot.Statistics.Vector2;
-using ScottPlot.Statistics;
-using System.Windows.Media;
-using NINA.Equipment.Equipment.MyCamera;
-using NINA.Equipment.Equipment.MyFocuser;
-using NINA.Equipment.Equipment;
-using Newtonsoft.Json;
-using System.IO;
-using NINA.Joko.Plugins.HocusFocus.Scottplot;
-using NINA.Astrometry;
-using NINA.Equipment.Equipment.MyTelescope;
-using NINA.Joko.Plugins.HocusFocus.Inspection;
-using NINA.Image.Interfaces;
-using Accord.Imaging.Filters;
-using System.Drawing;
-using System.Windows.Media.Imaging;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
@@ -287,7 +289,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusEngineOptions options,
             AutoFocusResult result,
             bool sensorCurveModelEnabled,
-            CancellationToken ct) {
+            CancellationToken ct,
+            bool forRerun = false) {
             if (result == null || !result.Succeeded) {
                 Logger.Error("Inspection analysis failed, due to failed AutoFocus");
                 return false;
@@ -317,10 +320,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     focuserSizeMicrons: focuserSizeMicrons,
                     finalFocusPosition: finalFocuserPosition,
                     stepSize: result.StepSize,
+                    progress,
                     ct: ct);
 
-                if (!String.IsNullOrEmpty(result.SaveFolder)) {
-                    await SaveRegisteredImages(result.SaveFolder, SensorModel.SensorModelResult.RegisteredStars);
+                if ((!forRerun) || (inspectorOptions.SaveImagesOnReruns)) {
+                    if (!String.IsNullOrEmpty(result.SaveFolder)) {
+                        await SaveRegisteredImages(result.SaveFolder,
+                            SensorModel.SensorModelResult.RegisteredStars,
+                            SensorModel.TrianglesByImage,
+                            SensorModel.ReferenceImage,
+                            inspectorOptions.SaveAlignmentImages);
+                    }
                 }
             }
 
@@ -332,7 +342,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private async Task SaveRegisteredImages(
             String saveFolder,
-            SensorModel.RegisteredStar[] registeredStars) {
+            SensorModel.RegisteredStar[] registeredStars,
+            Dictionary<int, List<RANSACRegistration.StarTriangle>> trianglesByImage,
+            int referenceImage,
+            bool saveAlignmentImages) {
             if (string.IsNullOrWhiteSpace(saveFolder)) {
                 Logger.Error("SavePath empty. Not saving registered images");
                 return;
@@ -350,8 +363,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 .Select((kv, idx) => (kv.sourceIdx, idx))
                 .ToDictionary();
 
-            await Task.WhenAll(Enumerable.Range(0, FullSensorDetectedStars.Count).Select(i => Task.Run(() => {
-                var detectedStars = FullSensorDetectedStars[i];
+            await Task.WhenAll(Enumerable.Range(0, FullSensorDetectedStars.Count).Select(imageIndex => Task.Run(() => {
+                var detectedStars = FullSensorDetectedStars[imageIndex];
                 var imageToAnnotate = detectedStars.Image.Image;
                 if (imageToAnnotate.Format == PixelFormats.Rgb48) {
                     using (var source = ImageUtility.BitmapFromSource(imageToAnnotate, System.Drawing.Imaging.PixelFormat.Format48bppRgb)) {
@@ -370,45 +383,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     System.Drawing.FontStyle.Regular,
                     GraphicsUnit.Point);
 
+                var infoBrush = new SolidBrush(Colors.White.ToDrawingColor());
+                var triPenUnmatched = new System.Drawing.Pen(Colors.DarkCyan.ToDrawingColor());
+                var triPenMatched = new System.Drawing.Pen(Colors.Yellow.ToDrawingColor());
+                var triPenReferenceColor = Colors.White.ToDrawingColor();
+                var triPenReferenceBrush = new SolidBrush(triPenReferenceColor);
+                var triPenReference = new System.Drawing.Pen(triPenReferenceBrush);
                 try {
                     using (var bmp = ImageUtility.Convert16BppTo8Bpp(imageToAnnotate)) {
-                        using (var newBitmap = new Bitmap(bmp.Width, bmp.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb)) {
-                            Graphics graphics = Graphics.FromImage(newBitmap);
-                            graphics.DrawImage(bmp, 0, 0);
-                            graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-
-                            for (int starIdx = 0; starIdx < registeredStars.Length; starIdx++) {
-                                var star = registeredStars[starIdx];
-                                var starCenterPen = pens[starIdx % pens.Length];
-                                var annotationBrush = brushes[starIdx % pens.Length];
-                                foreach (var matchedStar in star.MatchedStars) {
-                                    if (matchedStar.ImageIndex == i) {
-                                        var boundingBox = matchedStar.Star.BoundingBox;
-                                        float starX = matchedStar.Star.Position.X, starY = matchedStar.Star.Position.Y;
-                                        var xLength = Math.Max(1.0f, Math.Min(starX - boundingBox.Left, boundingBox.Right - starX)) / 2.0f;
-                                        var yLength = Math.Max(1.0f, Math.Min(starY - boundingBox.Top, boundingBox.Bottom - starY)) / 2.0f;
-                                        graphics.DrawLine(
-                                            starCenterPen, starX - xLength, starY, starX + xLength, starY);
-                                        graphics.DrawLine(
-                                            starCenterPen, starX, starY - yLength, starX, starY + yLength);
-                                        graphics.DrawString(starIdx.ToString(), annotationFont, annotationBrush, new PointF(matchedStar.Star.Position.X, matchedStar.Star.Position.Y - yLength));
-                                        break;
-                                    }
-                                }
-                            }
-
-                            var img = ImageUtility.ConvertBitmap(newBitmap, PixelFormats.Bgr24);
-                            img.Freeze();
-
-                            var filename = $"Registered_Index{outputIndexMap[i]:00}_Focuser{detectedStars.FocuserPosition}.tiff";
-                            var targetPath = Path.Combine(saveFolder, filename);
-                            using (var fileStream = new FileStream(targetPath, FileMode.Create)) {
-                                BitmapEncoder encoder = new TiffBitmapEncoder();
-                                encoder.Frames.Add(BitmapFrame.Create(img));
-                                encoder.Save(fileStream);
-                            }
-                            Logger.Info($"Saved registered image {filename}");
+                        if (saveAlignmentImages) {
+                            SaveAlignmentImage(saveFolder, referenceImage, imageIndex, outputIndexMap, detectedStars, bmp);
                         }
+                        SaveRegisteredImage(saveFolder, registeredStars, trianglesByImage, referenceImage, imageIndex, outputIndexMap, detectedStars, brushes, pens, annotationFont, infoBrush, triPenMatched, triPenReferenceBrush, triPenReference, bmp);
                     }
                 } finally {
                     foreach (var p in pens) {
@@ -420,6 +406,153 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     annotationFont.Dispose();
                 }
             })));
+        }
+
+        private static void SaveRegisteredImage(
+            string saveFolder,
+            RegisteredStar[] registeredStars,
+            Dictionary<int, List<RANSACRegistration.StarTriangle>> trianglesByImage,
+            int referenceImage,
+            int imageIndex,
+            Dictionary<int, int> outputIndexMap,
+            SensorDetectedStars detectedStars,
+            SolidBrush[] brushes,
+            System.Drawing.Pen[] pens,
+            Font annotationFont,
+            SolidBrush infoBrush,
+            System.Drawing.Pen triPenMatched,
+            SolidBrush triPenReferenceBrush,
+            System.Drawing.Pen triPenReference,
+            Bitmap bmp) {
+            using (var newBitmap = new Bitmap(bmp.Width, bmp.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb)) {
+                Graphics graphics = Graphics.FromImage(newBitmap);
+                graphics.DrawImage(bmp, 0, 0);
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+
+                // indicate RANSAC output by showing the transformed points
+                foreach (var star in detectedStars.StarDetectionResult.StarList) {
+                    float starX = star.Position.X, starY = star.Position.Y;
+                    var xLength = 20;
+                    var yLength = 20;
+
+                    graphics.DrawLine(triPenReference, starX - xLength, starY - yLength, starX + xLength, starY + yLength);
+                    graphics.DrawLine(triPenReference, starX + xLength, starY - yLength, starX - xLength, starY + yLength);
+                }
+
+                for (int starIdx = 0; starIdx < registeredStars.Length; starIdx++) {
+                    var star = registeredStars[starIdx];
+                    var starCenterPen = pens[starIdx % pens.Length];
+                    var annotationBrush = brushes[starIdx % pens.Length];
+                    bool done = false;
+                    foreach (var matchedStar in star.MatchedStars) {
+                        if (matchedStar.ImageIndex == imageIndex) {
+                            var boundingBox = matchedStar.Star.BoundingBox;
+                            float starX = matchedStar.Star.Position.X, starY = matchedStar.Star.Position.Y;
+                            var xLength = Math.Max(1.0f, Math.Min(starX - boundingBox.Left, boundingBox.Right - starX)) / 2.0f;
+                            var yLength = Math.Max(1.0f, Math.Min(starY - boundingBox.Top, boundingBox.Bottom - starY)) / 2.0f;
+
+                            graphics.DrawLine(starCenterPen, starX - xLength, starY, starX + xLength, starY);
+                            graphics.DrawLine(starCenterPen, starX, starY - yLength, starX, starY + yLength);
+                            graphics.DrawString(starIdx.ToString(), annotationFont, annotationBrush, new PointF(matchedStar.Star.Position.X, matchedStar.Star.Position.Y - yLength));
+
+                            if (matchedStar.Star.OriginalPosition.X > 0 || matchedStar.Star.OriginalPosition.Y > 0) {
+                                if (referenceImage != matchedStar.ImageIndex) {
+                                    // image has been aligned with reference - draw line
+                                    Rectangle rectOriginal = new Rectangle(
+                                        (int)(matchedStar.Star.OriginalPosition.X - matchedStar.Star.BoundingBox.Width / 2),
+                                        (int)(matchedStar.Star.OriginalPosition.Y - matchedStar.Star.BoundingBox.Height / 2),
+                                        matchedStar.Star.BoundingBox.Width,
+                                        matchedStar.Star.BoundingBox.Height);
+
+                                    graphics.DrawEllipse(starCenterPen, rectOriginal);
+                                    graphics.DrawLine(starCenterPen, starX, starY, matchedStar.Star.OriginalPosition.X, matchedStar.Star.OriginalPosition.Y);
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    if (done) break;
+                }
+                if (!detectedStars.HasBeenAligned) {
+                    graphics.DrawString($"Image: {imageIndex}, Not aligned", annotationFont, infoBrush, new PointF(0, 0));
+                } else {
+                    if (referenceImage == imageIndex) {
+                        graphics.DrawString($"Image: {imageIndex}, Reference image", annotationFont, infoBrush, new PointF(0, 0));
+                    } else {
+                        graphics.DrawString($"Image: {imageIndex}, Ref: {referenceImage}", annotationFont, infoBrush, new PointF(0, 0));
+                        graphics.DrawString($"Transform: {detectedStars.AlignmentTransform.ToFullString()}", new Font("Arial", 12), new SolidBrush(DrawingColor.White), new PointF(0, 20));
+                    }
+                }
+
+                if ((trianglesByImage != null) && (trianglesByImage.Count > imageIndex)) {
+                    foreach (var tri in trianglesByImage[imageIndex].Where(t => !t.IsReference && t.Matched)) {
+                        graphics.DrawLine(triPenMatched, tri.P1.AsPointF(), tri.P2.AsPointF());
+                        graphics.DrawLine(triPenMatched, tri.P2.AsPointF(), tri.P3.AsPointF());
+                        graphics.DrawLine(triPenMatched, tri.P3.AsPointF(), tri.P1.AsPointF());
+                        graphics.DrawString(tri.MatchString, annotationFont, triPenReferenceBrush, tri.P1.AsPointF());
+                        graphics.DrawString(tri.MatchString, annotationFont, triPenReferenceBrush, tri.P2.AsPointF());
+                        graphics.DrawString(tri.MatchString, annotationFont, triPenReferenceBrush, tri.P3.AsPointF());
+                    }
+                    foreach (var tri in trianglesByImage[imageIndex].Where(t => t.IsReference)) {
+                        graphics.DrawLine(triPenReference, tri.P1.AsPointF(), tri.P2.AsPointF());
+                        graphics.DrawLine(triPenReference, tri.P2.AsPointF(), tri.P3.AsPointF());
+                        graphics.DrawLine(triPenReference, tri.P3.AsPointF(), tri.P1.AsPointF());
+                        graphics.DrawString(tri.MatchString, annotationFont, triPenReferenceBrush, tri.P1.AsPointF());
+                        graphics.DrawString(tri.MatchString, annotationFont, triPenReferenceBrush, tri.P2.AsPointF());
+                        graphics.DrawString(tri.MatchString, annotationFont, triPenReferenceBrush, tri.P3.AsPointF());
+                    }
+                }
+
+                var img = ImageUtility.ConvertBitmap(newBitmap, PixelFormats.Bgr24);
+                img.Freeze();
+
+                var suffix = imageIndex == referenceImage ? "_ref" : "";
+                var filename = $"Registered_Index{outputIndexMap[imageIndex]:00}_Focuser{detectedStars.FocuserPosition}{suffix}.tiff";
+                var targetPath = Path.Combine(saveFolder, filename);
+                using (var fileStream = new FileStream(targetPath, FileMode.Create)) {
+                    BitmapEncoder encoder = new TiffBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(img));
+                    encoder.Save(fileStream);
+                }
+                Logger.Info($"Image {imageIndex}: Saved registered image {filename}");
+            }
+        }
+
+        private static void SaveAlignmentImage(string saveFolder, int referenceImage, int imageIndex, Dictionary<int, int> outputIndexMap, SensorDetectedStars detectedStars, Bitmap bmp) {
+            using (var newBitmap = new Bitmap(bmp.Width, bmp.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb)) {
+                Graphics graphics = Graphics.FromImage(newBitmap);
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+
+                // indicate RANSAC output by showing the transformed points
+                foreach (var star in detectedStars.StarDetectionResult.StarList) {
+                    float starX = star.Position.X, starY = star.Position.Y;
+
+                    Point2D ptCenter = new Point2D(star.Position);
+
+                    graphics.FillEllipse(new SolidBrush(DrawingColor.FromArgb((int)(Math.Min(64 + (star.AverageBrightness * 50 * 191), 255)), DrawingColor.White)), star.BoundingBox);
+                }
+
+                graphics.DrawString($"Image: {imageIndex}, {(detectedStars.HasBeenAligned ? $"Aligned to Ref: {referenceImage}" : "Not aligned")}", new Font("Arial", 12), new SolidBrush(DrawingColor.White), new PointF(0, 0));
+                if (detectedStars.HasBeenAligned) {
+                    if (imageIndex == referenceImage) {
+                        graphics.DrawString($"Reference image", new Font("Arial", 12), new SolidBrush(DrawingColor.White), new PointF(0, 20));
+                    } else {
+                        graphics.DrawString($"Transform: {detectedStars.AlignmentTransform.ToFullString()}", new Font("Arial", 12), new SolidBrush(DrawingColor.White), new PointF(0, 20));
+                    }
+                }
+
+                var img = ImageUtility.ConvertBitmap(newBitmap, PixelFormats.Bgr24);
+                img.Freeze();
+
+                var suffix = imageIndex == referenceImage ? "_ref" : "";
+                var filename = $"StarAlignment_Index{outputIndexMap[imageIndex]:00}_Focuser{detectedStars.FocuserPosition}{suffix}.tiff";
+                var targetPath = Path.Combine(saveFolder, filename);
+                using (var fileStream = new FileStream(targetPath, FileMode.Create)) {
+                    BitmapEncoder encoder = new TiffBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(img));
+                    encoder.Save(fileStream);
+                }
+            }
         }
 
         private Task<bool> TakeAndAnalyzeExposure(IAutoFocusEngine autoFocusEngine, CancellationToken token) {
@@ -735,12 +868,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 savedAttempt = autoFocusEngine.LoadSavedAutoFocusAttempt(selectedPath);
+                selectedPath = savedAttempt.FolderPath;
             } catch (Exception e) {
                 Notification.ShowError(e.Message);
                 Logger.Error($"Failed to load saved auto focus attempt from {selectedPath}");
                 return false;
             }
 
+            Logger.Info($"Rerunning auto focus attempt from {selectedPath}");
+            string outputFolder = null;
             localAnalyzeTask = Task.Run(async () => {
                 var options = GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt);
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
@@ -764,11 +900,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return false;
                 }
 
+                outputFolder = result.SaveFolder;
+
                 var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(
                     options,
                     result,
                     sensorCurveModelEnabled: sensorCurveModelEnabled,
-                    ct: localAnalyzeCts.Token);
+                    ct: localAnalyzeCts.Token,
+                    true);
                 if (!autoFocusAnalysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed");
                     InspectorErrorText = "AutoFocus Analysis Failed";
@@ -789,10 +928,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             SimpleAnalysisErrorText = $"Cannot display FWHM Contour and Eccentricity Vectors\n.No saved images in final directory {finalDirectory}.";
                             Logger.Error($"No saved images in final directory {finalDirectory}. Continuing without doing exposure analysis");
                             Notification.ShowError($"No saved images in final directory {finalDirectory}. Continuing without doing exposure analysis");
-                        } else if (savedFinalAttempt.SavedImages.Count > 1) {
-                            SimpleAnalysisErrorText = $"Cannot display FWHM Contour and Eccentricity Vectors.\nMultiple saved images in final directory {finalDirectory}.";
-                            Logger.Error($"Multiple saved images in final directory {finalDirectory}. Continuing without doing exposure analysis");
-                            Notification.ShowError($"Multiple saved images in final directory {finalDirectory}. Continuing without doing exposure analysis");
+                            /*                        } else if (savedFinalAttempt.SavedImages.Count > 1) {
+                                                        SimpleAnalysisErrorText = $"Cannot display FWHM Contour and Eccentricity Vectors.\nMultiple saved images in final directory {finalDirectory}.";
+                                                        Logger.Error($"Multiple saved images in final directory {finalDirectory}. Continuing without doing exposure analysis");
+                                                        Notification.ShowError($"Multiple saved images in final directory {finalDirectory}. Continuing without doing exposure analysis");
+                            */
                         } else {
                             var savedFinalImage = savedFinalAttempt.SavedImages[0];
                             var exposureAnalysisResult = await LoadAndAnalyzeExposure(autoFocusEngine, options, savedFinalImage, analyzeCts.Token);
@@ -825,6 +965,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 DeactivateAutoFocusAnalysis();
                 return false;
             } catch (Exception e) {
+                if ((inspectorOptions.SaveImagesOnReruns) && (outputFolder != null)) {
+                    await SaveRegisteredImages(outputFolder,
+                        SensorModel.SensorModelResult.RegisteredStars,
+                        SensorModel.TrianglesByImage,
+                        SensorModel.ReferenceImage,
+                        inspectorOptions.SaveAlignmentImages);
+                }
+
                 Notification.ShowError($"Inspection auto focus rerun analysis failed: {e.Message}");
                 InspectorErrorText = $"Inspection AutoFocus Rerun analysis failed\n{e.Message}";
                 Logger.Error("Inspection auto focus rerun analysis failed", e);

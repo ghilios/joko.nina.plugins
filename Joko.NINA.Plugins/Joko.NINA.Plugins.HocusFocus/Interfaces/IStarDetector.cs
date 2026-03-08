@@ -118,6 +118,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
                 height: (int)Math.Round(Height * fullSize.Height));
         }
 
+        public Rect2d ToRect2D(System.Drawing.Size fullSize) {
+            return new Rect2d(
+                x: (int)Math.Round(StartX * fullSize.Width),
+                y: (int)Math.Round(StartY * fullSize.Height),
+                width: (int)Math.Round(Width * fullSize.Width),
+                height: (int)Math.Round(Height * fullSize.Height));
+        }
+
         public System.Windows.Int32Rect ToInt32Rect(System.Drawing.Size fullSize) {
             return new System.Windows.Int32Rect(
                 x: (int)Math.Round(StartX * fullSize.Width),

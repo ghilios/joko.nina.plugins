@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using NINA.Core.Model;
 using NINA.Core.Utility;
 using System;
 using System.Collections.Generic;
@@ -72,7 +73,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             double winsorizationSigma = 2.5d,
             int maxIterationsLS = 0,
             double toleranceLS = 1E-8,
-            CancellationToken ct = default(CancellationToken)) {
+            CancellationToken ct = default(CancellationToken),
+            IProgress<ApplicationStatus> progress = null) {
             maxWinsorizedIterations = maxWinsorizedIterations > 0 ? Math.Min(maxWinsorizedIterations, 10) : 10;
             var initialGuess = new double[solver.NumParameters];
             InitializeWeights(solver);
@@ -86,7 +88,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             int disabledCount = int.MaxValue;
             SolutionIterations = 0;
             var gofBefore = this.GoodnessOfFit(solver, lastSolution);
+            ApplicationStatus status = new ApplicationStatus() {
+                Status = "Solving",
+                MaxProgress = maxWinsorizedIterations,
+                ProgressType = ApplicationStatus.StatusProgressType.ValueOfMaxValue,
+                Progress = 0
+            };
+
             while (disabledCount > 0 && winsorizedIterations++ < maxWinsorizedIterations) {
+                status.Progress++;
+                progress?.Report(status);
                 var nextSolution = SolveWithInitialGuess(solver, initialGuess, maxIterationsLS, toleranceLS, ct);
                 var iterationSolutionArray = nextSolution.ToArray();
 
@@ -310,6 +321,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             if (solver.Outputs.Length == 0) {
                 return 0.0;
             }
+
+            if (InputEnabledCount == 0)
+                return 0.0;
 
             var parameters = model.ToArray();
             var rss = 0.0d;

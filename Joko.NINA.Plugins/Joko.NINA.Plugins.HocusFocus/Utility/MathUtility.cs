@@ -117,6 +117,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return ssd;
         }
 
+        public static float SumOfSquaresOfDifferences(float[] x, float[] y) {
+            if (x.Length != y.Length) {
+                throw new ArgumentException($"x length ({x.Length}) must be equal to y length ({y.Length})");
+            }
+            float ssd = 0.0f;
+            for (int i = 0; i < x.Length; ++i) {
+                var diff = y[i] - x[i];
+                ssd += diff * diff;
+            }
+            return ssd;
+        }
+
         public static ScatterErrorPoint RejectionTest(
                 List<ScatterErrorPoint> points,
                 Func<double, double> fitting,
@@ -139,6 +151,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 return null;
             }
             return points[maxError.i];
+        }
+
+        public static double CalcDistance(Point2D p1, Point2D p2) {
+            return (p2.X - p1.X) * (p2.X - p1.X) + (p2.Y - p1.Y) * (p2.Y - p1.Y);
         }
     }
 }

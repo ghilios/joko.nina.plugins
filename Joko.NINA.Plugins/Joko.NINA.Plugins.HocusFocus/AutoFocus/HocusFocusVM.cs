@@ -620,6 +620,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 try {
                     savedAttempt = autoFocusEngine.LoadSavedAutoFocusAttempt(selectedPath);
+                    selectedPath = savedAttempt.FolderPath;
                 } catch (Exception e) {
                     Notification.ShowError(e.Message);
                     Logger.Error($"Failed to load saved auto focus attempt from {selectedPath}", e);

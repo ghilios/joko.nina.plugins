@@ -1136,6 +1136,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Style="{StaticResource HideOnInterpolationOff}" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
@@ -1476,6 +1477,133 @@
                             <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.FixedSensorCenter}" />
                         </StackPanel>
 
+                        <Expander
+                            Grid.Row="7"
+                            Grid.ColumnSpan="4"
+                            VerticalAlignment="Center"
+                            Header="Experimental">
+                            <Grid>
+                                <Grid.Resources>
+                                    <Style x:Key="HideOnInterpolationOff" TargetType="{x:Type RowDefinition}">
+                                        <Setter Property="Height" Value="Auto" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding InspectorOptions.InterpolationEnabled}" Value="False">
+                                                <Setter Property="Height" Value="0" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Grid.Resources>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock
+                                    Grid.Row="0"
+                                    Grid.Column="0"
+                                    Margin="5"
+                                    VerticalAlignment="Center"
+                                    Text="Align images before matching" />
+                                <StackPanel
+                                    Grid.Row="0"
+                                    Grid.Column="1"
+                                    Orientation="Horizontal">
+                                    <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.UseRANSAC}" />
+                                </StackPanel>
+                                <TextBlock
+                                    Grid.Row="1"
+                                    Grid.Column="0"
+                                    Margin="5"
+                                    VerticalAlignment="Center"
+                                    Text="Outlier rejection" />
+                                <StackPanel
+                                    Grid.Row="1"
+                                    Grid.Column="1"
+                                    Orientation="Horizontal">
+                                    <CheckBox
+                                        Margin="5,0,0,0"
+                                        IsChecked="{Binding InspectorOptions.RejectBadlyFittingMatches}" />
+                                </StackPanel>
+
+                                <TextBlock
+                                    Grid.Row="2"
+                                    Grid.Column="0"
+                                    Margin="5"
+                                    VerticalAlignment="Center"
+                                    Text="Match using brightness" />
+                                <StackPanel
+                                    Grid.Row="2"
+                                    Grid.Column="1"
+                                    Orientation="Horizontal">
+                                    <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.RejectBadBrightnessMatches}" />
+                                </StackPanel>
+
+                                <TextBlock
+                                    Grid.Row="2"
+                                    Grid.Column="2"
+                                    Margin="5"
+                                    VerticalAlignment="Center"
+                                    Text="Starting Brightness Tolerance" />
+                                <StackPanel
+                                    Grid.Row="2"
+                                    Grid.Column="3"
+                                    Orientation="Horizontal">
+                                    <ninactrl:HintTextBox
+                                        IsEnabled="{Binding InspectorOptions.RejectBadBrightnessMatches}"
+                                        MinWidth="40"
+                                        VerticalAlignment="Center"
+                                        HorizontalContentAlignment="Left"
+                                        VerticalContentAlignment="Center"
+                                        Foreground="{StaticResource PrimaryBrush}"
+                                        HintText="{Binding InspectorOptions.BrightnessToleranceHint}"
+                                        TextAlignment="Left"
+                                        ToolTip="If set, this value may be used as a starting point by the process to achieve a good set of matched stars across all regions of all images.  Leave this blank to use the previously successful value as the starting point">
+                                        <ninactrl:HintTextBox.Text>
+                                            <Binding
+                                                Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                                Mode="TwoWay"
+                                                Path="InspectorOptions.StartingBrightnessDiff"
+                                                UpdateSourceTrigger="LostFocus" />
+                                        </ninactrl:HintTextBox.Text>
+                                    </ninactrl:HintTextBox>
+                                </StackPanel>
+
+                                <TextBlock
+                                    Grid.Row="3"
+                                    Grid.Column="0"
+                                    Margin="5"
+                                    VerticalAlignment="Center"
+                                    Text="Save annotated images when rerunning a saved autofocus" />
+                                <StackPanel
+                                    Grid.Row="3"
+                                    Grid.Column="1"
+                                    Orientation="Horizontal">
+                                    <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.SaveImagesOnReruns}" />
+                                </StackPanel>
+                                <TextBlock
+                                    Grid.Row="3"
+                                    Grid.Column="2"
+                                    Margin="5"
+                                    VerticalAlignment="Center"
+                                    Text="Save alignment images" />
+                                <StackPanel
+                                    Grid.Row="3"
+                                    Grid.Column="3"
+                                    Orientation="Horizontal">
+                                    <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.SaveAlignmentImages}" />
+                                </StackPanel>
+                            </Grid>
+                        </Expander>
                         <!--
                         <TextBlock
                             Grid.Row="6"
@@ -2259,6 +2387,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -2539,7 +2668,7 @@
                             </TextBlock>
                         </Grid>
                         <Grid
-                            Grid.Row="3"
+                            Grid.Row="4"
                             Grid.Column="0"
                             HorizontalAlignment="Center">
                             <Grid.Resources>
@@ -2595,6 +2724,38 @@
                                             </Style>
                                         </DataGridTextColumn.ElementStyle>
                                     </DataGridTextColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                        <Grid
+                            Grid.Row="3"
+                            Grid.Column="0"
+                            HorizontalAlignment="Center">
+
+                            <DataGrid
+                                Grid.Row="0"
+                                Margin="10,5,10,0"
+                                HorizontalAlignment="Center"
+                                AutoGenerateColumns="False"
+                                ColumnWidth="Auto"
+                                IsReadOnly="True"
+                                HeadersVisibility="None"
+                                BorderBrush="Red"
+                                Visibility="{Binding SensorModel.RegistrationAndFitReport, Converter={StaticResource HF_EmptyCollectionToVisibilityCollapsedConverter}}"
+                                ItemsSource="{Binding SensorModel.RegistrationAndFitReport}">
+                                <DataGrid.Columns>
+                                    <DataGridTemplateColumn>
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Foreground="Black" Background="Yellow">
+                                                    Warning:
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn
+                                        Width="Auto"
+                                        Binding="{Binding}" />
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>

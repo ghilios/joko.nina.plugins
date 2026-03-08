@@ -10,8 +10,10 @@
 
 #endregion "copyright"
 
+using Accord.Math;
 using KdTree;
 using KdTree.Math;
+using NINA.Core.Model;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
 using NINA.Image.Interfaces;
@@ -20,15 +22,15 @@ using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
-using NINA.WPF.Base.Utility.AutoFocus;
 using OpenCvSharp;
+using OpenTK.Graphics.ES11;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using static System.Windows.Forms.AxHost;
 
 namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
@@ -46,6 +48,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public double FocuserPosition { get; private set; }
         public HocusFocusStarDetectionResult StarDetectionResult { get; private set; }
         public IRenderedImage Image { get; private set; }
+        public bool HasBeenAligned { get; set; }
+        public Matrix3x2? AlignmentTransform { get; set; }
 
         public override string ToString() {
             return $"{{{nameof(FocuserPosition)}={FocuserPosition.ToString()}, {nameof(StarDetectionResult)}={StarDetectionResult}}}";
@@ -105,6 +109,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             this.autoFocusOptions = autoFocusOptions;
             this.alglibAPI = alglibAPI;
             SensorTiltHistoryModels = new AsyncObservableCollection<SensorParaboloidTiltHistoryModel>();
+            RegistrationAndFitReport.CollectionChanged += RegistrationAndFitReport_CollectionChanged;
+        }
+
+        private void RegistrationAndFitReport_CollectionChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) {
+            RaisePropertyChanged("RegistrationAndFitReport");
         }
 
         public Task UpdateModel(
@@ -113,6 +122,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             double focuserSizeMicrons,
             double finalFocusPosition,
             int stepSize,
+            IProgress<ApplicationStatus> progress,
             CancellationToken ct) {
             if (allDetectedStars.Count == 0) {
                 throw new ArgumentException("Cannot update sensor model. No detected stars provided");
@@ -124,35 +134,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 var imageSize = firstStarDetectionResult.ImageSize;
                 var pixelSize = firstStarDetectionResult.PixelSize;
                 Logger.Info($"Building Sensor Model. FRatio ({fRatio}), Focuser Size ({focuserSizeMicrons}), Pixel Size ({pixelSize}), Image size ({imageSize})");
-                var fitResult = RegisterStarsAndFit(allDetectedStars, pixelSize: pixelSize, focuserSizeMicrons: focuserSizeMicrons, imageSize: imageSize, stepSize: stepSize);
-                var dataPoints = fitResult.Points;
-                if (dataPoints.Count < 9) {
-                    throw new Exception($"Need at least 9 registered stars. Found {dataPoints.Count}");
-                }
 
-                var sensorModelSolver = new SensorParaboloidSolver(
-                    dataPoints: dataPoints,
-                    sensorSizeMicronsX: imageSize.Width * pixelSize,
-                    sensorSizeMicronsY: imageSize.Height * pixelSize,
-                    inFocusMicrons: finalFocusPosition * focuserSizeMicrons,
-                    fixedSensorCenter: inspectorOptions.FixedSensorCenter);
-                var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(this.alglibAPI);
-                sensorModelSolver.PositiveCurvature = true;
-                var positiveCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);
-                ct.ThrowIfCancellationRequested();
-                positiveCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
+                RegistrationAndFitReport.Clear();
 
-                sensorModelSolver.PositiveCurvature = false;
-                var negativeCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct);
-                ct.ThrowIfCancellationRequested();
-                negativeCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
-
-                var solution = positiveCurvatureSolution.RMSErrorMicrons < negativeCurvatureSolution.RMSErrorMicrons ? positiveCurvatureSolution : negativeCurvatureSolution;
-                Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, Stars: {solution.StarsInModel}");
-
-                if (solution.GoodnessOfFit < 0.05) {
-                    throw new Exception($"Sensor modeling failed. R² = {solution.GoodnessOfFit:#.00}");
-                }
+                var (solution, fitResult) = RegisterStarsAndFit(allDetectedStars,
+                    pixelSize: pixelSize,
+                    focuserSizeMicrons: focuserSizeMicrons,
+                    finalFocusPosition: finalFocusPosition,
+                    imageSize: imageSize,
+                    stepSize: stepSize,
+                    progress: progress,
+                    ct: ct);
 
                 DisplayedSensorModel = solution;
                 SensorModelResult.Update(
@@ -180,6 +172,42 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 SelectedTiltHistoryModel = null;
                 ModelLoaded = true;
             }, ct);
+        }
+
+        private SensorParaboloidModel FitParaboloidModel(
+            double focuserSizeMicrons,
+            double finalFocusPosition,
+            System.Drawing.Size imageSize,
+            double pixelSize,
+            RegistrationAndFitResult fitResult,
+            CancellationToken ct,
+            IProgress<ApplicationStatus> progress) {
+            var dataPoints = fitResult.Points;
+            if (dataPoints.Count < 9) {
+                throw new Exception($"Need at least 9 registered stars. Found {dataPoints.Count}");
+            }
+
+            var sensorModelSolver = new SensorParaboloidSolver(
+                dataPoints: dataPoints,
+                sensorSizeMicronsX: imageSize.Width * pixelSize,
+                sensorSizeMicronsY: imageSize.Height * pixelSize,
+                inFocusMicrons: finalFocusPosition * focuserSizeMicrons,
+                fixedSensorCenter: inspectorOptions.FixedSensorCenter);
+            var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(this.alglibAPI);
+            sensorModelSolver.PositiveCurvature = true;
+            var positiveCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct, progress: progress);
+            ct.ThrowIfCancellationRequested();
+            positiveCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
+
+            sensorModelSolver.PositiveCurvature = false;
+            var negativeCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct, progress: progress);
+            ct.ThrowIfCancellationRequested();
+            negativeCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
+
+            var solution = positiveCurvatureSolution.RMSErrorMicrons < negativeCurvatureSolution.RMSErrorMicrons ? positiveCurvatureSolution : negativeCurvatureSolution;
+            Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, Stars: {solution.StarsInModel}");
+
+            return solution;
         }
 
         private List<SensorParaboloidDataPoint> ToInterpolatedGrid(
@@ -313,132 +341,299 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }
         }
 
-        private RegistrationAndFitResult RegisterStarsAndFit(
+        private enum IterationDirection { None, Up, Down };
+
+        private const int searchRadiusRANSAC = 10;
+        private const int searchRadiusNonRANSAC = 30;
+
+        private (SensorParaboloidModel, RegistrationAndFitResult) RegisterStarsAndFit(
             List<SensorDetectedStars> allDetectedStars,
             System.Drawing.Size imageSize,
             double focuserSizeMicrons,
+            double finalFocusPosition,
             double pixelSize,
-            int stepSize) {
+            IProgress<ApplicationStatus> progress,
+            int stepSize,
+            CancellationToken ct) {
             using (var stopwatch = MultiStopWatch.Measure()) {
-                var allDetectedStarTrees = allDetectedStars.Select(result => {
-                    var tree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
-                    foreach (var (star, starIndex) in result.StarDetectionResult.StarList.Select((star, starIndex) => (star, starIndex))) {
-                        tree.Add(new[] { star.Position.X, star.Position.Y }, new DetectedStarIndex(starIndex, (HocusFocusDetectedStar)star));
-                    }
-                    return tree;
-                }).ToArray();
-                stopwatch.RecordEntry("build trees");
-
-                int minHfrIndex = 0;
-                double minHfr = allDetectedStars[0].StarDetectionResult.AverageHFR;
-                for (int i = 1; i < allDetectedStars.Count; ++i) {
-                    double nextHfr = allDetectedStars[i].StarDetectionResult.AverageHFR;
-                    if (nextHfr < minHfr) {
-                        minHfrIndex = i;
-                        minHfr = nextHfr;
-                    }
-                }
-
-                const float searchRadius = 30;
-                var globalRegistry = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
-                var starIndexMap = Enumerable.Range(0, allDetectedStars.Count).Select(i => new Dictionary<int, int>()).ToArray();
-                foreach (var starNode in allDetectedStarTrees[minHfrIndex]) {
-                    var nextIndex = globalRegistry.Count;
-                    globalRegistry.Add(starNode.Point, new DetectedStarIndex(nextIndex, starNode.Value.DetectedStar));
-                    starIndexMap[minHfrIndex].Add(starNode.Value.Index, nextIndex);
-                }
-
-                float[] pointDiff = new float[2];
+                int maxStarsPerRegion = inspectorOptions.MaxStarsPerRegion;
+                int maxStars = 0;
+                int refIndex = -1;
                 for (int i = 0; i < allDetectedStars.Count; ++i) {
-                    if (i == minHfrIndex) {
-                        continue;
+                    if (allDetectedStars[i].StarDetectionResult.DetectedStars > maxStars) {
+                        refIndex = i;
+                        maxStars = allDetectedStars[i].StarDetectionResult.DetectedStars;
                     }
+                }
+                ReferenceImage = refIndex;
 
-                    var nextStarList = allDetectedStars[i].StarDetectionResult.StarList;
-                    var nextStarTree = allDetectedStarTrees[i];
-                    var nextStarIndexMap = starIndexMap[i];
-                    var matchedGlobalStars = new bool[globalRegistry.Count];
-                    var matchedSourceStars = new bool[nextStarTree.Count];
-                    var queue = new KdTree.PriorityQueue<MatchingPair, double>(new DoubleMath());
-                    foreach (var (starNode, starNodeIndex) in nextStarTree.Select((starNode, starNodeIndex) => (starNode, starNodeIndex))) {
-                        var sourceStar = starNode.Value.DetectedStar;
-                        var sourcePoint = starNode.Point;
-                        var sourceIndex = starNode.Value.Index;
-                        var globalNeighbors = globalRegistry.RadialSearch(sourcePoint, searchRadius);
-                        foreach (var globalNeighbor in globalNeighbors) {
-                            var globalNeighborIndex = globalNeighbor.Value.Index;
-                            pointDiff[0] = globalNeighbor.Point[0] - sourcePoint[0];
-                            pointDiff[1] = globalNeighbor.Point[1] - sourcePoint[1];
-                            var distance = MathUtility.DotProduct(pointDiff, pointDiff);
-                            queue.Enqueue(new MatchingPair() { SourceIndex = sourceIndex, GlobalIndex = globalNeighborIndex }, distance);
+                ct.ThrowIfCancellationRequested();
+
+                RegisteredStar[] registeredStars = null;
+                TrianglesByImage = new Dictionary<int, List<RANSACRegistration.StarTriangle>>();
+
+                // set relative brightness level for each star in each image
+                foreach (var detectedStars in allDetectedStars) {
+                    double imageMaxBrightness = detectedStars.StarDetectionResult.StarList.Max(s => s.AverageBrightness);
+                    double imageMinBrightness = detectedStars.StarDetectionResult.StarList.Min(s => s.AverageBrightness);
+                    foreach (var (star, index) in detectedStars.StarDetectionResult.StarList
+                                                                    .Select((star, index) => ((HocusFocusDetectedStar)star, index))) {
+                        star.NormalisedBrightness = (float)((star.AverageBrightness - imageMinBrightness) / (imageMaxBrightness - imageMinBrightness));
+                        star.OriginalPosition = star.Position;
+                    }
+                }
+                stopwatch.RecordEntry("normalise brightness");
+                ct.ThrowIfCancellationRequested();
+
+                int ransacAligned = 0;
+                if (inspectorOptions.UseRANSAC) {
+                    ransacAligned = AlignStarsWithRANSAC(allDetectedStars, imageSize, stopwatch, ReferenceImage, progress);
+                    if (ransacAligned < allDetectedStars.Count) {
+                        Logger.Info("Ransac failed on at least one image.  Search radius will remain the same as for non-aligned processing");
+                        if (ransacAligned == 1) { // ransacAligned starts at 1 for the reference image so if it's still 1 it means no other images aligned
+                            RegistrationAndFitReport.Add("All frames failed to align.  An autofocus run where all images align will give more reliable results.");
+                        } else {
+                            RegistrationAndFitReport.Add($"{allDetectedStars.Count - ransacAligned} frames failed to align.  An autofocus run where all images align will give more reliable results.");
                         }
                     }
+                }
+                ct.ThrowIfCancellationRequested();
 
-                    while (queue.Count > 0) {
-                        var nextCandidate = queue.Dequeue();
-                        if (matchedGlobalStars[nextCandidate.GlobalIndex] || matchedSourceStars[nextCandidate.SourceIndex]) {
-                            continue;
+                double maxNormalisedBrightnessDiff = (inspectorOptions.StartingBrightnessDiff != -1) ? inspectorOptions.StartingBrightnessDiff : inspectorOptions.PreviousRunBrightnessDiff;
+                SensorParaboloidModel bestPfit = null;
+                RegistrationAndFitResult bestReg = null;
+                double bestBrightnessDiff = maxNormalisedBrightnessDiff;
+
+                Dictionary<double, (SensorParaboloidModel, RegistrationAndFitResult)> previousRuns = new();
+                IterationDirection direction = IterationDirection.Up;
+                bool upExhausted = false;
+                bool downExhausted = false;
+                SensorParaboloidModel prevFit = null;
+                RegistrationAndFitResult prevReg = null;
+
+                Logger.Debug($"Starting fit loop with previous MNBD of {maxNormalisedBrightnessDiff:#.##}");
+
+                int iterations = 0;
+                for (bool retry = true; retry;) {
+                    var startTime = DateTime.Now;
+                    retry = false;
+                    int rejectionsOnBrightnessDiff;
+                    (registeredStars, rejectionsOnBrightnessDiff) = MatchStarsUsingKdTree(allDetectedStars,
+                        stopwatch, ReferenceImage,
+                        ((inspectorOptions.UseRANSAC) && (ransacAligned == allDetectedStars.Count)) ? searchRadiusRANSAC : searchRadiusNonRANSAC,
+                        inspectorOptions.RejectBadBrightnessMatches ? maxNormalisedBrightnessDiff : -1,
+                        progress);
+
+                    // registration phase done
+                    stopwatch.RecordEntry("registration");
+                    ct.ThrowIfCancellationRequested();
+
+                    RegistrationAndFitResult reg = FitImages(imageSize, focuserSizeMicrons, pixelSize, stepSize, stopwatch, registeredStars, progress, inspectorOptions.RejectBadlyFittingMatches);
+                    SensorParaboloidModel pfit = null;
+
+                    if (reg.Points.Count >= 9) {  // 9 points is the minimum for fitting the model
+                        pfit = FitParaboloidModel(focuserSizeMicrons, finalFocusPosition, imageSize, pixelSize, reg, ct, progress);
+                    } else {
+                        retry = true;   // try again at a different brightness tolerance
+                    }
+
+                    if (inspectorOptions.RejectBadBrightnessMatches) {
+                        double targetR2 = TargetR2BasedOnTimeTaken(DateTime.Now - startTime);  // an R2 of greater than this value will be acceptible and halt further iterations
+                        Logger.Debug($"Target R2 {targetR2:#.##}");
+                        if ((pfit != null) && ((pfit.StarsInModel < 10) || (pfit.GoodnessOfFit < targetR2) || IsFitTooGood(pfit))) {
+                            Logger.Debug($"Only have {pfit.StarsInModel} stars and R2 of {pfit.GoodnessOfFit:#.##} (target is {targetR2:#.##}) with a brightness tolerance of {maxNormalisedBrightnessDiff:#.##}");
+                            retry = true;
                         }
 
-                        nextStarIndexMap.Add(nextCandidate.SourceIndex, nextCandidate.GlobalIndex);
-                        matchedGlobalStars[nextCandidate.GlobalIndex] = true;
-                        matchedSourceStars[nextCandidate.SourceIndex] = true;
-                    }
-                }
+                        if (IsBetterFit(pfit, bestPfit)) {
+                            bestPfit = pfit;
+                            bestReg = reg;
+                            bestBrightnessDiff = maxNormalisedBrightnessDiff;
+                        }
 
-                var registeredStars = new RegisteredStar[globalRegistry.Count];
-                foreach (var globalNode in globalRegistry) {
-                    var registeredStar = new RegisteredStar() {
-                        RegistrationX = globalNode.Value.DetectedStar.Position.X,
-                        RegistrationY = globalNode.Value.DetectedStar.Position.Y
-                    };
-                    registeredStars[globalNode.Value.Index] = registeredStar;
-                }
+                        if (previousRuns.ContainsKey(maxNormalisedBrightnessDiff)) {
+                            previousRuns[maxNormalisedBrightnessDiff] = (pfit, reg);
+                        } else {
+                            previousRuns.Add(maxNormalisedBrightnessDiff, (pfit, reg));
+                        }
 
-                for (int i = 0; i < starIndexMap.Length; ++i) {
-                    var nextStarIndexMap = starIndexMap[i];
-                    var focuserPosition = allDetectedStars[i].FocuserPosition;
-                    var detectedStars = allDetectedStars[i].StarDetectionResult.StarList;
-                    foreach (var nextKvp in nextStarIndexMap) {
-                        var sourceIndex = nextKvp.Key;
-                        var globalIndex = nextKvp.Value;
-                        var sourceStar = (HocusFocusDetectedStar)detectedStars[sourceIndex];
-                        var matchedStar = new MatchedStar() {
-                            FocuserPosition = focuserPosition,
-                            Star = sourceStar,
-                            ImageIndex = i
-                        };
-                        registeredStars[globalIndex].MatchedStars.Add(matchedStar);
-                    }
-                }
-                stopwatch.RecordEntry("registration");
-
-                int discardedStarCount = 0;
-                var sensorModelDataPoints = new List<SensorParaboloidDataPoint>();
-                var maxOutlierRejectedPoints = this.autoFocusOptions.MaxOutlierRejections;
-                var rejectionConfidence = this.autoFocusOptions.OutlierRejectionConfidence;
-                const int minStarCountForFitting = 5;
-                int totalRejectedPointCount = 0;
-                foreach (var registeredStar in registeredStars) {
-                    if (registeredStar.MatchedStars.Count < minStarCountForFitting) {
-                        continue;
-                    }
-
-                    try {
-                        var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
-                        var rejectedPoints = new List<ScatterErrorPoint>();
-                        bool continueFitting;
-                        AlglibHyperbolicFitting fitting;
-                        bool solveResult;
-                        do {
-                            continueFitting = false;
-                            if (autoFocusOptions.UnevenHyperbolicFitEnabled) {
-                                fitting = HyperbolicUnevenFittingAlglib.Create(this.alglibAPI, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                        if (retry) {    // keep going in the same direction
+                            Logger.Debug($"this brightness tolerance={maxNormalisedBrightnessDiff:#.##}, direction: {direction}");
+                            if (direction == IterationDirection.Up) {
+                                if ((maxNormalisedBrightnessDiff >= 3) || (rejectionsOnBrightnessDiff == 0)) {    // if there're no rejections at the current level don't increase tolerance
+                                    upExhausted = true;
+                                }
+                                if ((pfit != null && !IsFitTooGood(pfit) && (!IsBetterFit(pfit, prevFit)) || upExhausted)) { // change direction unless already exhausted
+                                    if (downExhausted) { // all tried, no retry
+                                        retry = false;
+                                    } else {
+                                        if (maxNormalisedBrightnessDiff != inspectorOptions.PreviousRunBrightnessDiff)
+                                            upExhausted = true;
+                                        maxNormalisedBrightnessDiff = inspectorOptions.PreviousRunBrightnessDiff / 1.5;
+                                        direction = IterationDirection.Down;
+                                        Logger.Debug($"Switching direction to {direction}");
+                                    }
+                                } else {
+                                    maxNormalisedBrightnessDiff *= 1.5;
+                                    direction = IterationDirection.Up;
+                                }
                             } else {
-                                fitting = HyperbolicFittingAlglib.Create(this.alglibAPI, points, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                                if (maxNormalisedBrightnessDiff <= 0.01d)
+                                    downExhausted = true;
+                                if ((pfit != null && !IsFitTooGood(pfit) && (!IsBetterFit(pfit, prevFit)) || downExhausted)) { // need to switch direction unless already exhausted
+                                    if (upExhausted) { // all tried, no retry
+                                        retry = false;
+                                    } else {
+                                        if (maxNormalisedBrightnessDiff != inspectorOptions.PreviousRunBrightnessDiff)
+                                            downExhausted = true;
+                                        maxNormalisedBrightnessDiff = inspectorOptions.PreviousRunBrightnessDiff * 1.5;
+                                        direction = IterationDirection.Up;
+                                        Logger.Debug($"Switching direction to {direction}");
+                                    }
+                                } else {
+                                    maxNormalisedBrightnessDiff /= 1.5;
+                                    direction = IterationDirection.Down;
+                                }
                             }
+                            if (retry) {
+                                Logger.Debug($"next brightness tolerance={maxNormalisedBrightnessDiff:#.##}, direction: {direction}");
+                            } else {
+                                Logger.Debug("No more iterations");
+                            }
+                        }
 
-                            solveResult = fitting.Solve();
+                        prevFit = pfit;
+                        prevReg = reg;
+                        iterations++;
+
+                        Logger.Debug($"End of registerStarsAndFit iteration with R2 of {bestPfit?.GoodnessOfFit:#.##}, retry is {retry}");
+                    } else {        // we're not trying to find a better return as we're not rejecting on brightness
+                        bestPfit = pfit;
+                        bestReg = reg;
+                        bestBrightnessDiff = maxNormalisedBrightnessDiff;
+                    }
+                    Logger.Info($"After {iterations} iterations best fit is {bestPfit?.GoodnessOfFit:#.##}");
+                }
+
+                progress.Report(new ApplicationStatus());
+
+                inspectorOptions.PreviousRunBrightnessDiff = bestBrightnessDiff;
+                previousRuns.Select(r => (r.Key, r.Value.Item1?.GoodnessOfFit, r.Value.Item1?.StarsInModel))
+                    .ToList()
+                    .ForEach(run => Logger.Debug($"Previous run: brightness tolerance {run.Key:#.##}, R2 {run.GoodnessOfFit:#.##}, Stars {run.StarsInModel} best? {run.Key == bestBrightnessDiff}"));
+
+                if (bestPfit == null) {
+                    throw new Exception("Failed to find a good model.");
+                }
+                if (bestPfit.GoodnessOfFit < 0.05) {
+                    throw new Exception($"Sensor modeling failed. R² = {bestPfit.GoodnessOfFit:#.00}");
+                }
+
+                if (bestPfit.StarsInModel < 10) {
+                    if (inspectorOptions.UseRANSAC) {
+                        RegistrationAndFitReport.Add($"There are very few stars in the model ({bestPfit.StarsInModel}).  There may be poor transparancy or seeing.  Frames with more stars will give more reliable results.");
+                    } else {
+                        RegistrationAndFitReport.Add($"There are very few stars in the model ({bestPfit.StarsInModel}).  If there is movement between the frames, it may help to enable the 'align images' option.");
+                    }
+                }
+
+                return (bestPfit, bestReg);
+            }
+        }
+
+        private double TargetR2BasedOnTimeTaken(TimeSpan timeSpan) {
+            double secondsTaken = timeSpan.TotalSeconds;
+            if (secondsTaken < 1) {     // iterations are quick so we'll be very demanding
+                return 0.9;
+            }
+            if (secondsTaken < 3) {
+                return 0.8;
+            }
+            if (secondsTaken < 5) {
+                return 0.7;
+            }
+            return 0.6; // iterations are slow so we'll set a low target
+        }
+
+        private static bool IsFitTooGood(SensorParaboloidModel fit) {
+            if (1 - fit.GoodnessOfFit < 0.005) { // 1 means too good a fit - probably not enough points
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        private static bool IsBetterFit(SensorParaboloidModel thisFit, SensorParaboloidModel otherFit) {
+            if (thisFit == null) {
+                return false;
+            }
+            if (otherFit == null) {
+                return true;
+            }
+
+            if (otherFit.GoodnessOfFit == 0) {
+                return true;
+            }
+            if (thisFit.GoodnessOfFit == 0) {
+                return false;
+            }
+
+            if (IsFitTooGood(thisFit)) { // 1 means too good a fit - probably not enough points
+                return false;
+            }
+            if (IsFitTooGood(otherFit)) {
+                return true;
+            }
+            return (thisFit.GoodnessOfFit >= otherFit.GoodnessOfFit);
+        }
+
+        private static List<StarDetectionRegion> CreateFullRegionSet(System.Drawing.Size imageSize, int rows, int cols) {
+            var xPart = 1.0d / (double)cols;
+            var yPart = 1.0d / (double)rows;
+            var regions = new List<StarDetectionRegion>();
+            int index = 0;
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < cols; c++)
+                    regions.Add(new StarDetectionRegion(new RatioRect(c * xPart, r * yPart, xPart, yPart), ++index));
+            return regions;
+        }
+
+        private RegistrationAndFitResult FitImages(
+                System.Drawing.Size imageSize,
+                double focuserSizeMicrons,
+                double pixelSize,
+                int stepSize,
+                MultiStopWatch stopwatch,
+                RegisteredStar[] registeredStars,
+                IProgress<ApplicationStatus> progress,
+                bool rejectBadlyFittingMatches) {
+            int discardedStarCount = 0;
+            var sensorModelDataPoints = new List<SensorParaboloidDataPoint>();
+            var maxOutlierRejectedPoints = this.autoFocusOptions.MaxOutlierRejections;
+            var rejectionConfidence = this.autoFocusOptions.OutlierRejectionConfidence;
+            const int minStarCountForFitting = 5;
+            int totalRejectedPointCount = 0;
+            foreach (var registeredStar in registeredStars) {
+                if (registeredStar.MatchedStars.Count < minStarCountForFitting) {
+                    continue;
+                }
+
+                try {
+                    var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
+                    var rejectedPoints = new List<ScatterErrorPoint>();
+                    bool continueFitting;
+                    AlglibHyperbolicFitting fitting;
+                    bool solveResult;
+                    do {
+                        continueFitting = false;
+                        if (autoFocusOptions.UnevenHyperbolicFitEnabled) {
+                            fitting = HyperbolicUnevenFittingAlglib.Create(this.alglibAPI, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                        } else {
+                            fitting = HyperbolicFittingAlglib.Create(this.alglibAPI, points, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                        }
+
+                        solveResult = fitting.Solve();
+                        if (rejectBadlyFittingMatches) {
                             if (solveResult && rejectedPoints.Count < maxOutlierRejectedPoints && points.Count > minStarCountForFitting) {
                                 var rejectedPoint = MathUtility.RejectionTest(points: points, fitting: fitting.Fitting, confidence: rejectionConfidence);
                                 if (rejectedPoint != null) {
@@ -447,45 +642,321 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                                     continueFitting = true;
                                 }
                             }
-                        } while (continueFitting);
-
-                        if (!solveResult) {
-                            Logger.Trace($"Failed to fit hyperbolic curve to star matches at ({registeredStar.RegistrationX:0.00}, {registeredStar.RegistrationY:0.00})");
-                            discardedStarCount++;
-                            continue;
                         }
+                    } while (continueFitting);
 
-                        if (fitting.RSquared < 0.90) {
-                            // Discard bad fitting
-                            discardedStarCount++;
-                            continue;
-                        }
-
-                        totalRejectedPointCount += rejectedPoints.Count;
-                        var dataPointX = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
-                        var dataPointY = (registeredStar.RegistrationY - (imageSize.Height / 2.0)) * pixelSize;
-                        var focuserMicrons = fitting.Minimum.X * focuserSizeMicrons;
-                        var dataPoint = new SensorParaboloidDataPoint(dataPointX, dataPointY, focuserMicrons, fitting.RSquared);
-                        sensorModelDataPoints.Add(dataPoint);
-                    } catch (Exception e) {
-                        Logger.Error(e, $"Failed to calculate hyperbolic at ({registeredStar.RegistrationX}, {registeredStar.RegistrationY}). Error={e.Message}");
+                    if (!solveResult) {
+                        Logger.Trace($"Failed to fit hyperbolic curve to star matches at ({registeredStar.RegistrationX:0.00}, {registeredStar.RegistrationY:0.00})");
+                        discardedStarCount++;
+                        continue;
                     }
-                }
 
-                stopwatch.RecordEntry("fitcurves");
-                if (discardedStarCount > 0) {
-                    Logger.Warning($"Discarded {discardedStarCount} stars during sensor modeling due to poor fits");
-                }
-                if (totalRejectedPointCount > 0) {
-                    Logger.Info($"Rejected {totalRejectedPointCount} points while fitting {sensorModelDataPoints.Count} stars");
-                }
+                    if (fitting.RSquared < 0.90) {
+                        // Discard bad fitting
+                        discardedStarCount++;
+                        continue;
+                    }
 
-                if (this.inspectorOptions.InterpolationEnabled && sensorModelDataPoints.Count > 5) {
-                    return new RegistrationAndFitResult(ToInterpolatedGrid(sensorModelDataPoints, imageSize), registeredStars);
-                } else {
-                    return new RegistrationAndFitResult(sensorModelDataPoints, registeredStars);
+                    totalRejectedPointCount += rejectedPoints.Count;
+                    var dataPointX = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
+                    var dataPointY = (registeredStar.RegistrationY - (imageSize.Height / 2.0)) * pixelSize;
+                    var focuserMicrons = fitting.Minimum.X * focuserSizeMicrons;
+                    var dataPoint = new SensorParaboloidDataPoint(dataPointX, dataPointY, focuserMicrons, fitting.RSquared);
+                    sensorModelDataPoints.Add(dataPoint);
+                } catch (Exception e) {
+                    Logger.Error(e, $"Failed to calculate hyperbolic at ({registeredStar.RegistrationX}, {registeredStar.RegistrationY}). Error={e.Message}");
                 }
             }
+
+            stopwatch.RecordEntry("fitcurves");
+            if (discardedStarCount > 0) {
+                Logger.Warning($"Discarded {discardedStarCount} stars during sensor modeling due to poor fits");
+            }
+            if (totalRejectedPointCount > 0) {
+                Logger.Info($"Rejected {totalRejectedPointCount} points while fitting {sensorModelDataPoints.Count} stars");
+            }
+
+            if (this.inspectorOptions.InterpolationEnabled && sensorModelDataPoints.Count > 5) {
+                return new RegistrationAndFitResult(ToInterpolatedGrid(sensorModelDataPoints, imageSize), registeredStars);
+            } else {
+                return new RegistrationAndFitResult(sensorModelDataPoints, registeredStars);
+            }
+        }
+
+        public int ReferenceImage { get; set; }
+
+        public Dictionary<int, List<RANSACRegistration.StarTriangle>> TrianglesByImage;
+
+        private void ResetRegistration(List<SensorDetectedStars> allDetectedStars) {
+            for (int image = 0; image < allDetectedStars.Count; image++) {
+                foreach (var star in allDetectedStars[image].StarDetectionResult.StarList) {
+                    ((HocusFocusDetectedStar)star).Position = ((HocusFocusDetectedStar)star).OriginalPosition;
+                }
+            }
+        }
+
+        private const double minCosSimStrict = 0.999999; // Cosine similarity threshold for accepting a match
+        private const double minCosSimRelaxed = 0.99999; // Cosine similarity threshold for accepting a match
+
+        private int AlignStarsWithRANSAC(
+            List<SensorDetectedStars> allDetectedStars,
+            System.Drawing.Size imageSize,
+            MultiStopWatch stopwatch,
+            int referenceImage,
+            IProgress<ApplicationStatus> progress) {
+            int imagesAligned = 1;  // count the reference image as aligned
+
+            var referenceStars = allDetectedStars[referenceImage].StarDetectionResult.StarList
+                .Select(s => new Point2D(s.Position.X, s.Position.Y, ((HocusFocusDetectedStar)s).NormalisedBrightness));
+
+            // first pass - build list of triangles in reference image
+            int maxTriangleSize;
+            List<RANSACRegistration.StarTriangle> refTriangles;
+
+            // aim for ~100 triangles
+            int minTri = 100;
+            int maxTri = 200;
+            double stepSize = 0.005;
+            double sizeAsPortion = 0.0055;
+            double minSize = 0.001;
+            double maxSize = 0.1;
+
+            IterationDirection direction = IterationDirection.None;
+            do {
+                maxTriangleSize = (int)(sizeAsPortion * Math.Min(imageSize.Width, imageSize.Height));
+                refTriangles = RANSACRegistration.BuildStarTriangles(imageSize, referenceStars.ToList(), maxTriangleSize, true, true);
+                if ((refTriangles.Count < minTri) && (direction != IterationDirection.Down)) {
+                    direction = IterationDirection.Up;
+                    sizeAsPortion += stepSize;
+                    if (sizeAsPortion > maxSize) {
+                        break;
+                    }
+                } else {
+                    if ((refTriangles.Count > maxTri) && (direction != IterationDirection.Up)) {
+                        direction = IterationDirection.Down;
+                        sizeAsPortion -= stepSize;
+                        if (sizeAsPortion < minSize) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            } while (true);
+            TrianglesByImage.Add(referenceImage, refTriangles);
+            Logger.Info($"Image {referenceImage}: {refTriangles.Count} triangles (REFERENCE), max size: {maxTriangleSize} ({sizeAsPortion}), stars: {referenceStars.Count()}");
+
+            int TooFewTrianglesImages = 0;
+            for (int imageIndex = 0; imageIndex < allDetectedStars.Count; ++imageIndex) {
+                if (imageIndex == referenceImage) {
+                    allDetectedStars[imageIndex].HasBeenAligned = true;
+                    continue;
+                }
+                ApplicationStatus status = new ApplicationStatus() {
+                    Status = "Aligning images",
+                    Status2 = "Image",
+                    ProgressType2 = ApplicationStatus.StatusProgressType.ValueOfMaxValue,
+                    MaxProgress2 = allDetectedStars.Count,
+                    Progress2 = imageIndex + 1
+                };
+                progress.Report(status);
+                var theseStars = allDetectedStars[imageIndex].StarDetectionResult.StarList
+                    .Select(s => new Point2D(s.Position.X, s.Position.Y, ((HocusFocusDetectedStar)s).NormalisedBrightness));
+
+                List<Point2D> putativeSrc;
+                List<Point2D> putativeDst;
+                // find triangles in this image
+                var theseTriangles = RANSACRegistration.BuildStarTriangles(imageSize, theseStars.ToList(), maxTriangleSize, false, false);
+                Logger.Info($"Image {imageIndex}: {theseTriangles.Count} triangles");
+                TrianglesByImage.Add(imageIndex, theseTriangles);
+
+                if (theseTriangles.Count < minTri) {
+                    TooFewTrianglesImages++;
+                }
+
+                // match triangles to reference triangles to get putative matches
+                (putativeSrc, putativeDst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                    theseTriangles,
+                    refTriangles,
+                    status,
+                    minCosSimStrict);
+
+                if (putativeDst.Count < 20) {
+                    Logger.Debug($"Image {imageIndex}: too few triangles ({putativeDst.Count}) with strict cosineSimilarity, switching to relaxed mode");
+                    (putativeSrc, putativeDst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                        theseTriangles,
+                        refTriangles,
+                        status,
+                        minCosSimRelaxed);
+                }
+                try {
+                    Logger.Info($"Image {imageIndex}, putative star matches: {putativeDst.Count} out of {theseStars.Count()} stars");
+                    // calculate the transform needed to register this image
+                    var transform = RANSACRegistration.EstimateAffineTransform(putativeSrc, putativeDst, status, progress);
+                    allDetectedStars[imageIndex].AlignmentTransform = transform;
+
+                    // adjust each star according to the transform
+                    for (int starIndex = 0; starIndex < allDetectedStars[imageIndex].StarDetectionResult.StarList.Count; starIndex++) {
+                        var oldPoint = allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].Position;
+
+                        var transformedPoint = transform.Transform(new Point2D(allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].Position));
+                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].Position = new Accord.Point((float)transformedPoint.X, (float)transformedPoint.Y);
+
+                        transformedPoint = transform.Transform(new Point2D(allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox.Location));
+                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox
+                            = new System.Drawing.Rectangle(
+                                        (int)transformedPoint.X,
+                                        (int)transformedPoint.Y,
+                                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox.Width,
+                                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox.Height);
+                    }
+                    imagesAligned++;
+                    allDetectedStars[imageIndex].HasBeenAligned = true;
+                } catch (Exception ex) {
+                    Logger.Info($"Image {imageIndex}: Error: {ex.Message}");
+                    allDetectedStars[imageIndex].HasBeenAligned = false;
+                }
+            }
+
+            if (TooFewTrianglesImages > 0) {
+                if (refTriangles.Count < minTri) {
+                    TooFewTrianglesImages++;    // include the reference image in this message
+                }
+                var imageCount = (TooFewTrianglesImages == allDetectedStars.Count) ? "All" : TooFewTrianglesImages.ToString();
+                RegistrationAndFitReport.Add($"{imageCount} images had too few star triangles for reliable alignment.  Alignment may have failed for these images.  Check image quality or star detection parameters.");
+            } else {
+                if (refTriangles.Count < minTri) {
+                    Logger.Warning("Too few star triangles found in reference image for reliable alignment.  Alignment may fail.");
+                    RegistrationAndFitReport.Add("Too few star triangles found in reference image for reliable alignment.  Check image quality or star detection parameters.");
+                }
+            }
+
+            Logger.Info($"RANSAC alignment: {imagesAligned} / {allDetectedStars.Count} images were successfully aligned");
+            stopwatch.RecordEntry("RANSAC alignment");
+            return imagesAligned;
+        }
+
+        private static (RegisteredStar[], int) MatchStarsUsingKdTree(
+                List<SensorDetectedStars> allDetectedStars,
+                MultiStopWatch stopwatch,
+                int referenceImage,
+                float searchRadius,
+                double maxNormalisedBrightnessDiff,
+                IProgress<ApplicationStatus> progress) {
+            Logger.Debug("MatchStarsUsingKdTree");
+
+            RegisteredStar[] registeredStars;
+            var allDetectedStarTrees = allDetectedStars.Select(result => {
+                var tree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
+                foreach (var (star, starIndex) in result.StarDetectionResult.StarList.Select((star, starIndex) => ((HocusFocusDetectedStar)star, starIndex))) {
+                    tree.Add(new[] { star.Position.X, star.Position.Y }, new DetectedStarIndex(starIndex, star));
+                }
+                return tree;
+            }).ToArray();
+            stopwatch.RecordEntry("build trees");
+
+            var globalRegistry = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
+            var starIndexMap = Enumerable.Range(0, allDetectedStars.Count).Select(i => new Dictionary<int, int>()).ToArray();
+            foreach (var starNode in allDetectedStarTrees[referenceImage]) {
+                var nextIndex = globalRegistry.Count;
+                globalRegistry.Add(starNode.Point, new DetectedStarIndex(nextIndex, starNode.Value.DetectedStar));
+                starIndexMap[referenceImage].Add(starNode.Value.Index, nextIndex);
+            }
+
+            ApplicationStatus status = new ApplicationStatus() {
+                Status = "Matching stars",
+                MaxProgress = allDetectedStars.Count,
+                ProgressType = ApplicationStatus.StatusProgressType.ValueOfMaxValue
+            };
+            int totalRejectionsOnBrightness = 0;
+            for (int imageIndex = 0; imageIndex < allDetectedStars.Count; ++imageIndex) {
+                if (imageIndex == referenceImage) {
+                    continue;
+                }
+                status.Progress = imageIndex;
+                progress.Report(status);
+
+                var nextStarList = allDetectedStars[imageIndex].StarDetectionResult.StarList;
+                var nextStarTree = allDetectedStarTrees[imageIndex];
+                var nextStarIndexMap = starIndexMap[imageIndex];
+                var matchedGlobalStars = new bool[globalRegistry.Count];
+                var matchedSourceStars = new bool[nextStarTree.Count];
+                var queue = new KdTree.PriorityQueue<MatchingPair, double>(new DoubleMath());
+                foreach (var (starNode, starNodeIndex) in nextStarTree.Select((starNode, starNodeIndex) => (starNode, starNodeIndex))) {
+                    var sourceStar = starNode.Value.DetectedStar;
+                    var sourcePoint = starNode.Point;
+                    var sourceIndex = starNode.Value.Index;
+                    var globalNeighbors = globalRegistry.RadialSearch(sourcePoint, searchRadius);
+                    int queuedCount = 0;
+                    foreach (var globalNeighbor in
+                        maxNormalisedBrightnessDiff == -1 ? globalNeighbors :
+                        // filter out bad matches on brightness
+                        globalNeighbors.Where(p => Math.Abs(p.Value.DetectedStar.NormalisedBrightness - sourceStar.NormalisedBrightness) < maxNormalisedBrightnessDiff)
+                        ) {
+                        var globalNeighborIndex = globalNeighbor.Value.Index;
+                        var neighboringStar = globalNeighbor.Value.DetectedStar;
+                        var distance = MathUtility.SumOfSquaresOfDifferences(globalNeighbor.Point, sourcePoint);
+                        queue.Enqueue(new MatchingPair() { SourceIndex = sourceIndex, GlobalIndex = globalNeighborIndex }, -distance);
+                        queuedCount++;
+                    }
+                    int rejectedOnBrightness = globalNeighbors.Count() - queuedCount;
+                    if (rejectedOnBrightness > 0)
+                        Logger.Info($"ImageStar: {imageIndex}/{sourceIndex}, {rejectedOnBrightness} matches out of {globalNeighbors.Count()} rejected on brightness difference (>{maxNormalisedBrightnessDiff})");
+                    totalRejectionsOnBrightness += rejectedOnBrightness;
+                }
+
+                status.Status = "Measuring matched star offset";
+                status.MaxProgress = queue.Count;
+                status.ProgressType = ApplicationStatus.StatusProgressType.ValueOfMaxValue;
+                while (queue.Count > 0) {
+                    var nextCandidate = queue.Dequeue();
+                    if (matchedGlobalStars[nextCandidate.GlobalIndex] || matchedSourceStars[nextCandidate.SourceIndex]) {
+                        continue;
+                    }
+
+                    status.Progress = (status.MaxProgress - queue.Count) + 1;
+                    progress.Report(status);
+
+                    nextStarIndexMap.Add(nextCandidate.SourceIndex, nextCandidate.GlobalIndex);
+                    matchedGlobalStars[nextCandidate.GlobalIndex] = true;
+                    matchedSourceStars[nextCandidate.SourceIndex] = true;
+                }
+            }
+
+            registeredStars = new RegisteredStar[globalRegistry.Count];
+            foreach (var globalNode in globalRegistry) {
+                var registeredStar = new RegisteredStar() {
+                    RegistrationX = globalNode.Value.DetectedStar.Position.X,
+                    RegistrationY = globalNode.Value.DetectedStar.Position.Y
+                };
+                registeredStars[globalNode.Value.Index] = registeredStar;
+            }
+
+            status.Status = "Registering matched stars";
+            status.MaxProgress = starIndexMap.Length;
+
+            for (int i = 0; i < starIndexMap.Length; ++i) {
+                var nextStarIndexMap = starIndexMap[i];
+                var focuserPosition = allDetectedStars[i].FocuserPosition;
+                var detectedStars = allDetectedStars[i].StarDetectionResult.StarList;
+
+                status.Progress = i;
+                progress.Report(status);
+
+                foreach (var nextKvp in nextStarIndexMap) {
+                    var sourceIndex = nextKvp.Key;
+                    var globalIndex = nextKvp.Value;
+                    var sourceStar = (HocusFocusDetectedStar)detectedStars[sourceIndex];
+                    var matchedStar = new MatchedStar() {
+                        FocuserPosition = focuserPosition,
+                        Star = sourceStar,
+                        ImageIndex = i
+                    };
+                    registeredStars[globalIndex].MatchedStars.Add(matchedStar);
+                }
+            }
+
+            return (registeredStars, totalRejectionsOnBrightness);
         }
 
         private void UpdateTiltModels(SensorParaboloidTiltHistoryModel historyModel) {
@@ -517,6 +988,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public AsyncObservableCollection<SensorParaboloidTiltHistoryModel> SensorTiltHistoryModels { get; private set; }
 
         public SensorModelAberrationResult SensorModelResult { get; private set; } = new SensorModelAberrationResult();
+
+        public AsyncObservableCollection<String> RegistrationAndFitReport { get; private set; } = new();
 
         private SensorParaboloidModel displayedSensorModel;
 

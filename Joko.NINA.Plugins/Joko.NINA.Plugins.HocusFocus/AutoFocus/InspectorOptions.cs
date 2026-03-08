@@ -56,6 +56,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             interpolationAlgo = optionsAccessor.GetValueEnum(nameof(InterpolationAlgo), InterpolationAlgoEnum.MultiQuadric);
             interpolationAmount = optionsAccessor.GetValueEnum(nameof(InterpolationAmount), InterpolationAmountEnum.Medium);
             fixedSensorCenter = optionsAccessor.GetValueBoolean(nameof(FixedSensorCenter), true);
+            previousRunBrightnessDiff = optionsAccessor.GetValueDouble(nameof(PreviousRunBrightnessDiff), 0.1d);
+            startingBrightnessDiff = optionsAccessor.GetValueDouble(nameof(StartingBrightnessDiff), -1);
+            rejectBadBrightnessMatches = optionsAccessor.GetValueBoolean(nameof(RejectBadBrightnessMatches), false);
+            rejectBadlyFittingMatches = optionsAccessor.GetValueBoolean(nameof(RejectBadlyFittingMatches), false);
+            useRANSAC = optionsAccessor.GetValueBoolean(nameof(UseRANSAC), false);
+            saveImagesOnReruns = optionsAccessor.GetValueBoolean(nameof(SaveImagesOnReruns), false);
+            saveAlignmentImages = optionsAccessor.GetValueBoolean(nameof(SaveAlignmentImages), false);
+            maxStarsPerRegion = optionsAccessor.GetValueInt32(nameof(MaxStarsPerRegion), -1);
         }
 
         public void ResetDefaults() {
@@ -76,6 +84,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             InterpolationAlgo = InterpolationAlgoEnum.MultiQuadric;
             InterpolationAmount = InterpolationAmountEnum.Medium;
             FixedSensorCenter = true;
+            previousRunBrightnessDiff = -1;
+            startingBrightnessDiff = -1;
+            rejectBadBrightnessMatches = false;
+            rejectBadlyFittingMatches = false;
         }
 
         private int stepCount;
@@ -338,6 +350,114 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (fixedSensorCenter != value) {
                     fixedSensorCenter = value;
                     optionsAccessor.SetValueBoolean(nameof(FixedSensorCenter), fixedSensorCenter);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool useRANSAC = false;
+
+        public bool UseRANSAC {
+            get => useRANSAC;
+            set {
+                if (useRANSAC != value) {
+                    useRANSAC = value;
+                    optionsAccessor.SetValueBoolean(nameof(UseRANSAC), useRANSAC);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool rejectBadBrightnessMatches = false;
+
+        public bool RejectBadBrightnessMatches {
+            get => rejectBadBrightnessMatches;
+            set {
+                if (rejectBadBrightnessMatches != value) {
+                    rejectBadBrightnessMatches = value;
+                    optionsAccessor.SetValueBoolean(nameof(RejectBadBrightnessMatches), rejectBadBrightnessMatches);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool rejectBadlyFittingMatches = false;
+
+        public bool RejectBadlyFittingMatches {
+            get => rejectBadlyFittingMatches;
+            set {
+                if (rejectBadlyFittingMatches != value) {
+                    rejectBadlyFittingMatches = value;
+                    optionsAccessor.SetValueBoolean(nameof(RejectBadlyFittingMatches), rejectBadlyFittingMatches);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double previousRunBrightnessDiff;
+
+        public double PreviousRunBrightnessDiff {
+            get => previousRunBrightnessDiff;
+            set {
+                if (previousRunBrightnessDiff != value) {
+                    previousRunBrightnessDiff = value;
+                    optionsAccessor.SetValueDouble(nameof(PreviousRunBrightnessDiff), previousRunBrightnessDiff);
+                    RaisePropertyChanged();
+                    RaisePropertyChanged("BrightnessToleranceHint");
+                }
+            }
+        }
+
+        private double startingBrightnessDiff;  // if this is -1, it means "auto" and previous run brightness diff is used as the starting point
+
+        public double StartingBrightnessDiff {
+            get => startingBrightnessDiff;
+            set {
+                if (startingBrightnessDiff != value) {
+                    startingBrightnessDiff = value;
+                    optionsAccessor.SetValueDouble(nameof(StartingBrightnessDiff), startingBrightnessDiff);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public string BrightnessToleranceHint { get { return $"(auto: {PreviousRunBrightnessDiff:0.##})"; } }
+
+        private bool saveImagesOnReruns = false;
+
+        public bool SaveImagesOnReruns {
+            get => saveImagesOnReruns;
+            set {
+                if (saveImagesOnReruns != value) {
+                    saveImagesOnReruns = value;
+                    optionsAccessor.SetValueBoolean(nameof(SaveImagesOnReruns), saveImagesOnReruns);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool saveAlignmentImages = false;
+
+        public bool SaveAlignmentImages {
+            get => saveAlignmentImages;
+            set {
+                if (saveAlignmentImages != value) {
+                    saveAlignmentImages = value;
+                    optionsAccessor.SetValueBoolean(nameof(SaveAlignmentImages), saveAlignmentImages);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public string MaxStarsPerRegionHint { get { return $"(unlimited)"; } }
+        private int maxStarsPerRegion = -1;
+
+        public int MaxStarsPerRegion {
+            get => maxStarsPerRegion;
+            set {
+                if (maxStarsPerRegion != value) {
+                    maxStarsPerRegion = value;
+                    optionsAccessor.SetValueInt32(nameof(MaxStarsPerRegion), maxStarsPerRegion);
                     RaisePropertyChanged();
                 }
             }

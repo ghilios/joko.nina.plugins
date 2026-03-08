@@ -164,6 +164,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         }
 
         protected void UpdateScene() {
+#if DISABLE_ILNUMERICS
+            return;
+#endif
             var scene = GetScene();
             if (scene == null) {
                 ClearScene();
