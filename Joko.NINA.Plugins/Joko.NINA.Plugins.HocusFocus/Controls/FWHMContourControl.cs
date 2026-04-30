@@ -123,19 +123,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 var surface = interpolator.InterpolateGrid(interpWidth, interpHeight, 0.0d, numRegionsWide - 1, 0.0d, numRegionsTall - 1);
                 var backgroundColor = PlotBackgroundColor.ToDrawingColor();
                 var pointColor = EnsureVisibleColor(PointColor.ToDrawingColor(), DrawingColor.DodgerBlue);
-                var surfaceColor = EnsureVisibleColor(SurfaceColor.ToDrawingColor(), DrawingColor.DimGray);
-                if (ColorDistance(pointColor, surfaceColor) < 75.0d ||
-                    ColorDistance(surfaceColor, backgroundColor) < 55.0d ||
-                    IsNeutral(pointColor) && IsNeutral(surfaceColor)) {
-                    surfaceColor = DrawingColor.FromArgb(byte.MaxValue, 68, 76, 88);
-                    pointColor = DrawingColor.DodgerBlue;
-                }
                 var model = new SurfacePlotModel() {
                     Z = surface,
                     BackgroundColor = backgroundColor,
                     TextColor = TextColor.ToDrawingColor(),
                     AxisColor = AxisColor.ToDrawingColor(),
-                    ColorMap = new SurfaceColorMap((0.0d, surfaceColor), (1.0d, pointColor)),
+                    ColorMap = CreateFwhmColorMap(),
                     ContourColor = DrawingColor.FromArgb(230, 255, 255, 255),
                     ShowContours = true,
                     ShowContourLabels = true,
@@ -165,15 +158,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             return DrawingColor.FromArgb(byte.MaxValue, color.R, color.G, color.B);
         }
 
-        private static double ColorDistance(DrawingColor left, DrawingColor right) {
-            var dr = left.R - right.R;
-            var dg = left.G - right.G;
-            var db = left.B - right.B;
-            return Math.Sqrt(dr * dr + dg * dg + db * db);
-        }
-
-        private static bool IsNeutral(DrawingColor color) {
-            return Math.Abs(color.R - color.G) + Math.Abs(color.G - color.B) + Math.Abs(color.R - color.B) < 42;
+        private static SurfaceColorMap CreateFwhmColorMap() {
+            return new SurfaceColorMap(
+                (0.00d, DrawingColor.FromArgb(255, 44, 25, 85)),
+                (0.20d, DrawingColor.FromArgb(255, 35, 88, 166)),
+                (0.40d, DrawingColor.FromArgb(255, 26, 156, 169)),
+                (0.60d, DrawingColor.FromArgb(255, 94, 201, 97)),
+                (0.80d, DrawingColor.FromArgb(255, 241, 196, 15)),
+                (1.00d, DrawingColor.FromArgb(255, 210, 67, 54)));
         }
     }
 }
