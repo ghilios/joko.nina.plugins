@@ -11,7 +11,6 @@
 #endregion "copyright"
 
 using CommunityToolkit.Mvvm.Input;
-using ILNumerics.Drawing;
 using Newtonsoft.Json;
 using NINA.Core.Enum;
 using NINA.Core.Interfaces;

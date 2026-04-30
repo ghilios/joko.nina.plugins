@@ -11,7 +11,6 @@
 #endregion "copyright"
 
 using Accord.Imaging.Filters;
-using ILNumerics;
 using Newtonsoft.Json;
 using NINA.Astrometry;
 using NINA.Core.Enum;
@@ -1562,16 +1561,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private ILNSceneContainer fwhmContourSceneContainer = null;
-
-        public ILNSceneContainer FWHMContourSceneContainer {
-            get => fwhmContourSceneContainer;
-            set {
-                fwhmContourSceneContainer = value;
-                RaisePropertyChanged();
-            }
-        }
-
         public event EventHandler PlotRefreshed;
 
         private SPPlot eccentricityVectorPlot;
@@ -1797,7 +1786,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private void ResetExposureAnalysis() {
             DeactivateExposureAnalysis();
             ExposureAnalysisActivatedOnce = false;
-            FWHMContourSceneContainer = null;
         }
 
         private ScottPlot.Plottable.MarkerPlot highlightedEccentricityPoint;

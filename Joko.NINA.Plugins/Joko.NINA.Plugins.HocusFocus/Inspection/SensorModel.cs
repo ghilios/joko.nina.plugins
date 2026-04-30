@@ -23,7 +23,6 @@ using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using OpenCvSharp;
-using OpenTK.Graphics.ES11;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
