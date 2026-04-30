@@ -5,7 +5,7 @@
     xmlns:controls="clr-namespace:NINA.Joko.Plugins.HocusFocus.Controls;assembly=NINA.Joko.Plugins.HocusFocus"
     Title="Hocus Focus Plot Test App"
     Width="1100"
-    Height="900"
+    Height="1150"
     Background="#FF1E2125">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <Grid Margin="14">
@@ -14,6 +14,8 @@
                 <RowDefinition Height="390" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="410" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="300" />
             </Grid.RowDefinitions>
 
             <TextBlock
@@ -50,6 +52,18 @@
                 StarDetectionResult="{Binding FwhmStarDetectionResult}"
                 SurfaceColor="#FF3F4958"
                 TextColor="White" />
+
+            <TextBlock
+                Grid.Row="4"
+                Margin="0,18,0,8"
+                HorizontalAlignment="Center"
+                FontWeight="SemiBold"
+                Foreground="White"
+                Text="ScottPlot Eccentricity Vectors" />
+            <controls:ScottPlotControl
+                Grid.Row="5"
+                Background="#FF1E2125"
+                Plot="{Binding EccentricityPlot, Mode=OneWay}" />
         </Grid>
     </ScrollViewer>
 </Window>

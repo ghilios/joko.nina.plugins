@@ -13,8 +13,11 @@
 using NINA.Core.Utility;
 using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Controls;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using ScottPlot;
+using ScottPlot.Statistics;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -22,7 +25,7 @@ using System.Linq;
 
 namespace TestApp {
 
-    public class MainWindowVM : BaseINPC {
+    public class MainWindowVM : BaseINPC, IScottPlotController {
 
         public MainWindowVM() {
             TiltPlaneModel = TiltPlaneModel.Create(
@@ -37,6 +40,7 @@ namespace TestApp {
 
             NumRegionsWide = 9;
             FwhmStarDetectionResult = CreateSyntheticFwhmResult(NumRegionsWide);
+            EccentricityPlot = CreateSyntheticEccentricityPlot();
         }
 
         public TiltPlaneModel TiltPlaneModel { get; }
@@ -44,6 +48,17 @@ namespace TestApp {
         public HocusFocusStarDetectionResult FwhmStarDetectionResult { get; }
 
         public int NumRegionsWide { get; }
+
+        public Plot EccentricityPlot { get; }
+
+        public event EventHandler PlotRefreshed;
+
+        public void OnMouseMove(object sender, System.Windows.Input.MouseEventArgs e) {
+        }
+
+        public void OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e) {
+            PlotRefreshed?.Invoke(this, EventArgs.Empty);
+        }
 
         private static HocusFocusStarDetectionResult CreateSyntheticFwhmResult(int numRegionsWide) {
             const int regionSize = 110;
@@ -105,6 +120,44 @@ namespace TestApp {
                     rSquared: 0.99d,
                     pixelScale: 1.0d)
             };
+        }
+
+        private static Plot CreateSyntheticEccentricityPlot() {
+            const int numRegionsWide = 9;
+            const int numRegionsTall = 7;
+            var xs = DataGen.Range(0, numRegionsWide);
+            var ys = DataGen.Range(0, numRegionsTall);
+            var vectors = new Vector2[numRegionsWide, numRegionsTall];
+
+            for (var col = 0; col < numRegionsWide; ++col) {
+                for (var row = 0; row < numRegionsTall; ++row) {
+                    var centeredX = (col - (numRegionsWide - 1) / 2.0d) / ((numRegionsWide - 1) / 2.0d);
+                    var centeredY = (row - (numRegionsTall - 1) / 2.0d) / ((numRegionsTall - 1) / 2.0d);
+                    var eccentricity = 0.08d + 0.32d * Math.Sqrt(centeredX * centeredX + centeredY * centeredY);
+                    var theta = Math.Atan2(centeredY, centeredX) + Math.PI / 7.0d;
+                    vectors[col, row] = new Vector2(
+                        Math.Cos(theta) * eccentricity,
+                        Math.Sin(theta) * eccentricity);
+                }
+            }
+
+            var plot = new Plot();
+            var vectorField = plot.AddVectorField(vectors, xs, ys, color: Color.LimeGreen);
+            vectorField.ScaledArrowheads = true;
+            vectorField.ScaledArrowheadLength = 0.0d;
+            vectorField.ScaledArrowheadWidth = 0.0d;
+
+            plot.Title("Eccentricity");
+            plot.XAxis.Ticks(false);
+            plot.YAxis.Ticks(false);
+            plot.SetAxisLimits(-0.5d, numRegionsWide - 0.5d, -0.5d, numRegionsTall - 0.5d);
+            plot.Style(
+                figureBackground: Color.FromArgb(30, 33, 37),
+                dataBackground: Color.FromArgb(30, 33, 37),
+                grid: Color.FromArgb(75, 84, 94),
+                tick: Color.White,
+                titleLabel: Color.White);
+            return plot;
         }
     }
 }

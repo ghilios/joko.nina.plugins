@@ -1,4 +1,8 @@
-﻿<Application
+<Application
     x:Class="TestApp.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" />
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <SolidColorBrush x:Key="BackgroundBrush" Color="#FF1E2125" />
+    </Application.Resources>
+</Application>
