@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsTestProject>true</IsTestProject>
+    <Platforms>AnyCPU;x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Joko.NINA.Plugins.HocusFocus\Utility\MathUtility.cs" Link="Utility\MathUtility.cs" />
+    <Compile Include="..\Joko.NINA.Plugins.HocusFocus\Utility\OrdinaryKrigingInterpolator.cs" Link="Utility\OrdinaryKrigingInterpolator.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="NUnit" Version="4.4.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.1.0" />
+    <PackageReference Include="OxyPlot.Core" Version="2.2.0" />
+  </ItemGroup>
+</Project>

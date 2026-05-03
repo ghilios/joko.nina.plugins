@@ -97,8 +97,6 @@ namespace NINA.Joko.Plugins.HocusFocus {
                 OpenCvSharp.Internal.WindowsLibraryLoader.Instance.AdditionalPaths.Add(dllPath);
             }
 
-            ILNumerics.Settings.DefaultRenderer = ILNumerics.Drawing.RendererTypes.OpenGL;
-
             options.AddImagePattern(fwhmImagePattern);
             options.AddImagePattern(eccentricityImagePattern);
             imageSaveMediator.BeforeFinalizeImageSaved += ImageSaveMediator_BeforeFinalizeImageSaved;

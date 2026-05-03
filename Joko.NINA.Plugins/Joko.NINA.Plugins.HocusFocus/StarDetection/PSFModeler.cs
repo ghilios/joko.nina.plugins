@@ -10,17 +10,11 @@
 
 #endregion "copyright"
 
-using ILNumerics;
-using ILNumerics.Toolboxes;
-using NINA.Core.Utility;
-using NINA.Core.Utility.Notification;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using OpenCvSharp;
 using System;
 using System.Linq;
-using System.Runtime.ExceptionServices;
-using System.Security;
 using System.Threading;
 using Rect = OpenCvSharp.Rect;
 
@@ -58,69 +52,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public abstract PSFModelSolution Solve(int maxIterations, double tolerance, CancellationToken ct);
 
         public abstract PSFModelSolution SolveIRLS(int maxIterationsIRLS, double toleranceIRLS, int maxIterationsLM, double toleranceLM, double noiseSigma, CancellationToken ct);
-    }
-
-    public abstract class PSFModelTypeILNBase : PSFModelTypeBase {
-
-        protected PSFModelTypeILNBase(double centroidBrightness, double starDetectionBackground, double pixelScale, Rect starBoundingBox, double[,] inputs, double[] outputs)
-            : base(centroidBrightness, starDetectionBackground, pixelScale, starBoundingBox) {
-            this.Inputs = inputs;
-            this.Outputs = outputs;
-
-            var sigmaUpperBound = Math.Sqrt(this.StarBoundingBox.Width * this.StarBoundingBox.Width + this.StarBoundingBox.Height * this.StarBoundingBox.Height) / 2;
-            var dxLimit = this.StarBoundingBox.Width / 8.0d;
-            var dyLimit = this.StarBoundingBox.Height / 8.0d;
-            this.lowerBounds = new double[] { 0.0d, -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
-            this.upperBounds = new double[] { 2.0d * this.CentroidBrightness, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
-        }
-
-        public double[,] Inputs { get; private set; }
-        public double[] Outputs { get; private set; }
-
-        private readonly double[] lowerBounds;
-        private readonly double[] upperBounds;
-
-        public abstract RetArray<double> Residuals(InArray<double> parameters);
-
-        public override double GoodnessOfFit(double A, double B, double x0, double y0, double sigmaX, double sigmaY, double theta) {
-            using (Scope.Enter()) {
-                var arrayParameters = new double[] { A, B, x0, y0, sigmaX, sigmaY, theta };
-                for (int i = 0; i < arrayParameters.Length; ++i) {
-                    arrayParameters[i] = Math.Min(upperBounds[i], arrayParameters[i]);
-                    arrayParameters[i] = Math.Max(lowerBounds[i], arrayParameters[i]);
-                }
-
-                Array<double> parameters = arrayParameters;
-                Array<double> observedValues = this.Outputs;
-                observedValues = observedValues.T;
-                Array<double> residuals = this.Residuals(parameters);
-                double yBar = observedValues.mean<double>().GetValue(0);
-                Array<double> observedDispersion = observedValues - yBar;
-                double tss = ILMath.multiplyElem(observedDispersion, observedDispersion).sum().GetValue(0);
-                double rss = ILMath.multiplyElem(residuals, residuals).sum().GetValue(0);
-                return 1 - rss / tss;
-            }
-        }
-
-        public override PSFModelSolution Solve(int maxIterations, double tolerance, CancellationToken ct) {
-            var initialGuess = new double[] { this.CentroidBrightness, 0.0, 0.0, this.StarBoundingBox.Width / 3.0, this.StarBoundingBox.Height / 3.0, 0.0d };
-            Array<double> solution = Optimization.leastsq_levm(this.Residuals, initialGuess, Optimization.jacobian_prec, maxIter: maxIterations, tol: tolerance);
-            ct.ThrowIfCancellationRequested();
-
-            return new PSFModelSolution() {
-                A = solution.GetValue<double>(0),
-                B = solution.GetValue<double>(1),
-                X0 = solution.GetValue<double>(2),
-                Y0 = solution.GetValue<double>(3),
-                SigmaX = solution.GetValue<double>(4),
-                SigmaY = solution.GetValue<double>(5),
-                Theta = solution.GetValue<double>(6)
-            };
-        }
-
-        public override PSFModelSolution SolveIRLS(int maxIterationsIRLS, double toleranceIRLS, int maxIterationsLM, double toleranceLM, double noiseSigma, CancellationToken ct) {
-            throw new NotImplementedException();
-        }
     }
 
     public abstract class PSFModelTypeAlglibBase : PSFModelTypeBase {
@@ -412,7 +343,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             Star detectedStar,
             Mat srcImage,
             double pixelScale,
-            bool useILNumerics,
             IAlglibAPI alglibAPI) {
             var background = detectedStar.Background;
             var nominalBoundingBoxWidth = Math.Sqrt(detectedStar.StarBoundingBox.Width * detectedStar.StarBoundingBox.Height);
@@ -426,50 +356,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var numPixels = widthPixels * heightPixels;
             var centroidBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: detectedStar.Center.Y, x: detectedStar.Center.X);
 
-            if (useILNumerics) {
-                var inputs = new double[2, numPixels];
-                var outputs = new double[numPixels];
-                int pixelIndex = 0;
-                for (var y = startY; y < endY; y += samplingSize) {
-                    for (var x = startX; x < endX; x += samplingSize) {
-                        var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x);
-                        var dx = x - detectedStar.Center.X;
-                        var dy = y - detectedStar.Center.Y;
-                        inputs[0, pixelIndex] = dx;
-                        inputs[1, pixelIndex] = dy;
-                        outputs[pixelIndex++] = value;
-                    }
+            var inputs = new double[numPixels][];
+            var outputs = new double[numPixels];
+            int pixelIndex = 0;
+            for (var y = startY; y < endY; y += samplingSize) {
+                for (var x = startX; x < endX; x += samplingSize) {
+                    var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x);
+                    var dx = x - detectedStar.Center.X;
+                    var dy = y - detectedStar.Center.Y;
+                    var input = new double[2] { dx, dy };
+                    inputs[pixelIndex] = input;
+                    outputs[pixelIndex++] = value;
                 }
+            }
 
-                if (fitType == StarDetectorPSFFitType.Gaussian) {
-                    return new GaussianPSFILNumericsType(inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
-                } else if (fitType == StarDetectorPSFFitType.Moffat_40) {
-                    return new MoffatPSFILNumericsType(beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
-                } else {
-                    throw new ArgumentException($"Unknown PSF fit type {fitType}");
-                }
+            if (fitType == StarDetectorPSFFitType.Gaussian) {
+                return new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
+            } else if (fitType == StarDetectorPSFFitType.Moffat_40) {
+                return new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
             } else {
-                var inputs = new double[numPixels][];
-                var outputs = new double[numPixels];
-                int pixelIndex = 0;
-                for (var y = startY; y < endY; y += samplingSize) {
-                    for (var x = startX; x < endX; x += samplingSize) {
-                        var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x);
-                        var dx = x - detectedStar.Center.X;
-                        var dy = y - detectedStar.Center.Y;
-                        var input = new double[2] { dx, dy };
-                        inputs[pixelIndex] = input;
-                        outputs[pixelIndex++] = value;
-                    }
-                }
-
-                if (fitType == StarDetectorPSFFitType.Gaussian) {
-                    return new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
-                } else if (fitType == StarDetectorPSFFitType.Moffat_40) {
-                    return new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
-                } else {
-                    throw new ArgumentException($"Unknown PSF fit type {fitType}");
-                }
+                throw new ArgumentException($"Unknown PSF fit type {fitType}");
             }
         }
 

@@ -1,23 +1,69 @@
-﻿<Window
+<Window
     x:Class="TestApp.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="clr-namespace:NINA.Joko.Plugins.HocusFocus.Controls;assembly=NINA.Joko.Plugins.HocusFocus"
-    xmlns:local="clr-namespace:TestApp"
-    Title="A hello window"
-    Width="800"
-    Height="600">
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="0" />
-            <RowDefinition Height="800" />
-            <RowDefinition Height="0" />
-        </Grid.RowDefinitions>
-        <controls:ILNCanvasControl Grid.Row="0" SceneContainer="{Binding Scene}" />
-        <controls:ILNCanvasControl Grid.Row="1" SceneContainer="{Binding FWHMContourScene}" />
-        <controls:ScottPlotControl
-            Grid.Row="2"
-            Background="LightGray"
-            Plot="{Binding Plot}" />
-    </Grid>
-</Window>  
+    Title="Hocus Focus Plot Test App"
+    Width="1100"
+    Height="1150"
+    Background="#FF1E2125">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <Grid Margin="14">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="390" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="410" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="300" />
+            </Grid.RowDefinitions>
+
+            <TextBlock
+                Grid.Row="0"
+                Margin="0,0,0,8"
+                HorizontalAlignment="Center"
+                FontWeight="SemiBold"
+                Foreground="White"
+                Text="Tilt Model Surface" />
+            <controls:TiltModelControl
+                Grid.Row="1"
+                AxisColor="#FF585F69"
+                PlotBackgroundColor="#FF1E2125"
+                PointColor="#FF4CA3FF"
+                SurfaceColor="#803F4958"
+                SurfaceHighExtremeColor="#FFE5534B"
+                SurfaceLowExtremeColor="#FF4E8BFF"
+                TextColor="White"
+                TiltPlaneModel="{Binding TiltPlaneModel}" />
+
+            <TextBlock
+                Grid.Row="2"
+                Margin="0,18,0,8"
+                HorizontalAlignment="Center"
+                FontWeight="SemiBold"
+                Foreground="White"
+                Text="FWHM Contour Map" />
+            <controls:FWHMContourControl
+                Grid.Row="3"
+                AxisColor="#FF585F69"
+                NumRegionsWide="{Binding NumRegionsWide}"
+                PlotBackgroundColor="#FF1E2125"
+                PointColor="#FF4CA3FF"
+                StarDetectionResult="{Binding FwhmStarDetectionResult}"
+                SurfaceColor="#FF3F4958"
+                TextColor="White" />
+
+            <TextBlock
+                Grid.Row="4"
+                Margin="0,18,0,8"
+                HorizontalAlignment="Center"
+                FontWeight="SemiBold"
+                Foreground="White"
+                Text="ScottPlot Eccentricity Vectors" />
+            <controls:ScottPlotControl
+                Grid.Row="5"
+                Background="#FF1E2125"
+                Plot="{Binding EccentricityPlot, Mode=OneWay}" />
+        </Grid>
+    </ScrollViewer>
+</Window>

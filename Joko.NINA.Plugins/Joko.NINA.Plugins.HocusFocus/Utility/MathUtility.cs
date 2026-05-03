@@ -93,9 +93,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             }
             Array.Sort(valuesArray);
 
-            var mad = 1.483 * valuesArray.Length % 2 == 0
+            var medianAbsoluteDeviation = valuesArray.Length % 2 == 0
               ? (valuesArray[valuesArray.Length / 2 - 1] + valuesArray[valuesArray.Length / 2]) / 2.0
               : valuesArray[valuesArray.Length / 2];
+            var mad = 1.483 * medianAbsoluteDeviation;
             return (median, mad);
         }
 

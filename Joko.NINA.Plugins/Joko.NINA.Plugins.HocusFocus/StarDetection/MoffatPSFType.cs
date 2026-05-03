@@ -10,13 +10,10 @@
 
 #endregion "copyright"
 
-using ILNumerics;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using OpenCvSharp;
 using System;
-using System.Threading;
-using static ILNumerics.Globals;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -157,50 +154,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             result[4] = d_dc;
             result[5] = d_dd;
             result[6] = d_dt;
-        }
-
-        public override double SigmaToFWHM(double sigma) {
-            return MoffatShared.SigmaToFWHM(this.Beta, sigma);
-        }
-    }
-
-    public class MoffatPSFILNumericsType : PSFModelTypeILNBase {
-        public double Beta { get; private set; }
-
-        public MoffatPSFILNumericsType(double beta, double[,] inputs, double[] outputs, double centroidBrightness, double starDetectionBackground, Rect starBoundingBox, double pixelScale) :
-            base(centroidBrightness: centroidBrightness, starDetectionBackground: starDetectionBackground, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
-            this.Beta = beta;
-        }
-
-        public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Moffat_40;
-
-        public override RetArray<double> Residuals(InArray<double> parameters) {
-            using (Scope.Enter(parameters)) {
-                Array<double> ilnInputs = this.Inputs;
-                Array<double> actualValue = this.Outputs;
-                Array<double> A = parameters.GetValue<double>(0);
-                Array<double> B = parameters.GetValue<double>(1);
-                Array<double> x0 = parameters.GetValue<double>(2);
-                Array<double> y0 = parameters.GetValue<double>(3);
-                Array<double> U = parameters.GetValue<double>(4);
-                Array<double> V = parameters.GetValue<double>(5);
-                Array<double> T = parameters.GetValue<double>(6);
-                Array<double> x = ilnInputs[0, full];
-                Array<double> y = ilnInputs[1, full];
-
-                Array<double> cosT = ILMath.cos(T);
-                Array<double> sinT = ILMath.sin(T);
-                Array<double> X = (x - x0) * cosT + (y - y0) * sinT;
-                Array<double> Y = -(x - x0) * sinT + (y - y0) * cosT;
-                Array<double> X2 = X * X;
-                Array<double> Y2 = Y * Y;
-                Array<double> U2 = U * U;
-                Array<double> V2 = V * V;
-                Array<double> D = 1 + X2 / U2 + Y2 / V2;
-                Array<double> Beta = this.Beta;
-                Array<double> psfValue = B + A / ILMath.pow(D, Beta);
-                return psfValue - actualValue.T;
-            }
         }
 
         public override double SigmaToFWHM(double sigma) {
