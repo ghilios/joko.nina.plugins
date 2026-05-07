@@ -11,7 +11,7 @@ permissions:
 env:
   PLUGIN_NAME: "Hocus Focus"
   PLUGIN_DLL_NAME: "NINA.Joko.Plugins.HocusFocus"
-  PLUGIN_MANIFEST_PATH: "h/Hocus Focus/3.0.0"
+  PLUGIN_MANIFEST_PATH: "h/Hocus Focus/3.2.0"
   PLUGIN_IS_BETA: false
 
 jobs:
