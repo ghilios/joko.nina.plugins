@@ -99,6 +99,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     regionDetectedStars[regionCol, regionRow].Add(detectedStar);
                 }
 
+                var pixelScale = starDetectionResult.PixelScale;
+                Func<HocusFocusDetectedStar, double> getFwhm = !double.IsNaN(pixelScale) && pixelScale > 0
+                    ? s => s.PSF.FWHMArcsecs
+                    : s => s.PSF.FWHMPixels;
+
                 var samples = new List<KrigingSample>();
                 for (int row = 0; row < numRegionsTall; ++row) {
                     for (int col = 0; col < numRegionsWide; ++col) {
@@ -107,7 +112,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                             continue;
                         }
 
-                        var (fwhmMedian, _) = detectedStars.Select(s => s.PSF.FWHMArcsecs).MedianMAD();
+                        var (fwhmMedian, _) = detectedStars.Select(getFwhm).MedianMAD();
                         samples.Add(new KrigingSample(col, row, fwhmMedian));
                     }
                 }
@@ -116,7 +121,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     return null;
                 }
 
-                const int upscalingFactor = 10;
+                const int upscalingFactor = 50;
                 var interpWidth = (numRegionsWide - 1) * upscalingFactor + 1;
                 var interpHeight = (numRegionsTall - 1) * upscalingFactor + 1;
                 var interpolator = OrdinaryKrigingInterpolator.Create(samples);
@@ -137,7 +142,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     ContourLabelFormat = "0.0",
                     RotationXDegrees = 0.0d,
                     RotationZDegrees = 0.0d,
-                    VerticalScale = 0.0d
+                    VerticalScale = 0.0d,
+                    ShowAxes = false
                 };
 
                 foreach (var sample in samples) {

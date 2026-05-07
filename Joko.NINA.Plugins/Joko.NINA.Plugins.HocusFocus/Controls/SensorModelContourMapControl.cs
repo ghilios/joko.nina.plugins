@@ -146,8 +146,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             }
 
             try {
-                const int gridWidth = 45;
-                const int gridHeight = 31;
+                const int gridWidth = 450;
+                const int gridHeight = 310;
                 var imageWidth = ImageSize.Width * PixelSize;
                 var imageHeight = ImageSize.Height * PixelSize;
                 var imageCenterX = imageWidth / 2.0d;
@@ -167,7 +167,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     }
                 }
 
-                var colormapLambdaLimit = GetLambdaColorMapLimit(FRatio);
+                var colormapLambdaLimit = 3.0 * GetLambdaColorMapLimit(FRatio);
+                var hasValidColorRange = double.IsFinite(colormapLambdaLimit) && colormapLambdaLimit > 0.0d;
                 var model = new SurfacePlotModel() {
                     X = xs,
                     Y = ys,
@@ -176,14 +177,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     TextColor = TextColor.ToDrawingColor(),
                     AxisColor = AxisColor.ToDrawingColor(),
                     ColorMap = new SurfaceColorMap(
-                        (0.0d, SurfaceLowExtremeColor.ToDrawingColor()),
-                        (0.5d, SurfaceColor.ToDrawingColor()),
-                        (1.0d, SurfaceHighExtremeColor.ToDrawingColor())),
-                    ColorRangeMin = -colormapLambdaLimit,
-                    ColorRangeMax = colormapLambdaLimit,
-                    RotationXDegrees = Show3D ? 45.0d : 0.0d,
-                    RotationZDegrees = Show3D ? 25.0d : 0.0d,
+                        (0.00d, System.Drawing.Color.FromArgb(255, 103,   0,  31)),
+                        (0.25d, System.Drawing.Color.FromArgb(255, 239, 138,  98)),
+                        (0.50d, System.Drawing.Color.FromArgb(255, 255, 255, 255)),
+                        (0.75d, System.Drawing.Color.FromArgb(255, 103, 169, 207)),
+                        (1.00d, System.Drawing.Color.FromArgb(255,   5,  48,  97))),
+                    ColorRangeMin = hasValidColorRange ? -colormapLambdaLimit : (double?)null,
+                    ColorRangeMax = hasValidColorRange ? colormapLambdaLimit : (double?)null,
+                    Projection = Show3D ? ProjectionType.Oblique : ProjectionType.RotationBased,
+                    ObliqueYAngleDegrees = 30.0d,
+                    ObliqueYScale = 0.5d,
+                    RotationXDegrees = 0.0d,
+                    RotationYDegrees = 0.0d,
+                    RotationZDegrees = 0.0d,
+                    VerticalScale = Show3D ? 0.8d : 0.0d,
+                    ShowAxes = Show3D,
                     ZAxisLabel = Show3D ? "Offset (microns)" : null,
+                    AutoZTickCount = Show3D ? 4 : 0,
+                    AutoZTickFormat = "0.0",
                     ShowColorBar = true
                 };
 

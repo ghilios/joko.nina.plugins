@@ -14,6 +14,7 @@ using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using System;
+using System.Linq;
 using System.Windows;
 using DrawingColor = System.Drawing.Color;
 using MediaColor = System.Windows.Media.Color;
@@ -81,7 +82,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
             try {
                 var imageSize = tiltPlaneModel.ImageSize;
-                const int surfaceGranularity = 13;
+                const int surfaceGranularity = 130;
                 var xs = new double[surfaceGranularity, surfaceGranularity];
                 var ys = new double[surfaceGranularity, surfaceGranularity];
                 var zs = new double[surfaceGranularity, surfaceGranularity];
@@ -109,15 +110,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                         (0.0d, SurfaceLowExtremeColor.ToDrawingColor()),
                         (0.5d, surfaceColor),
                         (1.0d, SurfaceHighExtremeColor.ToDrawingColor())),
-                    RotationXDegrees = 70.0d,
-                    RotationZDegrees = 15.0d,
+                    Projection = ProjectionType.Oblique,
+                    ObliqueYAngleDegrees = 30.0d,
+                    ObliqueYScale = 0.5d,
                     ZAxisLabel = "Focuser Delta",
                     ReferencePlaneZ = 0.0d,
-                    ReferencePlaneScale = 1.4d,
+                    ReferencePlaneScale = 1.1d,
                     ReferencePlaneColor = DrawingColor.FromArgb(35, surfaceColor.R, surfaceColor.G, surfaceColor.B)
                 };
 
-                var colormapLimit = GetLambdaColorMapLimit(tiltPlaneModel.FRatio, tiltPlaneModel.FocuserStepSizeMicrons);
+                var colormapLimit = 3.0 * GetLambdaColorMapLimit(tiltPlaneModel.FRatio, tiltPlaneModel.FocuserStepSizeMicrons);
                 if (double.IsFinite(colormapLimit) && colormapLimit > 0.0d) {
                     model.ColorRangeMin = -colormapLimit;
                     model.ColorRangeMax = colormapLimit;
@@ -126,10 +128,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 AddCornerPoints(model, tiltPlaneModel);
                 model.XTicks.Add(new PlotTick(-0.5d, "Left"));
                 model.XTicks.Add(new PlotTick(0.5d, "Right"));
-                model.YTicks.Add(new PlotTick(0.5d, "Bottom"));
-                model.YTicks.Add(new PlotTick(-0.5d, "Top"));
-                model.ScreenLabels.Add(new ScreenLabel("Telescope", 0.5f, 0.10f, TextColor.ToDrawingColor()));
-                model.ScreenLabels.Add(new ScreenLabel("Sensor", 0.5f, 0.90f, TextColor.ToDrawingColor()));
+                model.YTicks.Add(new PlotTick(0.5d, "Bottom", BottomColor));
+                model.YTicks.Add(new PlotTick(-0.5d, "Top", TopColor));
+                model.ZTicks.Add(new PlotTick(0.0d, "0"));
+                var actualZMin = zs.Cast<double>().Min();
+                var actualZMax = zs.Cast<double>().Max();
+                if (Math.Abs(actualZMin) > 0.5d) {
+                    model.ZTicks.Add(new PlotTick(actualZMin, actualZMin.ToString("0")));
+                }
+                if (Math.Abs(actualZMax) > 0.5d) {
+                    model.ZTicks.Add(new PlotTick(actualZMax, actualZMax.ToString("0")));
+                }
+                model.ScreenLabels.Add(new ScreenLabel("Telescope", 0.5f, 0.05f, TextColor.ToDrawingColor()));
+                model.ScreenLabels.Add(new ScreenLabel("Sensor", 0.5f, 0.95f, TextColor.ToDrawingColor()));
                 return model;
             } catch (Exception e) {
                 Logger.Error(e, "Failed updating tilt model visualization");

@@ -21,6 +21,11 @@ using System.Runtime.InteropServices;
 
 namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
+    public enum ProjectionType {
+        RotationBased,
+        Oblique
+    }
+
     public readonly struct PlotPoint3D {
 
         public PlotPoint3D(double x, double y, double z, Color color, float size = 5.0f, string label = null) {
@@ -45,10 +50,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         public PlotTick(double value, string label) {
             Value = value;
             Label = label;
+            LabelColor = null;
+        }
+
+        public PlotTick(double value, string label, Color labelColor) {
+            Value = value;
+            Label = label;
+            LabelColor = labelColor;
         }
 
         public double Value { get; }
         public string Label { get; }
+        public Color? LabelColor { get; }
     }
 
     public readonly struct ScreenLabel {
@@ -114,6 +127,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         public double? ColorRangeMax { get; set; }
         public SurfaceColorMap ColorMap { get; set; }
         public double RotationXDegrees { get; set; } = 45.0d;
+        public double RotationYDegrees { get; set; } = 0.0d;
         public double RotationZDegrees { get; set; } = 25.0d;
         public double VerticalScale { get; set; } = 0.8d;
         public bool ShowSurface { get; set; } = true;
@@ -137,6 +151,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         public Color? ReferencePlaneColor { get; set; }
         public double? ReferencePlaneZ { get; set; }
         public double ReferencePlaneScale { get; set; } = 1.0d;
+        public bool ShowAxes { get; set; } = true;
+        public int AutoZTickCount { get; set; } = 0;
+        public string AutoZTickFormat { get; set; } = "0.0";
+        public ProjectionType Projection { get; set; } = ProjectionType.RotationBased;
+        public double ObliqueYAngleDegrees { get; set; } = 30.0d;
+        public double ObliqueYScale { get; set; } = 0.5d;
     }
 
     public sealed class SurfacePlotRenderer {
@@ -169,17 +189,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             zScale = bounds.ZRange <= 0.0d ? 1.0d : bounds.ZRange;
             ConfigureView();
 
+            var zBuffer = Enumerable.Repeat(double.NegativeInfinity, width * height).ToArray();
             var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
             using (var graphics = Graphics.FromImage(bitmap)) {
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 graphics.Clear(model.BackgroundColor);
-                if (model.ReferencePlaneColor.HasValue && model.ReferencePlaneZ.HasValue) {
-                    DrawReferencePlane(graphics);
+                if (model.ShowAxes) {
+                    DrawBackBoxEdges(graphics);
                 }
             }
 
             if (model.ShowSurface) {
-                DrawSurface(bitmap);
+                DrawSurface(bitmap, zBuffer);
+            }
+
+            if (model.ReferencePlaneColor.HasValue && model.ReferencePlaneZ.HasValue) {
+                DrawReferencePlane(bitmap, zBuffer);
             }
 
             using (var graphics = Graphics.FromImage(bitmap)) {
@@ -188,7 +213,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 if (model.ShowContours) {
                     DrawContours(graphics);
                 }
-                DrawAxes(graphics);
+                if (model.ShowAxes) {
+                    DrawAxes(graphics);
+                }
                 DrawPoints(graphics);
                 if (model.ShowColorBar) {
                     DrawColorBar(graphics);
@@ -198,13 +225,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             return bitmap;
         }
 
-        private void DrawSurface(Bitmap bitmap) {
+        private void DrawSurface(Bitmap bitmap, double[] zBuffer) {
             var rows = model.Z.GetLength(0);
             var cols = model.Z.GetLength(1);
             var colorMin = model.ColorRangeMin ?? bounds.ZMin;
             var colorMax = model.ColorRangeMax ?? bounds.ZMax;
             var colorMap = model.ColorMap ?? new SurfaceColorMap((0.0d, Color.Gray), (1.0d, Color.White));
-            var zBuffer = Enumerable.Repeat(double.NegativeInfinity, width * height).ToArray();
             var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
             var data = bitmap.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format32bppPArgb);
 
@@ -313,7 +339,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             pixels[offset + 3] = (byte)Math.Clamp(color.A + (pixels[offset + 3] * inverseAlpha + 127) / byte.MaxValue, 0, byte.MaxValue);
         }
 
-        private void DrawReferencePlane(Graphics graphics) {
+        private void DrawReferencePlane(Bitmap bitmap, double[] zBuffer) {
+            var color = model.ReferencePlaneColor.Value;
             var z = model.ReferencePlaneZ.Value;
             var centerX = (bounds.XMin + bounds.XMax) / 2.0d;
             var centerY = (bounds.YMin + bounds.YMax) / 2.0d;
@@ -324,10 +351,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 new Vertex3D(centerX + halfX, centerY - halfY, z),
                 new Vertex3D(centerX + halfX, centerY + halfY, z),
                 new Vertex3D(centerX - halfX, centerY + halfY, z)
-            }.Select(Project).Select(p => p.point).ToArray();
+            }.Select(Project).ToArray();
 
-            using (var brush = new SolidBrush(model.ReferencePlaneColor.Value)) {
-                graphics.FillPolygon(brush, corners);
+            var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
+            var data = bitmap.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format32bppPArgb);
+            try {
+                var stride = data.Stride;
+                var pixels = new byte[Math.Abs(stride) * bitmap.Height];
+                Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
+                RasterizeTriangle(pixels, stride, zBuffer, corners[0], corners[1], corners[2], color);
+                RasterizeTriangle(pixels, stride, zBuffer, corners[0], corners[2], corners[3], color);
+                Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+            } finally {
+                bitmap.UnlockBits(data);
             }
         }
 
@@ -357,7 +393,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         }
 
         private void DrawContourLabels(Graphics graphics, List<(double level, PointF p1, PointF p2, double length)> labelCandidates) {
-            using (var font = new Font(FontFamily.GenericSansSerif, 10.0f, FontStyle.Bold))
+            using (var font = new Font(FontFamily.GenericSansSerif, 6.5f, FontStyle.Bold))
             using (var textBrush = new SolidBrush(model.TextColor))
             using (var backgroundBrush = new SolidBrush(Color.FromArgb(220, model.BackgroundColor)))
             using (var borderPen = new Pen(Color.FromArgb(180, model.ContourColor))) {
@@ -450,49 +486,137 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 level));
         }
 
+        private (Vertex3D, Vertex3D)[] GetBoxEdges() => new[] {
+            // Bottom face
+            (new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMin), new Vertex3D(bounds.XMax, bounds.YMin, bounds.ZMin)),
+            (new Vertex3D(bounds.XMax, bounds.YMin, bounds.ZMin), new Vertex3D(bounds.XMax, bounds.YMax, bounds.ZMin)),
+            (new Vertex3D(bounds.XMax, bounds.YMax, bounds.ZMin), new Vertex3D(bounds.XMin, bounds.YMax, bounds.ZMin)),
+            (new Vertex3D(bounds.XMin, bounds.YMax, bounds.ZMin), new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMin)),
+            // Top face
+            (new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMax), new Vertex3D(bounds.XMax, bounds.YMin, bounds.ZMax)),
+            (new Vertex3D(bounds.XMax, bounds.YMin, bounds.ZMax), new Vertex3D(bounds.XMax, bounds.YMax, bounds.ZMax)),
+            (new Vertex3D(bounds.XMax, bounds.YMax, bounds.ZMax), new Vertex3D(bounds.XMin, bounds.YMax, bounds.ZMax)),
+            (new Vertex3D(bounds.XMin, bounds.YMax, bounds.ZMax), new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMax)),
+            // Vertical edges
+            (new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMin), new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMax)),
+            (new Vertex3D(bounds.XMax, bounds.YMin, bounds.ZMin), new Vertex3D(bounds.XMax, bounds.YMin, bounds.ZMax)),
+            (new Vertex3D(bounds.XMax, bounds.YMax, bounds.ZMin), new Vertex3D(bounds.XMax, bounds.YMax, bounds.ZMax)),
+            (new Vertex3D(bounds.XMin, bounds.YMax, bounds.ZMin), new Vertex3D(bounds.XMin, bounds.YMax, bounds.ZMax))
+        };
+
+        private double ComputeAvgBoxCornerDepth() {
+            return new[] {
+                new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMin),
+                new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMax),
+                new Vertex3D(bounds.XMin, bounds.YMax, bounds.ZMin),
+                new Vertex3D(bounds.XMin, bounds.YMax, bounds.ZMax),
+                new Vertex3D(bounds.XMax, bounds.YMin, bounds.ZMin),
+                new Vertex3D(bounds.XMax, bounds.YMin, bounds.ZMax),
+                new Vertex3D(bounds.XMax, bounds.YMax, bounds.ZMin),
+                new Vertex3D(bounds.XMax, bounds.YMax, bounds.ZMax),
+            }.Average(c => Project(c).depth);
+        }
+
+        private void DrawBackBoxEdges(Graphics graphics) {
+            var avgDepth = ComputeAvgBoxCornerDepth();
+            using (var pen = new Pen(model.AxisColor, 1.0f)) {
+                foreach (var edge in GetBoxEdges()) {
+                    var projA = Project(edge.Item1);
+                    var projB = Project(edge.Item2);
+                    if (projA.depth < avgDepth && projB.depth < avgDepth) {
+                        graphics.DrawLine(pen, projA.point, projB.point);
+                    }
+                }
+            }
+        }
+
         private void DrawAxes(Graphics graphics) {
+            var avgDepth = ComputeAvgBoxCornerDepth();
             using (var pen = new Pen(model.AxisColor, 1.0f))
             using (var brush = new SolidBrush(model.TextColor))
-            using (var font = new Font(FontFamily.GenericSansSerif, 9.0f)) {
-                var z0 = bounds.ZMin;
-                var edges = new[] {
-                    (new Vertex3D(bounds.XMin, bounds.YMin, z0), new Vertex3D(bounds.XMax, bounds.YMin, z0)),
-                    (new Vertex3D(bounds.XMin, bounds.YMax, z0), new Vertex3D(bounds.XMax, bounds.YMax, z0)),
-                    (new Vertex3D(bounds.XMin, bounds.YMin, z0), new Vertex3D(bounds.XMin, bounds.YMax, z0)),
-                    (new Vertex3D(bounds.XMax, bounds.YMin, z0), new Vertex3D(bounds.XMax, bounds.YMax, z0)),
-                    (new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMin), new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMax))
-                };
-
-                foreach (var edge in edges) {
-                    var p1 = Project(edge.Item1).point;
-                    var p2 = Project(edge.Item2).point;
-                    graphics.DrawLine(pen, p1, p2);
+            using (var font = new Font(FontFamily.GenericSansSerif, 7.0f)) {
+                foreach (var edge in GetBoxEdges()) {
+                    var projA = Project(edge.Item1);
+                    var projB = Project(edge.Item2);
+                    if (!(projA.depth < avgDepth && projB.depth < avgDepth)) {
+                        graphics.DrawLine(pen, projA.point, projB.point);
+                    }
                 }
 
-                DrawTicks(graphics, pen, brush, font);
+                DrawTicks(graphics, pen, font);
                 DrawAxisLabels(graphics, brush, font);
             }
         }
 
-        private void DrawTicks(Graphics graphics, Pen pen, Brush brush, Font font) {
+        private void DrawTicks(Graphics graphics, Pen pen, Font font) {
             foreach (var tick in model.XTicks) {
                 var projected = Project(new Vertex3D(tick.Value, bounds.YMin, bounds.ZMin)).point;
-                graphics.DrawString(tick.Label, font, brush, projected.X - 12, projected.Y + 3);
+                graphics.DrawLine(pen, projected.X, projected.Y, projected.X, projected.Y + 5);
+                using (var brush = new SolidBrush(tick.LabelColor ?? model.TextColor)) {
+                    graphics.DrawString(tick.Label, font, brush, projected.X - 12, projected.Y + 7);
+                }
             }
             foreach (var tick in model.YTicks) {
-                var projected = Project(new Vertex3D(bounds.XMin, tick.Value, bounds.ZMin)).point;
-                graphics.DrawString(tick.Label, font, brush, projected.X - 34, projected.Y - 7);
+                var projected = Project(new Vertex3D(bounds.XMin, tick.Value, bounds.ZMax)).point;
+                using (var brush = new SolidBrush(tick.LabelColor ?? model.TextColor)) {
+                    graphics.DrawString(tick.Label, font, brush, projected.X + 3, projected.Y - 20);
+                }
             }
-            foreach (var tick in model.ZTicks) {
+            IEnumerable<PlotTick> zTicks;
+            if (model.ZTicks.Count > 0) {
+                zTicks = model.ZTicks;
+            } else if (model.AutoZTickCount > 0 && model.VerticalScale > 0) {
+                zTicks = GenerateAutoZTicks();
+            } else {
+                zTicks = Enumerable.Empty<PlotTick>();
+            }
+            foreach (var tick in zTicks) {
                 var projected = Project(new Vertex3D(bounds.XMin, bounds.YMin, tick.Value)).point;
-                graphics.DrawString(tick.Label, font, brush, projected.X - 45, projected.Y - 7);
+                graphics.DrawLine(pen, projected.X, projected.Y, projected.X - 5, projected.Y);
+                using (var brush = new SolidBrush(tick.LabelColor ?? model.TextColor)) {
+                    var labelSize = graphics.MeasureString(tick.Label, font);
+                    graphics.DrawString(tick.Label, font, brush, projected.X - 8 - labelSize.Width, projected.Y - labelSize.Height / 2.0f);
+                }
+            }
+        }
+
+        private IEnumerable<PlotTick> GenerateAutoZTicks() {
+            var min = bounds.ZMin;
+            var max = bounds.ZMax;
+            var range = max - min;
+            if (range <= 0 || model.AutoZTickCount <= 0) {
+                yield break;
+            }
+
+            var rawStep = range / (model.AutoZTickCount + 1);
+            var magnitude = Math.Pow(10.0d, Math.Floor(Math.Log10(rawStep)));
+            var normalized = rawStep / magnitude;
+            double niceStep;
+            if (normalized < 1.5d) niceStep = magnitude;
+            else if (normalized < 3.5d) niceStep = 2.0d * magnitude;
+            else if (normalized < 7.5d) niceStep = 5.0d * magnitude;
+            else niceStep = 10.0d * magnitude;
+
+            var firstTick = Math.Ceiling(min / niceStep) * niceStep;
+            var value = firstTick;
+            while (value <= max + niceStep * 1e-9) {
+                if (value >= min - niceStep * 1e-9) {
+                    yield return new PlotTick(value, value.ToString(model.AutoZTickFormat));
+                }
+                value += niceStep;
             }
         }
 
         private void DrawAxisLabels(Graphics graphics, Brush brush, Font font) {
             if (!string.IsNullOrWhiteSpace(model.ZAxisLabel)) {
-                var projected = Project(new Vertex3D(bounds.XMin, bounds.YMin, bounds.ZMax)).point;
-                graphics.DrawString(model.ZAxisLabel, font, brush, projected.X - 40, projected.Y - 22);
+                var zRef = Math.Clamp(0.0d, bounds.ZMin, bounds.ZMax);
+                var projected = Project(new Vertex3D(bounds.XMin, bounds.YMin, zRef)).point;
+                var size = graphics.MeasureString(model.ZAxisLabel, font);
+                var state = graphics.Save();
+                graphics.TranslateTransform(projected.X - 68.0f, height / 2.0f);
+                graphics.RotateTransform(-90.0f);
+                graphics.DrawString(model.ZAxisLabel, font, brush, -size.Width / 2.0f, -size.Height / 2.0f);
+                graphics.Restore(state);
             }
             if (!string.IsNullOrWhiteSpace(model.XAxisLabel)) {
                 var projected = Project(new Vertex3D(bounds.XMax, bounds.YMin, bounds.ZMin)).point;
@@ -521,7 +645,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 }
             }
 
-            using (var font = new Font(FontFamily.GenericSansSerif, 8.5f, FontStyle.Bold))
+            using (var font = new Font(FontFamily.GenericSansSerif, 6.0f, FontStyle.Bold))
             using (var textBrush = new SolidBrush(model.TextColor))
             using (var backgroundBrush = new SolidBrush(Color.FromArgb(220, model.BackgroundColor)))
             using (var borderPen = new Pen(Color.FromArgb(150, model.AxisColor))) {
@@ -554,7 +678,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             using (var pen = new Pen(model.AxisColor))
             using (var brush = new SolidBrush(model.TextColor))
             using (var backgroundBrush = new SolidBrush(Color.FromArgb(220, model.BackgroundColor)))
-            using (var font = new Font(FontFamily.GenericSansSerif, 9.0f, FontStyle.Bold)) {
+            using (var font = new Font(FontFamily.GenericSansSerif, 6.0f, FontStyle.Bold)) {
                 graphics.DrawRectangle(pen, x, y, barWidth, barHeight);
                 DrawLabelBox(graphics, max.ToString("0.0"), font, brush, backgroundBrush, pen, new PointF(x - 10.0f, y));
                 DrawLabelBox(graphics, min.ToString("0.0"), font, brush, backgroundBrush, pen, new PointF(x - 10.0f, y + barHeight));
@@ -589,7 +713,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         }
 
         private void DrawScreenLabels(Graphics graphics) {
-            using (var font = new Font(FontFamily.GenericSansSerif, 10.0f)) {
+            using (var font = new Font(FontFamily.GenericSansSerif, 8.0f)) {
                 foreach (var label in model.ScreenLabels) {
                     using (var brush = new SolidBrush(label.Color)) {
                         var size = graphics.MeasureString(label.Text, font);
@@ -623,10 +747,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             var maxY = projected.Max(p => p.y);
             var rangeX = Math.Max(1e-6d, maxX - minX);
             var rangeY = Math.Max(1e-6d, maxY - minY);
-            var leftMargin = 48.0d;
-            var rightMargin = model.ShowColorBar ? 78.0d : 28.0d;
-            var topMargin = model.ScreenLabels.Count > 0 ? 38.0d : 24.0d;
-            var bottomMargin = model.ScreenLabels.Count > 0 ? 38.0d : 28.0d;
+            var leftMargin = model.ShowAxes ? 90.0d : 8.0d;
+            var rightMargin = model.ShowColorBar ? 78.0d : (model.ShowAxes ? 28.0d : 8.0d);
+            var topMargin = model.ScreenLabels.Count > 0 ? Math.Max(18.0d, height * 0.1d) : (model.ShowAxes ? 24.0d : 8.0d);
+            var bottomMargin = model.ScreenLabels.Count > 0 ? Math.Max(18.0d, height * 0.1d) : (model.ShowAxes ? 28.0d : 8.0d);
             var availableWidth = Math.Max(1.0d, width - leftMargin - rightMargin);
             var availableHeight = Math.Max(1.0d, height - topMargin - bottomMargin);
             drawScale = 0.92d * Math.Min(availableWidth / rangeX, availableHeight / rangeY);
@@ -682,19 +806,33 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             var y = (vertex.Y - bounds.YCenter) / xyScale;
             var z = (vertex.Z - bounds.ZCenter) / zScale * model.VerticalScale;
 
+            if (model.Projection == ProjectionType.Oblique) {
+                var angle = model.ObliqueYAngleDegrees * Math.PI / 180.0d;
+                var screenX = x + y * Math.Cos(angle) * model.ObliqueYScale;
+                var screenY = z + y * Math.Sin(angle) * model.ObliqueYScale;
+                return (screenX, screenY, -y + z * 1e-3);
+            }
+
             var rx = model.RotationXDegrees * Math.PI / 180.0d;
+            var ry = model.RotationYDegrees * Math.PI / 180.0d;
             var rz = model.RotationZDegrees * Math.PI / 180.0d;
+
             var cosX = Math.Cos(rx);
             var sinX = Math.Sin(rx);
             var y1 = y * cosX - z * sinX;
             var z1 = y * sinX + z * cosX;
 
+            var cosY = Math.Cos(ry);
+            var sinY = Math.Sin(ry);
+            var x1 = x * cosY + z1 * sinY;
+            var z2 = -x * sinY + z1 * cosY;
+
             var cosZ = Math.Cos(rz);
             var sinZ = Math.Sin(rz);
-            var x2 = x * cosZ - y1 * sinZ;
-            var y2 = x * sinZ + y1 * cosZ;
+            var x2 = x1 * cosZ - y1 * sinZ;
+            var y2 = x1 * sinZ + y1 * cosZ;
 
-            return (x2, y2, z1);
+            return (x2, y2, z2);
         }
 
         private static Color ApplyDepthShade(Color color, double depth) {

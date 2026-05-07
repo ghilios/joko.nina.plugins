@@ -1,0 +1,142 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'release/v[0-9]+.[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+env:
+  PLUGIN_NAME: "Hocus Focus"
+  PLUGIN_DLL_NAME: "NINA.Joko.Plugins.HocusFocus"
+  PLUGIN_MANIFEST_PATH: "h/Hocus Focus/3.0.0"
+  PLUGIN_IS_BETA: false
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^release/v', ''
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Prepare folders
+        run: |
+          New-Item -ItemType Directory -Force -Path "packages/${{ env.PLUGIN_NAME }}/dll/x86"
+          New-Item -ItemType Directory -Force -Path "packages/${{ env.PLUGIN_NAME }}/dll/x64"
+
+      - name: Build .NET Assemblies
+        run: |
+          dotnet restore "Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/Joko.NINA.Plugins.HocusFocus.csproj"
+          dotnet build "Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/Joko.NINA.Plugins.HocusFocus.csproj" -c Release -p:Platform=x64 -p:PostBuildEvent= -p:Version=${{ env.VERSION }} -o ./bin/Release
+
+      - name: Prepare package
+        run: |
+          Copy-Item "bin/Release/${{ env.PLUGIN_DLL_NAME }}.dll" "packages/${{ env.PLUGIN_NAME }}/" -Force
+          Copy-Item "bin/Release/${{ env.PLUGIN_DLL_NAME }}.pdb" "packages/${{ env.PLUGIN_NAME }}/" -Force
+          Copy-Item "bin/Release/alglib.net.dll" "packages/${{ env.PLUGIN_NAME }}/" -Force
+          Copy-Item "bin/Release/OpenCvSharp.dll" "packages/${{ env.PLUGIN_NAME }}/" -Force
+          Copy-Item "bin/Release/OpenCvSharp.Extensions.dll" "packages/${{ env.PLUGIN_NAME }}/" -Force
+          Copy-Item "bin/Release/runtimes/win-x86/native/OpenCvSharpExtern.dll" "packages/${{ env.PLUGIN_NAME }}/dll/x86/" -Force
+          Copy-Item "bin/Release/runtimes/win-x64/native/OpenCvSharpExtern.dll" "packages/${{ env.PLUGIN_NAME }}/dll/x64/" -Force
+          Get-ChildItem "bin/Release/ScottPlot*.dll" | Copy-Item -Destination "packages/${{ env.PLUGIN_NAME }}/" -Force
+          Get-ChildItem "bin/Release/KdTree*.dll" | Copy-Item -Destination "packages/${{ env.PLUGIN_NAME }}/" -Force
+          Get-ChildItem "bin/Release/MathNet.*.dll" | Copy-Item -Destination "packages/${{ env.PLUGIN_NAME }}/" -Force
+          Get-ChildItem "bin/Release/Microsoft.CodeAnalysis*.dll" | Copy-Item -Destination "packages/${{ env.PLUGIN_NAME }}/" -Force
+
+      - name: Create Plugin archives and manifests
+        run: |
+          curl -LO "https://raw.githubusercontent.com/isbeorn/nina.plugin.manifests/refs/heads/main/tools/CreateManifest.ps1?raw=true"
+          if ($env:PLUGIN_IS_BETA -eq "true") {
+            pwsh CreateManifest.ps1 -file "packages/${{ env.PLUGIN_NAME }}/${{ env.PLUGIN_DLL_NAME }}.dll" -beta -installerUrl "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.PLUGIN_DLL_NAME }}.${{ env.VERSION }}.zip" -createArchive -includeAll -appendVersionToArchive
+          } else {
+            pwsh CreateManifest.ps1 -file "packages/${{ env.PLUGIN_NAME }}/${{ env.PLUGIN_DLL_NAME }}.dll" -installerUrl "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ env.PLUGIN_DLL_NAME }}.${{ env.VERSION }}.zip" -createArchive -includeAll -appendVersionToArchive
+          }
+          Rename-Item -Path "manifest.json" -NewName "${{ env.PLUGIN_DLL_NAME }}.${{ env.VERSION }}.manifest.json"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ env.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            ./${{ env.PLUGIN_DLL_NAME }}.${{ env.VERSION }}.zip
+            ./${{ env.PLUGIN_DLL_NAME }}.${{ env.VERSION }}.manifest.json
+
+      - name: Upload manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-manifest
+          path: ${{ env.PLUGIN_DLL_NAME }}.${{ env.VERSION }}.manifest.json
+
+  check-repo-exists:
+    runs-on: ubuntu-latest
+    needs: build-and-release
+    outputs:
+      exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - name: Check if repo exists
+        id: check
+        run: |
+          REPO="nina.plugin.manifests"
+          OWNER="${{ github.repository_owner }}"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            https://api.github.com/repos/$OWNER/$REPO)
+          if [ "$STATUS" -eq 200 ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+  publish-manifest:
+    runs-on: ubuntu-latest
+    needs: [check-repo-exists, build-and-release]
+    if: needs.check-repo-exists.outputs.exists == 'true'
+    steps:
+      - name: Download manifest artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-manifest
+
+      - name: Extract version from tag
+        run: echo "VERSION=$(echo '${{ github.ref_name }}' | sed 's|release/v||')" >> $GITHUB_ENV
+
+      - name: Sanitize PLUGIN_NAME
+        run: echo "PLUGIN_NAME_SANITIZED=${PLUGIN_NAME//[[:space:]]/}" >> $GITHUB_ENV
+
+      - name: Clone manifest repo
+        run: |
+          git clone https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository_owner }}/nina.plugin.manifests.git
+          cd nina.plugin.manifests
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${{ env.PLUGIN_NAME_SANITIZED }}/${{ github.ref_name }}"
+
+      - name: Copy manifest file
+        run: |
+          cp "./${{ env.PLUGIN_DLL_NAME }}.${{ env.VERSION }}.manifest.json" "./nina.plugin.manifests/manifests/${{ env.PLUGIN_MANIFEST_PATH }}/manifest.${{ env.VERSION }}.json"
+          cd nina.plugin.manifests
+          git add .
+          git commit -m "Add manifest for release ${{ env.VERSION }}"
+          git push origin "${{ env.PLUGIN_NAME_SANITIZED }}/${{ github.ref_name }}"
+
+      - name: Create pull request
+        shell: bash
+        run: |
+          echo "${{ secrets.PAT }}" | gh auth login --with-token
+          gh pr create \
+            --title "Add manifest for ${{ env.PLUGIN_NAME }} ${{ env.VERSION }}" \
+            --body "Automatically generated manifest for release ${{ env.VERSION }}" \
+            --head ${{ github.repository_owner }}:${{ env.PLUGIN_NAME_SANITIZED }}/${{ github.ref_name }} \
+            --base main \
+            --repo isbeorn/nina.plugin.manifests
