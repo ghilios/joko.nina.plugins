@@ -120,11 +120,15 @@ jobs:
           cd nina.plugin.manifests
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/isbeorn/nina.plugin.manifests.git
+          git fetch upstream
+          git reset --hard upstream/main
+          git push origin main
           git checkout -b "${{ env.PLUGIN_NAME_SANITIZED }}/${{ github.ref_name }}"
 
       - name: Copy manifest file
         run: |
-          cp "./${{ env.PLUGIN_DLL_NAME }}.${{ env.VERSION }}.manifest.json" "./nina.plugin.manifests/manifests/${{ env.PLUGIN_MANIFEST_PATH }}/manifest.${{ env.VERSION }}.json"
+          cp "./${{ env.PLUGIN_DLL_NAME }}.${{ env.VERSION }}.manifest.json" "./nina.plugin.manifests/manifests/${{ env.PLUGIN_MANIFEST_PATH }}/manifest.json"
           cd nina.plugin.manifests
           git add .
           git commit -m "Add manifest for release ${{ env.VERSION }}"
