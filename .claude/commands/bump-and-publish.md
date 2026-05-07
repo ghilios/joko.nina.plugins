@@ -43,6 +43,7 @@ Display:
 - Version bump: `A.B.C.D` → `A.B.C.(D+1)`
 - Full commit message (exactly as it will be passed to git)
 - Tag name: `release/vA.B.C.(D+1)`
+- Release description (the same bullet list, used as the annotated tag message)
 
 Then ask: **"Proceed with commit and push? (yes/no)"**
 
@@ -51,9 +52,9 @@ Then ask: **"Proceed with commit and push? (yes/no)"**
 ```bash
 git add Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/Properties/AssemblyInfo.cs
 git commit -m "Release vA.B.C.(D+1)" -m "- <bullet 1>" -m "- <bullet 2>" ...
-git tag release/vA.B.C.(D+1)
+git tag -a release/vA.B.C.(D+1) -m "Release vA.B.C.(D+1)" -m "- <bullet 1>" -m "- <bullet 2>" ...
 git push origin HEAD
 git push origin release/vA.B.C.(D+1)
 ```
 
-Use separate `-m` flags for each paragraph of the commit body so git formats it correctly. The tag push triggers `.github/workflows/build-and-release.yml`, which builds, packages, and publishes the release to GitHub.
+Use separate `-m` flags for the title and each bullet in both the commit and tag so git formats them correctly. The tag push triggers `.github/workflows/build-and-release.yml`, which builds, packages, and publishes the release to GitHub.
