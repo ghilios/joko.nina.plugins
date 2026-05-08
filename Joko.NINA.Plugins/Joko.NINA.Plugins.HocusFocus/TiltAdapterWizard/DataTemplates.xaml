@@ -368,6 +368,27 @@
                         </Button>
                     </StackPanel>
 
+                    <!--  Next and Abort Wizard side by side (above post-measurement status)  -->
+                    <StackPanel
+                        Margin="0,10,0,0"
+                        HorizontalAlignment="Left"
+                        Orientation="Horizontal">
+                        <Button
+                            Margin="0,0,8,0"
+                            Command="{Binding ContinueCommand}">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Next" />
+                        </Button>
+                        <Button Command="{Binding RestartCommand}">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Abort Wizard" />
+                        </Button>
+                    </StackPanel>
+
                     <!--  Post-measurement status (shown when not measuring)  -->
                     <TextBlock
                         Margin="0,4,0,0"
@@ -385,7 +406,7 @@
                         </TextBlock.Style>
                     </TextBlock>
 
-                    <!--  Live inspector view: shown while measuring or when summary data is present  -->
+                    <!--  Live inspector view: shown only during an active measurement  -->
                     <ContentControl
                         Margin="0,8,0,0"
                         Content="{Binding Inspector}"
@@ -394,7 +415,7 @@
                             <Style TargetType="ContentControl">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding HasMeasurementFeedback}" Value="True">
+                                    <DataTrigger Binding="{Binding IsMeasuring}" Value="True">
                                         <Setter Property="Visibility" Value="Visible" />
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -424,14 +445,22 @@
                             TextWrapping="Wrap" />
                     </Border>
 
-                    <!--  Measurement summary table (shown when summary rows are available)  -->
-                    <StackPanel
-                        Margin="0,8,0,0"
-                        Visibility="{Binding StepMeasurementSummary, Converter={StaticResource HF_EmptyCollectionToVisibilityCollapsedConverter}}">
+                    <!--  Measurement results table (shown after measurement completes, hidden while measuring)  -->
+                    <StackPanel Margin="0,8,0,0">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="{Binding StepMeasurementSummary, Converter={StaticResource HF_EmptyCollectionToVisibilityCollapsedConverter}}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMeasuring}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
                         <UniformGrid Margin="0,0,0,2" Columns="3">
                             <TextBlock FontWeight="DemiBold" Text="Run" />
-                            <TextBlock FontWeight="DemiBold" Text="Direction" />
-                            <TextBlock FontWeight="DemiBold" Text="Magnitude" />
+                            <TextBlock FontWeight="DemiBold" Text="Rotation Angle" />
+                            <TextBlock FontWeight="DemiBold" Text="Tilt Magnitude" />
                         </UniformGrid>
                         <ItemsControl ItemsSource="{Binding StepMeasurementSummary}">
                             <ItemsControl.ItemTemplate>
@@ -456,27 +485,6 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </StackPanel>
-
-                    <!--  Next and Abort Wizard side by side  -->
-                    <StackPanel
-                        Margin="0,10,0,0"
-                        HorizontalAlignment="Left"
-                        Orientation="Horizontal">
-                        <Button
-                            Margin="0,0,8,0"
-                            Command="{Binding ContinueCommand}">
-                            <TextBlock
-                                Margin="10,5,10,5"
-                                Foreground="{StaticResource ButtonForegroundBrush}"
-                                Text="Next" />
-                        </Button>
-                        <Button Command="{Binding RestartCommand}">
-                            <TextBlock
-                                Margin="10,5,10,5"
-                                Foreground="{StaticResource ButtonForegroundBrush}"
-                                Text="Abort Wizard" />
-                        </Button>
                     </StackPanel>
                 </StackPanel>
 
