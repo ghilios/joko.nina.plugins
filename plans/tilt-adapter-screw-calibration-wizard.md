@@ -85,7 +85,7 @@ Implement Panel A and Panel C in full. Add the three dev buttons inside Panel A 
 
 ---
 
-## Phase 2 — Wizard UI in mock mode
+## Phase 2 — Wizard UI in mock mode ✅ COMPLETE (commit 932dc82)
 
 **Goal**: The full wizard flow is navigable. A temporary "Simulate Measurement" button stands in for the real aberration inspector call, immediately marking the current measurement step as done and injecting synthetic tilt readings. The angle calculation and diagram rendering run for real with the synthetic data so the Complete screen can be reviewed.
 
@@ -143,7 +143,7 @@ Add Panel B (wizard steps) with `DevSimulateMeasurementCommand` button visible o
 
 ---
 
-## Phase 3 — Full implementation
+## Phase 3 — Full implementation ✅ COMPLETE
 
 **Goal**: Replace all stubs and dev scaffolding with real behavior. The wizard calls the aberration inspector, reports progress, handles cancellation, and averages multiple runs. A live graph from the inspector is displayed during and after each measurement, a per-step measurement summary table is shown below the graph, and measurement consistency is validated across multiple runs.
 

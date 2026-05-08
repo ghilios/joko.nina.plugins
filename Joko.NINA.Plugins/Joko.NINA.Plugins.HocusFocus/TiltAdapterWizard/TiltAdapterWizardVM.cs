@@ -11,6 +11,8 @@
 #endregion "copyright"
 
 using CommunityToolkit.Mvvm.Input;
+using NINA.Core.Model;
+using NINA.Core.Utility;
 using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -18,8 +20,11 @@ using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.ViewModel;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel.Composition;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -43,6 +48,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private readonly ITiltAdapterOptions tiltAdapterOptions;
         private readonly InspectorVM inspector;
+        private readonly IProgress<ApplicationStatus> progress;
 
         private WizardStep currentStep = WizardStep.Baseline;
         private bool isWizardRunning = false;
@@ -50,6 +56,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private bool hasWarning = false;
         private string warningText = string.Empty;
         private string statusText = string.Empty;
+        private bool hasMeasurementConsistencyWarning = false;
+        private string measurementConsistencyWarningText = string.Empty;
+        private bool measurementDoneForCurrentStep = false;
 
         private (double A, double B) baselineReading;
         private (double A, double B) screw1Reading;
@@ -57,6 +66,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private double baselineCurvatureReading;
         private double allScrewsCurvatureReading;
         private CancellationTokenSource measureCts;
+
+        private const double MeasurementConsistencyWarningThreshold = 0.02;
 
         [ImportingConstructor]
         public TiltAdapterWizardVM(
@@ -74,16 +85,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             : base(profileService) {
             this.inspector = inspector;
             this.tiltAdapterOptions = tiltAdapterOptions;
+            this.progress = ProgressFactory.Create(applicationStatusMediator, "Tilt Adapter Wizard");
 
             this.Title = "Tilt Adapter Wizard";
 
             ScrewDiagramItems = new ObservableCollection<TiltScrewDiagramItem>();
             ScrewConnectionLines = new ObservableCollection<TiltScrewConnectionLine>();
+            StepMeasurementSummary = new ObservableCollection<TiltMeasurementSummaryRow>();
+            StepMeasurementSummary.CollectionChanged += OnSummaryCollectionChanged;
 
             StartCommand = new AsyncRelayCommand(StartAsync, () => !IsWizardRunning);
             RunMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring);
             CancelCommand = new RelayCommand(CancelMeasurement, () => IsMeasuring);
-            ContinueCommand = new RelayCommand(NextStep, () => currentStep == WizardStep.ScrewNumbering);
+            ContinueCommand = new RelayCommand(NextStep, () => CanAdvance && !IsMeasuring);
             RestartCommand = new RelayCommand(Restart);
 
             tiltAdapterOptions.PropertyChanged += (s, e) => {
@@ -102,11 +116,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RebuildDiagram();
         }
 
+        private void OnSummaryCollectionChanged(object sender, NotifyCollectionChangedEventArgs e) {
+            RaisePropertyChanged(nameof(HasMeasurementFeedback));
+        }
+
         public ITiltAdapterOptions TiltAdapterOptions => tiltAdapterOptions;
+        public InspectorVM Inspector => inspector;
 
         public ObservableCollection<TiltScrewDiagramItem> ScrewDiagramItems { get; }
-
         public ObservableCollection<TiltScrewConnectionLine> ScrewConnectionLines { get; }
+        public ObservableCollection<TiltMeasurementSummaryRow> StepMeasurementSummary { get; }
 
         public bool IsWizardRunning {
             get => isWizardRunning;
@@ -121,11 +140,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             get => currentStep;
             private set {
                 currentStep = value;
+                measurementDoneForCurrentStep = false;
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(IsComplete));
                 RaisePropertyChanged(nameof(IsOnMeasurementStep));
                 RaisePropertyChanged(nameof(IsOnInformationalStep));
                 RaisePropertyChanged(nameof(StepInstructions));
+                RaisePropertyChanged(nameof(CanAdvance));
                 NotifyCommandsCanExecuteChanged();
             }
         }
@@ -141,6 +162,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Steps where the user just reads instructions and clicks Continue
         public bool IsOnInformationalStep => currentStep == WizardStep.ScrewNumbering;
+
+        public bool CanAdvance => IsOnInformationalStep || measurementDoneForCurrentStep;
 
         public bool IsCalibrationValid =>
             tiltAdapterOptions.IsCalibrated &&
@@ -158,9 +181,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             private set {
                 isMeasuring = value;
                 RaisePropertyChanged();
+                RaisePropertyChanged(nameof(HasMeasurementFeedback));
                 NotifyCommandsCanExecuteChanged();
             }
         }
+
+        public bool HasMeasurementFeedback => isMeasuring || StepMeasurementSummary.Count > 0;
 
         public bool HasWarning {
             get => hasWarning;
@@ -182,6 +208,22 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             get => statusText;
             private set {
                 statusText = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        public bool HasMeasurementConsistencyWarning {
+            get => hasMeasurementConsistencyWarning;
+            private set {
+                hasMeasurementConsistencyWarning = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        public string MeasurementConsistencyWarningText {
+            get => measurementConsistencyWarningText;
+            private set {
+                measurementConsistencyWarningText = value;
                 RaisePropertyChanged();
             }
         }
@@ -228,72 +270,133 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         private async Task RunMeasurementAsync() {
+            StepMeasurementSummary.Clear();
+            HasMeasurementConsistencyWarning = false;
+            MeasurementConsistencyWarningText = string.Empty;
+
             measureCts?.Dispose();
             measureCts = new CancellationTokenSource();
             var token = measureCts.Token;
-
             IsMeasuring = true;
-            bool success = false;
 
             try {
-                int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
-                const int simulatedSecondsPerRun = 3;
+                bool success = false;
 
-                for (int i = 0; i < count; i++) {
-                    token.ThrowIfCancellationRequested();
-                    var runStart = DateTime.UtcNow;
-
-                    while (true) {
-                        token.ThrowIfCancellationRequested();
-                        double elapsed = (DateTime.UtcNow - runStart).TotalSeconds;
-                        if (elapsed >= simulatedSecondsPerRun) break;
-                        double remaining = simulatedSecondsPerRun - elapsed;
-                        StatusText = $"Running measurement {i + 1}/{count}... ({remaining:F0}s remaining)";
-                        await Task.Delay(100, token);
+                switch (currentStep) {
+                    case WizardStep.Baseline: {
+                        var result = await RunAveragedTiltMeasurement(token);
+                        if (result != null) {
+                            baselineReading = result.Value;
+                            baselineCurvatureReading = inspector.TiltModel?.TiltPlaneModel?.MeanFocuserPosition ?? 0.0;
+                            success = true;
+                        }
+                        break;
+                    }
+                    case WizardStep.AllScrews: {
+                        var result = await RunAveragedCurvatureMeasurement(token);
+                        if (result != null) {
+                            allScrewsCurvatureReading = result.Value;
+                            success = true;
+                        }
+                        break;
+                    }
+                    case WizardStep.Screw1: {
+                        var result = await RunAveragedTiltMeasurement(token);
+                        if (result != null) {
+                            screw1Reading = result.Value;
+                            success = true;
+                        }
+                        break;
+                    }
+                    case WizardStep.Screw2: {
+                        var result = await RunAveragedTiltMeasurement(token);
+                        if (result != null) {
+                            screw2Reading = result.Value;
+                            success = true;
+                        }
+                        break;
                     }
                 }
 
-                InjectSyntheticData();
-                success = true;
+                if (success) {
+                    measurementDoneForCurrentStep = true;
+                    StatusText = "Measurement complete.";
+                    RaisePropertyChanged(nameof(CanAdvance));
+                    NotifyCommandsCanExecuteChanged();
+                } else {
+                    StatusText = "Measurement failed.";
+                }
             } catch (OperationCanceledException) {
                 StatusText = "Measurement cancelled.";
             } finally {
                 IsMeasuring = false;
             }
+        }
 
-            if (success) {
-                StatusText = "Measurement complete.";
-                await Task.Delay(1500); // let user see the result before advancing
-                if (isWizardRunning) {
-                    NextStep();
+        private async Task<(double A, double B)?> RunAveragedTiltMeasurement(CancellationToken token) {
+            int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
+            var readings = new List<(double A, double B)>(count);
+
+            for (int i = 0; i < count; i++) {
+                token.ThrowIfCancellationRequested();
+                StatusText = $"Run {i + 1}/{count}...";
+                bool ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true);
+                if (!ok) return null;
+                var m = inspector.TiltModel?.TiltPlaneModel;
+                if (m == null) return null;
+                readings.Add((m.A, m.B));
+            }
+
+            double avgA = readings.Average(r => r.A);
+            double avgB = readings.Average(r => r.B);
+
+            for (int i = 0; i < readings.Count; i++) {
+                var (a, b) = readings[i];
+                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                    RunNumber = i + 1,
+                    Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
+                    Magnitude = Math.Sqrt(a * a + b * b),
+                    IsAverage = false
+                });
+            }
+
+            if (count > 1) {
+                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                    RunNumber = 0,
+                    Direction = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
+                    Magnitude = Math.Sqrt(avgA * avgA + avgB * avgB),
+                    IsAverage = true
+                });
+
+                double maxDev = readings.Max(r =>
+                    Math.Sqrt(Math.Pow(r.A - avgA, 2) + Math.Pow(r.B - avgB, 2)));
+                if (maxDev > MeasurementConsistencyWarningThreshold) {
+                    HasMeasurementConsistencyWarning = true;
+                    MeasurementConsistencyWarningText =
+                        $"Measurements inconsistent: max deviation {maxDev:F4} exceeds {MeasurementConsistencyWarningThreshold:F4}. Consider re-running.";
                 }
             }
+
+            return (avgA, avgB);
+        }
+
+        private async Task<double?> RunAveragedCurvatureMeasurement(CancellationToken token) {
+            int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
+            double sum = 0;
+            for (int i = 0; i < count; i++) {
+                token.ThrowIfCancellationRequested();
+                StatusText = $"Run {i + 1}/{count}...";
+                bool ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true);
+                if (!ok) return null;
+                var pos = inspector.TiltModel?.TiltPlaneModel?.MeanFocuserPosition;
+                if (pos == null) return null;
+                sum += pos.Value;
+            }
+            return sum / count;
         }
 
         private void CancelMeasurement() {
             measureCts?.Cancel();
-        }
-
-        // Inject synthetic readings for the current step (replaced in Phase 3 with real inspector calls).
-        // Screw1 targets 90°, Screw2 targets 210° → produces 90°/210°/330° (evenly 120° apart).
-        private void InjectSyntheticData() {
-            switch (currentStep) {
-                case WizardStep.Baseline:
-                    baselineReading = (0.0, 0.0);
-                    baselineCurvatureReading = 5000.0;
-                    break;
-                case WizardStep.AllScrews:
-                    allScrewsCurvatureReading = 5100.0;
-                    break;
-                case WizardStep.Screw1:
-                    // dA=sin(90°)=1, dB=-cos(90°)=0 → atan2(0.05, 0) = 90°
-                    screw1Reading = (0.05, 0.0);
-                    break;
-                case WizardStep.Screw2:
-                    // dA=sin(210°)=-0.5, dB=-cos(210°)=√3/2 → atan2(-0.025, -0.04330) = -150° → normalized 210°
-                    screw2Reading = (-0.025, 0.04330);
-                    break;
-            }
         }
 
         private void NextStep() {
@@ -308,6 +411,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RebuildDiagram();
             }
 
+            StepMeasurementSummary.Clear();
+            HasMeasurementConsistencyWarning = false;
+            MeasurementConsistencyWarningText = string.Empty;
             StatusText = string.Empty;
             CurrentStep = next;
         }
@@ -316,11 +422,15 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measureCts?.Cancel();
             IsWizardRunning = false;
             IsMeasuring = false;
+            measurementDoneForCurrentStep = false;
             baselineReading = default;
             screw1Reading = default;
             screw2Reading = default;
             baselineCurvatureReading = 0;
             allScrewsCurvatureReading = 0;
+            StepMeasurementSummary.Clear();
+            HasMeasurementConsistencyWarning = false;
+            MeasurementConsistencyWarningText = string.Empty;
             StatusText = string.Empty;
             CurrentStep = WizardStep.Baseline;
         }

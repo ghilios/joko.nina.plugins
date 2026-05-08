@@ -2,6 +2,7 @@
     x:Class="NINA.Joko.Plugins.HocusFocus.Resources.OptionsDataTemplates"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:NINA.Joko.Plugins.HocusFocus.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:hfconverters="clr-namespace:NINA.Joko.Plugins.HocusFocus.Converters"
     xmlns:hfenum="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
@@ -36,6 +37,54 @@
     <hfconverters:DoubleGreaterOneToEmptyStringConverter x:Key="HF_DoubleGreaterOneToEmptyStringConverter" />
     <hfconverters:MeasurementAverageDisplayConverter x:Key="HF_MeasurementAverageDisplayConverter" />
     <hfconverters:EmptyCollectionToVisibilityConverter x:Key="HF_EmptyCollectionToVisibilityCollapsedConverter" />
+
+    <!--
+        Compact tilt visualization used by the Tilt Adapter Wizard to show live measurement feedback.
+        DataContext must be InspectorVM. Only renders the TiltModelControl; callers control visibility.
+    -->
+    <DataTemplate x:Key="HF_InspectorLiveView">
+        <StackPanel>
+            <TextBlock
+                Margin="0,0,0,4"
+                HorizontalAlignment="Center"
+                FontStyle="Italic"
+                Text="Sensor Tilt Visualization (for direction only — model always scaled to fit)"
+                TextWrapping="Wrap">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding TiltMeasurementActivatedOnce}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+            <controls:TiltModelControl
+                Height="200"
+                HorizontalAlignment="Stretch"
+                AxisColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
+                PlotBackgroundColor="{Binding Path=Color, Source={StaticResource BackgroundBrush}}"
+                PointColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
+                SurfaceColor="{Binding Path=Color, Source={StaticResource ButtonBackgroundBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
+                SurfaceHighExtremeColor="Red"
+                SurfaceLowExtremeColor="Blue"
+                TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                TiltPlaneModel="{Binding TiltModel.TiltPlaneModel, Mode=OneWay}">
+                <controls:TiltModelControl.Style>
+                    <Style TargetType="controls:TiltModelControl">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding TiltMeasurementActivatedOnce}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </controls:TiltModelControl.Style>
+            </controls:TiltModelControl>
+        </StackPanel>
+    </DataTemplate>
 
     <TextBlock x:Key="MaxConcurrent_Tooltip" Text="The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long an Auto Focus operation can take before we cancel it and move on." />
