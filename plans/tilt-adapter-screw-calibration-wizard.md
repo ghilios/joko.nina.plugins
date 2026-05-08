@@ -603,7 +603,7 @@ Screw 4 angle TextBlock uses a `DataTrigger` on `TiltAdapterOptions.ScrewCount` 
 
 ---
 
-## Phase 4 — Tilt Guidance in Aberration Inspector
+## Phase 4 — Tilt Guidance in Aberration Inspector ✅ COMPLETE
 
 **Goal**: Add a live tilt correction guidance section to the Aberration Inspector panel. When a calibration model is present the section shows a per-screw adjustment table (arrow indicators) and a curvature direction note, updated after each measurement run. When no calibration is present it shows a prompt to run the Tilt Adapter Wizard instead.
 

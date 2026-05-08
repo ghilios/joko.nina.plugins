@@ -88,6 +88,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
         private readonly IApplicationDispatcher applicationDispatcher;
         private readonly IProgress<ApplicationStatus> progress;
+        private readonly ITiltAdapterOptions tiltAdapterOptions;
 
         [ImportingConstructor]
         public InspectorVM(
@@ -102,7 +103,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector)
             : this(profileService, applicationStatusMediator, imagingMediator, cameraMediator, focuserMediator, filterWheelMediator, telescopeMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.InspectorOptions, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory,
-                  imageDataFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.AlglibAPI) {
+                  imageDataFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.AlglibAPI, HocusFocusPlugin.TiltAdapterOptions) {
         }
 
         public InspectorVM(
@@ -122,7 +123,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IApplicationDispatcher applicationDispatcher,
-            IAlglibAPI alglibAPI) : base(profileService) {
+            IAlglibAPI alglibAPI,
+            ITiltAdapterOptions tiltAdapterOptions = null) : base(profileService) {
             this.applicationStatusMediator = applicationStatusMediator;
             this.imagingMediator = imagingMediator;
             this.cameraMediator = cameraMediator;
@@ -156,6 +158,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionLineFittings = new AsyncObservableCollection<TrendlineFitting>(Enumerable.Range(0, 6).Select(i => (TrendlineFitting)null));
             TiltModel = new TiltModel(inspectorOptions);
             SensorModel = new SensorModel(profileService, inspectorOptions, autoFocusOptions, alglibAPI);
+
+            this.tiltAdapterOptions = tiltAdapterOptions;
+            TiltGuidanceRows = new AsyncObservableCollection<TiltScrewGuidanceRow>();
+            if (tiltAdapterOptions != null) {
+                tiltAdapterOptions.PropertyChanged += (s, e) => RebuildTiltGuidance();
+                RebuildTiltGuidance();
+            }
 
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["InspectorSVG"];
             ImageGeometry.Freeze();
@@ -335,6 +344,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             UpdateBackfocusMeasurements(result);
             TiltModel.UpdateTiltModel(result, fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio, backfocusFocuserPositionDelta: BackfocusFocuserPositionDelta);
+            RebuildTiltGuidance();
             AutoFocusCompleted = true;
             return true;
         }
@@ -1415,6 +1425,76 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public SensorModel SensorModel { get; private set; }
         public IInspectorOptions InspectorOptions => this.inspectorOptions;
 
+        public AsyncObservableCollection<TiltScrewGuidanceRow> TiltGuidanceRows { get; private set; }
+
+        public bool HasTiltAdapterCalibration =>
+            tiltAdapterOptions != null &&
+            tiltAdapterOptions.IsCalibrated &&
+            tiltAdapterOptions.ScrewCount == tiltAdapterOptions.CalibratedScrewCount;
+
+        public string CurvatureGuidanceText {
+            get {
+                if (tiltAdapterOptions == null) return string.Empty;
+                int sign = tiltAdapterOptions.ScrewInwardCurvatureSign;
+                if (sign == 1) return "Curvature: ⬆ all inward to raise · ⬇ all outward to lower";
+                if (sign == -1) return "Curvature: ⬇ all inward to lower · ⬆ all outward to raise";
+                return string.Empty;
+            }
+        }
+
+        public bool HasCurvatureGuidance => CurvatureGuidanceText.Length > 0;
+
+        private const double GuidanceNoiseThreshold = 0.005;
+        private const double GuidanceMinArrowThreshold = 0.1;
+        private const double GuidanceLargeArrowThreshold = 0.5;
+
+        private void RebuildTiltGuidance() {
+            RaisePropertyChanged(nameof(HasTiltAdapterCalibration));
+            RaisePropertyChanged(nameof(CurvatureGuidanceText));
+            RaisePropertyChanged(nameof(HasCurvatureGuidance));
+
+            TiltGuidanceRows.Clear();
+
+            if (!HasTiltAdapterCalibration) return;
+
+            var tiltPlane = TiltModel?.TiltPlaneModel;
+            if (tiltPlane == null) return;
+
+            double a = tiltPlane.A;
+            double b = tiltPlane.B;
+            if (double.IsNaN(a) || double.IsNaN(b)) return;
+
+            int n = tiltAdapterOptions.CalibratedScrewCount;
+            var angles = new double[n];
+            angles[0] = tiltAdapterOptions.Screw1AngleDegrees;
+            angles[1] = tiltAdapterOptions.Screw2AngleDegrees;
+            angles[2] = tiltAdapterOptions.Screw3AngleDegrees;
+            if (n == 4) angles[3] = tiltAdapterOptions.Screw4AngleDegrees;
+
+            var turns = new double[n];
+            for (int i = 0; i < n; i++) {
+                double theta = angles[i] * Math.PI / 180.0;
+                turns[i] = (2.0 / n) * (-a * Math.Sin(theta) + b * Math.Cos(theta));
+            }
+
+            double maxAbs = turns.Max(t => Math.Abs(t));
+
+            for (int i = 0; i < n; i++) {
+                string arrow;
+                if (maxAbs < GuidanceNoiseThreshold) {
+                    arrow = "—";
+                } else {
+                    double ratio = turns[i] / maxAbs;
+                    if (ratio >= GuidanceLargeArrowThreshold) arrow = "⬆";
+                    else if (ratio >= GuidanceMinArrowThreshold) arrow = "↑";
+                    else if (ratio <= -GuidanceLargeArrowThreshold) arrow = "⬇";
+                    else if (ratio <= -GuidanceMinArrowThreshold) arrow = "↓";
+                    else arrow = "—";
+                }
+                TiltGuidanceRows.Add(new TiltScrewGuidanceRow { ScrewNumber = i + 1, Arrow = arrow });
+            }
+        }
+
         private TrendlineFitting GetLineFitting(AutoFocusFitting fitting) {
             if (fitting.Method == AFMethodEnum.STARHFR) {
                 if (fitting.CurveFittingType == AFCurveFittingEnum.TRENDPARABOLIC || fitting.CurveFittingType == AFCurveFittingEnum.TRENDHYPERBOLIC || fitting.CurveFittingType == AFCurveFittingEnum.TRENDLINES) {
@@ -1746,6 +1826,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SensorModel.Clear();
             AutoFocusCompleted = false;
             ResetErrors();
+            RebuildTiltGuidance();
         }
 
         private void ActivateAutoFocusChart() {
