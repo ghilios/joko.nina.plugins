@@ -29,7 +29,7 @@ Screw2Adjustment(6) → Screw2Measurement(7) → Complete(8)
 
 ---
 
-## Phase 1 — Static UI with mock data controls
+## Phase 1 — Static UI with mock data controls ✅ COMPLETE (commit eb3d3b5)
 
 **Goal**: The dockable panel appears in NINA, Panel A (settings + diagram) and Panel C (complete view) are fully laid out. Temporary dev buttons allow setting and clearing mock calibration data so the diagram rendering can be reviewed before any real logic is written.
 
