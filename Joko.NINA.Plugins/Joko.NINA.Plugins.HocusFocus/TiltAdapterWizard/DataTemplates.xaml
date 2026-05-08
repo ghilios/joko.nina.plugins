@@ -218,6 +218,13 @@
                             Text="Start Calibration" />
                     </Button>
 
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        Foreground="{StaticResource NotificationErrorBrush}"
+                        Text="{Binding ConnectionWarningText}"
+                        TextWrapping="Wrap"
+                        Visibility="{Binding ConnectionWarningText, Converter={StaticResource NullOrEmptyStringToVisibilityCollapsedConverter}}" />
+
                     <TextBlock Margin="0,10,0,0" Text="No calibration saved.">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
@@ -307,6 +314,29 @@
                             Foreground="{StaticResource ButtonForegroundBrush}"
                             Text="Run Measurement" />
                     </Button>
+
+                    <!--  Device connection warning: shown when Run Measurement is visible but devices are not connected  -->
+                    <TextBlock
+                        Margin="0,0,0,4"
+                        Foreground="{StaticResource NotificationErrorBrush}"
+                        Text="{Binding ConnectionWarningText}"
+                        TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding IsOnMeasurementStep}" Value="True" />
+                                            <Condition Binding="{Binding IsMeasuring}" Value="False" />
+                                            <Condition Binding="{Binding AreDevicesConnected}" Value="False" />
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
 
                     <!--  Measurement progress area: visible while measuring  -->
                     <StackPanel>

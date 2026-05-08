@@ -13,7 +13,12 @@
 using CommunityToolkit.Mvvm.Input;
 using NINA.Core.Model;
 using NINA.Core.Utility;
+using NINA.Equipment.Equipment;
+using NINA.Equipment.Equipment.MyCamera;
+using NINA.Equipment.Equipment.MyFocuser;
+using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Interfaces.ViewModel;
+using NINA.Equipment.Model;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile.Interfaces;
@@ -44,11 +49,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     [PartCreationPolicy(CreationPolicy.Shared)]
     [Export(typeof(IDockableVM))]
     [Export]
-    public class TiltAdapterWizardVM : DockableVM {
+    public class TiltAdapterWizardVM : DockableVM, ICameraConsumer, IFocuserConsumer {
 
         private readonly ITiltAdapterOptions tiltAdapterOptions;
         private readonly InspectorVM inspector;
         private readonly IProgress<ApplicationStatus> progress;
+
+        private CameraInfo cameraInfo = DeviceInfo.CreateDefaultInstance<CameraInfo>();
+        private FocuserInfo focuserInfo = DeviceInfo.CreateDefaultInstance<FocuserInfo>();
 
         private WizardStep currentStep = WizardStep.Baseline;
         private bool isWizardRunning = false;
@@ -73,13 +81,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public TiltAdapterWizardVM(
             IProfileService profileService,
             IApplicationStatusMediator applicationStatusMediator,
+            ICameraMediator cameraMediator,
+            IFocuserMediator focuserMediator,
             InspectorVM inspector)
-            : this(profileService, applicationStatusMediator, inspector,
+            : this(profileService, applicationStatusMediator, cameraMediator, focuserMediator, inspector,
                    HocusFocusPlugin.TiltAdapterOptions) { }
 
         public TiltAdapterWizardVM(
             IProfileService profileService,
             IApplicationStatusMediator applicationStatusMediator,
+            ICameraMediator cameraMediator,
+            IFocuserMediator focuserMediator,
             InspectorVM inspector,
             ITiltAdapterOptions tiltAdapterOptions)
             : base(profileService) {
@@ -94,8 +106,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             StepMeasurementSummary = new ObservableCollection<TiltMeasurementSummaryRow>();
             StepMeasurementSummary.CollectionChanged += OnSummaryCollectionChanged;
 
-            StartCommand = new AsyncRelayCommand(StartAsync, () => !IsWizardRunning);
-            RunMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring);
+            StartCommand = new AsyncRelayCommand(StartAsync, () => !IsWizardRunning && AreDevicesConnected);
+            RunMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring && AreDevicesConnected);
             CancelCommand = new RelayCommand(CancelMeasurement, () => IsMeasuring);
             ContinueCommand = new RelayCommand(NextStep, () => CanAdvance && !IsMeasuring);
             RestartCommand = new RelayCommand(Restart);
@@ -114,6 +126,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             };
 
             RebuildDiagram();
+
+            cameraMediator.RegisterConsumer(this);
+            focuserMediator.RegisterConsumer(this);
         }
 
         private void OnSummaryCollectionChanged(object sender, NotifyCollectionChangedEventArgs e) {
@@ -170,6 +185,59 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             tiltAdapterOptions.ScrewCount == tiltAdapterOptions.CalibratedScrewCount;
 
         public bool HasCurvatureCalibration => tiltAdapterOptions.ScrewInwardCurvatureSign != 0;
+
+        public bool AreDevicesConnected => cameraInfo.Connected && focuserInfo.Connected;
+
+        public string ConnectionWarningText {
+            get {
+                if (!cameraInfo.Connected && !focuserInfo.Connected) return "Camera and focuser are not connected.";
+                if (!cameraInfo.Connected) return "Camera is not connected.";
+                if (!focuserInfo.Connected) return "Focuser is not connected.";
+                return string.Empty;
+            }
+        }
+
+        public CameraInfo CameraInfo {
+            get => cameraInfo;
+            private set {
+                cameraInfo = value;
+                RaisePropertyChanged();
+                RaisePropertyChanged(nameof(AreDevicesConnected));
+                RaisePropertyChanged(nameof(ConnectionWarningText));
+                NotifyCommandsCanExecuteChanged();
+            }
+        }
+
+        public FocuserInfo FocuserInfo {
+            get => focuserInfo;
+            private set {
+                focuserInfo = value;
+                RaisePropertyChanged();
+                RaisePropertyChanged(nameof(AreDevicesConnected));
+                RaisePropertyChanged(nameof(ConnectionWarningText));
+                NotifyCommandsCanExecuteChanged();
+            }
+        }
+
+        public void UpdateDeviceInfo(CameraInfo deviceInfo) {
+            CameraInfo = deviceInfo;
+        }
+
+        public void UpdateDeviceInfo(FocuserInfo deviceInfo) {
+            FocuserInfo = deviceInfo;
+        }
+
+        public void UpdateEndAutoFocusRun(AutoFocusInfo info) {
+            // Do nothing
+        }
+
+        public void UpdateUserFocused(FocuserInfo info) {
+            // Do nothing
+        }
+
+        public void Dispose() {
+            // Do nothing
+        }
 
         public string CurvatureSignDescription =>
             tiltAdapterOptions.ScrewInwardCurvatureSign == 1 ? "↑" :
