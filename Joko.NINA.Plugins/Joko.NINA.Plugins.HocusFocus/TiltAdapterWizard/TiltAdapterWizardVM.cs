@@ -134,6 +134,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private void OnSummaryCollectionChanged(object sender, NotifyCollectionChangedEventArgs e) {
             RaisePropertyChanged(nameof(HasMeasurementFeedback));
+            RaisePropertyChanged(nameof(HasMeasurementResults));
         }
 
         public ITiltAdapterOptions TiltAdapterOptions => tiltAdapterOptions;
@@ -251,11 +252,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 isMeasuring = value;
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(HasMeasurementFeedback));
+                RaisePropertyChanged(nameof(HasMeasurementResults));
                 NotifyCommandsCanExecuteChanged();
             }
         }
 
         public bool HasMeasurementFeedback => isMeasuring || StepMeasurementSummary.Count > 0;
+
+        public bool HasMeasurementResults => !isMeasuring && StepMeasurementSummary.Count > 0;
 
         public bool HasWarning {
             get => hasWarning;

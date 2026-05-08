@@ -449,10 +449,10 @@
                     <StackPanel Margin="0,8,0,0">
                         <StackPanel.Style>
                             <Style TargetType="StackPanel">
-                                <Setter Property="Visibility" Value="{Binding StepMeasurementSummary, Converter={StaticResource HF_EmptyCollectionToVisibilityCollapsedConverter}}" />
+                                <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsMeasuring}" Value="True">
-                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    <DataTrigger Binding="{Binding HasMeasurementResults}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
