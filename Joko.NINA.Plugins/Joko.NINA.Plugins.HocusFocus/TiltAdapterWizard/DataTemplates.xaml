@@ -458,26 +458,26 @@
                         </ItemsControl>
                     </StackPanel>
 
-                    <!--  Next: advances to the next step; enabled when CanAdvance  -->
-                    <Button
+                    <!--  Next and Abort Wizard side by side  -->
+                    <StackPanel
                         Margin="0,10,0,0"
                         HorizontalAlignment="Left"
-                        Command="{Binding ContinueCommand}">
-                        <TextBlock
-                            Margin="10,5,10,5"
-                            Foreground="{StaticResource ButtonForegroundBrush}"
-                            Text="Next" />
-                    </Button>
-
-                    <Button
-                        Margin="0,6"
-                        HorizontalAlignment="Left"
-                        Command="{Binding RestartCommand}">
-                        <TextBlock
-                            Margin="10,5,10,5"
-                            Foreground="{StaticResource ButtonForegroundBrush}"
-                            Text="Abort Wizard" />
-                    </Button>
+                        Orientation="Horizontal">
+                        <Button
+                            Margin="0,0,8,0"
+                            Command="{Binding ContinueCommand}">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Next" />
+                        </Button>
+                        <Button Command="{Binding RestartCommand}">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Abort Wizard" />
+                        </Button>
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- Panel C: Complete step (visible when IsComplete) -->
