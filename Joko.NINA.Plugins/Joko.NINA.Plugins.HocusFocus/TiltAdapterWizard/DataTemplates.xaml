@@ -218,13 +218,6 @@
                             Text="Start Calibration" />
                     </Button>
 
-                    <TextBlock
-                        Margin="0,2,0,0"
-                        Foreground="{StaticResource NotificationErrorBrush}"
-                        Text="{Binding ConnectionWarningText}"
-                        TextWrapping="Wrap"
-                        Visibility="{Binding ConnectionWarningText, Converter={StaticResource NullOrEmptyStringToVisibilityCollapsedConverter}}" />
-
                     <TextBlock Margin="0,10,0,0" Text="No calibration saved.">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">

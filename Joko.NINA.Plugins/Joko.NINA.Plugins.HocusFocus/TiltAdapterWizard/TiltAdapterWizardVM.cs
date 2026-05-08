@@ -106,7 +106,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             StepMeasurementSummary = new ObservableCollection<TiltMeasurementSummaryRow>();
             StepMeasurementSummary.CollectionChanged += OnSummaryCollectionChanged;
 
-            StartCommand = new AsyncRelayCommand(StartAsync, () => !IsWizardRunning && AreDevicesConnected);
+            StartCommand = new AsyncRelayCommand(StartAsync, () => !IsWizardRunning);
             RunMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring && AreDevicesConnected);
             UseSavedAFCommand = new AsyncRelayCommand(RunSavedMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring);
             CancelCommand = new RelayCommand(CancelMeasurement, () => IsMeasuring);
