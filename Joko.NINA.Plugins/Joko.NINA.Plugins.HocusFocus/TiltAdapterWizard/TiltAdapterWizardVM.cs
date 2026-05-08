@@ -108,6 +108,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             StartCommand = new AsyncRelayCommand(StartAsync, () => !IsWizardRunning && AreDevicesConnected);
             RunMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring && AreDevicesConnected);
+            UseSavedAFCommand = new AsyncRelayCommand(RunSavedMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring);
             CancelCommand = new RelayCommand(CancelMeasurement, () => IsMeasuring);
             ContinueCommand = new RelayCommand(NextStep, () => CanAdvance && !IsMeasuring);
             RestartCommand = new RelayCommand(Restart);
@@ -326,6 +327,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         public ICommand StartCommand { get; }
         public ICommand RunMeasurementCommand { get; }
+        public ICommand UseSavedAFCommand { get; }
         public ICommand CancelCommand { get; }
         public ICommand ContinueCommand { get; }
         public ICommand RestartCommand { get; }
@@ -399,6 +401,88 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             } finally {
                 IsMeasuring = false;
             }
+        }
+
+        private async Task RunSavedMeasurementAsync() {
+            StepMeasurementSummary.Clear();
+            HasMeasurementConsistencyWarning = false;
+            MeasurementConsistencyWarningText = string.Empty;
+
+            measureCts?.Dispose();
+            measureCts = new CancellationTokenSource();
+            var token = measureCts.Token;
+            IsMeasuring = true;
+
+            try {
+                StatusText = "Loading saved run...";
+                bool ok = await inspector.AnalyzeAutoFocusFromSaved(token);
+                if (!ok) {
+                    StatusText = "Measurement failed.";
+                    return;
+                }
+
+                bool success = false;
+                switch (currentStep) {
+                    case WizardStep.Baseline: {
+                        var m = inspector.TiltModel?.TiltPlaneModel;
+                        if (m != null) {
+                            baselineReading = (m.A, m.B);
+                            baselineCurvatureReading = m.MeanFocuserPosition;
+                            AddTiltSummaryRow(m.A, m.B, runNumber: 1);
+                            success = true;
+                        }
+                        break;
+                    }
+                    case WizardStep.AllScrews: {
+                        var pos = inspector.TiltModel?.TiltPlaneModel?.MeanFocuserPosition;
+                        if (pos != null) {
+                            allScrewsCurvatureReading = pos.Value;
+                            success = true;
+                        }
+                        break;
+                    }
+                    case WizardStep.Screw1: {
+                        var m = inspector.TiltModel?.TiltPlaneModel;
+                        if (m != null) {
+                            screw1Reading = (m.A, m.B);
+                            AddTiltSummaryRow(m.A, m.B, runNumber: 1);
+                            success = true;
+                        }
+                        break;
+                    }
+                    case WizardStep.Screw2: {
+                        var m = inspector.TiltModel?.TiltPlaneModel;
+                        if (m != null) {
+                            screw2Reading = (m.A, m.B);
+                            AddTiltSummaryRow(m.A, m.B, runNumber: 1);
+                            success = true;
+                        }
+                        break;
+                    }
+                }
+
+                if (success) {
+                    measurementDoneForCurrentStep = true;
+                    StatusText = "Measurement complete.";
+                    RaisePropertyChanged(nameof(CanAdvance));
+                    NotifyCommandsCanExecuteChanged();
+                } else {
+                    StatusText = "Measurement failed.";
+                }
+            } catch (OperationCanceledException) {
+                StatusText = "Measurement cancelled.";
+            } finally {
+                IsMeasuring = false;
+            }
+        }
+
+        private void AddTiltSummaryRow(double a, double b, int runNumber) {
+            StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                RunNumber = runNumber,
+                Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
+                Magnitude = Math.Sqrt(a * a + b * b),
+                IsAverage = false
+            });
         }
 
         private async Task<(double A, double B)?> RunAveragedTiltMeasurement(CancellationToken token) {
@@ -609,6 +693,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private void NotifyCommandsCanExecuteChanged() {
             ((AsyncRelayCommand)StartCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)RunMeasurementCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)UseSavedAFCommand).NotifyCanExecuteChanged();
             ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
             ((RelayCommand)ContinueCommand).NotifyCanExecuteChanged();
         }

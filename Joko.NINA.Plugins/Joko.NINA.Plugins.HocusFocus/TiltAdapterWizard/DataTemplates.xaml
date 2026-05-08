@@ -291,13 +291,13 @@
                         Text="{Binding StepInstructions}"
                         TextWrapping="Wrap" />
 
-                    <!--  Run Measurement: visible on measurement steps while not already measuring  -->
-                    <Button
+                    <!--  Run Measurement / Use Saved AF: visible on measurement steps while not already measuring  -->
+                    <StackPanel
                         Margin="0,0,0,4"
                         HorizontalAlignment="Left"
-                        Command="{Binding RunMeasurementCommand}">
-                        <Button.Style>
-                            <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
+                        Orientation="Horizontal">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
                                 <Setter Property="Visibility" Value="Visible" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsOnMeasurementStep}" Value="False">
@@ -308,12 +308,22 @@
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </Button.Style>
-                        <TextBlock
-                            Margin="10,5,10,5"
-                            Foreground="{StaticResource ButtonForegroundBrush}"
-                            Text="Run Measurement" />
-                    </Button>
+                        </StackPanel.Style>
+                        <Button
+                            Margin="0,0,6,0"
+                            Command="{Binding RunMeasurementCommand}">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Run Measurement" />
+                        </Button>
+                        <Button Command="{Binding UseSavedAFCommand}">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Use Saved AF" />
+                        </Button>
+                    </StackPanel>
 
                     <!--  Device connection warning: shown when Run Measurement is visible but devices are not connected  -->
                     <TextBlock

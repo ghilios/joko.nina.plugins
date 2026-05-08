@@ -199,6 +199,97 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return await task;
         }
 
+        public async Task<bool> AnalyzeAutoFocusFromSaved(CancellationToken token) {
+            string folderPath;
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
+                if (!String.IsNullOrEmpty(autoFocusOptions.LastSelectedLoadPath)) {
+                    dialog.SelectedPath = autoFocusOptions.LastSelectedLoadPath;
+                }
+                if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) {
+                    return false;
+                }
+                folderPath = dialog.SelectedPath;
+                autoFocusOptions.LastSelectedLoadPath = folderPath;
+            }
+            var task = AnalyzeAutoFocusFromSavedImpl(folderPath);
+            token.Register(() => analyzeCts?.Cancel());
+            return await task;
+        }
+
+        private async Task<bool> AnalyzeAutoFocusFromSavedImpl(string folderPath) {
+            var localAnalyzeTask = analyzeTask;
+            if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
+                Notification.ShowError("Analysis still in progress");
+                return false;
+            }
+
+            analyzeCts?.Cancel();
+            var localAnalyzeCts = new CancellationTokenSource();
+            analyzeCts = localAnalyzeCts;
+
+            var autoFocusEngine = autoFocusEngineFactory.Create();
+            SavedAutoFocusAttempt savedAttempt;
+            try {
+                savedAttempt = autoFocusEngine.LoadSavedAutoFocusAttempt(folderPath);
+                folderPath = savedAttempt.FolderPath;
+            } catch (Exception e) {
+                Notification.ShowError(e.Message);
+                Logger.Error($"Failed to load saved auto focus attempt from {folderPath}: {e.Message}");
+                return false;
+            }
+
+            Logger.Info($"Rerunning auto focus attempt from {folderPath}");
+            localAnalyzeTask = Task.Run(async () => {
+                var options = GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt);
+                var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
+                var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
+
+                autoFocusEngine.Started += AutoFocusEngine_Started;
+                autoFocusEngine.Failed += AutoFocusEngine_Failed;
+                autoFocusEngine.Completed += AutoFocusEngine_CompletedNoReport;
+                autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+                autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
+
+                var imagingFilter = GetImagingFilter();
+                ActivateAutoFocusChart();
+                ResetErrors();
+                ResetExposureAnalysis();
+
+                var result = await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
+                if (result == null) {
+                    InspectorErrorText = "AutoFocus Analysis Failed";
+                    DeactivateAutoFocusAnalysis();
+                    return false;
+                }
+
+                var analysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token, true);
+                if (!analysisResult) {
+                    Notification.ShowError("AutoFocus Analysis Failed");
+                    InspectorErrorText = "AutoFocus Analysis Failed";
+                    DeactivateAutoFocusAnalysis();
+                    return false;
+                }
+                ActivateTiltMeasurement();
+                return true;
+            });
+            analyzeTask = localAnalyzeTask;
+
+            try {
+                return await localAnalyzeTask;
+            } catch (OperationCanceledException) {
+                Logger.Warning("Inspection auto focus rerun analysis cancelled");
+                InspectorErrorText = "Inspection AutoFocus Rerun analysis cancelled";
+                DeactivateAutoFocusAnalysis();
+                return false;
+            } catch (Exception e) {
+                Notification.ShowError($"Inspection auto focus rerun analysis failed: {e.Message}");
+                InspectorErrorText = $"Inspection AutoFocus Rerun analysis failed\n{e.Message}";
+                Logger.Error("Inspection auto focus rerun analysis failed", e);
+                DeactivateAutoFocusAnalysis();
+                return false;
+            }
+        }
+
         private async Task<bool> AnalyzeAutoFocusImpl(bool captureCameraBlock) {
             var localAnalyzeTask = analyzeTask;
             if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
