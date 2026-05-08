@@ -45,7 +45,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             screw2AngleDegrees = optionsAccessor.GetValueDouble(nameof(Screw2AngleDegrees), double.NaN);
             screw3AngleDegrees = optionsAccessor.GetValueDouble(nameof(Screw3AngleDegrees), double.NaN);
             screw4AngleDegrees = optionsAccessor.GetValueDouble(nameof(Screw4AngleDegrees), double.NaN);
+            calibratedScrewCount = optionsAccessor.GetValueInt32(nameof(CalibratedScrewCount), 0);
             measurementAverageCount = optionsAccessor.GetValueInt32(nameof(MeasurementAverageCount), 1);
+            screwInwardCurvatureSign = optionsAccessor.GetValueInt32(nameof(ScrewInwardCurvatureSign), 0);
         }
 
         private int screwCount;
@@ -126,6 +128,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        private int calibratedScrewCount;
+
+        public int CalibratedScrewCount {
+            get => calibratedScrewCount;
+            set {
+                if (calibratedScrewCount != value) {
+                    calibratedScrewCount = value;
+                    optionsAccessor.SetValueInt32(nameof(CalibratedScrewCount), calibratedScrewCount);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private int measurementAverageCount;
 
         public int MeasurementAverageCount {
@@ -134,6 +149,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (measurementAverageCount != value) {
                     measurementAverageCount = value;
                     optionsAccessor.SetValueInt32(nameof(MeasurementAverageCount), measurementAverageCount);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int screwInwardCurvatureSign;
+
+        public int ScrewInwardCurvatureSign {
+            get => screwInwardCurvatureSign;
+            set {
+                if (screwInwardCurvatureSign != value) {
+                    screwInwardCurvatureSign = value;
+                    optionsAccessor.SetValueInt32(nameof(ScrewInwardCurvatureSign), screwInwardCurvatureSign);
                     RaisePropertyChanged();
                 }
             }

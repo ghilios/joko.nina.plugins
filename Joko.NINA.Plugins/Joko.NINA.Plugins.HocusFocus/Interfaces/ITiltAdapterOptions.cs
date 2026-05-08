@@ -21,6 +21,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double Screw2AngleDegrees { get; set; }
         double Screw3AngleDegrees { get; set; }
         double Screw4AngleDegrees { get; set; }  // double.NaN when 3-screw setup
+        int CalibratedScrewCount { get; set; }      // screw count at time of last calibration; 0 = never calibrated
         int MeasurementAverageCount { get; set; }
+        int ScrewInwardCurvatureSign { get; set; } // +1 or -1; 0 = not yet calibrated
     }
 }

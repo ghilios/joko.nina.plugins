@@ -112,9 +112,64 @@
         </Canvas>
     </DataTemplate>
 
+    <!--
+        Calibration info rows shared between Panel A and Panel C.
+        Matches inspector UniformGrid Columns="2" label+value pattern.
+        Screw 4 row collapses for 3-screw setups.
+        Curvature row collapses until curvature sign is calibrated.
+    -->
+    <DataTemplate x:Key="HF_TiltScrewCalibrationInfo">
+        <StackPanel>
+            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                <TextBlock HorizontalAlignment="Center" Text="Screw 1" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding TiltAdapterOptions.Screw1AngleDegrees, StringFormat={}{0:F1}°}" />
+            </UniformGrid>
+            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                <TextBlock HorizontalAlignment="Center" Text="Screw 2" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding TiltAdapterOptions.Screw2AngleDegrees, StringFormat={}{0:F1}°}" />
+            </UniformGrid>
+            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                <TextBlock HorizontalAlignment="Center" Text="Screw 3" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding TiltAdapterOptions.Screw3AngleDegrees, StringFormat={}{0:F1}°}" />
+            </UniformGrid>
+            <!--  Screw 4 row — collapses when ScrewCount == 3  -->
+            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                <UniformGrid.Style>
+                    <Style TargetType="UniformGrid">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding TiltAdapterOptions.ScrewCount}" Value="3">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </UniformGrid.Style>
+                <TextBlock HorizontalAlignment="Center" Text="Screw 4" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding TiltAdapterOptions.Screw4AngleDegrees, StringFormat={}{0:F1}°}" />
+            </UniformGrid>
+            <!--  Curvature row — collapses until curvature sign is calibrated  -->
+            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                <UniformGrid.Style>
+                    <Style TargetType="UniformGrid">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasCurvatureCalibration}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </UniformGrid.Style>
+                <TextBlock HorizontalAlignment="Center" Text="Screws Inward" />
+                <TextBlock HorizontalAlignment="Center">
+                    <Run Text="Curvature " /><Run Text="{Binding CurvatureSignDescription, Mode=OneWay}" />
+                </TextBlock>
+            </UniformGrid>
+        </StackPanel>
+    </DataTemplate>
+
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard.TiltAdapterWizardVM_Dockable">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="5">
+            <StackPanel Margin="5" HorizontalAlignment="Left" MinWidth="340">
 
                 <!-- Panel A: Settings + launch (visible when !IsWizardRunning) -->
                 <StackPanel>
@@ -134,11 +189,8 @@
                         FontWeight="Bold"
                         Text="Settings" />
 
-                    <StackPanel Margin="0,2" Orientation="Horizontal">
-                        <TextBlock
-                            Width="160"
-                            VerticalAlignment="Center"
-                            Text="Screw Count:" />
+                    <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Screws" />
                         <ComboBox MinWidth="60" SelectedItem="{Binding TiltAdapterOptions.ScrewCount}">
                             <ComboBox.ItemsSource>
                                 <x:Array Type="{x:Type s:Int32}">
@@ -147,45 +199,23 @@
                                 </x:Array>
                             </ComboBox.ItemsSource>
                         </ComboBox>
-                    </StackPanel>
+                    </UniformGrid>
 
-                    <StackPanel Margin="0,2" Orientation="Horizontal">
-                        <TextBlock
-                            Width="160"
-                            VerticalAlignment="Center"
-                            Text="Measurement Averages:" />
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Measurements" />
                         <TextBox
                             MinWidth="60"
                             Text="{Binding TiltAdapterOptions.MeasurementAverageCount, UpdateSourceTrigger=LostFocus}" />
-                    </StackPanel>
+                    </UniformGrid>
 
                     <Button
                         Margin="0,8,0,2"
                         HorizontalAlignment="Left"
                         Command="{Binding StartCommand}">
-                        Start Calibration
-                    </Button>
-
-                    <!--  DEV  -->
-                    <Button
-                        Margin="0,2"
-                        HorizontalAlignment="Left"
-                        Command="{Binding DevSetMock3ScrewCommand}">
-                        [DEV] Set mock 3-screw
-                    </Button>
-                    <!--  DEV  -->
-                    <Button
-                        Margin="0,2"
-                        HorizontalAlignment="Left"
-                        Command="{Binding DevSetMock4ScrewCommand}">
-                        [DEV] Set mock 4-screw
-                    </Button>
-                    <!--  DEV  -->
-                    <Button
-                        Margin="0,2"
-                        HorizontalAlignment="Left"
-                        Command="{Binding DevClearCalibrationCommand}">
-                        [DEV] Clear calibration
+                        <TextBlock
+                            Margin="10,5,10,5"
+                            Foreground="{StaticResource ButtonForegroundBrush}"
+                            Text="Start Calibration" />
                     </Button>
 
                     <TextBlock Margin="0,10,0,0" Text="No calibration saved.">
@@ -193,7 +223,7 @@
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Visible" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding TiltAdapterOptions.IsCalibrated}" Value="True">
+                                    <DataTrigger Binding="{Binding IsCalibrationValid}" Value="True">
                                         <Setter Property="Visibility" Value="Collapsed" />
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -207,43 +237,151 @@
                             <Style TargetType="StackPanel">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding TiltAdapterOptions.IsCalibrated}" Value="True">
+                                    <DataTrigger Binding="{Binding IsCalibrationValid}" Value="True">
                                         <Setter Property="Visibility" Value="Visible" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </StackPanel.Style>
 
-                        <ContentControl Margin="0,10,0,5" ContentTemplate="{StaticResource HF_TiltScrewDiagram}" Content="{Binding}" />
-
-                        <StackPanel Margin="0,2" Orientation="Horizontal">
-                            <TextBlock Width="70" Text="Screw 1:" />
-                            <TextBlock Text="{Binding TiltAdapterOptions.Screw1AngleDegrees, StringFormat={}{0:F1}°}" />
-                        </StackPanel>
-                        <StackPanel Margin="0,2" Orientation="Horizontal">
-                            <TextBlock Width="70" Text="Screw 2:" />
-                            <TextBlock Text="{Binding TiltAdapterOptions.Screw2AngleDegrees, StringFormat={}{0:F1}°}" />
-                        </StackPanel>
-                        <StackPanel Margin="0,2" Orientation="Horizontal">
-                            <TextBlock Width="70" Text="Screw 3:" />
-                            <TextBlock Text="{Binding TiltAdapterOptions.Screw3AngleDegrees, StringFormat={}{0:F1}°}" />
-                        </StackPanel>
-                        <!--  Screw 4 row — hidden when ScrewCount == 3  -->
-                        <StackPanel Margin="0,2" Orientation="Horizontal">
-                            <StackPanel.Style>
-                                <Style TargetType="StackPanel">
-                                    <Setter Property="Visibility" Value="Visible" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding TiltAdapterOptions.ScrewCount}" Value="3">
-                                            <Setter Property="Visibility" Value="Collapsed" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </StackPanel.Style>
-                            <TextBlock Width="70" Text="Screw 4:" />
-                            <TextBlock Text="{Binding TiltAdapterOptions.Screw4AngleDegrees, StringFormat={}{0:F1}°}" />
-                        </StackPanel>
+                        <Grid Margin="0,10,0,0" HorizontalAlignment="Stretch">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ContentControl
+                                Grid.Column="0"
+                                Margin="0,0,10,0"
+                                VerticalAlignment="Center"
+                                ContentTemplate="{StaticResource HF_TiltScrewCalibrationInfo}"
+                                Content="{Binding}" />
+                            <ContentControl
+                                Grid.Column="1"
+                                ContentTemplate="{StaticResource HF_TiltScrewDiagram}"
+                                Content="{Binding}" />
+                        </Grid>
                     </StackPanel>
+                </StackPanel>
+
+                <!-- Panel B: Active wizard steps (visible when IsWizardRunning && !IsComplete) -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsWizardRunning}" Value="False">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsComplete}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
+                    <TextBlock
+                        Margin="0,0,0,10"
+                        Text="{Binding StepInstructions}"
+                        TextWrapping="Wrap" />
+
+                    <!--  Run Measurement: visible on measurement steps while not already measuring  -->
+                    <Button
+                        Margin="0,0,0,4"
+                        HorizontalAlignment="Left"
+                        Command="{Binding RunMeasurementCommand}">
+                        <Button.Style>
+                            <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsOnMeasurementStep}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsMeasuring}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <TextBlock
+                            Margin="10,5,10,5"
+                            Foreground="{StaticResource ButtonForegroundBrush}"
+                            Text="Run Measurement" />
+                    </Button>
+
+                    <!--  Measurement progress area: visible while measuring  -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMeasuring}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock
+                            Margin="0,0,0,4"
+                            FontStyle="Italic"
+                            Text="{Binding StatusText}"
+                            TextWrapping="Wrap" />
+                        <Button
+                            HorizontalAlignment="Left"
+                            Command="{Binding CancelCommand}">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Cancel" />
+                        </Button>
+                    </StackPanel>
+
+                    <!--  Post-measurement status (shown when not measuring)  -->
+                    <TextBlock
+                        Margin="0,4,0,0"
+                        Text="{Binding StatusText}"
+                        TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMeasuring}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <!--  Continue: shown only on the informational ScrewNumbering step  -->
+                    <Button
+                        Margin="0,10,0,0"
+                        HorizontalAlignment="Left"
+                        Command="{Binding ContinueCommand}">
+                        <Button.Style>
+                            <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsOnInformationalStep}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <TextBlock
+                            Margin="10,5,10,5"
+                            Foreground="{StaticResource ButtonForegroundBrush}"
+                            Text="Continue" />
+                    </Button>
+
+                    <Button
+                        Margin="0,6"
+                        HorizontalAlignment="Left"
+                        Command="{Binding RestartCommand}">
+                        <TextBlock
+                            Margin="10,5,10,5"
+                            Foreground="{StaticResource ButtonForegroundBrush}"
+                            Text="Abort Wizard" />
+                    </Button>
                 </StackPanel>
 
                 <!-- Panel C: Complete step (visible when IsComplete) -->
@@ -287,41 +425,31 @@
                         <TextBlock Text="{Binding WarningText}" TextWrapping="Wrap" />
                     </Border>
 
-                    <StackPanel Margin="0,2" Orientation="Horizontal">
-                        <TextBlock Width="70" Text="Screw 1:" />
-                        <TextBlock Text="{Binding TiltAdapterOptions.Screw1AngleDegrees, StringFormat={}{0:F1}°}" />
-                    </StackPanel>
-                    <StackPanel Margin="0,2" Orientation="Horizontal">
-                        <TextBlock Width="70" Text="Screw 2:" />
-                        <TextBlock Text="{Binding TiltAdapterOptions.Screw2AngleDegrees, StringFormat={}{0:F1}°}" />
-                    </StackPanel>
-                    <StackPanel Margin="0,2" Orientation="Horizontal">
-                        <TextBlock Width="70" Text="Screw 3:" />
-                        <TextBlock Text="{Binding TiltAdapterOptions.Screw3AngleDegrees, StringFormat={}{0:F1}°}" />
-                    </StackPanel>
-                    <!--  Screw 4 row — hidden when ScrewCount == 3  -->
-                    <StackPanel Margin="0,2" Orientation="Horizontal">
-                        <StackPanel.Style>
-                            <Style TargetType="StackPanel">
-                                <Setter Property="Visibility" Value="Visible" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding TiltAdapterOptions.ScrewCount}" Value="3">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </StackPanel.Style>
-                        <TextBlock Width="70" Text="Screw 4:" />
-                        <TextBlock Text="{Binding TiltAdapterOptions.Screw4AngleDegrees, StringFormat={}{0:F1}°}" />
-                    </StackPanel>
-
-                    <ContentControl Margin="0,10,0,5" ContentTemplate="{StaticResource HF_TiltScrewDiagram}" Content="{Binding}" />
+                    <Grid Margin="0,5,0,5" HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ContentControl
+                            Grid.Column="0"
+                            Margin="0,0,10,0"
+                            VerticalAlignment="Center"
+                            ContentTemplate="{StaticResource HF_TiltScrewCalibrationInfo}"
+                            Content="{Binding}" />
+                        <ContentControl
+                            Grid.Column="1"
+                            ContentTemplate="{StaticResource HF_TiltScrewDiagram}"
+                            Content="{Binding}" />
+                    </Grid>
 
                     <Button
                         Margin="0,8,0,2"
                         HorizontalAlignment="Left"
                         Command="{Binding RestartCommand}">
-                        Done
+                        <TextBlock
+                            Margin="10,5,10,5"
+                            Foreground="{StaticResource ButtonForegroundBrush}"
+                            Text="Done" />
                     </Button>
                 </StackPanel>
 
