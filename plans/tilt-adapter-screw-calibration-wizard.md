@@ -10,8 +10,9 @@ Tilt adapters have 3 or 4 screws for leveling a camera to the telescope's focal 
 
 ```
 BaselineMeasurement(0) → ScrewNumbering(1) →
-Screw1Adjustment(2) → Screw1Measurement(3) →
-Screw2Adjustment(4) → Screw2Measurement(5) → Complete(6)
+AllScrewsAdjustment(2) → AllScrewsMeasurement(3) →
+Screw1Adjustment(4) → Screw1Measurement(5) →
+Screw2Adjustment(6) → Screw2Measurement(7) → Complete(8)
 ```
 
 `ScrewCount` and `MeasurementAverageCount` are persistent settings configured in the dockable panel **before** starting the wizard. The wizard is launched by a button on that panel, not by a first wizard step.
@@ -20,7 +21,9 @@ Screw2Adjustment(4) → Screw2Measurement(5) → Complete(6)
 
 | Step | 3-screw | 4-screw |
 |------|---------|---------|
-| Screw1Adjustment | Turn screw 1 INWARD 1 full turn | Turn screw 1 INWARD + screw 3 OUTWARD 1 full turn each |
+| AllScrewsAdjustment | Turn ALL screws INWARD 1 full turn | Turn ALL screws INWARD 1 full turn |
+| AllScrewsMeasurement | (measurement — no user action) | (measurement — no user action) |
+| Screw1Adjustment | Return ALL screws to baseline, then turn screw 1 INWARD 1 full turn | Return ALL screws to baseline, then turn screw 1 INWARD + screw 3 OUTWARD 1 full turn each |
 | Screw2Adjustment | Turn screw 1 back OUT, then turn screw 2 INWARD 1 full turn | Return screws 1+3, then turn screw 2 INWARD + screw 4 OUTWARD |
 | Complete | Restore all screws to original position | Same |
 
@@ -188,6 +191,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double Screw3AngleDegrees { get; set; }
         double Screw4AngleDegrees { get; set; }  // double.NaN when 3-screw setup
         int MeasurementAverageCount { get; set; } // default 1
+        int ScrewInwardCurvatureSign { get; set; } // +1 if inward raises curvature; -1 if lowers; 0 = not yet calibrated
     }
 }
 ```
@@ -198,7 +202,7 @@ Exact pattern as `InspectorOptions.cs`:
 - Extends `BaseINPC`, implements `ITiltAdapterOptions`
 - `PluginOptionsAccessor` with `PluginOptionsAccessor.GetAssemblyGuid(typeof(AutoFocusOptions))`
 - `profileService.ProfileChanged` → `InitializeOptions(); RaiseAllPropertiesChanged()`
-- Defaults: `ScrewCount=3`, `IsCalibrated=false`, `Screw1-4AngleDegrees=double.NaN`, `MeasurementAverageCount=1`
+- Defaults: `ScrewCount=3`, `IsCalibrated=false`, `Screw1-4AngleDegrees=double.NaN`, `MeasurementAverageCount=1`, `ScrewInwardCurvatureSign=0`
 
 ### `TiltAdapterWizard/TiltScrewDiagramItem.cs`
 
@@ -273,9 +277,13 @@ public TiltAdapterWizardVM(
 private (double A, double B) baselineReading;
 private (double A, double B) screw1Reading;
 private (double A, double B) screw2Reading;
+private double baselineCurvatureReading;  // mean focuser position at baseline
+private double allScrewsCurvatureReading; // mean focuser position after all-screws-inward
 private bool measurementDoneForCurrentStep;
 private CancellationTokenSource measureCts;
 ```
+
+`IsOnMeasurementStep` is true for `BaselineMeasurement`, `AllScrewsMeasurement`, `Screw1Measurement`, `Screw2Measurement`.
 
 **Commands**
 | Command | Type | CanExecute |
@@ -289,13 +297,28 @@ private CancellationTokenSource measureCts;
 
 `StartCommand`: set `measurementDoneForCurrentStep = false`, `CurrentStep = BaselineMeasurement`, `IsWizardRunning = true`.
 
-`NextStep` logic: when advancing to `Complete`, call `CalculateAndSaveAngles()` then `RebuildDiagram()` before setting `CurrentStep = Complete`.
+`NextStep` logic:
+- When advancing from `AllScrewsMeasurement` → `Screw1Adjustment`: call `CalculateAndSaveCurvatureSign()`.
+- When advancing to `Complete`: call `CalculateAndSaveAngles()` then `RebuildDiagram()` before setting `CurrentStep = Complete`.
 
-`RestartCommand`: cancel any in-flight measurement, set `IsWizardRunning = false`, reset `CurrentStep = BaselineMeasurement`, clear internal readings. Does **not** clear `IsCalibrated` or saved angles.
+`RestartCommand`: cancel any in-flight measurement, set `IsWizardRunning = false`, reset `CurrentStep = BaselineMeasurement`, clear all internal readings (tilt and curvature). Does **not** clear `IsCalibrated`, saved angles, or `ScrewInwardCurvatureSign`.
+
+**Curvature sign helper**
+```csharp
+private void CalculateAndSaveCurvatureSign() {
+    double delta = allScrewsCurvatureReading - baselineCurvatureReading;
+    tiltAdapterOptions.ScrewInwardCurvatureSign = delta >= 0 ? 1 : -1;
+}
+```
+
+The curvature reading is the mean focuser position reported by the sensor model (a proxy for how far the whole sensor plane has moved from the focal plane). When all screws are turned inward equally the tilt (A, B) is unchanged but the mean focuser position shifts; the sign of that shift is the calibration result.
 
 **Averaging helper** (Phase 3)
+
+Two variants — one for tilt steps, one for the curvature calibration step:
+
 ```csharp
-private async Task<(double A, double B)?> RunAveragedMeasurement(CancellationToken token) {
+private async Task<(double A, double B)?> RunAveragedTiltMeasurement(CancellationToken token) {
     int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
     double sumA = 0, sumB = 0;
     for (int i = 0; i < count; i++) {
@@ -308,7 +331,23 @@ private async Task<(double A, double B)?> RunAveragedMeasurement(CancellationTok
     }
     return (sumA / count, sumB / count);
 }
+
+private async Task<double?> RunAveragedCurvatureMeasurement(CancellationToken token) {
+    int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
+    double sum = 0;
+    for (int i = 0; i < count; i++) {
+        progress.Report(new ApplicationStatus { Status = $"Run {i+1}/{count}..." });
+        bool ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true);
+        if (!ok) return null;
+        var pos = inspector.SensorModel?.MeanFocuserPosition;
+        if (pos == null) return null;
+        sum += pos.Value;
+    }
+    return sum / count;
+}
 ```
+
+`RunMeasurementCommand` dispatches to the appropriate helper based on `CurrentStep`: `AllScrewsMeasurement` calls `RunAveragedCurvatureMeasurement` and stores the result into `baselineCurvatureReading` or `allScrewsCurvatureReading`; all other measurement steps call `RunAveragedTiltMeasurement`.
 
 **Angle calculation**
 ```csharp

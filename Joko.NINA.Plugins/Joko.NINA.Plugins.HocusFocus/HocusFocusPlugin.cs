@@ -12,6 +12,7 @@
 
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Properties;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Core.Utility;
 using NINA.Plugin;
@@ -68,6 +69,9 @@ namespace NINA.Joko.Plugins.HocusFocus {
             }
             if (InspectorOptions == null) {
                 InspectorOptions = new InspectorOptions(profileService);
+            }
+            if (TiltAdapterOptions == null) {
+                TiltAdapterOptions = new TiltAdapterOptions(profileService);
             }
             if (AlglibAPI == null) {
                 AlglibAPI = new AlglibAPI();
@@ -151,6 +155,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public static AutoFocusOptions AutoFocusOptions { get; private set; }
 
         public static InspectorOptions InspectorOptions { get; private set; }
+
+        public static TiltAdapterOptions TiltAdapterOptions { get; private set; }
 
         public static AutoFocusEngineFactory AutoFocusEngineFactory { get; private set; }
 

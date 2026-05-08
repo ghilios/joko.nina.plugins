@@ -1,0 +1,332 @@
+<ResourceDictionary
+    x:Class="NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard.DataTemplates"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:s="clr-namespace:System;assembly=mscorlib">
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="../Resources/OptionsDataTemplates.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
+    <!--
+        Diagram canvas shared between Panel A (saved calibration) and Panel C (complete step).
+        Layout: 200×200 canvas, center (100,100).
+          • Sensor rectangle: 90×60 (3:2), centered → (55,70)-(145,130)
+          • Sensor-axis crosshair: short dashes (StrokeDashArray="4,4"), opacity 0.5
+          • Screw connection polygon: long dashes (StrokeDashArray="10,4"), opacity 0.75
+          • Screw circles: radius 75 from center, 24×24 circles
+    -->
+    <DataTemplate x:Key="HF_TiltScrewDiagram">
+        <Canvas Width="200" Height="200">
+            <!--  Sensor rectangle — 3:2 aspect ratio, 90×60  -->
+            <Rectangle
+                Canvas.Left="55"
+                Canvas.Top="70"
+                Width="90"
+                Height="60"
+                Fill="Transparent"
+                Stroke="{StaticResource PrimaryBrush}"
+                StrokeThickness="1.5" />
+
+            <!--  Sensor-axis crosshairs — short-dash dotted  -->
+            <Line
+                Opacity="0.5"
+                Stroke="{StaticResource PrimaryBrush}"
+                StrokeDashArray="4,4"
+                StrokeThickness="0.75"
+                X1="0"
+                X2="200"
+                Y1="100"
+                Y2="100" />
+            <Line
+                Opacity="0.5"
+                Stroke="{StaticResource PrimaryBrush}"
+                StrokeDashArray="4,4"
+                StrokeThickness="0.75"
+                X1="100"
+                X2="100"
+                Y1="0"
+                Y2="200" />
+
+            <!--  Screw connection polygon — long-dash lines  -->
+            <ItemsControl
+                Canvas.Left="0"
+                Canvas.Top="0"
+                Width="200"
+                Height="200"
+                ItemsSource="{Binding ScrewConnectionLines}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <Canvas IsItemsHost="True" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Line
+                            Opacity="0.75"
+                            Stroke="{StaticResource PrimaryBrush}"
+                            StrokeDashArray="10,4"
+                            StrokeThickness="1"
+                            X1="{Binding X1}"
+                            X2="{Binding X2}"
+                            Y1="{Binding Y1}"
+                            Y2="{Binding Y2}" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!--  Screw circles (on top of connection lines)  -->
+            <ItemsControl
+                Canvas.Left="0"
+                Canvas.Top="0"
+                Width="200"
+                Height="200"
+                ItemsSource="{Binding ScrewDiagramItems}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <Canvas IsItemsHost="True" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemContainerStyle>
+                    <Style>
+                        <Setter Property="Canvas.Left" Value="{Binding X}" />
+                        <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Width="24" Height="24">
+                            <Ellipse
+                                Fill="{StaticResource ButtonBackgroundBrush}"
+                                Stroke="{StaticResource PrimaryBrush}"
+                                StrokeThickness="1.5" />
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontWeight="Bold"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="{Binding Number}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Canvas>
+    </DataTemplate>
+
+    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard.TiltAdapterWizardVM_Dockable">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="5">
+
+                <!-- Panel A: Settings + launch (visible when !IsWizardRunning) -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsWizardRunning}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
+                    <TextBlock
+                        Margin="0,0,0,5"
+                        FontWeight="Bold"
+                        Text="Settings" />
+
+                    <StackPanel Margin="0,2" Orientation="Horizontal">
+                        <TextBlock
+                            Width="160"
+                            VerticalAlignment="Center"
+                            Text="Screw Count:" />
+                        <ComboBox MinWidth="60" SelectedItem="{Binding TiltAdapterOptions.ScrewCount}">
+                            <ComboBox.ItemsSource>
+                                <x:Array Type="{x:Type s:Int32}">
+                                    <s:Int32>3</s:Int32>
+                                    <s:Int32>4</s:Int32>
+                                </x:Array>
+                            </ComboBox.ItemsSource>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <StackPanel Margin="0,2" Orientation="Horizontal">
+                        <TextBlock
+                            Width="160"
+                            VerticalAlignment="Center"
+                            Text="Measurement Averages:" />
+                        <TextBox
+                            MinWidth="60"
+                            Text="{Binding TiltAdapterOptions.MeasurementAverageCount, UpdateSourceTrigger=LostFocus}" />
+                    </StackPanel>
+
+                    <Button
+                        Margin="0,8,0,2"
+                        HorizontalAlignment="Left"
+                        Command="{Binding StartCommand}">
+                        Start Calibration
+                    </Button>
+
+                    <!--  DEV  -->
+                    <Button
+                        Margin="0,2"
+                        HorizontalAlignment="Left"
+                        Command="{Binding DevSetMock3ScrewCommand}">
+                        [DEV] Set mock 3-screw
+                    </Button>
+                    <!--  DEV  -->
+                    <Button
+                        Margin="0,2"
+                        HorizontalAlignment="Left"
+                        Command="{Binding DevSetMock4ScrewCommand}">
+                        [DEV] Set mock 4-screw
+                    </Button>
+                    <!--  DEV  -->
+                    <Button
+                        Margin="0,2"
+                        HorizontalAlignment="Left"
+                        Command="{Binding DevClearCalibrationCommand}">
+                        [DEV] Clear calibration
+                    </Button>
+
+                    <TextBlock Margin="0,10,0,0" Text="No calibration saved.">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding TiltAdapterOptions.IsCalibrated}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <!--  Saved calibration sub-panel  -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding TiltAdapterOptions.IsCalibrated}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <ContentControl Margin="0,10,0,5" ContentTemplate="{StaticResource HF_TiltScrewDiagram}" Content="{Binding}" />
+
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock Width="70" Text="Screw 1:" />
+                            <TextBlock Text="{Binding TiltAdapterOptions.Screw1AngleDegrees, StringFormat={}{0:F1}°}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock Width="70" Text="Screw 2:" />
+                            <TextBlock Text="{Binding TiltAdapterOptions.Screw2AngleDegrees, StringFormat={}{0:F1}°}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock Width="70" Text="Screw 3:" />
+                            <TextBlock Text="{Binding TiltAdapterOptions.Screw3AngleDegrees, StringFormat={}{0:F1}°}" />
+                        </StackPanel>
+                        <!--  Screw 4 row — hidden when ScrewCount == 3  -->
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding TiltAdapterOptions.ScrewCount}" Value="3">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <TextBlock Width="70" Text="Screw 4:" />
+                            <TextBlock Text="{Binding TiltAdapterOptions.Screw4AngleDegrees, StringFormat={}{0:F1}°}" />
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Panel C: Complete step (visible when IsComplete) -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsComplete}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
+                    <TextBlock
+                        Margin="0,0,0,5"
+                        FontWeight="Bold"
+                        Text="Calibration Complete!" />
+
+                    <TextBlock
+                        Margin="0,0,0,5"
+                        Text="{Binding StepInstructions}"
+                        TextWrapping="Wrap" />
+
+                    <Border
+                        Margin="0,5"
+                        Padding="5"
+                        BorderBrush="{StaticResource NotificationErrorBrush}"
+                        BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasWarning}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding WarningText}" TextWrapping="Wrap" />
+                    </Border>
+
+                    <StackPanel Margin="0,2" Orientation="Horizontal">
+                        <TextBlock Width="70" Text="Screw 1:" />
+                        <TextBlock Text="{Binding TiltAdapterOptions.Screw1AngleDegrees, StringFormat={}{0:F1}°}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,2" Orientation="Horizontal">
+                        <TextBlock Width="70" Text="Screw 2:" />
+                        <TextBlock Text="{Binding TiltAdapterOptions.Screw2AngleDegrees, StringFormat={}{0:F1}°}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,2" Orientation="Horizontal">
+                        <TextBlock Width="70" Text="Screw 3:" />
+                        <TextBlock Text="{Binding TiltAdapterOptions.Screw3AngleDegrees, StringFormat={}{0:F1}°}" />
+                    </StackPanel>
+                    <!--  Screw 4 row — hidden when ScrewCount == 3  -->
+                    <StackPanel Margin="0,2" Orientation="Horizontal">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding TiltAdapterOptions.ScrewCount}" Value="3">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Width="70" Text="Screw 4:" />
+                        <TextBlock Text="{Binding TiltAdapterOptions.Screw4AngleDegrees, StringFormat={}{0:F1}°}" />
+                    </StackPanel>
+
+                    <ContentControl Margin="0,10,0,5" ContentTemplate="{StaticResource HF_TiltScrewDiagram}" Content="{Binding}" />
+
+                    <Button
+                        Margin="0,8,0,2"
+                        HorizontalAlignment="Left"
+                        Command="{Binding RestartCommand}">
+                        Done
+                    </Button>
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+    </DataTemplate>
+
+</ResourceDictionary>
