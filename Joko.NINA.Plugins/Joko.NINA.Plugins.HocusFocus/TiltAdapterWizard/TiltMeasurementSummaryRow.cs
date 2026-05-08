@@ -13,10 +13,11 @@
 namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
     public class TiltMeasurementSummaryRow {
-        public int RunNumber { get; set; }      // 1-based; 0 = average row
-        public double Direction { get; set; }   // clockwise-from-top angle in degrees: atan2(A, -B)
-        public double Magnitude { get; set; }   // sqrt(A²+B²) in tilt-plane gradient units
+        public int RunNumber { get; set; }          // 1-based; 0 = average row
+        public double Direction { get; set; }       // clockwise-from-top angle in degrees: atan2(A, -B)
+        public double TiltAngleDeg { get; set; } = double.NaN;  // geometric sensor tilt angle in degrees
         public bool IsAverage { get; set; }
         public string Label => IsAverage ? "Avg" : $"Run {RunNumber}";
+        public string TiltAngleDisplay => double.IsNaN(TiltAngleDeg) ? "N/A" : $"{TiltAngleDeg:F3}°";
     }
 }

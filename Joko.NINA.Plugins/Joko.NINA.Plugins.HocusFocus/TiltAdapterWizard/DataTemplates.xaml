@@ -8,6 +8,17 @@
     </ResourceDictionary.MergedDictionaries>
 
     <!--
+        Sensor frame outline (10px thick border, EvenOdd) plus three diamond-shaped screw
+        indicators at the 0° / 120° / 240° positions of a standard 3-screw tilt adapter.
+    -->
+    <GeometryGroup x:Key="TiltAdapterWizardSVG">
+        <PathGeometry Figures="M 55,65 L 145,65 L 145,115 L 55,115 Z M 65,75 L 65,105 L 135,105 L 135,75 Z" FillRule="EvenOdd" />
+        <PathGeometry Figures="M 100,15 L 120,35 L 100,55 L 80,35 Z" FillRule="Nonzero" />
+        <PathGeometry Figures="M 155,125 L 175,145 L 155,165 L 135,145 Z" FillRule="Nonzero" />
+        <PathGeometry Figures="M 45,125 L 65,145 L 45,165 L 25,145 Z" FillRule="Nonzero" />
+    </GeometryGroup>
+
+    <!--
         Diagram canvas shared between Panel A (saved calibration) and Panel C (complete step).
         Layout: 200×200 canvas, center (100,100).
           • Sensor rectangle: 90×60 (3:2), centered → (55,70)-(145,130)
@@ -460,7 +471,7 @@
                         <UniformGrid Margin="0,0,0,2" Columns="3">
                             <TextBlock FontWeight="DemiBold" Text="Run" />
                             <TextBlock FontWeight="DemiBold" Text="Rotation Angle" />
-                            <TextBlock FontWeight="DemiBold" Text="Tilt Magnitude" />
+                            <TextBlock FontWeight="DemiBold" Text="Tilt Angle" />
                         </UniformGrid>
                         <ItemsControl ItemsSource="{Binding StepMeasurementSummary}">
                             <ItemsControl.ItemTemplate>
@@ -479,7 +490,7 @@
                                         <UniformGrid Columns="3">
                                             <TextBlock Text="{Binding Label}" />
                                             <TextBlock Text="{Binding Direction, StringFormat={}{0:F1}°}" />
-                                            <TextBlock Text="{Binding Magnitude, StringFormat={}{0:F5}}" />
+                                            <TextBlock Text="{Binding TiltAngleDisplay}" />
                                         </UniformGrid>
                                     </Border>
                                 </DataTemplate>

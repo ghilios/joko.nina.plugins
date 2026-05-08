@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 200 200"
+   version="1.1"
+   xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Tilt Adapter Wizard icon.
+    Sensor frame (rectangle outline) with three diamond-shaped screw adjusters
+    positioned at the standard 3-screw tilt adapter positions (top, lower-right,
+    lower-left), matching the 0° / 120° / 240° orientation convention.
+  -->
+  <!-- Sensor frame outline (10px thick border) -->
+  <path
+     d="M 55,65 L 145,65 L 145,115 L 55,115 Z M 65,75 L 65,105 L 135,105 L 135,75 Z"
+     fill-rule="evenodd"
+     fill="#808080" />
+  <!-- Screw 1: top center (0°) -->
+  <path
+     d="M 100,15 L 120,35 L 100,55 L 80,35 Z"
+     fill="#808080" />
+  <!-- Screw 2: lower-right (120° CW from top) -->
+  <path
+     d="M 155,125 L 175,145 L 155,165 L 135,145 Z"
+     fill="#808080" />
+  <!-- Screw 3: lower-left (240° CW from top) -->
+  <path
+     d="M 45,125 L 65,145 L 45,165 L 25,145 Z"
+     fill="#808080" />
+</svg>
