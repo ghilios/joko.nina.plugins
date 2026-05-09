@@ -17,6 +17,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double Direction { get; set; }       // clockwise-from-top angle in degrees: atan2(A, -B)
         public double TiltAngleDeg { get; set; } = double.NaN;  // geometric sensor tilt angle in degrees
         public bool IsAverage { get; set; }
+        public string StepDescription { get; set; } = string.Empty;
         public string Label => IsAverage ? "Avg" : $"Run {RunNumber}";
         public string TiltAngleDisplay => double.IsNaN(TiltAngleDeg) ? "N/A" : $"{TiltAngleDeg:F3}°";
     }

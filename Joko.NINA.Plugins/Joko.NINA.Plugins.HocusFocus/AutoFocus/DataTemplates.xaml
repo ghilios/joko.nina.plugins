@@ -867,6 +867,8 @@
                     <RowDefinition Height="Auto" />
                     <!--  AF curves  -->
                     <RowDefinition Height="Auto" />
+                    <!--  Tilt Adapter Guidance  -->
+                    <RowDefinition Height="Auto" />
                     <!--  Sensor Curve Model  -->
                     <RowDefinition Height="Auto" />
                     <!--  Tilt measurements + Tilt graphic  -->
@@ -876,8 +878,6 @@
                     <!--  Sensor Model Tilt measurements + Tilt graphic  -->
                     <RowDefinition Height="Auto" />
                     <!--  Sensor Model Tilt history  -->
-                    <RowDefinition Height="Auto" />
-                    <!--  Tilt Adapter Guidance  -->
                     <RowDefinition Height="Auto" />
                     <!--  Simple Analysis Error Display  -->
                     <RowDefinition Height="Auto" />
@@ -2380,6 +2380,70 @@
                 </Expander>
                 <Expander
                     Grid.Row="5"
+                    Header="Tilt Adapter Guidance"
+                    IsExpanded="{Binding HasTiltAdapterCalibration}">
+                    <StackPanel Margin="5">
+                        <!--  No calibration branch  -->
+                        <TextBlock
+                            Margin="5"
+                            TextWrapping="Wrap"
+                            Visibility="{Binding HasTiltAdapterCalibration, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
+                            No tilt adapter calibration found. Open the Tilt Adapter Wizard panel and run a calibration to enable guidance.
+                        </TextBlock>
+                        <!--  Calibrated guidance branch  -->
+                        <StackPanel Visibility="{Binding HasTiltAdapterCalibration, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <!--  No measurement yet  -->
+                            <TextBlock
+                                Margin="5"
+                                FontStyle="Italic">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding TiltGuidanceRows.Count}" Value="0">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                                Run a measurement to see guidance.
+                            </TextBlock>
+                            <!--  Per-screw guidance table  -->
+                            <ItemsControl
+                                Margin="5,5,5,0"
+                                ItemsSource="{Binding TiltGuidanceRows}"
+                                Visibility="{Binding TiltGuidanceRows, Converter={StaticResource HF_EmptyCollectionToVisibilityCollapsedConverter}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="60" />
+                                                <ColumnDefinition Width="60" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock
+                                                Grid.Column="0"
+                                                VerticalAlignment="Center"
+                                                Text="{Binding ScrewNumber, StringFormat='Screw {0}'}" />
+                                            <TextBlock
+                                                Grid.Column="1"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                FontSize="18"
+                                                Text="{Binding Arrow}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <!--  Curvature guidance row  -->
+                            <TextBlock
+                                Margin="5,8,5,0"
+                                Text="{Binding CurvatureGuidanceText}"
+                                Visibility="{Binding HasCurvatureGuidance, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
+                <Expander
+                    Grid.Row="6"
                     Header="Sensor Curve Model"
                     IsExpanded="{Binding SensorCurveModelActive}"
                     Visibility="{Binding Path=Tag, ElementName=ShowLoadedSensorModel, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2765,7 +2829,7 @@
                 </Expander>
 
                 <Expander
-                    Grid.Row="6"
+                    Grid.Row="7"
                     Header="Tilt Measurement"
                     IsExpanded="{Binding TiltMeasurementActive}"
                     Visibility="{Binding ElementName=ShowAutoFocusTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2876,7 +2940,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="7"
+                    Grid.Row="8"
                     Header="Tilt Measurement History"
                     IsExpanded="{Binding TiltMeasurementHistoryActive}"
                     Visibility="{Binding ElementName=ShowAutoFocusTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2955,7 +3019,7 @@
                 </Expander>
 
                 <Expander
-                    Grid.Row="8"
+                    Grid.Row="9"
                     Header="Sensor Model Tilt Measurement"
                     IsExpanded="{Binding TiltMeasurementActive}"
                     Visibility="{Binding ElementName=ShowSensorModelTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -3063,7 +3127,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="9"
+                    Grid.Row="10"
                     Header="Sensor Model Tilt Measurement History"
                     IsExpanded="{Binding TiltMeasurementHistoryActive}"
                     Visibility="{Binding ElementName=ShowSensorModelTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -3127,70 +3191,6 @@
                             </DataGrid.Columns>
                         </DataGrid>
                     </Grid>
-                </Expander>
-
-                <Expander
-                    Grid.Row="10"
-                    Header="Tilt Adapter Guidance">
-                    <StackPanel Margin="5">
-                        <!--  No calibration branch  -->
-                        <TextBlock
-                            Margin="5"
-                            TextWrapping="Wrap"
-                            Visibility="{Binding HasTiltAdapterCalibration, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
-                            No tilt adapter calibration found. Open the Tilt Adapter Wizard panel and run a calibration to enable guidance.
-                        </TextBlock>
-                        <!--  Calibrated guidance branch  -->
-                        <StackPanel Visibility="{Binding HasTiltAdapterCalibration, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                            <!--  No measurement yet  -->
-                            <TextBlock
-                                Margin="5"
-                                FontStyle="Italic">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding TiltGuidanceRows.Count}" Value="0">
-                                                <Setter Property="Visibility" Value="Visible" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                                Run a measurement to see guidance.
-                            </TextBlock>
-                            <!--  Per-screw guidance table  -->
-                            <ItemsControl
-                                Margin="5,5,5,0"
-                                ItemsSource="{Binding TiltGuidanceRows}"
-                                Visibility="{Binding TiltGuidanceRows, Converter={StaticResource HF_EmptyCollectionToVisibilityCollapsedConverter}}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="60" />
-                                                <ColumnDefinition Width="60" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock
-                                                Grid.Column="0"
-                                                VerticalAlignment="Center"
-                                                Text="{Binding ScrewNumber, StringFormat='Screw {0}'}" />
-                                            <TextBlock
-                                                Grid.Column="1"
-                                                HorizontalAlignment="Center"
-                                                VerticalAlignment="Center"
-                                                FontSize="18"
-                                                Text="{Binding Arrow}" />
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <!--  Curvature guidance row  -->
-                            <TextBlock
-                                Margin="5,8,5,0"
-                                Text="{Binding CurvatureGuidanceText}"
-                                Visibility="{Binding HasCurvatureGuidance, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
-                        </StackPanel>
-                    </StackPanel>
                 </Expander>
 
                 <Border

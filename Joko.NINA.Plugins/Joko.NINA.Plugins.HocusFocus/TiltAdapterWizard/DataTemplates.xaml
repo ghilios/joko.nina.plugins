@@ -379,26 +379,16 @@
                         </Button>
                     </StackPanel>
 
-                    <!--  Next and Abort Wizard side by side (above post-measurement status)  -->
-                    <StackPanel
+                    <!--  Abort Wizard button  -->
+                    <Button
                         Margin="0,10,0,0"
                         HorizontalAlignment="Left"
-                        Orientation="Horizontal">
-                        <Button
-                            Margin="0,0,8,0"
-                            Command="{Binding ContinueCommand}">
-                            <TextBlock
-                                Margin="10,5,10,5"
-                                Foreground="{StaticResource ButtonForegroundBrush}"
-                                Text="Next" />
-                        </Button>
-                        <Button Command="{Binding RestartCommand}">
-                            <TextBlock
-                                Margin="10,5,10,5"
-                                Foreground="{StaticResource ButtonForegroundBrush}"
-                                Text="Abort Wizard" />
-                        </Button>
-                    </StackPanel>
+                        Command="{Binding RestartCommand}">
+                        <TextBlock
+                            Margin="10,5,10,5"
+                            Foreground="{StaticResource ButtonForegroundBrush}"
+                            Text="Abort Wizard" />
+                    </Button>
 
                     <!--  Post-measurement status (shown when not measuring)  -->
                     <TextBlock
@@ -468,7 +458,8 @@
                                 </Style.Triggers>
                             </Style>
                         </StackPanel.Style>
-                        <UniformGrid Margin="0,0,0,2" Columns="3">
+                        <UniformGrid Margin="0,0,0,2" Columns="4">
+                            <TextBlock FontWeight="DemiBold" Text="Step" />
                             <TextBlock FontWeight="DemiBold" Text="Run" />
                             <TextBlock FontWeight="DemiBold" Text="Rotation Angle" />
                             <TextBlock FontWeight="DemiBold" Text="Tilt Angle" />
@@ -487,7 +478,8 @@
                                                 </Style.Triggers>
                                             </Style>
                                         </Border.Style>
-                                        <UniformGrid Columns="3">
+                                        <UniformGrid Columns="4">
+                                            <TextBlock Text="{Binding StepDescription}" />
                                             <TextBlock Text="{Binding Label}" />
                                             <TextBlock Text="{Binding Direction, StringFormat={}{0:F1}°}" />
                                             <TextBlock Text="{Binding TiltAngleDisplay}" />

@@ -38,12 +38,11 @@ using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
     public enum WizardStep {
-        Baseline = 0,       // Verify start position, run measurement → auto-advance
-        ScrewNumbering = 1, // Informational: user clicks Continue to advance
-        AllScrews = 2,      // Turn all screws inward, run measurement → auto-advance
-        Screw1 = 3,         // Adjust screw 1, run measurement → auto-advance
-        Screw2 = 4,         // Adjust screw 2, run measurement → auto-advance
-        Complete = 5
+        Baseline = 0,
+        AllScrews = 1,
+        Screw1 = 2,
+        Screw2 = 3,
+        Complete = 4
     }
 
     [PartCreationPolicy(CreationPolicy.Shared)]
@@ -66,8 +65,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private string statusText = string.Empty;
         private bool hasMeasurementConsistencyWarning = false;
         private string measurementConsistencyWarningText = string.Empty;
-        private bool measurementDoneForCurrentStep = false;
-
         private (double A, double B) baselineReading;
         private (double A, double B) screw1Reading;
         private (double A, double B) screw2Reading;
@@ -115,7 +112,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RunMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring && AreDevicesConnected);
             UseSavedAFCommand = new AsyncRelayCommand(RunSavedMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring);
             CancelCommand = new RelayCommand(CancelMeasurement, () => IsMeasuring);
-            ContinueCommand = new RelayCommand(NextStep, () => CanAdvance && !IsMeasuring);
             RestartCommand = new RelayCommand(Restart);
 
             tiltAdapterOptions.PropertyChanged += (s, e) => {
@@ -162,13 +158,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             get => currentStep;
             private set {
                 currentStep = value;
-                measurementDoneForCurrentStep = false;
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(IsComplete));
                 RaisePropertyChanged(nameof(IsOnMeasurementStep));
-                RaisePropertyChanged(nameof(IsOnInformationalStep));
                 RaisePropertyChanged(nameof(StepInstructions));
-                RaisePropertyChanged(nameof(CanAdvance));
                 NotifyCommandsCanExecuteChanged();
             }
         }
@@ -181,11 +174,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             currentStep == WizardStep.AllScrews ||
             currentStep == WizardStep.Screw1 ||
             currentStep == WizardStep.Screw2;
-
-        // Steps where the user just reads instructions and clicks Continue
-        public bool IsOnInformationalStep => currentStep == WizardStep.ScrewNumbering;
-
-        public bool CanAdvance => IsOnInformationalStep || measurementDoneForCurrentStep;
 
         public bool IsCalibrationValid =>
             tiltAdapterOptions.IsCalibrated &&
@@ -312,12 +300,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 switch (currentStep) {
                     case WizardStep.Baseline:
                         return "Ensure all screws are at their starting position, then click Run Measurement to take a baseline reading.";
-                    case WizardStep.ScrewNumbering:
-                        return n == 3
-                            ? "Identify your screws. Label them 1, 2, and 3. Screw 1 is at the top of the adapter (12 o'clock); the remaining screws are numbered clockwise: Screw 2 at lower-right, Screw 3 at lower-left."
-                            : "Identify your screws. Label them 1, 2, 3, and 4. Screw 1 is at the top-right of the adapter; the remaining screws are numbered clockwise: Screw 2 at lower-right, Screw 3 at lower-left, Screw 4 at upper-left.";
                     case WizardStep.AllScrews:
-                        return "Turn ALL screws INWARD exactly 1 full turn each, then click Run Measurement.";
+                        return n == 3
+                            ? "Identify your screws. Label them 1, 2, and 3. Screw 1 is at the top of the adapter (12 o'clock); the remaining screws are numbered clockwise: Screw 2 at lower-right, Screw 3 at lower-left.\n\nTurn ALL screws INWARD exactly 1 full turn each, then click Run Measurement."
+                            : "Identify your screws. Label them 1, 2, 3, and 4. Screw 1 is at the top-right of the adapter; the remaining screws are numbered clockwise: Screw 2 at lower-right, Screw 3 at lower-left, Screw 4 at upper-left.\n\nTurn ALL screws INWARD exactly 1 full turn each, then click Run Measurement.";
                     case WizardStep.Screw1:
                         return n == 3
                             ? "Turn screws 1, 2, and 3 each back OUT 1 full turn to return to baseline. Then turn screw 1 INWARD exactly 1 full turn, then click Run Measurement."
@@ -338,7 +324,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public ICommand RunMeasurementCommand { get; }
         public ICommand UseSavedAFCommand { get; }
         public ICommand CancelCommand { get; }
-        public ICommand ContinueCommand { get; }
         public ICommand RestartCommand { get; }
 
         private Task StartAsync() {
@@ -363,7 +348,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 switch (currentStep) {
                     case WizardStep.Baseline: {
                         StepMeasurementSummary.Clear();
-                        var result = await RunAveragedTiltMeasurement(token);
+                        var result = await RunAveragedTiltMeasurement(token, "Baseline");
                         if (result != null) {
                             baselineReading = result.Value;
                             baselineCurvatureReading = inspector.TiltModel?.TiltPlaneModel?.MeanFocuserPosition ?? 0.0;
@@ -380,8 +365,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         break;
                     }
                     case WizardStep.Screw1: {
-                        StepMeasurementSummary.Clear();
-                        var result = await RunAveragedTiltMeasurement(token);
+                        var result = await RunAveragedTiltMeasurement(token, "Screw 1");
                         if (result != null) {
                             screw1Reading = result.Value;
                             success = true;
@@ -389,8 +373,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         break;
                     }
                     case WizardStep.Screw2: {
-                        StepMeasurementSummary.Clear();
-                        var result = await RunAveragedTiltMeasurement(token);
+                        var result = await RunAveragedTiltMeasurement(token, "Screw 2");
                         if (result != null) {
                             screw2Reading = result.Value;
                             success = true;
@@ -400,10 +383,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 }
 
                 if (success) {
-                    measurementDoneForCurrentStep = true;
-                    StatusText = "Measurement complete.";
-                    RaisePropertyChanged(nameof(CanAdvance));
-                    NotifyCommandsCanExecuteChanged();
+                    NextStep();
                 } else {
                     StatusText = "Measurement failed.";
                 }
@@ -423,14 +403,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var token = measureCts.Token;
 
             try {
-                // Show folder dialog before setting IsMeasuring so the chart doesn't
-                // appear prematurely, and cancelling the dialog is a no-op.
-                bool ok = await inspector.AnalyzeAutoFocusFromSaved(token);
+                // IsMeasuring is set via callback after the folder dialog closes so the
+                // chart doesn't appear until the user has confirmed a selection.
+                bool ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true);
                 if (!ok) {
                     return;
                 }
-
-                IsMeasuring = true;
 
                 bool success = false;
                 switch (currentStep) {
@@ -440,7 +418,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                             StepMeasurementSummary.Clear();
                             baselineReading = (m.A, m.B);
                             baselineCurvatureReading = m.MeanFocuserPosition;
-                            AddTiltSummaryRow(m.A, m.B, runNumber: 1);
+                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: "Baseline");
                             success = true;
                         }
                         break;
@@ -456,9 +434,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     case WizardStep.Screw1: {
                         var m = inspector.TiltModel?.TiltPlaneModel;
                         if (m != null) {
-                            StepMeasurementSummary.Clear();
                             screw1Reading = (m.A, m.B);
-                            AddTiltSummaryRow(m.A, m.B, runNumber: 1);
+                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: "Screw 1");
                             success = true;
                         }
                         break;
@@ -466,9 +443,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     case WizardStep.Screw2: {
                         var m = inspector.TiltModel?.TiltPlaneModel;
                         if (m != null) {
-                            StepMeasurementSummary.Clear();
                             screw2Reading = (m.A, m.B);
-                            AddTiltSummaryRow(m.A, m.B, runNumber: 1);
+                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: "Screw 2");
                             success = true;
                         }
                         break;
@@ -476,10 +452,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 }
 
                 if (success) {
-                    measurementDoneForCurrentStep = true;
-                    StatusText = "Measurement complete.";
-                    RaisePropertyChanged(nameof(CanAdvance));
-                    NotifyCommandsCanExecuteChanged();
+                    NextStep();
                 } else {
                     StatusText = "Measurement failed.";
                 }
@@ -503,16 +476,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             return Math.Atan(Math.Sqrt(gx * gx + gy * gy)) * 180.0 / Math.PI;
         }
 
-        private void AddTiltSummaryRow(double a, double b, int runNumber) {
+        private void AddTiltSummaryRow(double a, double b, int runNumber, string stepDescription = "") {
             StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
                 RunNumber = runNumber,
                 Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
                 TiltAngleDeg = ComputeTiltAngleDeg(a, b, inspector.TiltModel?.TiltPlaneModel),
-                IsAverage = false
+                IsAverage = false,
+                StepDescription = stepDescription
             });
         }
 
-        private async Task<(double A, double B)?> RunAveragedTiltMeasurement(CancellationToken token) {
+        private async Task<(double A, double B)?> RunAveragedTiltMeasurement(CancellationToken token, string stepDescription = "") {
             int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
             var readings = new List<(double A, double B)>(count);
 
@@ -536,7 +510,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     RunNumber = i + 1,
                     Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
                     TiltAngleDeg = ComputeTiltAngleDeg(a, b, latestModel),
-                    IsAverage = false
+                    IsAverage = false,
+                    StepDescription = stepDescription
                 });
             }
 
@@ -545,7 +520,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     RunNumber = 0,
                     Direction = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
                     TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
-                    IsAverage = true
+                    IsAverage = true,
+                    StepDescription = stepDescription
                 });
 
                 double maxDev = readings.Max(r =>
@@ -601,7 +577,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measureCts?.Cancel();
             IsWizardRunning = false;
             IsMeasuring = false;
-            measurementDoneForCurrentStep = false;
             baselineReading = default;
             screw1Reading = default;
             screw2Reading = default;
@@ -722,7 +697,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ((AsyncRelayCommand)RunMeasurementCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)UseSavedAFCommand).NotifyCanExecuteChanged();
             ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
-            ((RelayCommand)ContinueCommand).NotifyCanExecuteChanged();
         }
 
         private static double NormalizeAngle(double deg) => ((deg % 360) + 360) % 360;
