@@ -385,7 +385,7 @@
                         HorizontalAlignment="Left"
                         Command="{Binding RestartCommand}">
                         <Button.Style>
-                            <Style TargetType="Button">
+                            <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
                                 <Setter Property="Visibility" Value="Visible" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsMeasuring}" Value="True">
