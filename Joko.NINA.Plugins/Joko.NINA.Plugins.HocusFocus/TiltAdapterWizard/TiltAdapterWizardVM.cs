@@ -416,49 +416,38 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var token = measureCts.Token;
 
             try {
-                // IsMeasuring is set via callback after the folder dialog closes so the
-                // chart doesn't appear until the user has confirmed a selection.
-                bool ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true);
-                if (!ok) {
-                    return;
-                }
-
                 bool success = false;
                 switch (currentStep) {
                     case WizardStep.Baseline: {
-                        var m = inspector.TiltModel?.TiltPlaneModel;
-                        if (m != null) {
-                            StepMeasurementSummary.Clear();
-                            baselineReading = (m.A, m.B);
-                            baselineCurvatureReading = m.MeanFocuserPosition;
-                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: "Baseline");
+                        StepMeasurementSummary.Clear();
+                        var result = await RunAveragedSavedTiltMeasurement(token, "Baseline");
+                        if (result != null) {
+                            baselineReading = result.Value;
+                            baselineCurvatureReading = inspector.TiltModel?.TiltPlaneModel?.MeanFocuserPosition ?? 0.0;
                             success = true;
                         }
                         break;
                     }
                     case WizardStep.AllScrews: {
-                        var m = inspector.TiltModel?.TiltPlaneModel;
-                        if (m != null) {
-                            allScrewsCurvatureReading = m.MeanFocuserPosition;
-                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: AllScrewsDescription);
+                        var result = await RunAveragedSavedCurvatureMeasurement(token, AllScrewsDescription);
+                        if (result != null) {
+                            allScrewsCurvatureReading = result.Value;
                             success = true;
                         }
                         break;
                     }
                     case WizardStep.Screw1: {
-                        var m = inspector.TiltModel?.TiltPlaneModel;
-                        if (m != null) {
-                            screw1Reading = (m.A, m.B);
-                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: Screw1Description);
+                        var result = await RunAveragedSavedTiltMeasurement(token, Screw1Description);
+                        if (result != null) {
+                            screw1Reading = result.Value;
                             success = true;
                         }
                         break;
                     }
                     case WizardStep.Screw2: {
-                        var m = inspector.TiltModel?.TiltPlaneModel;
-                        if (m != null) {
-                            screw2Reading = (m.A, m.B);
-                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: Screw2Description);
+                        var result = await RunAveragedSavedTiltMeasurement(token, Screw2Description);
+                        if (result != null) {
+                            screw2Reading = result.Value;
                             success = true;
                         }
                         break;
@@ -477,6 +466,101 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        private async Task<(double A, double B)?> RunAveragedSavedTiltMeasurement(CancellationToken token, string stepDescription) {
+            int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
+            var readings = new List<(double A, double B)>(count);
+
+            for (int i = 0; i < count; i++) {
+                token.ThrowIfCancellationRequested();
+                StatusText = $"Run {i + 1}/{count}...";
+                // IsMeasuring is set via callback after the folder dialog closes so the
+                // chart doesn't appear until the user has confirmed a selection.
+                bool ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true);
+                if (!ok) return null;
+                var m = inspector.TiltModel?.TiltPlaneModel;
+                if (m == null) return null;
+                readings.Add((m.A, m.B));
+            }
+
+            double avgA = readings.Average(r => r.A);
+            double avgB = readings.Average(r => r.B);
+
+            var latestModel = inspector.TiltModel?.TiltPlaneModel;
+            for (int i = 0; i < readings.Count; i++) {
+                var (a, b) = readings[i];
+                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                    RunNumber = i + 1,
+                    Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
+                    TiltAngleDeg = ComputeTiltAngleDeg(a, b, latestModel),
+                    IsAverage = false,
+                    StepDescription = stepDescription
+                });
+            }
+
+            if (count > 1) {
+                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                    RunNumber = 0,
+                    Direction = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
+                    TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
+                    IsAverage = true,
+                    StepDescription = stepDescription
+                });
+
+                double maxDev = readings.Max(r =>
+                    Math.Sqrt(Math.Pow(r.A - avgA, 2) + Math.Pow(r.B - avgB, 2)));
+                if (maxDev > MeasurementConsistencyWarningThreshold) {
+                    HasMeasurementConsistencyWarning = true;
+                    MeasurementConsistencyWarningText =
+                        $"Measurements inconsistent: max deviation {maxDev:F4} exceeds {MeasurementConsistencyWarningThreshold:F4}. Consider re-running.";
+                }
+            }
+
+            return (avgA, avgB);
+        }
+
+        private async Task<double?> RunAveragedSavedCurvatureMeasurement(CancellationToken token, string stepDescription) {
+            int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
+            double sum = 0;
+            var tiltReadings = new List<(double A, double B)>(count);
+
+            for (int i = 0; i < count; i++) {
+                token.ThrowIfCancellationRequested();
+                StatusText = $"Run {i + 1}/{count}...";
+                bool ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true);
+                if (!ok) return null;
+                var plane = inspector.TiltModel?.TiltPlaneModel;
+                if (plane == null) return null;
+                sum += plane.MeanFocuserPosition;
+                tiltReadings.Add((plane.A, plane.B));
+            }
+
+            var latestModel = inspector.TiltModel?.TiltPlaneModel;
+            for (int i = 0; i < tiltReadings.Count; i++) {
+                var (a, b) = tiltReadings[i];
+                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                    RunNumber = i + 1,
+                    Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
+                    TiltAngleDeg = ComputeTiltAngleDeg(a, b, latestModel),
+                    IsAverage = false,
+                    StepDescription = stepDescription
+                });
+            }
+
+            if (count > 1) {
+                double avgA = tiltReadings.Average(r => r.A);
+                double avgB = tiltReadings.Average(r => r.B);
+                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                    RunNumber = 0,
+                    Direction = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
+                    TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
+                    IsAverage = true,
+                    StepDescription = stepDescription
+                });
+            }
+
+            return sum / count;
+        }
+
         private double ComputeTiltAngleDeg(double a, double b, TiltPlaneModel model) {
             if (model == null) return double.NaN;
             var pixelSizeMicrons = profileService.ActiveProfile.CameraSettings.PixelSize;
@@ -493,16 +577,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var gx = a * fStepMicrons / (model.ImageSize.Width * pixelSizeMicrons);
             var gy = b * fStepMicrons / (model.ImageSize.Height * pixelSizeMicrons);
             return Math.Atan(Math.Sqrt(gx * gx + gy * gy)) * 180.0 / Math.PI;
-        }
-
-        private void AddTiltSummaryRow(double a, double b, int runNumber, string stepDescription = "") {
-            StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
-                RunNumber = runNumber,
-                Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
-                TiltAngleDeg = ComputeTiltAngleDeg(a, b, inspector.TiltModel?.TiltPlaneModel),
-                IsAverage = false,
-                StepDescription = stepDescription
-            });
         }
 
         private async Task<(double A, double B)?> RunAveragedTiltMeasurement(CancellationToken token, string stepDescription = "") {
