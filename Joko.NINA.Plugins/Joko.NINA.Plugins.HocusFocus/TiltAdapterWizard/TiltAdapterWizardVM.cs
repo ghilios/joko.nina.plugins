@@ -467,6 +467,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             if (model == null) return double.NaN;
             var pixelSizeMicrons = profileService.ActiveProfile.CameraSettings.PixelSize;
             var fStepMicrons = model.FocuserStepSizeMicrons;
+            // Fall back to the connected focuser's reported step size when the inspector
+            // option (MicronsPerFocuserStep) hasn't been configured.
+            if (double.IsNaN(fStepMicrons) || fStepMicrons <= 0) {
+                fStepMicrons = focuserInfo.StepSize;
+            }
             if (double.IsNaN(fStepMicrons) || fStepMicrons <= 0 ||
                 double.IsNaN(pixelSizeMicrons) || pixelSizeMicrons <= 0) return double.NaN;
             // A and B are in focuser steps per normalized image coordinate (range [-0.5, 0.5]).
