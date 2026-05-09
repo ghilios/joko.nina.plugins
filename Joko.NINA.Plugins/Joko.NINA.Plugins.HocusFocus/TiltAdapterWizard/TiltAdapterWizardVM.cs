@@ -125,6 +125,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     RaisePropertyChanged(nameof(IsCalibrationValid));
                     RebuildDiagram();
                 }
+                if (e.PropertyName == nameof(ITiltAdapterOptions.MeasurementAverageCount)) {
+                    RaisePropertyChanged(nameof(ShowRunColumn));
+                }
             };
 
             RebuildDiagram();
@@ -254,6 +257,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         public bool HasMeasurementResults => !isMeasuring && StepMeasurementSummary.Count > 0;
 
+        public bool ShowRunColumn => tiltAdapterOptions.MeasurementAverageCount > 1;
+
         public bool HasWarning {
             get => hasWarning;
             private set {
@@ -365,7 +370,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         break;
                     }
                     case WizardStep.Screw1: {
-                        var result = await RunAveragedTiltMeasurement(token, "Screw 1");
+                        var result = await RunAveragedTiltMeasurement(token, Screw1Description);
                         if (result != null) {
                             screw1Reading = result.Value;
                             success = true;
@@ -373,7 +378,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         break;
                     }
                     case WizardStep.Screw2: {
-                        var result = await RunAveragedTiltMeasurement(token, "Screw 2");
+                        var result = await RunAveragedTiltMeasurement(token, Screw2Description);
                         if (result != null) {
                             screw2Reading = result.Value;
                             success = true;
@@ -393,6 +398,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 IsMeasuring = false;
             }
         }
+
+        private string Screw1Description =>
+            tiltAdapterOptions.ScrewCount == 3 ? "Screw 1 ↓" : "Screw 1 ↓, Screw 3 ↑";
+
+        private string Screw2Description =>
+            tiltAdapterOptions.ScrewCount == 3 ? "Screw 2 ↓" : "Screw 2 ↓, Screw 4 ↑";
 
         private async Task RunSavedMeasurementAsync() {
             HasMeasurementConsistencyWarning = false;
@@ -435,7 +446,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         var m = inspector.TiltModel?.TiltPlaneModel;
                         if (m != null) {
                             screw1Reading = (m.A, m.B);
-                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: "Screw 1");
+                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: Screw1Description);
                             success = true;
                         }
                         break;
@@ -444,7 +455,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         var m = inspector.TiltModel?.TiltPlaneModel;
                         if (m != null) {
                             screw2Reading = (m.A, m.B);
-                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: "Screw 2");
+                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: Screw2Description);
                             success = true;
                         }
                         break;

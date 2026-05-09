@@ -379,11 +379,21 @@
                         </Button>
                     </StackPanel>
 
-                    <!--  Abort Wizard button  -->
+                    <!--  Abort Wizard: hidden while a measurement is in progress  -->
                     <Button
                         Margin="0,10,0,0"
                         HorizontalAlignment="Left"
                         Command="{Binding RestartCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMeasuring}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
                         <TextBlock
                             Margin="10,5,10,5"
                             Foreground="{StaticResource ButtonForegroundBrush}"
@@ -446,15 +456,53 @@
                             TextWrapping="Wrap" />
                     </Border>
 
-                    <!--  Measurement results table (shown after measurement completes, hidden while measuring)  -->
+                    <!--  Measurement results: single run (no Run column)  -->
                     <StackPanel Margin="0,8,0,0">
                         <StackPanel.Style>
                             <Style TargetType="StackPanel">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding HasMeasurementResults}" Value="True">
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding HasMeasurementResults}" Value="True" />
+                                            <Condition Binding="{Binding ShowRunColumn}" Value="False" />
+                                        </MultiDataTrigger.Conditions>
                                         <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
+                                    </MultiDataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <UniformGrid Margin="0,0,0,2" Columns="3">
+                            <TextBlock FontWeight="DemiBold" Text="Step" />
+                            <TextBlock FontWeight="DemiBold" Text="Rotation Angle" />
+                            <TextBlock FontWeight="DemiBold" Text="Tilt Angle" />
+                        </UniformGrid>
+                        <ItemsControl ItemsSource="{Binding StepMeasurementSummary}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <UniformGrid Columns="3">
+                                        <TextBlock Text="{Binding StepDescription}" />
+                                        <TextBlock Text="{Binding Direction, StringFormat={}{0:F1}°}" />
+                                        <TextBlock Text="{Binding TiltAngleDisplay}" />
+                                    </UniformGrid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!--  Measurement results: multiple runs (includes Run column, avg row bold)  -->
+                    <StackPanel Margin="0,8,0,0">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding HasMeasurementResults}" Value="True" />
+                                            <Condition Binding="{Binding ShowRunColumn}" Value="True" />
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </MultiDataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </StackPanel.Style>
