@@ -2381,7 +2381,8 @@
                 <Expander
                     Grid.Row="5"
                     Header="Tilt Adapter Guidance"
-                    IsExpanded="{Binding HasTiltAdapterCalibration, Mode=OneWay}">
+                    IsExpanded="{Binding HasTiltAdapterCalibration, Mode=OneWay}"
+                    Visibility="{Binding TiltMeasurementActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                     <StackPanel Margin="5">
                         <!--  No calibration branch  -->
                         <TextBlock
