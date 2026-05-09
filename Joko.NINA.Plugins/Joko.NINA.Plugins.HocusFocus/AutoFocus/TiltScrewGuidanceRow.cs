@@ -12,8 +12,20 @@
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
-    public class TiltScrewGuidanceRow {
-        public int ScrewNumber { get; set; }
-        public string Arrow { get; set; }  // "⬆", "↑", "—", "↓", or "⬇"
+    public class TiltAdapterGuidanceVM {
+        public int ScrewCount { get; set; }
+        public bool HasFourScrews => ScrewCount == 4;
+        public bool HasTiltGuidance { get; set; }
+        public bool HasBackfocusRow { get; set; }
+
+        public string Screw1TiltArrow { get; set; } = "—";
+        public string Screw2TiltArrow { get; set; } = "—";
+        public string Screw3TiltArrow { get; set; } = "—";
+        public string Screw4TiltArrow { get; set; } = "—";
+
+        public string Screw1BackfocusArrow { get; set; } = "—";
+        public string Screw2BackfocusArrow { get; set; } = "—";
+        public string Screw3BackfocusArrow { get; set; } = "—";
+        public string Screw4BackfocusArrow { get; set; } = "—";
     }
 }

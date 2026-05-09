@@ -160,7 +160,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SensorModel = new SensorModel(profileService, inspectorOptions, autoFocusOptions, alglibAPI);
 
             this.tiltAdapterOptions = tiltAdapterOptions;
-            TiltGuidanceRows = new AsyncObservableCollection<TiltScrewGuidanceRow>();
+            TiltGuidance = new TiltAdapterGuidanceVM();
             if (tiltAdapterOptions != null) {
                 tiltAdapterOptions.PropertyChanged += (s, e) => RebuildTiltGuidance();
                 RebuildTiltGuidance();
@@ -199,7 +199,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return await task;
         }
 
-        public async Task<bool> AnalyzeAutoFocusFromSaved(CancellationToken token) {
+        public async Task<bool> AnalyzeAutoFocusFromSaved(CancellationToken token, Action onFolderSelected = null) {
             string folderPath;
             using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
                 if (!String.IsNullOrEmpty(autoFocusOptions.LastSelectedLoadPath)) {
@@ -211,6 +211,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 folderPath = dialog.SelectedPath;
                 autoFocusOptions.LastSelectedLoadPath = folderPath;
             }
+            onFolderSelected?.Invoke();
             var task = AnalyzeAutoFocusFromSavedImpl(folderPath);
             token.Register(() => analyzeCts?.Cancel());
             return await task;
@@ -273,6 +274,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return true;
             });
             analyzeTask = localAnalyzeTask;
+            RaisePropertyChanged(nameof(IsAnalysisRunning));
 
             try {
                 return await localAnalyzeTask;
@@ -287,6 +289,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Inspection auto focus rerun analysis failed", e);
                 DeactivateAutoFocusAnalysis();
                 return false;
+            } finally {
+                RaisePropertyChanged(nameof(IsAnalysisRunning));
             }
         }
 
@@ -355,6 +359,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }, localAnalyzeCts.Token);
             analyzeTask = localAnalyzeTask;
+            RaisePropertyChanged(nameof(IsAnalysisRunning));
 
             try {
                 return await localAnalyzeTask;
@@ -370,6 +375,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             } finally {
                 analyzeTask = null;
                 analyzeCts = null;
+                RaisePropertyChanged(nameof(IsAnalysisRunning));
             }
         }
 
@@ -889,6 +895,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return lastResult;
             });
             analyzeTask = localAnalyzeTask;
+            RaisePropertyChanged(nameof(IsAnalysisRunning));
 
             try {
                 return await localAnalyzeTask;
@@ -899,6 +906,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Notification.ShowError($"Inspection exposure analysis failed: {e.Message}");
                 Logger.Error("Inspection exposure analysis failed", e);
                 return false;
+            } finally {
+                RaisePropertyChanged(nameof(IsAnalysisRunning));
             }
         }
 
@@ -1056,6 +1065,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return true;
             });
             analyzeTask = localAnalyzeTask;
+            RaisePropertyChanged(nameof(IsAnalysisRunning));
 
             try {
                 return await localAnalyzeTask;
@@ -1078,6 +1088,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Inspection auto focus rerun analysis failed", e);
                 DeactivateAutoFocusAnalysis();
                 return false;
+            } finally {
+                RaisePropertyChanged(nameof(IsAnalysisRunning));
             }
         }
 
@@ -1516,74 +1528,98 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public SensorModel SensorModel { get; private set; }
         public IInspectorOptions InspectorOptions => this.inspectorOptions;
 
-        public AsyncObservableCollection<TiltScrewGuidanceRow> TiltGuidanceRows { get; private set; }
+        public TiltAdapterGuidanceVM TiltGuidance { get; private set; }
+
+        public bool IsAnalysisRunning => AnalysisRunning();
 
         public bool HasTiltAdapterCalibration =>
             tiltAdapterOptions != null &&
             tiltAdapterOptions.IsCalibrated &&
             tiltAdapterOptions.ScrewCount == tiltAdapterOptions.CalibratedScrewCount;
 
-        public string CurvatureGuidanceText {
-            get {
-                if (tiltAdapterOptions == null) return string.Empty;
-                int sign = tiltAdapterOptions.ScrewInwardCurvatureSign;
-                if (sign == 1) return "Curvature: ⬆ all inward to raise · ⬇ all outward to lower";
-                if (sign == -1) return "Curvature: ⬇ all inward to lower · ⬆ all outward to raise";
-                return string.Empty;
-            }
-        }
-
-        public bool HasCurvatureGuidance => CurvatureGuidanceText.Length > 0;
-
         private const double GuidanceNoiseThreshold = 0.005;
         private const double GuidanceMinArrowThreshold = 0.1;
         private const double GuidanceLargeArrowThreshold = 0.5;
 
+        // Backfocus arrow thresholds in focuser-µm (CurvatureEffectMicrons units)
+        private const double BackfocusNoiseThresholdMicrons = 10.0;
+        private const double BackfocusLargeArrowThresholdMicrons = 50.0;
+
         private void RebuildTiltGuidance() {
             RaisePropertyChanged(nameof(HasTiltAdapterCalibration));
-            RaisePropertyChanged(nameof(CurvatureGuidanceText));
-            RaisePropertyChanged(nameof(HasCurvatureGuidance));
 
-            TiltGuidanceRows.Clear();
+            int n = HasTiltAdapterCalibration ? tiltAdapterOptions.CalibratedScrewCount : 3;
+            var guidance = new TiltAdapterGuidanceVM { ScrewCount = n };
 
-            if (!HasTiltAdapterCalibration) return;
+            if (HasTiltAdapterCalibration) {
+                var tiltPlane = TiltModel?.TiltPlaneModel;
+                if (tiltPlane != null) {
+                    double a = tiltPlane.A;
+                    double b = tiltPlane.B;
+                    if (!double.IsNaN(a) && !double.IsNaN(b)) {
+                        var angles = new double[n];
+                        angles[0] = tiltAdapterOptions.Screw1AngleDegrees;
+                        angles[1] = tiltAdapterOptions.Screw2AngleDegrees;
+                        angles[2] = tiltAdapterOptions.Screw3AngleDegrees;
+                        if (n == 4) angles[3] = tiltAdapterOptions.Screw4AngleDegrees;
 
-            var tiltPlane = TiltModel?.TiltPlaneModel;
-            if (tiltPlane == null) return;
+                        var turns = new double[n];
+                        for (int i = 0; i < n; i++) {
+                            double theta = angles[i] * Math.PI / 180.0;
+                            turns[i] = (2.0 / n) * (-a * Math.Sin(theta) + b * Math.Cos(theta));
+                        }
 
-            double a = tiltPlane.A;
-            double b = tiltPlane.B;
-            if (double.IsNaN(a) || double.IsNaN(b)) return;
-
-            int n = tiltAdapterOptions.CalibratedScrewCount;
-            var angles = new double[n];
-            angles[0] = tiltAdapterOptions.Screw1AngleDegrees;
-            angles[1] = tiltAdapterOptions.Screw2AngleDegrees;
-            angles[2] = tiltAdapterOptions.Screw3AngleDegrees;
-            if (n == 4) angles[3] = tiltAdapterOptions.Screw4AngleDegrees;
-
-            var turns = new double[n];
-            for (int i = 0; i < n; i++) {
-                double theta = angles[i] * Math.PI / 180.0;
-                turns[i] = (2.0 / n) * (-a * Math.Sin(theta) + b * Math.Cos(theta));
-            }
-
-            double maxAbs = turns.Max(t => Math.Abs(t));
-
-            for (int i = 0; i < n; i++) {
-                string arrow;
-                if (maxAbs < GuidanceNoiseThreshold) {
-                    arrow = "—";
-                } else {
-                    double ratio = turns[i] / maxAbs;
-                    if (ratio >= GuidanceLargeArrowThreshold) arrow = "⬆";
-                    else if (ratio >= GuidanceMinArrowThreshold) arrow = "↑";
-                    else if (ratio <= -GuidanceLargeArrowThreshold) arrow = "⬇";
-                    else if (ratio <= -GuidanceMinArrowThreshold) arrow = "↓";
-                    else arrow = "—";
+                        double maxAbs = turns.Max(t => Math.Abs(t));
+                        var tiltArrows = new string[n];
+                        for (int i = 0; i < n; i++) {
+                            if (maxAbs < GuidanceNoiseThreshold) {
+                                tiltArrows[i] = "—";
+                            } else {
+                                double ratio = turns[i] / maxAbs;
+                                if (ratio >= GuidanceLargeArrowThreshold) tiltArrows[i] = "⬆";
+                                else if (ratio >= GuidanceMinArrowThreshold) tiltArrows[i] = "↑";
+                                else if (ratio <= -GuidanceLargeArrowThreshold) tiltArrows[i] = "⬇";
+                                else if (ratio <= -GuidanceMinArrowThreshold) tiltArrows[i] = "↓";
+                                else tiltArrows[i] = "—";
+                            }
+                        }
+                        guidance.Screw1TiltArrow = tiltArrows[0];
+                        guidance.Screw2TiltArrow = tiltArrows[1];
+                        guidance.Screw3TiltArrow = tiltArrows[2];
+                        if (n == 4) guidance.Screw4TiltArrow = tiltArrows[3];
+                        guidance.HasTiltGuidance = true;
+                    }
                 }
-                TiltGuidanceRows.Add(new TiltScrewGuidanceRow { ScrewNumber = i + 1, Arrow = arrow });
+
+                // Backfocus row: adjust curvature toward 0 using sensor model CurvatureEffectMicrons and ScrewInwardCurvatureSign.
+                // CurvatureEffectMicrons is in focuser-µm at the sensor corner — positive when C > 0.
+                // ScrewInwardCurvatureSign = +1 means turning all screws inward raises curvature; -1 means it lowers it.
+                // To reduce |curvature| toward 0: go inward when curvatureEffect and curvatureSign have opposite signs.
+                int curvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign;
+                if (curvatureSign != 0 && SensorModel?.DisplayedSensorModel != null) {
+                    double curvatureEffectMicrons = SensorModel.SensorModelResult.CurvatureEffectMicrons;
+                    double absMicrons = Math.Abs(curvatureEffectMicrons);
+
+                    string backfocusArrow;
+                    if (absMicrons < BackfocusNoiseThresholdMicrons) {
+                        backfocusArrow = "—";
+                    } else {
+                        bool needsInward = curvatureEffectMicrons * curvatureSign < 0;
+                        string bigArrow = needsInward ? "⬆" : "⬇";
+                        string smallArrow = needsInward ? "↑" : "↓";
+                        backfocusArrow = absMicrons >= BackfocusLargeArrowThresholdMicrons ? bigArrow : smallArrow;
+                    }
+
+                    guidance.Screw1BackfocusArrow = backfocusArrow;
+                    guidance.Screw2BackfocusArrow = backfocusArrow;
+                    guidance.Screw3BackfocusArrow = backfocusArrow;
+                    if (n == 4) guidance.Screw4BackfocusArrow = backfocusArrow;
+                    guidance.HasBackfocusRow = true;
+                }
             }
+
+            TiltGuidance = guidance;
+            RaisePropertyChanged(nameof(TiltGuidance));
         }
 
         private TrendlineFitting GetLineFitting(AutoFocusFitting fitting) {

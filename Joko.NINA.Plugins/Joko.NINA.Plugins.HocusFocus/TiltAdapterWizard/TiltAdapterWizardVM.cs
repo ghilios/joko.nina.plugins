@@ -362,7 +362,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         break;
                     }
                     case WizardStep.AllScrews: {
-                        var result = await RunAveragedCurvatureMeasurement(token);
+                        var result = await RunAveragedCurvatureMeasurement(token, AllScrewsDescription);
                         if (result != null) {
                             allScrewsCurvatureReading = result.Value;
                             success = true;
@@ -398,6 +398,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 IsMeasuring = false;
             }
         }
+
+        private string AllScrewsDescription => "All screws ↓";
 
         private string Screw1Description =>
             tiltAdapterOptions.ScrewCount == 3 ? "Screw 1 ↓" : "Screw 1 ↓, Screw 3 ↑";
@@ -435,9 +437,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         break;
                     }
                     case WizardStep.AllScrews: {
-                        var pos = inspector.TiltModel?.TiltPlaneModel?.MeanFocuserPosition;
-                        if (pos != null) {
-                            allScrewsCurvatureReading = pos.Value;
+                        var m = inspector.TiltModel?.TiltPlaneModel;
+                        if (m != null) {
+                            allScrewsCurvatureReading = m.MeanFocuserPosition;
+                            AddTiltSummaryRow(m.A, m.B, runNumber: 1, stepDescription: AllScrewsDescription);
                             success = true;
                         }
                         break;
@@ -552,18 +555,45 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             return (avgA, avgB);
         }
 
-        private async Task<double?> RunAveragedCurvatureMeasurement(CancellationToken token) {
+        private async Task<double?> RunAveragedCurvatureMeasurement(CancellationToken token, string stepDescription = "") {
             int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
             double sum = 0;
+            var tiltReadings = new List<(double A, double B)>(count);
             for (int i = 0; i < count; i++) {
                 token.ThrowIfCancellationRequested();
                 StatusText = $"Run {i + 1}/{count}...";
                 bool ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true);
                 if (!ok) return null;
-                var pos = inspector.TiltModel?.TiltPlaneModel?.MeanFocuserPosition;
-                if (pos == null) return null;
-                sum += pos.Value;
+                var plane = inspector.TiltModel?.TiltPlaneModel;
+                if (plane == null) return null;
+                sum += plane.MeanFocuserPosition;
+                tiltReadings.Add((plane.A, plane.B));
             }
+
+            var latestModel = inspector.TiltModel?.TiltPlaneModel;
+            for (int i = 0; i < tiltReadings.Count; i++) {
+                var (a, b) = tiltReadings[i];
+                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                    RunNumber = i + 1,
+                    Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
+                    TiltAngleDeg = ComputeTiltAngleDeg(a, b, latestModel),
+                    IsAverage = false,
+                    StepDescription = stepDescription
+                });
+            }
+
+            if (count > 1) {
+                double avgA = tiltReadings.Average(r => r.A);
+                double avgB = tiltReadings.Average(r => r.B);
+                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                    RunNumber = 0,
+                    Direction = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
+                    TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
+                    IsAverage = true,
+                    StepDescription = stepDescription
+                });
+            }
+
             return sum / count;
         }
 
