@@ -8,6 +8,10 @@ on:
     branches:
       - develop
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   test:
     name: Run unit tests
@@ -68,3 +72,68 @@ jobs:
         with:
           name: coverage-html
           path: CoverageReport/
+
+      - name: Build PR comment body
+        if: always() && github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          $sb = [System.Text.StringBuilder]::new()
+          [void]$sb.AppendLine('## Test Results')
+          [void]$sb.AppendLine()
+
+          $trx = Get-ChildItem -Path TestResults -Filter *.trx -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($trx) {
+            try {
+              [xml]$xml = Get-Content -Raw $trx.FullName
+              $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+              $ns.AddNamespace('v', 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010')
+              $counters = $xml.SelectSingleNode('//v:ResultSummary/v:Counters', $ns)
+              if ($counters) {
+                $total = [int]$counters.GetAttribute('total')
+                $passed = [int]$counters.GetAttribute('passed')
+                $failed = [int]$counters.GetAttribute('failed')
+                $skipped = [int]$counters.GetAttribute('notExecuted')
+                $icon = if ($failed -gt 0) { ':x:' } else { ':white_check_mark:' }
+                [void]$sb.AppendLine("$icon **$passed / $total** tests passed")
+                [void]$sb.AppendLine()
+                [void]$sb.AppendLine('| Total | Passed | Failed | Skipped |')
+                [void]$sb.AppendLine('|------:|-------:|-------:|--------:|')
+                [void]$sb.AppendLine("| $total | $passed | $failed | $skipped |")
+              } else {
+                [void]$sb.AppendLine('_Could not find test counters in result file._')
+              }
+            } catch {
+              [void]$sb.AppendLine("_Failed to parse test results: $($_.Exception.Message)_")
+            }
+          } else {
+            [void]$sb.AppendLine('_No test results found._')
+          }
+          [void]$sb.AppendLine()
+
+          [void]$sb.AppendLine('## Coverage')
+          [void]$sb.AppendLine()
+          if (Test-Path 'CoverageReport/SummaryGithub.md') {
+            [void]$sb.Append((Get-Content -Raw 'CoverageReport/SummaryGithub.md'))
+          } else {
+            [void]$sb.AppendLine('_No coverage report found._')
+          }
+
+          $sb.ToString() | Out-File -FilePath pr-comment.md -Encoding utf8
+
+      - name: Post or update PR comment
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- hocus-focus-coverage-comment -->';
+            const body = marker + '\n' + fs.readFileSync('pr-comment.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
