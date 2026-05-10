@@ -11,7 +11,11 @@
 #endregion "copyright"
 
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+
+// Allow the test project to access internal types
+[assembly: InternalsVisibleTo("Joko.NINA.Plugins.HocusFocus.Tests")]
 
 // [MANDATORY] The following GUID is used as a unique identifier of the plugin
 [assembly: Guid("0f1d10b6-d306-4168-b751-d454cbac9670")]

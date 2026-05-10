@@ -25,10 +25,10 @@ namespace NINA.Joko.Plugins.HocusFocus.ValidationRules {
             if (s == "unlimited") {
                 return new ValidationResult(true, null);
             }
-            if (int.TryParse(s, NumberStyles.Number, cultureInfo, out var _)) {
+            if (int.TryParse(s, NumberStyles.Integer, cultureInfo, out var parsed) && (parsed > 0 || parsed == -1)) {
                 return new ValidationResult(true, null);
             } else {
-                return new ValidationResult(false, "Value must be an integer or unlimited");
+                return new ValidationResult(false, "Value must be a positive integer, -1, or 'unlimited'");
             }
         }
     }

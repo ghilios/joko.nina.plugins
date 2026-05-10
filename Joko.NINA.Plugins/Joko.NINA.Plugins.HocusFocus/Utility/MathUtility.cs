@@ -146,6 +146,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             var t2 = t * t;
             var grubbZLimit = (double)(N - 1) / Math.Sqrt(N) * Math.Sqrt(t2 / (t2 + N - 2));
 
+            if (errorsStdDev == 0.0) {
+                // Perfect fit: no outliers possible.
+                return null;
+            }
+
             var maxError = errors.Select((e, i) => (e, i)).MaxBy(v => Math.Abs(v.e));
             var maxErrorZScore = Math.Abs(maxError.e) / errorsStdDev;
             if (maxErrorZScore < grubbZLimit) {
@@ -154,7 +159,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return points[maxError.i];
         }
 
-        public static double CalcDistance(Point2D p1, Point2D p2) {
+        public static double CalcSquaredDistance(Point2D p1, Point2D p2) {
             return (p2.X - p1.X) * (p2.X - p1.X) + (p2.Y - p1.Y) * (p2.Y - p1.Y);
         }
     }

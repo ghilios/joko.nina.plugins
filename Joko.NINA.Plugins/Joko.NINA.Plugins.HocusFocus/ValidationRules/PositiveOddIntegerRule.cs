@@ -22,7 +22,7 @@ namespace NINA.Joko.Plugins.HocusFocus.ValidationRules {
                 return new ValidationResult(false, "Null value");
             }
             var s = value.ToString();
-            if (int.TryParse(s, NumberStyles.Number, cultureInfo, out var parsed) && parsed > 0 && (parsed % 2) == 1) {
+            if (int.TryParse(s, NumberStyles.Integer, cultureInfo, out var parsed) && parsed > 0 && (parsed % 2) == 1) {
                 return new ValidationResult(true, null);
             } else {
                 return new ValidationResult(false, "Value must be a positive odd integer");

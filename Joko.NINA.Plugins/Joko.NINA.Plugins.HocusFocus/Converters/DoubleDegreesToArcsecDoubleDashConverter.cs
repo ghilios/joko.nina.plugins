@@ -25,7 +25,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
             switch (value) {
-                case double i when i == double.NaN:
+                case double i when double.IsNaN(i):
                     return "--";
 
                 case double i:
