@@ -1,7 +1,7 @@
 ﻿#region "copyright"
 
 /*
-    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+    Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
 
     This Source Code Form is subject to the terms of the Mozilla Public
     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -16,6 +16,7 @@ using NINA.Image.ImageData;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.ViewModel;
 using NINA.WPF.Base.ViewModel;
+using System;
 using System.ComponentModel.Composition;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
@@ -28,6 +29,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public StarDetectionResultsVM(IProfileService profileService, IImageStatisticsVM imageStatisticsVM)
             : base(profileService) {
             this.Title = "Star Detection Results";
+
+            var dict = new System.Windows.ResourceDictionary();
+            dict.Source = new Uri("NINA.Joko.Plugins.HocusFocus;component/StarDetection/DataTemplates.xaml", UriKind.RelativeOrAbsolute);
+            ImageGeometry = (System.Windows.Media.GeometryGroup)dict["StarDetectionResultsSVG"];
+            ImageGeometry.Freeze();
+
             this.imageStatisticsVM = imageStatisticsVM;
             this.imageStatisticsVM.PropertyChanged += ImageStatisticsVM_PropertyChanged;
             this.Statistics = this.imageStatisticsVM.Statistics;

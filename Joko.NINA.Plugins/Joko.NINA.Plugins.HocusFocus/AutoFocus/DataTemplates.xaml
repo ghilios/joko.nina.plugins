@@ -867,6 +867,8 @@
                     <RowDefinition Height="Auto" />
                     <!--  AF curves  -->
                     <RowDefinition Height="Auto" />
+                    <!--  Tilt Adapter Guidance  -->
+                    <RowDefinition Height="Auto" />
                     <!--  Sensor Curve Model  -->
                     <RowDefinition Height="Auto" />
                     <!--  Tilt measurements + Tilt graphic  -->
@@ -2378,6 +2380,175 @@
                 </Expander>
                 <Expander
                     Grid.Row="5"
+                    Header="Tilt Adapter Guidance"
+                    IsExpanded="{Binding HasTiltAdapterCalibration, Mode=OneWay}">
+                    <Expander.Style>
+                        <Style TargetType="Expander">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding TiltMeasurementActivatedOnce}" Value="False">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsAnalysisRunning}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Expander.Style>
+                    <StackPanel Margin="5">
+                        <!--  No calibration branch  -->
+                        <TextBlock
+                            Margin="5"
+                            TextWrapping="Wrap"
+                            Visibility="{Binding HasTiltAdapterCalibration, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
+                            No tilt adapter calibration found. Open the Tilt Adapter Wizard panel and run a calibration to enable guidance.
+                        </TextBlock>
+                        <!--  Calibrated guidance branch  -->
+                        <StackPanel Visibility="{Binding HasTiltAdapterCalibration, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <!--  No measurement yet  -->
+                            <TextBlock
+                                Margin="5"
+                                FontStyle="Italic">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding TiltGuidance.HasTiltGuidance}" Value="False">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                                Run a measurement to see guidance.
+                            </TextBlock>
+                            <!--  2-row guidance table (columns = screws, rows = Tilt + Backfocus)  -->
+                            <Grid
+                                Margin="5,5,5,0"
+                                Visibility="{Binding TiltGuidance.HasTiltGuidance, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="75" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <!--  Header row  -->
+                                <TextBlock
+                                    Grid.Row="0"
+                                    Grid.Column="1"
+                                    HorizontalAlignment="Center"
+                                    FontWeight="SemiBold"
+                                    Text="Screw 1" />
+                                <TextBlock
+                                    Grid.Row="0"
+                                    Grid.Column="2"
+                                    HorizontalAlignment="Center"
+                                    FontWeight="SemiBold"
+                                    Text="Screw 2" />
+                                <TextBlock
+                                    Grid.Row="0"
+                                    Grid.Column="3"
+                                    HorizontalAlignment="Center"
+                                    FontWeight="SemiBold"
+                                    Text="Screw 3" />
+                                <TextBlock
+                                    Grid.Row="0"
+                                    Grid.Column="4"
+                                    HorizontalAlignment="Center"
+                                    FontWeight="SemiBold"
+                                    Text="Screw 4"
+                                    Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <!--  Tilt row  -->
+                                <TextBlock
+                                    Grid.Row="1"
+                                    Grid.Column="0"
+                                    VerticalAlignment="Center"
+                                    Text="Tilt" />
+                                <TextBlock
+                                    Grid.Row="1"
+                                    Grid.Column="1"
+                                    HorizontalAlignment="Center"
+                                    FontSize="18"
+                                    Text="{Binding TiltGuidance.Screw1TiltArrow}" />
+                                <TextBlock
+                                    Grid.Row="1"
+                                    Grid.Column="2"
+                                    HorizontalAlignment="Center"
+                                    FontSize="18"
+                                    Text="{Binding TiltGuidance.Screw2TiltArrow}" />
+                                <TextBlock
+                                    Grid.Row="1"
+                                    Grid.Column="3"
+                                    HorizontalAlignment="Center"
+                                    FontSize="18"
+                                    Text="{Binding TiltGuidance.Screw3TiltArrow}" />
+                                <TextBlock
+                                    Grid.Row="1"
+                                    Grid.Column="4"
+                                    HorizontalAlignment="Center"
+                                    FontSize="18"
+                                    Text="{Binding TiltGuidance.Screw4TiltArrow}"
+                                    Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <!--  Backfocus row  -->
+                                <TextBlock
+                                    Grid.Row="2"
+                                    Grid.Column="0"
+                                    VerticalAlignment="Center"
+                                    Text="Backfocus"
+                                    Visibility="{Binding TiltGuidance.HasBackfocusRow, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <TextBlock
+                                    Grid.Row="2"
+                                    Grid.Column="1"
+                                    HorizontalAlignment="Center"
+                                    FontSize="18"
+                                    Text="{Binding TiltGuidance.Screw1BackfocusArrow}"
+                                    Visibility="{Binding TiltGuidance.HasBackfocusRow, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <TextBlock
+                                    Grid.Row="2"
+                                    Grid.Column="2"
+                                    HorizontalAlignment="Center"
+                                    FontSize="18"
+                                    Text="{Binding TiltGuidance.Screw2BackfocusArrow}"
+                                    Visibility="{Binding TiltGuidance.HasBackfocusRow, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <TextBlock
+                                    Grid.Row="2"
+                                    Grid.Column="3"
+                                    HorizontalAlignment="Center"
+                                    FontSize="18"
+                                    Text="{Binding TiltGuidance.Screw3BackfocusArrow}"
+                                    Visibility="{Binding TiltGuidance.HasBackfocusRow, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <TextBlock
+                                    Grid.Row="2"
+                                    Grid.Column="4"
+                                    HorizontalAlignment="Center"
+                                    FontSize="18"
+                                    Text="{Binding TiltGuidance.Screw4BackfocusArrow}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <MultiDataTrigger>
+                                                    <MultiDataTrigger.Conditions>
+                                                        <Condition Binding="{Binding TiltGuidance.HasFourScrews}" Value="True" />
+                                                        <Condition Binding="{Binding TiltGuidance.HasBackfocusRow}" Value="True" />
+                                                    </MultiDataTrigger.Conditions>
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </MultiDataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
+                <Expander
+                    Grid.Row="6"
                     Header="Sensor Curve Model"
                     IsExpanded="{Binding SensorCurveModelActive}"
                     Visibility="{Binding Path=Tag, ElementName=ShowLoadedSensorModel, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2763,7 +2934,7 @@
                 </Expander>
 
                 <Expander
-                    Grid.Row="6"
+                    Grid.Row="7"
                     Header="Tilt Measurement"
                     IsExpanded="{Binding TiltMeasurementActive}"
                     Visibility="{Binding ElementName=ShowAutoFocusTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2874,7 +3045,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="7"
+                    Grid.Row="8"
                     Header="Tilt Measurement History"
                     IsExpanded="{Binding TiltMeasurementHistoryActive}"
                     Visibility="{Binding ElementName=ShowAutoFocusTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -2953,7 +3124,7 @@
                 </Expander>
 
                 <Expander
-                    Grid.Row="8"
+                    Grid.Row="9"
                     Header="Sensor Model Tilt Measurement"
                     IsExpanded="{Binding TiltMeasurementActive}"
                     Visibility="{Binding ElementName=ShowSensorModelTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -3061,7 +3232,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="9"
+                    Grid.Row="10"
                     Header="Sensor Model Tilt Measurement History"
                     IsExpanded="{Binding TiltMeasurementHistoryActive}"
                     Visibility="{Binding ElementName=ShowSensorModelTiltMeasurementActivatedOnce, Path=Tag, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -3128,7 +3299,7 @@
                 </Expander>
 
                 <Border
-                    Grid.Row="10"
+                    Grid.Row="11"
                     Margin="5"
                     HorizontalAlignment="Center"
                     BorderBrush="Red"
@@ -3144,7 +3315,7 @@
                 </Border>
 
                 <Expander
-                    Grid.Row="11"
+                    Grid.Row="12"
                     Header="FWHM Contour Map"
                     IsExpanded="{Binding FWHMContoursActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -3175,7 +3346,7 @@
                     </Grid>
                 </Expander>
                 <Expander
-                    Grid.Row="12"
+                    Grid.Row="13"
                     Header="Eccentricity Vectors"
                     IsExpanded="{Binding EccentricityVectorsActive}"
                     Visibility="{Binding ExposureAnalysisActivatedOnce, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">

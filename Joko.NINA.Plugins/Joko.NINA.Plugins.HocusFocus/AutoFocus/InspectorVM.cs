@@ -1,7 +1,7 @@
 ﻿#region "copyright"
 
 /*
-    Copyright © 2021 - 2021 George Hilios <ghilios+NINA@googlemail.com>
+    Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
 
     This Source Code Form is subject to the terms of the Mozilla Public
     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -88,6 +88,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
         private readonly IApplicationDispatcher applicationDispatcher;
         private readonly IProgress<ApplicationStatus> progress;
+        private readonly ITiltAdapterOptions tiltAdapterOptions;
 
         [ImportingConstructor]
         public InspectorVM(
@@ -102,7 +103,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector)
             : this(profileService, applicationStatusMediator, imagingMediator, cameraMediator, focuserMediator, filterWheelMediator, telescopeMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.InspectorOptions, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory,
-                  imageDataFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.AlglibAPI) {
+                  imageDataFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.AlglibAPI, HocusFocusPlugin.TiltAdapterOptions) {
         }
 
         public InspectorVM(
@@ -122,7 +123,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IApplicationDispatcher applicationDispatcher,
-            IAlglibAPI alglibAPI) : base(profileService) {
+            IAlglibAPI alglibAPI,
+            ITiltAdapterOptions tiltAdapterOptions = null) : base(profileService) {
             this.applicationStatusMediator = applicationStatusMediator;
             this.imagingMediator = imagingMediator;
             this.cameraMediator = cameraMediator;
@@ -157,6 +159,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             TiltModel = new TiltModel(inspectorOptions);
             SensorModel = new SensorModel(profileService, inspectorOptions, autoFocusOptions, alglibAPI);
 
+            this.tiltAdapterOptions = tiltAdapterOptions;
+            TiltGuidance = new TiltAdapterGuidanceVM();
+            if (tiltAdapterOptions != null) {
+                tiltAdapterOptions.PropertyChanged += (s, e) => RebuildTiltGuidance();
+                RebuildTiltGuidance();
+            }
+
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["InspectorSVG"];
             ImageGeometry.Freeze();
 
@@ -188,6 +197,101 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var task = AnalyzeAutoFocusImpl(captureCameraBlock);
             token.Register(() => analyzeCts?.Cancel());
             return await task;
+        }
+
+        public async Task<bool> AnalyzeAutoFocusFromSaved(CancellationToken token, Action onFolderSelected = null) {
+            string folderPath;
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
+                if (!String.IsNullOrEmpty(autoFocusOptions.LastSelectedLoadPath)) {
+                    dialog.SelectedPath = autoFocusOptions.LastSelectedLoadPath;
+                }
+                if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) {
+                    return false;
+                }
+                folderPath = dialog.SelectedPath;
+                autoFocusOptions.LastSelectedLoadPath = folderPath;
+            }
+            onFolderSelected?.Invoke();
+            var task = AnalyzeAutoFocusFromSavedImpl(folderPath);
+            token.Register(() => analyzeCts?.Cancel());
+            return await task;
+        }
+
+        private async Task<bool> AnalyzeAutoFocusFromSavedImpl(string folderPath) {
+            var localAnalyzeTask = analyzeTask;
+            if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
+                Notification.ShowError("Analysis still in progress");
+                return false;
+            }
+
+            analyzeCts?.Cancel();
+            var localAnalyzeCts = new CancellationTokenSource();
+            analyzeCts = localAnalyzeCts;
+
+            var autoFocusEngine = autoFocusEngineFactory.Create();
+            SavedAutoFocusAttempt savedAttempt;
+            try {
+                savedAttempt = autoFocusEngine.LoadSavedAutoFocusAttempt(folderPath);
+                folderPath = savedAttempt.FolderPath;
+            } catch (Exception e) {
+                Notification.ShowError(e.Message);
+                Logger.Error($"Failed to load saved auto focus attempt from {folderPath}: {e.Message}");
+                return false;
+            }
+
+            Logger.Info($"Rerunning auto focus attempt from {folderPath}");
+            localAnalyzeTask = Task.Run(async () => {
+                var options = GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt);
+                var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
+                var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
+
+                autoFocusEngine.Started += AutoFocusEngine_Started;
+                autoFocusEngine.Failed += AutoFocusEngine_Failed;
+                autoFocusEngine.Completed += AutoFocusEngine_CompletedNoReport;
+                autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+                autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
+
+                var imagingFilter = GetImagingFilter();
+                ActivateAutoFocusChart();
+                ResetErrors();
+                ResetExposureAnalysis();
+
+                var result = await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
+                if (result == null) {
+                    InspectorErrorText = "AutoFocus Analysis Failed";
+                    DeactivateAutoFocusAnalysis();
+                    return false;
+                }
+
+                var analysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token, true);
+                if (!analysisResult) {
+                    Notification.ShowError("AutoFocus Analysis Failed");
+                    InspectorErrorText = "AutoFocus Analysis Failed";
+                    DeactivateAutoFocusAnalysis();
+                    return false;
+                }
+                ActivateTiltMeasurement();
+                return true;
+            });
+            analyzeTask = localAnalyzeTask;
+            RaisePropertyChanged(nameof(IsAnalysisRunning));
+
+            try {
+                return await localAnalyzeTask;
+            } catch (OperationCanceledException) {
+                Logger.Warning("Inspection auto focus rerun analysis cancelled");
+                InspectorErrorText = "Inspection AutoFocus Rerun analysis cancelled";
+                DeactivateAutoFocusAnalysis();
+                return false;
+            } catch (Exception e) {
+                Notification.ShowError($"Inspection auto focus rerun analysis failed: {e.Message}");
+                InspectorErrorText = $"Inspection AutoFocus Rerun analysis failed\n{e.Message}";
+                Logger.Error("Inspection auto focus rerun analysis failed", e);
+                DeactivateAutoFocusAnalysis();
+                return false;
+            } finally {
+                RaisePropertyChanged(nameof(IsAnalysisRunning));
+            }
         }
 
         private async Task<bool> AnalyzeAutoFocusImpl(bool captureCameraBlock) {
@@ -255,6 +359,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }, localAnalyzeCts.Token);
             analyzeTask = localAnalyzeTask;
+            RaisePropertyChanged(nameof(IsAnalysisRunning));
 
             try {
                 return await localAnalyzeTask;
@@ -270,6 +375,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             } finally {
                 analyzeTask = null;
                 analyzeCts = null;
+                RaisePropertyChanged(nameof(IsAnalysisRunning));
             }
         }
 
@@ -335,6 +441,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             UpdateBackfocusMeasurements(result);
             TiltModel.UpdateTiltModel(result, fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio, backfocusFocuserPositionDelta: BackfocusFocuserPositionDelta);
+            RebuildTiltGuidance();
             AutoFocusCompleted = true;
             return true;
         }
@@ -788,6 +895,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return lastResult;
             });
             analyzeTask = localAnalyzeTask;
+            RaisePropertyChanged(nameof(IsAnalysisRunning));
 
             try {
                 return await localAnalyzeTask;
@@ -798,6 +906,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Notification.ShowError($"Inspection exposure analysis failed: {e.Message}");
                 Logger.Error("Inspection exposure analysis failed", e);
                 return false;
+            } finally {
+                RaisePropertyChanged(nameof(IsAnalysisRunning));
             }
         }
 
@@ -955,6 +1065,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return true;
             });
             analyzeTask = localAnalyzeTask;
+            RaisePropertyChanged(nameof(IsAnalysisRunning));
 
             try {
                 return await localAnalyzeTask;
@@ -977,6 +1088,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Inspection auto focus rerun analysis failed", e);
                 DeactivateAutoFocusAnalysis();
                 return false;
+            } finally {
+                RaisePropertyChanged(nameof(IsAnalysisRunning));
             }
         }
 
@@ -1415,6 +1528,100 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public SensorModel SensorModel { get; private set; }
         public IInspectorOptions InspectorOptions => this.inspectorOptions;
 
+        public TiltAdapterGuidanceVM TiltGuidance { get; private set; }
+
+        public bool IsAnalysisRunning => AnalysisRunning();
+
+        public bool HasTiltAdapterCalibration =>
+            tiltAdapterOptions != null &&
+            tiltAdapterOptions.IsCalibrated &&
+            tiltAdapterOptions.ScrewCount == tiltAdapterOptions.CalibratedScrewCount;
+
+        private const double GuidanceNoiseThreshold = 0.005;
+        private const double GuidanceMinArrowThreshold = 0.1;
+        private const double GuidanceLargeArrowThreshold = 0.5;
+
+        // Backfocus arrow thresholds in focuser-µm (CurvatureEffectMicrons units)
+        private const double BackfocusNoiseThresholdMicrons = 10.0;
+        private const double BackfocusLargeArrowThresholdMicrons = 50.0;
+
+        private void RebuildTiltGuidance() {
+            RaisePropertyChanged(nameof(HasTiltAdapterCalibration));
+
+            int n = HasTiltAdapterCalibration ? tiltAdapterOptions.CalibratedScrewCount : 3;
+            var guidance = new TiltAdapterGuidanceVM { ScrewCount = n };
+
+            if (HasTiltAdapterCalibration) {
+                var tiltPlane = TiltModel?.TiltPlaneModel;
+                if (tiltPlane != null) {
+                    double a = tiltPlane.A;
+                    double b = tiltPlane.B;
+                    if (!double.IsNaN(a) && !double.IsNaN(b)) {
+                        var angles = new double[n];
+                        angles[0] = tiltAdapterOptions.Screw1AngleDegrees;
+                        angles[1] = tiltAdapterOptions.Screw2AngleDegrees;
+                        angles[2] = tiltAdapterOptions.Screw3AngleDegrees;
+                        if (n == 4) angles[3] = tiltAdapterOptions.Screw4AngleDegrees;
+
+                        var turns = new double[n];
+                        for (int i = 0; i < n; i++) {
+                            double theta = angles[i] * Math.PI / 180.0;
+                            turns[i] = (2.0 / n) * (-a * Math.Sin(theta) + b * Math.Cos(theta));
+                        }
+
+                        double maxAbs = turns.Max(t => Math.Abs(t));
+                        var tiltArrows = new string[n];
+                        for (int i = 0; i < n; i++) {
+                            if (maxAbs < GuidanceNoiseThreshold) {
+                                tiltArrows[i] = "—";
+                            } else {
+                                double ratio = turns[i] / maxAbs;
+                                if (ratio >= GuidanceLargeArrowThreshold) tiltArrows[i] = "⬆";
+                                else if (ratio >= GuidanceMinArrowThreshold) tiltArrows[i] = "↑";
+                                else if (ratio <= -GuidanceLargeArrowThreshold) tiltArrows[i] = "⬇";
+                                else if (ratio <= -GuidanceMinArrowThreshold) tiltArrows[i] = "↓";
+                                else tiltArrows[i] = "—";
+                            }
+                        }
+                        guidance.Screw1TiltArrow = tiltArrows[0];
+                        guidance.Screw2TiltArrow = tiltArrows[1];
+                        guidance.Screw3TiltArrow = tiltArrows[2];
+                        if (n == 4) guidance.Screw4TiltArrow = tiltArrows[3];
+                        guidance.HasTiltGuidance = true;
+                    }
+                }
+
+                // Backfocus row: adjust curvature toward 0 using sensor model CurvatureEffectMicrons and ScrewInwardCurvatureSign.
+                // CurvatureEffectMicrons is in focuser-µm at the sensor corner — positive when C > 0.
+                // ScrewInwardCurvatureSign = +1 means turning all screws inward raises curvature; -1 means it lowers it.
+                // To reduce |curvature| toward 0: go inward when curvatureEffect and curvatureSign have opposite signs.
+                int curvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign;
+                if (curvatureSign != 0 && SensorModel?.DisplayedSensorModel != null) {
+                    double curvatureEffectMicrons = SensorModel.SensorModelResult.CurvatureEffectMicrons;
+                    double absMicrons = Math.Abs(curvatureEffectMicrons);
+
+                    string backfocusArrow;
+                    if (absMicrons < BackfocusNoiseThresholdMicrons) {
+                        backfocusArrow = "—";
+                    } else {
+                        bool needsInward = curvatureEffectMicrons * curvatureSign < 0;
+                        string bigArrow = needsInward ? "⬆" : "⬇";
+                        string smallArrow = needsInward ? "↑" : "↓";
+                        backfocusArrow = absMicrons >= BackfocusLargeArrowThresholdMicrons ? bigArrow : smallArrow;
+                    }
+
+                    guidance.Screw1BackfocusArrow = backfocusArrow;
+                    guidance.Screw2BackfocusArrow = backfocusArrow;
+                    guidance.Screw3BackfocusArrow = backfocusArrow;
+                    if (n == 4) guidance.Screw4BackfocusArrow = backfocusArrow;
+                    guidance.HasBackfocusRow = true;
+                }
+            }
+
+            TiltGuidance = guidance;
+            RaisePropertyChanged(nameof(TiltGuidance));
+        }
+
         private TrendlineFitting GetLineFitting(AutoFocusFitting fitting) {
             if (fitting.Method == AFMethodEnum.STARHFR) {
                 if (fitting.CurveFittingType == AFCurveFittingEnum.TRENDPARABOLIC || fitting.CurveFittingType == AFCurveFittingEnum.TRENDHYPERBOLIC || fitting.CurveFittingType == AFCurveFittingEnum.TRENDLINES) {
@@ -1746,6 +1953,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SensorModel.Clear();
             AutoFocusCompleted = false;
             ResetErrors();
+            RebuildTiltGuidance();
         }
 
         private void ActivateAutoFocusChart() {

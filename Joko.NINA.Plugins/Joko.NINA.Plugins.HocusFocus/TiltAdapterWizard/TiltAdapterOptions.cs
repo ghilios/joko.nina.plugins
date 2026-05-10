@@ -1,0 +1,170 @@
+#region "copyright"
+
+/*
+    Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using NINA.Core.Utility;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Profile;
+using NINA.Profile.Interfaces;
+using System;
+
+namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
+
+    public class TiltAdapterOptions : BaseINPC, ITiltAdapterOptions {
+        private readonly PluginOptionsAccessor optionsAccessor;
+
+        public TiltAdapterOptions(IProfileService profileService) {
+            var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(AutoFocusOptions));
+            if (guid == null) {
+                throw new Exception($"Guid not found in assembly metadata");
+            }
+
+            this.optionsAccessor = new PluginOptionsAccessor(profileService, guid.Value);
+            profileService.ProfileChanged += ProfileService_ProfileChanged;
+            InitializeOptions();
+        }
+
+        private void ProfileService_ProfileChanged(object sender, EventArgs e) {
+            InitializeOptions();
+            RaiseAllPropertiesChanged();
+        }
+
+        private void InitializeOptions() {
+            screwCount = optionsAccessor.GetValueInt32(nameof(ScrewCount), 3);
+            isCalibrated = optionsAccessor.GetValueBoolean(nameof(IsCalibrated), false);
+            screw1AngleDegrees = optionsAccessor.GetValueDouble(nameof(Screw1AngleDegrees), double.NaN);
+            screw2AngleDegrees = optionsAccessor.GetValueDouble(nameof(Screw2AngleDegrees), double.NaN);
+            screw3AngleDegrees = optionsAccessor.GetValueDouble(nameof(Screw3AngleDegrees), double.NaN);
+            screw4AngleDegrees = optionsAccessor.GetValueDouble(nameof(Screw4AngleDegrees), double.NaN);
+            calibratedScrewCount = optionsAccessor.GetValueInt32(nameof(CalibratedScrewCount), 0);
+            measurementAverageCount = optionsAccessor.GetValueInt32(nameof(MeasurementAverageCount), 1);
+            screwInwardCurvatureSign = optionsAccessor.GetValueInt32(nameof(ScrewInwardCurvatureSign), 0);
+        }
+
+        private int screwCount;
+
+        public int ScrewCount {
+            get => screwCount;
+            set {
+                if (screwCount != value) {
+                    screwCount = value;
+                    optionsAccessor.SetValueInt32(nameof(ScrewCount), screwCount);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool isCalibrated;
+
+        public bool IsCalibrated {
+            get => isCalibrated;
+            set {
+                if (isCalibrated != value) {
+                    isCalibrated = value;
+                    optionsAccessor.SetValueBoolean(nameof(IsCalibrated), isCalibrated);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double screw1AngleDegrees;
+
+        public double Screw1AngleDegrees {
+            get => screw1AngleDegrees;
+            set {
+                if (screw1AngleDegrees != value) {
+                    screw1AngleDegrees = value;
+                    optionsAccessor.SetValueDouble(nameof(Screw1AngleDegrees), screw1AngleDegrees);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double screw2AngleDegrees;
+
+        public double Screw2AngleDegrees {
+            get => screw2AngleDegrees;
+            set {
+                if (screw2AngleDegrees != value) {
+                    screw2AngleDegrees = value;
+                    optionsAccessor.SetValueDouble(nameof(Screw2AngleDegrees), screw2AngleDegrees);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double screw3AngleDegrees;
+
+        public double Screw3AngleDegrees {
+            get => screw3AngleDegrees;
+            set {
+                if (screw3AngleDegrees != value) {
+                    screw3AngleDegrees = value;
+                    optionsAccessor.SetValueDouble(nameof(Screw3AngleDegrees), screw3AngleDegrees);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double screw4AngleDegrees;
+
+        public double Screw4AngleDegrees {
+            get => screw4AngleDegrees;
+            set {
+                if (screw4AngleDegrees != value) {
+                    screw4AngleDegrees = value;
+                    optionsAccessor.SetValueDouble(nameof(Screw4AngleDegrees), screw4AngleDegrees);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int calibratedScrewCount;
+
+        public int CalibratedScrewCount {
+            get => calibratedScrewCount;
+            set {
+                if (calibratedScrewCount != value) {
+                    calibratedScrewCount = value;
+                    optionsAccessor.SetValueInt32(nameof(CalibratedScrewCount), calibratedScrewCount);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int measurementAverageCount;
+
+        public int MeasurementAverageCount {
+            get => measurementAverageCount;
+            set {
+                if (measurementAverageCount != value) {
+                    measurementAverageCount = value;
+                    optionsAccessor.SetValueInt32(nameof(MeasurementAverageCount), measurementAverageCount);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int screwInwardCurvatureSign;
+
+        public int ScrewInwardCurvatureSign {
+            get => screwInwardCurvatureSign;
+            set {
+                if (screwInwardCurvatureSign != value) {
+                    screwInwardCurvatureSign = value;
+                    optionsAccessor.SetValueInt32(nameof(ScrewInwardCurvatureSign), screwInwardCurvatureSign);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+    }
+}
