@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <Include>[NINA.Joko.Plugins.HocusFocus]*</Include>
+          <Exclude>[NINA.Joko.Plugins.HocusFocus]NINA.Joko.Plugins.HocusFocus.Properties.*,[NINA.Joko.Plugins.HocusFocus]XamlGeneratedNamespace.*</Exclude>
+          <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
+          <ExcludeByFile>**/Converters/EnumStaticDescriptionConverter.cs,**/Utility/NativeMethods.cs,**/Utility/ApplicationDispatcher.cs,**/*.xaml.cs,**/*.g.cs,**/*.g.i.cs</ExcludeByFile>
+          <SkipAutoProps>true</SkipAutoProps>
+          <DeterministicReport>false</DeterministicReport>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

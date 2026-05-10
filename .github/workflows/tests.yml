@@ -32,6 +32,8 @@ jobs:
           -p:PostBuildEvent=
           --logger "trx;LogFileName=test-results.trx"
           --results-directory TestResults
+          --collect "XPlat Code Coverage"
+          --settings Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/coverlet.runsettings
 
       - name: Upload test results
         if: always()
@@ -39,3 +41,26 @@ jobs:
         with:
           name: test-results
           path: TestResults/*.trx
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: TestResults/**/coverage.cobertura.xml
+
+      - name: Coverage summary
+        if: always()
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: TestResults/**/coverage.cobertura.xml
+          format: markdown
+          output: both
+          badge: true
+          hide_complexity: true
+          indicators: true
+
+      - name: Append coverage summary to job summary
+        if: always() && hashFiles('code-coverage-results.md') != ''
+        shell: pwsh
+        run: Get-Content code-coverage-results.md | Add-Content $env:GITHUB_STEP_SUMMARY
