@@ -52,8 +52,17 @@ The following utilities were originally scoped to Tier 1 but are heavily OpenCV/
   - **1 real bug fixed during Tier 2** (driven by spec-first test):
     1. `AutoFocus/TiltModel.cs:40` — `imageSize.Width == 0` → `imageSize.Width <= 0` so negative width is rejected symmetrically with negative height (which already used `<= 0`). Matches the "dimensions must be positive" error message and prevents `GetModelX` returning garbage on a negative-Width construction.
 
-### Not yet started
-- **Tier 3 (engine, VMs, sequence items)** — see plan below
+- **Tier 3 (engine, VMs, sequence items)** ✅ — **365 tests, 0 failing** (+56 new)
+  - Added `TestDoubles/SynchronousApplicationDispatcher.cs` (runs callbacks inline; no WPF dispatcher)
+  - SequenceItems: `RunAberrationInspectorTests.cs` (Validate per camera/focuser combo, Clone, Execute cancellation)
+  - AutoFocus:
+    - `HocusFocusVMFactoryTests.cs` (Name/ContentId, Create() returns concrete VM)
+    - `HocusFocusVMTests.cs` (commands wired, observable property semantics, SetCurveFittings dispatches by AFMethod/AFCurveFitting on synthetic points)
+    - `InspectorVMTests.cs` (constructs without throwing; consumer registration; UpdateDeviceInfo)
+    - `AutoFocusEngineTests.cs` (`GetOptions` mapping incl. `MaxConcurrent==0 → int.MaxValue` and `savedAttempt.StepSize` override; argument validation on `RunWithRegions`/`RerunWithRegions`; `LoadSavedAutoFocusAttempt`/`LoadSavedFinalAttempt` parse temp folders)
+  - StarDetection: `HocusFocusStarDetectionTests.cs` (`ToHocusFocusParams` Sensitivity → HighSigma 3/4; `CreateAnalysis`; `UpdateAnalysis` field copy; analysis `INPC`)
+  - TiltAdapterWizard: `TiltAdapterWizardVMTests.cs` (initial state, Start/Restart commands, `IsCalibrationValid`, `HasCurvatureCalibration`/`CurvatureSignDescription`/`ShowRunColumn`, `AreDevicesConnected`)
+  - **No production-code bugs surfaced this tier.** VM-specific note: the `IInspectorVMFactory.Create()` returns the concrete `InspectorVM`; deeper end-to-end tests for `RunAberrationInspector.Execute` happy path (and any test that wants to substitute `AnalyzeAutoFocus`) would need either an `IInspectorVM` interface or a `virtual` modifier on `AnalyzeAutoFocus`. Flagged as a future refactor — not done in this tier.
 
 ---
 
@@ -190,4 +199,4 @@ End-to-end (Tier 3 only): run the one full-pipeline star-detection test against 
 - ~~Tier 0 (setup) — confirm project builds before writing any new tests.~~ ✅
 - ~~Tier 1 — ping with the list of expected-vs-actual divergences found.~~ ✅ (5 bugs fixed)
 - ~~Tier 2 — ping with any algorithm divergences found.~~ ✅ (1 bug fixed)
-- **Tier 3 — final pass; ping with anything VM-specific that warrants a refactor.** ← next
+- ~~Tier 3 — final pass; ping with anything VM-specific that warrants a refactor.~~ ✅ (no bugs; flagged `IInspectorVMFactory.Create()` returning concrete `InspectorVM` as future-refactor candidate to enable Execute-happy-path testing of `RunAberrationInspector`)
