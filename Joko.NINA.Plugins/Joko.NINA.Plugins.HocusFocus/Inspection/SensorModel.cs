@@ -540,62 +540,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }
         }
 
-        private double TargetR2BasedOnTimeTaken(TimeSpan timeSpan) {
-            double secondsTaken = timeSpan.TotalSeconds;
-            if (secondsTaken < 1) {     // iterations are quick so we'll be very demanding
-                return 0.9;
-            }
-            if (secondsTaken < 3) {
-                return 0.8;
-            }
-            if (secondsTaken < 5) {
-                return 0.7;
-            }
-            return 0.6; // iterations are slow so we'll set a low target
-        }
+        private static double TargetR2BasedOnTimeTaken(TimeSpan timeSpan) =>
+            SensorAberrationCalculator.TargetR2BasedOnTimeTaken(timeSpan);
 
-        private static bool IsFitTooGood(SensorParaboloidModel fit) {
-            if (1 - fit.GoodnessOfFit < 0.005) { // 1 means too good a fit - probably not enough points
-                return true;
-            } else {
-                return false;
-            }
-        }
+        private static bool IsFitTooGood(SensorParaboloidModel fit) =>
+            SensorAberrationCalculator.IsFitTooGood(fit);
 
-        private static bool IsBetterFit(SensorParaboloidModel thisFit, SensorParaboloidModel otherFit) {
-            if (thisFit == null) {
-                return false;
-            }
-            if (otherFit == null) {
-                return true;
-            }
+        private static bool IsBetterFit(SensorParaboloidModel thisFit, SensorParaboloidModel otherFit) =>
+            SensorAberrationCalculator.IsBetterFit(thisFit, otherFit);
 
-            if (otherFit.GoodnessOfFit == 0) {
-                return true;
-            }
-            if (thisFit.GoodnessOfFit == 0) {
-                return false;
-            }
-
-            if (IsFitTooGood(thisFit)) { // 1 means too good a fit - probably not enough points
-                return false;
-            }
-            if (IsFitTooGood(otherFit)) {
-                return true;
-            }
-            return (thisFit.GoodnessOfFit >= otherFit.GoodnessOfFit);
-        }
-
-        private static List<StarDetectionRegion> CreateFullRegionSet(System.Drawing.Size imageSize, int rows, int cols) {
-            var xPart = 1.0d / (double)cols;
-            var yPart = 1.0d / (double)rows;
-            var regions = new List<StarDetectionRegion>();
-            int index = 0;
-            for (int r = 0; r < rows; r++)
-                for (int c = 0; c < cols; c++)
-                    regions.Add(new StarDetectionRegion(new RatioRect(c * xPart, r * yPart, xPart, yPart), ++index));
-            return regions;
-        }
+        private static List<StarDetectionRegion> CreateFullRegionSet(System.Drawing.Size imageSize, int rows, int cols) =>
+            SensorAberrationCalculator.CreateFullRegionSet(imageSize, rows, cols);
 
         private RegistrationAndFitResult FitImages(
                 System.Drawing.Size imageSize,
