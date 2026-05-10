@@ -163,6 +163,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         private readonly SurfacePlotModel model;
         private readonly int width;
         private readonly int height;
+        private readonly float pixelScale;
         private Bounds bounds;
         private double xyScale;
         private double zScale;
@@ -170,11 +171,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         private double offsetX;
         private double offsetY;
 
-        public SurfacePlotRenderer(SurfacePlotModel model, int width, int height) {
+        public SurfacePlotRenderer(SurfacePlotModel model, int width, int height, float pixelScale = 1.0f) {
             this.model = model ?? throw new ArgumentNullException(nameof(model));
             this.width = Math.Max(1, width);
             this.height = Math.Max(1, height);
+            this.pixelScale = pixelScale > 0.0f ? pixelScale : 1.0f;
         }
+
+        private float S(float v) => v * pixelScale;
+
+        private double S(double v) => v * pixelScale;
+
+        private Font CreateFont(float pointSize, FontStyle style = FontStyle.Regular)
+            => new Font(FontFamily.GenericSansSerif, pointSize * pixelScale, style);
 
         public Bitmap Render() {
             if (model.Z == null) {
@@ -374,7 +383,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             }
 
             var labelCandidates = new List<(double level, PointF p1, PointF p2, double length)>();
-            using (var pen = new Pen(model.ContourColor, 1.0f)) {
+            using (var pen = new Pen(model.ContourColor, S(1.0f))) {
                 foreach (var segment in GenerateContourSegments(levels)) {
                     var p1 = Project(segment.start).point;
                     var p2 = Project(segment.end).point;
@@ -393,7 +402,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         }
 
         private void DrawContourLabels(Graphics graphics, List<(double level, PointF p1, PointF p2, double length)> labelCandidates) {
-            using (var font = new Font(FontFamily.GenericSansSerif, 6.5f, FontStyle.Bold))
+            using (var font = CreateFont(9.34f, FontStyle.Bold))
             using (var textBrush = new SolidBrush(model.TextColor))
             using (var backgroundBrush = new SolidBrush(Color.FromArgb(220, model.BackgroundColor)))
             using (var borderPen = new Pen(Color.FromArgb(180, model.ContourColor))) {
@@ -519,7 +528,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
         private void DrawBackBoxEdges(Graphics graphics) {
             var avgDepth = ComputeAvgBoxCornerDepth();
-            using (var pen = new Pen(model.AxisColor, 1.0f)) {
+            using (var pen = new Pen(model.AxisColor, S(1.0f))) {
                 foreach (var edge in GetBoxEdges()) {
                     var projA = Project(edge.Item1);
                     var projB = Project(edge.Item2);
@@ -532,9 +541,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
         private void DrawAxes(Graphics graphics) {
             var avgDepth = ComputeAvgBoxCornerDepth();
-            using (var pen = new Pen(model.AxisColor, 1.0f))
+            using (var pen = new Pen(model.AxisColor, S(1.0f)))
             using (var brush = new SolidBrush(model.TextColor))
-            using (var font = new Font(FontFamily.GenericSansSerif, 7.0f)) {
+            using (var font = CreateFont(10.06f)) {
                 foreach (var edge in GetBoxEdges()) {
                     var projA = Project(edge.Item1);
                     var projB = Project(edge.Item2);
@@ -551,15 +560,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         private void DrawTicks(Graphics graphics, Pen pen, Font font) {
             foreach (var tick in model.XTicks) {
                 var projected = Project(new Vertex3D(tick.Value, bounds.YMin, bounds.ZMin)).point;
-                graphics.DrawLine(pen, projected.X, projected.Y, projected.X, projected.Y + 5);
+                graphics.DrawLine(pen, projected.X, projected.Y, projected.X, projected.Y + S(5f));
                 using (var brush = new SolidBrush(tick.LabelColor ?? model.TextColor)) {
-                    graphics.DrawString(tick.Label, font, brush, projected.X - 12, projected.Y + 7);
+                    graphics.DrawString(tick.Label, font, brush, projected.X - S(12f), projected.Y + S(7f));
                 }
             }
             foreach (var tick in model.YTicks) {
                 var projected = Project(new Vertex3D(bounds.XMin, tick.Value, bounds.ZMax)).point;
                 using (var brush = new SolidBrush(tick.LabelColor ?? model.TextColor)) {
-                    graphics.DrawString(tick.Label, font, brush, projected.X + 3, projected.Y - 20);
+                    graphics.DrawString(tick.Label, font, brush, projected.X + S(3f), projected.Y - S(20f));
                 }
             }
             IEnumerable<PlotTick> zTicks;
@@ -572,10 +581,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             }
             foreach (var tick in zTicks) {
                 var projected = Project(new Vertex3D(bounds.XMin, bounds.YMin, tick.Value)).point;
-                graphics.DrawLine(pen, projected.X, projected.Y, projected.X - 5, projected.Y);
+                graphics.DrawLine(pen, projected.X, projected.Y, projected.X - S(5f), projected.Y);
                 using (var brush = new SolidBrush(tick.LabelColor ?? model.TextColor)) {
                     var labelSize = graphics.MeasureString(tick.Label, font);
-                    graphics.DrawString(tick.Label, font, brush, projected.X - 8 - labelSize.Width, projected.Y - labelSize.Height / 2.0f);
+                    graphics.DrawString(tick.Label, font, brush, projected.X - S(8f) - labelSize.Width, projected.Y - labelSize.Height / 2.0f);
                 }
             }
         }
@@ -613,18 +622,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 var projected = Project(new Vertex3D(bounds.XMin, bounds.YMin, zRef)).point;
                 var size = graphics.MeasureString(model.ZAxisLabel, font);
                 var state = graphics.Save();
-                graphics.TranslateTransform(projected.X - 68.0f, height / 2.0f);
+                graphics.TranslateTransform(projected.X - S(68.0f), height / 2.0f);
                 graphics.RotateTransform(-90.0f);
                 graphics.DrawString(model.ZAxisLabel, font, brush, -size.Width / 2.0f, -size.Height / 2.0f);
                 graphics.Restore(state);
             }
             if (!string.IsNullOrWhiteSpace(model.XAxisLabel)) {
                 var projected = Project(new Vertex3D(bounds.XMax, bounds.YMin, bounds.ZMin)).point;
-                graphics.DrawString(model.XAxisLabel, font, brush, projected.X + 4, projected.Y + 4);
+                graphics.DrawString(model.XAxisLabel, font, brush, projected.X + S(4f), projected.Y + S(4f));
             }
             if (!string.IsNullOrWhiteSpace(model.YAxisLabel)) {
                 var projected = Project(new Vertex3D(bounds.XMin, bounds.YMax, bounds.ZMin)).point;
-                graphics.DrawString(model.YAxisLabel, font, brush, projected.X - 20, projected.Y + 4);
+                graphics.DrawString(model.YAxisLabel, font, brush, projected.X - S(20f), projected.Y + S(4f));
             }
         }
 
@@ -638,22 +647,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 var point = item.point;
                 var projected = item.projection.point;
                 using (var brush = new SolidBrush(point.Color))
-                using (var pen = new Pen(Color.FromArgb(220, model.BackgroundColor), 1.0f)) {
-                    var radius = point.Size / 2.0f;
-                    graphics.FillEllipse(brush, projected.X - radius, projected.Y - radius, point.Size, point.Size);
-                    graphics.DrawEllipse(pen, projected.X - radius, projected.Y - radius, point.Size, point.Size);
+                using (var pen = new Pen(Color.FromArgb(220, model.BackgroundColor), S(1.0f))) {
+                    var diameter = S(point.Size);
+                    var radius = diameter / 2.0f;
+                    graphics.FillEllipse(brush, projected.X - radius, projected.Y - radius, diameter, diameter);
+                    graphics.DrawEllipse(pen, projected.X - radius, projected.Y - radius, diameter, diameter);
                 }
             }
 
-            using (var font = new Font(FontFamily.GenericSansSerif, 6.0f, FontStyle.Bold))
+            using (var font = CreateFont(8.625f, FontStyle.Bold))
             using (var textBrush = new SolidBrush(model.TextColor))
             using (var backgroundBrush = new SolidBrush(Color.FromArgb(220, model.BackgroundColor)))
             using (var borderPen = new Pen(Color.FromArgb(150, model.AxisColor))) {
                 foreach (var item in points.Where(p => !string.IsNullOrWhiteSpace(p.point.Label))) {
                     var labelPoint = new PointF(
                         item.projection.point.X,
-                        item.projection.point.Y - item.point.Size / 2.0f - 8.0f);
-                    DrawLabelBox(graphics, item.point.Label, font, textBrush, backgroundBrush, borderPen, labelPoint, 2.0f, 0.5f);
+                        item.projection.point.Y - S(item.point.Size) / 2.0f - S(8.0f));
+                    DrawLabelBox(graphics, item.point.Label, font, textBrush, backgroundBrush, borderPen, labelPoint, S(2.0f), S(0.5f));
                 }
             }
         }
@@ -662,10 +672,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             var colorMap = model.ColorMap ?? new SurfaceColorMap((0.0d, Color.Black), (1.0d, Color.White));
             var min = model.ColorRangeMin ?? bounds.ZMin;
             var max = model.ColorRangeMax ?? bounds.ZMax;
-            var barWidth = 14;
-            var barHeight = Math.Max(80, height / 3);
-            var x = width - 34;
-            var y = Math.Max(14, height / 2 - barHeight / 2);
+            var barWidth = (int)Math.Max(1, S(14.0));
+            var barHeight = Math.Max((int)S(80.0), height / 3);
+            var x = width - (int)S(34.0);
+            var y = Math.Max((int)S(14.0), height / 2 - barHeight / 2);
 
             for (int i = 0; i < barHeight; ++i) {
                 var ratio = 1.0d - i / (double)Math.Max(1, barHeight - 1);
@@ -675,13 +685,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 }
             }
 
-            using (var pen = new Pen(model.AxisColor))
+            using (var pen = new Pen(model.AxisColor, S(1.0f)))
             using (var brush = new SolidBrush(model.TextColor))
             using (var backgroundBrush = new SolidBrush(Color.FromArgb(220, model.BackgroundColor)))
-            using (var font = new Font(FontFamily.GenericSansSerif, 6.0f, FontStyle.Bold)) {
+            using (var font = CreateFont(8.625f, FontStyle.Bold)) {
                 graphics.DrawRectangle(pen, x, y, barWidth, barHeight);
-                DrawLabelBox(graphics, max.ToString("0.0"), font, brush, backgroundBrush, pen, new PointF(x - 10.0f, y));
-                DrawLabelBox(graphics, min.ToString("0.0"), font, brush, backgroundBrush, pen, new PointF(x - 10.0f, y + barHeight));
+                DrawLabelBox(graphics, max.ToString("0.0"), font, brush, backgroundBrush, pen, new PointF(x - S(10.0f), y));
+                DrawLabelBox(graphics, min.ToString("0.0"), font, brush, backgroundBrush, pen, new PointF(x - S(10.0f), y + barHeight));
             }
         }
 
@@ -693,27 +703,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             Brush backgroundBrush,
             Pen borderPen,
             PointF center,
-            float horizontalPadding = 3.0f,
-            float verticalPadding = 1.5f) {
+            float? horizontalPadding = null,
+            float? verticalPadding = null) {
             if (string.IsNullOrWhiteSpace(text)) {
                 return;
             }
 
+            var hPad = horizontalPadding ?? S(3.0f);
+            var vPad = verticalPadding ?? S(1.5f);
+            var edgePad = S(2.0f);
             var size = graphics.MeasureString(text, font);
-            var x = Math.Clamp(center.X - size.Width / 2.0f, 2.0f, Math.Max(2.0f, width - size.Width - horizontalPadding * 2.0f - 2.0f));
-            var y = Math.Clamp(center.Y - size.Height / 2.0f, 2.0f, Math.Max(2.0f, height - size.Height - verticalPadding * 2.0f - 2.0f));
+            var x = Math.Clamp(center.X - size.Width / 2.0f, edgePad, Math.Max(edgePad, width - size.Width - hPad * 2.0f - edgePad));
+            var y = Math.Clamp(center.Y - size.Height / 2.0f, edgePad, Math.Max(edgePad, height - size.Height - vPad * 2.0f - edgePad));
             var rect = new RectangleF(
-                x - horizontalPadding,
-                y - verticalPadding,
-                size.Width + horizontalPadding * 2.0f,
-                size.Height + verticalPadding * 2.0f);
+                x - hPad,
+                y - vPad,
+                size.Width + hPad * 2.0f,
+                size.Height + vPad * 2.0f);
             graphics.FillRectangle(backgroundBrush, rect);
             graphics.DrawRectangle(borderPen, rect.X, rect.Y, rect.Width, rect.Height);
             graphics.DrawString(text, font, textBrush, x, y);
         }
 
         private void DrawScreenLabels(Graphics graphics) {
-            using (var font = new Font(FontFamily.GenericSansSerif, 8.0f)) {
+            using (var font = CreateFont(11.5f)) {
                 foreach (var label in model.ScreenLabels) {
                     using (var brush = new SolidBrush(label.Color)) {
                         var size = graphics.MeasureString(label.Text, font);
@@ -747,10 +760,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             var maxY = projected.Max(p => p.y);
             var rangeX = Math.Max(1e-6d, maxX - minX);
             var rangeY = Math.Max(1e-6d, maxY - minY);
-            var leftMargin = model.ShowAxes ? 90.0d : 8.0d;
-            var rightMargin = model.ShowColorBar ? 78.0d : (model.ShowAxes ? 28.0d : 8.0d);
-            var topMargin = model.ScreenLabels.Count > 0 ? Math.Max(18.0d, height * 0.1d) : (model.ShowAxes ? 24.0d : 8.0d);
-            var bottomMargin = model.ScreenLabels.Count > 0 ? Math.Max(18.0d, height * 0.1d) : (model.ShowAxes ? 28.0d : 8.0d);
+            var leftMargin = model.ShowAxes ? S(90.0) : S(8.0);
+            var rightMargin = model.ShowColorBar ? S(78.0) : (model.ShowAxes ? S(28.0) : S(8.0));
+            var topMargin = model.ScreenLabels.Count > 0 ? Math.Max(S(18.0), height * 0.1d) : (model.ShowAxes ? S(24.0) : S(8.0));
+            var bottomMargin = model.ScreenLabels.Count > 0 ? Math.Max(S(18.0), height * 0.1d) : (model.ShowAxes ? S(28.0) : S(8.0));
             var availableWidth = Math.Max(1.0d, width - leftMargin - rightMargin);
             var availableHeight = Math.Max(1.0d, height - topMargin - bottomMargin);
             drawScale = 0.92d * Math.Min(availableWidth / rangeX, availableHeight / rangeY);

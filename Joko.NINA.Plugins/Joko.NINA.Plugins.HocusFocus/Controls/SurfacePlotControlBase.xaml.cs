@@ -18,6 +18,7 @@ using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using MediaColor = System.Windows.Media.Color;
 using PixelFormat = System.Drawing.Imaging.PixelFormat;
 using WpfPixelFormats = System.Windows.Media.PixelFormats;
@@ -155,14 +156,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     this.SceneImage.Visibility = Visibility.Hidden;
                 }
 
-                var width = this.ActualWidth;
-                var height = this.ActualHeight;
-                if (width <= 0 || height <= 0) {
+                var logicalWidth = this.ActualWidth;
+                var logicalHeight = this.ActualHeight;
+                if (logicalWidth <= 0 || logicalHeight <= 0) {
                     return;
                 }
 
-                using (var bitmap = new SurfacePlotRenderer(model, (int)width, (int)height).Render()) {
-                    this.SceneImage.Source = ConvertToBitmapSource(bitmap);
+                var dpi = VisualTreeHelper.GetDpi(this);
+                var dpiScaleX = dpi.DpiScaleX > 0 ? dpi.DpiScaleX : 1.0;
+                var dpiScaleY = dpi.DpiScaleY > 0 ? dpi.DpiScaleY : 1.0;
+                var pixelWidth = Math.Max(1, (int)Math.Round(logicalWidth * dpiScaleX));
+                var pixelHeight = Math.Max(1, (int)Math.Round(logicalHeight * dpiScaleY));
+
+                var logicalMin = Math.Min(logicalWidth, logicalHeight);
+                var chartScale = Math.Clamp(logicalMin / 500.0d, 1.0d, 2.0d);
+                var pixelScale = (float)(Math.Min(dpiScaleX, dpiScaleY) * chartScale);
+
+                using (var bitmap = new SurfacePlotRenderer(model, pixelWidth, pixelHeight, pixelScale).Render()) {
+                    this.SceneImage.Source = ConvertToBitmapSource(bitmap, dpi.PixelsPerInchX, dpi.PixelsPerInchY);
                     this.SceneImage.Visibility = Visibility.Visible;
                 }
             } catch (Exception e) {
@@ -171,15 +182,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             }
         }
 
-        private static BitmapSource ConvertToBitmapSource(Bitmap bitmap) {
+        private static BitmapSource ConvertToBitmapSource(Bitmap bitmap, double dpiX, double dpiY) {
             var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
             var data = bitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppPArgb);
             try {
                 var source = BitmapSource.Create(
                     bitmap.Width,
                     bitmap.Height,
-                    96.0d,
-                    96.0d,
+                    dpiX > 0 ? dpiX : 96.0d,
+                    dpiY > 0 ? dpiY : 96.0d,
                     WpfPixelFormats.Pbgra32,
                     null,
                     data.Scan0,
@@ -193,6 +204,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         }
 
         private void SurfacePlotControlBase_SizeChanged(object sender, SizeChangedEventArgs e) {
+            UpdateSceneImage();
+        }
+
+        protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi) {
+            base.OnDpiChanged(oldDpi, newDpi);
             UpdateSceneImage();
         }
 
