@@ -32,6 +32,8 @@ jobs:
           -p:PostBuildEvent=
           --logger "trx;LogFileName=test-results.trx"
           --results-directory TestResults
+          --collect "XPlat Code Coverage"
+          --settings Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/coverlet.runsettings
 
       - name: Upload test results
         if: always()
@@ -39,3 +41,30 @@ jobs:
         with:
           name: test-results
           path: TestResults/*.trx
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: TestResults/**/coverage.cobertura.xml
+
+      - name: Generate coverage summary
+        if: always() && hashFiles('TestResults/**/coverage.cobertura.xml') != ''
+        shell: pwsh
+        run: |
+          dotnet tool install -g dotnet-reportgenerator-globaltool
+          reportgenerator `
+            -reports:TestResults/**/coverage.cobertura.xml `
+            -targetdir:CoverageReport `
+            -reporttypes:"MarkdownSummaryGithub;HtmlSummary"
+          if (Test-Path CoverageReport/SummaryGithub.md) {
+            Get-Content CoverageReport/SummaryGithub.md | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Upload HTML coverage summary
+        if: always() && hashFiles('CoverageReport/summary.html') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: CoverageReport/
