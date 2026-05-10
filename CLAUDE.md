@@ -41,6 +41,16 @@ Camera images may be mirrored horizontally and/or vertically depending on the op
 - **Clear your Claude Code context (`/clear`) before executing a plan** to avoid stale context from the planning session affecting implementation.
 - The user will explicitly say when a plan is ready to execute.
 
+## Git Workflow
+
+- **Never push to `develop` directly.** Create a feature branch (`ghilios/<topic>`), push it, and open a PR — `develop` is only updated via PR merges.
+- **Author + committer email** must be `322725+ghilios@users.noreply.github.com`. GitHub email-privacy blocks pushes from `ghilios@gmail.com`. When committing, set both:
+  ```
+  GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
+    git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "..."
+  ```
+  If a commit slips through with `ghilios@gmail.com`, amend it with `--author=` and the env vars above before pushing.
+
 ---
 
 ## Directory Structure

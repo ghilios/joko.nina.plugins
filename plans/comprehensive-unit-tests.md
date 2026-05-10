@@ -41,8 +41,18 @@ The following utilities were originally scoped to Tier 1 but are heavily OpenCV/
 - `Utility/NonLinearLeastSquaresSolverBase.cs`
 - `Utility/RANSACRegistration.cs` (algorithmic, fits Tier 2)
 
+- **Tier 2 (algorithms with mocked dependencies)** ✅ — **309 tests, 0 failing**
+  - Added `Synthetic/SyntheticGaussianStarImage.cs`, `Synthetic/SyntheticFocusCurveSamples.cs`
+  - Test project gained `<AllowUnsafeBlocks>true</AllowUnsafeBlocks>` so tests can fill OpenCV `Mat` buffers via raw pointers
+  - Utility: `CvImageUtilityTests`, `HotpixelFilteringTests`, `AlglibAPITests` (incl. parallel-solve smoke), `NonLinearLeastSquaresSolverTests` (linear-recovery + winsorized outlier rejection), `RANSACRegistrationTests` (Matrix3x2 round-trip, FitAffineTransform translation/scale, NN match brightness gating)
+  - StarDetection: `PSFModelTests` (FWHM/eccentricity/Sigma round-trip, Gaussian σ→FWHM constant), `PSFModelerTests` (Gaussian σ recovery on synthetic star + cancellation), `HyperbolicFittingAlglibTests`, `HyperbolicUnevenFittingAlglibTests`
+  - Inspection: `SensorParaboloidModelTests` (Value/Tilt/Curvature math, FromArray/ToArray round-trip, full curvature recovery on synthetic paraboloid)
+  - AutoFocus: `TiltPlaneModelTests` (corner-equal/A-only/B-only OLS recovery, GetModelX/Y bounds, ctor validation)
+  - Scottplot: `LinearColormapTests`
+  - **1 real bug fixed during Tier 2** (driven by spec-first test):
+    1. `AutoFocus/TiltModel.cs:40` — `imageSize.Width == 0` → `imageSize.Width <= 0` so negative width is rejected symmetrically with negative height (which already used `<= 0`). Matches the "dimensions must be positive" error message and prevents `GetModelX` returning garbage on a negative-Width construction.
+
 ### Not yet started
-- **Tier 2 (algorithms with mocked dependencies)** — see plan below
 - **Tier 3 (engine, VMs, sequence items)** — see plan below
 
 ---
@@ -179,5 +189,5 @@ End-to-end (Tier 3 only): run the one full-pipeline star-detection test against 
 
 - ~~Tier 0 (setup) — confirm project builds before writing any new tests.~~ ✅
 - ~~Tier 1 — ping with the list of expected-vs-actual divergences found.~~ ✅ (5 bugs fixed)
-- **Tier 2 — ping with any algorithm divergences found.** ← next
-- Tier 3 — final pass; ping with anything VM-specific that warrants a refactor.
+- ~~Tier 2 — ping with any algorithm divergences found.~~ ✅ (1 bug fixed)
+- **Tier 3 — final pass; ping with anything VM-specific that warrants a refactor.** ← next

@@ -37,7 +37,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             double topRightPosition,
             double bottomLeftPosition,
             double bottomRightPosition) {
-            if (imageSize.Width == 0 || imageSize.Height <= 0) {
+            if (imageSize.Width <= 0 || imageSize.Height <= 0) {
                 throw new ArgumentException($"ImageSize ({imageSize.Width}, {imageSize.Height}) dimensions must be positive");
             }
 
