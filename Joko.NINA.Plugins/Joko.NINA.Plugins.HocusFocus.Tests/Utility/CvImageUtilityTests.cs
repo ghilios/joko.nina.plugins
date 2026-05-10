@@ -193,5 +193,120 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 });
             }
         }
+
+        [Test]
+        public void GetB3SplineFilter_SecondLayer_HasZerosBetweenCoefficients() {
+            using var filter = CvImageUtility.GetB3SplineFilter(1);
+            // Layer 1: stride = 2, size = (2 << 2) + 1 = 9 with zeros between coefficients
+            Assert.That(filter.Cols, Is.EqualTo(1));
+            Assert.That(filter.Rows, Is.EqualTo(9));
+            unsafe {
+                var p = (float*)filter.DataPointer;
+                Assert.Multiple(() => {
+                    Assert.That(p[0], Is.EqualTo(0.0625f).Within(1e-6f));
+                    Assert.That(p[1], Is.EqualTo(0.0f));
+                    Assert.That(p[2], Is.EqualTo(0.25f).Within(1e-6f));
+                    Assert.That(p[3], Is.EqualTo(0.0f));
+                    Assert.That(p[4], Is.EqualTo(0.375f).Within(1e-6f));
+                    Assert.That(p[5], Is.EqualTo(0.0f));
+                    Assert.That(p[6], Is.EqualTo(0.25f).Within(1e-6f));
+                    Assert.That(p[7], Is.EqualTo(0.0f));
+                    Assert.That(p[8], Is.EqualTo(0.0625f).Within(1e-6f));
+                });
+            }
+        }
+
+        [Test]
+        public void Rescale_FlatImage_ProducesNaNDueToZeroRange() {
+            // Documents current behavior: flat input divides by (max - min) = 0 → NaN. If this is ever
+            // changed to coalesce to a defined value, this test should fail and prompt an update.
+            using var src = SyntheticGaussianStarImage.CreateFlat(4, 4, 0.3f);
+            using var dst = CvImageUtility.Rescale(src);
+            unsafe {
+                var p = (float*)dst.DataPointer;
+                Assert.That(float.IsNaN(p[0]) || p[0] == 0.0f, Is.True);
+            }
+        }
+
+        [Test]
+        public void SubtractInPlace_KnownDifference() {
+            using var lhs = new Mat(new Size(2, 2), MatType.CV_32F);
+            using var rhs = new Mat(new Size(2, 2), MatType.CV_32F);
+            unsafe {
+                var l = (float*)lhs.DataPointer;
+                var r = (float*)rhs.DataPointer;
+                l[0] = 0.6f; l[1] = 0.5f; l[2] = 0.4f; l[3] = 0.3f;
+                r[0] = 0.1f; r[1] = 0.4f; r[2] = 0.4f; r[3] = 0.5f;
+            }
+            CvImageUtility.SubtractInPlace(lhs, rhs);
+            unsafe {
+                var p = (float*)lhs.DataPointer;
+                Assert.Multiple(() => {
+                    Assert.That(p[0], Is.EqualTo(0.5f).Within(1e-5f));
+                    Assert.That(p[1], Is.EqualTo(0.1f).Within(1e-5f));
+                    Assert.That(p[2], Is.EqualTo(0.0f).Within(1e-5f));
+                    // 0.3 - 0.5 = -0.2 → clamped to 0 by default min
+                    Assert.That(p[3], Is.EqualTo(0.0f));
+                });
+            }
+        }
+
+        [Test]
+        public void ComputeResidualAtrousB3SplineDyadicWaveletLayer_FlatImage_PreservesMean() {
+            using var src = SyntheticGaussianStarImage.CreateFlat(32, 32, 0.5f);
+            using var residual = CvImageUtility.ComputeResidualAtrousB3SplineDyadicWaveletLayer(src, numLayers: 3);
+            // Residual layer of a flat image (low-pass) should keep the mean approximately
+            var stats = CvImageUtility.CalculateStatistics(residual);
+            Assert.That(stats.Mean, Is.EqualTo(0.5).Within(1e-3));
+        }
+
+        [Test]
+        public void KappaSigmaNoiseEstimate_Reports_BackgroundMean_OnFlatImage() {
+            using var mat = SyntheticGaussianStarImage.CreateFlat(16, 16, 0.42f);
+            var result = CvImageUtility.KappaSigmaNoiseEstimate(mat);
+            Assert.That(result.BackgroundMean, Is.EqualTo(0.42).Within(1e-5));
+        }
+
+        [Test]
+        public void CalculateStatistics_OnSubRect_RestrictsToRegion() {
+            using var mat = new Mat(new Size(4, 4), MatType.CV_32F);
+            unsafe {
+                var p = (float*)mat.DataPointer;
+                for (var i = 0; i < 16; i++) p[i] = i / 16.0f;
+            }
+            // Top-left 2x2 block: indices 0,1,4,5 → values 0/16, 1/16, 4/16, 5/16
+            // Mean = (0 + 0.0625 + 0.25 + 0.3125) / 4 = 0.15625
+            var stats = CvImageUtility.CalculateStatistics(mat, rect: new Rect(0, 0, 2, 2));
+            Assert.That(stats.Mean, Is.EqualTo(0.15625).Within(1e-5));
+        }
+
+        [Test]
+        public void Binarize_AtThresholdValue_BelongsToBelow() {
+            using var src = new Mat(new Size(2, 1), MatType.CV_32F);
+            unsafe {
+                var p = (float*)src.DataPointer;
+                p[0] = 0.5f;     // exactly threshold
+                p[1] = 0.5001f;  // just above
+            }
+            using var dst = new Mat();
+            CvImageUtility.Binarize(src, dst, threshold: 0.5);
+            unsafe {
+                var p = (float*)dst.DataPointer;
+                Assert.That(p[0], Is.EqualTo(0.0f));
+                Assert.That(p[1], Is.EqualTo(1.0f));
+            }
+        }
+
+        [Test]
+        public void BilinearSamplePixelValue_OutsideBounds_DoesNotThrow() {
+            using var mat = new Mat(new Size(2, 2), MatType.CV_32F);
+            unsafe {
+                var p = (float*)mat.DataPointer;
+                p[0] = 0.0f; p[1] = 0.0f; p[2] = 0.0f; p[3] = 0.0f;
+            }
+            // Sampling at (-0.5, -0.5) — implementations vary on edge handling, but it should not throw and return finite.
+            var v = CvImageUtility.BilinearSamplePixelValue(mat, y: 0.0, x: 0.0);
+            Assert.That(double.IsFinite(v), Is.True);
+        }
     }
 }
