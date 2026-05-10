@@ -23,19 +23,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     [JsonObject]
     public class StarDetectionOptions : BaseINPC, IStarDetectionOptions {
-        private readonly PluginOptionsAccessor optionsAccessor;
+        private readonly IPluginOptionsAccessor optionsAccessor;
 
-        public StarDetectionOptions(IProfileService profileService) {
+        public StarDetectionOptions(IProfileService profileService)
+            : this(profileService, CreateDefaultAccessor(profileService)) {
+        }
+
+        internal StarDetectionOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor) {
+            this.optionsAccessor = optionsAccessor ?? throw new ArgumentNullException(nameof(optionsAccessor));
+            profileService.ProfileChanged += ProfileService_ProfileChanged;
+            this.PropertyChanged += StarDetectionOptions_PropertyChanged;
+            InitializeOptions();
+        }
+
+        private static IPluginOptionsAccessor CreateDefaultAccessor(IProfileService profileService) {
             var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions));
             if (guid == null) {
                 throw new Exception($"Guid not found in assembly metadata");
             }
-
-            profileService.ProfileChanged += ProfileService_ProfileChanged;
-
-            this.optionsAccessor = new PluginOptionsAccessor(profileService, guid.Value);
-            this.PropertyChanged += StarDetectionOptions_PropertyChanged;
-            InitializeOptions();
+            return new PluginOptionsAccessor(profileService, guid.Value);
         }
 
         private void ProfileService_ProfileChanged(object sender, EventArgs e) {
