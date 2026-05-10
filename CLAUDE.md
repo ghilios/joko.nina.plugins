@@ -549,6 +549,14 @@ Logger.Error(ex, "Unhandled exception in focus engine");
 
 ## Testing
 
+**Run the unit test suite after every code change** before reporting work complete. From the solution root:
+
+```
+dotnet test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo
+```
+
+If any test fails, fix the underlying cause — do not skip, ignore, or mark tests as expected-to-fail to make the suite pass.
+
 **Framework**: NUnit 4.4.0 + NUnit3TestAdapter
 
 ```csharp

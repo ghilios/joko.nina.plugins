@@ -2383,7 +2383,7 @@
                     Header="Tilt Adapter Guidance"
                     IsExpanded="{Binding HasTiltAdapterCalibration, Mode=OneWay}">
                     <Expander.Style>
-                        <Style TargetType="Expander">
+                        <Style BasedOn="{StaticResource {x:Type Expander}}" TargetType="Expander">
                             <Setter Property="Visibility" Value="Visible" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding TiltMeasurementActivatedOnce}" Value="False">
