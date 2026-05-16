@@ -1,0 +1,18 @@
+# Line-ending policy for a Windows-primary repository.
+# Text files are normalized to LF inside the repository and checked out
+# with CRLF in the working tree on every platform, so Windows tooling
+# stays authoritative regardless of each clone's local git config.
+* text=auto eol=crlf
+
+# Binary assets: never convert line endings or attempt text diffs.
+*.jpg  binary
+*.jpeg binary
+*.png  binary
+*.gif  binary
+*.ico  binary
+*.bmp  binary
+*.dll  binary
+*.exe  binary
+*.pdb  binary
+*.zip  binary
+*.snk  binary
