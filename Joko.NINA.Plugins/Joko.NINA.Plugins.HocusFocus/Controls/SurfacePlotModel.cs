@@ -228,6 +228,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
             var zBuffer = Enumerable.Repeat(double.NegativeInfinity, width * height).ToArray();
             var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            // In-memory bitmaps inherit the screen DPI, which makes GDI+ convert Point-unit fonts using
+            // that DPI -- applying display scaling a second time on top of pixelScale (which already
+            // includes the DPI scale). Pin the bitmap to 96 DPI so glyph sizes depend only on pixelScale
+            // and render at a consistent on-screen size across monitors with different DPI.
+            bitmap.SetResolution(96f, 96f);
             using (var graphics = Graphics.FromImage(bitmap)) {
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 if (logDiagnostics) {
