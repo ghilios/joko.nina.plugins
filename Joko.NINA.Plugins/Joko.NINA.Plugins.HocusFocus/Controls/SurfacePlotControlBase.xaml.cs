@@ -169,7 +169,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 var pixelHeight = Math.Max(1, (int)Math.Round(logicalHeight * dpiScaleY));
 
                 var logicalMin = Math.Min(logicalWidth, logicalHeight);
-                var chartScale = Math.Clamp(logicalMin / 500.0d, 0.6d, 2.0d);
+                var chartScale = Math.Clamp(logicalMin / 300.0d, 0.6d, 1.0d);
                 var pixelScale = (float)(Math.Min(dpiScaleX, dpiScaleY) * chartScale);
 
                 using (var bitmap = new SurfacePlotRenderer(model, pixelWidth, pixelHeight, pixelScale).Render()) {
