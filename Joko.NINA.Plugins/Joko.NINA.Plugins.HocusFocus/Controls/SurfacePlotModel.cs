@@ -16,8 +16,10 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Logger = NINA.Core.Utility.Logger;
 
 namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
@@ -164,6 +166,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         private readonly int width;
         private readonly int height;
         private readonly float pixelScale;
+        private readonly bool logDiagnostics;
         private Bounds bounds;
         private double xyScale;
         private double zScale;
@@ -171,11 +174,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
         private double offsetX;
         private double offsetY;
 
-        public SurfacePlotRenderer(SurfacePlotModel model, int width, int height, float pixelScale = 1.0f) {
+        public SurfacePlotRenderer(SurfacePlotModel model, int width, int height, float pixelScale = 1.0f, bool logDiagnostics = false) {
             this.model = model ?? throw new ArgumentNullException(nameof(model));
             this.width = Math.Max(1, width);
             this.height = Math.Max(1, height);
             this.pixelScale = pixelScale > 0.0f ? pixelScale : 1.0f;
+            this.logDiagnostics = logDiagnostics;
         }
 
         private float S(float v) => v * pixelScale;
@@ -184,6 +188,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
 
         private Font CreateFont(float pointSize, FontStyle style = FontStyle.Regular)
             => new Font(FontFamily.GenericSansSerif, pointSize * pixelScale, style);
+
+        private void LogRenderDiagnostics(Bitmap bitmap, Graphics graphics) {
+            try {
+                var inv = CultureInfo.InvariantCulture;
+                Logger.Info($"[SurfacePlotDiag] renderer: width={width} height={height} pixelScale={pixelScale.ToString("0.0000", inv)} " +
+                    $"bitmapRes={bitmap.HorizontalResolution.ToString("0.##", inv)}x{bitmap.VerticalResolution.ToString("0.##", inv)} " +
+                    $"graphicsDpi={graphics.DpiX.ToString("0.##", inv)}x{graphics.DpiY.ToString("0.##", inv)} " +
+                    $"pageUnit={graphics.PageUnit} pageScale={graphics.PageScale.ToString("0.####", inv)}");
+
+                // Design point sizes used by the renderer: contour labels, axes, point/colorbar labels, screen labels.
+                foreach (var pointSize in new[] { 9.34f, 10.06f, 8.625f, 11.5f }) {
+                    using (var font = CreateFont(pointSize)) {
+                        var measured = graphics.MeasureString("Sample Mg", font);
+                        Logger.Info($"[SurfacePlotDiag] renderer font: requestedPt={pointSize.ToString("0.###", inv)} " +
+                            $"scaledPt={(pointSize * pixelScale).ToString("0.###", inv)} font.Size={font.Size.ToString("0.###", inv)} " +
+                            $"font.SizeInPoints={font.SizeInPoints.ToString("0.###", inv)} font.Unit={font.Unit} " +
+                            $"glyphHeightPx={font.GetHeight(graphics).ToString("0.###", inv)} " +
+                            $"measure=\"Sample Mg\"={measured.Width.ToString("0.##", inv)}x{measured.Height.ToString("0.##", inv)}");
+                    }
+                }
+            } catch (Exception e) {
+                Logger.Error(e, "[SurfacePlotDiag] Failed logging renderer diagnostics");
+            }
+        }
 
         public Bitmap Render() {
             if (model.Z == null) {
@@ -202,6 +230,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
             using (var graphics = Graphics.FromImage(bitmap)) {
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                if (logDiagnostics) {
+                    LogRenderDiagnostics(bitmap, graphics);
+                }
                 graphics.Clear(model.BackgroundColor);
                 if (model.ShowAxes) {
                     DrawBackBoxEdges(graphics);
