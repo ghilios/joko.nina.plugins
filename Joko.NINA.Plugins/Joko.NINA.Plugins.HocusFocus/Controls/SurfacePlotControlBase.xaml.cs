@@ -15,7 +15,6 @@ using NINA.Joko.Plugins.HocusFocus.Utility;
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -99,10 +98,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             set { SetValue(SurfaceColorProperty, value); }
         }
 
-        // Diagnostic logging throttle: only emit a [SurfacePlotDiag] line when the computed render
-        // configuration actually changes, so resize drags don't spam the log.
-        private string lastDiagSignature;
-
         public SurfacePlotControlBase() {
             InitializeComponent();
             this.SizeChanged += SurfacePlotControlBase_SizeChanged;
@@ -177,75 +172,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 var chartScale = Math.Clamp(logicalMin / 300.0d, 0.6d, 1.0d);
                 var pixelScale = (float)(Math.Min(dpiScaleX, dpiScaleY) * chartScale);
 
-                var diagSignature = string.Format(CultureInfo.InvariantCulture,
-                    "{0}|{1:0.#}|{2:0.#}|{3:0.###}|{4:0.###}|{5:0.###}|{6:0.###}|{7:0.###}",
-                    this.GetType().Name, logicalWidth, logicalHeight, dpiScaleX, dpiScaleY, chartScale, pixelScale, logicalMin);
-                var logDiagnostics = diagSignature != lastDiagSignature;
-                if (logDiagnostics) {
-                    lastDiagSignature = diagSignature;
-                    LogDiagnostics(dpi, logicalWidth, logicalHeight, logicalMin, chartScale, pixelScale, pixelWidth, pixelHeight);
-                }
-
-                using (var bitmap = new SurfacePlotRenderer(model, pixelWidth, pixelHeight, pixelScale, logDiagnostics).Render()) {
+                using (var bitmap = new SurfacePlotRenderer(model, pixelWidth, pixelHeight, pixelScale).Render()) {
                     this.SceneImage.Source = ConvertToBitmapSource(bitmap, dpi.PixelsPerInchX, dpi.PixelsPerInchY);
                     this.SceneImage.Visibility = Visibility.Visible;
                 }
             } catch (Exception e) {
                 Logger.Error(e, "Failed updating surface plot image");
                 throw;
-            }
-        }
-
-        private void LogDiagnostics(DpiScale dpi, double logicalWidth, double logicalHeight, double logicalMin,
-            double chartScale, float pixelScale, int pixelWidth, int pixelHeight) {
-            try {
-                var inv = CultureInfo.InvariantCulture;
-                var imageRender = this.SceneImage.RenderSize;
-
-                Logger.Info($"[SurfacePlotDiag] control={this.GetType().Name} " +
-                    $"actual={logicalWidth.ToString("0.##", inv)}x{logicalHeight.ToString("0.##", inv)} DIP " +
-                    $"imageRender={imageRender.Width.ToString("0.##", inv)}x{imageRender.Height.ToString("0.##", inv)} " +
-                    $"imageStretch={this.SceneImage.Stretch} " +
-                    $"logicalMin={logicalMin.ToString("0.##", inv)} chartScale={chartScale.ToString("0.####", inv)} " +
-                    $"pixelScale={pixelScale.ToString("0.####", inv)} pixelSize={pixelWidth}x{pixelHeight}");
-
-                Logger.Info($"[SurfacePlotDiag] control={this.GetType().Name} GetDpi: " +
-                    $"DpiScale={dpi.DpiScaleX.ToString("0.####", inv)}x{dpi.DpiScaleY.ToString("0.####", inv)} " +
-                    $"PixelsPerInch={dpi.PixelsPerInchX.ToString("0.##", inv)}x{dpi.PixelsPerInchY.ToString("0.##", inv)}");
-
-                // PresentationSource — true device transform WPF applies, and whether the visual is connected.
-                var src = PresentationSource.FromVisual(this);
-                if (src?.CompositionTarget != null) {
-                    var m = src.CompositionTarget.TransformToDevice;
-                    Logger.Info($"[SurfacePlotDiag] control={this.GetType().Name} PresentationSource: connected=true " +
-                        $"TransformToDevice M11={m.M11.ToString("0.####", inv)} M22={m.M22.ToString("0.####", inv)}");
-                } else {
-                    Logger.Info($"[SurfacePlotDiag] control={this.GetType().Name} PresentationSource: connected=false");
-                }
-
-                // Cumulative transform from this control up to the window root — detects any global
-                // ScaleTransform / LayoutTransform / Viewbox applied by the NINA host.
-                if (src?.RootVisual is Visual root && !ReferenceEquals(root, this)) {
-                    try {
-                        var toRoot = this.TransformToAncestor(root);
-                        var probe = toRoot.TransformBounds(new Rect(0, 0, 100, 100));
-                        Logger.Info($"[SurfacePlotDiag] control={this.GetType().Name} ancestorTransform: " +
-                            $"scaleX={(probe.Width / 100.0).ToString("0.####", inv)} scaleY={(probe.Height / 100.0).ToString("0.####", inv)}");
-                    } catch (Exception ancestorEx) {
-                        Logger.Info($"[SurfacePlotDiag] control={this.GetType().Name} ancestorTransform: unavailable ({ancestorEx.Message})");
-                    }
-                }
-
-                // Native-text reference: on-screen size of WPF text at nominal em size 12. The surface-plot
-                // fonts are tuned to match this; comparing it across machines isolates the discrepancy.
-                var ft = new FormattedText("Sample Mg", inv, FlowDirection.LeftToRight,
-                    new Typeface("Segoe UI"), 12.0, System.Windows.Media.Brushes.Black, dpi.PixelsPerDip);
-                Logger.Info($"[SurfacePlotDiag] control={this.GetType().Name} nativeTextRef: " +
-                    $"\"Sample Mg\" em=12 pixelsPerDip={dpi.PixelsPerDip.ToString("0.####", inv)} " +
-                    $"size={ft.Width.ToString("0.##", inv)}x{ft.Height.ToString("0.##", inv)} DIP " +
-                    $"baseline={ft.Baseline.ToString("0.##", inv)}");
-            } catch (Exception e) {
-                Logger.Error(e, "[SurfacePlotDiag] Failed logging control diagnostics");
             }
         }
 
