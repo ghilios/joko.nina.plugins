@@ -273,6 +273,15 @@ public class InspectorOptions : BaseINPC, IInspectorOptions {
 | `GetValueString` / `SetValueString` | `string` |
 | `GetValueEnum<T>` / `SetValueEnum<T>` | any `enum` |
 
+### Options UI Requirement
+
+Every new option added to `StarDetectionOptions` (or any other options class) **must** also have a corresponding UI control in `Resources/OptionsDataTemplates.xaml`. Options that are not exposed in the UI are invisible to users and cannot be tuned.
+
+- Boolean options → `CheckBox` bound to `StarDetectionOptions.<PropertyName>`
+- Double/numeric options → `ninactrl:UnitTextBox` with a `DoubleRangeRule` validation
+- Enum options → `ComboBox` with `util:EnumBindingSource` and `HF_EnumStaticDescriptionValueConverter`
+- Add a tooltip `TextBlock` resource (key: `<PropertyName>_Tooltip`) near the other tooltips at the top of `OptionsDataTemplates.xaml`
+
 ---
 
 ## Plugin Bootstrap (`HocusFocusPlugin.cs`)
@@ -576,6 +585,18 @@ public class MathUtilityTests {
 ```
 
 The test project links shared source files directly (e.g., `MathUtility.cs`) rather than referencing the plugin assembly.
+
+### Star Detection Metrics UI Requirement
+
+Every new field added to `StarDetectorMetrics` (rejection counts, flags, etc.) **must** also be displayed in the star detection metrics panel in `AutoFocus/DataTemplates.xaml`. The metrics panel uses a `UniformGrid Columns="2"` with `StackPanel` pairs. Add new entries using the `HF_ZeroToDoubleDashConverter` pattern:
+
+```xaml
+<StackPanel Orientation="Horizontal">
+    <TextBlock Width="120" VerticalAlignment="Center" Text="My Metric" />
+    <TextBlock Width="70" HorizontalAlignment="Center" VerticalAlignment="Center"
+        Text="{Binding Metrics.MyMetricField, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
+</StackPanel>
+```
 
 ---
 
