@@ -649,6 +649,92 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        /// <summary>
+        /// Computes an iterative flux-weighted centroid over a list of candidate star pixels.
+        /// Pass 1 includes every pixel above <paramref name="backgroundThreshold"/>.
+        /// Each subsequent pass restricts the contributing pixels to those that lie within
+        /// a circle of radius <paramref name="apertureRadius"/> centered on the centroid
+        /// estimate from the previous pass.  The circular aperture prevents bright
+        /// off-axis pixels from biasing the centroid for asymmetric or tilted stars.
+        /// </summary>
+        /// <param name="imageData">Pointer to the flat float32 pixel array (unsafe).</param>
+        /// <param name="imageWidth">Number of pixels per row in the image.</param>
+        /// <param name="starPoints">Candidate pixels to consider (from the structure map).</param>
+        /// <param name="backgroundMedian">Median background level to subtract from each pixel.</param>
+        /// <param name="backgroundThreshold">Minimum raw pixel value to include in any pass.</param>
+        /// <param name="apertureRadius">Circular aperture radius used from pass 2 onward.</param>
+        /// <param name="numPasses">Total number of centroid passes (2 or 3 recommended).</param>
+        /// <returns>
+        /// Flux-weighted centroid in image-pixel coordinates, or a fallback centre-of-bounding-box
+        /// value if no pixel survives the threshold cuts.
+        /// </returns>
+        internal static unsafe Point2d ComputeIterativeCentroid(
+            float* imageData,
+            int imageWidth,
+            List<Point> starPoints,
+            double backgroundMedian,
+            double backgroundThreshold,
+            double apertureRadius,
+            int numPasses) {
+
+            // Seed the centroid with an unrestricted flux-weighted pass (pass 1).
+            double sx = 0, sy = 0, sz = 0;
+            foreach (var pt in starPoints) {
+                var pixel = imageData[pt.Y * imageWidth + pt.X];
+                if (pixel <= backgroundThreshold) {
+                    continue;
+                }
+                var flux = pixel - backgroundMedian;
+                sx += flux * pt.X;
+                sy += flux * pt.Y;
+                sz += flux;
+            }
+
+            if (sz <= 0) {
+                // No pixels above threshold — return the unweighted bounding-box centre
+                // (caller can decide to discard this candidate).
+                if (starPoints.Count == 0) {
+                    return new Point2d(0, 0);
+                }
+                double sumX = 0, sumY = 0;
+                foreach (var pt in starPoints) { sumX += pt.X; sumY += pt.Y; }
+                return new Point2d(sumX / starPoints.Count, sumY / starPoints.Count);
+            }
+
+            var cx = sx / sz;
+            var cy = sy / sz;
+
+            // Passes 2..numPasses: restrict to circular aperture around previous estimate.
+            var r2 = apertureRadius * apertureRadius;
+            for (int pass = 2; pass <= numPasses; ++pass) {
+                sx = 0; sy = 0; sz = 0;
+                foreach (var pt in starPoints) {
+                    var pixel = imageData[pt.Y * imageWidth + pt.X];
+                    if (pixel <= backgroundThreshold) {
+                        continue;
+                    }
+                    var dx = pt.X - cx;
+                    var dy = pt.Y - cy;
+                    if (dx * dx + dy * dy > r2) {
+                        continue;
+                    }
+                    var flux = pixel - backgroundMedian;
+                    sx += flux * pt.X;
+                    sy += flux * pt.Y;
+                    sz += flux;
+                }
+
+                if (sz <= 0) {
+                    // Aperture excluded everything — keep the previous estimate
+                    break;
+                }
+                cx = sx / sz;
+                cy = sy / sz;
+            }
+
+            return new Point2d(cx, cy);
+        }
+
         private StarCandidate ComputeStarParameters(Mat srcImage, Rect starBounds, StarDetectorParams p, double noiseSigma, List<Point> starPoints) {
             var expandedWidth = starBounds.Width + p.BackgroundBoxExpansion * 2;
             var expandedHeight = starBounds.Height + p.BackgroundBoxExpansion * 2;
@@ -711,7 +797,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var backgroundMedian = surroundingPixels[surroundingPixelCount >> 1];
 
             var backgroundThreshold = backgroundMedian + p.StarClippingMultiplier * noiseSigma;
-            double sx = 0, sy = 0, sz = 0;
             double totalFlux = 0d, peak = 0d;
             int numUnclippedPixels = 0;
             double[] starPixels;
@@ -745,9 +830,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
 
                     pixel -= backgroundMedian;
-                    sx += pixel * starPoint.X;
-                    sy += pixel * starPoint.Y;
-                    sz += pixel;
                     totalFlux += pixel;
                     peak = pixel > peak ? pixel : peak;
                     starPixels[pixelCount++] = pixel;
@@ -758,7 +840,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var starMedian = ComputeMedian(starPixels);
 
             var meanFlux = totalFlux / starPoints.Count;
-            var center = new Point2d(sx / sz, sy / sz);
+
+            // Compute an iterative centroid: start with all threshold-clipped pixels, then on
+            // subsequent passes restrict to pixels within a circular aperture centered on the
+            // previous estimate.  2-3 passes are enough for sub-pixel convergence.
+            var apertureRadius = Math.Min(starBounds.Width, starBounds.Height) / 2.0;
+            Point2d center;
+            unsafe {
+                center = ComputeIterativeCentroid(
+                    imageData: (float*)srcImage.DataPointer,
+                    imageWidth: srcImage.Width,
+                    starPoints: starPoints,
+                    backgroundMedian: backgroundMedian,
+                    backgroundThreshold: backgroundThreshold,
+                    apertureRadius: apertureRadius,
+                    numPasses: 3);
+            }
             var centerBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: center.Y, x: center.X) - backgroundMedian;
             return new StarCandidate() {
                 Center = center,
