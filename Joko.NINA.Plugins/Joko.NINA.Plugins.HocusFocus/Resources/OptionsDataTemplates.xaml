@@ -39,6 +39,7 @@
     <hfconverters:DoubleGreaterOneToEmptyStringConverter x:Key="HF_DoubleGreaterOneToEmptyStringConverter" />
     <hfconverters:MeasurementAverageDisplayConverter x:Key="HF_MeasurementAverageDisplayConverter" />
     <hfconverters:EmptyCollectionToVisibilityConverter x:Key="HF_EmptyCollectionToVisibilityCollapsedConverter" />
+    <hfconverters:DoublePositiveToVisibilityCollapsedConverter x:Key="HF_DoublePositiveToVisibilityCollapsedConverter" />
 
     <!--
         AF focus chart used by the Tilt Adapter Wizard to show live measurement feedback.
@@ -1457,7 +1458,8 @@
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="PSF Fit Threshold"
-                ToolTip="{StaticResource PSFFitThreshold_Tooltip}" />
+                ToolTip="{StaticResource PSFFitThreshold_Tooltip}"
+                Visibility="{Binding StarDetectionOptions.PSFGoodnessOfFitThresholdChiSq, Converter={StaticResource HF_DoublePositiveToVisibilityCollapsedConverter}}" />
             <ninactrl:UnitTextBox
                 Grid.Row="29"
                 Grid.Column="1"
@@ -1466,7 +1468,8 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 ToolTip="{StaticResource PSFFitThreshold_Tooltip}"
-                Unit="R²">
+                Unit="R²"
+                Visibility="{Binding StarDetectionOptions.PSFGoodnessOfFitThresholdChiSq, Converter={StaticResource HF_DoublePositiveToVisibilityCollapsedConverter}}">
                 <Binding Path="StarDetectionOptions.PSFFitThreshold" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:DoubleRangeRule>
