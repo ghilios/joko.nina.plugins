@@ -440,6 +440,116 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             }
         }
 
+        /// <summary>
+        /// Verifies that ReducedChiSquared is computed and stored on the PSFModel returned by
+        /// PSFModeler.Solve when a non-zero noiseSigma is supplied.
+        /// </summary>
+        [Test]
+        public void PSFModeler_Solve_ComputesReducedChiSquared_WhenNoiseSigmaProvided() {
+            const double trueSigma = 2.0;
+            const double peak = 0.8;
+            const double background = 0.02;
+            const double noiseSigma = 0.01;
+
+            var (inputs, outputs) = SampleGaussian(trueSigma, trueSigma, peak, background);
+            var model = new GaussianPSFAlglibType(
+                alglibAPI: alglibAPI,
+                inputs: inputs, outputs: outputs,
+                centroidBrightness: peak + background,
+                starDetectionBackground: background,
+                starBoundingBox: new Rect(0, 0, 11, 11),
+                pixelScale: 1.0);
+
+            var psf = PSFModeler.Solve(model, noiseSigma: noiseSigma, useAbsoluteResiduals: false, ct: CancellationToken.None);
+
+            Assert.That(psf, Is.Not.Null);
+            Assert.That(double.IsNaN(psf.ReducedChiSquared), Is.False, "ReducedChiSquared should not be NaN when noiseSigma > 0");
+            Assert.That(psf.ReducedChiSquared, Is.GreaterThan(0.0), "ReducedChiSquared should be positive");
+        }
+
+        /// <summary>
+        /// Generates a Gaussian PSF sample with additive Gaussian noise.
+        /// </summary>
+        private static (double[][] inputs, double[] outputs) SampleGaussianWithNoise(
+            double sigmaX, double sigmaY, double peak, double background,
+            double noiseSigma, int seed = 42,
+            int radius = 5) {
+            var rng = new Random(seed);
+            int side = 2 * radius + 1;
+            var n = side * side;
+            var inputs = new double[n][];
+            var outputs = new double[n];
+            int idx = 0;
+            for (var y = -radius; y <= radius; ++y) {
+                for (var x = -radius; x <= radius; ++x) {
+                    var e = (x * x) / (2.0 * sigmaX * sigmaX) + (y * y) / (2.0 * sigmaY * sigmaY);
+                    // Box-Muller for Gaussian noise
+                    var u1 = 1.0 - rng.NextDouble();
+                    var u2 = 1.0 - rng.NextDouble();
+                    var noise = noiseSigma * Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+                    inputs[idx] = new double[] { x, y };
+                    outputs[idx] = background + peak * Math.Exp(-e) + noise;
+                    idx++;
+                }
+            }
+            return (inputs, outputs);
+        }
+
+        /// <summary>
+        /// Verifies the brightness-bias scenario: for a faint star (tiny signal above a large
+        /// background), noise inflates rss/tss so R² drops below 0.9 even though the fit is
+        /// structurally correct and reduced chi² remains below 2.0.
+        ///
+        /// The old R² gate would reject this fit; the new reduced-chi² gate should accept it.
+        /// </summary>
+        [Test]
+        public void PSFModeler_Solve_FaintStar_LowRSquared_But_GoodReducedChiSquared() {
+            // Faint star: peak is very small relative to background.
+            // tss = sum((output - yBar)²) is dominated by background noise, not the Gaussian shape.
+            // With noise present, rss/tss is large → R² is pulled below the 0.9 threshold.
+            // But the absolute residuals are consistent with the noise level → reducedChiSq < 2.
+            const double trueSigma = 2.0;
+            const double peak = 0.003;        // extremely faint star — signal << background
+            const double background = 0.50;   // high sky background
+            // Noise level comparable to the faint signal.  The Gaussian peak rises only
+            // ~0.003 above background; noise at 0.002 makes the star nearly invisible in tss terms.
+            const double noiseSigma = 0.002;
+
+            var (inputs, outputs) = SampleGaussianWithNoise(trueSigma, trueSigma, peak, background, noiseSigma, seed: 42);
+            var model = new GaussianPSFAlglibType(
+                alglibAPI: alglibAPI,
+                inputs: inputs, outputs: outputs,
+                centroidBrightness: peak + background,
+                starDetectionBackground: background,
+                starBoundingBox: new Rect(0, 0, 11, 11),
+                pixelScale: 1.0);
+
+            var psf = PSFModeler.Solve(model, noiseSigma: noiseSigma, useAbsoluteResiduals: false, ct: CancellationToken.None);
+
+            Assert.That(psf, Is.Not.Null);
+
+            // R² should be low — the brightness-bias effect pushes R² down when peak << noise level
+            Assert.That(psf.RSquared, Is.LessThan(0.9),
+                "Faint star R² should be below 0.9 due to brightness bias (noise dominates tss when peak << noiseSigma)");
+
+            // Reduced chi² should be good — the absolute residuals are consistent with the noise
+            Assert.That(psf.ReducedChiSquared, Is.LessThan(2.0),
+                "Reduced chi² should be < 2.0 (fit residuals within the noise level)");
+
+            // Verify gating: the new chi² gate would accept this fit while the old R² gate rejects it
+            const double chiSqThreshold = 2.0;
+            const double rSquaredThreshold = 0.9;
+            bool acceptedByChiSq = psf.ReducedChiSquared <= chiSqThreshold;
+            bool acceptedByRSquared = psf.RSquared >= rSquaredThreshold;
+
+            Assert.Multiple(() => {
+                Assert.That(acceptedByChiSq, Is.True,
+                    "Reduced chi² gate should ACCEPT the faint-star fit");
+                Assert.That(acceptedByRSquared, Is.False,
+                    "Old R² gate would REJECT the faint-star fit (brightness-bias)");
+            });
+        }
+
         // Verify that with the loosened centroid bounds (box/2) the solver converges when the
         // seed centroid is 1.5 px away from the true star center. With the old box/8 bounds
         // (±1.375 px for an 11px box) the true offset of 1.5 px was outside the allowed range

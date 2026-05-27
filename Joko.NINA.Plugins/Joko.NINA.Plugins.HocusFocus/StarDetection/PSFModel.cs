@@ -30,7 +30,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             double fwhmY,
             double thetaRadians,
             double rSquared,
-            double pixelScale) {
+            double pixelScale,
+            double reducedChiSquared = double.NaN) {
             this.PSFType = psfType;
             this.OffsetX = offsetX;
             this.OffsetY = offsetY;
@@ -48,6 +49,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             this.FWHMPixels = Math.Sqrt(fwhmX * fwhmY);
             this.FWHMArcsecs = this.FWHMPixels * pixelScale;
             this.RSquared = rSquared;
+            this.ReducedChiSquared = reducedChiSquared;
         }
 
         public StarDetectorPSFFitType PSFType { get; private set; }
@@ -66,8 +68,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double Eccentricity { get; private set; }
         public double RSquared { get; private set; }
 
+        /// <summary>
+        /// Reduced chi-squared goodness-of-fit: rss / (nPixels * noiseSigma²).
+        /// Values near 1.0 indicate residuals consistent with the noise level.
+        /// NaN when noiseSigma was not available at fit time.
+        /// </summary>
+        public double ReducedChiSquared { get; private set; }
+
         public override string ToString() {
-            return $"{{{nameof(PSFType)}={PSFType.ToString()}, {nameof(OffsetX)}={OffsetX.ToString()}, {nameof(OffsetY)}={OffsetY.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(SigmaX)}={SigmaX.ToString()}, {nameof(SigmaY)}={SigmaY.ToString()}, {nameof(Sigma)}={Sigma.ToString()}, {nameof(FWHMx)}={FWHMx.ToString()}, {nameof(FWHMy)}={FWHMy.ToString()}, {nameof(ThetaRadians)}={ThetaRadians.ToString()}, {nameof(FWHMPixels)}={FWHMPixels.ToString()}, {nameof(FWHMArcsecs)}={FWHMArcsecs.ToString()}, {nameof(Eccentricity)}={Eccentricity.ToString()}, {nameof(RSquared)}={RSquared.ToString()}}}";
+            return $"{{{nameof(PSFType)}={PSFType.ToString()}, {nameof(OffsetX)}={OffsetX.ToString()}, {nameof(OffsetY)}={OffsetY.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(SigmaX)}={SigmaX.ToString()}, {nameof(SigmaY)}={SigmaY.ToString()}, {nameof(Sigma)}={Sigma.ToString()}, {nameof(FWHMx)}={FWHMx.ToString()}, {nameof(FWHMy)}={FWHMy.ToString()}, {nameof(ThetaRadians)}={ThetaRadians.ToString()}, {nameof(FWHMPixels)}={FWHMPixels.ToString()}, {nameof(FWHMArcsecs)}={FWHMArcsecs.ToString()}, {nameof(Eccentricity)}={Eccentricity.ToString()}, {nameof(RSquared)}={RSquared.ToString()}, {nameof(ReducedChiSquared)}={ReducedChiSquared.ToString()}}}";
         }
     }
 }

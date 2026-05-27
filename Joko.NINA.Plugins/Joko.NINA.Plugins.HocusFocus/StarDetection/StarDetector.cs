@@ -353,7 +353,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             }
                         }
 
-                        if (psf != null && psf.RSquared >= p.PSFGoodnessOfFitThreshold) {
+                        bool psfAccepted = false;
+                        if (psf != null) {
+                            if (p.PSFGoodnessOfFitChiSqThreshold > 0 && !double.IsNaN(psf.ReducedChiSquared)) {
+                                // Primary gate: accept when reduced chi² is within the threshold
+                                psfAccepted = psf.ReducedChiSquared <= p.PSFGoodnessOfFitChiSqThreshold;
+                            } else {
+                                // Fallback gate: R² must be at or above the threshold
+                                psfAccepted = psf.RSquared >= p.PSFGoodnessOfFitThreshold;
+                            }
+                        }
+                        if (psfAccepted) {
                             detectedStar.PSF = psf;
                         } else {
                             ++metrics.PSFFitFailed;

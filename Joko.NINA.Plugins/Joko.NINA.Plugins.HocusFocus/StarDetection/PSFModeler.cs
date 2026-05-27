@@ -178,7 +178,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return (sigX, sigY);
         }
 
-        public override double GoodnessOfFit(double A, double B, double x0, double y0, double sigmaX, double sigmaY, double theta) {
+        /// <summary>
+        /// Computes residual sum of squares (RSS) and total sum of squares (TSS) for the given parameter set.
+        /// R² = 1 - rss/tss.  Both values are returned so the caller can also derive reduced χ².
+        /// </summary>
+        public (double rss, double tss) ComputeRSS(double A, double B, double x0, double y0, double sigmaX, double sigmaY, double theta) {
             var parameters = new double[] { A, B, x0, y0, sigmaX, sigmaY, theta };
 
             var rss = 0.0d;
@@ -194,6 +198,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 tss += observedDispersion * observedDispersion;
                 rss += residual * residual;
             }
+            return (rss, tss);
+        }
+
+        public override double GoodnessOfFit(double A, double B, double x0, double y0, double sigmaX, double sigmaY, double theta) {
+            var (rss, tss) = ComputeRSS(A, B, x0, y0, sigmaX, sigmaY, theta);
             return 1 - rss / tss;
         }
 
@@ -508,7 +517,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             var fwhmX = modelType.SigmaToFWHM(sigX);
             var fwhmY = modelType.SigmaToFWHM(sigY);
-            var rSquared = modelType.GoodnessOfFit(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta);
+
+            double rSquared;
+            double reducedChiSquared = double.NaN;
+            if (modelType is PSFModelTypeAlglibBase alglibBase) {
+                var (rss, tss) = alglibBase.ComputeRSS(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta);
+                rSquared = 1 - rss / tss;
+                // Reduced chi-squared: rss / (nPixels * noiseSigma²).  Only meaningful when noiseSigma > 0.
+                var noiseSigmaSq = noiseSigma * noiseSigma;
+                if (noiseSigmaSq > 0 && alglibBase.Inputs.Length > 0) {
+                    reducedChiSquared = rss / (alglibBase.Inputs.Length * noiseSigmaSq);
+                }
+            } else {
+                rSquared = modelType.GoodnessOfFit(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta);
+            }
+
             return new PSFModel(psfType: modelType.PSFType,
                 offsetX: modelSolution.X0, offsetY: modelSolution.Y0,
                 peak: modelSolution.A, background: modelSolution.B,
@@ -516,7 +539,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 fwhmX: fwhmX, fwhmY: fwhmY,
                 thetaRadians: theta,
                 rSquared: rSquared,
-                pixelScale: modelType.PixelScale);
+                pixelScale: modelType.PixelScale,
+                reducedChiSquared: reducedChiSquared);
         }
     }
 }
