@@ -301,7 +301,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Console.WriteLine($"PSF time: {stopwatch.Elapsed}");
                 MaybeSaveIntermediateStars(stars, p, "09-detected-stars.txt");
 
-                var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
+                var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, SaturatedMasked={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
                 MaybeSaveIntermediateText(metricsTrace, p, "10-detection-metrics.txt");
                 Logger.Trace(metricsTrace);
                 if (roiRect.HasValue) {

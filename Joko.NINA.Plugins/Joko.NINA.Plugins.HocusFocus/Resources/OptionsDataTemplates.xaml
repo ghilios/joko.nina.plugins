@@ -418,7 +418,7 @@
     <TextBlock x:Key="HotpixelFiltering_Tooltip" Text="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
     <TextBlock x:Key="HotpixelThresholdingEnabled_Tooltip" Text="A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy" />
     <TextBlock x:Key="HotpixelThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value" />
-    <TextBlock x:Key="SaturationThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a saturated pixel. Star candidates containing any saturated pixels are rejected" />
+    <TextBlock x:Key="SaturationThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a saturated pixel. Star candidates containing saturated pixels are processed with those pixels masked during PSF fitting" />
     <TextBlock x:Key="UseAutoFocusCrop_Tooltip" Text="Uses the inner and outer crop from the Auto Focus options for regular exposures (ie, those that aren't done during focusing)" />
     <TextBlock x:Key="SavePath_Tooltip" Text="The folder to save Auto Focus runs" />
     <TextBlock x:Key="SaveAutoFocus_Tooltip" Text="Saves details about every Auto Focus run, including a copy of the image, the star detection results, and the stretched annotated image" />
@@ -460,7 +460,7 @@
     <TextBlock x:Key="TooDistortedColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowDegenerate_Tooltip" Text="Whether to show the failed degenerate stars" />
     <TextBlock x:Key="DegenerateColor_Tooltip" Text="The color of the failed star bounding box" />
-    <TextBlock x:Key="ShowSaturated_Tooltip" Text="Whether to show the failed saturated stars" />
+    <TextBlock x:Key="ShowSaturated_Tooltip" Text="Whether to show the partially-saturated stars that were processed with masked pixels" />
     <TextBlock x:Key="SaturatedColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowLowSensitivity_Tooltip" Text="Whether to show the failed low sensitivity stars" />
     <TextBlock x:Key="LowSensitivityColor_Tooltip" Text="The color of the failed star bounding box" />
