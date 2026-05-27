@@ -216,5 +216,45 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 });
             }
         }
+
+        [Test]
+        public unsafe void ComputeIterativeCentroid_SecondPassEmptyAperture_ReturnsSinglePassEstimate() {
+            // Pass 1 succeeds and estimates centroid at (2.5, 2.5).
+            // Pass 2 uses a very small aperture radius that excludes all pixels,
+            // so it should break early and return the pass-1 estimate.
+            const int side = 7;
+            const float background = 0.0f;
+            const float threshold = 0.5f;
+            var (pixels, points) = MakeImage(side, side, background);
+
+            // Place two bright pixels at (2, 2) and (3, 3) symmetrically
+            // Pass 1 centroid will be (2.5, 2.5)
+            pixels[2 * side + 2] = 0.8f;
+            pixels[3 * side + 3] = 0.8f;
+
+            double backgroundThreshold = threshold;
+            // Aperture radius 0.3: pixels at (2,2) and (3,3) are both at distance sqrt(0.5^2 + 0.5^2) = 0.707
+            // from (2.5, 2.5), which exceeds 0.3, so the aperture will exclude all pixels in pass 2.
+            double apertureRadius = 0.3;
+
+            fixed (float* imageData = pixels) {
+                var center = StarDetector.ComputeIterativeCentroid(
+                    imageData: imageData,
+                    imageWidth: side,
+                    starPoints: points,
+                    backgroundMedian: background,
+                    backgroundThreshold: backgroundThreshold,
+                    apertureRadius: apertureRadius,
+                    numPasses: 3);
+
+                // Should return pass-1 estimate of (2.5, 2.5)
+                Assert.Multiple(() => {
+                    Assert.That(center.X, Is.EqualTo(2.5).Within(1e-12),
+                        "Should return pass-1 centroid when pass 2 aperture excludes all pixels");
+                    Assert.That(center.Y, Is.EqualTo(2.5).Within(1e-12),
+                        "Should return pass-1 centroid when pass 2 aperture excludes all pixels");
+                });
+            }
+        }
     }
 }
