@@ -355,9 +355,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                         bool psfAccepted = false;
                         if (psf != null) {
-                            if (p.PSFGoodnessOfFitChiSqThreshold > 0 && !double.IsNaN(psf.ReducedChiSquared)) {
+                            if (p.PSFGoodnessOfFitThresholdChiSq > 0 && !double.IsNaN(psf.ReducedChiSquared)) {
                                 // Primary gate: accept when reduced chi² is within the threshold
-                                psfAccepted = psf.ReducedChiSquared <= p.PSFGoodnessOfFitChiSqThreshold;
+                                psfAccepted = psf.ReducedChiSquared <= p.PSFGoodnessOfFitThresholdChiSq;
                             } else {
                                 // Fallback gate: R² must be at or above the threshold
                                 psfAccepted = psf.RSquared >= p.PSFGoodnessOfFitThreshold;

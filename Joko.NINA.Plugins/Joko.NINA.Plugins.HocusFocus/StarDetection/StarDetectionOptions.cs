@@ -669,7 +669,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// <summary>
         /// Reduced chi-squared threshold for PSF fit acceptance.
         /// When &gt; 0, the fit is accepted only when reducedChiSquared ≤ this value (default 2.0).
-        /// Set to 0 or negative to disable and fall back to the R² gate (PSFFitThreshold).
+        /// Set to 0 to disable and fall back to the R² gate (PSFFitThreshold).
         /// </summary>
         public double PSFGoodnessOfFitThresholdChiSq {
             get => psfGoodnessOfFitThresholdChiSq;

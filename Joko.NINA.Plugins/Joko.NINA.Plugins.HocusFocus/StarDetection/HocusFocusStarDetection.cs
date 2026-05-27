@@ -299,7 +299,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 PSFParallelPartitionSize = starDetectionOptions.PSFParallelPartitionSize,
                 PSFResolution = starDetectionOptions.PSFResolution,
                 PSFGoodnessOfFitThreshold = starDetectionOptions.PSFFitThreshold,
-                PSFGoodnessOfFitChiSqThreshold = starDetectionOptions.PSFGoodnessOfFitThresholdChiSq,
+                PSFGoodnessOfFitThresholdChiSq = starDetectionOptions.PSFGoodnessOfFitThresholdChiSq,
                 Region = starDetectionRegion,
                 UsePSFAbsoluteDeviation = starDetectionOptions.UsePSFAbsoluteDeviation,
                 HotpixelThreshold = starDetectionOptions.HotpixelThreshold,
