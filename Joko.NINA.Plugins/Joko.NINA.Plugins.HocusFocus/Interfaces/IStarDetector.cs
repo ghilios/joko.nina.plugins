@@ -34,7 +34,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Moffat_40,
 
         [Description("Gaussian")]
-        Gaussian
+        Gaussian,
+
+        [Description("Moffat 2.5")]
+        Moffat_25,
+
+        [Description("Moffat 1.5")]
+        Moffat_15,
+
+        [Description("Moffat (β fittable)")]
+        MoffatFittable
     }
 
     public class RatioRect {
@@ -285,9 +294,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // [i-0.5, i+0.5] x [j-0.5, j+0.5] instead of the point sample at (i,j).
         // Reduces bias for undersampled rigs (FWHM ≈ 1.5px). Default: false.
         public bool PSFPixelIntegration { get; set; } = false;
-
-        // Controls Moffat β behavior: fixed at 1.5, 2.5, or 4.0, or free LM parameter in [1.0, 10.0].
-        public PSFMoffatBetaEnum PSFMoffatBeta { get; set; } = PSFMoffatBetaEnum.Fixed_4_0;
 
         // Pixel scale of the image given for star detection
         public double PixelScale { get; set; } = 1.0d;

@@ -184,11 +184,11 @@ public class MoffatPSFTypeTests {
     }
 
     /// <summary>
-    /// Acceptance criterion: PSFModeler.Create with PSFMoffatBeta=Fittable returns a
-    /// FittableMoffatPSFAlglibType instance; Fixed_1_5 returns a MoffatPSFAlglibType with β=1.5.
+    /// Acceptance criterion: PSFModeler.Create with MoffatFittable returns a
+    /// FittableMoffatPSFAlglibType instance; Moffat_15 returns a MoffatPSFAlglibType with β=1.5.
     /// </summary>
     [Test]
-    public void PSFModeler_Create_MoffatBetaEnum_ReturnsCorrectType() {
+    public void PSFModeler_Create_PSFFitType_ReturnsCorrectType() {
         const double trueSigma = 2.0;
         const int radius = 6;
         int side = 2 * radius + 1;
@@ -208,30 +208,28 @@ public class MoffatPSFTypeTests {
                 }
             }
 
-            // Fittable β → FittableMoffatPSFAlglibType
+            // MoffatFittable → FittableMoffatPSFAlglibType
             var fittableModel = PSFModeler.Create(
                 alglibAPI: alglibAPI,
-                fitType: StarDetectorPSFFitType.Moffat_40,
+                fitType: StarDetectorPSFFitType.MoffatFittable,
                 psfResolution: side,
                 detectedStar: detectedStar,
                 srcImage: srcImage,
-                pixelScale: 1.0,
-                moffatBeta: PSFMoffatBetaEnum.Fittable);
+                pixelScale: 1.0);
             Assert.That(fittableModel, Is.InstanceOf<FittableMoffatPSFAlglibType>(),
-                "Create with Fittable should return FittableMoffatPSFAlglibType");
+                "Create with MoffatFittable should return FittableMoffatPSFAlglibType");
 
-            // Fixed_1_5 → MoffatPSFAlglibType with β=1.5
+            // Moffat_15 → MoffatPSFAlglibType with β=1.5
             var fixed15Model = PSFModeler.Create(
                 alglibAPI: alglibAPI,
-                fitType: StarDetectorPSFFitType.Moffat_40,
+                fitType: StarDetectorPSFFitType.Moffat_15,
                 psfResolution: side,
                 detectedStar: detectedStar,
                 srcImage: srcImage,
-                pixelScale: 1.0,
-                moffatBeta: PSFMoffatBetaEnum.Fixed_1_5);
+                pixelScale: 1.0);
             Assert.That(fixed15Model, Is.InstanceOf<MoffatPSFAlglibType>());
             Assert.That(((MoffatPSFAlglibType)fixed15Model).Beta, Is.EqualTo(1.5).Within(1e-12),
-                "Create with Fixed_1_5 should use β=1.5");
+                "Create with Moffat_15 should use β=1.5");
         }
     }
 }

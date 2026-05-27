@@ -17,7 +17,6 @@ using System;
 using System.Linq;
 using System.Threading;
 using Rect = OpenCvSharp.Rect;
-using PSFMoffatBeta = NINA.Joko.Plugins.HocusFocus.Interfaces.PSFMoffatBetaEnum;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -441,8 +440,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             double pixelScale,
             IAlglibAPI alglibAPI,
             double saturationThreshold = double.MaxValue,
-            bool pixelIntegration = false,
-            PSFMoffatBeta moffatBeta = PSFMoffatBeta.Fixed_4_0) {
+            bool pixelIntegration = false) {
             var background = detectedStar.Background;
             var nominalBoundingBoxWidth = Math.Sqrt(detectedStar.StarBoundingBox.Width * detectedStar.StarBoundingBox.Height);
             var samplingSize = nominalBoundingBoxWidth / psfResolution;
@@ -480,22 +478,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var inputs = inputsList.ToArray();
             var outputs = outputsList.ToArray();
 
-            if (fitType == StarDetectorPSFFitType.Gaussian) {
-                return new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration);
-            } else if (fitType == StarDetectorPSFFitType.Moffat_40) {
-                if (moffatBeta == PSFMoffatBeta.Fittable) {
-                    return new FittableMoffatPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
-                }
-                var fixedBeta = moffatBeta switch {
-                    PSFMoffatBeta.Fixed_1_5 => 1.5,
-                    PSFMoffatBeta.Fixed_2_5 => 2.5,
-                    PSFMoffatBeta.Fixed_4_0 => 4.0,
-                    _ => 4.0
-                };
-                return new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: fixedBeta, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration);
-            } else {
-                throw new ArgumentException($"Unknown PSF fit type {fitType}");
-            }
+            return fitType switch {
+                StarDetectorPSFFitType.Gaussian =>
+                    new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration),
+                StarDetectorPSFFitType.Moffat_40 =>
+                    new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration),
+                StarDetectorPSFFitType.Moffat_25 =>
+                    new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 2.5, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration),
+                StarDetectorPSFFitType.Moffat_15 =>
+                    new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 1.5, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration),
+                StarDetectorPSFFitType.MoffatFittable =>
+                    new FittableMoffatPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale),
+                _ => throw new ArgumentException($"Unknown PSF fit type {fitType}")
+            };
         }
 
         public static PSFModel Solve(

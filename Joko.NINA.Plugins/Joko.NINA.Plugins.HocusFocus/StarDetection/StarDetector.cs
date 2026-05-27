@@ -351,8 +351,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             srcImage: srcImage,
                             pixelScale: p.PixelScale,
                             saturationThreshold: p.SaturationThreshold,
-                            pixelIntegration: p.PSFPixelIntegration,
-                            moffatBeta: p.PSFMoffatBeta);
+                            pixelIntegration: p.PSFPixelIntegration);
                         PSFModel psf = null;
                         if (modeler != null) {
                             try {
