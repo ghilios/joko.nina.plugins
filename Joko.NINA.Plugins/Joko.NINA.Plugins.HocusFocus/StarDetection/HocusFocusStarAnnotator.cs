@@ -170,6 +170,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                                     graphics.DrawString(psf.Background.ToString("#.0000"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
                                 } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.PSFPeak && psf != null) {
                                     graphics.DrawString(psf.Peak.ToString("#.0000"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.MoffatBeta && psf != null) {
+                                    if (!double.IsNaN(psf.Beta)) {
+                                        graphics.DrawString(psf.Beta.ToString("0.##"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                    }
                                 }
                                 if (StarAnnotatorOptions.ShowStarCenter) {
                                     float starX = star.Position.X, starY = star.Position.Y;

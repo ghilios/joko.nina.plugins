@@ -554,6 +554,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             double rSquared;
             double reducedChiSquared = double.NaN;
+            double beta = double.NaN;
             if (modelType is FittableMoffatPSFAlglibType fittableMoffat) {
                 // FittableMoffatPSFAlglibType requires 8 parameters (including β); use its specialized RSS method.
                 var (rss, tss) = fittableMoffat.ComputeRSS8(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta, fittableMoffat.Beta);
@@ -562,6 +563,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (noiseSigmaSq > 0 && fittableMoffat.Inputs.Length > 0) {
                     reducedChiSquared = rss / (fittableMoffat.Inputs.Length * noiseSigmaSq);
                 }
+                beta = fittableMoffat.Beta;
+            } else if (modelType is MoffatPSFAlglibType moffat) {
+                var (rss, tss) = moffat.ComputeRSS(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta);
+                rSquared = 1 - rss / tss;
+                // Reduced chi-squared: rss / (nPixels * noiseSigma²).  Only meaningful when noiseSigma > 0.
+                var noiseSigmaSq = noiseSigma * noiseSigma;
+                if (noiseSigmaSq > 0 && moffat.Inputs.Length > 0) {
+                    reducedChiSquared = rss / (moffat.Inputs.Length * noiseSigmaSq);
+                }
+                beta = moffat.Beta;
             } else if (modelType is PSFModelTypeAlglibBase alglibBase) {
                 var (rss, tss) = alglibBase.ComputeRSS(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta);
                 rSquared = 1 - rss / tss;
@@ -582,7 +593,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 thetaRadians: theta,
                 rSquared: rSquared,
                 pixelScale: modelType.PixelScale,
-                reducedChiSquared: reducedChiSquared);
+                reducedChiSquared: reducedChiSquared,
+                beta: beta);
         }
     }
 }

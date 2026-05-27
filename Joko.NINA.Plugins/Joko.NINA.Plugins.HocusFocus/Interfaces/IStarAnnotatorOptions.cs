@@ -62,7 +62,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         PSFBackground,
 
         [Description("PSF Peak")]
-        PSFPeak
+        PSFPeak,
+
+        [Description("Moffat Beta")]
+        MoffatBeta
     }
 
     public interface IStarAnnotatorOptions : INotifyPropertyChanged {
