@@ -836,6 +836,20 @@
                                     Text="{Binding Metrics.HotpixelCount, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Contaminated" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.ContaminationSuspected, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" />
+                        </UniformGrid>
                     </StackPanel>
                 </GroupBox>
             </Grid>
