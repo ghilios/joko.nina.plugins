@@ -102,5 +102,68 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             Assert.Throws<OperationCanceledException>(() =>
                 model.Solve(maxIterations: 200, tolerance: 1e-10, ct: cts.Token));
         }
+
+        // Elongated Gaussian: σx=3, σy=6.  The star extends ~±12 pixels in the short axis
+        // and ~±18 in the long axis, so use radius=18 and a bounding box of 37×37.
+        [Test]
+        public void GaussianPSF_Solve_MomentSeed_ConvergesOnElongatedStar_SigmaX3_SigmaY6() {
+            const double trueSigmaX = 3.0;
+            const double trueSigmaY = 6.0;
+            const double peak = 0.9;
+            const double background = 0.02;
+            const int radius = 18;
+            var (inputs, outputs) = SampleGaussian(trueSigmaX, trueSigmaY, peak, background, radius);
+
+            int side = 2 * radius + 1; // 37
+            var model = new GaussianPSFAlglibType(
+                alglibAPI: alglibAPI,
+                inputs: inputs, outputs: outputs,
+                centroidBrightness: peak + background,
+                starDetectionBackground: background,
+                starBoundingBox: new Rect(0, 0, side, side),
+                pixelScale: 1.0);
+
+            var sol = model.Solve(maxIterations: 200, tolerance: 1e-10, ct: CancellationToken.None);
+
+            // The solver may swap sigmaX/sigmaY so that sigmaX >= sigmaY.
+            var recoveredSigmaMin = Math.Min(sol.SigmaX, sol.SigmaY);
+            var recoveredSigmaMax = Math.Max(sol.SigmaX, sol.SigmaY);
+
+            Assert.Multiple(() => {
+                // Verify both axes are recovered within 5%
+                Assert.That(recoveredSigmaMin, Is.EqualTo(trueSigmaX).Within(0.05 * trueSigmaX),
+                    "Short-axis sigma (σ=3) not recovered within 5%");
+                Assert.That(recoveredSigmaMax, Is.EqualTo(trueSigmaY).Within(0.05 * trueSigmaY),
+                    "Long-axis sigma (σ=6) not recovered within 5%");
+                Assert.That(sol.X0, Is.EqualTo(0.0).Within(0.1), "Centroid x offset should be near zero");
+                Assert.That(sol.Y0, Is.EqualTo(0.0).Within(0.1), "Centroid y offset should be near zero");
+                Assert.That(sol.A, Is.EqualTo(peak).Within(0.05 * peak), "Peak amplitude not recovered within 5%");
+            });
+        }
+
+        [Test]
+        public void GaussianPSF_Solve_MomentSeed_GoodnessOfFitNearOneOnElongatedStar() {
+            const double trueSigmaX = 3.0;
+            const double trueSigmaY = 6.0;
+            const double peak = 0.9;
+            const double background = 0.02;
+            const int radius = 18;
+            var (inputs, outputs) = SampleGaussian(trueSigmaX, trueSigmaY, peak, background, radius);
+
+            int side = 2 * radius + 1;
+            var model = new GaussianPSFAlglibType(
+                alglibAPI: alglibAPI,
+                inputs: inputs, outputs: outputs,
+                centroidBrightness: peak + background,
+                starDetectionBackground: background,
+                starBoundingBox: new Rect(0, 0, side, side),
+                pixelScale: 1.0);
+
+            var sol = model.Solve(maxIterations: 200, tolerance: 1e-10, ct: CancellationToken.None);
+            var rSq = model.GoodnessOfFit(sol.A, sol.B, sol.X0, sol.Y0, sol.SigmaX, sol.SigmaY, sol.Theta);
+
+            Assert.That(rSq, Is.GreaterThan(0.999),
+                "Goodness-of-fit R² should be > 0.999 on noiseless elongated Gaussian data");
+        }
     }
 }

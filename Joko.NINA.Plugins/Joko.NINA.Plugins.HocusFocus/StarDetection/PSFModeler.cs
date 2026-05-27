@@ -123,6 +123,55 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        /// <summary>
+        /// Computes initial sigma guesses from raw image second moments.
+        /// σx² = Σ (pixel - background) · dx² / Σ (pixel - background)
+        /// σy² = Σ (pixel - background) · dy² / Σ (pixel - background)
+        /// where the sum is over pixels above the background and (dx, dy) are already
+        /// centroid-relative offsets stored in Inputs.
+        /// Falls back to box/3 for degenerate cases, and clamps to [0.5, max(w,h)].
+        /// </summary>
+        protected (double sigmaX, double sigmaY) ComputeSecondMomentSigmas() {
+            var background = this.StarDetectionBackground;
+            var maxSigma = Math.Max(this.StarBoundingBox.Width, this.StarBoundingBox.Height);
+            var fallbackX = this.StarBoundingBox.Width / 3.0;
+            var fallbackY = this.StarBoundingBox.Height / 3.0;
+
+            double sumWeight = 0.0;
+            double sumX2 = 0.0;
+            double sumY2 = 0.0;
+
+            for (int i = 0; i < this.Inputs.Length; ++i) {
+                var weight = this.Outputs[i] - background;
+                if (weight <= 0.0) continue;
+                var dx = this.Inputs[i][0];
+                var dy = this.Inputs[i][1];
+                sumWeight += weight;
+                sumX2 += weight * dx * dx;
+                sumY2 += weight * dy * dy;
+            }
+
+            double sigX, sigY;
+            if (sumWeight <= 0.0) {
+                sigX = fallbackX;
+                sigY = fallbackY;
+            } else {
+                var varX = sumX2 / sumWeight;
+                var varY = sumY2 / sumWeight;
+                if (varX <= 0.0 || varY <= 0.0) {
+                    sigX = fallbackX;
+                    sigY = fallbackY;
+                } else {
+                    sigX = Math.Sqrt(varX);
+                    sigY = Math.Sqrt(varY);
+                }
+            }
+
+            sigX = Math.Max(0.5, Math.Min(sigX, maxSigma));
+            sigY = Math.Max(0.5, Math.Min(sigY, maxSigma));
+            return (sigX, sigY);
+        }
+
         public override double GoodnessOfFit(double A, double B, double x0, double y0, double sigmaX, double sigmaY, double theta) {
             var parameters = new double[] { A, B, x0, y0, sigmaX, sigmaY, theta };
 
@@ -152,7 +201,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             alglib.minlmstate state = null;
             alglib.minlmreport rep = null;
             var sigmaUpperBound = Math.Sqrt(this.StarBoundingBox.Width * this.StarBoundingBox.Width + this.StarBoundingBox.Height * this.StarBoundingBox.Height) / 2;
-            var initialGuess = new double[] { Math.Max(0.0d, this.CentroidBrightness - this.StarDetectionBackground), this.StarDetectionBackground, 0.0, 0.0, this.StarBoundingBox.Width / 3.0, this.StarBoundingBox.Height / 3.0, 0.0d };
+            var (initSigmaX, initSigmaY) = ComputeSecondMomentSigmas();
+            var initialGuess = new double[] { Math.Max(0.0d, this.CentroidBrightness - this.StarDetectionBackground), this.StarDetectionBackground, 0.0, 0.0, initSigmaX, initSigmaY, 0.0d };
             var dxLimit = this.StarBoundingBox.Width / 8.0d;
             var dyLimit = this.StarBoundingBox.Height / 8.0d;
             var lowerBounds = new double[] { 0.0d, 0.0d, -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
@@ -257,7 +307,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             try {
                 var sigmaUpperBound = Math.Sqrt(this.StarBoundingBox.Width * this.StarBoundingBox.Width + this.StarBoundingBox.Height * this.StarBoundingBox.Height) / 2;
                 var centroidBrightnessAboveBackground = Math.Max(0.0d, this.CentroidBrightness - this.StarDetectionBackground);
-                var initialGuess = new double[] { centroidBrightnessAboveBackground, this.StarDetectionBackground, 0.0, 0.0, this.StarBoundingBox.Width / 3.0, this.StarBoundingBox.Height / 3.0, 0.0d };
+                var (initSigmaX, initSigmaY) = ComputeSecondMomentSigmas();
+                var initialGuess = new double[] { centroidBrightnessAboveBackground, this.StarDetectionBackground, 0.0, 0.0, initSigmaX, initSigmaY, 0.0d };
                 var dxLimit = this.StarBoundingBox.Width / 8.0d;
                 var dyLimit = this.StarBoundingBox.Height / 8.0d;
                 var lowerBounds = new double[] { 0.0d, 0.0d, -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
