@@ -308,5 +308,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
             var v = CvImageUtility.BilinearSamplePixelValue(mat, y: 0.0, x: 0.0);
             Assert.That(double.IsFinite(v), Is.True);
         }
+
+        [Test]
+        public void CalculateStatistics_Histogram_UInt16_TieBreakCondition_ComputesCorrectMedian() {
+            // 4 pixels total → targetMedianCount = 2.0
+            // 2 pixels at value 100, 2 pixels at value 105
+            // At bin 100: cumulative = 2 == targetMedianCount → tie-break fires
+            // Next occupied bin is 105 (gap of 4 empty bins in between)
+            // Expected median = (100 + 105) / 2.0 = 102.5 (not -1)
+            using var mat = new Mat(new Size(2, 2), MatType.CV_16U);
+            unsafe {
+                var p = (ushort*)mat.DataPointer;
+                p[0] = 100; p[1] = 100; p[2] = 105; p[3] = 105;
+            }
+            var stats = CvImageUtility.CalculateStatistics_Histogram(mat);
+            Assert.That(stats.Median, Is.EqualTo(102.5).Within(1e-9));
+        }
     }
 }
