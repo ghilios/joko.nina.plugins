@@ -639,6 +639,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// For an even-length array, returns the average of the two middle elements.
         /// </summary>
         internal static double ComputeMedian(double[] sortedPixels) {
+            if (sortedPixels.Length == 0) {
+                throw new ArgumentException("Array must not be empty", nameof(sortedPixels));
+            }
             if (sortedPixels.Length % 2 == 1) {
                 return sortedPixels[sortedPixels.Length >> 1];
             } else {

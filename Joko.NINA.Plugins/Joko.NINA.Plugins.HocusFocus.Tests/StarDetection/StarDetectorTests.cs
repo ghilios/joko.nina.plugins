@@ -39,5 +39,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             var median = StarDetector.ComputeMedian(pixels);
             Assert.That(median, Is.EqualTo(25.0).Within(1e-12));
         }
+
+        [Test]
+        public void ComputeMedian_SingleElement_ReturnsThatElement() {
+            var pixels = new double[] { 42.0 };
+            var median = StarDetector.ComputeMedian(pixels);
+            Assert.That(median, Is.EqualTo(42.0).Within(1e-12));
+        }
+
+        [Test]
+        public void ComputeMedian_EmptyArray_ThrowsArgumentException() {
+            var pixels = new double[] { };
+            Assert.Throws<ArgumentException>(() => StarDetector.ComputeMedian(pixels));
+        }
     }
 }
