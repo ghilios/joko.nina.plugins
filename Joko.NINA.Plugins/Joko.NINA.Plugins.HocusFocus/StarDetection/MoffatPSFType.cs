@@ -214,8 +214,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             base(alglibAPI: alglibAPI, beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: starDetectionBackground, pixelScale: pixelScale, starBoundingBox: starBoundingBox, pixelIntegration: false) {
         }
 
-        public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Moffat_40;
-
         // Always use finite differences — analytic Jacobian for β is not implemented
         public override bool UseJacobian => false;
 
@@ -274,6 +272,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 rss += residual * residual;
             }
             return (rss, tss);
+        }
+
+        /// <summary>
+        /// Override GoodnessOfFit to use ComputeRSS8 with the fitted β (stored in this.Beta).
+        /// The base class implementation calls ComputeRSS with a 7-element parameters array,
+        /// but FittableMoffatPSFAlglibType.Value() expects 8 parameters (including β at index 7).
+        /// </summary>
+        public override double GoodnessOfFit(double A, double B, double x0, double y0, double sigmaX, double sigmaY, double theta) {
+            var (rss, tss) = ComputeRSS8(A, B, x0, y0, sigmaX, sigmaY, theta, this.Beta);
+            return tss > 0 ? 1.0 - rss / tss : 0.0;
         }
 
         /// <summary>

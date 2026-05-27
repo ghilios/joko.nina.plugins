@@ -126,15 +126,6 @@ public class MoffatPSFTypeTests {
     }
 
     /// <summary>
-    /// Creates a noiseless Moffat sample on a grid where β = 2.5 is the true value.
-    /// Uses the same formula as SampleMoffat but with β=2.5.
-    /// </summary>
-    private static (double[][] inputs, double[] outputs) SampleMoffatBeta25(
-        double sigma = 2.0, double peak = 0.9, double background = 0.02, int radius = 8) {
-        return SampleMoffat(sigma, sigma, beta: 2.5, peak: peak, background: background, radius: radius);
-    }
-
-    /// <summary>
     /// Acceptance criterion: with Fittable β, fitting a synthetic Moffat with true β=2.5 recovers
     /// β within 5% of 2.5.
     /// </summary>
