@@ -309,7 +309,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 int totalCandidates = metrics.StructureCandidates;
                 int accepted = metrics.TotalDetected;
                 int rejected = totalCandidates - accepted;
-                var rejectionLog = $"Star detection complete: Found={accepted}, Rejected={rejected}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooFlat={metrics.TooFlat}, TooDistorted={metrics.TooDistorted}, Saturated(masked)={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, OffCenter={metrics.NotCentered}, HFRFailed={metrics.HFRAnalysisFailed}, PSFFailed={metrics.PSFFitFailed}, Degenerate={metrics.Degenerate}, TooLowHFR={metrics.TooLowHFR}";
+                var rejectionLog = $"Star detection complete: Found={accepted}, Rejected={rejected}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooFlat={metrics.TooFlat}, TooDistorted={metrics.TooDistorted}, Saturated(masked)={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, OffCenter={metrics.NotCentered}, HFRFailed={metrics.HFRAnalysisFailed}, PSFFailed={metrics.PSFFitFailed}, Degenerate={metrics.Degenerate}, TooLowHFR={metrics.TooLowHFR}, ContaminationSuspected={metrics.ContaminationSuspected}";
                 Logger.Debug(rejectionLog);
                 if (roiRect.HasValue) {
                     // Apply correction for the ROI
@@ -372,6 +372,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         }
                         if (psfAccepted) {
                             detectedStar.PSF = psf;
+                            if (CheckBackgroundContamination(detectedStar, psf, p, noiseSigma)) {
+                                ++metrics.ContaminationSuspected;
+                            }
                         } else {
                             ++metrics.PSFFitFailed;
                         }
@@ -404,6 +407,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Cross-checks the three background estimates for a star to detect potential contamination.
+        /// Sets <see cref="Star.StarContaminationSuspected"/> and logs at Debug level when any pair
+        /// of estimates disagrees by more than 2× noiseSigma.
+        /// Returns true when contamination is suspected (and the flag has been set on the star).
+        /// </summary>
+        internal static bool CheckBackgroundContamination(Star star, PSFModel psf, StarDetectorParams p, double noiseSigma) {
+            var annulusBg = star.Background;
+            var thresholdBg = annulusBg + p.StarClippingMultiplier * noiseSigma;
+            var psfBg = psf.Background;
+            var twoSigma = 2.0 * noiseSigma;
+            if (Math.Abs(annulusBg - psfBg) > twoSigma ||
+                Math.Abs(annulusBg - thresholdBg) > twoSigma) {
+                star.StarContaminationSuspected = true;
+                Logger.Debug($"Star at ({star.Center.X:F1},{star.Center.Y:F1}) flagged as contamination-suspected: annulus_bg={annulusBg:F4}, psf_bg={psfBg:F4}, noise={noiseSigma:F4}");
+                return true;
+            }
+            return false;
         }
 
         internal bool MeasureStar(Mat srcImage, Star star, StarDetectorParams p, double noiseSigma) {

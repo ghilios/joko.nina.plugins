@@ -302,6 +302,116 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             }
         }
 
+        // -----------------------------------------------------------------------
+        // CheckBackgroundContamination tests
+        // -----------------------------------------------------------------------
+
+        private static PSFModel MakePSF(double background, double rSquared = 0.99) {
+            return new PSFModel(
+                psfType: StarDetectorPSFFitType.Gaussian,
+                offsetX: 0.0,
+                offsetY: 0.0,
+                peak: 0.5,
+                background: background,
+                sigmaX: 2.0,
+                sigmaY: 2.0,
+                fwhmX: 4.7,
+                fwhmY: 4.7,
+                thetaRadians: 0.0,
+                rSquared: rSquared,
+                pixelScale: 1.0);
+        }
+
+        [Test]
+        public void CheckBackgroundContamination_AnnulusVsPSFDiffExceedsTwoSigma_FlagsAndReturnsTrue() {
+            // annulus_bg = 0.1, psf_bg = 0.3, noiseSigma = 0.05
+            // |0.1 - 0.3| = 0.2 > 2 * 0.05 = 0.1  → contamination suspected
+            const double annulusBg = 0.1;
+            const double psfBg = 0.3;
+            const double noiseSigma = 0.05;
+
+            var star = new Star {
+                Center = new Point2d(100.0, 200.0),
+                Background = annulusBg,
+                StarBoundingBox = new Rect(90, 190, 20, 20)
+            };
+            var psf = MakePSF(background: psfBg);
+            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
+
+            var result = StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma);
+
+            Assert.Multiple(() => {
+                Assert.That(result, Is.True, "Should return true when annulus and PSF backgrounds differ by 4σ");
+                Assert.That(star.StarContaminationSuspected, Is.True, "Star.StarContaminationSuspected should be set");
+            });
+        }
+
+        [Test]
+        public void CheckBackgroundContamination_AnnulusVsPSFDiffExactlyTwoSigma_DoesNotFlag() {
+            // |0.1 - 0.2| = 0.1 == 2 * 0.05 = 0.1  → NOT > twoSigma, so not flagged
+            const double annulusBg = 0.1;
+            const double psfBg = 0.2;
+            const double noiseSigma = 0.05;
+
+            var star = new Star {
+                Center = new Point2d(100.0, 200.0),
+                Background = annulusBg,
+                StarBoundingBox = new Rect(90, 190, 20, 20)
+            };
+            var psf = MakePSF(background: psfBg);
+            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
+
+            var result = StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma);
+
+            Assert.Multiple(() => {
+                Assert.That(result, Is.False, "Should not flag when difference equals exactly 2σ (not strictly greater)");
+                Assert.That(star.StarContaminationSuspected, Is.False, "Star.StarContaminationSuspected should remain false");
+            });
+        }
+
+        [Test]
+        public void CheckBackgroundContamination_AnnulusVsPSFAgreement_DoesNotFlag() {
+            // Backgrounds agree: |0.1 - 0.12| = 0.02 < 2 * 0.05 = 0.1
+            const double annulusBg = 0.1;
+            const double psfBg = 0.12;
+            const double noiseSigma = 0.05;
+
+            var star = new Star {
+                Center = new Point2d(50.0, 50.0),
+                Background = annulusBg,
+                StarBoundingBox = new Rect(40, 40, 20, 20)
+            };
+            var psf = MakePSF(background: psfBg);
+            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
+
+            var result = StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma);
+
+            Assert.Multiple(() => {
+                Assert.That(result, Is.False, "Should not flag when backgrounds agree within 2σ");
+                Assert.That(star.StarContaminationSuspected, Is.False, "StarContaminationSuspected should remain false");
+            });
+        }
+
+        [Test]
+        public void CheckBackgroundContamination_MetricsCounterIncremented_WhenFlagged() {
+            // Verify that the caller (ModelPSF) would correctly count the flagged star.
+            // We simulate the counter increment that ModelPSF performs.
+            var metrics = new StarDetectorMetrics();
+            var star = new Star {
+                Center = new Point2d(10.0, 20.0),
+                Background = 0.1,
+                StarBoundingBox = new Rect(5, 15, 20, 20)
+            };
+            var psf = MakePSF(background: 0.3);  // Differs by 4σ from annulus
+            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
+
+            if (StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma: 0.05)) {
+                ++metrics.ContaminationSuspected;
+            }
+
+            Assert.That(metrics.ContaminationSuspected, Is.EqualTo(1));
+        }
+
         [Test]
         public unsafe void ComputeIterativeCentroid_SecondPassEmptyAperture_ReturnsSinglePassEstimate() {
             // Pass 1 succeeds and estimates centroid at (2.5, 2.5).

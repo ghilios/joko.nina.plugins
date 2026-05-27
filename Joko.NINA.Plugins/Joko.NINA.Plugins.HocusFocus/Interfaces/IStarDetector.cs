@@ -298,8 +298,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double HFR { get; set; }
         public PSFModel PSF { get; set; }
 
+        /// <summary>
+        /// Set to true when the three background estimates (annulus median, per-pixel threshold, and PSF-fitted
+        /// background) disagree by more than 2× noiseSigma, indicating the star may be contaminated by a
+        /// neighbor star, a background gradient, or a hot column. The star is not rejected — this flag is
+        /// available for downstream diagnostics.
+        /// </summary>
+        public bool StarContaminationSuspected { get; set; }
+
         public override string ToString() {
-            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(PeakBrightness)}={PeakBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}, {nameof(PSF)}={PSF}}}";
+            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(PeakBrightness)}={PeakBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}, {nameof(PSF)}={PSF}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected}}}";
         }
     }
 
@@ -323,6 +331,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int TooLowHFR { get; set; } = 0;
         public int HFRAnalysisFailed { get; set; } = 0;
         public int PSFFitFailed { get; set; } = 0;
+        public int ContaminationSuspected { get; set; } = 0;
         public int OutsideROI { get; set; } = 0;
         public long SaturatedPixelCount { get; set; } = 0L;
         public long HotpixelCount { get; set; } = 0L;
