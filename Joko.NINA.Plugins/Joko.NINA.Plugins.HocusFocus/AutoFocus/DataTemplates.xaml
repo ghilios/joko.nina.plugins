@@ -505,7 +505,7 @@
                         <UniformGrid Columns="2">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="{ns:Loc LblNrStars}" />
                                 <TextBlock
@@ -518,7 +518,7 @@
                         <UniformGrid Columns="2">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="{ns:Loc LblHFR}" />
                                 <TextBlock
@@ -530,7 +530,7 @@
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="{Binding Statistics.StarDetectionAnalysis.MeasurementAverage, Mode=OneWay, Converter={StaticResource HF_MeasurementAverageDisplayConverter}}" />
                                 <TextBlock
@@ -543,19 +543,18 @@
                         <UniformGrid Columns="2">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="PSF Type" />
                                 <TextBlock
-                                    Width="70"
-                                    HorizontalAlignment="Center"
+                                    HorizontalAlignment="Left"
                                     VerticalAlignment="Center"
                                     Text="{Binding PSFType, Mode=OneWay, Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}"
                                     Visibility="{Binding FWHM, Mode=OneWay, Converter={StaticResource NaNToVisibilityConverter}}" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="PSF R²" />
                                 <TextBlock
@@ -568,7 +567,7 @@
                         <UniformGrid Columns="2">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="FWHM" />
                                 <TextBlock
@@ -580,7 +579,7 @@
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="FWHM MAD" />
                                 <TextBlock
@@ -593,7 +592,7 @@
                         <UniformGrid Columns="2">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="Eccentricity" />
                                 <TextBlock
@@ -604,7 +603,7 @@
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="Eccentricity MAD" />
                                 <TextBlock
@@ -617,7 +616,7 @@
                         <UniformGrid Columns="2">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="Sigma" />
                                 <TextBlock
@@ -628,7 +627,7 @@
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
-                                    Width="100"
+                                    Width="120"
                                     VerticalAlignment="Center"
                                     Text="Pixel Scale" />
                                 <TextBlock
