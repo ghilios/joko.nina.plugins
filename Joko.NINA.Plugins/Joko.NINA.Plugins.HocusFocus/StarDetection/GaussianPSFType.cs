@@ -20,7 +20,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     public static class GaussianPSFConstants {
         public static readonly double SIGMA_TO_FWHM_FACTOR = 2.0d * Math.Sqrt(2.0d * Math.Log(2.0d));
         public static readonly double SQRT2 = Math.Sqrt(2.0d);
-        public static readonly double SQRT2PI = Math.Sqrt(2.0d * Math.PI);
     }
 
     public class GaussianPSFAlglibType : PSFModelTypeAlglibBase {
@@ -33,7 +32,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Gaussian;
 
-        public override bool UseJacobian => true;
+        public override bool UseJacobian => !pixelIntegration;
 
         /// <summary>
         /// Computes the integral of a 1-D Gaussian exp(-t²/(2σ²)) over [lo, hi].
@@ -103,7 +102,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 //   (σX√(2π)) * ΔΦ_X(x0) * (σY√(2π)) * ΔΦ_Y(y0) / (σX√(2π) * σY√(2π))
                 //   = ΔΦ_X * ΔΦ_Y   — dimensionless fractions in [0,1]
                 // So pixelValue = A * ΔΦ_X * ΔΦ_Y  where each ΔΦ is the fractional CDF interval.
-                // Wait - this isn't right. Let me re-derive.
                 //
                 // The Gaussian over the pixel [i-½, i+½]×[j-½, j+½] in rotated frame is:
                 //   ∫∫ exp(-X'²/(2U²)) exp(-Y'²/(2V²)) dX' dY'

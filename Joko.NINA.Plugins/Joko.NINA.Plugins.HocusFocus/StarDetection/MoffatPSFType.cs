@@ -36,7 +36,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Moffat_40;
 
-        public override bool UseJacobian => true;
+        public override bool UseJacobian => !pixelIntegration;
 
         /// <summary>
         /// Evaluates the Moffat profile at a single (possibly sub-pixel) location.
