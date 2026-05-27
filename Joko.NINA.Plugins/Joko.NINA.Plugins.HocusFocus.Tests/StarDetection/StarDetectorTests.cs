@@ -1,8 +1,12 @@
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.Tests.Synthetic;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 using OpenCvSharp;
 using CvPoint = OpenCvSharp.Point;
 using System.Collections.Generic;
+using System;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
@@ -214,6 +218,79 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     Assert.That(center.X, Is.EqualTo(2.0).Within(0.01));
                     Assert.That(center.Y, Is.EqualTo(2.0).Within(0.01));
                 });
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // MeasureStar circular aperture tests
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Verifies that the circular aperture removes the rectangular bias: corner pixels at
+        /// distance ≈ √2 × half-box are excluded so HFR is lower than a naive rectangular sum.
+        /// </summary>
+        [Test]
+        public void MeasureStar_CircularAperture_HfrLowerThanRectangularBias() {
+            // Create a symmetric Gaussian star centred at (20, 20) with sigma=3, peak=0.8, background=0.05.
+            // The star is embedded in a 41×41 image so there are plenty of corner pixels well outside a
+            // circle inscribed in the bounding box.
+            const int imageSize = 41;
+            const double cx = 20.0;
+            const double cy = 20.0;
+            const double sigma = 3.0;
+            const double peak = 0.8;
+            const double background = 0.05;
+
+            using (var image = SyntheticGaussianStarImage.Create(
+                width: imageSize, height: imageSize,
+                centerX: cx, centerY: cy,
+                sigmaX: sigma, sigmaY: sigma,
+                peak: peak, background: background)) {
+
+                var detector = new StarDetector(new AlglibAPI());
+
+                // Bounding box covers the entire image (square), so the inscribed circle has
+                // radius = imageSize / 2 = 20.5.  Corner pixels are at distance √2 × 20 ≈ 28.3
+                // from the centre — well outside the circle.
+                var boundingBox = new Rect(0, 0, imageSize, imageSize);
+                var p = new StarDetectorParams {
+                    AnalysisSamplingSize = 1.0f,
+                    StarClippingMultiplier = 0.0   // no noise clipping for this synthetic test
+                };
+
+                // Circular aperture HFR
+                var circularStar = new Star {
+                    Center = new Point2d(cx, cy),
+                    StarBoundingBox = boundingBox,
+                    Background = background
+                };
+                var circularSuccess = detector.MeasureStar(image, circularStar, p, noiseSigma: 0.0);
+                Assert.That(circularSuccess, Is.True, "MeasureStar should succeed for a well-formed Gaussian");
+
+                // Rectangular HFR: manually compute by summing ALL pixels in the box (no aperture filter).
+                double rectTotalBrightness = 0.0;
+                double rectTotalWeightedDistance = 0.0;
+                unsafe {
+                    var data = (float*)image.DataPointer;
+                    for (int y = 0; y < imageSize; ++y) {
+                        for (int x = 0; x < imageSize; ++x) {
+                            var value = data[y * imageSize + x] - background;
+                            if (value > 0.0) {
+                                var dx = x - cx;
+                                var dy = y - cy;
+                                var dist = Math.Sqrt(dx * dx + dy * dy);
+                                rectTotalWeightedDistance += value * dist;
+                                rectTotalBrightness += value;
+                            }
+                        }
+                    }
+                }
+                var rectangularHFR = rectTotalBrightness > 0 ? rectTotalWeightedDistance / rectTotalBrightness : 0.0;
+
+                // The circular HFR must be strictly less than the rectangular HFR because corner
+                // pixels (far from centre) are excluded, lowering the flux-weighted mean radius.
+                Assert.That(circularStar.HFR, Is.LessThan(rectangularHFR),
+                    $"Circular HFR ({circularStar.HFR:F4}) should be lower than rectangular HFR ({rectangularHFR:F4})");
             }
         }
 

@@ -386,10 +386,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private bool MeasureStar(Mat srcImage, Star star, StarDetectorParams p, double noiseSigma) {
+        internal bool MeasureStar(Mat srcImage, Star star, StarDetectorParams p, double noiseSigma) {
             var background = star.Background;
             double totalBrightness = 0.0;
             double totalWeightedDistance = 0.0;
+
+            // Circular aperture radius — same convention as centroid refinement
+            var apertureRadius = Math.Min(star.StarBoundingBox.Width, star.StarBoundingBox.Height) / 2.0;
 
             // Determine the start position to sample from the star bounding box so that we stay within the box *and* the center point is one of the samples. This ensures
             // we're sampling in a balanced manner around the center
@@ -400,13 +403,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var noiseThreshold = p.StarClippingMultiplier * noiseSigma;
             for (var y = startY; y <= endY; y += p.AnalysisSamplingSize) {
                 for (var x = startX; x <= endX; x += p.AnalysisSamplingSize) {
+                    var dx = x - star.Center.X;
+                    var dy = y - star.Center.Y;
+                    var distance = Math.Sqrt(dx * dx + dy * dy);
+
+                    // Exclude pixels entirely outside the circular aperture
+                    if (distance > apertureRadius + 0.5) {
+                        continue;
+                    }
+
                     var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x) - background - noiseThreshold;
                     if (value > 0.0f) {
-                        var dx = x - star.Center.X;
-                        var dy = y - star.Center.Y;
-                        var distance = Math.Sqrt(dx * dx + dy * dy);
-                        totalWeightedDistance += value * distance;
-                        totalBrightness += value;
+                        // Apply partial-pixel weighting at the aperture boundary (linear interpolation)
+                        var apertureWeight = 1.0 - Math.Max(0.0, distance - (apertureRadius - 0.5));
+                        totalWeightedDistance += apertureWeight * value * distance;
+                        totalBrightness += apertureWeight * value;
                     }
                 }
             }
