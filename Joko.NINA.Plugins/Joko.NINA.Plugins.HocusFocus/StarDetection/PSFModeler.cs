@@ -203,8 +203,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var sigmaUpperBound = Math.Sqrt(this.StarBoundingBox.Width * this.StarBoundingBox.Width + this.StarBoundingBox.Height * this.StarBoundingBox.Height) / 2;
             var (initSigmaX, initSigmaY) = ComputeSecondMomentSigmas();
             var initialGuess = new double[] { Math.Max(0.0d, this.CentroidBrightness - this.StarDetectionBackground), this.StarDetectionBackground, 0.0, 0.0, initSigmaX, initSigmaY, 0.0d };
-            var dxLimit = this.StarBoundingBox.Width / 8.0d;
-            var dyLimit = this.StarBoundingBox.Height / 8.0d;
+            var dxLimit = this.StarBoundingBox.Width / 2.0d;
+            var dyLimit = this.StarBoundingBox.Height / 2.0d;
             var lowerBounds = new double[] { 0.0d, 0.0d, -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
             var upperBounds = new double[] { 2.0d, 1.0d, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
             var scale = new double[] { 0.01, 0.01, 0.1, 0.1, 1, 1, 1 };
@@ -309,8 +309,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var centroidBrightnessAboveBackground = Math.Max(0.0d, this.CentroidBrightness - this.StarDetectionBackground);
                 var (initSigmaX, initSigmaY) = ComputeSecondMomentSigmas();
                 var initialGuess = new double[] { centroidBrightnessAboveBackground, this.StarDetectionBackground, 0.0, 0.0, initSigmaX, initSigmaY, 0.0d };
-                var dxLimit = this.StarBoundingBox.Width / 8.0d;
-                var dyLimit = this.StarBoundingBox.Height / 8.0d;
+                var dxLimit = this.StarBoundingBox.Width / 2.0d;
+                var dyLimit = this.StarBoundingBox.Height / 2.0d;
                 var lowerBounds = new double[] { 0.0d, 0.0d, -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
                 var upperBounds = new double[] { 2.0d, 1.0d, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
                 var scale = new double[] { 0.01, 0.01, 0.1, 0.1, 1, 1, 1 };

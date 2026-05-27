@@ -165,5 +165,75 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             Assert.That(rSq, Is.GreaterThan(0.999),
                 "Goodness-of-fit R² should be > 0.999 on noiseless elongated Gaussian data");
         }
+
+        // Returns inputs shifted so that the detected centroid is offset by (seedOffsetX, seedOffsetY)
+        // from the true Gaussian center. The solver receives inputs where the true peak is at
+        // (-seedOffsetX, -seedOffsetY) in input-space, and must recover x0 ≈ -seedOffsetX.
+        private static (double[][] inputs, double[] outputs) SampleGaussianWithCentroidOffset(
+            double sigmaX, double sigmaY, double peak, double background,
+            double seedOffsetX, double seedOffsetY,
+            int radius = 5) {
+            int side = 2 * radius + 1;
+            var n = side * side;
+            var inputs = new double[n][];
+            var outputs = new double[n];
+            int idx = 0;
+            for (var y = -radius; y <= radius; ++y) {
+                for (var x = -radius; x <= radius; ++x) {
+                    // Pixel at true offset (x, y) from true center.
+                    // Detected centroid is shifted by (seedOffsetX, seedOffsetY) from true center,
+                    // so the input seen by the solver is (x - seedOffsetX, y - seedOffsetY).
+                    var inputX = x - seedOffsetX;
+                    var inputY = y - seedOffsetY;
+                    var e = (x * x) / (2.0 * sigmaX * sigmaX) + (y * y) / (2.0 * sigmaY * sigmaY);
+                    inputs[idx] = new double[] { inputX, inputY };
+                    outputs[idx] = background + peak * Math.Exp(-e);
+                    idx++;
+                }
+            }
+            return (inputs, outputs);
+        }
+
+        // Verify that with the loosened centroid bounds (box/2) the solver converges when the
+        // seed centroid is 1.5 px away from the true star center. With the old box/8 bounds
+        // (±1.375 px for an 11px box) the true offset of 1.5 px was outside the allowed range
+        // and the fit would be clamped, yielding poor R². With box/2 (±5.5 px) it converges.
+        [Test]
+        public void GaussianPSF_Solve_ConvergesWithSeedCentroidOffset1_5px() {
+            const double trueSigma = 1.5;
+            const double peak = 0.8;
+            const double background = 0.05;
+            const double seedOffsetX = 1.5;  // detected centroid is 1.5 px to the right of the true center
+            const double seedOffsetY = 0.0;
+            var (inputs, outputs) = SampleGaussianWithCentroidOffset(trueSigma, trueSigma, peak, background, seedOffsetX, seedOffsetY);
+
+            // 11×11 bounding box: box/8 gives ±1.375 px (too tight for 1.5 px offset),
+            // box/2 gives ±5.5 px (sufficient).
+            var model = new GaussianPSFAlglibType(
+                alglibAPI: alglibAPI,
+                inputs: inputs, outputs: outputs,
+                centroidBrightness: peak + background,
+                starDetectionBackground: background,
+                starBoundingBox: new Rect(0, 0, 11, 11),
+                pixelScale: 1.0);
+
+            var sol = model.Solve(maxIterations: 200, tolerance: 1e-10, ct: CancellationToken.None);
+            var rSq = model.GoodnessOfFit(sol.A, sol.B, sol.X0, sol.Y0, sol.SigmaX, sol.SigmaY, sol.Theta);
+
+            Assert.Multiple(() => {
+                // The solver should recover the true centroid offset (x0 ≈ -1.5, y0 ≈ 0)
+                Assert.That(sol.X0, Is.EqualTo(-seedOffsetX).Within(0.1),
+                    "Solver should recover x0 ≈ -1.5 when seed centroid is 1.5 px off");
+                Assert.That(sol.Y0, Is.EqualTo(-seedOffsetY).Within(0.1),
+                    "Solver should recover y0 ≈ 0 when seed centroid is not offset in y");
+                Assert.That(sol.SigmaX, Is.EqualTo(trueSigma).Within(0.1),
+                    "SigmaX should be recovered correctly");
+                Assert.That(sol.SigmaY, Is.EqualTo(trueSigma).Within(0.1),
+                    "SigmaY should be recovered correctly");
+                // R² should be high — fit converged correctly
+                Assert.That(rSq, Is.GreaterThan(0.95),
+                    "R² should be high (>0.95) when box/2 bounds allow recovery from 1.5 px seed offset");
+            });
+        }
     }
 }
