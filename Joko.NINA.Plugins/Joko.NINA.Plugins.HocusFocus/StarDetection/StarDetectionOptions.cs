@@ -176,6 +176,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             hotpixelThreshold = optionsAccessor.GetValueDouble(nameof(HotpixelThreshold), 0.001d);
             saturationThreshold = optionsAccessor.GetValueDouble(nameof(SaturationThreshold), 0.99d);
             measurementAverage = optionsAccessor.GetValueEnum<MeasurementAverageEnum>(nameof(MeasurementAverage), MeasurementAverageEnum.Median);
+            psfPixelIntegration = optionsAccessor.GetValueBoolean(nameof(PSFPixelIntegration), false);
             ConfigureSimpleSettings();
         }
 
@@ -218,6 +219,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             HotpixelThreshold = 0.001d;
             SaturationThreshold = 0.99d;
             MeasurementAverage = MeasurementAverageEnum.Median;
+            PSFPixelIntegration = false;
         }
 
         private bool debugMode;
@@ -738,6 +740,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (measurementAverage != value) {
                     measurementAverage = value;
                     optionsAccessor.SetValueEnum(nameof(MeasurementAverage), value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool psfPixelIntegration;
+
+        public bool PSFPixelIntegration {
+            get => psfPixelIntegration;
+            set {
+                if (psfPixelIntegration != value) {
+                    psfPixelIntegration = value;
+                    optionsAccessor.SetValueBoolean(nameof(PSFPixelIntegration), psfPixelIntegration);
                     RaisePropertyChanged();
                 }
             }

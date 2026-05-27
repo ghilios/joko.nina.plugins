@@ -26,15 +26,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class MoffatPSFAlglibType : PSFModelTypeAlglibBase {
         public double Beta { get; private set; }
+        private readonly bool pixelIntegration;
 
-        public MoffatPSFAlglibType(IAlglibAPI alglibAPI, double beta, double[][] inputs, double[] outputs, double centroidBrightness, double starDetectionBackground, Rect starBoundingBox, double pixelScale) :
+        public MoffatPSFAlglibType(IAlglibAPI alglibAPI, double beta, double[][] inputs, double[] outputs, double centroidBrightness, double starDetectionBackground, Rect starBoundingBox, double pixelScale, bool pixelIntegration = false) :
             base(alglibAPI: alglibAPI, centroidBrightness: centroidBrightness, starDetectionBackground: starDetectionBackground, pixelScale: pixelScale, starBoundingBox: starBoundingBox, inputs: inputs, outputs: outputs) {
             this.Beta = beta;
+            this.pixelIntegration = pixelIntegration;
         }
 
         public override StarDetectorPSFFitType PSFType => StarDetectorPSFFitType.Moffat_40;
 
         public override bool UseJacobian => true;
+
+        /// <summary>
+        /// Evaluates the Moffat profile at a single (possibly sub-pixel) location.
+        /// </summary>
+        private double MoffatPoint(double[] parameters, double px, double py) {
+            var A = parameters[0];
+            var x0 = parameters[2];
+            var y0 = parameters[3];
+            var U = parameters[4];
+            var V = parameters[5];
+            var T = parameters[6];
+
+            var cosT = Math.Cos(T);
+            var sinT = Math.Sin(T);
+            var X = (px - x0) * cosT + (py - y0) * sinT;
+            var Y = -(px - x0) * sinT + (py - y0) * cosT;
+            var X2 = X * X;
+            var Y2 = Y * Y;
+            var U2 = U * U;
+            var V2 = V * V;
+            var D = 1 + X2 / U2 + Y2 / V2;
+            return A / Math.Pow(D, this.Beta);
+        }
 
         // G(x,y; A,B,x0,y0,sigx,sigy,theta)
         // Background level is normalized already to 0
@@ -42,10 +67,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // x0,y0 is the origin, so all x,y are relative to the centroid within the star bounding boxes
         // See Moffate elliptical definition here: https://pixinsight.com/doc/tools/DynamicPSF/DynamicPSF.html
         public override double Value(double[] parameters, double[] input) {
-            var A = parameters[0];
             var B = parameters[1];
             var x = input[0];
             var y = input[1];
+
+            if (pixelIntegration) {
+                // 2×2 sub-pixel sampling: sample at offsets ±0.25 from the pixel centre.
+                // Average of 4 samples approximates the pixel-area integral.
+                const double off = 0.25;
+                var sum =
+                    MoffatPoint(parameters, x - off, y - off) +
+                    MoffatPoint(parameters, x + off, y - off) +
+                    MoffatPoint(parameters, x - off, y + off) +
+                    MoffatPoint(parameters, x + off, y + off);
+                return B + sum * 0.25;
+            }
+
             var x0 = parameters[2];
             var y0 = parameters[3];
             var U = parameters[4];
@@ -76,7 +113,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var Beta = this.Beta;
 
             // O = B + A / D^Beta
-            return B + A / Math.Pow(D, Beta);
+            return B + parameters[0] / Math.Pow(D, Beta);
         }
 
         public override void Gradient(double[] parameters, double[] input, double[] result) {

@@ -109,5 +109,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double HotpixelThreshold { get; set; }
         double SaturationThreshold { get; set; }
         MeasurementAverageEnum MeasurementAverage { get; set; }
+        bool PSFPixelIntegration { get; set; }
     }
 }

@@ -1,3 +1,4 @@
+using MathNet.Numerics;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
@@ -633,6 +634,115 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     $"Part 2: θ={theta:F4} rad is more than π/4 from zero — a ±π/2 flip may be present. " +
                     $"All angles: [{string.Join(", ", Array.ConvertAll(thetas, t => t.ToString("F4")))}]");
             }
+        }
+
+        /// <summary>
+        /// Generates pixel values as the true area-integrated Gaussian over each pixel cell.
+        /// This simulates what a real detector measures: the integral of the PSF over each pixel.
+        /// The integral is computed via the error function so it is exact.
+        /// </summary>
+        private static (double[][] inputs, double[] outputs) SampleGaussianPixelIntegrated(
+            double sigmaX, double sigmaY, double peak, double background,
+            int radius = 5) {
+            int side = 2 * radius + 1;
+            var n = side * side;
+            var inputs = new double[n][];
+            var outputs = new double[n];
+            int idx = 0;
+            var sqrt2 = Math.Sqrt(2.0);
+            for (var y = -radius; y <= radius; ++y) {
+                for (var x = -radius; x <= radius; ++x) {
+                    // Pixel spans [x-0.5, x+0.5] × [y-0.5, y+0.5]
+                    // Integral of exp(-t²/(2σ²)) from a to b = σ√(2π) * [Φ(b/σ) − Φ(a/σ)]
+                    // where Φ(z) = (1 + erf(z/√2)) / 2
+                    // Pixel integral = peak * σx√(2π) * ΔΦx * σy√(2π) * ΔΦy  / (σx√(2π) * σy√(2π))
+                    //                = peak * ΔΦx * ΔΦy   (after normalisation)
+                    var loX = (x - 0.5) / (sigmaX * sqrt2);
+                    var hiX = (x + 0.5) / (sigmaX * sqrt2);
+                    var deltaPhiX = (SpecialFunctions.Erf(hiX) - SpecialFunctions.Erf(loX)) * 0.5;
+
+                    var loY = (y - 0.5) / (sigmaY * sqrt2);
+                    var hiY = (y + 0.5) / (sigmaY * sqrt2);
+                    var deltaPhiY = (SpecialFunctions.Erf(hiY) - SpecialFunctions.Erf(loY)) * 0.5;
+
+                    // Normalise by the CDF diff at the centroid pixel (x=0, y=0) so that
+                    // the centroid pixel value equals peak (same convention as point-sampling).
+                    var centrePhiX = SpecialFunctions.Erf(0.5 / (sigmaX * sqrt2));
+                    var centrePhiY = SpecialFunctions.Erf(0.5 / (sigmaY * sqrt2));
+
+                    var pixelValue = background + peak * (deltaPhiX / centrePhiX) * (deltaPhiY / centrePhiY);
+                    inputs[idx] = new double[] { x, y };
+                    outputs[idx] = pixelValue;
+                    idx++;
+                }
+            }
+            return (inputs, outputs);
+        }
+
+        /// <summary>
+        /// Verifies that for an undersampled Gaussian (FWHM ≈ 1.5px, σ ≈ 0.638px):
+        ///   - Point-sampling model gives > 5% error on σ when fitted to pixel-integrated data.
+        ///   - Pixel-integration model gives ≤ 5% error on σ when fitted to the same data.
+        ///
+        /// This is the acceptance criterion for Task 13 (PSFPixelIntegration feature).
+        /// </summary>
+        [Test]
+        public void GaussianPSF_PixelIntegration_UndersampledStar_ReducesSigmaError() {
+            // FWHM = 1.5px → σ = FWHM / (2√(2 ln 2)) ≈ 0.6375 px
+            const double fwhm = 1.5;
+            var trueSigma = fwhm / GaussianPSFConstants.SIGMA_TO_FWHM_FACTOR;
+            const double peak = 0.9;
+            const double background = 0.02;
+
+            // Generate outputs as true pixel-area integrals
+            var (inputs, outputs) = SampleGaussianPixelIntegrated(trueSigma, trueSigma, peak, background, radius: 5);
+
+            var bbox = new Rect(0, 0, 11, 11);
+
+            // --- Point-sampling model (pixelIntegration = false) ---
+            var pointModel = new GaussianPSFAlglibType(
+                alglibAPI: alglibAPI,
+                inputs: inputs, outputs: outputs,
+                centroidBrightness: peak + background,
+                starDetectionBackground: background,
+                starBoundingBox: bbox,
+                pixelScale: 1.0,
+                pixelIntegration: false);
+
+            var pointSol = pointModel.Solve(maxIterations: 200, tolerance: 1e-10, ct: CancellationToken.None);
+
+            // --- Pixel-integration model (pixelIntegration = true) ---
+            var intModel = new GaussianPSFAlglibType(
+                alglibAPI: alglibAPI,
+                inputs: inputs, outputs: outputs,
+                centroidBrightness: peak + background,
+                starDetectionBackground: background,
+                starBoundingBox: bbox,
+                pixelScale: 1.0,
+                pixelIntegration: true);
+
+            var intSol = intModel.Solve(maxIterations: 200, tolerance: 1e-10, ct: CancellationToken.None);
+
+            var pointErrX = Math.Abs(pointSol.SigmaX - trueSigma) / trueSigma;
+            var pointErrY = Math.Abs(pointSol.SigmaY - trueSigma) / trueSigma;
+            var intErrX   = Math.Abs(intSol.SigmaX - trueSigma) / trueSigma;
+            var intErrY   = Math.Abs(intSol.SigmaY - trueSigma) / trueSigma;
+
+            Assert.Multiple(() => {
+                // Pixel-integration model must recover sigma within 5%
+                Assert.That(intErrX, Is.LessThanOrEqualTo(0.05),
+                    $"Pixel-integration SigmaX error {intErrX:P1} should be ≤ 5% for FWHM=1.5px undersampled star. " +
+                    $"trueSigma={trueSigma:F4}, fitted={intSol.SigmaX:F4}");
+                Assert.That(intErrY, Is.LessThanOrEqualTo(0.05),
+                    $"Pixel-integration SigmaY error {intErrY:P1} should be ≤ 5% for FWHM=1.5px undersampled star. " +
+                    $"trueSigma={trueSigma:F4}, fitted={intSol.SigmaY:F4}");
+
+                // Point-sampling model must have > 5% error on at least one sigma axis
+                Assert.That(Math.Max(pointErrX, pointErrY), Is.GreaterThan(0.05),
+                    $"Point-sampling max sigma error {Math.Max(pointErrX, pointErrY):P1} should be > 5% for " +
+                    $"FWHM=1.5px undersampled star. trueSigma={trueSigma:F4}, " +
+                    $"fittedX={pointSol.SigmaX:F4}, fittedY={pointSol.SigmaY:F4}");
+            });
         }
 
         // Verify that with the loosened centroid bounds (box/2) the solver converges when the

@@ -439,7 +439,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             Mat srcImage,
             double pixelScale,
             IAlglibAPI alglibAPI,
-            double saturationThreshold = double.MaxValue) {
+            double saturationThreshold = double.MaxValue,
+            bool pixelIntegration = false) {
             var background = detectedStar.Background;
             var nominalBoundingBoxWidth = Math.Sqrt(detectedStar.StarBoundingBox.Width * detectedStar.StarBoundingBox.Height);
             var samplingSize = nominalBoundingBoxWidth / psfResolution;
@@ -478,9 +479,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var outputs = outputsList.ToArray();
 
             if (fitType == StarDetectorPSFFitType.Gaussian) {
-                return new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
+                return new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration);
             } else if (fitType == StarDetectorPSFFitType.Moffat_40) {
-                return new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
+                return new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration);
             } else {
                 throw new ArgumentException($"Unknown PSF fit type {fitType}");
             }

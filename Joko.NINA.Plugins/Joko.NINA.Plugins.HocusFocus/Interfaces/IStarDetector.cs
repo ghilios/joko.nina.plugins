@@ -281,6 +281,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Set <= 0 to disable parallelism
         public int PSFParallelPartitionSize { get; set; } = 100;
 
+        // When true, the model value for each pixel is the integral of the PSF over the pixel area
+        // [i-0.5, i+0.5] x [j-0.5, j+0.5] instead of the point sample at (i,j).
+        // Reduces bias for undersampled rigs (FWHM ≈ 1.5px). Default: false.
+        public bool PSFPixelIntegration { get; set; } = false;
+
         // Pixel scale of the image given for star detection
         public double PixelScale { get; set; } = 1.0d;
 
