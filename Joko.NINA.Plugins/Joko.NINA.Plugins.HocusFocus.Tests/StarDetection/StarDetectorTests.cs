@@ -228,16 +228,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         /// <summary>
         /// Verifies that the circular aperture removes the rectangular bias: corner pixels at
         /// distance ≈ √2 × half-box are excluded so HFR is lower than a naive rectangular sum.
+        /// Uses a wider Gaussian (sigma=8) so that corner pixels are meaningful (~5% of peak at 3.5σ),
+        /// resulting in an observable HFR difference of ~0.2+ pixels.
         /// </summary>
         [Test]
         public void MeasureStar_CircularAperture_HfrLowerThanRectangularBias() {
-            // Create a symmetric Gaussian star centred at (20, 20) with sigma=3, peak=0.8, background=0.05.
+            // Create a symmetric Gaussian star centred at (20, 20) with sigma=8, peak=0.8, background=0.05.
             // The star is embedded in a 41×41 image so there are plenty of corner pixels well outside a
-            // circle inscribed in the bounding box.
+            // circle inscribed in the bounding box.  With sigma=8, corner pixels at distance ≈28px (≈3.5σ)
+            // have meaningful amplitude (~5% of peak), making the circular vs rectangular HFR difference observable.
             const int imageSize = 41;
             const double cx = 20.0;
             const double cy = 20.0;
-            const double sigma = 3.0;
+            const double sigma = 8.0;
             const double peak = 0.8;
             const double background = 0.05;
 
@@ -289,8 +292,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
                 // The circular HFR must be strictly less than the rectangular HFR because corner
                 // pixels (far from centre) are excluded, lowering the flux-weighted mean radius.
-                Assert.That(circularStar.HFR, Is.LessThan(rectangularHFR),
-                    $"Circular HFR ({circularStar.HFR:F4}) should be lower than rectangular HFR ({rectangularHFR:F4})");
+                // With sigma=8, the difference should be meaningfully large (>0.05 pixels).
+                Assert.Multiple(() => {
+                    Assert.That(circularStar.HFR, Is.LessThan(rectangularHFR),
+                        $"Circular HFR ({circularStar.HFR:F4}) should be lower than rectangular HFR ({rectangularHFR:F4})");
+                    Assert.That(rectangularHFR - circularStar.HFR, Is.GreaterThan(0.05),
+                        $"Rectangular bias should be at least 0.05 HFR pixels, but got {rectangularHFR - circularStar.HFR:F4}");
+                });
             }
         }
 
