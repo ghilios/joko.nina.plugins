@@ -550,6 +550,91 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             });
         }
 
+        /// <summary>
+        /// Two-part test for the PSF canonical-form invariant (SigmaX ≥ SigmaY) and the ±π/2
+        /// discontinuity fix for near-circular stars.
+        ///
+        /// Part 1 — Canonical-form invariant: runs PSFModeler.Solve 10 times on near-circular
+        /// noisy data (σx = σy = 2) and asserts SigmaX ≥ SigmaY on every run.
+        ///
+        /// Part 2 — No ±π/2 flip for slightly elongated star: uses a mildly elongated star
+        /// (σx = 2.2, σy = 2.0, axis-aligned) with 10 different noise seeds.  The reported
+        /// θ values must all stay within π/4 of zero — a ±π/2 flip would take them
+        /// outside that window.
+        ///
+        /// The fix seeds the LM optimizer with sigmaX ≥ sigmaY and applies a small tie-breaking
+        /// nudge (sigmaX *= 1.001) so the optimizer starts unambiguously in the sigmaX > sigmaY
+        /// basin, preventing the solver from returning sigmaY > sigmaX on some frames.
+        /// </summary>
+        [Test]
+        public void PSFModeler_Solve_CanonicalFormAndNoThetaFlip() {
+            const double peak = 0.8;
+            const double background = 0.02;
+            const double noiseSigma = 0.005;
+            const int radius = 8;
+            const int numRuns = 10;
+            int side = 2 * radius + 1;
+
+            // --- Part 1: canonical form SigmaX >= SigmaY for near-circular stars ---
+            for (int run = 0; run < numRuns; ++run) {
+                var (inputs, outputs) = SampleGaussianWithNoise(2.0, 2.0, peak, background, noiseSigma, seed: run, radius: radius);
+                var model = new GaussianPSFAlglibType(
+                    alglibAPI: alglibAPI,
+                    inputs: inputs, outputs: outputs,
+                    centroidBrightness: peak + background,
+                    starDetectionBackground: background,
+                    starBoundingBox: new Rect(0, 0, side, side),
+                    pixelScale: 1.0);
+
+                var psf = PSFModeler.Solve(model, noiseSigma: noiseSigma, useAbsoluteResiduals: false, ct: CancellationToken.None);
+                Assert.That(psf, Is.Not.Null, $"Part 1 Run {run}: PSFModeler.Solve returned null");
+
+                // After PSFModeler.Solve, SigmaX is always the major axis (canonical form).
+                Assert.That(psf.SigmaX, Is.GreaterThanOrEqualTo(psf.SigmaY),
+                    $"Part 1 Run {run}: canonical form violated — SigmaX={psf.SigmaX:F4} must be ≥ SigmaY={psf.SigmaY:F4}");
+            }
+
+            // --- Part 2: no ±π/2 flip for a slightly elongated star (σx=2.2, σy=2.0, axis-aligned) ---
+            // The star has a clear preferred axis, so the reported θ should cluster near the true angle
+            // regardless of which noise seed is used.  Previously the optimizer returned sigmaY > sigmaX
+            // on some frames, triggering the post-hoc swap and shifting θ by ±π/2 (~±1.57 rad).
+            var thetas = new double[numRuns];
+            for (int run = 0; run < numRuns; ++run) {
+                // Sample a rotated elongated Gaussian at the true angle.
+                // For simplicity, sample axis-aligned (theta=0) and rely on the small elongation
+                // (2.2 vs 2.0) to check the canonical form; the exact angle matters less than the flip.
+                var (inputs, outputs) = SampleGaussianWithNoise(2.2, 2.0, peak, background, noiseSigma, seed: run + 100, radius: radius);
+                var model = new GaussianPSFAlglibType(
+                    alglibAPI: alglibAPI,
+                    inputs: inputs, outputs: outputs,
+                    centroidBrightness: peak + background,
+                    starDetectionBackground: background,
+                    starBoundingBox: new Rect(0, 0, side, side),
+                    pixelScale: 1.0);
+
+                var psf = PSFModeler.Solve(model, noiseSigma: noiseSigma, useAbsoluteResiduals: false, ct: CancellationToken.None);
+                Assert.That(psf, Is.Not.Null, $"Part 2 Run {run}: PSFModeler.Solve returned null");
+
+                // Canonical form must hold for every run
+                Assert.That(psf.SigmaX, Is.GreaterThanOrEqualTo(psf.SigmaY),
+                    $"Part 2 Run {run}: canonical form violated — SigmaX={psf.SigmaX:F4} must be ≥ SigmaY={psf.SigmaY:F4}");
+
+                thetas[run] = psf.ThetaRadians;
+            }
+
+            // For the axis-aligned elongated star (true θ ≈ 0), all reported angles must be within
+            // π/4 (45°) of zero.  A ±π/2 flip would push them to ≈ ±1.57, far outside this window.
+            foreach (var theta in thetas) {
+                // Wrap to [-π/2, π/2] range
+                var wrapped = theta;
+                while (wrapped > Math.PI / 2) wrapped -= Math.PI;
+                while (wrapped < -Math.PI / 2) wrapped += Math.PI;
+                Assert.That(Math.Abs(wrapped), Is.LessThan(Math.PI / 4),
+                    $"Part 2: θ={theta:F4} rad is more than π/4 from zero — a ±π/2 flip may be present. " +
+                    $"All angles: [{string.Join(", ", Array.ConvertAll(thetas, t => t.ToString("F4")))}]");
+            }
+        }
+
         // Verify that with the loosened centroid bounds (box/2) the solver converges when the
         // seed centroid is 1.5 px away from the true star center. With the old box/8 bounds
         // (±1.375 px for an 11px box) the true offset of 1.5 px was outside the allowed range

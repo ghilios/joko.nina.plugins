@@ -217,6 +217,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             alglib.minlmreport rep = null;
             var sigmaUpperBound = Math.Sqrt(this.StarBoundingBox.Width * this.StarBoundingBox.Width + this.StarBoundingBox.Height * this.StarBoundingBox.Height) / 2;
             var (initSigmaX, initSigmaY) = ComputeSecondMomentSigmas();
+            // Canonical form: sigmaX (parameter index 4) is the major axis (larger σ).
+            // Enforce sigmaX ≥ sigmaY in the initial seed so LM starts in the correct basin.
+            // For near-circular stars (initSigmaX ≈ initSigmaY), a tiny asymmetric nudge prevents
+            // the optimizer from sitting on the symmetry boundary and flipping to the sigmaY > sigmaX
+            // solution on different frames, which would cause a ±π/2 discontinuity in the reported θ.
+            if (initSigmaX < initSigmaY) {
+                (initSigmaX, initSigmaY) = (initSigmaY, initSigmaX);
+            }
+            // Nudge sigmaX slightly above sigmaY so the seed is unambiguously in the sigmaX > sigmaY
+            // basin; 0.1% is negligible for the optimizer but prevents exact ties.
+            initSigmaX *= 1.001;
             var initialGuess = new double[] { Math.Max(0.0d, this.CentroidBrightness - this.StarDetectionBackground), this.StarDetectionBackground, 0.0, 0.0, initSigmaX, initSigmaY, 0.0d };
             var dxLimit = this.StarBoundingBox.Width / 2.0d;
             var dyLimit = this.StarBoundingBox.Height / 2.0d;
@@ -324,6 +335,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var sigmaUpperBound = Math.Sqrt(this.StarBoundingBox.Width * this.StarBoundingBox.Width + this.StarBoundingBox.Height * this.StarBoundingBox.Height) / 2;
                 var centroidBrightnessAboveBackground = Math.Max(0.0d, this.CentroidBrightness - this.StarDetectionBackground);
                 var (initSigmaX, initSigmaY) = ComputeSecondMomentSigmas();
+                // Canonical form: sigmaX (parameter index 4) is the major axis (larger σ).
+                // Enforce sigmaX ≥ sigmaY in the initial seed so LM starts in the correct basin.
+                // For near-circular stars (initSigmaX ≈ initSigmaY), a tiny asymmetric nudge prevents
+                // the optimizer from sitting on the symmetry boundary and flipping to the sigmaY > sigmaX
+                // solution on different frames, which would cause a ±π/2 discontinuity in the reported θ.
+                if (initSigmaX < initSigmaY) {
+                    (initSigmaX, initSigmaY) = (initSigmaY, initSigmaX);
+                }
+                // Nudge sigmaX slightly above sigmaY so the seed is unambiguously in the sigmaX > sigmaY
+                // basin; 0.1% is negligible for the optimizer but prevents exact ties.
+                initSigmaX *= 1.001;
                 var initialGuess = new double[] { centroidBrightnessAboveBackground, this.StarDetectionBackground, 0.0, 0.0, initSigmaX, initSigmaY, 0.0d };
                 var dxLimit = this.StarBoundingBox.Width / 2.0d;
                 var dyLimit = this.StarBoundingBox.Height / 2.0d;
@@ -502,7 +524,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // theta is a negative angle, solved to rotate the star back to the X-Y axes
             theta = -theta;
 
-            // Normalize rotation angles by ensuring the X axis is the elongated one
+            // Canonical form: sigX is always the major axis (sigX ≥ sigY).
+            // When the optimizer returns sigY > sigX (which can happen for near-circular stars due to
+            // numerical noise, despite seeding with sigX ≥ sigY), we unconditionally swap and rotate
+            // theta by ±π/2 so that θ always describes the orientation of the major axis.
+            // Seeding with sigX ≥ sigY (in Solve/SolveIRLS) keeps the optimizer in the correct half
+            // of solution space most of the time, so this swap fires only when genuinely needed.
             if (sigY > sigX) {
                 if (theta < 0) {
                     theta += PI_2;
