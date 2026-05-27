@@ -342,12 +342,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             psfResolution: p.PSFResolution,
                             detectedStar: detectedStar,
                             srcImage: srcImage,
-                            pixelScale: p.PixelScale);
+                            pixelScale: p.PixelScale,
+                            saturationThreshold: p.SaturationThreshold);
                         PSFModel psf = null;
-                        try {
-                            psf = PSFModeler.Solve(modeler, useAbsoluteResiduals: p.UsePSFAbsoluteDeviation, noiseSigma: noiseSigma, ct: ct);
-                        } catch (Exception) {
-                            // Ignore errors and continue
+                        if (modeler != null) {
+                            try {
+                                psf = PSFModeler.Solve(modeler, useAbsoluteResiduals: p.UsePSFAbsoluteDeviation, noiseSigma: noiseSigma, ct: ct);
+                            } catch (Exception) {
+                                // Ignore errors and continue
+                            }
                         }
 
                         if (psf != null && psf.RSquared >= p.PSFGoodnessOfFitThreshold) {
@@ -554,11 +557,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // we compute its barycenter and include it.
             //
             // Rejection criteria:
-            //  1) Peak values fully saturated
-            //  2) Touching the border. We assume the star is clipped
-            //  3) Elongated stars
-            //  4) Star center too far away from the center of the bounding box
-            //  5) Too flat
+            //  1) Touching the border. We assume the star is clipped
+            //  2) Elongated stars
+            //  3) Star center too far away from the center of the bounding box
+            //  4) Too flat
+            // Note: partially-saturated stars (Background + Peak >= SaturationThreshold) are no longer rejected here.
+            // Instead, they are passed to PSF fitting which masks saturated pixels during the fit.
 
             // Too small
             if (starBounds.Width < p.MinimumStarBoundingBoxSize || starBounds.Height < p.MinimumStarBoundingBoxSize) {
@@ -585,10 +589,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return null;
             }
 
-            // Fully saturated
+            // Track partially-saturated stars in metrics (clipped pixels will be masked during PSF fit instead of rejecting)
             if ((starCandidate.Background + starCandidate.Peak) >= p.SaturationThreshold) {
                 metrics.SaturatedBounds.Add(starBounds);
-                return null;
             }
 
             // Not bright enough (background already subtracted out) relative to noise level

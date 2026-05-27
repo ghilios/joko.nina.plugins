@@ -1,3 +1,4 @@
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
@@ -276,6 +277,167 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 Assert.That(Math.Max(lmSigmaXErr, lmSigmaYErr), Is.GreaterThan(0.05),
                     "Unweighted LM should be pulled off by the hot pixel (error > 5%)");
             });
+        }
+
+        // Creates a Gaussian sample where all pixels whose true Gaussian value >= saturationThreshold
+        // are clipped to exactly saturationThreshold, simulating partial saturation at the star core.
+        private static (double[][] inputs, double[] outputs) SampleGaussianWithSaturation(
+            double sigmaX, double sigmaY, double peak, double background,
+            double saturationThreshold,
+            int radius = 5) {
+            int side = 2 * radius + 1;
+            var n = side * side;
+            var inputs = new double[n][];
+            var outputs = new double[n];
+            int idx = 0;
+            for (var y = -radius; y <= radius; ++y) {
+                for (var x = -radius; x <= radius; ++x) {
+                    var e = (x * x) / (2.0 * sigmaX * sigmaX) + (y * y) / (2.0 * sigmaY * sigmaY);
+                    var trueValue = background + peak * Math.Exp(-e);
+                    inputs[idx] = new double[] { x, y };
+                    // Clip to saturation threshold
+                    outputs[idx] = Math.Min(trueValue, saturationThreshold);
+                    idx++;
+                }
+            }
+            return (inputs, outputs);
+        }
+
+        /// <summary>
+        /// Verifies that PSF fitting with saturation masking recovers sigma within 10% for a
+        /// partially-saturated star where the peak few pixels are clipped to 0.99.
+        /// Unsaturated wing pixels carry sufficient profile information to constrain the fit.
+        /// </summary>
+        [Test]
+        public void PSFModeler_Create_PartiallySaturatedStar_MasksSaturatedPixels_RecoversSigmaWithin10Percent() {
+            const double trueSigma = 2.0;
+            const double peak = 1.2;        // peak > saturationThreshold so core pixels get clipped
+            const double background = 0.05;
+            const double saturationThreshold = 0.99;
+            const int radius = 5;
+
+            var (inputs, outputs) = SampleGaussianWithSaturation(trueSigma, trueSigma, peak, background, saturationThreshold, radius);
+
+            // Count how many pixels are clipped (raw value >= saturationThreshold) — these will be masked by Create
+            int clippedCount = 0;
+            for (int i = 0; i < outputs.Length; ++i) {
+                if (outputs[i] >= saturationThreshold) ++clippedCount;
+            }
+            // Sanity: at least one pixel should be saturated for this to be a meaningful test
+            Assert.That(clippedCount, Is.GreaterThan(0), "Expected at least one saturated pixel");
+
+            // Build a synthetic Star and Mat to use with PSFModeler.Create
+            int side = 2 * radius + 1;
+            var starBoundingBox = new Rect(0, 0, side, side);
+            // Center is at (radius, radius) in image coords
+            var detectedStar = new Star {
+                Center = new Point2d(radius, radius),
+                Background = background,
+                StarBoundingBox = starBoundingBox
+            };
+
+            // Build a float32 Mat from the outputs array (pre-saturation-clip values from SampleGaussianWithSaturation)
+            using (var srcImage = new Mat(side, side, MatType.CV_32F)) {
+                unsafe {
+                    var data = (float*)srcImage.DataPointer;
+                    for (int i = 0; i < outputs.Length; ++i) {
+                        data[i] = (float)outputs[i];
+                    }
+                }
+
+                // Create modeler WITH saturation masking — saturated pixels should be excluded
+                var modelerMasked = PSFModeler.Create(
+                    alglibAPI: alglibAPI,
+                    fitType: StarDetectorPSFFitType.Gaussian,
+                    psfResolution: side,   // 1 sample per pixel (samplingSize = sqrt(side*side)/side = 1)
+                    detectedStar: detectedStar,
+                    srcImage: srcImage,
+                    pixelScale: 1.0,
+                    saturationThreshold: saturationThreshold);
+
+                Assert.That(modelerMasked, Is.Not.Null, "Modeler should not be null — enough unsaturated pixels remain");
+
+                // Verify that saturated pixels were excluded from the fit inputs
+                var maskedAlglib = (PSFModelTypeAlglibBase)modelerMasked;
+                var maskedInputCount = maskedAlglib.Inputs.Length;
+                Assert.That(maskedInputCount, Is.EqualTo(outputs.Length - clippedCount),
+                    "Masked modeler should have exactly (total - clipped) inputs");
+
+                var solMasked = modelerMasked.Solve(maxIterations: 200, tolerance: 1e-10, ct: CancellationToken.None);
+
+                // Create modeler WITHOUT saturation masking for comparison (threshold = MaxValue → no masking)
+                var modelerUnmasked = PSFModeler.Create(
+                    alglibAPI: alglibAPI,
+                    fitType: StarDetectorPSFFitType.Gaussian,
+                    psfResolution: side,
+                    detectedStar: detectedStar,
+                    srcImage: srcImage,
+                    pixelScale: 1.0,
+                    saturationThreshold: double.MaxValue);
+
+                var solUnmasked = modelerUnmasked.Solve(maxIterations: 200, tolerance: 1e-10, ct: CancellationToken.None);
+
+                Assert.Multiple(() => {
+                    // Masked fit should recover sigma within 10% of the true sigma
+                    Assert.That(solMasked.SigmaX, Is.EqualTo(trueSigma).Within(0.10 * trueSigma),
+                        "Masked PSF fit: SigmaX should be recovered within 10% despite partial saturation");
+                    Assert.That(solMasked.SigmaY, Is.EqualTo(trueSigma).Within(0.10 * trueSigma),
+                        "Masked PSF fit: SigmaY should be recovered within 10% despite partial saturation");
+
+                    // Unmasked fit (using clipped values as real observations) should be noticeably worse
+                    var maskedSigmaErr = Math.Abs(solMasked.SigmaX - trueSigma) / trueSigma;
+                    var unmaskedSigmaErr = Math.Abs(solUnmasked.SigmaX - trueSigma) / trueSigma;
+                    Assert.That(maskedSigmaErr, Is.LessThan(unmaskedSigmaErr),
+                        "Masked fit should recover sigma more accurately than unmasked fit on clipped data");
+                });
+            }
+        }
+
+        /// <summary>
+        /// Verifies that PSFModeler.Create returns null when the saturation threshold is so low
+        /// that fewer than MinUnsaturatedPixels unsaturated pixels remain.
+        /// </summary>
+        [Test]
+        public void PSFModeler_Create_TooFewUnsaturatedPixels_ReturnsNull() {
+            const double trueSigma = 2.0;
+            const double peak = 1.2;
+            const double background = 0.05;
+            // Set threshold low enough that only the 4 extreme corner pixels (r ≈ 7.07) survive
+            // (r > 6.41 → only 4 corners survive out of 121, which is < MinUnsaturatedPixels=10).
+            // With sigma=2: value at (5,4) ≈ 0.0571 > threshold, so it gets clipped.
+            // value at (5,5) ≈ 0.0523 < threshold, so it is kept (but only 4 such corners exist).
+            const double veryLowThreshold = 0.057;
+            const int radius = 5;
+
+            var (inputs, outputs) = SampleGaussianWithSaturation(trueSigma, trueSigma, peak, background, veryLowThreshold, radius);
+
+            int side = 2 * radius + 1;
+            var detectedStar = new Star {
+                Center = new Point2d(radius, radius),
+                Background = background,
+                StarBoundingBox = new Rect(0, 0, side, side)
+            };
+
+            using (var srcImage = new Mat(side, side, MatType.CV_32F)) {
+                unsafe {
+                    var data = (float*)srcImage.DataPointer;
+                    for (int i = 0; i < outputs.Length; ++i) {
+                        data[i] = (float)outputs[i];
+                    }
+                }
+
+                var modeler = PSFModeler.Create(
+                    alglibAPI: alglibAPI,
+                    fitType: StarDetectorPSFFitType.Gaussian,
+                    psfResolution: side,
+                    detectedStar: detectedStar,
+                    srcImage: srcImage,
+                    pixelScale: 1.0,
+                    saturationThreshold: veryLowThreshold);
+
+                Assert.That(modeler, Is.Null,
+                    "Create should return null when fewer than MinUnsaturatedPixels pixels survive the saturation mask");
+            }
         }
 
         // Verify that with the loosened centroid bounds (box/2) the solver converges when the

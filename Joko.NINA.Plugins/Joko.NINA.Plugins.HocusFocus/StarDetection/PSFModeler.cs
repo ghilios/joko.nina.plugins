@@ -395,13 +395,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class PSFModeler {
 
+        /// <summary>
+        /// Minimum number of unsaturated pixels required to attempt a PSF fit.
+        /// If fewer than this many pixels survive the saturation mask, <see cref="Create"/> returns null.
+        /// </summary>
+        public const int MinUnsaturatedPixels = 10;
+
         public static PSFModelTypeBase Create(
             StarDetectorPSFFitType fitType,
             int psfResolution,
             Star detectedStar,
             Mat srcImage,
             double pixelScale,
-            IAlglibAPI alglibAPI) {
+            IAlglibAPI alglibAPI,
+            double saturationThreshold = double.MaxValue) {
             var background = detectedStar.Background;
             var nominalBoundingBoxWidth = Math.Sqrt(detectedStar.StarBoundingBox.Width * detectedStar.StarBoundingBox.Height);
             var samplingSize = nominalBoundingBoxWidth / psfResolution;
@@ -414,19 +421,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var numPixels = widthPixels * heightPixels;
             var centroidBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: detectedStar.Center.Y, x: detectedStar.Center.X);
 
-            var inputs = new double[numPixels][];
-            var outputs = new double[numPixels];
-            int pixelIndex = 0;
+            // Collect only unsaturated pixels (raw value < saturationThreshold)
+            var inputsList = new System.Collections.Generic.List<double[]>(numPixels);
+            var outputsList = new System.Collections.Generic.List<double>(numPixels);
             for (var y = startY; y < endY; y += samplingSize) {
                 for (var x = startX; x < endX; x += samplingSize) {
                     var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x);
+                    // Skip saturated pixels — they don't carry valid profile information
+                    if (value >= saturationThreshold) {
+                        continue;
+                    }
                     var dx = x - detectedStar.Center.X;
                     var dy = y - detectedStar.Center.Y;
-                    var input = new double[2] { dx, dy };
-                    inputs[pixelIndex] = input;
-                    outputs[pixelIndex++] = value;
+                    inputsList.Add(new double[2] { dx, dy });
+                    outputsList.Add(value);
                 }
             }
+
+            // Require a minimum number of unsaturated pixels to attempt a reliable fit
+            if (inputsList.Count < MinUnsaturatedPixels) {
+                return null;
+            }
+
+            var inputs = inputsList.ToArray();
+            var outputs = outputsList.ToArray();
 
             if (fitType == StarDetectorPSFFitType.Gaussian) {
                 return new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
