@@ -304,6 +304,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, SaturatedMasked={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
                 MaybeSaveIntermediateText(metricsTrace, p, "10-detection-metrics.txt");
                 Logger.Trace(metricsTrace);
+
+                // Log structured rejection breakdown for debugging
+                int totalCandidates = metrics.StructureCandidates;
+                int accepted = metrics.TotalDetected;
+                int rejected = totalCandidates - accepted;
+                var rejectionLog = $"Star detection complete: Found={accepted}, Rejected={rejected}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooFlat={metrics.TooFlat}, TooDistorted={metrics.TooDistorted}, Saturated(masked)={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, OffCenter={metrics.NotCentered}, HFRFailed={metrics.HFRAnalysisFailed}, PSFFailed={metrics.PSFFitFailed}, Degenerate={metrics.Degenerate}, TooLowHFR={metrics.TooLowHFR}";
+                Logger.Debug(rejectionLog);
                 if (roiRect.HasValue) {
                     // Apply correction for the ROI
                     stars = stars.Select(s => s.AddOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top)).ToList();
