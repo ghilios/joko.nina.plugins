@@ -55,6 +55,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     }
 
     public abstract class PSFModelTypeAlglibBase : PSFModelTypeBase {
+        /// <summary>
+        /// Multiplier applied to noiseSigma to compute the Huber IRLS threshold δ = HuberThresholdMultiplier * noiseSigma.
+        /// Residuals with |r| ≤ δ are treated as inliers (weight = 1); residuals with |r| > δ are down-weighted as δ/|r|.
+        /// </summary>
+        public const double HuberThresholdMultiplier = 1.5;
+
         private readonly IAlglibAPI alglibAPI;
 
         protected PSFModelTypeAlglibBase(IAlglibAPI alglibAPI, double centroidBrightness, double starDetectionBackground, double pixelScale, Rect starBoundingBox, double[][] inputs, double[] outputs)
@@ -252,13 +258,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
 
                     var sumOfResiduals = 0.0d;
+                    var huberDelta = HuberThresholdMultiplier * noiseSigma;
                     for (int i = 0; i < this.weights.Length; ++i) {
                         var observedValue = this.Outputs[i];
                         var estimatedValue = Value(solution, this.Inputs[i]);
-                        var newWeightDenom = Math.Abs(estimatedValue - observedValue);
-                        sumOfResiduals += newWeightDenom;
-                        newWeightDenom = Math.Max(noiseSigma, newWeightDenom);
-                        var newWeight = 1.0 / newWeightDenom;
+                        var absResidual = Math.Abs(estimatedValue - observedValue);
+                        sumOfResiduals += absResidual;
+                        // Huber IRLS weights: inliers (|r| ≤ δ) keep weight 1; outliers (|r| > δ) get weight δ/|r|
+                        var newWeight = absResidual <= huberDelta ? 1.0 : huberDelta / absResidual;
                         this.weights[i] = newWeight;
                     }
 

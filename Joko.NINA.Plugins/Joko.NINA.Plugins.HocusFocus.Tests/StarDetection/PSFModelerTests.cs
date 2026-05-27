@@ -194,6 +194,90 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             return (inputs, outputs);
         }
 
+        /// <summary>
+        /// Creates a Gaussian sample grid identical to <see cref="SampleGaussian"/> except that
+        /// one pixel (at the given <paramref name="hotPixelX"/>, <paramref name="hotPixelY"/>
+        /// grid position, measured from the centre) is replaced with <paramref name="hotValue"/>.
+        /// </summary>
+        private static (double[][] inputs, double[] outputs) SampleGaussianWithHotPixel(
+            double sigmaX, double sigmaY, double peak, double background,
+            int hotPixelX, int hotPixelY, double hotValue,
+            int radius = 5) {
+            var (inputs, outputs) = SampleGaussian(sigmaX, sigmaY, peak, background, radius);
+            // Find and replace the hot pixel
+            for (int i = 0; i < inputs.Length; ++i) {
+                if ((int)inputs[i][0] == hotPixelX && (int)inputs[i][1] == hotPixelY) {
+                    outputs[i] = hotValue;
+                    break;
+                }
+            }
+            return (inputs, outputs);
+        }
+
+        /// <summary>
+        /// Verifies that Huber IRLS recovers the true sigma within 5% when a single hot pixel
+        /// is present at 3× the peak value, while an unweighted (plain Levenberg-Marquardt)
+        /// solve is pulled off by the outlier.
+        /// </summary>
+        [Test]
+        public void GaussianPSF_SolveIRLS_HuberWeights_RobustToHotPixel() {
+            const double trueSigma = 2.0;
+            const double peak = 0.8;
+            const double background = 0.02;
+            // Hot pixel is placed away from the core (at offset (4,0)) to maximise the disruption
+            // on the unweighted fit while still being inside the bounding box.
+            const int hotX = 4;
+            const int hotY = 0;
+            const double hotValue = 3.0 * peak; // 3× peak = strong outlier
+
+            var (inputs, outputs) = SampleGaussianWithHotPixel(trueSigma, trueSigma, peak, background, hotX, hotY, hotValue);
+
+            int side = 2 * 5 + 1; // radius = 5 → 11×11
+
+            // --- IRLS with Huber weights ---
+            var irlsModel = new GaussianPSFAlglibType(
+                alglibAPI: alglibAPI,
+                inputs: inputs, outputs: outputs,
+                centroidBrightness: peak + background,
+                starDetectionBackground: background,
+                starBoundingBox: new Rect(0, 0, side, side),
+                pixelScale: 1.0);
+
+            // noiseSigma chosen as a small fraction of the clean peak so the hot pixel residual
+            // (≈ 0.8 * peak) is well above δ = 1.5 * noiseSigma and gets down-weighted.
+            const double noiseSigma = 0.005;
+            var irlsSol = irlsModel.SolveIRLS(
+                maxIterationsIRLS: 10, toleranceIRLS: 1e-6,
+                maxIterationsLM: 100, toleranceLM: 1e-10,
+                noiseSigma: noiseSigma,
+                ct: CancellationToken.None);
+
+            // --- Plain LM (no robust weighting) with hot pixel to demonstrate sensitivity ---
+            var lmModel = new GaussianPSFAlglibType(
+                alglibAPI: alglibAPI,
+                inputs: inputs, outputs: outputs,
+                centroidBrightness: peak + background,
+                starDetectionBackground: background,
+                starBoundingBox: new Rect(0, 0, side, side),
+                pixelScale: 1.0);
+
+            var lmSol = lmModel.Solve(maxIterations: 100, tolerance: 1e-10, ct: CancellationToken.None);
+
+            // Huber IRLS must recover sigma within 5%
+            Assert.Multiple(() => {
+                Assert.That(irlsSol.SigmaX, Is.EqualTo(trueSigma).Within(0.05 * trueSigma),
+                    "Huber IRLS SigmaX should be within 5% of the true sigma despite the hot pixel");
+                Assert.That(irlsSol.SigmaY, Is.EqualTo(trueSigma).Within(0.05 * trueSigma),
+                    "Huber IRLS SigmaY should be within 5% of the true sigma despite the hot pixel");
+
+                // Plain LM should be noticeably pulled off (error > 5% on at least one sigma)
+                var lmSigmaXErr = Math.Abs(lmSol.SigmaX - trueSigma) / trueSigma;
+                var lmSigmaYErr = Math.Abs(lmSol.SigmaY - trueSigma) / trueSigma;
+                Assert.That(Math.Max(lmSigmaXErr, lmSigmaYErr), Is.GreaterThan(0.05),
+                    "Unweighted LM should be pulled off by the hot pixel (error > 5%)");
+            });
+        }
+
         // Verify that with the loosened centroid bounds (box/2) the solver converges when the
         // seed centroid is 1.5 px away from the true star center. With the old box/8 bounds
         // (±1.375 px for an 11px box) the true offset of 1.5 px was outside the allowed range
