@@ -17,6 +17,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using Rect = OpenCvSharp.Rect;
+using PSFMoffatBeta = NINA.Joko.Plugins.HocusFocus.Interfaces.PSFMoffatBetaEnum;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -61,7 +62,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         public const double HuberThresholdMultiplier = 1.5;
 
-        private readonly IAlglibAPI alglibAPI;
+        protected readonly IAlglibAPI alglibAPI;
 
         protected PSFModelTypeAlglibBase(IAlglibAPI alglibAPI, double centroidBrightness, double starDetectionBackground, double pixelScale, Rect starBoundingBox, double[][] inputs, double[] outputs)
             : base(centroidBrightness, starDetectionBackground, pixelScale, starBoundingBox) {
@@ -78,7 +79,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double[][] Inputs { get; private set; }
         public double[] Outputs { get; private set; }
 
-        private readonly double[] weights;
+        protected readonly double[] weights;
 
         public abstract double Value(double[] parameters, double[] input);
 
@@ -440,7 +441,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             double pixelScale,
             IAlglibAPI alglibAPI,
             double saturationThreshold = double.MaxValue,
-            bool pixelIntegration = false) {
+            bool pixelIntegration = false,
+            PSFMoffatBeta moffatBeta = PSFMoffatBeta.Fixed_4_0) {
             var background = detectedStar.Background;
             var nominalBoundingBoxWidth = Math.Sqrt(detectedStar.StarBoundingBox.Width * detectedStar.StarBoundingBox.Height);
             var samplingSize = nominalBoundingBoxWidth / psfResolution;
@@ -481,7 +483,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (fitType == StarDetectorPSFFitType.Gaussian) {
                 return new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration);
             } else if (fitType == StarDetectorPSFFitType.Moffat_40) {
-                return new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration);
+                if (moffatBeta == PSFMoffatBeta.Fittable) {
+                    return new FittableMoffatPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
+                }
+                var fixedBeta = moffatBeta switch {
+                    PSFMoffatBeta.Fixed_1_5 => 1.5,
+                    PSFMoffatBeta.Fixed_2_5 => 2.5,
+                    PSFMoffatBeta.Fixed_4_0 => 4.0,
+                    _ => 4.0
+                };
+                return new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: fixedBeta, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration);
             } else {
                 throw new ArgumentException($"Unknown PSF fit type {fitType}");
             }
@@ -548,7 +559,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             double rSquared;
             double reducedChiSquared = double.NaN;
-            if (modelType is PSFModelTypeAlglibBase alglibBase) {
+            if (modelType is FittableMoffatPSFAlglibType fittableMoffat) {
+                // FittableMoffatPSFAlglibType requires 8 parameters (including β); use its specialized RSS method.
+                var (rss, tss) = fittableMoffat.ComputeRSS8(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta, fittableMoffat.Beta);
+                rSquared = 1 - rss / tss;
+                var noiseSigmaSq = noiseSigma * noiseSigma;
+                if (noiseSigmaSq > 0 && fittableMoffat.Inputs.Length > 0) {
+                    reducedChiSquared = rss / (fittableMoffat.Inputs.Length * noiseSigmaSq);
+                }
+            } else if (modelType is PSFModelTypeAlglibBase alglibBase) {
                 var (rss, tss) = alglibBase.ComputeRSS(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta);
                 rSquared = 1 - rss / tss;
                 // Reduced chi-squared: rss / (nPixels * noiseSigma²).  Only meaningful when noiseSigma > 0.

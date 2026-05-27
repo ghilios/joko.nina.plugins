@@ -286,6 +286,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Reduces bias for undersampled rigs (FWHM ≈ 1.5px). Default: false.
         public bool PSFPixelIntegration { get; set; } = false;
 
+        // Controls Moffat β behavior: fixed at 1.5, 2.5, or 4.0, or free LM parameter in [1.0, 10.0].
+        public PSFMoffatBetaEnum PSFMoffatBeta { get; set; } = PSFMoffatBetaEnum.Fixed_4_0;
+
         // Pixel scale of the image given for star detection
         public double PixelScale { get; set; } = 1.0d;
 

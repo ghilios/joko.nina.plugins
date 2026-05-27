@@ -124,4 +124,123 @@ public class MoffatPSFTypeTests {
         var v = model.Value(p, new double[] { 0.0, 0.0 });
         Assert.That(v, Is.EqualTo(0.75).Within(1e-12));
     }
+
+    /// <summary>
+    /// Creates a noiseless Moffat sample on a grid where β = 2.5 is the true value.
+    /// Uses the same formula as SampleMoffat but with β=2.5.
+    /// </summary>
+    private static (double[][] inputs, double[] outputs) SampleMoffatBeta25(
+        double sigma = 2.0, double peak = 0.9, double background = 0.02, int radius = 8) {
+        return SampleMoffat(sigma, sigma, beta: 2.5, peak: peak, background: background, radius: radius);
+    }
+
+    /// <summary>
+    /// Acceptance criterion: with Fittable β, fitting a synthetic Moffat with true β=2.5 recovers
+    /// β within 5% of 2.5.
+    /// </summary>
+    [Test]
+    public void FittableBeta_RecoversBeta_Within5Percent_ForTrueBeta2_5() {
+        const double trueBeta = 2.5;
+        const double trueSigma = 2.0;
+        const double peak = 0.9;
+        const double background = 0.02;
+        const int radius = 8;
+        var (inputs, outputs) = SampleMoffat(trueSigma, trueSigma, trueBeta, peak, background, radius);
+        int side = 2 * radius + 1;
+
+        var model = new FittableMoffatPSFAlglibType(
+            alglibAPI: alglibAPI,
+            inputs: inputs, outputs: outputs,
+            centroidBrightness: peak + background, starDetectionBackground: background,
+            starBoundingBox: new Rect(0, 0, side, side), pixelScale: 1.0);
+
+        var sol = model.Solve(maxIterations: 300, tolerance: 1e-10, ct: CancellationToken.None);
+
+        Assert.Multiple(() => {
+            // β must be recovered within 5% of 2.5
+            Assert.That(model.Beta, Is.EqualTo(trueBeta).Within(0.05 * trueBeta),
+                $"Fittable β should recover true β={trueBeta} within 5%; got β={model.Beta:F4}");
+            // σ must still be reasonable
+            Assert.That(sol.SigmaX, Is.EqualTo(trueSigma).Within(0.20 * trueSigma),
+                $"SigmaX should be near true sigma={trueSigma}; got {sol.SigmaX:F4}");
+        });
+    }
+
+    /// <summary>
+    /// Acceptance criterion: with Fixed_1_5, MoffatPSFType uses β=1.5.
+    /// </summary>
+    [Test]
+    public void FixedBeta_1_5_UsesCorrectBeta() {
+        var (inputs, outputs) = SampleMoffat(2.0, 2.0, 1.5, 0.9, 0.02);
+        var model = new MoffatPSFAlglibType(
+            alglibAPI: alglibAPI, beta: 1.5,
+            inputs: inputs, outputs: outputs,
+            centroidBrightness: 0.92, starDetectionBackground: 0.02,
+            starBoundingBox: new Rect(0, 0, 13, 13), pixelScale: 1.0);
+
+        Assert.That(model.Beta, Is.EqualTo(1.5).Within(1e-12),
+            "MoffatPSFAlglibType should store β=1.5 when constructed with beta=1.5");
+
+        // Verify Value at centroid uses β=1.5 (D=1 → result = B + A/1^β = B + A regardless of β)
+        var p = new[] { 0.88, 0.02, 0.0, 0.0, 2.0, 2.0, 0.0 };
+        var v = model.Value(p, new double[] { 0.0, 0.0 });
+        Assert.That(v, Is.EqualTo(0.9).Within(1e-12));
+
+        // Verify FWHM uses β=1.5 via SigmaToFWHM
+        var fwhm = model.SigmaToFWHM(2.0);
+        var expected = MoffatShared.SigmaToFWHM(1.5, 2.0);
+        Assert.That(fwhm, Is.EqualTo(expected).Within(1e-12));
+    }
+
+    /// <summary>
+    /// Acceptance criterion: PSFModeler.Create with PSFMoffatBeta=Fittable returns a
+    /// FittableMoffatPSFAlglibType instance; Fixed_1_5 returns a MoffatPSFAlglibType with β=1.5.
+    /// </summary>
+    [Test]
+    public void PSFModeler_Create_MoffatBetaEnum_ReturnsCorrectType() {
+        const double trueSigma = 2.0;
+        const int radius = 6;
+        int side = 2 * radius + 1;
+        var (inputs, outputs) = SampleMoffat(trueSigma, trueSigma, 4.0, 0.9, 0.02, radius);
+
+        var detectedStar = new Star {
+            Center = new OpenCvSharp.Point2d(radius, radius),
+            Background = 0.02,
+            StarBoundingBox = new Rect(0, 0, side, side)
+        };
+
+        using (var srcImage = new OpenCvSharp.Mat(side, side, OpenCvSharp.MatType.CV_32F)) {
+            unsafe {
+                var data = (float*)srcImage.DataPointer;
+                for (int i = 0; i < outputs.Length; ++i) {
+                    data[i] = (float)outputs[i];
+                }
+            }
+
+            // Fittable β → FittableMoffatPSFAlglibType
+            var fittableModel = PSFModeler.Create(
+                alglibAPI: alglibAPI,
+                fitType: StarDetectorPSFFitType.Moffat_40,
+                psfResolution: side,
+                detectedStar: detectedStar,
+                srcImage: srcImage,
+                pixelScale: 1.0,
+                moffatBeta: PSFMoffatBetaEnum.Fittable);
+            Assert.That(fittableModel, Is.InstanceOf<FittableMoffatPSFAlglibType>(),
+                "Create with Fittable should return FittableMoffatPSFAlglibType");
+
+            // Fixed_1_5 → MoffatPSFAlglibType with β=1.5
+            var fixed15Model = PSFModeler.Create(
+                alglibAPI: alglibAPI,
+                fitType: StarDetectorPSFFitType.Moffat_40,
+                psfResolution: side,
+                detectedStar: detectedStar,
+                srcImage: srcImage,
+                pixelScale: 1.0,
+                moffatBeta: PSFMoffatBetaEnum.Fixed_1_5);
+            Assert.That(fixed15Model, Is.InstanceOf<MoffatPSFAlglibType>());
+            Assert.That(((MoffatPSFAlglibType)fixed15Model).Beta, Is.EqualTo(1.5).Within(1e-12),
+                "Create with Fixed_1_5 should use β=1.5");
+        }
+    }
 }

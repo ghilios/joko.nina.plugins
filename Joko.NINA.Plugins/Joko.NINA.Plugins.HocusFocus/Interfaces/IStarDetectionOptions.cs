@@ -66,6 +66,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         MeanOutliers
     }
 
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum PSFMoffatBetaEnum {
+
+        [Description("β = 4.0 (fixed)")]
+        Fixed_4_0,
+
+        [Description("β = 1.5 (fixed)")]
+        Fixed_1_5,
+
+        [Description("β = 2.5 (fixed)")]
+        Fixed_2_5,
+
+        [Description("β fittable [1.0, 10.0]")]
+        Fittable
+    }
+
     public interface IStarDetectionOptions {
         bool UseAdvanced { get; set; }
         bool ModelPSF { get; set; }
@@ -110,5 +126,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double SaturationThreshold { get; set; }
         MeasurementAverageEnum MeasurementAverage { get; set; }
         bool PSFPixelIntegration { get; set; }
+        PSFMoffatBetaEnum PSFMoffatBeta { get; set; }
     }
 }

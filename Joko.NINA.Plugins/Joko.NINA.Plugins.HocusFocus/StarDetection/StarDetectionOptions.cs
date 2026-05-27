@@ -177,6 +177,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             saturationThreshold = optionsAccessor.GetValueDouble(nameof(SaturationThreshold), 0.99d);
             measurementAverage = optionsAccessor.GetValueEnum<MeasurementAverageEnum>(nameof(MeasurementAverage), MeasurementAverageEnum.Median);
             psfPixelIntegration = optionsAccessor.GetValueBoolean(nameof(PSFPixelIntegration), false);
+            psfMoffatBeta = optionsAccessor.GetValueEnum<PSFMoffatBetaEnum>(nameof(PSFMoffatBeta), PSFMoffatBetaEnum.Fixed_4_0);
             ConfigureSimpleSettings();
         }
 
@@ -220,6 +221,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             SaturationThreshold = 0.99d;
             MeasurementAverage = MeasurementAverageEnum.Median;
             PSFPixelIntegration = false;
+            PSFMoffatBeta = PSFMoffatBetaEnum.Fixed_4_0;
         }
 
         private bool debugMode;
@@ -753,6 +755,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (psfPixelIntegration != value) {
                     psfPixelIntegration = value;
                     optionsAccessor.SetValueBoolean(nameof(PSFPixelIntegration), psfPixelIntegration);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private PSFMoffatBetaEnum psfMoffatBeta;
+
+        public PSFMoffatBetaEnum PSFMoffatBeta {
+            get => psfMoffatBeta;
+            set {
+                if (psfMoffatBeta != value) {
+                    psfMoffatBeta = value;
+                    optionsAccessor.SetValueEnum<PSFMoffatBetaEnum>(nameof(PSFMoffatBeta), psfMoffatBeta);
                     RaisePropertyChanged();
                 }
             }
