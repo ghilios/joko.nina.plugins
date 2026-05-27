@@ -634,6 +634,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return starCandidate.Center.X >= minX && starCandidate.Center.X <= maxX && starCandidate.Center.Y >= minY && starCandidate.Center.Y <= maxY;
         }
 
+        /// <summary>
+        /// Computes the median of a pre-sorted array of doubles.
+        /// For an even-length array, returns the average of the two middle elements.
+        /// </summary>
+        internal static double ComputeMedian(double[] sortedPixels) {
+            if (sortedPixels.Length % 2 == 1) {
+                return sortedPixels[sortedPixels.Length >> 1];
+            } else {
+                return (sortedPixels[(sortedPixels.Length >> 1) - 1] + sortedPixels[sortedPixels.Length >> 1]) / 2.0;
+            }
+        }
+
         private StarCandidate ComputeStarParameters(Mat srcImage, Rect starBounds, StarDetectorParams p, double noiseSigma, List<Point> starPoints) {
             var expandedWidth = starBounds.Width + p.BackgroundBoxExpansion * 2;
             var expandedHeight = starBounds.Height + p.BackgroundBoxExpansion * 2;
@@ -740,12 +752,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
 
             Array.Sort(starPixels);
-            double starMedian;
-            if (starPixels.Length % 2 == 1) {
-                starMedian = starPixels[starPixels.Length >> 1];
-            } else {
-                starMedian = (starPixels[starPixels.Length >> 1 + 1] + starPixels[starPixels.Length >> 1]) / 2.0;
-            }
+            var starMedian = ComputeMedian(starPixels);
 
             var meanFlux = totalFlux / starPoints.Count;
             var center = new Point2d(sx / sz, sy / sz);
