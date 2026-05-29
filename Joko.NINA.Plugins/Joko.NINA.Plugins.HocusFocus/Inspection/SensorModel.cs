@@ -191,7 +191,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 sensorSizeMicronsX: imageSize.Width * pixelSize,
                 sensorSizeMicronsY: imageSize.Height * pixelSize,
                 inFocusMicrons: finalFocusPosition * focuserSizeMicrons,
-                fixedSensorCenter: inspectorOptions.FixedSensorCenter);
+                fixedSensorCenter: inspectorOptions.FixedSensorCenter,
+                astigmatic: inspectorOptions.AstigmaticCurvatureEnabled);
             var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(this.alglibAPI);
 
             // Single solve: the signed curvature coefficient K can cross zero, so one fit covers both

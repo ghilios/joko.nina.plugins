@@ -27,6 +27,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         public bool FixedSensorCenter { get; set; } = true;
         public bool UseRANSAC { get; set; }
         public bool UseAffineAlignment { get; set; }
+        public bool AstigmaticCurvatureEnabled { get; set; }
         public bool RejectBadBrightnessMatches { get; set; }
         public bool RejectBadlyFittingMatches { get; set; }
         public double PreviousRunBrightnessDiff { get; set; } = 0.1;

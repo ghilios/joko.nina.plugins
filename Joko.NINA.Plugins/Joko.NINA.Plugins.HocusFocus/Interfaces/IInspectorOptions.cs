@@ -66,6 +66,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool FixedSensorCenter { get; set; }
         bool UseRANSAC { get; set; }
         bool UseAffineAlignment { get; set; }
+        bool AstigmaticCurvatureEnabled { get; set; }
         bool RejectBadBrightnessMatches { get; set; }
         bool RejectBadlyFittingMatches { get; set; }
         double PreviousRunBrightnessDiff { get; set; }

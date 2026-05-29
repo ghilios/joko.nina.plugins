@@ -69,6 +69,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             rejectBadlyFittingMatches = optionsAccessor.GetValueBoolean(nameof(RejectBadlyFittingMatches), false);
             useRANSAC = optionsAccessor.GetValueBoolean(nameof(UseRANSAC), false);
             useAffineAlignment = optionsAccessor.GetValueBoolean(nameof(UseAffineAlignment), false);
+            astigmaticCurvatureEnabled = optionsAccessor.GetValueBoolean(nameof(AstigmaticCurvatureEnabled), false);
             saveImagesOnReruns = optionsAccessor.GetValueBoolean(nameof(SaveImagesOnReruns), false);
             saveAlignmentImages = optionsAccessor.GetValueBoolean(nameof(SaveAlignmentImages), false);
             maxStarsPerRegion = optionsAccessor.GetValueInt32(nameof(MaxStarsPerRegion), -1);
@@ -97,6 +98,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             rejectBadBrightnessMatches = false;
             rejectBadlyFittingMatches = false;
             useAffineAlignment = false;
+            astigmaticCurvatureEnabled = false;
         }
 
         private int stepCount;
@@ -385,6 +387,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (useAffineAlignment != value) {
                     useAffineAlignment = value;
                     optionsAccessor.SetValueBoolean(nameof(UseAffineAlignment), useAffineAlignment);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool astigmaticCurvatureEnabled = false;
+
+        public bool AstigmaticCurvatureEnabled {
+            get => astigmaticCurvatureEnabled;
+            set {
+                if (astigmaticCurvatureEnabled != value) {
+                    astigmaticCurvatureEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(AstigmaticCurvatureEnabled), astigmaticCurvatureEnabled);
                     RaisePropertyChanged();
                 }
             }

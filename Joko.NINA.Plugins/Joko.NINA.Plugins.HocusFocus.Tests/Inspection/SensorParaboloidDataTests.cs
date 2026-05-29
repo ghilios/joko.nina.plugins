@@ -98,8 +98,9 @@ public class SensorParaboloidModelExtraTests {
 
     [TestCase(null)]
     [TestCase(new double[] { 1, 2, 3 })]
-    [TestCase(new double[] { 1, 2, 3, 4, 5, 6, 7 })]
+    [TestCase(new double[] { 1, 2, 3, 4, 5, 6, 7, 8 })]
     public void FromArray_RejectsWrongShape(double[] input) {
+        // 6 elements (isotropic) and 7 elements (astigmatic) are the only valid shapes.
         var m = new SensorParaboloidModel();
         Assert.Throws<ArgumentException>(() => m.FromArray(input));
     }
@@ -119,7 +120,8 @@ public class SensorParaboloidModelExtraTests {
             Assert.That(s, Does.Contain("Z0="));
             Assert.That(s, Does.Contain("Gx="));
             Assert.That(s, Does.Contain("Gy="));
-            Assert.That(s, Does.Contain("K="));
+            Assert.That(s, Does.Contain("Kx="));
+            Assert.That(s, Does.Contain("Ky="));
         });
     }
 

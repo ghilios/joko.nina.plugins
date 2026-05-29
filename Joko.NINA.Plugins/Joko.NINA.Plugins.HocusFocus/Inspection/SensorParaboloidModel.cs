@@ -69,11 +69,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
     /// <summary>
     /// Tilted paraboloid sensor model. The surface is parameterized by linear tilt gradients (Gx, Gy)
-    /// and a single signed curvature coefficient (K):
+    /// and curvature coefficients:
     ///
-    ///     z(x, y) = Gx·(x − X0) + Gy·(y − Y0) + K·((x − X0)² + (y − Y0)²) + Z0
+    ///     z(x, y) = Gx·(x − X0) + Gy·(y − Y0) + Kx·(x − X0)² + Ky·(y − Y0)² + Z0
     ///
-    /// This linear-in-(Gx, Gy, K) form replaces the older (θ, φ, c) parameterization, which injected
+    /// In the default <b>isotropic</b> mode Kx == Ky == K (a single curvature coefficient, 6 free
+    /// parameters), reproducing the rotationally-symmetric field curvature of a typical refractor or
+    /// reflector. In the optional <b>astigmatic</b> mode Kx and Ky are fit independently (7 parameters),
+    /// allowing the saddle-shaped field of an astigmatic optical train to be represented.
+    ///
+    /// This linear-in-(Gx, Gy, Kx, Ky) form replaces the older (θ, φ, c) parameterization, which injected
     /// trigonometric nonlinearity, a φ-unidentifiability/local-minimum trap at θ = 0 (worked around by
     /// forcing θ ≥ 1e-5), and a sign(c)·c² curvature that could not cross zero (forcing two solves).
     /// The legacy tilt/curvature quantities remain available as derived display properties.
@@ -86,7 +91,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             this.Z0 = z0;
             this.Gx = gx;
             this.Gy = gy;
-            this.K = k;
+            this.Kx = k;
+            this.Ky = k;
+            this.Astigmatic = false;
+        }
+
+        public SensorParaboloidModel(double x0, double y0, double z0, double gx, double gy, double kx, double ky) {
+            this.X0 = x0;
+            this.Y0 = y0;
+            this.Z0 = z0;
+            this.Gx = gx;
+            this.Gy = gy;
+            this.Kx = kx;
+            this.Ky = ky;
+            this.Astigmatic = true;
         }
 
         public SensorParaboloidModel() {
@@ -106,9 +124,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 k: Math.Sign(c) * c * c);
         }
 
+        // The parameter-array length is the single source of truth for the mode: 6 elements => isotropic
+        // (one curvature coefficient), 7 elements => astigmatic (independent Kx, Ky). The solver creates the
+        // model via new() + FromArray, so inferring the mode here keeps the two in sync without extra wiring.
         public void FromArray(double[] parameters) {
-            if (parameters == null || parameters.Length != 6) {
-                throw new ArgumentException($"Expected a 6-element array of parameters");
+            if (parameters == null || (parameters.Length != 6 && parameters.Length != 7)) {
+                throw new ArgumentException($"Expected a 6- or 7-element array of parameters");
             }
 
             this.X0 = parameters[0];
@@ -116,18 +137,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             this.Z0 = parameters[2];
             this.Gx = parameters[3];
             this.Gy = parameters[4];
-            this.K = parameters[5];
+            if (parameters.Length == 7) {
+                this.Kx = parameters[5];
+                this.Ky = parameters[6];
+                this.Astigmatic = true;
+            } else {
+                this.Kx = parameters[5];
+                this.Ky = parameters[5];
+                this.Astigmatic = false;
+            }
         }
 
         public double[] ToArray() {
-            return new double[] {
-                this.X0,
-                this.Y0,
-                this.Z0,
-                this.Gx,
-                this.Gy,
-                this.K
-            };
+            if (Astigmatic) {
+                return new double[] { this.X0, this.Y0, this.Z0, this.Gx, this.Gy, this.Kx, this.Ky };
+            }
+            return new double[] { this.X0, this.Y0, this.Z0, this.Gx, this.Gy, this.K };
         }
 
         public double X0 { get; private set; }
@@ -140,8 +165,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         /// <summary>Tilt gradient along Y: change in focuser position per micron of sensor Y (dimensionless).</summary>
         public double Gy { get; private set; }
 
-        /// <summary>Signed curvature coefficient: curvature contribution is K·r². Equivalent to the old sign(c)·c².</summary>
-        public double K { get; private set; }
+        /// <summary>Signed curvature coefficient along X: the X² curvature contribution is Kx·(x−X0)².</summary>
+        public double Kx { get; private set; }
+
+        /// <summary>Signed curvature coefficient along Y: the Y² curvature contribution is Ky·(y−Y0)².</summary>
+        public double Ky { get; private set; }
+
+        /// <summary>True when Kx and Ky are fit independently (astigmatic field); false for isotropic curvature.</summary>
+        public bool Astigmatic { get; private set; }
+
+        /// <summary>
+        /// Mean signed curvature coefficient. Equals the single coefficient in isotropic mode and the
+        /// average of Kx, Ky in astigmatic mode. Curvature contribution is K·r² only when isotropic.
+        /// </summary>
+        public double K => 0.5 * (Kx + Ky);
 
         // Derived display parameters, kept for back-compat with the (θ, φ, c) form used by the UI/result layer.
         public double Theta => Math.Atan(Math.Sqrt(Gx * Gx + Gy * Gy));
@@ -163,14 +200,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public override string ToString() {
-            return $"{{{nameof(X0)}={X0.ToString()}, {nameof(Y0)}={Y0.ToString()}, {nameof(Z0)}={Z0.ToString()}, {nameof(Gx)}={Gx.ToString()}, {nameof(Gy)}={Gy.ToString()}, {nameof(K)}={K.ToString()}}}";
+            return $"{{{nameof(X0)}={X0.ToString()}, {nameof(Y0)}={Y0.ToString()}, {nameof(Z0)}={Z0.ToString()}, {nameof(Gx)}={Gx.ToString()}, {nameof(Gy)}={Gy.ToString()}, {nameof(Kx)}={Kx.ToString()}, {nameof(Ky)}={Ky.ToString()}, {nameof(Astigmatic)}={Astigmatic.ToString()}}}";
         }
 
         public double ValueAt(double x, double y) {
             var XPrime = x - X0;
             var YPrime = y - Y0;
             var tilt = Gx * XPrime + Gy * YPrime;
-            var curvature = K * (XPrime * XPrime + YPrime * YPrime);
+            var curvature = Kx * XPrime * XPrime + Ky * YPrime * YPrime;
             return tilt + curvature + Z0;
         }
 
@@ -179,7 +216,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
 
         public double CurvatureAt(double x, double y) {
-            return K * (x * x + y * y);
+            return Kx * x * x + Ky * y * y;
         }
 
         public double Volume(double widthMicrons, double heightMicrons) {
@@ -188,11 +225,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
             // Closed-form double integral of ValueAt over [-w/2,w/2] x [-h/2,h/2]:
             //   tilt:      -w·h·(Gx·X0 + Gy·Y0)
-            //   curvature:  K·w·h·(X0² + Y0²) + (1/12)·K·w·h·(w² + h²)
+            //   curvature:  w·h·(Kx·X0² + Ky·Y0²) + (1/12)·w·h·(Kx·w² + Ky·h²)
             //   offset:     Z0·w·h
+            // (Isotropic Kx = Ky = K collapses the curvature terms to K·w·h·(X0²+Y0²) + (1/12)·K·w·h·(w²+h²).)
             var tiltPart = -w * h * (Gx * X0 + Gy * Y0);
-            var curvatureCenterPart = K * w * h * (X0 * X0 + Y0 * Y0);
-            var curvatureSpreadPart = 1.0 / 12.0 * K * w * h * (w * w + h * h);
+            var curvatureCenterPart = w * h * (Kx * X0 * X0 + Ky * Y0 * Y0);
+            var curvatureSpreadPart = 1.0 / 12.0 * w * h * (Kx * w * w + Ky * h * h);
             var offsetPart = Z0 * w * h;
             return tiltPart + curvatureCenterPart + curvatureSpreadPart + offsetPart;
         }
@@ -203,22 +241,27 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         private readonly double sensorSizeMicronsX;
         private readonly double sensorSizeMicronsY;
         private readonly bool fixedSensorCenter;
+        private readonly bool astigmatic;
 
         public SensorParaboloidSolver(
             List<SensorParaboloidDataPoint> dataPoints,
             double sensorSizeMicronsX,
             double sensorSizeMicronsY,
             double inFocusMicrons,
-            bool fixedSensorCenter) : base(dataPoints, 6) {
+            bool fixedSensorCenter,
+            bool astigmatic = false) : base(dataPoints, astigmatic ? 7 : 6) {
             this.sensorSizeMicronsX = sensorSizeMicronsX;
             this.sensorSizeMicronsY = sensorSizeMicronsY;
             this.inFocusMicrons = inFocusMicrons;
             this.fixedSensorCenter = fixedSensorCenter;
+            this.astigmatic = astigmatic;
         }
 
         public override bool UseJacobian => true;
 
-        // z = Gx·(X-x0) + Gy·(Y-y0) + K·((X-x0)² + (Y-y0)²) + z0
+        // Isotropic (6 params):  z = Gx·(X-x0) + Gy·(Y-y0) + K·((X-x0)² + (Y-y0)²) + z0
+        // Astigmatic (7 params): z = Gx·(X-x0) + Gy·(Y-y0) + Kx·(X-x0)² + Ky·(Y-y0)² + z0
+        // The parameter-array length is authoritative so the same Value/Gradient work for either mode.
         public override double Value(double[] parameters, double[] input) {
             var X = input[0];
             var Y = input[1];
@@ -227,11 +270,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var z0 = parameters[2];
             var gx = parameters[3];
             var gy = parameters[4];
-            var k = parameters[5];
+            var kx = parameters[5];
+            var ky = parameters.Length == 7 ? parameters[6] : parameters[5];
 
             var XPrime = X - x0;
             var YPrime = Y - y0;
-            return gx * XPrime + gy * YPrime + k * (XPrime * XPrime + YPrime * YPrime) + z0;
+            return gx * XPrime + gy * YPrime + kx * XPrime * XPrime + ky * YPrime * YPrime + z0;
         }
 
         public override void Gradient(double[] parameters, double[] input, double[] result) {
@@ -241,23 +285,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var y0 = parameters[1];
             var gx = parameters[3];
             var gy = parameters[4];
-            var k = parameters[5];
+            var kx = parameters[5];
+            var ky = parameters.Length == 7 ? parameters[6] : parameters[5];
 
             var XPrime = X - x0;
             var YPrime = Y - y0;
 
-            // d/dx0 [Gx·(X-x0) + K·(X-x0)²] = -Gx - 2K·(X-x0)
-            result[0] = -gx - 2.0 * k * XPrime;
+            // d/dx0 [Gx·(X-x0) + Kx·(X-x0)²] = -Gx - 2·Kx·(X-x0)
+            result[0] = -gx - 2.0 * kx * XPrime;
             // d/dy0
-            result[1] = -gy - 2.0 * k * YPrime;
+            result[1] = -gy - 2.0 * ky * YPrime;
             // d/dz0
             result[2] = 1.0;
             // d/dGx
             result[3] = XPrime;
             // d/dGy
             result[4] = YPrime;
-            // d/dK
-            result[5] = XPrime * XPrime + YPrime * YPrime;
+            if (result.Length == 7) {
+                // d/dKx, d/dKy
+                result[5] = XPrime * XPrime;
+                result[6] = YPrime * YPrime;
+            } else {
+                // d/dK (isotropic: Kx and Ky are the same parameter)
+                result[5] = XPrime * XPrime + YPrime * YPrime;
+            }
         }
 
         public override void SetInitialGuess(double[] initialGuess) {
@@ -267,6 +318,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             initialGuess[3] = 0.0;
             initialGuess[4] = 0.0;
             initialGuess[5] = 0.0;
+            if (astigmatic) {
+                initialGuess[6] = 0.0;
+            }
         }
 
         public override void SetBounds(double[] lowerBounds, double[] upperBounds) {
@@ -282,18 +336,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 upperBounds[1] = sensorSizeMicronsY / 2.0;
             }
 
-            // z0, the tilt gradients, and the signed curvature coefficient are all unbounded. The linear
-            // tilt parameterization has no singularity (so no θ ≥ 1e-5 hack is needed), and K can cross
-            // zero freely (so a single solve covers both curvature signs — no positive/negative double solve).
-            lowerBounds[2] = double.NegativeInfinity;
-            lowerBounds[3] = double.NegativeInfinity;
-            lowerBounds[4] = double.NegativeInfinity;
-            lowerBounds[5] = double.NegativeInfinity;
-
-            upperBounds[2] = double.PositiveInfinity;
-            upperBounds[3] = double.PositiveInfinity;
-            upperBounds[4] = double.PositiveInfinity;
-            upperBounds[5] = double.PositiveInfinity;
+            // z0, the tilt gradients, and the curvature coefficient(s) are all unbounded. The linear
+            // tilt parameterization has no singularity (so no θ ≥ 1e-5 hack is needed), and the curvature
+            // can cross zero freely (so a single solve covers both curvature signs — no double solve).
+            for (int i = 2; i < lowerBounds.Length; ++i) {
+                lowerBounds[i] = double.NegativeInfinity;
+                upperBounds[i] = double.PositiveInfinity;
+            }
         }
 
         public override void SetScale(double[] scales) {
@@ -303,6 +352,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             scales[3] = 1E-3;
             scales[4] = 1E-3;
             scales[5] = 1E-6;
+            if (astigmatic) {
+                scales[6] = 1E-6;
+            }
         }
     }
 }

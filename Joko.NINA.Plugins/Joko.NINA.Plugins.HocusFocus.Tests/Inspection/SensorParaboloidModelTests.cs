@@ -143,6 +143,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
             return nlls;
         }
 
+        private NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel> SolveModelAstigmatic(
+            List<SensorParaboloidDataPoint> pts, out SensorParaboloidModel result, double sensorHalf = 4000) {
+            var solver = new SensorParaboloidSolver(
+                dataPoints: pts,
+                sensorSizeMicronsX: sensorHalf * 2,
+                sensorSizeMicronsY: sensorHalf * 2,
+                inFocusMicrons: 1000,
+                fixedSensorCenter: true,
+                astigmatic: true);
+            var nlls = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(alglibAPI);
+            result = nlls.Solve(solver, tolerance: 1e-12);
+            return nlls;
+        }
+
         [Test]
         public void Solver_PositiveCurvature_RecoversCurvatureAndTilt() {
             var truth = new SensorParaboloidModel(x0: 0, y0: 0, z0: 1000, gx: 0.001, gy: 0.0, k: 5e-7);
@@ -187,6 +201,88 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
                 Assert.That(result.Gx, Is.EqualTo(0.0).Within(1e-6));
                 Assert.That(result.Gy, Is.EqualTo(0.0).Within(1e-6));
             });
+        }
+
+        [Test]
+        public void Astigmatic_Solver_RecoversIndependentKxKy() {
+            // A saddle-shaped field (Kx and Ky of opposite sign) cannot be represented by the isotropic
+            // single-K model; the astigmatic 7-parameter solve must recover both coefficients.
+            var truth = new SensorParaboloidModel(x0: 0, y0: 0, z0: 1000, gx: 0.001, gy: -0.0005, kx: 6e-7, ky: -4e-7);
+            var pts = SampleGrid(truth);
+
+            SolveModelAstigmatic(pts, out var result);
+
+            Assert.Multiple(() => {
+                Assert.That(result.Astigmatic, Is.True);
+                Assert.That(result.Z0, Is.EqualTo(1000).Within(1.0));
+                Assert.That(result.Gx, Is.EqualTo(0.001).Within(1e-5));
+                Assert.That(result.Gy, Is.EqualTo(-0.0005).Within(1e-5));
+                Assert.That(result.Kx, Is.EqualTo(6e-7).Within(1e-8));
+                Assert.That(result.Ky, Is.EqualTo(-4e-7).Within(1e-8));
+            });
+        }
+
+        [Test]
+        public void Astigmatic_IsotropicData_RecoversEqualKxKy() {
+            // Fed isotropic data, the astigmatic solver must still converge with Kx ≈ Ky (no spurious split).
+            var truth = new SensorParaboloidModel(x0: 0, y0: 0, z0: 1000, gx: 0.0, gy: 0.0, k: 5e-7);
+            var pts = SampleGrid(truth);
+
+            SolveModelAstigmatic(pts, out var result);
+
+            Assert.Multiple(() => {
+                Assert.That(result.Kx, Is.EqualTo(5e-7).Within(1e-8));
+                Assert.That(result.Ky, Is.EqualTo(5e-7).Within(1e-8));
+                Assert.That(result.Kx, Is.EqualTo(result.Ky).Within(1e-8));
+            });
+        }
+
+        [Test]
+        public void Astigmatic_ToArrayFromArray_RoundTripsSevenParameters() {
+            var model = new SensorParaboloidModel(x0: 10, y0: -20, z0: 1234, gx: 0.003, gy: -0.002, kx: 7e-7, ky: -3e-7);
+            var array = model.ToArray();
+
+            Assert.That(array.Length, Is.EqualTo(7));
+
+            var roundTripped = new SensorParaboloidModel();
+            roundTripped.FromArray(array);
+
+            Assert.Multiple(() => {
+                Assert.That(roundTripped.Astigmatic, Is.True);
+                Assert.That(roundTripped.Kx, Is.EqualTo(7e-7));
+                Assert.That(roundTripped.Ky, Is.EqualTo(-3e-7));
+                Assert.That(roundTripped.K, Is.EqualTo(0.5 * (7e-7 + -3e-7)));
+            });
+        }
+
+        [Test]
+        public void Isotropic_ToArray_RemainsSixParameters() {
+            // Guards the default path: isotropic models must continue to emit a 6-element array so the
+            // 6-parameter solve and all existing behaviour are unchanged.
+            var model = new SensorParaboloidModel(x0: 0, y0: 0, z0: 1000, gx: 0.001, gy: 0.0, k: 5e-7);
+
+            Assert.That(model.ToArray().Length, Is.EqualTo(6));
+            Assert.That(model.Astigmatic, Is.False);
+            Assert.That(model.Kx, Is.EqualTo(model.Ky));
+        }
+
+        [Test]
+        public void CurvatureAt_Astigmatic_UsesSeparateKxKy() {
+            var model = new SensorParaboloidModel(x0: 0, y0: 0, z0: 0, gx: 0.0, gy: 0.0, kx: 2e-6, ky: 5e-6);
+
+            // Kx·x² + Ky·y²
+            Assert.That(model.CurvatureAt(100.0, 200.0), Is.EqualTo(2e-6 * 100.0 * 100.0 + 5e-6 * 200.0 * 200.0).Within(1e-12));
+        }
+
+        [Test]
+        public void Volume_Astigmatic_MatchesNumericalIntegral() {
+            var model = new SensorParaboloidModel(x0: 1500.0, y0: -900.0, z0: 25000.0, gx: 0.004, gy: -0.002, kx: 6e-7, ky: -3e-7);
+            double w = 23000.0, h = 16000.0;
+
+            var analytic = model.Volume(w, h);
+            var numeric = SimpsonIntegrate2D((x, y) => model.ValueAt(x, y), w, h);
+
+            Assert.That(analytic, Is.EqualTo(numeric).Within(Math.Abs(numeric) * 1e-9 + 1e-3));
         }
 
         // ---- χ² acceptance statistic ----
