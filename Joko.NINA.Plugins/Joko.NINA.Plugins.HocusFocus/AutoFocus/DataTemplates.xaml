@@ -1528,7 +1528,8 @@
                                     Grid.Column="0"
                                     Margin="5"
                                     VerticalAlignment="Center"
-                                    Text="Align images before matching" />
+                                    Text="Align images before matching"
+                                    ToolTip="When on, each frame's stars are aligned to the reference frame (using a RANSAC similarity transform) before they are matched, correcting for small drift, rotation, or flexure between exposures in the autofocus run. Enable this when there is movement between frames; it allows stars to be matched with a tighter search radius and generally produces a more reliable model." />
                                 <StackPanel
                                     Grid.Row="0"
                                     Grid.Column="1"
@@ -1556,7 +1557,8 @@
                                     Grid.Column="0"
                                     Margin="5"
                                     VerticalAlignment="Center"
-                                    Text="Outlier rejection" />
+                                    Text="Outlier rejection"
+                                    ToolTip="When on, measurement points that fit poorly to a star's hyperbolic focus curve are iteratively rejected before that star's best-focus position is used, so a few bad measurements do not bias the result. Slightly increases per-star fitting time." />
                                 <StackPanel
                                     Grid.Row="1"
                                     Grid.Column="1"
@@ -1585,7 +1587,8 @@
                                     Grid.Column="0"
                                     Margin="5"
                                     VerticalAlignment="Center"
-                                    Text="Match using brightness" />
+                                    Text="Match using brightness"
+                                    ToolTip="When on, candidate star matches whose relative brightness differs by more than the brightness tolerance are rejected, reducing mismatches in crowded fields. The tolerance is searched automatically, starting from the 'Starting Brightness Tolerance' value." />
                                 <StackPanel
                                     Grid.Row="2"
                                     Grid.Column="1"
@@ -1598,7 +1601,8 @@
                                     Grid.Column="2"
                                     Margin="5"
                                     VerticalAlignment="Center"
-                                    Text="Starting Brightness Tolerance" />
+                                    Text="Starting Brightness Tolerance"
+                                    ToolTip="The starting point for the automatic brightness-tolerance search used to match stars across all regions of all images. Leave blank to start from a fixed default. Only used when 'Match using brightness' is enabled." />
                                 <StackPanel
                                     Grid.Row="2"
                                     Grid.Column="3"
@@ -1612,7 +1616,7 @@
                                         Foreground="{StaticResource PrimaryBrush}"
                                         HintText="{Binding InspectorOptions.BrightnessToleranceHint}"
                                         TextAlignment="Left"
-                                        ToolTip="If set, this value may be used as a starting point by the process to achieve a good set of matched stars across all regions of all images.  Leave this blank to use the previously successful value as the starting point">
+                                        ToolTip="If set, this value is used as the starting point for the automatic search that finds a brightness tolerance giving a good set of matched stars across all regions of all images. Leave this blank to start from a fixed default.">
                                         <ninactrl:HintTextBox.Text>
                                             <Binding
                                                 Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
@@ -1628,7 +1632,8 @@
                                     Grid.Column="0"
                                     Margin="5"
                                     VerticalAlignment="Center"
-                                    Text="Save annotated images when rerunning a saved autofocus" />
+                                    Text="Save annotated images when rerunning a saved autofocus"
+                                    ToolTip="When on, re-running a previously saved autofocus run also writes the annotated star-detection images to that run's folder. A fresh run always saves them; this controls whether reruns do too. Off by default to avoid rewriting files on every rerun." />
                                 <StackPanel
                                     Grid.Row="3"
                                     Grid.Column="1"
@@ -1640,7 +1645,8 @@
                                     Grid.Column="2"
                                     Margin="5"
                                     VerticalAlignment="Center"
-                                    Text="Save alignment images" />
+                                    Text="Save alignment images"
+                                    ToolTip="When on, also saves the per-frame alignment images (each frame's detected stars transformed onto the reference frame, with matched triangles overlaid) when images are written, for diagnosing registration. Off by default." />
                                 <StackPanel
                                     Grid.Row="3"
                                     Grid.Column="3"
