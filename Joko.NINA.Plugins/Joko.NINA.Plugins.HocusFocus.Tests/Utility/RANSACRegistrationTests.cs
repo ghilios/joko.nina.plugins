@@ -51,6 +51,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
         }
 
         [Test]
+        public void SimilarityTransform_ToMatrix3x2_ProducesIdenticalPointMapping() {
+            var t = new SimilarityTransform(scale: 1.5, rotation: 0.3, tx: 10.0, ty: -4.0);
+            var m = t.ToMatrix3x2();
+            foreach (var p in new[] { new Point2D(7.0, 11.0), new Point2D(-3.0, 2.0), new Point2D(0.0, 0.0) }) {
+                var viaT = t.Transform(p);
+                var viaM = m.Transform(p);
+                Assert.Multiple(() => {
+                    Assert.That(viaM.X, Is.EqualTo(viaT.X).Within(1e-9));
+                    Assert.That(viaM.Y, Is.EqualTo(viaT.Y).Within(1e-9));
+                });
+            }
+        }
+
+        [Test]
         public void Matrix3x2_Identity_LeavesPointsUnchanged() {
             var m = Matrix3x2.Identity;
             var p = new Point2D(2.5, -3.5);
@@ -309,6 +323,79 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 img, refStars, maxDistance: 5.0, relativeBrightnessDiff: 0.1, status: null);
             Assert.That(src.Count, Is.EqualTo(0));
             Assert.That(dst.Count, Is.EqualTo(0));
+        }
+
+        /// <summary>
+        /// Builds a deterministic set of correspondences: <paramref name="inlierCount"/> points mapped by a
+        /// known similarity transform with sub-pixel noise (well within the inlier threshold), plus a few
+        /// gross outliers. The test RNG is fixed-seed so the data itself is identical every run.
+        /// </summary>
+        private static (List<Point2D> src, List<Point2D> dst) BuildNoisyCorrespondences(
+            double scale, double rotation, double tx, double ty, int inlierCount = 30) {
+            var rng = new Random(20240526);
+            var truth = new SimilarityTransform(scale, rotation, tx, ty);
+            var src = new List<Point2D>();
+            var dst = new List<Point2D>();
+            for (int i = 0; i < inlierCount; i++) {
+                var p = new Point2D(rng.NextDouble() * 1000.0, rng.NextDouble() * 1000.0);
+                var t = truth.Transform(p);
+                // Sub-pixel noise (|d| < 0.25px) keeps every point inside the 3px inlier threshold.
+                src.Add(p);
+                dst.Add(new Point2D(t.X + (rng.NextDouble() - 0.5) * 0.5, t.Y + (rng.NextDouble() - 0.5) * 0.5));
+            }
+            // Gross outliers RANSAC must reject.
+            src.Add(new Point2D(500, 500)); dst.Add(new Point2D(5, 990));
+            src.Add(new Point2D(100, 900)); dst.Add(new Point2D(950, 30));
+            return (src, dst);
+        }
+
+        [Test]
+        public void EstimateSimilarityTransform_RecoversKnownTransform() {
+            double scale = 1.0, rotation = 0.05, tx = 12.0, ty = -7.0;
+            var (src, dst) = BuildNoisyCorrespondences(scale, rotation, tx, ty);
+
+            var result = RANSACRegistration.EstimateSimilarityTransform(src, dst, status: null, progress: null);
+
+            Assert.Multiple(() => {
+                Assert.That(result.Scale, Is.EqualTo(scale).Within(0.01));
+                Assert.That(result.Rotation, Is.EqualTo(rotation).Within(0.01));
+                Assert.That(result.Tx, Is.EqualTo(tx).Within(1.0));
+                Assert.That(result.Ty, Is.EqualTo(ty).Within(1.0));
+            });
+        }
+
+        [Test]
+        public void EstimateSimilarityTransform_FixedSeed_IsBitForBitDeterministic() {
+            var (src, dst) = BuildNoisyCorrespondences(1.0, 0.05, 12.0, -7.0);
+
+            // Small maxIterations forces the seeded subsampling path (fewer samples than candidate pairs),
+            // which is exactly where the old shared unseeded RNG produced run-to-run variation.
+            var a = RANSACRegistration.EstimateSimilarityTransform(src, dst, null, null, maxIterations: 8);
+            var b = RANSACRegistration.EstimateSimilarityTransform(src, dst, null, null, maxIterations: 8);
+
+            Assert.Multiple(() => {
+                Assert.That(a.Scale, Is.EqualTo(b.Scale));
+                Assert.That(a.Rotation, Is.EqualTo(b.Rotation));
+                Assert.That(a.Tx, Is.EqualTo(b.Tx));
+                Assert.That(a.Ty, Is.EqualTo(b.Ty));
+            });
+        }
+
+        [Test]
+        public void EstimateAffineTransform_FixedSeed_IsBitForBitDeterministic() {
+            var (src, dst) = BuildNoisyCorrespondences(1.0, 0.05, 12.0, -7.0);
+
+            var a = RANSACRegistration.EstimateAffineTransform(src, dst, null, null, maxIterations: 8);
+            var b = RANSACRegistration.EstimateAffineTransform(src, dst, null, null, maxIterations: 8);
+
+            Assert.Multiple(() => {
+                Assert.That(a.M11, Is.EqualTo(b.M11));
+                Assert.That(a.M12, Is.EqualTo(b.M12));
+                Assert.That(a.M21, Is.EqualTo(b.M21));
+                Assert.That(a.M22, Is.EqualTo(b.M22));
+                Assert.That(a.M31, Is.EqualTo(b.M31));
+                Assert.That(a.M32, Is.EqualTo(b.M32));
+            });
         }
 
         [Test]

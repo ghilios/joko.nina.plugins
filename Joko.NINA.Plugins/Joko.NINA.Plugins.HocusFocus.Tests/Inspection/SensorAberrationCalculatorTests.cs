@@ -8,20 +8,39 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection;
 [TestFixture]
 public class SensorAberrationCalculatorTests {
 
-    [TestCase(0.0, 0.9)]
-    [TestCase(0.5, 0.9)]
-    [TestCase(0.999, 0.9)]
-    [TestCase(1.0, 0.8)]
-    [TestCase(2.5, 0.8)]
-    [TestCase(2.999, 0.8)]
-    [TestCase(3.0, 0.7)]
-    [TestCase(4.5, 0.7)]
-    [TestCase(4.999, 0.7)]
-    [TestCase(5.0, 0.6)]
-    [TestCase(60.0, 0.6)]
-    public void TargetR2BasedOnTimeTaken_ReturnsExpectedTier(double seconds, double expected) {
-        var actual = SensorAberrationCalculator.TargetR2BasedOnTimeTaken(TimeSpan.FromSeconds(seconds));
-        Assert.That(actual, Is.EqualTo(expected).Within(1e-12));
+    [Test]
+    public void IsReducedChiSquaredAcceptable_NullFit_IsFalse() {
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(null), Is.False);
+    }
+
+    [Test]
+    public void IsReducedChiSquaredAcceptable_NearOne_IsTrue() {
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(1.0)), Is.True);
+    }
+
+    [Test]
+    public void IsReducedChiSquaredAcceptable_SmallValue_IsTrue() {
+        // Residuals smaller than the declared σ (reduced χ² well below 1) is still a good fit.
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(0.1)), Is.True);
+    }
+
+    [Test]
+    public void IsReducedChiSquaredAcceptable_LargeValue_IsFalse() {
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(50.0)), Is.False);
+    }
+
+    [Test]
+    public void IsReducedChiSquaredAcceptable_NaN_IsFalse() {
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(double.NaN)), Is.False);
+    }
+
+    [Test]
+    public void IsReducedChiSquaredAcceptable_IsIndependentOfGoodnessOfFit() {
+        // Magnitude independence: a near-flat sensor (very low R²) with residuals consistent with the
+        // measurement errors (reduced χ² ≈ 1) is accepted, where an R² target would have rejected it.
+        var nearlyFlatButConsistent = WithReducedChiSquared(1.0);
+        SetGoodness(nearlyFlatButConsistent, 0.02);
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(nearlyFlatButConsistent), Is.True);
     }
 
     [Test]
@@ -173,8 +192,17 @@ public class SensorAberrationCalculatorTests {
 
     private static SensorParaboloidModel WithGoodness(double goodness) {
         var model = new SensorParaboloidModel();
-        var prop = typeof(SensorParaboloidModel).GetProperty(nameof(SensorParaboloidModel.GoodnessOfFit));
-        prop.SetValue(model, goodness);
+        SetGoodness(model, goodness);
+        return model;
+    }
+
+    private static void SetGoodness(SensorParaboloidModel model, double goodness) {
+        typeof(SensorParaboloidModel).GetProperty(nameof(SensorParaboloidModel.GoodnessOfFit)).SetValue(model, goodness);
+    }
+
+    private static SensorParaboloidModel WithReducedChiSquared(double reducedChiSquared) {
+        var model = new SensorParaboloidModel();
+        typeof(SensorParaboloidModel).GetProperty(nameof(SensorParaboloidModel.ReducedChiSquared)).SetValue(model, reducedChiSquared);
         return model;
     }
 }

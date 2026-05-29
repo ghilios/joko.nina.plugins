@@ -21,6 +21,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public int StepSize { get; protected set; }
         public bool OptGuardEnabled { get; set; } = false;
 
+        /// <summary>
+        /// Standard error of the fitted minimum's focuser position (parameter x0), propagated from the
+        /// fit covariance. <see cref="double.NaN"/> when not computed (e.g. too few points, or a fitting
+        /// variant that does not estimate it). Used downstream to weight the paraboloid fit by 1/σ².
+        /// </summary>
+        public double MinimumStdError { get; protected set; } = double.NaN;
+
         public abstract bool Solve();
     }
 }

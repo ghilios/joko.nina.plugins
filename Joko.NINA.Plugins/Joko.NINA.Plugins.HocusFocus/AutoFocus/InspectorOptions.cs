@@ -68,6 +68,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             rejectBadBrightnessMatches = optionsAccessor.GetValueBoolean(nameof(RejectBadBrightnessMatches), false);
             rejectBadlyFittingMatches = optionsAccessor.GetValueBoolean(nameof(RejectBadlyFittingMatches), false);
             useRANSAC = optionsAccessor.GetValueBoolean(nameof(UseRANSAC), false);
+            useAffineAlignment = optionsAccessor.GetValueBoolean(nameof(UseAffineAlignment), false);
             saveImagesOnReruns = optionsAccessor.GetValueBoolean(nameof(SaveImagesOnReruns), false);
             saveAlignmentImages = optionsAccessor.GetValueBoolean(nameof(SaveAlignmentImages), false);
             maxStarsPerRegion = optionsAccessor.GetValueInt32(nameof(MaxStarsPerRegion), -1);
@@ -95,6 +96,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             startingBrightnessDiff = -1;
             rejectBadBrightnessMatches = false;
             rejectBadlyFittingMatches = false;
+            useAffineAlignment = false;
         }
 
         private int stepCount;
@@ -370,6 +372,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (useRANSAC != value) {
                     useRANSAC = value;
                     optionsAccessor.SetValueBoolean(nameof(UseRANSAC), useRANSAC);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool useAffineAlignment = false;
+
+        public bool UseAffineAlignment {
+            get => useAffineAlignment;
+            set {
+                if (useAffineAlignment != value) {
+                    useAffineAlignment = value;
+                    optionsAccessor.SetValueBoolean(nameof(UseAffineAlignment), useAffineAlignment);
                     RaisePropertyChanged();
                 }
             }

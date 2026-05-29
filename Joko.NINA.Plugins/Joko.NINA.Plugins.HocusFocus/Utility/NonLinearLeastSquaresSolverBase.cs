@@ -21,6 +21,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         double[] ToInput();
 
         double ToOutput();
+
+        /// <summary>
+        /// The 1-sigma measurement uncertainty of <see cref="ToOutput"/>, in the same units as the
+        /// output. Used to weight the fit by 1/σ (χ²). The default of 1.0 reduces to an unweighted fit.
+        /// </summary>
+        double ToOutputStdDev() => 1.0;
     }
 
     public interface INonLinearLeastSquaresParameters {
@@ -37,11 +43,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         protected NonLinearLeastSquaresSolverBase(List<T> dataPoints, int numParameters) {
             this.Inputs = dataPoints.Select(p => p.ToInput()).ToArray();
             this.Outputs = dataPoints.Select(p => p.ToOutput()).ToArray();
+            this.OutputStdDevs = dataPoints.Select(p => p.ToOutputStdDev()).ToArray();
             this.NumParameters = numParameters;
         }
 
         public double[][] Inputs { get; private set; }
         public double[] Outputs { get; private set; }
+
+        /// <summary>Per-observation 1-sigma uncertainties of <see cref="Outputs"/> (used for χ² weighting).</summary>
+        public double[] OutputStdDevs { get; private set; }
 
         public int NumParameters { get; private set; }
 

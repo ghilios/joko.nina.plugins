@@ -1536,6 +1536,22 @@
                                     <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.UseRANSAC}" />
                                 </StackPanel>
                                 <TextBlock
+                                    Grid.Row="0"
+                                    Grid.Column="2"
+                                    Margin="5"
+                                    VerticalAlignment="Center"
+                                    Text="Use affine alignment (diagnostic)"
+                                    ToolTip="When off (default), images are aligned with a 4-DOF similarity transform (translation, rotation, uniform scale), which is the physically correct model for a single autofocus run and gives more robust, repeatable results. Enable only to diagnose alignment by allowing the less-constrained 6-DOF affine transform (adds shear and anisotropic scale)." />
+                                <StackPanel
+                                    Grid.Row="0"
+                                    Grid.Column="3"
+                                    Orientation="Horizontal">
+                                    <CheckBox
+                                        Margin="5,0,0,0"
+                                        IsChecked="{Binding InspectorOptions.UseAffineAlignment}"
+                                        IsEnabled="{Binding InspectorOptions.UseRANSAC}" />
+                                </StackPanel>
+                                <TextBlock
                                     Grid.Row="1"
                                     Grid.Column="0"
                                     Margin="5"

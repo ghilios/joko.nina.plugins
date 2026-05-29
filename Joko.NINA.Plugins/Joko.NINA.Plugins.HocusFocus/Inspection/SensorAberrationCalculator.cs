@@ -23,22 +23,27 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
     public static class SensorAberrationCalculator {
 
         /// <summary>
-        /// Returns the goodness-of-fit (R²) target for an iteration that has already taken the
-        /// supplied amount of time. Faster iterations get a stricter target since we can afford
-        /// to keep searching; slower iterations get a relaxed target so we converge in time.
+        /// Upper bound on reduced χ² for a paraboloid fit to be accepted (and the brightness-tolerance
+        /// search to stop). Reduced χ² ≈ 1 means the model fits the measured best-focus positions to
+        /// within their standard errors; values far above 1 indicate a poor fit. Unlike an R² target,
+        /// this is independent of the overall tilt/curvature magnitude, so a near-flat but well-measured
+        /// sensor is accepted rather than rejected for "low R²". The bound is generous to tolerate the
+        /// approximate per-star uncertainties.
         /// </summary>
-        public static double TargetR2BasedOnTimeTaken(TimeSpan timeSpan) {
-            double secondsTaken = timeSpan.TotalSeconds;
-            if (secondsTaken < 1) {
-                return 0.9;
+        public const double AcceptableReducedChiSquaredMax = 5.0;
+
+        /// <summary>
+        /// True if the fit's reduced χ² is finite and within the acceptable bound. A fit with very small
+        /// reduced χ² (residuals smaller than the declared σ) is still acceptable — only large values,
+        /// indicating the model cannot explain the data within its uncertainties, are rejected.
+        /// </summary>
+        public static bool IsReducedChiSquaredAcceptable(SensorParaboloidModel fit) {
+            if (fit == null) {
+                return false;
             }
-            if (secondsTaken < 3) {
-                return 0.8;
-            }
-            if (secondsTaken < 5) {
-                return 0.7;
-            }
-            return 0.6;
+            var reducedChiSquared = fit.ReducedChiSquared;
+            return !double.IsNaN(reducedChiSquared) && !double.IsInfinity(reducedChiSquared)
+                && reducedChiSquared <= AcceptableReducedChiSquaredMax;
         }
 
         /// <summary>

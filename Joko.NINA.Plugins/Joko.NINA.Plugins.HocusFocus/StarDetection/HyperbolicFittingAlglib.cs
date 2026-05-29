@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using Accord.Math.Optimization.Losses;
+using MathNet.Numerics.LinearAlgebra;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using OxyPlot;
 using OxyPlot.Series;
@@ -216,6 +217,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     transformed[i] = Fitting(Inputs[i][0]);
                 }
                 RSquared = rSquared.Loss(transformed);
+                ComputeMinimumStdError(solution);
                 return true;
             } finally {
                 if (state != null) {
@@ -224,6 +226,50 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (rep != null) {
                     this.alglibAPI.deallocateimmediately(ref rep);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Estimates the standard error of the fitted minimum position x0 from the fit covariance
+        /// Cov ≈ s²·(JᵀWJ)⁻¹, where J is the analytic Jacobian of the hyperbola at the solution,
+        /// W = diag(weight²), and s² = weighted RSS/(n−p) is a robust variance estimate. Using the
+        /// data-driven s² makes se(x0) a genuine standard error in focuser-position units even when the
+        /// per-point HFR uncertainties are only relative (or unweighted). Guarded so a failure here never
+        /// affects the fit result; <see cref="AlglibHyperbolicFitting.MinimumStdError"/> stays NaN.
+        /// </summary>
+        private void ComputeMinimumStdError(double[] solution) {
+            try {
+                const int p = 4;
+                int n = Inputs.Length;
+                if (n <= p) {
+                    MinimumStdError = double.NaN;
+                    return;
+                }
+
+                var gradient = GetGradientForParameters(solution);
+                var fit = GetFittingForParameters(solution);
+                var jtwj = Matrix<double>.Build.Dense(p, p);
+                var g = new double[p];
+                var weightedRss = 0.0;
+                for (int i = 0; i < n; i++) {
+                    var x = Inputs[i][0];
+                    var w2 = Weights[i] * Weights[i];
+                    gradient(x, g);
+                    for (int r = 0; r < p; r++) {
+                        for (int c = 0; c < p; c++) {
+                            jtwj[r, c] += w2 * g[r] * g[c];
+                        }
+                    }
+                    var residual = fit(x) - Outputs[i];
+                    weightedRss += w2 * residual * residual;
+                }
+
+                var s2 = weightedRss / (n - p);
+                var cov = jtwj.Inverse();
+                var varX0 = s2 * cov[0, 0];
+                MinimumStdError = varX0 > 0 && !double.IsNaN(varX0) && !double.IsInfinity(varX0) ? Math.Sqrt(varX0) : double.NaN;
+            } catch (Exception) {
+                MinimumStdError = double.NaN;
             }
         }
 
