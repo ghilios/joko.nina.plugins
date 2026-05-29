@@ -10,6 +10,8 @@
 
 #endregion "copyright"
 
+using KdTree;
+using KdTree.Math;
 using MathNet.Numerics.LinearAlgebra;
 using NINA.Core.Model;
 using NINA.Core.Utility;
@@ -308,6 +310,31 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 };
             }
 
+            /// <summary>
+            /// Similarity-invariant shape descriptor: the two longer side lengths expressed as ratios to the
+            /// shortest side, with the sides sorted by length. Because the sides are sorted, the descriptor is
+            /// independent of vertex ordering and handedness — unlike <see cref="AsShapeMatrix"/>, whose entries
+            /// follow the anchor-relative traversal order and so can differ for the same physical triangle seen
+            /// in two frames. Two triangles are similar iff their descriptors coincide; the Euclidean distance
+            /// between descriptors is a well-behaved shape-difference metric used for tolerance-bounded matching.
+            /// </summary>
+            public double[] ShapeDescriptor() {
+                var squared = new[] {
+                    lineLengthSquared(Points[0], Points[1]),
+                    lineLengthSquared(Points[1], Points[2]),
+                    lineLengthSquared(Points[2], Points[0])
+                };
+                Array.Sort(squared);
+                var shortest = squared[0];
+                if (shortest <= 0.0) {
+                    return new double[] { 1.0, 1.0 };
+                }
+                return new double[] {
+                    Math.Sqrt(squared[1] / shortest),
+                    Math.Sqrt(squared[2] / shortest)
+                };
+            }
+
             public double[] AsBrightnessMatrix() {
                 return new double[] {
                     NormalizedBrightnesses[0],
@@ -339,6 +366,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 matched = true;
                 this.referenceID = referenceID;
                 this.matchScore = matchScore;
+            }
+
+            /// <summary>
+            /// Clears the matched state so the triangle can participate in a subsequent matching pass. Used
+            /// when the strict-tolerance pass yields too few matches and the whole match is re-run with a
+            /// relaxed tolerance, so the relaxed pass produces a superset rather than only the leftovers.
+            /// </summary>
+            public void ResetMatch() {
+                matched = false;
+                matchScore = 0.0;
+                if (!isReference) {
+                    referenceID = 0;
+                }
             }
 
             public string MatchString {
@@ -423,58 +463,73 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return triangles;
         }
 
-        // Generate putative matches using triangles
+        // Generate putative matches using triangles. Triangles are matched in a similarity-invariant
+        // shape space (sorted side-length ratios, see StarTriangle.ShapeDescriptor) via a 2-D KdTree
+        // radial search bounded by maxShapeDistance. This replaces the former O(refTri × imgTri)
+        // cosine-similarity scan over vertex-order-dependent side-length vectors gated by a brittle
+        // near-1 cosine threshold: the descriptor is order/handedness invariant, the KdTree makes the
+        // search roughly O(n log n), and a Euclidean ratio tolerance is far more forgiving of seeing/
+        // centroiding noise than a 0.999999 cosine cutoff while still being scale/rotation invariant.
         public static (List<Point2D> srcPoints, List<Point2D> dstPoints) GeneratePutativeMatchesUsingSimilarTriangles(
             List<StarTriangle> imageTriangles,
             List<StarTriangle> referenceTriangles,
             ApplicationStatus status,
-            double minCosSim) {
+            double maxShapeDistance) {
             var srcPoints = new List<Point2D>();
             var dstPoints = new List<Point2D>();
 
-            // For each triangle in the reference image, find closest match in this image
+            // Index the image triangles by shape descriptor. Skip exact-descriptor duplicates (vanishingly
+            // rare with real centroids) to keep the tree valued one-per-point; insertion order is the
+            // deterministic image-triangle order, so the index is reproducible across runs.
+            var tree = new KdTree<double, StarTriangle>(2, new DoubleMath(), AddDuplicateBehavior.Skip);
+            foreach (var imageTriangle in imageTriangles) {
+                tree.Add(imageTriangle.ShapeDescriptor(), imageTriangle);
+            }
 
-            for (int i = 0; i < referenceTriangles.Count; i++) {
-                var referenceTriangle = referenceTriangles[i];
-                double bestCosSimLoc = minCosSim;
-                StarTriangle bestMatch = null;
-                List<(StarTriangle, double)> matches = new();
-                foreach (var imageTriangle in imageTriangles.Where(t => !t.Matched)) {
-                    var cosSim = CosineSimilarity(referenceTriangle.AsShapeMatrix(), imageTriangle.AsShapeMatrix());
-                    if (cosSim > minCosSim) {
-                        matches.Add((imageTriangle, cosSim));
-                    }
+            // For each reference triangle, find the closest-shape unmatched image triangle within tolerance.
+            foreach (var referenceTriangle in referenceTriangles) {
+                var refDescriptor = referenceTriangle.ShapeDescriptor();
+                var neighbors = tree.RadialSearch(refDescriptor, maxShapeDistance, imageTriangles.Count);
+
+                // Order candidates deterministically by shape distance, then by geometry, so ties resolve
+                // identically every run (image triangles carry no stable id of their own).
+                var candidates = neighbors
+                    .Select(n => n.Value)
+                    .Where(t => !t.Matched)
+                    .OrderBy(t => ShapeDistance(refDescriptor, t.ShapeDescriptor()))
+                    .ThenBy(t => t.P1.X).ThenBy(t => t.P1.Y)
+                    .ThenBy(t => t.P2.X).ThenBy(t => t.P2.Y)
+                    .ThenBy(t => t.P3.X).ThenBy(t => t.P3.Y)
+                    .ToList();
+                if (candidates.Count == 0) {
+                    continue;
                 }
 
-                if (matches.Count > 1) {
-                    // examine matches and pick best on brightness - these matches are already pretty close matches based on location (>0.99999)
-                    double bestCosSimBri = 0;
-
-                    foreach (var (tri, cs) in matches) {
-                        var cosSim = CosineSimilarity(referenceTriangle.AsBrightnessMatrix(), tri.AsBrightnessMatrix());
-
+                StarTriangle bestMatch = candidates[0];
+                if (candidates.Count > 1) {
+                    // Multiple near-equal shapes: disambiguate by brightness similarity, as before.
+                    double bestCosSimBri = CosineSimilarity(referenceTriangle.AsBrightnessMatrix(), candidates[0].AsBrightnessMatrix());
+                    foreach (var candidate in candidates.Skip(1)) {
+                        var cosSim = CosineSimilarity(referenceTriangle.AsBrightnessMatrix(), candidate.AsBrightnessMatrix());
                         if (cosSim > bestCosSimBri) {
-                            bestMatch = tri;
+                            bestMatch = candidate;
                             bestCosSimBri = cosSim;
                         }
                     }
-                    //Logger.Debug($"Multiple ({matches.Count}) matches for ref triangle {i} - selected triangle with briCosSim of {bestCosSimBri}");
-                } else {
-                    if (matches.Count == 1) {
-                        var best = matches.First();
-                        bestMatch = best.Item1;
-                        bestCosSimLoc = best.Item2;
-                    }
                 }
 
-                if (bestMatch != null) {
-                    srcPoints.AddRange(new List<Point2D> { bestMatch.P1, bestMatch.P2, bestMatch.P3 });
-                    dstPoints.AddRange(new List<Point2D> { referenceTriangle.P1, referenceTriangle.P2, referenceTriangle.P3 });
-                    bestMatch.MarkAsMatched(referenceTriangle.ReferenceID, bestCosSimLoc);
-                }
+                srcPoints.AddRange(new List<Point2D> { bestMatch.P1, bestMatch.P2, bestMatch.P3 });
+                dstPoints.AddRange(new List<Point2D> { referenceTriangle.P1, referenceTriangle.P2, referenceTriangle.P3 });
+                bestMatch.MarkAsMatched(referenceTriangle.ReferenceID, ShapeDistance(refDescriptor, bestMatch.ShapeDescriptor()));
             }
 
             return (srcPoints, dstPoints);
+        }
+
+        private static double ShapeDistance(double[] a, double[] b) {
+            var dx = a[0] - b[0];
+            var dy = a[1] - b[1];
+            return Math.Sqrt(dx * dx + dy * dy);
         }
 
         private static double CosineSimilarity(double[] vecA, double[] vecB) {

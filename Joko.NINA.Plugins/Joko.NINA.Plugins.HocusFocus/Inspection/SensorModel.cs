@@ -703,8 +703,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }
         }
 
-        private const double minCosSimStrict = 0.999999; // Cosine similarity threshold for accepting a match
-        private const double minCosSimRelaxed = 0.99999; // Cosine similarity threshold for accepting a match
+        // Max Euclidean distance, in similarity-invariant shape-descriptor space (sorted side-length ratios),
+        // for two triangles to be accepted as a putative match. Replaces the former near-1 cosine-similarity
+        // thresholds, which were brittle to seeing/centroiding noise. Strict is tried first; if it yields too
+        // few matches the relaxed (larger) tolerance is used. Ratios are O(1), so these are small fractions.
+        private const double maxShapeDistanceStrict = 0.02;
+        private const double maxShapeDistanceRelaxed = 0.05;
 
         private int AlignStarsWithRANSAC(
             List<SensorDetectedStars> allDetectedStars,
@@ -787,15 +791,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     theseTriangles,
                     refTriangles,
                     status,
-                    minCosSimStrict);
+                    maxShapeDistanceStrict);
 
                 if (putativeDst.Count < 20) {
-                    Logger.Debug($"Image {imageIndex}: too few triangles ({putativeDst.Count}) with strict cosineSimilarity, switching to relaxed mode");
+                    Logger.Debug($"Image {imageIndex}: too few triangles ({putativeDst.Count}) with strict shape tolerance, switching to relaxed mode");
+                    // Reset the matched flags set by the strict pass so the relaxed pass can re-match freely.
+                    foreach (var t in theseTriangles) {
+                        t.ResetMatch();
+                    }
                     (putativeSrc, putativeDst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
                         theseTriangles,
                         refTriangles,
                         status,
-                        minCosSimRelaxed);
+                        maxShapeDistanceRelaxed);
                 }
                 try {
                     Logger.Info($"Image {imageIndex}, putative star matches: {putativeDst.Count} out of {theseStars.Count()} stars");
