@@ -1969,9 +1969,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void ActivateExposureAnalysis() {
-            FWHMContoursActive = true;
-            EccentricityVectorsActive = true;
-            ExposureAnalysisActivatedOnce = true;
+            // Only surface the FWHM contour map and eccentricity vectors when the analyzed validation image
+            // actually produced stars to compute them from. A final-folder image that yields no detected
+            // stars would otherwise show empty plots, so treat it as "no final validation image" and stay
+            // hidden (the expanders' visibility is bound to ExposureAnalysisActivatedOnce).
+            var hasValidationData = (SnapshotAnalysisStarDetectionResult?.StarList?.Count ?? 0) > 0;
+            FWHMContoursActive = hasValidationData;
+            EccentricityVectorsActive = hasValidationData;
+            ExposureAnalysisActivatedOnce = hasValidationData;
+            if (!hasValidationData) {
+                SimpleAnalysisErrorText = "Cannot display FWHM Contour and Eccentricity Vectors.\nNo stars were detected in the final validation image.";
+                Logger.Warning("Final validation image produced no detected stars; hiding FWHM contour and eccentricity vectors.");
+            }
         }
 
         private void DeactivateAutoFocusAnalysis() {

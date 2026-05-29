@@ -67,8 +67,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             previousRunBrightnessDiff = optionsAccessor.GetValueDouble(nameof(PreviousRunBrightnessDiff), 0.1d);
             startingBrightnessDiff = optionsAccessor.GetValueDouble(nameof(StartingBrightnessDiff), -1);
             rejectBadBrightnessMatches = optionsAccessor.GetValueBoolean(nameof(RejectBadBrightnessMatches), false);
-            rejectBadlyFittingMatches = optionsAccessor.GetValueBoolean(nameof(RejectBadlyFittingMatches), false);
-            useRANSAC = optionsAccessor.GetValueBoolean(nameof(UseRANSAC), false);
+            rejectBadlyFittingMatches = optionsAccessor.GetValueBoolean(nameof(RejectBadlyFittingMatches), true);
+            useRANSAC = optionsAccessor.GetValueBoolean(nameof(UseRANSAC), true);
             useAffineAlignment = optionsAccessor.GetValueBoolean(nameof(UseAffineAlignment), false);
             astigmaticCurvatureEnabled = optionsAccessor.GetValueBoolean(nameof(AstigmaticCurvatureEnabled), false);
             saveImagesOnReruns = optionsAccessor.GetValueBoolean(nameof(SaveImagesOnReruns), false);
@@ -98,7 +98,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             previousRunBrightnessDiff = -1;
             startingBrightnessDiff = -1;
             rejectBadBrightnessMatches = false;
-            rejectBadlyFittingMatches = false;
+            rejectBadlyFittingMatches = true;
+            useRANSAC = true;
             useAffineAlignment = false;
             astigmaticCurvatureEnabled = false;
             AcceptableRSquaredMin = SensorAberrationCalculator.DefaultAcceptableRSquaredMin;
@@ -369,7 +370,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private bool useRANSAC = false;
+        private bool useRANSAC = true;
 
         public bool UseRANSAC {
             get => useRANSAC;
@@ -421,7 +422,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private bool rejectBadlyFittingMatches = false;
+        private bool rejectBadlyFittingMatches = true;
 
         public bool RejectBadlyFittingMatches {
             get => rejectBadlyFittingMatches;
