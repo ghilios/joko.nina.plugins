@@ -263,7 +263,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 Assert.That(tri.NormalizedLengths.Count, Is.EqualTo(3));
                 Assert.That(tri.NormalizedBrightnesses.Count, Is.EqualTo(3));
                 Assert.That(tri.AsPositionMatrix().Length, Is.EqualTo(6));
-                Assert.That(tri.AsShapeMatrix().Length, Is.EqualTo(3));
+                Assert.That(tri.ShapeDescriptor().Length, Is.EqualTo(2));
                 Assert.That(tri.AsBrightnessMatrix().Length, Is.EqualTo(3));
                 Assert.That(tri.AsShapeAndBrightnessMatrix().Length, Is.EqualTo(6));
                 Assert.That(tri.IsReference, Is.True);

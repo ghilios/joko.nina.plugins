@@ -228,6 +228,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             private List<double> normalizedLengths;
             private List<double> normalizedBrightnesses;
             private List<Point2D> normalizedPoints;
+            private readonly double[] shapeDescriptor;
             private bool matched;
             private bool isReference;   // just used for annotating images with triangles
             private double matchScore;
@@ -247,6 +248,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 normalizedLengths = normalizeLength();
                 normalizedBrightnesses = normalizeBrightnesses(minBrightness, maxBrightness);
                 normalizedPoints = normalizePositions(imageSize, minBrightness, maxBrightness);
+                shapeDescriptor = ComputeShapeDescriptor();
             }
 
             public bool SameTriangle(StarTriangle other) {
@@ -302,23 +304,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 };
             }
 
-            public double[] AsShapeMatrix() {
-                return new double[] {
-                    normalizedLengths[0],
-                    normalizedLengths[1],
-                    normalizedLengths[2],
-                };
-            }
-
             /// <summary>
             /// Similarity-invariant shape descriptor: the two longer side lengths expressed as ratios to the
             /// shortest side, with the sides sorted by length. Because the sides are sorted, the descriptor is
-            /// independent of vertex ordering and handedness — unlike <see cref="AsShapeMatrix"/>, whose entries
-            /// follow the anchor-relative traversal order and so can differ for the same physical triangle seen
-            /// in two frames. Two triangles are similar iff their descriptors coincide; the Euclidean distance
-            /// between descriptors is a well-behaved shape-difference metric used for tolerance-bounded matching.
+            /// independent of vertex ordering and handedness, so the same physical triangle seen in two frames
+            /// yields the same descriptor. Two triangles are similar iff their descriptors coincide; the
+            /// Euclidean distance between descriptors is a well-behaved shape-difference metric used for
+            /// tolerance-bounded matching. Computed once in the constructor and cached (it is read in the
+            /// matcher's hot sort path).
             /// </summary>
             public double[] ShapeDescriptor() {
+                return shapeDescriptor;
+            }
+
+            private double[] ComputeShapeDescriptor() {
                 var squared = new[] {
                     lineLengthSquared(Points[0], Points[1]),
                     lineLengthSquared(Points[1], Points[2]),
@@ -594,7 +593,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     }
                 }
 
-                double aveInlierDistance = inlierDistanceTotal / inlierIndices.Count;
+                // Guard the 0/0 when a sampled transform has no inliers: treat it as worst-possible so it
+                // can never win the tie-break (NaN comparisons are always false, which only worked by luck).
+                double aveInlierDistance = inlierIndices.Count > 0 ? inlierDistanceTotal / inlierIndices.Count : double.MaxValue;
 
                 //Trace.WriteLine($"{idx1},{idx2}: {sampleSrc[0]}, {sampleSrc[1]} -> {sampleDst[0]}, {sampleDst[1]} = {transform}, {inlierIndices.Count*100/srcPoints.Count:0.####}%");
 
@@ -667,7 +668,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     }
                 }
 
-                double aveInlierDistance = inlierDistanceTotal / inlierIndices.Count;
+                // Guard the 0/0 when a sampled transform has no inliers: treat it as worst-possible so it
+                // can never win the tie-break (NaN comparisons are always false, which only worked by luck).
+                double aveInlierDistance = inlierIndices.Count > 0 ? inlierDistanceTotal / inlierIndices.Count : double.MaxValue;
 
                 //Trace.WriteLine($"{idx1},{idx2}: {sampleSrc[0]}, {sampleSrc[1]} -> {sampleDst[0]}, {sampleDst[1]} = {transform}, {inlierIndices.Count*100/srcPoints.Count:0.####}%");
 

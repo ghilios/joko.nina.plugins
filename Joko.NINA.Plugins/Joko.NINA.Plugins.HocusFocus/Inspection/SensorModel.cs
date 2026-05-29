@@ -612,6 +612,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 bool rejectBadlyFittingMatches) {
             int discardedStarCount = 0;
             var sensorModelDataPoints = new List<SensorParaboloidDataPoint>();
+            // Best-focus points collected with their per-star σ (NaN when the hyperbolic fit could not
+            // estimate a standard error). σ is resolved to a concrete weight in a second pass below.
+            var pendingPoints = new List<(double X, double Y, double FocuserMicrons, double RSquared, double StdDevMicrons)>();
             var maxOutlierRejectedPoints = this.autoFocusOptions.MaxOutlierRejections;
             var rejectionConfidence = this.autoFocusOptions.OutlierRejectionConfidence;
             const int minStarCountForFitting = 5;
@@ -665,15 +668,26 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     var dataPointY = (registeredStar.RegistrationY - (imageSize.Height / 2.0)) * pixelSize;
                     var focuserMicrons = fitting.Minimum.X * focuserSizeMicrons;
                     // Propagate the standard error of this star's best-focus position into the paraboloid
-                    // fit so it is weighted by 1/σ². Falls back to unit weight when unavailable.
+                    // fit so it is weighted by 1/σ². NaN marks "no estimate available"; resolved below to the
+                    // median of the available σ (rather than a fixed 1 µm, which would give such points a far
+                    // larger weight than well-measured stars and distort the χ² gate).
                     var bestFocusStdDevMicrons = (!double.IsNaN(fitting.MinimumStdError) && !double.IsInfinity(fitting.MinimumStdError) && fitting.MinimumStdError > 0.0)
                         ? fitting.MinimumStdError * focuserSizeMicrons
-                        : 1.0;
-                    var dataPoint = new SensorParaboloidDataPoint(dataPointX, dataPointY, focuserMicrons, fitting.RSquared, bestFocusStdDevMicrons);
-                    sensorModelDataPoints.Add(dataPoint);
+                        : double.NaN;
+                    pendingPoints.Add((dataPointX, dataPointY, focuserMicrons, fitting.RSquared, bestFocusStdDevMicrons));
                 } catch (Exception e) {
                     Logger.Error(e, $"Failed to calculate hyperbolic at ({registeredStar.RegistrationX}, {registeredStar.RegistrationY}). Error={e.Message}");
                 }
+            }
+
+            // Resolve missing σ to the median of the available ones (or 1.0 if none could be estimated), so a
+            // star whose best-focus standard error is unknown is weighted like a typical star rather than
+            // dominating the fit.
+            var availableStdDevs = pendingPoints.Where(p => !double.IsNaN(p.StdDevMicrons)).Select(p => p.StdDevMicrons).ToList();
+            var fallbackStdDevMicrons = availableStdDevs.Count > 0 ? availableStdDevs.MedianMAD().Item1 : 1.0;
+            foreach (var p in pendingPoints) {
+                var stdDev = double.IsNaN(p.StdDevMicrons) ? fallbackStdDevMicrons : p.StdDevMicrons;
+                sensorModelDataPoints.Add(new SensorParaboloidDataPoint(p.X, p.Y, p.FocuserMicrons, p.RSquared, stdDev));
             }
 
             stopwatch.RecordEntry("fitcurves");
@@ -903,12 +917,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 var nextStarIndexMap = starIndexMap[imageIndex];
                 var matchedGlobalStars = new bool[globalRegistry.Count];
                 var matchedSourceStars = new bool[nextStarTree.Count];
+                // Tracks whether a source star had ANY registry star within the search radius (regardless of
+                // brightness or one-to-one contention). Used below to restrict frame-union reinjection to
+                // stars that are genuinely absent from the registry's neighborhood.
+                var sourceHadGlobalNeighbor = new bool[nextStarTree.Count];
                 var queue = new KdTree.PriorityQueue<MatchingPair, double>(new DoubleMath());
                 foreach (var (starNode, starNodeIndex) in nextStarTree.Select((starNode, starNodeIndex) => (starNode, starNodeIndex))) {
                     var sourceStar = starNode.Value.DetectedStar;
                     var sourcePoint = starNode.Point;
                     var sourceIndex = starNode.Value.Index;
                     var globalNeighbors = globalRegistry.RadialSearch(sourcePoint, searchRadius);
+                    sourceHadGlobalNeighbor[sourceIndex] = globalNeighbors.Length > 0;
                     int queuedCount = 0;
                     foreach (var globalNeighbor in
                         maxNormalisedBrightnessDiff == -1 ? globalNeighbors :
@@ -944,14 +963,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     matchedSourceStars[nextCandidate.SourceIndex] = true;
                 }
 
-                // Frame-union coverage: a source star that matched nothing in the existing registry is a
-                // physical star not present in (or not detectable from) the reference frame. Add it as a new
+                // Frame-union coverage: a source star with NO registry star within the search radius is a
+                // physical star not present in (or not detectable from) the earlier frames. Add it as a new
                 // registry entry so it still contributes to the model and can be matched by later frames.
-                // The per-frame one-to-one constraint (matchedSourceStars) prevents double-counting, and the
-                // new entries are appended after this frame's matching so they cannot match this same frame.
+                // Only genuinely-absent stars are added: a star that HAD a neighbor but went unmatched (lost
+                // the one-to-one contention, or was rejected on brightness) is an ambiguous detection, not a
+                // new star — reinjecting it would duplicate a nearby registry star and partially undo the
+                // brightness filter. Restricting to no-neighbor stars also guarantees the new point cannot
+                // coincide with an existing one, so globalRegistry's AddDuplicateBehavior.Error never trips.
                 foreach (var starNode in nextStarTree) {
                     var unmatchedSourceIndex = starNode.Value.Index;
-                    if (matchedSourceStars[unmatchedSourceIndex]) {
+                    if (matchedSourceStars[unmatchedSourceIndex] || sourceHadGlobalNeighbor[unmatchedSourceIndex]) {
                         continue;
                     }
                     var newGlobalIndex = globalRegistry.Count;
