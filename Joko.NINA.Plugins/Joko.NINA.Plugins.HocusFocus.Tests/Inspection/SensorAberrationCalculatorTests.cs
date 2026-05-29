@@ -8,30 +8,47 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection;
 [TestFixture]
 public class SensorAberrationCalculatorTests {
 
+    private const double MaxChi = SensorAberrationCalculator.DefaultAcceptableReducedChiSquared;   // 5.0
+    private const double MinRSquared = SensorAberrationCalculator.DefaultAcceptableRSquaredMin;     // 0.05
+
     [Test]
     public void IsReducedChiSquaredAcceptable_NullFit_IsFalse() {
-        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(null), Is.False);
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(null, MaxChi), Is.False);
     }
 
     [Test]
     public void IsReducedChiSquaredAcceptable_NearOne_IsTrue() {
-        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(1.0)), Is.True);
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(1.0), MaxChi), Is.True);
     }
 
     [Test]
     public void IsReducedChiSquaredAcceptable_SmallValue_IsTrue() {
         // Residuals smaller than the declared σ (reduced χ² well below 1) is still a good fit.
-        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(0.1)), Is.True);
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(0.1), MaxChi), Is.True);
     }
 
     [Test]
     public void IsReducedChiSquaredAcceptable_LargeValue_IsFalse() {
-        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(50.0)), Is.False);
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(50.0), MaxChi), Is.False);
     }
 
     [Test]
     public void IsReducedChiSquaredAcceptable_NaN_IsFalse() {
-        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(double.NaN)), Is.False);
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(double.NaN), MaxChi), Is.False);
+    }
+
+    [Test]
+    public void IsReducedChiSquaredAcceptable_Infinity_IsFalse() {
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(double.PositiveInfinity), MaxChi), Is.False);
+    }
+
+    [Test]
+    public void IsReducedChiSquaredAcceptable_RespectsConfiguredMax() {
+        // A χ² of 8 is rejected at the default cap of 5 but accepted when the cap is raised to 10.
+        Assert.Multiple(() => {
+            Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(8.0), MaxChi), Is.False);
+            Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(WithReducedChiSquared(8.0), 10.0), Is.True);
+        });
     }
 
     [Test]
@@ -40,7 +57,84 @@ public class SensorAberrationCalculatorTests {
         // measurement errors (reduced χ² ≈ 1) is accepted, where an R² target would have rejected it.
         var nearlyFlatButConsistent = WithReducedChiSquared(1.0);
         SetGoodness(nearlyFlatButConsistent, 0.02);
-        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(nearlyFlatButConsistent), Is.True);
+        Assert.That(SensorAberrationCalculator.IsReducedChiSquaredAcceptable(nearlyFlatButConsistent, MaxChi), Is.True);
+    }
+
+    // --- IsModelAcceptable: combined R²/χ² rejection rule (truth table) ---
+
+    [Test]
+    public void IsModelAcceptable_NullFit_IsFalse() {
+        Assert.That(SensorAberrationCalculator.IsModelAcceptable(null, MaxChi, MinRSquared), Is.False);
+    }
+
+    [Test]
+    public void IsModelAcceptable_GoodChiSquaredLowRSquared_Accepts() {
+        // Flat sensor: χ² ≈ 1 (well below the 0.6·max=3.0 good band) with very low R² → accept.
+        Assert.That(SensorAberrationCalculator.IsModelAcceptable(WithFit(reducedChiSquared: 1.0, goodness: 0.02), MaxChi, MinRSquared), Is.True);
+    }
+
+    [Test]
+    public void IsModelAcceptable_MarginalChiSquaredLowRSquared_Rejects() {
+        // χ² ≥ 0.6·max=3.0 AND R² below min → the low R² now matters → reject.
+        Assert.That(SensorAberrationCalculator.IsModelAcceptable(WithFit(reducedChiSquared: 3.5, goodness: 0.02), MaxChi, MinRSquared), Is.False);
+    }
+
+    [Test]
+    public void IsModelAcceptable_MarginalChiSquaredAdequateRSquared_Accepts() {
+        // Same elevated χ² but R² above min → accept.
+        Assert.That(SensorAberrationCalculator.IsModelAcceptable(WithFit(reducedChiSquared: 3.5, goodness: 0.5), MaxChi, MinRSquared), Is.True);
+    }
+
+    [Test]
+    public void IsModelAcceptable_ChiSquaredAboveMax_RejectsRegardlessOfRSquared() {
+        // Above the cap, a high R² cannot rescue the fit (acceptance uses χ² <= max, so values strictly
+        // above the cap are rejected even when R² is excellent).
+        Assert.Multiple(() => {
+            Assert.That(SensorAberrationCalculator.IsModelAcceptable(WithFit(reducedChiSquared: 6.0, goodness: 0.99), MaxChi, MinRSquared), Is.False);
+            Assert.That(SensorAberrationCalculator.IsModelAcceptable(WithFit(reducedChiSquared: 5.0001, goodness: 0.99), MaxChi, MinRSquared), Is.False);
+        });
+    }
+
+    [Test]
+    public void IsModelAcceptable_NaNChiSquared_Rejects() {
+        Assert.That(SensorAberrationCalculator.IsModelAcceptable(WithFit(reducedChiSquared: double.NaN, goodness: 0.99), MaxChi, MinRSquared), Is.False);
+    }
+
+    [Test]
+    public void IsModelAcceptable_InfinityChiSquared_Rejects() {
+        Assert.That(SensorAberrationCalculator.IsModelAcceptable(WithFit(reducedChiSquared: double.PositiveInfinity, goodness: 0.99), MaxChi, MinRSquared), Is.False);
+    }
+
+    // --- ClassifyReducedChiSquared: display-band boundaries (good band = 0.6·max = 3.0) ---
+
+    [Test]
+    public void ClassifyReducedChiSquared_JustBelowGoodBand_IsGood() {
+        Assert.That(SensorAberrationCalculator.ClassifyReducedChiSquared(2.99, MaxChi), Is.EqualTo(SensorAberrationCalculator.FitQualityBand.Good));
+    }
+
+    [Test]
+    public void ClassifyReducedChiSquared_AtGoodBand_IsMarginal() {
+        Assert.That(SensorAberrationCalculator.ClassifyReducedChiSquared(3.0, MaxChi), Is.EqualTo(SensorAberrationCalculator.FitQualityBand.Marginal));
+    }
+
+    [Test]
+    public void ClassifyReducedChiSquared_JustBelowMax_IsMarginal() {
+        Assert.That(SensorAberrationCalculator.ClassifyReducedChiSquared(4.99, MaxChi), Is.EqualTo(SensorAberrationCalculator.FitQualityBand.Marginal));
+    }
+
+    [Test]
+    public void ClassifyReducedChiSquared_AtMax_IsRejected() {
+        Assert.That(SensorAberrationCalculator.ClassifyReducedChiSquared(5.0, MaxChi), Is.EqualTo(SensorAberrationCalculator.FitQualityBand.Rejected));
+    }
+
+    [Test]
+    public void ClassifyReducedChiSquared_NaN_IsRejected() {
+        Assert.That(SensorAberrationCalculator.ClassifyReducedChiSquared(double.NaN, MaxChi), Is.EqualTo(SensorAberrationCalculator.FitQualityBand.Rejected));
+    }
+
+    [Test]
+    public void ClassifyReducedChiSquared_Infinity_IsRejected() {
+        Assert.That(SensorAberrationCalculator.ClassifyReducedChiSquared(double.PositiveInfinity, MaxChi), Is.EqualTo(SensorAberrationCalculator.FitQualityBand.Rejected));
     }
 
     [Test]
@@ -203,6 +297,12 @@ public class SensorAberrationCalculatorTests {
     private static SensorParaboloidModel WithReducedChiSquared(double reducedChiSquared) {
         var model = new SensorParaboloidModel();
         typeof(SensorParaboloidModel).GetProperty(nameof(SensorParaboloidModel.ReducedChiSquared)).SetValue(model, reducedChiSquared);
+        return model;
+    }
+
+    private static SensorParaboloidModel WithFit(double reducedChiSquared, double goodness) {
+        var model = WithReducedChiSquared(reducedChiSquared);
+        SetGoodness(model, goodness);
         return model;
     }
 }

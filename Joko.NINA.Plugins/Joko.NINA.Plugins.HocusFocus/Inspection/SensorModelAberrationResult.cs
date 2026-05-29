@@ -241,7 +241,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             double fRatio,
             double focuserStepSizeMicrons,
             double finalFocusPosition,
-            SensorModel.RegisteredStar[] registeredStars) {
+            SensorModel.RegisteredStar[] registeredStars,
+            double acceptableReducedChiSquared,
+            double acceptableRSquaredMin) {
             ImageSize = imageSize;
             FRatio = fRatio;
             PixelSizeMicrons = pixelSizeMicrons;
@@ -275,7 +277,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             TiltPlaneModel = tiltPlaneModel;
 
             AnalysisResults.Clear();
-            AnalyzeSensorModelFit(sensorModel);
+            AnalyzeSensorModelFit(sensorModel, acceptableReducedChiSquared, acceptableRSquaredMin);
             AnalyzeCurvature(CurvatureRadiusMillimeters, CurvatureEffectMicrons, criticalFocusMicrons);
             AnalyzeTilt(TiltEffectMicrons, Tilt, criticalFocusMicrons);
             AnalyzeCentering(sensorModel, pixelSizeMicrons);
@@ -283,17 +285,52 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             Model = sensorModel;
         }
 
-        private void AnalyzeSensorModelFit(SensorParaboloidModel sensorModel) {
-            var result = new SensorModelAnalysisResult() {
-                Name = "Model Fit",
-                Value = $"{sensorModel.GoodnessOfFit:0.00} R²",
-                Acceptable = sensorModel.GoodnessOfFit > 0.6,
-                Details = "Sensor model fits well"
+        private void AnalyzeSensorModelFit(SensorParaboloidModel sensorModel, double acceptableReducedChiSquared, double acceptableRSquaredMin) {
+            var (rSquaredResult, reducedChiSquaredResult) = BuildFitQualityResults(sensorModel, acceptableReducedChiSquared, acceptableRSquaredMin);
+            AnalysisResults.Add(rSquaredResult);
+            AnalysisResults.Add(reducedChiSquaredResult);
+        }
+
+        /// <summary>
+        /// Builds the two fit-quality analysis rows (R² and reduced χ²) from a fitted model and the
+        /// configurable acceptance thresholds, applying the same combined rule used to accept/reject the
+        /// model: the R² row only fails when a low R² coincides with an elevated χ² (so a near-flat sensor
+        /// is not penalized for low R²), while the χ² row fails whenever reduced χ² reaches the cap.
+        /// Pure and side-effect-free so it can be unit tested without the dispatcher-backed result state.
+        /// </summary>
+        public static (SensorModelAnalysisResult rSquared, SensorModelAnalysisResult reducedChiSquared) BuildFitQualityResults(
+            SensorParaboloidModel sensorModel, double acceptableReducedChiSquared, double acceptableRSquaredMin) {
+            var goodnessOfFit = sensorModel.GoodnessOfFit;
+            var reducedChiSquared = sensorModel.ReducedChiSquared;
+            var band = SensorAberrationCalculator.ClassifyReducedChiSquared(reducedChiSquared, acceptableReducedChiSquared);
+            var chiSquaredElevated = band != SensorAberrationCalculator.FitQualityBand.Good;
+            var lowRSquared = goodnessOfFit < acceptableRSquaredMin;
+
+            var rSquaredResult = new SensorModelAnalysisResult() {
+                Name = "Model Fit (R²)",
+                Value = $"{goodnessOfFit:0.00} R²",
+                // Red only when R² actually contributes to rejection (low R² alongside an elevated χ²).
+                Acceptable = !(lowRSquared && chiSquaredElevated)
             };
-            if (!result.Acceptable) {
-                result.Details = "Sensor model R² is below 0.6, which indicates a weak model fit. You might need to review your star detection options, but your equipment might not be capable of better around the edges";
+            if (!rSquaredResult.Acceptable) {
+                rSquaredResult.Details = $"R² is below {acceptableRSquaredMin:0.00} while reduced χ² is also elevated, indicating a weak model fit. You might need to review your star detection options, but your equipment might not be capable of better around the edges.";
+            } else if (lowRSquared) {
+                rSquaredResult.Details = "Low R² is expected for a near-flat sensor and is fine while reduced χ² is good.";
+            } else {
+                rSquaredResult.Details = "Sensor model explains the best-focus variance well.";
             }
-            AnalysisResults.Add(result);
+
+            var reducedChiSquaredResult = new SensorModelAnalysisResult() {
+                Name = "Reduced χ²",
+                Value = $"{reducedChiSquared:0.00}",
+                Acceptable = band != SensorAberrationCalculator.FitQualityBand.Rejected,
+                Details = band switch {
+                    SensorAberrationCalculator.FitQualityBand.Good => "Fits within measurement uncertainty.",
+                    SensorAberrationCalculator.FitQualityBand.Marginal => "Acceptable but elevated — likely model error or under-estimated per-star σ.",
+                    _ => $"Exceeds the acceptable limit of {acceptableReducedChiSquared:0.00}; model rejected."
+                }
+            };
+            return (rSquaredResult, reducedChiSquaredResult);
         }
 
         private void AnalyzeTilt(double tiltEffectMicrons, Angle tilt, double criticalFocus) {

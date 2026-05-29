@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Core.Utility;
+using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
@@ -73,6 +74,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             saveImagesOnReruns = optionsAccessor.GetValueBoolean(nameof(SaveImagesOnReruns), false);
             saveAlignmentImages = optionsAccessor.GetValueBoolean(nameof(SaveAlignmentImages), false);
             maxStarsPerRegion = optionsAccessor.GetValueInt32(nameof(MaxStarsPerRegion), -1);
+            acceptableReducedChiSquared = optionsAccessor.GetValueDouble(nameof(AcceptableReducedChiSquared), SensorAberrationCalculator.DefaultAcceptableReducedChiSquared);
+            acceptableRSquaredMin = optionsAccessor.GetValueDouble(nameof(AcceptableRSquaredMin), SensorAberrationCalculator.DefaultAcceptableRSquaredMin);
         }
 
         public void ResetDefaults() {
@@ -99,6 +102,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             rejectBadlyFittingMatches = false;
             useAffineAlignment = false;
             astigmaticCurvatureEnabled = false;
+            AcceptableReducedChiSquared = SensorAberrationCalculator.DefaultAcceptableReducedChiSquared;
+            AcceptableRSquaredMin = SensorAberrationCalculator.DefaultAcceptableRSquaredMin;
         }
 
         private int stepCount;
@@ -495,6 +500,32 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (maxStarsPerRegion != value) {
                     maxStarsPerRegion = value;
                     optionsAccessor.SetValueInt32(nameof(MaxStarsPerRegion), maxStarsPerRegion);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double acceptableReducedChiSquared;
+
+        public double AcceptableReducedChiSquared {
+            get => acceptableReducedChiSquared;
+            set {
+                if (acceptableReducedChiSquared != value) {
+                    acceptableReducedChiSquared = value;
+                    optionsAccessor.SetValueDouble(nameof(AcceptableReducedChiSquared), acceptableReducedChiSquared);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double acceptableRSquaredMin;
+
+        public double AcceptableRSquaredMin {
+            get => acceptableRSquaredMin;
+            set {
+                if (acceptableRSquaredMin != value) {
+                    acceptableRSquaredMin = value;
+                    optionsAccessor.SetValueDouble(nameof(AcceptableRSquaredMin), acceptableRSquaredMin);
                     RaisePropertyChanged();
                 }
             }

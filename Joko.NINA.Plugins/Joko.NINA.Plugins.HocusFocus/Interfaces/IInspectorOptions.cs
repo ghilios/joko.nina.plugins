@@ -74,5 +74,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool SaveImagesOnReruns { get; set; }
         bool SaveAlignmentImages { get; set; }
         int MaxStarsPerRegion { get; set; }
+        double AcceptableReducedChiSquared { get; set; }
+        double AcceptableRSquaredMin { get; set; }
     }
 }

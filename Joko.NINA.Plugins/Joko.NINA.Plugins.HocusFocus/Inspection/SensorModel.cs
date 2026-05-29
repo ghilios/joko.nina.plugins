@@ -153,7 +153,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     fRatio: fRatio,
                     focuserStepSizeMicrons: focuserSizeMicrons,
                     finalFocusPosition: finalFocusPosition,
-                    registeredStars: fitResult.RegisteredStars);
+                    registeredStars: fitResult.RegisteredStars,
+                    acceptableReducedChiSquared: inspectorOptions.AcceptableReducedChiSquared,
+                    acceptableRSquaredMin: inspectorOptions.AcceptableRSquaredMin);
 
                 var historyId = Interlocked.Increment(ref nextHistoryId);
                 SensorTiltHistoryModels.Insert(0, new SensorParaboloidTiltHistoryModel(
@@ -473,8 +475,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         // has enough stars and a reduced χ² within the acceptable band. This replaces the
                         // former R²-vs-target test (and the wall-clock target removed in Phase 1), which
                         // rejected near-flat-but-good sensors and varied with machine load.
-                        if ((pfit != null) && ((pfit.StarsInModel < 10) || !SensorAberrationCalculator.IsReducedChiSquaredAcceptable(pfit))) {
-                            Logger.Debug($"Only have {pfit.StarsInModel} stars and reduced χ² of {pfit.ReducedChiSquared:#.##} (max is {SensorAberrationCalculator.AcceptableReducedChiSquaredMax:#.##}, R² {pfit.GoodnessOfFit:#.##}) with a brightness tolerance of {maxNormalisedBrightnessDiff:#.##}");
+                        if ((pfit != null) && ((pfit.StarsInModel < 10) || !SensorAberrationCalculator.IsModelAcceptable(pfit, inspectorOptions.AcceptableReducedChiSquared, inspectorOptions.AcceptableRSquaredMin))) {
+                            Logger.Debug($"Only have {pfit.StarsInModel} stars and reduced χ² of {pfit.ReducedChiSquared:#.##} (max is {inspectorOptions.AcceptableReducedChiSquared:#.##}, R² {pfit.GoodnessOfFit:#.##} vs min {inspectorOptions.AcceptableRSquaredMin:#.##}) with a brightness tolerance of {maxNormalisedBrightnessDiff:#.##}");
                             retry = true;
                         }
 
@@ -559,12 +561,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 if (bestPfit == null) {
                     throw new Exception("Failed to find a good model.");
                 }
-                // Fail only when the model is bad by both measures: it explains almost no variance (R²)
-                // AND it cannot fit the best-focus positions within their uncertainties (reduced χ²). A
-                // near-flat but well-measured sensor has low R² yet acceptable reduced χ², and must not
-                // be rejected.
-                if (bestPfit.GoodnessOfFit < 0.05 && !SensorAberrationCalculator.IsReducedChiSquaredAcceptable(bestPfit)) {
-                    throw new Exception($"Sensor modeling failed. R² = {bestPfit.GoodnessOfFit:#.00}, reduced χ² = {bestPfit.ReducedChiSquared:#.00}");
+                // Reject via the combined rule: fail when reduced χ² exceeds the acceptable cap, or when a
+                // low R² coincides with an elevated χ². A near-flat but well-measured sensor has low R² yet
+                // acceptable reduced χ², and is still accepted.
+                if (!SensorAberrationCalculator.IsModelAcceptable(bestPfit, inspectorOptions.AcceptableReducedChiSquared, inspectorOptions.AcceptableRSquaredMin)) {
+                    throw new Exception($"Sensor modeling failed. R² = {bestPfit.GoodnessOfFit:#.00} (min {inspectorOptions.AcceptableRSquaredMin:#.00}), reduced χ² = {bestPfit.ReducedChiSquared:#.00} (max {inspectorOptions.AcceptableReducedChiSquared:#.00})");
                 }
 
                 if (bestPfit.StarsInModel < 10) {
@@ -1022,7 +1023,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             SensorModelResult.Update(
                 sensorModel: historyModel.SensorModel, imageSize: historyModel.ImageSize, pixelSizeMicrons: historyModel.PixelSizeMicrons,
                 fRatio: historyModel.FRatio, focuserStepSizeMicrons: historyModel.FocuserSizeMicrons, finalFocusPosition: historyModel.FinalFocusPosition,
-                registeredStars: []);
+                registeredStars: [],
+                acceptableReducedChiSquared: inspectorOptions.AcceptableReducedChiSquared,
+                acceptableRSquaredMin: inspectorOptions.AcceptableRSquaredMin);
             DisplayedSensorModel = historyModel.SensorModel;
         }
 

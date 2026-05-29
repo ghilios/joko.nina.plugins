@@ -114,7 +114,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
                 RejectBadlyFittingMatches = false,
                 StartingBrightnessDiff = -1,
                 MaxStarsPerRegion = -1,
-                FixedSensorCenter = true
+                FixedSensorCenter = true,
+                // The synthetic data is noiseless, so each per-star best-focus σ is essentially zero and
+                // the model's reduced χ² is degenerately huge despite a perfect (R² = 1) fit. Disable the
+                // χ² acceptance gate for this fixture: it proves determinism, not fit quality.
+                AcceptableReducedChiSquared = double.MaxValue
             };
         }
 
