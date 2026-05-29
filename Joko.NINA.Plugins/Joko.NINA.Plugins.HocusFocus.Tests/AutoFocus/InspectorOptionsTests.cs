@@ -204,37 +204,26 @@ public class InspectorOptionsTests {
     }
 
     [Test]
-    public void FitQualityThresholds_HaveDocumentedDefaults() {
+    public void AcceptableRSquaredMin_HasDocumentedDefault() {
         var (options, _, _) = Build();
-        Assert.Multiple(() => {
-            Assert.That(options.AcceptableReducedChiSquared, Is.EqualTo(5.0));
-            Assert.That(options.AcceptableRSquaredMin, Is.EqualTo(0.05));
-        });
+        Assert.That(options.AcceptableRSquaredMin, Is.EqualTo(0.05));
     }
 
     [Test]
-    public void FitQualityThresholds_PersistToAccessor() {
+    public void AcceptableRSquaredMin_PersistsToAccessor() {
         var (options, store, _) = Build();
-        options.AcceptableReducedChiSquared = 8.5;
         options.AcceptableRSquaredMin = 0.2;
-        Assert.Multiple(() => {
-            Assert.That(store.Snapshot[nameof(InspectorOptions.AcceptableReducedChiSquared)], Is.EqualTo(8.5));
-            Assert.That(store.Snapshot[nameof(InspectorOptions.AcceptableRSquaredMin)], Is.EqualTo(0.2));
-        });
+        Assert.That(store.Snapshot[nameof(InspectorOptions.AcceptableRSquaredMin)], Is.EqualTo(0.2));
     }
 
     [Test]
-    public void FitQualityThresholds_ResetToDefaults() {
+    public void AcceptableRSquaredMin_ResetsToDefault() {
         var (options, _, _) = Build();
-        options.AcceptableReducedChiSquared = 8.5;
         options.AcceptableRSquaredMin = 0.2;
 
         options.ResetDefaults();
 
-        Assert.Multiple(() => {
-            Assert.That(options.AcceptableReducedChiSquared, Is.EqualTo(5.0));
-            Assert.That(options.AcceptableRSquaredMin, Is.EqualTo(0.05));
-        });
+        Assert.That(options.AcceptableRSquaredMin, Is.EqualTo(0.05));
     }
 
     [Test]

@@ -35,7 +35,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         public bool SaveImagesOnReruns { get; set; }
         public bool SaveAlignmentImages { get; set; }
         public int MaxStarsPerRegion { get; set; } = -1;
-        public double AcceptableReducedChiSquared { get; set; } = 5.0;
         public double AcceptableRSquaredMin { get; set; } = 0.05;
     }
 

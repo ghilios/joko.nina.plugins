@@ -6,12 +6,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection;
 [TestFixture]
 public class SensorModelAberrationResultTests {
 
-    private const double MaxChi = 5.0;       // good/marginal boundary = 0.6 * 5 = 3.0
-    private const double MinRSquared = 0.05;
+    private const double MinRSquared = 0.05;   // reduced χ² cap is the fixed SensorAberrationCalculator constant (5.0)
 
     [Test]
     public void BuildFitQualityResults_ProducesBothRowsWithExpectedNames() {
-        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.8, reducedChiSquared: 1.0), MaxChi, MinRSquared);
+        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.8, reducedChiSquared: 1.0), MinRSquared);
         Assert.Multiple(() => {
             Assert.That(rSquared.Name, Is.EqualTo("Model Fit (R²)"));
             Assert.That(reducedChiSquared.Name, Is.EqualTo("Reduced χ²"));
@@ -22,28 +21,8 @@ public class SensorModelAberrationResultTests {
 
     [Test]
     public void BuildFitQualityResults_FlatSensorGoodChiSquaredLowRSquared_BothAcceptable() {
-        // A near-flat sensor: low R² but χ² well within the good band → both rows acceptable.
-        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.02, reducedChiSquared: 1.0), MaxChi, MinRSquared);
-        Assert.Multiple(() => {
-            Assert.That(rSquared.Acceptable, Is.True, "Low R² alone must not fail the R² row while χ² is good");
-            Assert.That(reducedChiSquared.Acceptable, Is.True);
-        });
-    }
-
-    [Test]
-    public void BuildFitQualityResults_LowRSquaredElevatedChiSquared_OnlyRSquaredRowFails() {
-        // Low R² AND elevated χ² (>= 0.6*max=3.0 but < max=5.0): the R² row now contributes to rejection,
-        // while the χ² row is still within the acceptable cap (marginal).
-        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.02, reducedChiSquared: 3.5), MaxChi, MinRSquared);
-        Assert.Multiple(() => {
-            Assert.That(rSquared.Acceptable, Is.False);
-            Assert.That(reducedChiSquared.Acceptable, Is.True);
-        });
-    }
-
-    [Test]
-    public void BuildFitQualityResults_AdequateRSquaredElevatedChiSquared_BothAcceptable() {
-        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.5, reducedChiSquared: 3.5), MaxChi, MinRSquared);
+        // A near-flat sensor: low R² but χ² within the cap → model accepted → both rows acceptable.
+        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.02, reducedChiSquared: 1.0), MinRSquared);
         Assert.Multiple(() => {
             Assert.That(rSquared.Acceptable, Is.True);
             Assert.That(reducedChiSquared.Acceptable, Is.True);
@@ -51,21 +30,32 @@ public class SensorModelAberrationResultTests {
     }
 
     [Test]
-    public void BuildFitQualityResults_ChiSquaredAboveMax_OnlyChiSquaredRowFails_WhenRSquaredAdequate() {
-        // χ² above the cap → χ² row rejected. R² is adequate, so it does not contribute → R² row acceptable.
-        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.8, reducedChiSquared: 6.0), MaxChi, MinRSquared);
+    public void BuildFitQualityResults_AdequateRSquaredHighChiSquared_BothAcceptable() {
+        // The user's case: a well-fit model (adequate R²) with a huge reduced χ². χ² only matters when R²
+        // is very low, so the model is accepted and neither row is flagged.
+        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.61, reducedChiSquared: 11427.48), MinRSquared);
         Assert.Multiple(() => {
             Assert.That(rSquared.Acceptable, Is.True);
+            Assert.That(reducedChiSquared.Acceptable, Is.True);
+        });
+    }
+
+    [Test]
+    public void BuildFitQualityResults_LowRSquaredHighChiSquared_BothRowsFail() {
+        // Very low R² AND χ² above the cap → model rejected → both rows flagged.
+        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.02, reducedChiSquared: 50.0), MinRSquared);
+        Assert.Multiple(() => {
+            Assert.That(rSquared.Acceptable, Is.False);
             Assert.That(reducedChiSquared.Acceptable, Is.False);
         });
     }
 
     [Test]
-    public void BuildFitQualityResults_ChiSquaredAboveMaxAndLowRSquared_BothRowsFail() {
-        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.02, reducedChiSquared: 6.0), MaxChi, MinRSquared);
+    public void BuildFitQualityResults_AdequateRSquaredGoodChiSquared_BothAcceptable() {
+        var (rSquared, reducedChiSquared) = SensorModelAberrationResult.BuildFitQualityResults(BuildModel(goodness: 0.8, reducedChiSquared: 1.0), MinRSquared);
         Assert.Multiple(() => {
-            Assert.That(rSquared.Acceptable, Is.False);
-            Assert.That(reducedChiSquared.Acceptable, Is.False);
+            Assert.That(rSquared.Acceptable, Is.True);
+            Assert.That(reducedChiSquared.Acceptable, Is.True);
         });
     }
 

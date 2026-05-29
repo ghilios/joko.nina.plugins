@@ -23,85 +23,51 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
     public static class SensorAberrationCalculator {
 
         /// <summary>
-        /// Default upper bound on reduced χ² for a paraboloid fit to be accepted (and the brightness-tolerance
-        /// search to stop). Reduced χ² ≈ 1 means the model fits the measured best-focus positions to
-        /// within their standard errors; values far above 1 indicate a poor fit. Unlike an R² target,
-        /// this is independent of the overall tilt/curvature magnitude, so a near-flat but well-measured
-        /// sensor is accepted rather than rejected for "low R²". The bound is generous to tolerate the
-        /// approximate per-star uncertainties, and is user-configurable per rig via the inspector options.
+        /// Upper bound on reduced χ² used as a secondary rejection criterion (see <see cref="IsModelAcceptable"/>).
+        /// Reduced χ² ≈ 1 means the model fits the measured best-focus positions to within their standard
+        /// errors. Because the per-star σ is approximate and does not capture model error, reduced χ²
+        /// routinely runs far above 1 even for good fits and its absolute scale is rig-dependent — so a high
+        /// reduced χ² is only treated as a failure when the R² is also very low. This cap is therefore a
+        /// fixed sanity bound rather than a tunable option.
         /// </summary>
-        public const double DefaultAcceptableReducedChiSquared = 5.0;
+        public const double AcceptableReducedChiSquared = 5.0;
 
         /// <summary>
         /// Default lower bound on R² (variance explained) below which the fit is considered statistically
-        /// questionable — but only enough to reject when the reduced χ² is also elevated (see
-        /// <see cref="IsModelAcceptable"/>). A near-flat sensor legitimately scores a low R², so R² alone
-        /// never rejects a model.
+        /// questionable. Only when R² falls below this AND the reduced χ² is unacceptable is the model
+        /// rejected; a near-flat sensor legitimately scores a low R², so R² alone never rejects a model.
         /// </summary>
         public const double DefaultAcceptableRSquaredMin = 0.05;
-
-        /// <summary>
-        /// Fraction of the acceptable reduced-χ² cap that separates a "good" fit from a "marginal" one.
-        /// At the default cap of 5.0 this puts the good/marginal boundary at 3.0.
-        /// </summary>
-        private const double GoodReducedChiSquaredFraction = 0.6;
-
-        /// <summary>
-        /// Display band for a fit's reduced χ² relative to the configured acceptable cap.
-        /// </summary>
-        public enum FitQualityBand {
-            Good,
-            Marginal,
-            Rejected
-        }
 
         /// <summary>
         /// True if the fit's reduced χ² is finite and within the acceptable bound. A fit with very small
         /// reduced χ² (residuals smaller than the declared σ) is still acceptable — only large values,
         /// indicating the model cannot explain the data within its uncertainties, are rejected.
         /// </summary>
-        public static bool IsReducedChiSquaredAcceptable(SensorParaboloidModel fit, double maxReducedChiSquared) {
+        public static bool IsReducedChiSquaredAcceptable(SensorParaboloidModel fit) {
             if (fit == null) {
                 return false;
             }
             var reducedChiSquared = fit.ReducedChiSquared;
             return !double.IsNaN(reducedChiSquared) && !double.IsInfinity(reducedChiSquared)
-                && reducedChiSquared <= maxReducedChiSquared;
+                && reducedChiSquared <= AcceptableReducedChiSquared;
         }
 
         /// <summary>
-        /// Combined acceptance rule that keeps the magnitude-independence benefit of reduced χ² while
-        /// letting a low R² matter when the fit is also statistically questionable. Reject if
-        /// χ² ≥ <paramref name="maxReducedChiSquared"/>, OR if R² &lt; <paramref name="minRSquared"/> AND
-        /// χ² ≥ 0.6·max. A flat but well-measured sensor (good χ², low R²) is still accepted.
+        /// Acceptance rule: the reduced χ² is only a rejection criterion when the R² is very low. A model is
+        /// rejected only when R² &lt; <paramref name="minRSquared"/> AND its reduced χ² is unacceptable
+        /// (above the fixed <see cref="AcceptableReducedChiSquared"/> cap, or non-finite). A well-fit model
+        /// with an adequate R² is accepted even when its reduced χ² is very large, and a near-flat sensor
+        /// (low R², good χ²) is likewise accepted.
         /// </summary>
-        public static bool IsModelAcceptable(SensorParaboloidModel fit, double maxReducedChiSquared, double minRSquared) {
+        public static bool IsModelAcceptable(SensorParaboloidModel fit, double minRSquared) {
             if (fit == null) {
                 return false;
             }
-            if (!IsReducedChiSquaredAcceptable(fit, maxReducedChiSquared)) {
-                return false;   // χ² rejected outright
-            }
-            var goodBand = GoodReducedChiSquaredFraction * maxReducedChiSquared;
-            var chiElevated = fit.ReducedChiSquared >= goodBand;
-            if (fit.GoodnessOfFit < minRSquared && chiElevated) {
-                return false;   // low R² only contributes when χ² is also elevated
+            if (fit.GoodnessOfFit < minRSquared && !IsReducedChiSquaredAcceptable(fit)) {
+                return false;
             }
             return true;
-        }
-
-        /// <summary>
-        /// Classify a fit's reduced χ² into a display band relative to the configured acceptable cap.
-        /// Good below 0.6·max, Marginal between 0.6·max and max, Rejected at/above max (or non-finite).
-        /// </summary>
-        public static FitQualityBand ClassifyReducedChiSquared(double reducedChiSquared, double maxReducedChiSquared) {
-            if (double.IsNaN(reducedChiSquared) || double.IsInfinity(reducedChiSquared) || reducedChiSquared >= maxReducedChiSquared) {
-                return FitQualityBand.Rejected;
-            }
-            if (reducedChiSquared < GoodReducedChiSquaredFraction * maxReducedChiSquared) {
-                return FitQualityBand.Good;
-            }
-            return FitQualityBand.Marginal;
         }
 
         /// <summary>

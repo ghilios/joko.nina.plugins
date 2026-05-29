@@ -242,7 +242,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             double focuserStepSizeMicrons,
             double finalFocusPosition,
             SensorModel.RegisteredStar[] registeredStars,
-            double acceptableReducedChiSquared,
             double acceptableRSquaredMin) {
             ImageSize = imageSize;
             FRatio = fRatio;
@@ -277,7 +276,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             TiltPlaneModel = tiltPlaneModel;
 
             AnalysisResults.Clear();
-            AnalyzeSensorModelFit(sensorModel, acceptableReducedChiSquared, acceptableRSquaredMin);
+            AnalyzeSensorModelFit(sensorModel, acceptableRSquaredMin);
             AnalyzeCurvature(CurvatureRadiusMillimeters, CurvatureEffectMicrons, criticalFocusMicrons);
             AnalyzeTilt(TiltEffectMicrons, Tilt, criticalFocusMicrons);
             AnalyzeCentering(sensorModel, pixelSizeMicrons);
@@ -285,37 +284,39 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             Model = sensorModel;
         }
 
-        private void AnalyzeSensorModelFit(SensorParaboloidModel sensorModel, double acceptableReducedChiSquared, double acceptableRSquaredMin) {
-            var (rSquaredResult, reducedChiSquaredResult) = BuildFitQualityResults(sensorModel, acceptableReducedChiSquared, acceptableRSquaredMin);
+        private void AnalyzeSensorModelFit(SensorParaboloidModel sensorModel, double acceptableRSquaredMin) {
+            var (rSquaredResult, reducedChiSquaredResult) = BuildFitQualityResults(sensorModel, acceptableRSquaredMin);
             AnalysisResults.Add(rSquaredResult);
             AnalysisResults.Add(reducedChiSquaredResult);
         }
 
         /// <summary>
-        /// Builds the two fit-quality analysis rows (R² and reduced χ²) from a fitted model and the
-        /// configurable acceptance thresholds, applying the same combined rule used to accept/reject the
-        /// model: the R² row only fails when a low R² coincides with an elevated χ² (so a near-flat sensor
-        /// is not penalized for low R²), while the χ² row fails whenever reduced χ² reaches the cap.
-        /// Pure and side-effect-free so it can be unit tested without the dispatcher-backed result state.
+        /// Builds the two fit-quality analysis rows (R² and reduced χ²) from a fitted model, both reflecting
+        /// the acceptance rule that reduced χ² is only a failure when the R² is also very low. Both values
+        /// are always displayed; the rows are flagged (unacceptable) only when R² &lt;
+        /// <paramref name="acceptableRSquaredMin"/> AND the reduced χ² exceeds the fixed cap. A well-fit
+        /// model with an adequate R² is never flagged for a high reduced χ². Pure and side-effect-free so it
+        /// can be unit tested without the dispatcher-backed result state.
         /// </summary>
         public static (SensorModelAnalysisResult rSquared, SensorModelAnalysisResult reducedChiSquared) BuildFitQualityResults(
-            SensorParaboloidModel sensorModel, double acceptableReducedChiSquared, double acceptableRSquaredMin) {
+            SensorParaboloidModel sensorModel, double acceptableRSquaredMin) {
             var goodnessOfFit = sensorModel.GoodnessOfFit;
             var reducedChiSquared = sensorModel.ReducedChiSquared;
-            var band = SensorAberrationCalculator.ClassifyReducedChiSquared(reducedChiSquared, acceptableReducedChiSquared);
-            var chiSquaredElevated = band != SensorAberrationCalculator.FitQualityBand.Good;
+            var chiSquaredAcceptable = SensorAberrationCalculator.IsReducedChiSquaredAcceptable(sensorModel);
             var lowRSquared = goodnessOfFit < acceptableRSquaredMin;
+            // The model is rejected only when both metrics are bad; reduced χ² alone never rejects it.
+            var modelAcceptable = !(lowRSquared && !chiSquaredAcceptable);
+            var chiCap = SensorAberrationCalculator.AcceptableReducedChiSquared;
 
             var rSquaredResult = new SensorModelAnalysisResult() {
                 Name = "Model Fit (R²)",
                 Value = $"{goodnessOfFit:0.00} R²",
-                // Red only when R² actually contributes to rejection (low R² alongside an elevated χ²).
-                Acceptable = !(lowRSquared && chiSquaredElevated)
+                Acceptable = modelAcceptable
             };
-            if (!rSquaredResult.Acceptable) {
-                rSquaredResult.Details = $"R² is below {acceptableRSquaredMin:0.00} while reduced χ² is also elevated, indicating a weak model fit. You might need to review your star detection options, but your equipment might not be capable of better around the edges.";
+            if (!modelAcceptable) {
+                rSquaredResult.Details = $"R² is below {acceptableRSquaredMin:0.00} and reduced χ² is also too high; the model is rejected. Review your star detection options, but your equipment might not be capable of better around the edges.";
             } else if (lowRSquared) {
-                rSquaredResult.Details = "Low R² is expected for a near-flat sensor and is fine while reduced χ² is good.";
+                rSquaredResult.Details = "Low R² is expected for a near-flat sensor and is fine while reduced χ² is acceptable.";
             } else {
                 rSquaredResult.Details = "Sensor model explains the best-focus variance well.";
             }
@@ -323,13 +324,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var reducedChiSquaredResult = new SensorModelAnalysisResult() {
                 Name = "Reduced χ²",
                 Value = $"{reducedChiSquared:0.00}",
-                Acceptable = band != SensorAberrationCalculator.FitQualityBand.Rejected,
-                Details = band switch {
-                    SensorAberrationCalculator.FitQualityBand.Good => "Fits within measurement uncertainty.",
-                    SensorAberrationCalculator.FitQualityBand.Marginal => "Acceptable but elevated — likely model error or under-estimated per-star σ.",
-                    _ => $"Exceeds the acceptable limit of {acceptableReducedChiSquared:0.00}; model rejected."
-                }
+                Acceptable = modelAcceptable
             };
+            if (!modelAcceptable) {
+                reducedChiSquaredResult.Details = $"Reduced χ² exceeds {chiCap:0.00} and R² is also very low; the model is rejected.";
+            } else if (!chiSquaredAcceptable) {
+                reducedChiSquaredResult.Details = $"Reduced χ² is high, but it only indicates a problem when R² is also very low (< {acceptableRSquaredMin:0.00}). The per-star σ is approximate and rig-dependent, so a large value here is often benign.";
+            } else {
+                reducedChiSquaredResult.Details = "Fits within measurement uncertainty.";
+            }
             return (rSquaredResult, reducedChiSquaredResult);
         }
 

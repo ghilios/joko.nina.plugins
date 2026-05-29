@@ -43,7 +43,7 @@
     <TextBlock x:Key="SensorModel_TiltEffect_Tooltip" Text="The maximum nominal distance from the corners of the sensor to the center, due purely to the modeled tilt." />
     <TextBlock x:Key="SensorModel_AutoFocusOffset_Tooltip" Text="The number of focuser steps between the AutoFocus position and the Sensor Mean Focuser Position. You can set this value in the AF Offset setting in Auto Focus Options." />
     <TextBlock x:Key="SensorModel_StarsInModel_Tooltip" Text="The number of stars used in the sensor model. Each star needs to be matched across at least 5 of the frames, and some star fits are rejected as outliers during modeling." />
-    <TextBlock x:Key="SensorModel_ReducedChiSquared_Tooltip" Text="Reduced χ² measures how well the model fits the per-star best-focus positions relative to their estimated uncertainties (≈1 means it fits within measurement error). Unlike R², it is independent of the overall tilt/curvature magnitude, so a flat sensor is not penalized. The per-star σ is approximate and does not capture model error, so reduced χ² typically runs above 1 even for good fits and its absolute scale is rig-dependent — tune the acceptance threshold per rig." />
+    <TextBlock x:Key="SensorModel_ReducedChiSquared_Tooltip" Text="Reduced χ² measures how well the model fits the per-star best-focus positions relative to their estimated uncertainties (≈1 means it fits within measurement error). The per-star σ is approximate and does not capture model error, so reduced χ² routinely runs far above 1 even for good fits and its absolute scale is rig-dependent. It is shown for information and is only used as a rejection criterion when the R² is also very low." />
     <TextBlock x:Key="InterpolationEnabled_Tooltip" Text="Use interpolated points evenly spaced along a grid instead of the individual stars themselves. This should improve consistency of results and prevent overfitting where there are more stars." />
     <TextBlock x:Key="FixedSensorCenter_Tooltip" Text="Assume the sensor is perfectly centered in the optical train. If this option is off, the sensor location will be modeled along with the other model parameters." />
 
@@ -1660,8 +1660,8 @@
                                     Grid.Column="0"
                                     Margin="5"
                                     VerticalAlignment="Center"
-                                    Text="Max reduced χ² (rejection)"
-                                    ToolTip="The largest reduced χ² a sensor model may have and still be accepted. Reduced χ² ≈ 1 means the model fits the per-star best-focus positions within their estimated uncertainties; the model is rejected outright when it exceeds this cap. Because the per-star σ is approximate and does not capture model error, reduced χ² typically runs above 1 even for good fits and its absolute scale is rig-dependent, so this is deliberately generous and may need tuning per rig. A low R² only causes rejection when reduced χ² also reaches 0.6× this value." />
+                                    Text="Min R² (rejection)"
+                                    ToolTip="The smallest R² (fraction of best-focus variance explained) the model may have before its low R² is allowed to contribute to rejection. On its own a low R² never rejects the model — a near-flat sensor legitimately scores a low R². The model is rejected only when R² falls below this value AND the reduced χ² is also high (above a fixed sanity cap of 5)." />
                                 <StackPanel
                                     Grid.Row="4"
                                     Grid.Column="1"
@@ -1674,44 +1674,7 @@
                                         VerticalContentAlignment="Center"
                                         Foreground="{StaticResource PrimaryBrush}"
                                         TextAlignment="Left"
-                                        ToolTip="The largest reduced χ² a sensor model may have and still be accepted. Reduced χ² ≈ 1 means the model fits the per-star best-focus positions within their estimated uncertainties; the model is rejected outright when it exceeds this cap. Because the per-star σ is approximate and does not capture model error, reduced χ² typically runs above 1 even for good fits and its absolute scale is rig-dependent, so this is deliberately generous and may need tuning per rig. A low R² only causes rejection when reduced χ² also reaches 0.6× this value.">
-                                        <ninactrl:UnitTextBox.Text>
-                                            <Binding
-                                                Mode="TwoWay"
-                                                Path="InspectorOptions.AcceptableReducedChiSquared"
-                                                UpdateSourceTrigger="LostFocus">
-                                                <Binding.ValidationRules>
-                                                    <rules:DoubleRangeRule>
-                                                        <rules:DoubleRangeRule.ValidRange>
-                                                            <rules:DoubleRangeChecker Maximum="1000" Minimum="0.01" />
-                                                        </rules:DoubleRangeRule.ValidRange>
-                                                    </rules:DoubleRangeRule>
-                                                </Binding.ValidationRules>
-                                            </Binding>
-                                        </ninactrl:UnitTextBox.Text>
-                                    </ninactrl:UnitTextBox>
-                                </StackPanel>
-
-                                <TextBlock
-                                    Grid.Row="4"
-                                    Grid.Column="2"
-                                    Margin="5"
-                                    VerticalAlignment="Center"
-                                    Text="Min R² (rejection)"
-                                    ToolTip="The smallest R² (fraction of best-focus variance explained) the model may have before its low R² is allowed to contribute to rejection. On its own a low R² never rejects the model — a near-flat sensor legitimately scores a low R² — it only matters when the reduced χ² is also elevated (≥ 0.6× the max reduced χ²)." />
-                                <StackPanel
-                                    Grid.Row="4"
-                                    Grid.Column="3"
-                                    Orientation="Horizontal">
-                                    <ninactrl:UnitTextBox
-                                        MinWidth="40"
-                                        Margin="5,0,0,0"
-                                        VerticalAlignment="Center"
-                                        HorizontalContentAlignment="Left"
-                                        VerticalContentAlignment="Center"
-                                        Foreground="{StaticResource PrimaryBrush}"
-                                        TextAlignment="Left"
-                                        ToolTip="The smallest R² (fraction of best-focus variance explained) the model may have before its low R² is allowed to contribute to rejection. On its own a low R² never rejects the model — a near-flat sensor legitimately scores a low R² — it only matters when the reduced χ² is also elevated (≥ 0.6× the max reduced χ²).">
+                                        ToolTip="The smallest R² (fraction of best-focus variance explained) the model may have before its low R² is allowed to contribute to rejection. On its own a low R² never rejects the model — a near-flat sensor legitimately scores a low R². The model is rejected only when R² falls below this value AND the reduced χ² is also high (above a fixed sanity cap of 5).">
                                         <ninactrl:UnitTextBox.Text>
                                             <Binding
                                                 Mode="TwoWay"

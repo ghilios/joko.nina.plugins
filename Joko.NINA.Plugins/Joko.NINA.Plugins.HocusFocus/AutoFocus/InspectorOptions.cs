@@ -74,7 +74,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             saveImagesOnReruns = optionsAccessor.GetValueBoolean(nameof(SaveImagesOnReruns), false);
             saveAlignmentImages = optionsAccessor.GetValueBoolean(nameof(SaveAlignmentImages), false);
             maxStarsPerRegion = optionsAccessor.GetValueInt32(nameof(MaxStarsPerRegion), -1);
-            acceptableReducedChiSquared = optionsAccessor.GetValueDouble(nameof(AcceptableReducedChiSquared), SensorAberrationCalculator.DefaultAcceptableReducedChiSquared);
             acceptableRSquaredMin = optionsAccessor.GetValueDouble(nameof(AcceptableRSquaredMin), SensorAberrationCalculator.DefaultAcceptableRSquaredMin);
         }
 
@@ -102,7 +101,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             rejectBadlyFittingMatches = false;
             useAffineAlignment = false;
             astigmaticCurvatureEnabled = false;
-            AcceptableReducedChiSquared = SensorAberrationCalculator.DefaultAcceptableReducedChiSquared;
             AcceptableRSquaredMin = SensorAberrationCalculator.DefaultAcceptableRSquaredMin;
         }
 
@@ -500,19 +498,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (maxStarsPerRegion != value) {
                     maxStarsPerRegion = value;
                     optionsAccessor.SetValueInt32(nameof(MaxStarsPerRegion), maxStarsPerRegion);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double acceptableReducedChiSquared;
-
-        public double AcceptableReducedChiSquared {
-            get => acceptableReducedChiSquared;
-            set {
-                if (acceptableReducedChiSquared != value) {
-                    acceptableReducedChiSquared = value;
-                    optionsAccessor.SetValueDouble(nameof(AcceptableReducedChiSquared), acceptableReducedChiSquared);
                     RaisePropertyChanged();
                 }
             }
