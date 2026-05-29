@@ -37,7 +37,8 @@ Camera images may be mirrored horizontally and/or vertically depending on the op
 
 ## Plans Workflow
 
-- All implementation plans are saved in the `plans/` folder with a meaningful filename based on the plan goal (e.g., `plans/tilt-adapter-screw-calibration-wizard.md`).
+- **Every new plan MUST be written to the `plans/` folder** — never leave a plan only in chat, in another directory, or in a scratch file. This applies to all plans regardless of size or how they were produced (planning mode, brainstorming, ad-hoc requests, etc.).
+- Use a meaningful filename based on the plan goal (e.g., `plans/tilt-adapter-screw-calibration-wizard.md`).
 - **Clear your Claude Code context (`/clear`) before executing a plan** to avoid stale context from the planning session affecting implementation.
 - The user will explicitly say when a plan is ready to execute.
 
