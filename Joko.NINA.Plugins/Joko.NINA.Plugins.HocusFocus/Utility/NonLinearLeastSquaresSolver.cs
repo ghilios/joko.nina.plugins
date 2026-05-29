@@ -313,8 +313,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 }
 
                 Solver.Gradient(parameters, Solver.Inputs[i], singleGradient);
+                // The residual is weight·(f(θ)−y), so its derivative is weight·∂f/∂θ. The Jacobian must
+                // carry the same per-point weight as FitResiduals; otherwise, with non-uniform 1/σ weights,
+                // the optimizer's gradient is inconsistent with its residuals — biasing the LM step and
+                // tripping OptGuard. With uniform weights (1.0) this reduces to the plain gradient.
+                var weight = this.weights[i];
                 for (int j = 0; j < parameters.Length; ++j) {
-                    jac[i, j] = singleGradient[j];
+                    jac[i, j] = weight * singleGradient[j];
                 }
             }
         }
@@ -331,7 +336,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             var rss = 0.0d;
             var tss = 0.0d;
             int pixelCount = solver.Inputs.Length;
-            var yBar = solver.Outputs.Where((o, idx) => inputEnabled[idx]).Average();
+
+            // Weighted mean, so the weighted total sum of squares is taken about the correct center. Using
+            // a plain (unweighted) mean here while weighting the dispersion makes 1 − RSS/TSS no longer a
+            // valid R² (it can exceed 1 or go negative) once the per-point weights are non-uniform (1/σ).
+            // With uniform weights this reduces to the ordinary arithmetic mean.
+            var sumW2 = 0.0d;
+            var sumW2Y = 0.0d;
+            for (int i = 0; i < pixelCount; ++i) {
+                if (!inputEnabled[i]) {
+                    continue;
+                }
+                var w2 = this.weights[i] * this.weights[i];
+                sumW2 += w2;
+                sumW2Y += w2 * solver.Outputs[i];
+            }
+            var yBar = sumW2 > 0.0 ? sumW2Y / sumW2 : 0.0;
+
             for (int i = 0; i < pixelCount; ++i) {
                 if (!inputEnabled[i]) {
                     continue;

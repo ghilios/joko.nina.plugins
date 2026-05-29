@@ -204,6 +204,40 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         }
 
         [Test]
+        public void Solver_WeightedFit_AnalyticJacobianMatchesWeightedResiduals() {
+            // Regression: the analytic Jacobian must carry the same per-point 1/σ weight as the residuals.
+            // With non-uniform σ, an unweighted Jacobian is inconsistent with the weighted residual function;
+            // OptGuard (analytic-vs-numerical gradient check) throws OptGuardBadGradientException when that
+            // happens. Uniform-σ fits would not expose the bug, so the σ here are deliberately varied.
+            var truth = new SensorParaboloidModel(x0: 0, y0: 0, z0: 1000, gx: 0.001, gy: -0.0005, k: 3e-7);
+            var pts = new List<SensorParaboloidDataPoint>();
+            int idx = 0;
+            for (var iy = -2; iy <= 2; ++iy) {
+                for (var ix = -2; ix <= 2; ++ix) {
+                    double x = ix * 500, y = iy * 500;
+                    double sigma = 1.0 + (idx % 5) * 10.0;
+                    pts.Add(new SensorParaboloidDataPoint(x: x, y: y, focuserPosition: truth.ValueAt(x, y), rSquared: 0.99, focuserPositionStdDev: sigma));
+                    ++idx;
+                }
+            }
+
+            var solver = new SensorParaboloidSolver(
+                dataPoints: pts, sensorSizeMicronsX: 8000, sensorSizeMicronsY: 8000,
+                inFocusMicrons: 1000, fixedSensorCenter: true);
+            var nlls = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(alglibAPI) {
+                OptGuardEnabled = true
+            };
+
+            SensorParaboloidModel result = null;
+            Assert.DoesNotThrow(() => result = nlls.Solve(solver, tolerance: 1e-12));
+            Assert.Multiple(() => {
+                Assert.That(result.Gx, Is.EqualTo(0.001).Within(1e-5));
+                Assert.That(result.Gy, Is.EqualTo(-0.0005).Within(1e-5));
+                Assert.That(result.K, Is.EqualTo(3e-7).Within(1e-8));
+            });
+        }
+
+        [Test]
         public void Astigmatic_Solver_RecoversIndependentKxKy() {
             // A saddle-shaped field (Kx and Ky of opposite sign) cannot be represented by the isotropic
             // single-K model; the astigmatic 7-parameter solve must recover both coefficients.
