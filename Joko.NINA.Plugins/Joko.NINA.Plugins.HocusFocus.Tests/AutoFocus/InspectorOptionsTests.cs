@@ -44,8 +44,8 @@ public class InspectorOptionsTests {
             Assert.That(options.PreviousRunBrightnessDiff, Is.EqualTo(0.1));
             Assert.That(options.StartingBrightnessDiff, Is.EqualTo(-1));
             Assert.That(options.RejectBadBrightnessMatches, Is.False);
-            Assert.That(options.RejectBadlyFittingMatches, Is.False);
-            Assert.That(options.UseRANSAC, Is.False);
+            Assert.That(options.RejectBadlyFittingMatches, Is.True);
+            Assert.That(options.UseRANSAC, Is.True);
             Assert.That(options.SaveImagesOnReruns, Is.False);
             Assert.That(options.SaveAlignmentImages, Is.False);
             Assert.That(options.MaxStarsPerRegion, Is.EqualTo(-1));
@@ -76,8 +76,8 @@ public class InspectorOptionsTests {
         options.PreviousRunBrightnessDiff = 0.2;
         options.StartingBrightnessDiff = 0.3;
         options.RejectBadBrightnessMatches = true;
-        options.RejectBadlyFittingMatches = true;
-        options.UseRANSAC = true;
+        options.RejectBadlyFittingMatches = false;
+        options.UseRANSAC = false;
         options.SaveImagesOnReruns = true;
         options.SaveAlignmentImages = true;
         options.MaxStarsPerRegion = 50;
@@ -103,8 +103,8 @@ public class InspectorOptionsTests {
             Assert.That(store.Snapshot[nameof(InspectorOptions.PreviousRunBrightnessDiff)], Is.EqualTo(0.2));
             Assert.That(store.Snapshot[nameof(InspectorOptions.StartingBrightnessDiff)], Is.EqualTo(0.3));
             Assert.That(store.Snapshot[nameof(InspectorOptions.RejectBadBrightnessMatches)], Is.True);
-            Assert.That(store.Snapshot[nameof(InspectorOptions.RejectBadlyFittingMatches)], Is.True);
-            Assert.That(store.Snapshot[nameof(InspectorOptions.UseRANSAC)], Is.True);
+            Assert.That(store.Snapshot[nameof(InspectorOptions.RejectBadlyFittingMatches)], Is.False);
+            Assert.That(store.Snapshot[nameof(InspectorOptions.UseRANSAC)], Is.False);
             Assert.That(store.Snapshot[nameof(InspectorOptions.SaveImagesOnReruns)], Is.True);
             Assert.That(store.Snapshot[nameof(InspectorOptions.SaveAlignmentImages)], Is.True);
             Assert.That(store.Snapshot[nameof(InspectorOptions.MaxStarsPerRegion)], Is.EqualTo(50));
@@ -178,7 +178,7 @@ public class InspectorOptionsTests {
     [TestCase(nameof(InspectorOptions.LoopingExposureAnalysisEnabled), true)]
     [TestCase(nameof(InspectorOptions.MicronsPerFocuserStep), 2.5)]
     [TestCase(nameof(InspectorOptions.SensorROI), 0.6)]
-    [TestCase(nameof(InspectorOptions.UseRANSAC), true)]
+    [TestCase(nameof(InspectorOptions.UseRANSAC), false)]
     [TestCase(nameof(InspectorOptions.MaxStarsPerRegion), 30)]
     public void Setter_RaisesPropertyChanged(string propertyName, object newValue) {
         var (options, _, _) = Build();
@@ -201,6 +201,29 @@ public class InspectorOptionsTests {
         profile.ProfileChanged += Raise.Event<EventHandler>(profile, EventArgs.Empty);
 
         Assert.That(options.NumRegionsWide, Is.EqualTo(7));
+    }
+
+    [Test]
+    public void AcceptableRSquaredMin_HasDocumentedDefault() {
+        var (options, _, _) = Build();
+        Assert.That(options.AcceptableRSquaredMin, Is.EqualTo(0.05));
+    }
+
+    [Test]
+    public void AcceptableRSquaredMin_PersistsToAccessor() {
+        var (options, store, _) = Build();
+        options.AcceptableRSquaredMin = 0.2;
+        Assert.That(store.Snapshot[nameof(InspectorOptions.AcceptableRSquaredMin)], Is.EqualTo(0.2));
+    }
+
+    [Test]
+    public void AcceptableRSquaredMin_ResetsToDefault() {
+        var (options, _, _) = Build();
+        options.AcceptableRSquaredMin = 0.2;
+
+        options.ResetDefaults();
+
+        Assert.That(options.AcceptableRSquaredMin, Is.EqualTo(0.05));
     }
 
     [Test]

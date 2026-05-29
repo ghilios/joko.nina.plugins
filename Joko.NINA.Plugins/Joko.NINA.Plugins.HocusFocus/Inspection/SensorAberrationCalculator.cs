@@ -23,22 +23,51 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
     public static class SensorAberrationCalculator {
 
         /// <summary>
-        /// Returns the goodness-of-fit (R²) target for an iteration that has already taken the
-        /// supplied amount of time. Faster iterations get a stricter target since we can afford
-        /// to keep searching; slower iterations get a relaxed target so we converge in time.
+        /// Upper bound on reduced χ² used as a secondary rejection criterion (see <see cref="IsModelAcceptable"/>).
+        /// Reduced χ² ≈ 1 means the model fits the measured best-focus positions to within their standard
+        /// errors. Because the per-star σ is approximate and does not capture model error, reduced χ²
+        /// routinely runs far above 1 even for good fits and its absolute scale is rig-dependent — so a high
+        /// reduced χ² is only treated as a failure when the R² is also very low. This cap is therefore a
+        /// fixed sanity bound rather than a tunable option.
         /// </summary>
-        public static double TargetR2BasedOnTimeTaken(TimeSpan timeSpan) {
-            double secondsTaken = timeSpan.TotalSeconds;
-            if (secondsTaken < 1) {
-                return 0.9;
+        public const double AcceptableReducedChiSquared = 5.0;
+
+        /// <summary>
+        /// Default lower bound on R² (variance explained) below which the fit is considered statistically
+        /// questionable. Only when R² falls below this AND the reduced χ² is unacceptable is the model
+        /// rejected; a near-flat sensor legitimately scores a low R², so R² alone never rejects a model.
+        /// </summary>
+        public const double DefaultAcceptableRSquaredMin = 0.05;
+
+        /// <summary>
+        /// True if the fit's reduced χ² is finite and within the acceptable bound. A fit with very small
+        /// reduced χ² (residuals smaller than the declared σ) is still acceptable — only large values,
+        /// indicating the model cannot explain the data within its uncertainties, are rejected.
+        /// </summary>
+        public static bool IsReducedChiSquaredAcceptable(SensorParaboloidModel fit) {
+            if (fit == null) {
+                return false;
             }
-            if (secondsTaken < 3) {
-                return 0.8;
+            var reducedChiSquared = fit.ReducedChiSquared;
+            return !double.IsNaN(reducedChiSquared) && !double.IsInfinity(reducedChiSquared)
+                && reducedChiSquared <= AcceptableReducedChiSquared;
+        }
+
+        /// <summary>
+        /// Acceptance rule: the reduced χ² is only a rejection criterion when the R² is very low. A model is
+        /// rejected only when R² &lt; <paramref name="minRSquared"/> AND its reduced χ² is unacceptable
+        /// (above the fixed <see cref="AcceptableReducedChiSquared"/> cap, or non-finite). A well-fit model
+        /// with an adequate R² is accepted even when its reduced χ² is very large, and a near-flat sensor
+        /// (low R², good χ²) is likewise accepted.
+        /// </summary>
+        public static bool IsModelAcceptable(SensorParaboloidModel fit, double minRSquared) {
+            if (fit == null) {
+                return false;
             }
-            if (secondsTaken < 5) {
-                return 0.7;
+            if (fit.GoodnessOfFit < minRSquared && !IsReducedChiSquaredAcceptable(fit)) {
+                return false;
             }
-            return 0.6;
+            return true;
         }
 
         /// <summary>
