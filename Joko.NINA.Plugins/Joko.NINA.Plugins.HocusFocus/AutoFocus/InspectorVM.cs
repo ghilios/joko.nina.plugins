@@ -1970,16 +1970,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private void ActivateExposureAnalysis() {
             // Only surface the FWHM contour map and eccentricity vectors when the analyzed validation image
-            // actually produced stars to compute them from. A final-folder image that yields no detected
-            // stars would otherwise show empty plots, so treat it as "no final validation image" and stay
-            // hidden (the expanders' visibility is bound to ExposureAnalysisActivatedOnce).
-            var hasValidationData = (SnapshotAnalysisStarDetectionResult?.StarList?.Count ?? 0) > 0;
+            // produced stars with a fitted PSF. Both plots skip stars whose PSF could not be modeled
+            // (FWHMContourControl and the eccentricity vector field both ignore PSF == null), so a result
+            // with detections but no usable PSFs would render empty panels. Treat that as "no final
+            // validation data" and stay hidden (the expanders' visibility is bound to
+            // ExposureAnalysisActivatedOnce).
+            var hasValidationData = SnapshotAnalysisStarDetectionResult?.StarList?
+                .OfType<HocusFocusDetectedStar>().Any(s => s.PSF != null) ?? false;
             FWHMContoursActive = hasValidationData;
             EccentricityVectorsActive = hasValidationData;
             ExposureAnalysisActivatedOnce = hasValidationData;
             if (!hasValidationData) {
-                SimpleAnalysisErrorText = "Cannot display FWHM Contour and Eccentricity Vectors.\nNo stars were detected in the final validation image.";
-                Logger.Warning("Final validation image produced no detected stars; hiding FWHM contour and eccentricity vectors.");
+                SimpleAnalysisErrorText = "Cannot display FWHM Contour and Eccentricity Vectors.\nThe final validation image produced no usable star measurements (no fitted PSFs).";
+                Logger.Warning("Final validation image produced no PSF-modeled stars; hiding FWHM contour and eccentricity vectors.");
             }
         }
 
