@@ -601,6 +601,41 @@ Every new field added to `StarDetectorMetrics` (rejection counts, flags, etc.) *
 
 ---
 
+## Headless Contamination Diagnostic Tool
+
+`TestApp` doubles as a **self-contained, headless diagnostic** for the sector-annulus contamination test
+(`StarDetector.IsContaminatedBySectors`). Use it to root-cause / re-tune star-detection contamination
+**without launching NINA** — it reproduces the exact production decision because it loads the user's real
+NINA profile and builds params via `HocusFocusStarDetection.BuildStarDetectorParams` (the single
+options→params source of truth), then runs detection with per-star diagnostics enabled.
+
+**Run it** (WSL interop runs the Windows `.exe` directly, so paths with spaces quote cleanly):
+
+```bash
+./Joko.NINA.Plugins/TestApp/bin/Debug/net8.0-windows7.0/TestApp.exe \
+  contamination --image "C:\path\to\image.xisf" --out "C:\temp\hf-diag"
+```
+
+- Build first: `cmd.exe /c "dotnet build Joko.NINA.Plugins\TestApp\TestApp.csproj -c Debug --nologo"`.
+- Args: `--image <path>` (req; `.xisf`/`.fits`/`.tif`), `--profile-id <guid>` (default: active profile),
+  `--out <dir>` (default `%LOCALAPPDATA%\NINA\Logs\hf-diag\<timestamp>`), `--sensitivity <double>` (override),
+  `--sensitivity-sweep <a,b,step>` (A/B sweep → `sweep.csv` + per-value CSVs).
+- No `--image`/`contamination` arg ⇒ TestApp launches its normal WPF GUI instead.
+
+**Outputs** (in `--out`): `contamination_stars.csv` (one row per accepted star — center, HFR, the σ used,
+per opposite-pair `diff/threshold/ratio/skip`, `TrippingPairIndex`, `ContaminationSuspected`, `MaxRatio`);
+`contamination_summary.txt` (settings + flag rate + MaxRatio distribution); `contamination_annotated.png`
+(green = clean, magenta = flagged); plus verbose TRACE in `%LOCALAPPDATA%\NINA\Logs`.
+
+**How the production hook works (off by default, zero overhead):** set
+`StarDetectorParams.CollectContaminationDiagnostics = true` and read
+`HocusFocusStarDetectorResult.ContaminationDiagnostics` (a `List<ContaminationDiagnosticRecord>`, 1:1 with
+`DetectedStars`). When the flag is false the detector allocates nothing and does no extra math.
+`IsContaminatedBySectors` is kept **pure** — diagnostics are recomputed alongside it via
+`BuildContaminationDiagnostics`, never by changing the decision function.
+
+---
+
 ## Key File Locations
 
 | Component | Path (relative to solution root) |
@@ -616,6 +651,9 @@ Every new field added to `StarDetectorMetrics` (rejection counts, flags, etc.) *
 | VM DataTemplates | `Joko.NINA.Plugins.HocusFocus/AutoFocus/DataTemplates.xaml` |
 | Options templates | `Joko.NINA.Plugins.HocusFocus/Resources/OptionsDataTemplates.xaml` |
 | Version (AssemblyInfo) | `Joko.NINA.Plugins.HocusFocus/Properties/AssemblyInfo.cs` |
+| Contamination diagnostic runner | `TestApp/ContaminationDiagnosticRunner.cs` |
+| Options→params source of truth | `Joko.NINA.Plugins.HocusFocus/StarDetection/HocusFocusStarDetection.cs` (`BuildStarDetectorParams`) |
+| Contamination decision (pure) | `Joko.NINA.Plugins.HocusFocus/StarDetection/StarDetector.cs` (`IsContaminatedBySectors`) |
 
 ---
 
