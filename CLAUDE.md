@@ -623,9 +623,23 @@ options→params source of truth), then runs detection with per-star diagnostics
 - No `--image`/`contamination` arg ⇒ TestApp launches its normal WPF GUI instead.
 
 **Outputs** (in `--out`): `contamination_stars.csv` (one row per accepted star — center, HFR, the σ used,
-per opposite-pair `diff/threshold/ratio/skip`, `TrippingPairIndex`, `ContaminationSuspected`, `MaxRatio`);
-`contamination_summary.txt` (settings + flag rate + MaxRatio distribution); `contamination_annotated.png`
-(green = clean, magenta = flagged); plus verbose TRACE in `%LOCALAPPDATA%\NINA\Logs`.
+per opposite-pair `diff/threshold/ratio/skip`, `TrippingPairIndex`, `ContaminationSuspected`, `MaxRatio`;
+plus per-star shape/proximity `Eccentricity`/`FWHMx`/`FWHMy`/`FWHMPixels`/`ThetaDeg`/`NearestNeighborDist`/
+`NearestNeighborOverHfr`/`HasCloseNeighbor`/`PsfFitOk`; and the gradient-robust A/B columns
+`GradientSlope`/`LocalSigmaResidual`/`MaxSectorResidualOverSE`/`AltTrippingSector`/`AltContaminationSuspected`);
+`contamination_summary.txt` (settings + flag rate + MaxRatio distribution + a flagged-vs-clean hypothesis
+comparison + an A/B confusion matrix); `contamination_annotated.png` (green = clean, magenta = flagged-with-
+close-neighbor, cyan = flagged-isolated); `contamination_annotated_ab.png` (green = both clean, magenta = both
+flagged, red = current-only/dropped-by-gradient-robust, yellow = new-only/added-by-gradient-robust);
+`gr_sweep.csv` (decision-threshold sweep for both tests, computed from a single run); plus verbose TRACE in
+`%LOCALAPPDATA%\NINA\Logs`.
+
+**Gradient-robust A/B (`Alt*` fields):** the current `IsContaminatedBySectors` compares *raw* opposite-sector
+medians, so a smooth one-sided background (galaxy/nebula gradient) trips it with no contaminant. The A/B
+"gradient-robust" test (`StarDetector.AddGradientRobustDiagnostics`) fits a robust plane (IRLS/Huber) to the
+annulus pixels, subtracts the local gradient, then flags only a one-sided **positive** residual excess — which
+also ignores edge-clipping deficits. Validated on M31 + Pleiades: it drops smooth-gradient/edge false positives
+and recovers real faint companions masked by an opposing gradient.
 
 **How the production hook works (off by default, zero overhead):** set
 `StarDetectorParams.CollectContaminationDiagnostics = true` and read

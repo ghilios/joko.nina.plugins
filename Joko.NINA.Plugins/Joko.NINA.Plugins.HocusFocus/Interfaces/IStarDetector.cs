@@ -394,6 +394,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public bool ContaminationSuspected { get; set; }
         public double Hfr { get; set; }
         public double Background { get; set; }
+
+        // --- Experimental gradient-robust ("Alt") A/B test, populated only with diagnostics on ---
+        // The current test compares raw opposite-sector medians, so a smooth one-sided background (e.g. a
+        // galaxy/nebula gradient) trips it even with no contaminant. The Alt test fits a robust plane to the
+        // annulus pixels (removing the local gradient), then flags only a one-sided POSITIVE residual excess
+        // (a contaminant only adds light), which also ignores edge-clipping deficits. See StarDetector.
+        public double GradientSlope { get; set; } = double.NaN;        // |fitted plane gradient| in counts/pixel
+        public double LocalSigmaResidual { get; set; } = double.NaN;   // robust sigma of plane-subtracted residuals
+        public double[] SectorResidualMedian { get; set; }            // length 8, plane-subtracted
+        public int[] SectorResidualCount { get; set; }                // length 8
+        public double MaxSectorResidualOverSE { get; set; } = double.NaN; // Alt test statistic (max over sectors)
+        public int AltTrippingSector { get; set; } = -1;              // first sector that tripped, else -1
+        public bool AltContaminationSuspected { get; set; }           // Alt decision at the same sensitivity
     }
 
     public class HocusFocusStarDetectorResult {

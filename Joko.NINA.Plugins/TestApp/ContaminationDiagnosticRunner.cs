@@ -12,6 +12,8 @@
 
 using NINA.Core.Enum;
 using NINA.Core.Utility;
+using KdTree;
+using KdTree.Math;
 using NINA.Image.FileFormat.FITS;
 using NINA.Image.FileFormat.XISF;
 using NINA.Image.ImageAnalysis;
@@ -113,6 +115,14 @@ namespace TestApp {
             // Build params from the SAME mapping NINA uses (single source of truth), enable diagnostics
             var baseParams = HocusFocusStarDetection.BuildStarDetectorParams(options);
             baseParams.CollectContaminationDiagnostics = true;
+            // Force PSF modeling on so per-star shape metrics (eccentricity/FWHM) are always available. The
+            // contamination decision is computed from sector medians BEFORE PSF fitting, so this does NOT
+            // change which stars get flagged — it only adds shape data for the flagged-vs-clean comparison.
+            if (!baseParams.ModelPSF) {
+                Console.WriteLine("Forcing ModelPSF on for shape diagnostics (does not affect contamination decisions)");
+                Logger.Info("Diagnostic: forced ModelPSF=true to capture eccentricity/FWHM");
+                baseParams.ModelPSF = true;
+            }
             if (sensitivityOverride.HasValue) {
                 Console.WriteLine($"Overriding ContaminationSensitivity {baseParams.ContaminationSensitivity} -> {sensitivityOverride.Value}");
                 baseParams.ContaminationSensitivity = sensitivityOverride.Value;
@@ -137,10 +147,15 @@ namespace TestApp {
             int suspected = result.Metrics.ContaminationSuspected;
             Console.WriteLine($"Detected {total}, {suspected} contamination-suspected ({Percent(suspected, total)})");
 
-            WriteCsv(Path.Combine(outDir, "contamination_stars.csv"), diagnostics);
-            WriteSummary(Path.Combine(outDir, "contamination_summary.txt"), imagePath, srcFloat, baseParams, total, suspected, diagnostics);
-            WriteAnnotated(Path.Combine(outDir, "contamination_annotated.png"), srcFloat, diagnostics);
-            Console.WriteLine($"Wrote contamination_stars.csv, contamination_summary.txt, contamination_annotated.png to {outDir}");
+            var shapes = BuildShapeLookup(result, diagnostics);
+            int altSuspected = diagnostics.Count(r => r.AltContaminationSuspected);
+            Console.WriteLine($"Gradient-robust (A/B) would flag {altSuspected} ({Percent(altSuspected, total)}) vs current {suspected}");
+            WriteCsv(Path.Combine(outDir, "contamination_stars.csv"), diagnostics, shapes);
+            WriteSummary(Path.Combine(outDir, "contamination_summary.txt"), imagePath, srcFloat, baseParams, total, suspected, diagnostics, shapes);
+            WriteAnnotated(Path.Combine(outDir, "contamination_annotated.png"), srcFloat, diagnostics, shapes);
+            WriteAnnotatedAb(Path.Combine(outDir, "contamination_annotated_ab.png"), srcFloat, diagnostics);
+            WriteGradientRobustSweep(Path.Combine(outDir, "gr_sweep.csv"), diagnostics, baseParams.ContaminationSensitivity, shapes);
+            Console.WriteLine($"Wrote contamination_stars.csv, contamination_summary.txt, contamination_annotated.png, contamination_annotated_ab.png to {outDir}");
         }
 
         private static async Task RunSweep(Mat srcFloat, StarDetectorParams baseParams, string sweepArg, string outDir) {
@@ -166,7 +181,8 @@ namespace TestApp {
                 var tag = s.ToString("0.###", CultureInfo.InvariantCulture);
                 Console.WriteLine($"sensitivity={tag}: detected {total}, {suspected} suspected ({Percent(suspected, total)})");
                 Logger.Info($"Sweep sensitivity={tag}: detected {total}, suspected {suspected}");
-                WriteCsv(Path.Combine(outDir, $"contamination_stars_{tag}.csv"), diagnostics);
+                var sweepShapes = BuildShapeLookup(result, diagnostics);
+                WriteCsv(Path.Combine(outDir, $"contamination_stars_{tag}.csv"), diagnostics, sweepShapes);
                 sweepRows.Add(string.Join(",", tag, suspected, total, PercentValue(suspected, total).ToString("0.##", CultureInfo.InvariantCulture)));
             }
             File.WriteAllLines(Path.Combine(outDir, "sweep.csv"), sweepRows);
@@ -208,7 +224,93 @@ namespace TestApp {
                 $"MinHFR={o.MinHFR}, MinStarBoundingBoxSize={o.MinStarBoundingBoxSize}, ModelPSF={o.ModelPSF}, PSFFitType={o.PSFFitType}");
         }
 
-        private static void WriteCsv(string path, List<ContaminationDiagnosticRecord> diagnostics) {
+        // A flagged star is considered to actually have a "close" neighbor when its nearest detected
+        // neighbor sits within this many HFR of its center. Beyond this, it is treated as isolated.
+        private const double CloseNeighborHfrFactor = 3.0;
+
+        /// <summary>
+        /// Per-star shape + proximity data joined to each contamination record. Lets the diagnostic test the
+        /// "flagged stars are eccentric/blurry, not next to a neighbor" hypothesis. Eccentricity/FWHM come
+        /// from the PSF fit (NaN when no fit); NearestNeighborDist is to the closest OTHER detected star.
+        /// </summary>
+        private sealed class ShapeInfo {
+            public double Eccentricity = double.NaN;
+            public double FWHMx = double.NaN;
+            public double FWHMy = double.NaN;
+            public double FWHMPixels = double.NaN;
+            public double ThetaDeg = double.NaN;
+            public bool PsfFitOk = false;
+            public double NearestNeighborDist = double.NaN;
+            public double NearestNeighborOverHfr = double.NaN;
+            public bool HasCloseNeighbor =>
+                !double.IsNaN(NearestNeighborOverHfr) && NearestNeighborOverHfr < CloseNeighborHfrFactor;
+        }
+
+        /// <summary>
+        /// Joins each contamination record (re-sorted from a ConcurrentBag, so NOT index-aligned with
+        /// DetectedStars) to its star's PSF shape metrics by matching on center coordinates, and computes
+        /// each star's nearest-detected-neighbor distance via a 2-D Kd-tree.
+        /// </summary>
+        private static Dictionary<ContaminationDiagnosticRecord, ShapeInfo> BuildShapeLookup(
+                HocusFocusStarDetectorResult result, List<ContaminationDiagnosticRecord> diagnostics) {
+            var lookup = new Dictionary<ContaminationDiagnosticRecord, ShapeInfo>();
+            var stars = result.DetectedStars ?? new List<Star>();
+
+            // Center -> Star map for the record->star join. record.CenterX/Y is assigned directly from
+            // star.Center (no ROI in the diagnostic path), so a rounded-coordinate key matches exactly.
+            var byCenter = new Dictionary<(long, long), Star>();
+            foreach (var s in stars) {
+                byCenter[CenterKey(s.Center.X, s.Center.Y)] = s;
+            }
+
+            // Kd-tree of all detected centers for nearest-neighbor distance.
+            var tree = new KdTree<double, Star>(2, new DoubleMath(), AddDuplicateBehavior.Skip);
+            foreach (var s in stars) {
+                tree.Add(new[] { s.Center.X, s.Center.Y }, s);
+            }
+            var nnByCenter = new Dictionary<(long, long), double>();
+            foreach (var s in stars) {
+                var key = CenterKey(s.Center.X, s.Center.Y);
+                if (nnByCenter.ContainsKey(key)) continue;
+                var neighbors = tree.GetNearestNeighbours(new[] { s.Center.X, s.Center.Y }, 2);
+                double nn = double.NaN;
+                if (neighbors.Length >= 2) {
+                    var p = neighbors[1].Point; // [0] is the star itself
+                    nn = Math.Sqrt((s.Center.X - p[0]) * (s.Center.X - p[0]) + (s.Center.Y - p[1]) * (s.Center.Y - p[1]));
+                }
+                nnByCenter[key] = nn;
+            }
+
+            foreach (var r in diagnostics) {
+                var info = new ShapeInfo();
+                var key = CenterKey(r.CenterX, r.CenterY);
+                if (byCenter.TryGetValue(key, out var star)) {
+                    if (star.PSF != null) {
+                        info.PsfFitOk = true;
+                        info.Eccentricity = star.PSF.Eccentricity;
+                        info.FWHMx = star.PSF.FWHMx;
+                        info.FWHMy = star.PSF.FWHMy;
+                        info.FWHMPixels = star.PSF.FWHMPixels;
+                        info.ThetaDeg = star.PSF.ThetaRadians * 180.0 / Math.PI;
+                    }
+                    if (nnByCenter.TryGetValue(key, out var nn)) {
+                        info.NearestNeighborDist = nn;
+                        if (!double.IsNaN(nn) && r.Hfr > 0) {
+                            info.NearestNeighborOverHfr = nn / r.Hfr;
+                        }
+                    }
+                }
+                lookup[r] = info;
+            }
+            return lookup;
+        }
+
+        // Round center coords to 0.01 px for an exact-match key between records and stars.
+        private static (long, long) CenterKey(double x, double y) =>
+            ((long)Math.Round(x * 100.0), (long)Math.Round(y * 100.0));
+
+        private static void WriteCsv(string path, List<ContaminationDiagnosticRecord> diagnostics,
+                Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
             var sb = new StringBuilder();
             var header = new List<string> { "CenterX", "CenterY", "Hfr", "Background", "NoiseSigma", "Sensitivity", "MinSectorPixels" };
             for (int i = 0; i < NumSectors; ++i) header.Add($"m{i}");
@@ -220,9 +322,24 @@ namespace TestApp {
             header.Add("TrippingPairIndex");
             header.Add("ContaminationSuspected");
             header.Add("MaxRatio");
+            header.Add("Eccentricity");
+            header.Add("FWHMx");
+            header.Add("FWHMy");
+            header.Add("FWHMPixels");
+            header.Add("ThetaDeg");
+            header.Add("NearestNeighborDist");
+            header.Add("NearestNeighborOverHfr");
+            header.Add("HasCloseNeighbor");
+            header.Add("PsfFitOk");
+            header.Add("GradientSlope");
+            header.Add("LocalSigmaResidual");
+            header.Add("MaxSectorResidualOverSE");
+            header.Add("AltTrippingSector");
+            header.Add("AltContaminationSuspected");
             sb.AppendLine(string.Join(",", header));
 
             foreach (var r in diagnostics) {
+                var info = shapes != null && shapes.TryGetValue(r, out var s) ? s : new ShapeInfo();
                 var row = new List<string> {
                     F(r.CenterX), F(r.CenterY), F(r.Hfr), F(r.Background), F(r.NoiseSigma), F(r.Sensitivity), r.MinSectorPixels.ToString(CultureInfo.InvariantCulture)
                 };
@@ -235,12 +352,27 @@ namespace TestApp {
                 row.Add(r.TrippingPairIndex.ToString(CultureInfo.InvariantCulture));
                 row.Add(r.ContaminationSuspected ? "1" : "0");
                 row.Add(F(MaxRatio(r)));
+                row.Add(F(info.Eccentricity));
+                row.Add(F(info.FWHMx));
+                row.Add(F(info.FWHMy));
+                row.Add(F(info.FWHMPixels));
+                row.Add(F(info.ThetaDeg));
+                row.Add(F(info.NearestNeighborDist));
+                row.Add(F(info.NearestNeighborOverHfr));
+                row.Add(info.HasCloseNeighbor ? "1" : "0");
+                row.Add(info.PsfFitOk ? "1" : "0");
+                row.Add(F(r.GradientSlope));
+                row.Add(F(r.LocalSigmaResidual));
+                row.Add(F(r.MaxSectorResidualOverSE));
+                row.Add(r.AltTrippingSector.ToString(CultureInfo.InvariantCulture));
+                row.Add(r.AltContaminationSuspected ? "1" : "0");
                 sb.AppendLine(string.Join(",", row));
             }
             File.WriteAllText(path, sb.ToString());
         }
 
-        private static void WriteSummary(string path, string imagePath, Mat srcFloat, StarDetectorParams p, int total, int suspected, List<ContaminationDiagnosticRecord> diagnostics) {
+        private static void WriteSummary(string path, string imagePath, Mat srcFloat, StarDetectorParams p, int total, int suspected, List<ContaminationDiagnosticRecord> diagnostics,
+                Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
             var sb = new StringBuilder();
             sb.AppendLine($"Image: {imagePath}");
             sb.AppendLine($"Dimensions: {srcFloat.Width} x {srcFloat.Height}");
@@ -248,6 +380,9 @@ namespace TestApp {
             sb.AppendLine($"ContaminationSensitivity: {p.ContaminationSensitivity.ToString(CultureInfo.InvariantCulture)}");
             sb.AppendLine($"Total detected: {total}");
             sb.AppendLine($"Contamination suspected: {suspected} ({Percent(suspected, total)})");
+
+            WriteHypothesisComparison(sb, diagnostics, shapes);
+            WriteAbComparison(sb, diagnostics, shapes);
 
             var maxRatios = diagnostics.Select(MaxRatio).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
             if (maxRatios.Count > 0) {
@@ -269,8 +404,140 @@ namespace TestApp {
             File.WriteAllText(path, sb.ToString());
         }
 
-        private static void WriteAnnotated(string path, Mat srcFloat, List<ContaminationDiagnosticRecord> diagnostics) {
-            // MTF-stretch a 16-bit copy for a viewable background, then draw star markers colored by status.
+        /// <summary>
+        /// The decisive test of the user's hypothesis: compares the flagged (ContaminationSuspected) group
+        /// against the clean group on eccentricity, HFR, and nearest-neighbor proximity. If flagged stars are
+        /// more eccentric/blurry yet NO closer to neighbors than clean stars (and most are isolated), the
+        /// observation "flagged stars are eccentric, not next to a neighbor" is confirmed.
+        /// </summary>
+        private static void WriteHypothesisComparison(StringBuilder sb, List<ContaminationDiagnosticRecord> diagnostics,
+                Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
+            if (shapes == null) return;
+            var flagged = diagnostics.Where(r => r.ContaminationSuspected).ToList();
+            var clean = diagnostics.Where(r => !r.ContaminationSuspected).ToList();
+
+            sb.AppendLine();
+            sb.AppendLine("=== Hypothesis: flagged stars are eccentric/blurry, NOT next to a neighbor ===");
+            sb.AppendLine($"  flagged = {flagged.Count}, clean = {clean.Count}");
+
+            int noPsf = flagged.Count(r => !(shapes.TryGetValue(r, out var s) && s.PsfFitOk));
+            sb.AppendLine($"  flagged stars with no PSF fit (eccentricity unavailable): {noPsf}");
+
+            sb.AppendLine();
+            sb.AppendLine("  metric                  flagged(median / p90)      clean(median / p90)");
+            AppendMetricLine(sb, "Eccentricity", flagged, clean, shapes, s => s.Eccentricity);
+            AppendMetricLine(sb, "HFR", flagged, clean, shapes, _ => double.NaN, r => r.Hfr);
+            AppendMetricLine(sb, "FWHMPixels", flagged, clean, shapes, s => s.FWHMPixels);
+            AppendMetricLine(sb, "NearestNeighborDist", flagged, clean, shapes, s => s.NearestNeighborDist);
+            AppendMetricLine(sb, "NearestNeighborOverHfr", flagged, clean, shapes, s => s.NearestNeighborOverHfr);
+
+            int flaggedClose = flagged.Count(r => shapes.TryGetValue(r, out var s) && s.HasCloseNeighbor);
+            int flaggedIsolated = flagged.Count - flaggedClose;
+            int cleanClose = clean.Count(r => shapes.TryGetValue(r, out var s) && s.HasCloseNeighbor);
+            sb.AppendLine();
+            sb.AppendLine($"  \"close neighbor\" = nearest detected star within {CloseNeighborHfrFactor:0.#} x HFR");
+            sb.AppendLine($"    flagged with close neighbor : {flaggedClose} ({Percent(flaggedClose, flagged.Count)})");
+            sb.AppendLine($"    flagged ISOLATED            : {flaggedIsolated} ({Percent(flaggedIsolated, flagged.Count)})");
+            sb.AppendLine($"    clean with close neighbor   : {cleanClose} ({Percent(cleanClose, clean.Count)})  [baseline rate]");
+        }
+
+        private static void AppendMetricLine(StringBuilder sb, string name,
+                List<ContaminationDiagnosticRecord> flagged, List<ContaminationDiagnosticRecord> clean,
+                Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes,
+                Func<ShapeInfo, double> shapeSelector, Func<ContaminationDiagnosticRecord, double> recordSelector = null) {
+            double Sel(ContaminationDiagnosticRecord r) =>
+                recordSelector != null ? recordSelector(r) : (shapes.TryGetValue(r, out var s) ? shapeSelector(s) : double.NaN);
+            var fv = flagged.Select(Sel).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
+            var cv = clean.Select(Sel).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
+            string F2(List<double> v) => v.Count == 0 ? "n/a" : $"{F(Percentile(v, 0.50))} / {F(Percentile(v, 0.90))}";
+            sb.AppendLine($"  {name,-22}  {F2(fv),-26} {F2(cv)}");
+        }
+
+        /// <summary>
+        /// A/B comparison of the current opposite-sector-median test vs. the experimental gradient-robust
+        /// (plane-subtracted, one-sided positive residual) test, at the same sensitivity. Reports the
+        /// confusion matrix (agree / dropped-by-Alt / added-by-Alt) and the eccentricity/HFR/neighbor profile
+        /// of the dropped group — these should look like clean stars if they were gradient false positives.
+        /// </summary>
+        private static void WriteAbComparison(StringBuilder sb, List<ContaminationDiagnosticRecord> diagnostics,
+                Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
+            int oldFlag = diagnostics.Count(r => r.ContaminationSuspected);
+            int newFlag = diagnostics.Count(r => r.AltContaminationSuspected);
+            var dropped = diagnostics.Where(r => r.ContaminationSuspected && !r.AltContaminationSuspected).ToList();
+            var added = diagnostics.Where(r => !r.ContaminationSuspected && r.AltContaminationSuspected).ToList();
+            int agreeFlag = diagnostics.Count(r => r.ContaminationSuspected && r.AltContaminationSuspected);
+
+            sb.AppendLine();
+            sb.AppendLine("=== A/B: current test vs. gradient-robust (plane-subtracted, one-sided) test ===");
+            sb.AppendLine($"  current flagged: {oldFlag}    gradient-robust flagged: {newFlag}");
+            sb.AppendLine($"  agree-flagged: {agreeFlag}");
+            sb.AppendLine($"  dropped by gradient-robust (current-only): {dropped.Count}  <- candidate gradient false positives");
+            sb.AppendLine($"  added by gradient-robust (new-only):       {added.Count}  <- localized spikes masked by an opposing gradient");
+
+            void Profile(string label, List<ContaminationDiagnosticRecord> g) {
+                if (g.Count == 0) { sb.AppendLine($"    {label}: (none)"); return; }
+                double MedShape(Func<ShapeInfo, double> sel) {
+                    var v = g.Select(r => shapes.TryGetValue(r, out var s) ? sel(s) : double.NaN).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
+                    return v.Count == 0 ? double.NaN : Percentile(v, 0.50);
+                }
+                double medHfr = g.Select(r => r.Hfr).OrderBy(x => x).ToList() is var h && h.Count > 0 ? Percentile(h, 0.50) : double.NaN;
+                sb.AppendLine($"    {label}: median Ecc={F(MedShape(s => s.Eccentricity))}, HFR={F(medHfr)}, GradientSlope={F(g.Select(r => r.GradientSlope).Where(x => !double.IsNaN(x)).DefaultIfEmpty(double.NaN).OrderBy(x => x).ToList() is var gs && gs.Count > 0 ? Percentile(gs, 0.50) : double.NaN)}");
+            }
+            sb.AppendLine();
+            sb.AppendLine("  group profiles (medians):");
+            Profile("dropped (current-only)", dropped);
+            Profile("added (new-only)", added);
+        }
+
+        /// <summary>
+        /// Sweeps the decision threshold for both tests using statistics already computed in a single detection
+        /// run (no re-detection): the gradient-robust test flags a star at sensitivity S iff its
+        /// MaxSectorResidualOverSE > S; the current opposite-pair test flags iff MaxRatio*runSensitivity > S.
+        /// For each S also reports the median local gradient slope of the gradient-robust-flagged set, so a
+        /// threshold that re-admits high-gradient false positives is visible. Helps pick a production sensitivity.
+        /// </summary>
+        private static void WriteGradientRobustSweep(string path, List<ContaminationDiagnosticRecord> diagnostics,
+                double runSensitivity, Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
+            int total = diagnostics.Count;
+            var sb = new StringBuilder();
+            sb.AppendLine("sensitivity,current_flagged,current_pct,gradrobust_flagged,gradrobust_pct,grOnly_added,currentOnly_dropped,grflag_median_gradientslope,grflag_median_ecc");
+            for (double s = 3.0; s <= 8.0 + 1e-9; s += 0.5) {
+                var cur = diagnostics.Where(r => !double.IsNaN(MaxRatio(r)) && MaxRatio(r) * runSensitivity > s).ToHashSet();
+                var gr = diagnostics.Where(r => !double.IsNaN(r.MaxSectorResidualOverSE) && r.MaxSectorResidualOverSE > s).ToHashSet();
+                int added = gr.Count(r => !cur.Contains(r));
+                int dropped = cur.Count(r => !gr.Contains(r));
+                var grSlopes = gr.Select(r => r.GradientSlope).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
+                var grEcc = gr.Select(r => shapes != null && shapes.TryGetValue(r, out var sh) ? sh.Eccentricity : double.NaN).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
+                sb.AppendLine(string.Join(",",
+                    s.ToString("0.0", CultureInfo.InvariantCulture),
+                    cur.Count, PercentValue(cur.Count, total).ToString("0.##", CultureInfo.InvariantCulture),
+                    gr.Count, PercentValue(gr.Count, total).ToString("0.##", CultureInfo.InvariantCulture),
+                    added, dropped,
+                    grSlopes.Count > 0 ? F(Percentile(grSlopes, 0.50)) : "NaN",
+                    grEcc.Count > 0 ? F(Percentile(grEcc, 0.50)) : "NaN"));
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        private static void WriteAnnotatedAb(string path, Mat srcFloat, List<ContaminationDiagnosticRecord> diagnostics) {
+            using var bgr = BuildStretchedBgr(srcFloat);
+            var green = new Scalar(0, 255, 0);    // both clean
+            var magenta = new Scalar(255, 0, 255); // both flagged (agree)
+            var red = new Scalar(0, 0, 255);      // current-only: dropped by gradient-robust (candidate FP)
+            var yellow = new Scalar(0, 255, 255); // new-only: added by gradient-robust (recovered)
+            foreach (var r in diagnostics) {
+                Scalar color;
+                if (r.ContaminationSuspected && r.AltContaminationSuspected) color = magenta;
+                else if (r.ContaminationSuspected && !r.AltContaminationSuspected) color = red;
+                else if (!r.ContaminationSuspected && r.AltContaminationSuspected) color = yellow;
+                else color = green;
+                Cv2.Circle(bgr, new OpenCvSharp.Point((int)Math.Round(r.CenterX), (int)Math.Round(r.CenterY)), 8, color, 1, LineTypes.AntiAlias);
+            }
+            Cv2.ImWrite(path, bgr);
+        }
+
+        // Shared MTF-stretched BGR background used by both annotated outputs.
+        private static Mat BuildStretchedBgr(Mat srcFloat) {
             using var src16 = new Mat();
             srcFloat.ConvertTo(src16, MatType.CV_16U, ushort.MaxValue);
             using var stretched16 = new Mat();
@@ -284,13 +551,27 @@ namespace TestApp {
             }
             using var stretched8 = new Mat();
             stretched16.ConvertTo(stretched8, MatType.CV_8U, 1.0 / 256.0);
-            using var bgr = new Mat();
+            var bgr = new Mat();
             Cv2.CvtColor(stretched8, bgr, ColorConversionCodes.GRAY2BGR);
+            return bgr;
+        }
+
+        private static void WriteAnnotated(string path, Mat srcFloat, List<ContaminationDiagnosticRecord> diagnostics,
+                Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
+            // MTF-stretch a 16-bit copy for a viewable background, then draw star markers colored by status.
+            using var bgr = BuildStretchedBgr(srcFloat);
 
             var green = new Scalar(0, 255, 0);     // accepted, clean
-            var magenta = new Scalar(255, 0, 255); // contamination suspected (BGR)
+            var magenta = new Scalar(255, 0, 255); // flagged AND has a close detected neighbor (BGR)
+            var cyan = new Scalar(255, 255, 0);    // flagged but ISOLATED (no close neighbor) (BGR)
             foreach (var r in diagnostics) {
-                var color = r.ContaminationSuspected ? magenta : green;
+                Scalar color;
+                if (!r.ContaminationSuspected) {
+                    color = green;
+                } else {
+                    bool close = shapes != null && shapes.TryGetValue(r, out var s) && s.HasCloseNeighbor;
+                    color = close ? magenta : cyan;
+                }
                 Cv2.Circle(bgr, new OpenCvSharp.Point((int)Math.Round(r.CenterX), (int)Math.Round(r.CenterY)), 8, color, 1, LineTypes.AntiAlias);
             }
             Cv2.ImWrite(path, bgr);

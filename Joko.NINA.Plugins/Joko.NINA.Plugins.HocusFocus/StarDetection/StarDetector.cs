@@ -510,6 +510,130 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
+        /// Experimental, diagnostics-only gradient-robust contamination test (A/B against
+        /// <see cref="IsContaminatedBySectors"/>). Fits a robust plane (b0 + b1*dx + b2*dy) to the annulus
+        /// pixels via IRLS with Huber weights to model a smooth one-sided background (galaxy/nebula gradient),
+        /// subtracts it, then flags only a one-sided POSITIVE residual excess in a sector — a contaminant adds
+        /// light, so this ignores both smooth gradients (removed by the fit) and edge-clipping deficits
+        /// (negative residuals). Populates the Alt* / residual fields on <paramref name="record"/>; never
+        /// changes the production decision. No-op for too-few points or degenerate geometry.
+        /// </summary>
+        internal static void AddGradientRobustDiagnostics(ContaminationDiagnosticRecord record,
+                float[] dx, float[] dy, float[] val, int n,
+                double fallbackSigma, double sensitivity, int minSectorPixels) {
+            int numSectors = record.SectorMedians?.Length ?? 8;
+            var residMedian = new double[numSectors];
+            var residCount = new int[numSectors];
+            for (int s = 0; s < numSectors; ++s) residMedian[s] = double.NaN;
+            record.SectorResidualMedian = residMedian;
+            record.SectorResidualCount = residCount;
+            record.AltTrippingSector = -1;
+
+            // Need enough points to fit a 3-parameter plane with margin.
+            if (dx == null || n < 12) {
+                return;
+            }
+
+            // Robust plane fit via iteratively reweighted least squares (Huber).
+            double b0 = 0, b1 = 0, b2 = 0;
+            var w = new double[n];
+            for (int i = 0; i < n; ++i) w[i] = 1.0;
+            const double huberC = 1.345;
+            for (int iter = 0; iter < 4; ++iter) {
+                if (!SolveWeightedPlane(dx, dy, val, w, n, out b0, out b1, out b2)) {
+                    return; // singular / collinear geometry
+                }
+                var absr = new double[n];
+                for (int i = 0; i < n; ++i) absr[i] = Math.Abs(val[i] - (b0 + b1 * dx[i] + b2 * dy[i]));
+                double sigma = 1.4826 * MedianInPlace(absr);
+                if (sigma <= 0) break; // residuals essentially zero; fit is exact
+                for (int i = 0; i < n; ++i) {
+                    double z = Math.Abs(val[i] - (b0 + b1 * dx[i] + b2 * dy[i])) / sigma;
+                    w[i] = z <= huberC ? 1.0 : huberC / z;
+                }
+            }
+
+            var resid = new double[n];
+            var absResid = new double[n];
+            for (int i = 0; i < n; ++i) {
+                resid[i] = val[i] - (b0 + b1 * dx[i] + b2 * dy[i]);
+                absResid[i] = Math.Abs(resid[i]);
+            }
+            double localSigma = 1.4826 * MedianInPlace(absResid);
+            if (localSigma <= 0) localSigma = fallbackSigma;
+            record.GradientSlope = Math.Sqrt(b1 * b1 + b2 * b2);
+            record.LocalSigmaResidual = localSigma;
+
+            var bySector = new List<double>[numSectors];
+            for (int s = 0; s < numSectors; ++s) bySector[s] = new List<double>();
+            for (int i = 0; i < n; ++i) {
+                bySector[OctantOf(dx[i], dy[i])].Add(resid[i]);
+            }
+            bool enabled = sensitivity > 0 && localSigma > 0;
+            double maxStat = double.NaN;
+            for (int s = 0; s < numSectors; ++s) {
+                residCount[s] = bySector[s].Count;
+                if (bySector[s].Count == 0) continue;
+                bySector[s].Sort();
+                double med = bySector[s][bySector[s].Count >> 1];
+                residMedian[s] = med;
+                if (!enabled || bySector[s].Count < minSectorPixels) continue;
+                double se = 1.2533 * localSigma / Math.Sqrt(bySector[s].Count);
+                if (se <= 0) continue;
+                double stat = med / se; // one-sided: positive excess over the local plane
+                if (double.IsNaN(maxStat) || stat > maxStat) maxStat = stat;
+                if (med > sensitivity * se && record.AltTrippingSector < 0) {
+                    record.AltTrippingSector = s;
+                }
+            }
+            record.MaxSectorResidualOverSE = maxStat;
+            record.AltContaminationSuspected = record.AltTrippingSector >= 0;
+        }
+
+        // Solves the weighted least-squares plane val ≈ b0 + b1*dx + b2*dy. Returns false if the normal
+        // matrix is singular (collinear / degenerate annulus geometry).
+        private static bool SolveWeightedPlane(float[] dx, float[] dy, float[] val, double[] w, int n,
+                out double b0, out double b1, out double b2) {
+            double sw = 0, swx = 0, swy = 0, swxx = 0, swxy = 0, swyy = 0, swv = 0, swxv = 0, swyv = 0;
+            for (int i = 0; i < n; ++i) {
+                double wi = w[i], x = dx[i], y = dy[i], v = val[i];
+                sw += wi; swx += wi * x; swy += wi * y;
+                swxx += wi * x * x; swxy += wi * x * y; swyy += wi * y * y;
+                swv += wi * v; swxv += wi * x * v; swyv += wi * y * v;
+            }
+            var a = new double[3, 3] { { sw, swx, swy }, { swx, swxx, swxy }, { swy, swxy, swyy } };
+            var g = new double[3] { swv, swxv, swyv };
+            b0 = b1 = b2 = 0;
+            // Gaussian elimination with partial pivoting.
+            for (int col = 0; col < 3; ++col) {
+                int piv = col;
+                for (int r = col + 1; r < 3; ++r) if (Math.Abs(a[r, col]) > Math.Abs(a[piv, col])) piv = r;
+                if (Math.Abs(a[piv, col]) < 1e-12) return false;
+                if (piv != col) {
+                    for (int c = 0; c < 3; ++c) { var t = a[col, c]; a[col, c] = a[piv, c]; a[piv, c] = t; }
+                    var tg = g[col]; g[col] = g[piv]; g[piv] = tg;
+                }
+                for (int r = 0; r < 3; ++r) {
+                    if (r == col) continue;
+                    double f = a[r, col] / a[col, col];
+                    for (int c = col; c < 3; ++c) a[r, c] -= f * a[col, c];
+                    g[r] -= f * g[col];
+                }
+            }
+            b0 = g[0] / a[0, 0];
+            b1 = g[1] / a[1, 1];
+            b2 = g[2] / a[2, 2];
+            return true;
+        }
+
+        // Median of an array, sorting it in place (caller passes a scratch array it owns).
+        private static double MedianInPlace(double[] a) {
+            if (a.Length == 0) return 0;
+            Array.Sort(a);
+            return a[a.Length >> 1];
+        }
+
+        /// <summary>
         /// Assigns a (dx, dy) offset to one of 8 angular octants such that octant s and octant s+4
         /// are geometrically opposite. Uses sign/magnitude branches to avoid a per-pixel atan2.
         /// </summary>
@@ -944,6 +1068,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var cx = starBounds.X + starBounds.Width / 2.0;
             var cy = starBounds.Y + starBounds.Height / 2.0;
 
+            // Diagnostics-only: retain each annulus pixel's (dx, dy, value) so the experimental gradient-robust
+            // contamination test can fit a plane to the local background. Allocated only when diagnostics are on.
+            bool collectDiag = p.CollectContaminationDiagnostics;
+            float[] diagDx = collectDiag ? new float[surroundingPixels.Length] : null;
+            float[] diagDy = collectDiag ? new float[surroundingPixels.Length] : null;
+            float[] diagVal = collectDiag ? new float[surroundingPixels.Length] : null;
+
             // Search an expanded box to estimate the median background value
             unsafe {
                 var imageData = (float*)srcImage.DataPointer;
@@ -959,8 +1090,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 for (int y = backgroundStartY; y < starBounds.Y; ++y) {
                     for (int x = backgroundStartX; x < backgroundEndX; ++x) {
                         var bgPixel = *pixelPtr;
-                        surroundingPixels[surroundingPixelCount++] = bgPixel;
+                        int diagIdx = surroundingPixelCount++;
+                        surroundingPixels[diagIdx] = bgPixel;
                         sectorPixels[OctantOf(x - cx, y - cy)].Add(bgPixel);
+                        if (collectDiag) { diagDx[diagIdx] = (float)(x - cx); diagDy[diagIdx] = (float)(y - cy); diagVal[diagIdx] = bgPixel; }
                         ++pixelPtr;
                     }
 
@@ -972,8 +1105,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 for (int y = starBounds.Y; y < starBounds.Bottom; ++y) {
                     for (int x = backgroundStartX; x < starBounds.X; ++x) {
                         var bgPixel = *pixelPtr;
-                        surroundingPixels[surroundingPixelCount++] = bgPixel;
+                        int diagIdx = surroundingPixelCount++;
+                        surroundingPixels[diagIdx] = bgPixel;
                         sectorPixels[OctantOf(x - cx, y - cy)].Add(bgPixel);
+                        if (collectDiag) { diagDx[diagIdx] = (float)(x - cx); diagDy[diagIdx] = (float)(y - cy); diagVal[diagIdx] = bgPixel; }
                         ++pixelPtr;
                     }
 
@@ -981,8 +1116,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     pixelPtr += starBounds.Width;
                     for (int x = starBounds.Right; x < backgroundEndX; ++x) {
                         var bgPixel = *pixelPtr;
-                        surroundingPixels[surroundingPixelCount++] = bgPixel;
+                        int diagIdx = surroundingPixelCount++;
+                        surroundingPixels[diagIdx] = bgPixel;
                         sectorPixels[OctantOf(x - cx, y - cy)].Add(bgPixel);
+                        if (collectDiag) { diagDx[diagIdx] = (float)(x - cx); diagDy[diagIdx] = (float)(y - cy); diagVal[diagIdx] = bgPixel; }
                         ++pixelPtr;
                     }
 
@@ -994,8 +1131,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 for (int y = starBounds.Bottom; y < backgroundEndY; ++y) {
                     for (int x = backgroundStartX; x < backgroundEndX; ++x) {
                         var bgPixel = *pixelPtr;
-                        surroundingPixels[surroundingPixelCount++] = bgPixel;
+                        int diagIdx = surroundingPixelCount++;
+                        surroundingPixels[diagIdx] = bgPixel;
                         sectorPixels[OctantOf(x - cx, y - cy)].Add(bgPixel);
+                        if (collectDiag) { diagDx[diagIdx] = (float)(x - cx); diagDy[diagIdx] = (float)(y - cy); diagVal[diagIdx] = bgPixel; }
                         ++pixelPtr;
                     }
 
@@ -1094,6 +1233,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (p.CollectContaminationDiagnostics) {
                 contaminationDiagnostics = BuildContaminationDiagnostics(sectorMedians, sectorCounts, contaminationSigma, p.ContaminationSensitivity, MinSectorPixels);
                 contaminationDiagnostics.ContaminationSuspected = contaminationSuspected;
+                AddGradientRobustDiagnostics(contaminationDiagnostics, diagDx, diagDy, diagVal, surroundingPixelCount,
+                    contaminationSigma, p.ContaminationSensitivity, MinSectorPixels);
             }
 
             return new StarCandidate() {
