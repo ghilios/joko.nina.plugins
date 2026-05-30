@@ -168,7 +168,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             fit.OptGuardEnabled = true;
 
             Assert.Multiple(() => {
-                Assert.That(fit.UseJacobian, Is.True);
                 Assert.That(fit.Solve(), Is.True);
                 Assert.That(fit.Minimum.X, Is.EqualTo(5000).Within(1.0));
                 Assert.That(fit.RSquared, Is.GreaterThan(0.99));
