@@ -224,18 +224,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             }
                         }
 
-                        // Contaminated stars are kept in the star list (not rejected), so mark them in a separate
-                        // pass over the full list - independent of the Max Stars / Show All Stars limit applied above.
-                        if (StarAnnotatorOptions.ShowContaminated) {
+                        // Mark contaminated stars from the metrics bounds list rather than the detected star list,
+                        // so they are still drawn when RejectContaminatedStars removes them from the detected set
+                        // (and independent of the Max Stars / Show All Stars limit applied above).
+                        if (StarAnnotatorOptions.ShowContaminated && metrics?.ContaminatedBounds != null) {
                             using (var brush = new SolidBrush(StarAnnotatorOptions.ContaminatedColor.ToDrawingColor()))
                             using (var pen = new Pen(brush)) {
-                                foreach (var star in result.StarList) {
-                                    token.ThrowIfCancellationRequested();
-                                    var hocusFocusStar = star as HocusFocusDetectedStar;
-                                    if (hocusFocusStar?.StarContaminationSuspected != true) {
-                                        continue;
-                                    }
-                                    DrawStarBounds(graphics, star, hocusFocusStar, hocusFocusStar.PSF, StarAnnotatorOptions.StarBoundsType, pen);
+                                foreach (var rect in metrics.ContaminatedBounds) {
+                                    graphics.DrawRectangle(pen, rect.ToDrawingRectangle());
                                 }
                             }
                         }

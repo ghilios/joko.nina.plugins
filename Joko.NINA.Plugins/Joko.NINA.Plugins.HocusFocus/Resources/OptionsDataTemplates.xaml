@@ -470,8 +470,8 @@
     <TextBlock x:Key="NotCenteredColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowTooFlat_Tooltip" Text="Whether to show the failed too flat stars" />
     <TextBlock x:Key="TooFlatColor_Tooltip" Text="The color of the failed star bounding box" />
-    <TextBlock x:Key="ShowContaminated_Tooltip" Text="Whether to mark stars flagged as possibly contaminated by a neighbor, background gradient, or hot column. These stars are still used, but their measurements may be less reliable" />
-    <TextBlock x:Key="ContaminatedColor_Tooltip" Text="The color used to mark contaminated stars. The marker uses the same shape as the Star Bounds Type setting" />
+    <TextBlock x:Key="ShowContaminated_Tooltip" Text="Whether to mark stars flagged as possibly contaminated by a neighbor, background gradient, or hot column. The marker is shown whether or not 'Reject Contaminated Stars' is enabled, so you can see which stars were flagged even when they are excluded from measurements" />
+    <TextBlock x:Key="ContaminatedColor_Tooltip" Text="The color used to outline contaminated stars. The marker is drawn as the star's bounding box" />
     <TextBlock x:Key="ShowStructureMap_Tooltip" Text="Overlays the structure map to aide debugging. Original shows the initial structure map after noise clipping and binarization, and Dilated shows it after dilation has been performed" />
     <TextBlock x:Key="StructureMapColor_Tooltip" Text="The color of the overlayed structure map" />
     <TextBlock x:Key="SaveIntermediatePath_Tooltip" Text="When Save Intermediate Files is enabled, they are written to this path the next time star detection runs" />

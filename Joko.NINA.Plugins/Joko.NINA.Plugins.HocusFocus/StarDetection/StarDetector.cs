@@ -322,7 +322,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 int totalCandidates = metrics.StructureCandidates;
                 int accepted = metrics.TotalDetected;
                 int rejected = totalCandidates - accepted;
-                var rejectionLog = $"Star detection complete: Found={accepted}, Rejected={rejected}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooFlat={metrics.TooFlat}, TooDistorted={metrics.TooDistorted}, Saturated(masked)={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, OffCenter={metrics.NotCentered}, HFRFailed={metrics.HFRAnalysisFailed}, PSFFailed={metrics.PSFFitFailed}, Degenerate={metrics.Degenerate}, TooLowHFR={metrics.TooLowHFR}, ContaminationSuspected={metrics.ContaminationSuspected}, ContaminationRejected={metrics.ContaminationRejected}";
+                var rejectionLog = $"Star detection complete: Found={accepted}, Rejected={rejected}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooFlat={metrics.TooFlat}, TooDistorted={metrics.TooDistorted}, Saturated(masked)={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, OffCenter={metrics.NotCentered}, HFRFailed={metrics.HFRAnalysisFailed}, PSFFailed={metrics.PSFFitFailed}, Degenerate={metrics.Degenerate}, TooLowHFR={metrics.TooLowHFR}, ContaminationSuspected={metrics.ContaminationSuspected}";
                 Logger.Debug(rejectionLog);
                 if (roiRect.HasValue) {
                     // Apply correction for the ROI
@@ -857,11 +857,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             star.StarContaminationSuspected = starCandidate.ContaminationSuspected;
             if (star.StarContaminationSuspected) {
-                ++metrics.ContaminationSuspected;
+                // Record the bounds regardless of whether the star is rejected, so the annotator can mark
+                // contaminated stars even when RejectContaminatedStars removes them from the detected set.
+                metrics.ContaminatedBounds.Add(starBounds);
                 // Quality gate: reject contaminated stars so HFR/PSF statistics stay clean of one-sided
                 // contaminants. Disabled (flag-only) when RejectContaminatedStars is off (e.g. diagnostics).
                 if (p.RejectContaminatedStars) {
-                    ++metrics.ContaminationRejected;
                     return null;
                 }
             }

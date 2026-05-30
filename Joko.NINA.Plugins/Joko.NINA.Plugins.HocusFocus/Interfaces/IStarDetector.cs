@@ -376,8 +376,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int TooLowHFR { get; set; } = 0;
         public int HFRAnalysisFailed { get; set; } = 0;
         public int PSFFitFailed { get; set; } = 0;
-        public int ContaminationSuspected { get; set; } = 0;
-        public int ContaminationRejected { get; set; } = 0;
+        public int ContaminationSuspected { get => ContaminatedBounds.Count; set => throw new NotSupportedException("Can't set ContaminationSuspected directly"); }
+        public List<Rect> ContaminatedBounds { get; private set; } = new List<Rect>();
         public int OutsideROI { get; set; } = 0;
         public long SaturatedPixelCount { get; set; } = 0L;
         public long HotpixelCount { get; set; } = 0L;
@@ -389,7 +389,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
                 SaturatedBounds,
                 LowSensitivityBounds,
                 NotCenteredBounds,
-                TooFlatBounds
+                TooFlatBounds,
+                ContaminatedBounds
             };
 
             var offset = new Point(xOffset, yOffset);
