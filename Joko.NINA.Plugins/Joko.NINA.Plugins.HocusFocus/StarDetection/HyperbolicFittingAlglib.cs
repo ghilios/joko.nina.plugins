@@ -24,7 +24,7 @@ using System.Linq;
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class HyperbolicFittingAlglib : AlglibHyperbolicFitting {
-        public bool UseJacobian { get; set; } = false;
+        public bool UseJacobian { get; set; } = true;
         private readonly IAlglibAPI alglibAPI;
 
         private HyperbolicFittingAlglib(IAlglibAPI alglibAPI, double[][] inputs, double[] inputStdDevs, double[] outputs) {
@@ -97,7 +97,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public virtual void FitResidualsJacobian(double[] parameters, double[] fi, double[,] jac, object obj) {
-            throw new NotImplementedException();
+            var fitting = GetFittingForParameters(parameters);
+            var gradient = GetGradientForParameters(parameters);
+            var g = new double[4];
+            for (int i = 0; i < this.Inputs.Length; ++i) {
+                var input = this.Inputs[i][0];
+                var observedValue = this.Outputs[i];
+                var estimatedValue = fitting(input);
+                var weight = this.Weights[i];
+                fi[i] = weight * (estimatedValue - observedValue);
+                gradient(input, g);
+                for (int j = 0; j < 4; ++j) {
+                    // Residual r_i = w_i*(f - y), so its Jacobian row is w_i * ∂f/∂θ_j (keeps gradient consistent with the weighted residual)
+                    jac[i, j] = weight * g[j];
+                }
+            }
         }
 
         public override bool Solve() {
@@ -139,7 +153,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             try {
                 var initialGuess = new double[] { initialX0, initialY0, initialA, initialB };
                 var lowerBounds = new double[] { lowestInputX, -lowestOutput, 0.001d, 0.001d };
-                var upperBounds = new double[] { highestInputX, lowestOutput, lowestOutput * 2, double.PositiveInfinity, double.PositiveInfinity };
+                var upperBounds = new double[] { highestInputX, lowestOutput, lowestOutput * 2, double.PositiveInfinity };
                 var positionScale = lowestOutput > 0 ? lowestInput / lowestOutput : lowestInput;
                 var scale = new double[] { Math.Max(1.0, positionScale), 1, 1, 1 };
                 var solution = new double[4];
