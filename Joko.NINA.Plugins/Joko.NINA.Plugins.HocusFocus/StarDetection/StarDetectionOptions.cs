@@ -149,7 +149,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             noiseReductionRadius = optionsAccessor.GetValueInt32("NoiseReductionRadius", 3);
             noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 4.0);
             starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 2.0);
-            contaminationSensitivity = optionsAccessor.GetValueDouble("ContaminationSensitivity", 4.0);
+            contaminationSensitivity = optionsAccessor.GetValueDouble("ContaminationSensitivity", 5.0);
             structureLayers = optionsAccessor.GetValueInt32("StructureLayers", 4);
             brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 10.0);
             starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.75);
@@ -195,7 +195,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             NoiseReductionRadius = 3;
             NoiseClippingMultiplier = 4.0;
             StarClippingMultiplier = 2.0;
-            ContaminationSensitivity = 4.0;
+            ContaminationSensitivity = 5.0;
             StructureLayers = 4;
             BrightnessSensitivity = 10.0;
             StarPeakResponse = 0.6;

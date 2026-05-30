@@ -800,6 +800,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
+        /// Estimates a robust local background scatter (sigma) from a background-annulus sample, used as the
+        /// noise scale for the contamination asymmetry test instead of the global image-noise floor. Near
+        /// bright stars and in gradients/nebulosity the local background roughness is several times the global
+        /// noise, so a bar built on the global sigma is far too tight and flags ordinary stars.
+        ///
+        /// Uses the median absolute deviation (MAD), whose 50% breakdown point means a single contaminated
+        /// sector (≤ 1/8 of the annulus) cannot inflate it enough to hide itself, while smooth gradients that
+        /// lift every sector are correctly absorbed into the bar. <paramref name="sortedPixels"/> must be sorted
+        /// ascending over [0, <paramref name="count"/>). Returns the consistency-corrected sigma (1.4826 × MAD),
+        /// or 0 if the sample is too small or perfectly flat — signaling the caller to fall back to the global
+        /// noise sigma.
+        /// </summary>
+        internal static double ComputeLocalBackgroundSigma(float[] sortedPixels, int count, double median) {
+            const int MinPixelsForLocalSigma = 8;
+            if (sortedPixels == null || count < MinPixelsForLocalSigma) {
+                return 0.0;
+            }
+            var deviations = new double[count];
+            for (int i = 0; i < count; ++i) {
+                deviations[i] = Math.Abs(sortedPixels[i] - median);
+            }
+            Array.Sort(deviations);
+            var mad = ComputeMedian(deviations);
+            return 1.4826 * mad;
+        }
+
+        /// <summary>
         /// Computes the median of a pre-sorted array of doubles.
         /// For an even-length array, returns the average of the two middle elements.
         /// </summary>
@@ -980,6 +1007,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             Array.Sort(surroundingPixels, 0, surroundingPixelCount);
             var backgroundMedian = surroundingPixels[surroundingPixelCount >> 1];
 
+            // Robust local background scatter from the annulus pixels themselves, used as the noise scale for
+            // the contamination test. The global noiseSigma is the image-noise floor; near bright stars and in
+            // gradients/nebulosity the real local roughness is several times larger, so feeding the global value
+            // to the standard-error model makes the bar far too tight. Fall back to the global sigma when the
+            // sample is too small or perfectly flat (helper returns 0).
+            var localBackgroundSigma = ComputeLocalBackgroundSigma(surroundingPixels, surroundingPixelCount, backgroundMedian);
+            var contaminationSigma = localBackgroundSigma > 0.0 ? localBackgroundSigma : noiseSigma;
+
             var backgroundThreshold = backgroundMedian + p.StarClippingMultiplier * noiseSigma;
             double totalFlux = 0d, peak = 0d;
             int numUnclippedPixels = 0;
@@ -1053,11 +1088,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     sectorMedians[s] = sector[sector.Count >> 1];
                 }
             }
-            var contaminationSuspected = IsContaminatedBySectors(sectorMedians, sectorCounts, noiseSigma, p.ContaminationSensitivity, MinSectorPixels);
+            var contaminationSuspected = IsContaminatedBySectors(sectorMedians, sectorCounts, contaminationSigma, p.ContaminationSensitivity, MinSectorPixels);
 
             ContaminationDiagnosticRecord contaminationDiagnostics = null;
             if (p.CollectContaminationDiagnostics) {
-                contaminationDiagnostics = BuildContaminationDiagnostics(sectorMedians, sectorCounts, noiseSigma, p.ContaminationSensitivity, MinSectorPixels);
+                contaminationDiagnostics = BuildContaminationDiagnostics(sectorMedians, sectorCounts, contaminationSigma, p.ContaminationSensitivity, MinSectorPixels);
                 contaminationDiagnostics.ContaminationSuspected = contaminationSuspected;
             }
 

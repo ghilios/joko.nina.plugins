@@ -216,7 +216,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         // Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis
         public double StarClippingMultiplier { get; set; } = 2.0;
-        public double ContaminationSensitivity { get; set; } = 4.0;
+        public double ContaminationSensitivity { get; set; } = 5.0;
 
         // Diagnostics opt-in. When true, the detector records a per-star ContaminationDiagnosticRecord for
         // every accepted star (see HocusFocusStarDetectorResult.ContaminationDiagnostics). Off by default so

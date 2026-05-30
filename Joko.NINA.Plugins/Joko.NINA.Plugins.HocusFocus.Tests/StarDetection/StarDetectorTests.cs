@@ -424,6 +424,106 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             });
         }
 
+        // -----------------------------------------------------------------------
+        // ComputeLocalBackgroundSigma + local-sigma contamination behavior
+        // -----------------------------------------------------------------------
+
+        [Test]
+        public void ComputeLocalBackgroundSigma_SampleTooSmall_ReturnsZero() {
+            // Fewer than the minimum sample size cannot give a trustworthy MAD, so the helper
+            // returns 0 to signal the caller to fall back to the global noise sigma.
+            var pixels = new float[] { 1f, 2f, 3f, 4f, 5f }; // 5 < 8
+            Array.Sort(pixels);
+            var median = pixels[pixels.Length >> 1];
+            var sigma = StarDetector.ComputeLocalBackgroundSigma(pixels, pixels.Length, median);
+            Assert.That(sigma, Is.EqualTo(0.0));
+        }
+
+        [Test]
+        public void ComputeLocalBackgroundSigma_FlatSample_ReturnsZero() {
+            // A perfectly flat annulus has MAD = 0; the helper returns 0 (fall back to global sigma)
+            // rather than a zero scale that would flag every star.
+            var pixels = new float[10];
+            for (int i = 0; i < pixels.Length; ++i) pixels[i] = 7.0f;
+            var sigma = StarDetector.ComputeLocalBackgroundSigma(pixels, pixels.Length, 7.0);
+            Assert.That(sigma, Is.EqualTo(0.0));
+        }
+
+        [Test]
+        public void ComputeLocalBackgroundSigma_KnownScatter_ScalesByMadConstant() {
+            // Symmetric sample [-4..4] about median 0. Absolute deviations are
+            // {0,1,1,2,2,3,3,4,4}; their median is 2, so sigma = 1.4826 * 2 = 2.9652.
+            var pixels = new float[] { -4f, -3f, -2f, -1f, 0f, 1f, 2f, 3f, 4f };
+            Array.Sort(pixels);
+            var median = pixels[pixels.Length >> 1]; // 0
+            var sigma = StarDetector.ComputeLocalBackgroundSigma(pixels, pixels.Length, median);
+            Assert.That(sigma, Is.EqualTo(1.4826 * 2.0).Within(1e-9));
+        }
+
+        /// <summary>
+        /// Builds a background-annulus pixel sample with a robust sigma of exactly
+        /// <paramref name="targetSigma"/>: half the pixels at median−MAD, half at median+MAD, so every
+        /// absolute deviation equals MAD and 1.4826 × MAD = targetSigma. Returned sorted ascending.
+        /// </summary>
+        private static (float[] pixels, double median) MakeAnnulusSample(double median, double targetSigma, int count) {
+            var mad = targetSigma / 1.4826;
+            var pixels = new float[count];
+            for (int i = 0; i < count; ++i) {
+                pixels[i] = (float)(i < count / 2 ? median - mad : median + mad);
+            }
+            Array.Sort(pixels);
+            return (pixels, median);
+        }
+
+        [Test]
+        public void Contamination_OneSidedScatterWithinLocalRoughness_NotFlaggedWithLocalSigma() {
+            // A rough local background (local sigma ≈ 1.0) with a genuine ~1 ADU opposite-sector
+            // difference. With the global noise floor (tiny) the standard-error bar is far too tight
+            // and the star is wrongly flagged; with the local sigma the difference sits within the
+            // local roughness and the star is correctly left clean.
+            var (pixels, median) = MakeAnnulusSample(median: 5.0, targetSigma: 1.0, count: 64);
+            var localSigma = StarDetector.ComputeLocalBackgroundSigma(pixels, pixels.Length, median);
+
+            var medians = new double[8];
+            var counts = new int[8];
+            for (int i = 0; i < 8; ++i) {
+                medians[i] = 5.0;
+                counts[i] = 30;
+            }
+            medians[0] = 5.5; // one-sided +0.5
+            medians[4] = 4.5; // opposite −0.5 → diff 1.0, within local roughness
+
+            var withGlobal = StarDetector.IsContaminatedBySectors(medians, counts, noiseSigma: 0.1, sensitivity: 4.0, minSectorPixels: 8);
+            var withLocal = StarDetector.IsContaminatedBySectors(medians, counts, localSigma, sensitivity: 4.0, minSectorPixels: 8);
+
+            Assert.Multiple(() => {
+                Assert.That(localSigma, Is.EqualTo(1.0).Within(1e-6), "Sample was constructed to have local sigma 1.0");
+                Assert.That(withGlobal, Is.True, "Global noise floor makes the bar too tight → false positive");
+                Assert.That(withLocal, Is.False, "Local roughness absorbs the genuine ~1 ADU asymmetry → not flagged");
+            });
+        }
+
+        [Test]
+        public void Contamination_BrightSectorAboveLocalRoughness_FlaggedWithLocalSigma() {
+            // Same local roughness (local sigma ≈ 1.0), but one sector is brightened far above it by a
+            // real neighbor / hot column. That asymmetry exceeds the local-sigma bar and is still flagged.
+            var (pixels, median) = MakeAnnulusSample(median: 5.0, targetSigma: 1.0, count: 64);
+            var localSigma = StarDetector.ComputeLocalBackgroundSigma(pixels, pixels.Length, median);
+
+            var medians = new double[8];
+            var counts = new int[8];
+            for (int i = 0; i < 8; ++i) {
+                medians[i] = 5.0;
+                counts[i] = 30;
+            }
+            medians[0] = 15.0; // bright neighbor, well above local roughness
+            medians[4] = 5.0;
+
+            var withLocal = StarDetector.IsContaminatedBySectors(medians, counts, localSigma, sensitivity: 4.0, minSectorPixels: 8);
+
+            Assert.That(withLocal, Is.True, "A bright sector well above local roughness is real contamination → flagged");
+        }
+
         [Test]
         public unsafe void ComputeIterativeCentroid_SecondPassEmptyAperture_ReturnsSinglePassEstimate() {
             // Pass 1 succeeds and estimates centroid at (2.5, 2.5).
