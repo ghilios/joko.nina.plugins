@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -197,5 +198,50 @@ public class AutoFocusOptionsTests {
     public void Constructor_ThrowsOnNullAccessor() {
         var profile = Substitute.For<IProfileService>();
         Assert.Throws<ArgumentNullException>(() => new AutoFocusOptions(profile, null));
+    }
+
+    [Test]
+    public void HyperbolicFitModel_DefaultsToUnevenBlendLegacy() {
+        // Fresh store => migrates from the legacy default (uneven enabled) to the legacy blend model.
+        var (options, _, _) = Build();
+        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.UnevenBlendLegacy));
+    }
+
+    [Test]
+    public void HyperbolicFitModel_MigratesLegacyUnevenFalseToSymmetric() {
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        // Simulate a profile that previously turned the uneven fit off (and never saw the new selector).
+        store.SetValueBoolean(nameof(AutoFocusOptions.UnevenHyperbolicFitEnabled), false);
+
+        var options = new AutoFocusOptions(profile, store);
+
+        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.Symmetric));
+    }
+
+    [Test]
+    public void HyperbolicFitModel_MigratesLegacyUnevenTrueToUnevenBlend() {
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        store.SetValueBoolean(nameof(AutoFocusOptions.UnevenHyperbolicFitEnabled), true);
+
+        var options = new AutoFocusOptions(profile, store);
+
+        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.UnevenBlendLegacy));
+    }
+
+    [Test]
+    public void HyperbolicFitModel_SetterPersistsEnum() {
+        var (options, store, _) = Build();
+        options.HyperbolicFitModel = HyperbolicFitModel.TiltedHyperbola;
+        Assert.That(store.Snapshot[nameof(AutoFocusOptions.HyperbolicFitModel)], Is.EqualTo(HyperbolicFitModel.TiltedHyperbola));
+    }
+
+    [Test]
+    public void HyperbolicFitModel_ResetRestoresUnevenBlendLegacy() {
+        var (options, _, _) = Build();
+        options.HyperbolicFitModel = HyperbolicFitModel.SmoothBlend;
+        options.ResetDefaults();
+        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.UnevenBlendLegacy));
     }
 }

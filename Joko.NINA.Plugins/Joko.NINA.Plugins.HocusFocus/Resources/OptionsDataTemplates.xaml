@@ -413,7 +413,7 @@
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long an Auto Focus operation can take before we cancel it and move on." />
     <TextBlock x:Key="ValidateHfrImprovement_Tooltip" Text="If enabled, takes an extra exposure before and after to ensure HFR improved. This check may be done in addition to the R² validation configured in NINA's Auto Focus options." />
     <TextBlock x:Key="HFRImprovementThreshold_Tooltip" Text="How much wiggle room when validating HFR improvements. The default value of 15% means that the Auto Focus fails if the initial HFR is 15% or more better than the final HFR" />
-    <TextBlock x:Key="UnevenHyperbolicFit_Tooltip" Text="Allows hyperbolic fits to have different slopes on either end of the minima. Enabled by default, as outfocus HFR seems to typically exhibit different behavior than infocus." />
+    <TextBlock x:Key="HyperbolicFitModel_Tooltip" Text="Which hyperbolic model is fit to the focus curve. Symmetric is the classic 4-parameter hyperbola. The others are asymmetric (different slope on either side of focus, common because out-of-focus HFR behaves differently than in-focus): Tilted Hyperbola is a single smooth curve with a linear skew (recommended), Smooth Blend smoothly blends two hyperbolas, and Uneven Blend (Legacy) is the original blended fit." />
     <TextBlock x:Key="WeightedHyperbolicFit_Tooltip" Text="Weights each point in the hyperbolic fit based on measurement error." />
     <TextBlock x:Key="HotpixelFiltering_Tooltip" Text="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
     <TextBlock x:Key="HotpixelThresholdingEnabled_Tooltip" Text="A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy" />
@@ -760,17 +760,24 @@
                 Grid.Row="11"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Text="Uneven Hyperbolic Fit"
-                ToolTip="{StaticResource UnevenHyperbolicFit_Tooltip}" />
-            <CheckBox
+                Text="Hyperbolic Fit Model"
+                ToolTip="{StaticResource HyperbolicFitModel_Tooltip}" />
+            <ComboBox
                 Grid.Row="11"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                IsChecked="{Binding AutoFocusOptions.UnevenHyperbolicFitEnabled}"
-                ToolTip="{StaticResource UnevenHyperbolicFit_Tooltip}" />
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:HyperbolicFitModel}}}"
+                SelectedItem="{Binding AutoFocusOptions.HyperbolicFitModel}"
+                ToolTip="{StaticResource HyperbolicFitModel_Tooltip}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
 
             <TextBlock
                 Grid.Row="12"

@@ -124,17 +124,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             }
 
                             if (AFCurveFittingEnum.HYPERBOLIC == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC == fitting) {
-                                AlglibHyperbolicFitting hf;
-                                if (state.Options.UnevenHyperbolicFitEnabled) {
-                                    hf = HyperbolicUnevenFittingAlglib.Create(state.AlglibAPI, validFocusPoints, state.Options.AutoFocusStepSize, state.Options.WeightedHyperbolicFitEnabled);
-                                } else {
-                                    hf = HyperbolicFittingAlglib.Create(state.AlglibAPI, validFocusPoints, state.Options.WeightedHyperbolicFitEnabled);
-                                }
+                                var hf = AlglibHyperbolicFitting.Create(state.AlglibAPI, state.Options.HyperbolicFitModel, validFocusPoints, state.Options.AutoFocusStepSize, state.Options.WeightedHyperbolicFitEnabled);
                                 if (!hf.Solve()) {
                                     Logger.Error("Hyperbolic fit failed");
                                 } else {
                                     fittings.HyperbolicFitting = hf;
-                                    rejectedPoint = MathUtility.RejectionTest(points: validFocusPoints, fitting: fittings.HyperbolicFitting.Fitting, confidence: rejectionConfidence);
+                                    rejectedPoint = MathUtility.RejectionTest(points: validFocusPoints, fitting: fittings.HyperbolicFitting.Fitting, confidence: rejectionConfidence, weights: AlglibHyperbolicFitting.BuildResidualWeights(validFocusPoints, state.Options.WeightedHyperbolicFitEnabled));
                                 }
                             }
                         }
@@ -1592,6 +1587,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 OutlierRejectionConfidence = autoFocusOptions.OutlierRejectionConfidence,
                 UnevenHyperbolicFitEnabled = autoFocusOptions.UnevenHyperbolicFitEnabled,
                 WeightedHyperbolicFitEnabled = autoFocusOptions.WeightedHyperbolicFitEnabled,
+                HyperbolicFitModel = autoFocusOptions.HyperbolicFitModel,
             };
         }
 

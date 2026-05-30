@@ -13,10 +13,13 @@
 using Accord.Math.Optimization.Losses;
 using MathNet.Numerics.LinearAlgebra;
 using NINA.Core.Utility;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.WPF.Base.Utility.AutoFocus;
 using OxyPlot;
+using OxyPlot.Series;
 using System;
+using System.Collections.Generic;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -50,6 +53,39 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// gradient). Used downstream to weight the paraboloid fit by 1/σ².
         /// </summary>
         public double MinimumStdError { get; protected set; } = double.NaN;
+
+        /// <summary>
+        /// Builds the hyperbolic fit selected by <paramref name="model"/>. The legacy uneven blend needs the
+        /// focuser step size for its transition width; the other models ignore it.
+        /// </summary>
+        public static AlglibHyperbolicFitting Create(IAlglibAPI alglibAPI, HyperbolicFitModel model, ICollection<ScatterErrorPoint> points, int stepSize, bool useWeights) {
+            switch (model) {
+                case HyperbolicFitModel.TiltedHyperbola:
+                    return TiltedHyperbolicFittingAlglib.Create(alglibAPI, points, useWeights);
+                case HyperbolicFitModel.SmoothBlend:
+                    return SmoothBlendHyperbolicFittingAlglib.Create(alglibAPI, points, useWeights);
+                case HyperbolicFitModel.Symmetric:
+                    return HyperbolicFittingAlglib.Create(alglibAPI, points, useWeights);
+                case HyperbolicFitModel.UnevenBlendLegacy:
+                default:
+                    return HyperbolicUnevenFittingAlglib.Create(alglibAPI, points, stepSize, useWeights);
+            }
+        }
+
+        /// <summary>
+        /// Per-point residual weights (1/σ from each point's ErrorY) for <see cref="MathUtility.RejectionTest"/>,
+        /// so outlier rejection uses the same weighting as a weighted fit. Returns null when weighting is off.
+        /// </summary>
+        public static Func<double, double> BuildResidualWeights(ICollection<ScatterErrorPoint> points, bool useWeights) {
+            if (!useWeights) {
+                return null;
+            }
+            var map = new Dictionary<double, double>();
+            foreach (var p in points) {
+                map[p.X] = 1.0 / Math.Max(Math.Abs(p.ErrorY), 1e-6);
+            }
+            return x => map.TryGetValue(x, out var w) ? w : 1.0;
+        }
 
         // Per-point weights actually used by the residual/Jacobian callbacks. Equal to the base χ² Weights,
         // optionally multiplied by the Huber IRLS factors. Covariance always uses the base Weights.

@@ -68,6 +68,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double OutlierRejectionConfidence { get; set; }
         public bool UnevenHyperbolicFitEnabled { get; set; }
         public bool WeightedHyperbolicFitEnabled { get; set; }
+        public HyperbolicFitModel HyperbolicFitModel { get; set; }
         public bool PreserveExposures { get; set; }
     }
 

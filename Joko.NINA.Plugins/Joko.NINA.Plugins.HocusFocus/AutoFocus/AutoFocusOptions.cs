@@ -65,6 +65,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             outlierRejectionConfidence = optionsAccessor.GetValueDouble(nameof(OutlierRejectionConfidence), 0.90);
             unevenHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(UnevenHyperbolicFitEnabled), true);
             weightedHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(WeightedHyperbolicFitEnabled), true);
+
+            // HyperbolicFitModel supersedes the UnevenHyperbolicFitEnabled boolean. Migrate the boolean to the
+            // new selector once (true => the previous default of the uneven blend, false => symmetric), then
+            // read the selector thereafter.
+            if (!optionsAccessor.GetValueBoolean("HyperbolicFitModelMigrated", false)) {
+                hyperbolicFitModel = unevenHyperbolicFitEnabled ? HyperbolicFitModel.UnevenBlendLegacy : HyperbolicFitModel.Symmetric;
+                optionsAccessor.SetValueEnum(nameof(HyperbolicFitModel), hyperbolicFitModel);
+                optionsAccessor.SetValueBoolean("HyperbolicFitModelMigrated", true);
+            } else {
+                hyperbolicFitModel = optionsAccessor.GetValueEnum(nameof(HyperbolicFitModel), HyperbolicFitModel.UnevenBlendLegacy);
+            }
         }
 
         public void ResetDefaults() {
@@ -86,6 +97,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             OutlierRejectionConfidence = 0.90;
             UnevenHyperbolicFitEnabled = true;
             WeightedHyperbolicFitEnabled = true;
+            HyperbolicFitModel = HyperbolicFitModel.UnevenBlendLegacy;
         }
 
         private int maxConcurrent;
@@ -349,6 +361,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (weightedHyperbolicFitEnabled != value) {
                     weightedHyperbolicFitEnabled = value;
                     optionsAccessor.SetValueBoolean(nameof(WeightedHyperbolicFitEnabled), weightedHyperbolicFitEnabled);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private HyperbolicFitModel hyperbolicFitModel;
+
+        public HyperbolicFitModel HyperbolicFitModel {
+            get => hyperbolicFitModel;
+            set {
+                if (hyperbolicFitModel != value) {
+                    hyperbolicFitModel = value;
+                    optionsAccessor.SetValueEnum(nameof(HyperbolicFitModel), hyperbolicFitModel);
                     RaisePropertyChanged();
                 }
             }

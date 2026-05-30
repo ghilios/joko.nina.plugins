@@ -59,5 +59,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         public double OutlierRejectionConfidence { get; set; } = 0.95;
         public bool UnevenHyperbolicFitEnabled { get; set; }
         public bool WeightedHyperbolicFitEnabled { get; set; }
+        public HyperbolicFitModel HyperbolicFitModel { get; set; }
     }
 }

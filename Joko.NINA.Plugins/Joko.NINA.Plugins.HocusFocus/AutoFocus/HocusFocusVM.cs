@@ -412,13 +412,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
 
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
-                        AlglibHyperbolicFitting hf;
-                        if (autoFocusOptions.UnevenHyperbolicFitEnabled) {
-                            hf = HyperbolicUnevenFittingAlglib.Create(this.alglibAPI, validFocusPoints, profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
-                        } else {
-                            hf = HyperbolicFittingAlglib.Create(this.alglibAPI, validFocusPoints, autoFocusOptions.WeightedHyperbolicFitEnabled);
-                        }
-
+                        var hf = AlglibHyperbolicFitting.Create(this.alglibAPI, autoFocusOptions.HyperbolicFitModel, validFocusPoints, profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
                         hf.Solve();
                         HyperbolicFitting = hf;
                     }

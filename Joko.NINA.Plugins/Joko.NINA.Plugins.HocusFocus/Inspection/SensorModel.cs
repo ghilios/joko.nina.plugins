@@ -633,16 +633,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     bool solveResult;
                     do {
                         continueFitting = false;
-                        if (autoFocusOptions.UnevenHyperbolicFitEnabled) {
-                            fitting = HyperbolicUnevenFittingAlglib.Create(this.alglibAPI, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
-                        } else {
-                            fitting = HyperbolicFittingAlglib.Create(this.alglibAPI, points, autoFocusOptions.WeightedHyperbolicFitEnabled);
-                        }
+                        fitting = AlglibHyperbolicFitting.Create(this.alglibAPI, autoFocusOptions.HyperbolicFitModel, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
 
                         solveResult = fitting.Solve();
                         if (rejectBadlyFittingMatches) {
                             if (solveResult && rejectedPoints.Count < maxOutlierRejectedPoints && points.Count > minStarCountForFitting) {
-                                var rejectedPoint = MathUtility.RejectionTest(points: points, fitting: fitting.Fitting, confidence: rejectionConfidence);
+                                var rejectedPoint = MathUtility.RejectionTest(points: points, fitting: fitting.Fitting, confidence: rejectionConfidence, weights: AlglibHyperbolicFitting.BuildResidualWeights(points, autoFocusOptions.WeightedHyperbolicFitEnabled));
                                 if (rejectedPoint != null) {
                                     rejectedPoints.Add(rejectedPoint);
                                     points.Remove(rejectedPoint);
