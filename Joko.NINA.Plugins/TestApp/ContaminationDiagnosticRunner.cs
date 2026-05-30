@@ -115,9 +115,12 @@ namespace TestApp {
             // Build params from the SAME mapping NINA uses (single source of truth), enable diagnostics
             var baseParams = HocusFocusStarDetection.BuildStarDetectorParams(options);
             baseParams.CollectContaminationDiagnostics = true;
-            // Force PSF modeling on so per-star shape metrics (eccentricity/FWHM) are always available. The
-            // contamination decision is computed from sector medians BEFORE PSF fitting, so this does NOT
-            // change which stars get flagged — it only adds shape data for the flagged-vs-clean comparison.
+            // Keep contaminated stars in the result so they can be analyzed here (production would reject them
+            // when RejectContaminatedStars is on). The per-star ContaminationSuspected flag still records the
+            // decision either way.
+            baseParams.RejectContaminatedStars = false;
+            // Force PSF modeling on so per-star shape metrics (eccentricity/FWHM) are always available. PSF
+            // fitting happens after the contamination decision, so this only adds shape data.
             if (!baseParams.ModelPSF) {
                 Console.WriteLine("Forcing ModelPSF on for shape diagnostics (does not affect contamination decisions)");
                 Logger.Info("Diagnostic: forced ModelPSF=true to capture eccentricity/FWHM");
@@ -148,14 +151,11 @@ namespace TestApp {
             Console.WriteLine($"Detected {total}, {suspected} contamination-suspected ({Percent(suspected, total)})");
 
             var shapes = BuildShapeLookup(result, diagnostics);
-            int altSuspected = diagnostics.Count(r => r.AltContaminationSuspected);
-            Console.WriteLine($"Gradient-robust (A/B) would flag {altSuspected} ({Percent(altSuspected, total)}) vs current {suspected}");
             WriteCsv(Path.Combine(outDir, "contamination_stars.csv"), diagnostics, shapes);
             WriteSummary(Path.Combine(outDir, "contamination_summary.txt"), imagePath, srcFloat, baseParams, total, suspected, diagnostics, shapes);
             WriteAnnotated(Path.Combine(outDir, "contamination_annotated.png"), srcFloat, diagnostics, shapes);
-            WriteAnnotatedAb(Path.Combine(outDir, "contamination_annotated_ab.png"), srcFloat, diagnostics);
-            WriteGradientRobustSweep(Path.Combine(outDir, "gr_sweep.csv"), diagnostics, baseParams.ContaminationSensitivity, shapes);
-            Console.WriteLine($"Wrote contamination_stars.csv, contamination_summary.txt, contamination_annotated.png, contamination_annotated_ab.png to {outDir}");
+            WriteGradientRobustSweep(Path.Combine(outDir, "gr_sweep.csv"), diagnostics, shapes);
+            Console.WriteLine($"Wrote contamination_stars.csv, contamination_summary.txt, contamination_annotated.png, gr_sweep.csv to {outDir}");
         }
 
         private static async Task RunSweep(Mat srcFloat, StarDetectorParams baseParams, string sweepArg, string outDir) {
@@ -312,16 +312,13 @@ namespace TestApp {
         private static void WriteCsv(string path, List<ContaminationDiagnosticRecord> diagnostics,
                 Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
             var sb = new StringBuilder();
-            var header = new List<string> { "CenterX", "CenterY", "Hfr", "Background", "NoiseSigma", "Sensitivity", "MinSectorPixels" };
-            for (int i = 0; i < NumSectors; ++i) header.Add($"m{i}");
-            for (int i = 0; i < NumSectors; ++i) header.Add($"c{i}");
-            for (int i = 0; i < NumSectors / 2; ++i) header.Add($"diff{i}");
-            for (int i = 0; i < NumSectors / 2; ++i) header.Add($"thr{i}");
-            for (int i = 0; i < NumSectors / 2; ++i) header.Add($"ratio{i}");
-            for (int i = 0; i < NumSectors / 2; ++i) header.Add($"skip{i}");
-            header.Add("TrippingPairIndex");
-            header.Add("ContaminationSuspected");
-            header.Add("MaxRatio");
+            var header = new List<string> {
+                "CenterX", "CenterY", "Hfr", "Background", "NoiseSigma", "Sensitivity", "MinSectorPixels",
+                "ContaminationSuspected",
+                "GradientSlope", "LocalSigmaResidual", "MaxSectorResidualOverSE", "ResidualTrippingSector",
+            };
+            for (int i = 0; i < NumSectors; ++i) header.Add($"resid{i}");
+            for (int i = 0; i < NumSectors; ++i) header.Add($"residCount{i}");
             header.Add("Eccentricity");
             header.Add("FWHMx");
             header.Add("FWHMy");
@@ -331,27 +328,17 @@ namespace TestApp {
             header.Add("NearestNeighborOverHfr");
             header.Add("HasCloseNeighbor");
             header.Add("PsfFitOk");
-            header.Add("GradientSlope");
-            header.Add("LocalSigmaResidual");
-            header.Add("MaxSectorResidualOverSE");
-            header.Add("AltTrippingSector");
-            header.Add("AltContaminationSuspected");
             sb.AppendLine(string.Join(",", header));
 
             foreach (var r in diagnostics) {
                 var info = shapes != null && shapes.TryGetValue(r, out var s) ? s : new ShapeInfo();
                 var row = new List<string> {
-                    F(r.CenterX), F(r.CenterY), F(r.Hfr), F(r.Background), F(r.NoiseSigma), F(r.Sensitivity), r.MinSectorPixels.ToString(CultureInfo.InvariantCulture)
+                    F(r.CenterX), F(r.CenterY), F(r.Hfr), F(r.Background), F(r.NoiseSigma), F(r.Sensitivity), r.MinSectorPixels.ToString(CultureInfo.InvariantCulture),
+                    r.ContaminationSuspected ? "1" : "0",
+                    F(r.GradientSlope), F(r.LocalSigmaResidual), F(r.MaxSectorResidualOverSE), r.ResidualTrippingSector.ToString(CultureInfo.InvariantCulture),
                 };
-                for (int i = 0; i < NumSectors; ++i) row.Add(F(r.SectorMedians[i]));
-                for (int i = 0; i < NumSectors; ++i) row.Add(r.SectorCounts[i].ToString(CultureInfo.InvariantCulture));
-                for (int i = 0; i < NumSectors / 2; ++i) row.Add(F(r.PairDiff[i]));
-                for (int i = 0; i < NumSectors / 2; ++i) row.Add(F(r.PairThreshold[i]));
-                for (int i = 0; i < NumSectors / 2; ++i) row.Add(F(r.PairRatio[i]));
-                for (int i = 0; i < NumSectors / 2; ++i) row.Add(r.PairSkipped[i] ? "1" : "0");
-                row.Add(r.TrippingPairIndex.ToString(CultureInfo.InvariantCulture));
-                row.Add(r.ContaminationSuspected ? "1" : "0");
-                row.Add(F(MaxRatio(r)));
+                for (int i = 0; i < NumSectors; ++i) row.Add(r.SectorResidualMedian != null ? F(r.SectorResidualMedian[i]) : "NaN");
+                for (int i = 0; i < NumSectors; ++i) row.Add(r.SectorResidualCount != null ? r.SectorResidualCount[i].ToString(CultureInfo.InvariantCulture) : "0");
                 row.Add(F(info.Eccentricity));
                 row.Add(F(info.FWHMx));
                 row.Add(F(info.FWHMy));
@@ -361,11 +348,6 @@ namespace TestApp {
                 row.Add(F(info.NearestNeighborOverHfr));
                 row.Add(info.HasCloseNeighbor ? "1" : "0");
                 row.Add(info.PsfFitOk ? "1" : "0");
-                row.Add(F(r.GradientSlope));
-                row.Add(F(r.LocalSigmaResidual));
-                row.Add(F(r.MaxSectorResidualOverSE));
-                row.Add(r.AltTrippingSector.ToString(CultureInfo.InvariantCulture));
-                row.Add(r.AltContaminationSuspected ? "1" : "0");
                 sb.AppendLine(string.Join(",", row));
             }
             File.WriteAllText(path, sb.ToString());
@@ -382,24 +364,16 @@ namespace TestApp {
             sb.AppendLine($"Contamination suspected: {suspected} ({Percent(suspected, total)})");
 
             WriteHypothesisComparison(sb, diagnostics, shapes);
-            WriteAbComparison(sb, diagnostics, shapes);
 
-            var maxRatios = diagnostics.Select(MaxRatio).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
-            if (maxRatios.Count > 0) {
+            var stats = diagnostics.Select(r => r.MaxSectorResidualOverSE).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
+            if (stats.Count > 0) {
                 sb.AppendLine();
-                sb.AppendLine("MaxRatio distribution (over accepted stars with at least one evaluated sector pair):");
-                sb.AppendLine($"  count = {maxRatios.Count}");
-                sb.AppendLine($"  min    = {F(maxRatios.First())}");
-                sb.AppendLine($"  median = {F(Percentile(maxRatios, 0.50))}");
-                sb.AppendLine($"  p90    = {F(Percentile(maxRatios, 0.90))}");
-                sb.AppendLine($"  max    = {F(maxRatios.Last())}");
-                sb.AppendLine();
-                sb.AppendLine("  buckets:");
-                sb.AppendLine($"    <1.0       : {maxRatios.Count(x => x < 1.0)}");
-                sb.AppendLine($"    1.0 - 1.25 : {maxRatios.Count(x => x >= 1.0 && x < 1.25)}");
-                sb.AppendLine($"    1.25 - 1.5 : {maxRatios.Count(x => x >= 1.25 && x < 1.5)}");
-                sb.AppendLine($"    1.5 - 2.0  : {maxRatios.Count(x => x >= 1.5 && x < 2.0)}");
-                sb.AppendLine($"    >= 2.0     : {maxRatios.Count(x => x >= 2.0)}");
+                sb.AppendLine("MaxSectorResidualOverSE distribution (gradient-robust test statistic; flag when > sensitivity):");
+                sb.AppendLine($"  count = {stats.Count}");
+                sb.AppendLine($"  min    = {F(stats.First())}");
+                sb.AppendLine($"  median = {F(Percentile(stats, 0.50))}");
+                sb.AppendLine($"  p90    = {F(Percentile(stats, 0.90))}");
+                sb.AppendLine($"  max    = {F(stats.Last())}");
             }
             File.WriteAllText(path, sb.ToString());
         }
@@ -454,89 +428,30 @@ namespace TestApp {
         }
 
         /// <summary>
-        /// A/B comparison of the current opposite-sector-median test vs. the experimental gradient-robust
-        /// (plane-subtracted, one-sided positive residual) test, at the same sensitivity. Reports the
-        /// confusion matrix (agree / dropped-by-Alt / added-by-Alt) and the eccentricity/HFR/neighbor profile
-        /// of the dropped group — these should look like clean stars if they were gradient false positives.
-        /// </summary>
-        private static void WriteAbComparison(StringBuilder sb, List<ContaminationDiagnosticRecord> diagnostics,
-                Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
-            int oldFlag = diagnostics.Count(r => r.ContaminationSuspected);
-            int newFlag = diagnostics.Count(r => r.AltContaminationSuspected);
-            var dropped = diagnostics.Where(r => r.ContaminationSuspected && !r.AltContaminationSuspected).ToList();
-            var added = diagnostics.Where(r => !r.ContaminationSuspected && r.AltContaminationSuspected).ToList();
-            int agreeFlag = diagnostics.Count(r => r.ContaminationSuspected && r.AltContaminationSuspected);
-
-            sb.AppendLine();
-            sb.AppendLine("=== A/B: current test vs. gradient-robust (plane-subtracted, one-sided) test ===");
-            sb.AppendLine($"  current flagged: {oldFlag}    gradient-robust flagged: {newFlag}");
-            sb.AppendLine($"  agree-flagged: {agreeFlag}");
-            sb.AppendLine($"  dropped by gradient-robust (current-only): {dropped.Count}  <- candidate gradient false positives");
-            sb.AppendLine($"  added by gradient-robust (new-only):       {added.Count}  <- localized spikes masked by an opposing gradient");
-
-            void Profile(string label, List<ContaminationDiagnosticRecord> g) {
-                if (g.Count == 0) { sb.AppendLine($"    {label}: (none)"); return; }
-                double MedShape(Func<ShapeInfo, double> sel) {
-                    var v = g.Select(r => shapes.TryGetValue(r, out var s) ? sel(s) : double.NaN).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
-                    return v.Count == 0 ? double.NaN : Percentile(v, 0.50);
-                }
-                double medHfr = g.Select(r => r.Hfr).OrderBy(x => x).ToList() is var h && h.Count > 0 ? Percentile(h, 0.50) : double.NaN;
-                sb.AppendLine($"    {label}: median Ecc={F(MedShape(s => s.Eccentricity))}, HFR={F(medHfr)}, GradientSlope={F(g.Select(r => r.GradientSlope).Where(x => !double.IsNaN(x)).DefaultIfEmpty(double.NaN).OrderBy(x => x).ToList() is var gs && gs.Count > 0 ? Percentile(gs, 0.50) : double.NaN)}");
-            }
-            sb.AppendLine();
-            sb.AppendLine("  group profiles (medians):");
-            Profile("dropped (current-only)", dropped);
-            Profile("added (new-only)", added);
-        }
-
-        /// <summary>
-        /// Sweeps the decision threshold for both tests using statistics already computed in a single detection
-        /// run (no re-detection): the gradient-robust test flags a star at sensitivity S iff its
-        /// MaxSectorResidualOverSE > S; the current opposite-pair test flags iff MaxRatio*runSensitivity > S.
-        /// For each S also reports the median local gradient slope of the gradient-robust-flagged set, so a
-        /// threshold that re-admits high-gradient false positives is visible. Helps pick a production sensitivity.
+        /// Sweeps the gradient-robust decision threshold using statistics already computed in a single detection
+        /// run (no re-detection): a star is flagged at sensitivity S iff its MaxSectorResidualOverSE &gt; S. For
+        /// each S also reports the median local gradient slope and eccentricity of the flagged set, so a
+        /// threshold that admits high-gradient or high-eccentricity stars is visible. Helps tune the sensitivity.
         /// </summary>
         private static void WriteGradientRobustSweep(string path, List<ContaminationDiagnosticRecord> diagnostics,
-                double runSensitivity, Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
+                Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
             int total = diagnostics.Count;
             var sb = new StringBuilder();
-            sb.AppendLine("sensitivity,current_flagged,current_pct,gradrobust_flagged,gradrobust_pct,grOnly_added,currentOnly_dropped,grflag_median_gradientslope,grflag_median_ecc");
+            sb.AppendLine("sensitivity,flagged,flagged_pct,flagged_median_gradientslope,flagged_median_ecc");
             for (double s = 3.0; s <= 8.0 + 1e-9; s += 0.5) {
-                var cur = diagnostics.Where(r => !double.IsNaN(MaxRatio(r)) && MaxRatio(r) * runSensitivity > s).ToHashSet();
-                var gr = diagnostics.Where(r => !double.IsNaN(r.MaxSectorResidualOverSE) && r.MaxSectorResidualOverSE > s).ToHashSet();
-                int added = gr.Count(r => !cur.Contains(r));
-                int dropped = cur.Count(r => !gr.Contains(r));
+                var gr = diagnostics.Where(r => !double.IsNaN(r.MaxSectorResidualOverSE) && r.MaxSectorResidualOverSE > s).ToList();
                 var grSlopes = gr.Select(r => r.GradientSlope).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
                 var grEcc = gr.Select(r => shapes != null && shapes.TryGetValue(r, out var sh) ? sh.Eccentricity : double.NaN).Where(x => !double.IsNaN(x)).OrderBy(x => x).ToList();
                 sb.AppendLine(string.Join(",",
                     s.ToString("0.0", CultureInfo.InvariantCulture),
-                    cur.Count, PercentValue(cur.Count, total).ToString("0.##", CultureInfo.InvariantCulture),
                     gr.Count, PercentValue(gr.Count, total).ToString("0.##", CultureInfo.InvariantCulture),
-                    added, dropped,
                     grSlopes.Count > 0 ? F(Percentile(grSlopes, 0.50)) : "NaN",
                     grEcc.Count > 0 ? F(Percentile(grEcc, 0.50)) : "NaN"));
             }
             File.WriteAllText(path, sb.ToString());
         }
 
-        private static void WriteAnnotatedAb(string path, Mat srcFloat, List<ContaminationDiagnosticRecord> diagnostics) {
-            using var bgr = BuildStretchedBgr(srcFloat);
-            var green = new Scalar(0, 255, 0);    // both clean
-            var magenta = new Scalar(255, 0, 255); // both flagged (agree)
-            var red = new Scalar(0, 0, 255);      // current-only: dropped by gradient-robust (candidate FP)
-            var yellow = new Scalar(0, 255, 255); // new-only: added by gradient-robust (recovered)
-            foreach (var r in diagnostics) {
-                Scalar color;
-                if (r.ContaminationSuspected && r.AltContaminationSuspected) color = magenta;
-                else if (r.ContaminationSuspected && !r.AltContaminationSuspected) color = red;
-                else if (!r.ContaminationSuspected && r.AltContaminationSuspected) color = yellow;
-                else color = green;
-                Cv2.Circle(bgr, new OpenCvSharp.Point((int)Math.Round(r.CenterX), (int)Math.Round(r.CenterY)), 8, color, 1, LineTypes.AntiAlias);
-            }
-            Cv2.ImWrite(path, bgr);
-        }
-
-        // Shared MTF-stretched BGR background used by both annotated outputs.
+        // MTF-stretched BGR background for the annotated image.
         private static Mat BuildStretchedBgr(Mat srcFloat) {
             using var src16 = new Mat();
             srcFloat.ConvertTo(src16, MatType.CV_16U, ushort.MaxValue);
@@ -575,16 +490,6 @@ namespace TestApp {
                 Cv2.Circle(bgr, new OpenCvSharp.Point((int)Math.Round(r.CenterX), (int)Math.Round(r.CenterY)), 8, color, 1, LineTypes.AntiAlias);
             }
             Cv2.ImWrite(path, bgr);
-        }
-
-        private static double MaxRatio(ContaminationDiagnosticRecord r) {
-            double max = double.NaN;
-            for (int i = 0; i < r.PairRatio.Length; ++i) {
-                var v = r.PairRatio[i];
-                if (double.IsNaN(v)) continue;
-                if (double.IsNaN(max) || v > max) max = v;
-            }
-            return max;
         }
 
         private static double Percentile(List<double> sorted, double q) {

@@ -281,6 +281,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 NoiseClippingMultiplier = options.NoiseClippingMultiplier,
                 StarClippingMultiplier = options.StarClippingMultiplier,
                 ContaminationSensitivity = options.ContaminationSensitivity,
+                RejectContaminatedStars = options.RejectContaminatedStars,
                 StructureLayers = options.StructureLayers,
                 Sensitivity = options.BrightnessSensitivity,
                 PeakResponse = options.StarPeakResponse,

@@ -77,7 +77,8 @@
     <TextBlock x:Key="SDR_PSFFailed_Tooltip" Text="Stars whose PSF model fit failed or did not meet the R² goodness-of-fit threshold." />
     <TextBlock x:Key="SDR_SaturatedPixels_Tooltip" Text="The total number of saturated (clipped) pixels encountered across all detected stars." />
     <TextBlock x:Key="SDR_Hotpixels_Tooltip" Text="The number of hot pixels identified and filtered out during detection." />
-    <TextBlock x:Key="SDR_Contaminated_Tooltip" Text="Stars flagged as possibly contaminated by a neighbor, background gradient, or hot column. These stars are still used, but their measurements may be less reliable." />
+    <TextBlock x:Key="SDR_Contaminated_Tooltip" Text="Stars flagged as contaminated by a localized neighbor or hot column (after the smooth local background gradient is removed). With 'Reject Contaminated Stars' enabled they are rejected; otherwise they are kept and only flagged." />
+    <TextBlock x:Key="SDR_ContaminationRejected_Tooltip" Text="Stars rejected because they were flagged as contaminated and 'Reject Contaminated Stars' is enabled. Keeping these out of the set avoids skewing HFR and PSF statistics." />
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
         <Grid>
@@ -908,7 +909,18 @@
                                     VerticalAlignment="Center"
                                     Text="{Binding Metrics.ContaminationSuspected, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Contam. Rejected"
+                                    ToolTip="{StaticResource SDR_ContaminationRejected_Tooltip}" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.ContaminationRejected, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
+                            </StackPanel>
                         </UniformGrid>
                     </StackPanel>
                 </GroupBox>

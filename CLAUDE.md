@@ -601,13 +601,33 @@ Every new field added to `StarDetectorMetrics` (rejection counts, flags, etc.) *
 
 ---
 
-## Headless Contamination Diagnostic Tool
+## Gradient-Robust Contamination Test + Local Background Plane
 
-`TestApp` doubles as a **self-contained, headless diagnostic** for the sector-annulus contamination test
-(`StarDetector.IsContaminatedBySectors`). Use it to root-cause / re-tune star-detection contamination
-**without launching NINA** — it reproduces the exact production decision because it loads the user's real
-NINA profile and builds params via `HocusFocusStarDetection.BuildStarDetectorParams` (the single
-options→params source of truth), then runs detection with per-star diagnostics enabled.
+The star detector's contamination test is **gradient-robust** (`StarDetector.ComputeGradientContamination`):
+for each star it fits a robust plane `b0 + b1·dx + b2·dy` to the background-annulus pixels via IRLS (Huber)
+to model a smooth one-sided background (galaxy/nebula gradient), subtracts it, then flags a star **only** when
+a single octant shows a one-sided **positive** residual excess above `ContaminationSensitivity` sigma — a
+contaminant adds light, so this ignores both smooth gradients (removed by the fit) and edge-clip deficits
+(negative). The fitted plane (`LocalBackgroundPlane`, carried on `Star.BackgroundPlane`) doubles as the
+**local background** used per-pixel for centroid, flux, HFR, and PSF, so a gradient no longer biases any
+measurement; for flat fields the plane equals the annulus median (no change). The PSF fit has the gradient
+*tilt* removed before fitting (zero at the star center, so the amplitude and fitted background `B` are
+unaffected) for cleaner sigma/FWHM/eccentricity.
+
+- **Quality gate**: `StarDetectorParams.RejectContaminatedStars` (option `StarDetectionOptions.
+  RejectContaminatedStars`, **default ON**) rejects contaminated stars (metric `ContaminationRejected`);
+  when off they are kept and only flagged (`Star.StarContaminationSuspected`, metric `ContaminationSuspected`).
+- The legacy opposite-sector-median test was removed (it tripped on smooth gradients). Validated on M31 +
+  Pleiades: the gradient-robust test drops smooth-gradient/edge false positives and recovers real faint
+  companions that an opposing gradient had masked.
+
+### Headless diagnostic (`TestApp`)
+
+`TestApp` doubles as a **self-contained, headless diagnostic** for the contamination test. Use it to
+root-cause / re-tune **without launching NINA** — it loads the user's real NINA profile and builds params via
+`HocusFocusStarDetection.BuildStarDetectorParams` (the single options→params source of truth), then runs
+detection with per-star diagnostics enabled and `RejectContaminatedStars=false` (so contaminated stars are
+retained for analysis).
 
 **Run it** (WSL interop runs the Windows `.exe` directly, so paths with spaces quote cleanly):
 
@@ -619,34 +639,24 @@ options→params source of truth), then runs detection with per-star diagnostics
 - Build first: `cmd.exe /c "dotnet build Joko.NINA.Plugins\TestApp\TestApp.csproj -c Debug --nologo"`.
 - Args: `--image <path>` (req; `.xisf`/`.fits`/`.tif`), `--profile-id <guid>` (default: active profile),
   `--out <dir>` (default `%LOCALAPPDATA%\NINA\Logs\hf-diag\<timestamp>`), `--sensitivity <double>` (override),
-  `--sensitivity-sweep <a,b,step>` (A/B sweep → `sweep.csv` + per-value CSVs).
+  `--sensitivity-sweep <a,b,step>` (per-value CSVs → `sweep.csv`).
 - No `--image`/`contamination` arg ⇒ TestApp launches its normal WPF GUI instead.
 
-**Outputs** (in `--out`): `contamination_stars.csv` (one row per accepted star — center, HFR, the σ used,
-per opposite-pair `diff/threshold/ratio/skip`, `TrippingPairIndex`, `ContaminationSuspected`, `MaxRatio`;
-plus per-star shape/proximity `Eccentricity`/`FWHMx`/`FWHMy`/`FWHMPixels`/`ThetaDeg`/`NearestNeighborDist`/
-`NearestNeighborOverHfr`/`HasCloseNeighbor`/`PsfFitOk`; and the gradient-robust A/B columns
-`GradientSlope`/`LocalSigmaResidual`/`MaxSectorResidualOverSE`/`AltTrippingSector`/`AltContaminationSuspected`);
-`contamination_summary.txt` (settings + flag rate + MaxRatio distribution + a flagged-vs-clean hypothesis
-comparison + an A/B confusion matrix); `contamination_annotated.png` (green = clean, magenta = flagged-with-
-close-neighbor, cyan = flagged-isolated); `contamination_annotated_ab.png` (green = both clean, magenta = both
-flagged, red = current-only/dropped-by-gradient-robust, yellow = new-only/added-by-gradient-robust);
-`gr_sweep.csv` (decision-threshold sweep for both tests, computed from a single run); plus verbose TRACE in
+**Outputs** (in `--out`): `contamination_stars.csv` (one row per accepted star — center, HFR, background
+(plane value at center), σ used, `ContaminationSuspected`, gradient-robust fields `GradientSlope`/
+`LocalSigmaResidual`/`MaxSectorResidualOverSE`/`ResidualTrippingSector`, per-octant `resid*`/`residCount*`,
+and per-star shape/proximity `Eccentricity`/`FWHMx`/`FWHMy`/`FWHMPixels`/`ThetaDeg`/`NearestNeighborDist`/
+`NearestNeighborOverHfr`/`HasCloseNeighbor`/`PsfFitOk`); `contamination_summary.txt` (settings + flag rate +
+a flagged-vs-clean profile + `MaxSectorResidualOverSE` distribution); `contamination_annotated.png` (green =
+clean, magenta = flagged-with-close-neighbor, cyan = flagged-isolated); `gr_sweep.csv` (flag rate + flagged
+set's median gradient slope/eccentricity vs sensitivity, from a single run); plus verbose TRACE in
 `%LOCALAPPDATA%\NINA\Logs`.
 
-**Gradient-robust A/B (`Alt*` fields):** the current `IsContaminatedBySectors` compares *raw* opposite-sector
-medians, so a smooth one-sided background (galaxy/nebula gradient) trips it with no contaminant. The A/B
-"gradient-robust" test (`StarDetector.AddGradientRobustDiagnostics`) fits a robust plane (IRLS/Huber) to the
-annulus pixels, subtracts the local gradient, then flags only a one-sided **positive** residual excess — which
-also ignores edge-clipping deficits. Validated on M31 + Pleiades: it drops smooth-gradient/edge false positives
-and recovers real faint companions masked by an opposing gradient.
-
-**How the production hook works (off by default, zero overhead):** set
+**How the diagnostics hook works (off by default, zero overhead):** set
 `StarDetectorParams.CollectContaminationDiagnostics = true` and read
-`HocusFocusStarDetectorResult.ContaminationDiagnostics` (a `List<ContaminationDiagnosticRecord>`, 1:1 with
-`DetectedStars`). When the flag is false the detector allocates nothing and does no extra math.
-`IsContaminatedBySectors` is kept **pure** — diagnostics are recomputed alongside it via
-`BuildContaminationDiagnostics`, never by changing the decision function.
+`HocusFocusStarDetectorResult.ContaminationDiagnostics` (a `List<ContaminationDiagnosticRecord>`). When the
+flag is false the detector fills no per-sector residual arrays and skips the diagnostic record (the plane fit
++ decision always run, since they are the production background/contamination path).
 
 ---
 
@@ -667,7 +677,7 @@ and recovers real faint companions masked by an opposing gradient.
 | Version (AssemblyInfo) | `Joko.NINA.Plugins.HocusFocus/Properties/AssemblyInfo.cs` |
 | Contamination diagnostic runner | `TestApp/ContaminationDiagnosticRunner.cs` |
 | Options→params source of truth | `Joko.NINA.Plugins.HocusFocus/StarDetection/HocusFocusStarDetection.cs` (`BuildStarDetectorParams`) |
-| Contamination decision (pure) | `Joko.NINA.Plugins.HocusFocus/StarDetection/StarDetector.cs` (`IsContaminatedBySectors`) |
+| Contamination decision + background plane | `Joko.NINA.Plugins.HocusFocus/StarDetection/StarDetector.cs` (`ComputeGradientContamination`) |
 
 ---
 

@@ -218,6 +218,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double StarClippingMultiplier { get; set; } = 2.0;
         public double ContaminationSensitivity { get; set; } = 5.0;
 
+        // When true (default), stars flagged as contaminated by the gradient-robust test are rejected
+        // outright (quality gate) rather than merely flagged, keeping HFR/PSF statistics clean of
+        // one-sided contaminants. When false, contaminated stars are kept and only flagged.
+        public bool RejectContaminatedStars { get; set; } = true;
+
         // Diagnostics opt-in. When true, the detector records a per-star ContaminationDiagnosticRecord for
         // every accepted star (see HocusFocusStarDetectorResult.ContaminationDiagnostics). Off by default so
         // production NINA runs incur zero extra allocations or math. Excluded from ToString().
@@ -304,20 +309,45 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         }
     }
 
+    /// <summary>
+    /// A fitted local background plane B(x, y) = B0 + B1·(x − OriginX) + B2·(y − OriginY), estimated robustly
+    /// from a star's background annulus. Used as the local background everywhere a scalar median was used
+    /// (centroid, flux, HFR, PSF) so a one-sided gradient (galaxy/nebula) does not bias measurements. When a
+    /// usable gradient fit is unavailable, <see cref="Flat"/> yields a constant plane equal to the median.
+    /// </summary>
+    public sealed class LocalBackgroundPlane {
+        public double OriginX { get; }
+        public double OriginY { get; }
+        public double B0 { get; }   // background at the origin
+        public double B1 { get; }   // d(background)/dx
+        public double B2 { get; }   // d(background)/dy
+        public bool IsFlat { get; } // true when constructed from a scalar median (no usable gradient fit)
+
+        public LocalBackgroundPlane(double originX, double originY, double b0, double b1, double b2, bool isFlat) {
+            OriginX = originX; OriginY = originY; B0 = b0; B1 = b1; B2 = b2; IsFlat = isFlat;
+        }
+
+        public static LocalBackgroundPlane Flat(double originX, double originY, double value)
+            => new LocalBackgroundPlane(originX, originY, value, 0.0, 0.0, isFlat: true);
+
+        public double ValueAt(double x, double y) => B0 + B1 * (x - OriginX) + B2 * (y - OriginY);
+    }
+
     public class Star {
         public Point2d Center { get; set; }
         public Rect StarBoundingBox { get; set; }
         public double Background { get; set; }
+        public LocalBackgroundPlane BackgroundPlane { get; set; }
         public double MeanBrightness { get; set; }
         public double PeakBrightness { get; set; }
         public double HFR { get; set; }
         public PSFModel PSF { get; set; }
 
         /// <summary>
-        /// Set to true when the three background estimates (annulus median, per-pixel threshold, and PSF-fitted
-        /// background) disagree by more than 2× noiseSigma, indicating the star may be contaminated by a
-        /// neighbor star, a background gradient, or a hot column. The star is not rejected — this flag is
-        /// available for downstream diagnostics.
+        /// Set to true when the gradient-robust contamination test detects a one-sided positive residual excess
+        /// in the background annulus (a neighbor star, hot column, or other localized source), after removing
+        /// the smooth local gradient. When <see cref="StarDetectorParams.RejectContaminatedStars"/> is enabled
+        /// the star is rejected outright; otherwise it is kept and merely flagged for downstream diagnostics.
         /// </summary>
         public bool StarContaminationSuspected { get; set; }
 
@@ -347,6 +377,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int HFRAnalysisFailed { get; set; } = 0;
         public int PSFFitFailed { get; set; } = 0;
         public int ContaminationSuspected { get; set; } = 0;
+        public int ContaminationRejected { get; set; } = 0;
         public int OutsideROI { get; set; } = 0;
         public long SaturatedPixelCount { get; set; } = 0L;
         public long HotpixelCount { get; set; } = 0L;
@@ -371,42 +402,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     }
 
     /// <summary>
-    /// Per-star diagnostics for the sector-annulus contamination test, captured only when
+    /// Per-star diagnostics for the gradient-robust contamination test, captured only when
     /// <see cref="StarDetectorParams.CollectContaminationDiagnostics"/> is enabled. One record is produced for
     /// every accepted star (1:1 with <see cref="HocusFocusStarDetectorResult.DetectedStars"/>), so the
-    /// contamination decision can be reproduced and re-tuned offline. The four "Pair" arrays cover opposite
-    /// octant pairs (s, s+4) for s = 0..3, using the same standard-error model as
-    /// <c>StarDetector.IsContaminatedBySectors</c>.
+    /// contamination decision can be reproduced and re-tuned offline. The test fits a robust plane to the
+    /// annulus pixels (removing the local gradient), then flags a one-sided POSITIVE residual excess in any
+    /// octant (a contaminant only adds light), which ignores both smooth gradients and edge-clip deficits.
     /// </summary>
     public sealed class ContaminationDiagnosticRecord {
         public double CenterX { get; set; }            // image/pixel coords (ROI offset applied, like DetectedStars)
         public double CenterY { get; set; }
-        public double NoiseSigma { get; set; }         // values actually used in the decision
+        public double NoiseSigma { get; set; }         // fallback sigma (used if the residual sigma is degenerate)
         public double Sensitivity { get; set; }
         public int MinSectorPixels { get; set; }       // = 8
-        public double[] SectorMedians { get; set; }    // length 8
-        public int[] SectorCounts { get; set; }        // length 8
-        public double[] PairDiff { get; set; }         // length 4: |m[s]-m[s+4]|
-        public double[] PairThreshold { get; set; }    // length 4: sensitivity*1.2533*noiseSigma*sqrt(1/n_s+1/n_opp)
-        public double[] PairRatio { get; set; }        // length 4: PairDiff/PairThreshold (NaN if skipped)
-        public bool[] PairSkipped { get; set; }        // length 4: either count < MinSectorPixels
-        public int TrippingPairIndex { get; set; }     // first s that tripped, else -1
-        public bool ContaminationSuspected { get; set; }
+        public bool ContaminationSuspected { get; set; } // production decision
         public double Hfr { get; set; }
-        public double Background { get; set; }
+        public double Background { get; set; }          // local background plane value at the star center
 
-        // --- Experimental gradient-robust ("Alt") A/B test, populated only with diagnostics on ---
-        // The current test compares raw opposite-sector medians, so a smooth one-sided background (e.g. a
-        // galaxy/nebula gradient) trips it even with no contaminant. The Alt test fits a robust plane to the
-        // annulus pixels (removing the local gradient), then flags only a one-sided POSITIVE residual excess
-        // (a contaminant only adds light), which also ignores edge-clipping deficits. See StarDetector.
+        // Gradient-robust test details.
         public double GradientSlope { get; set; } = double.NaN;        // |fitted plane gradient| in counts/pixel
         public double LocalSigmaResidual { get; set; } = double.NaN;   // robust sigma of plane-subtracted residuals
         public double[] SectorResidualMedian { get; set; }            // length 8, plane-subtracted
         public int[] SectorResidualCount { get; set; }                // length 8
-        public double MaxSectorResidualOverSE { get; set; } = double.NaN; // Alt test statistic (max over sectors)
-        public int AltTrippingSector { get; set; } = -1;              // first sector that tripped, else -1
-        public bool AltContaminationSuspected { get; set; }           // Alt decision at the same sensitivity
+        public double MaxSectorResidualOverSE { get; set; } = double.NaN; // test statistic (max over sectors)
+        public int ResidualTrippingSector { get; set; } = -1;          // first sector that tripped, else -1
     }
 
     public class HocusFocusStarDetectorResult {
