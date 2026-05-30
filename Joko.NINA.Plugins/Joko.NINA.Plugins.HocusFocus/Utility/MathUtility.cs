@@ -130,30 +130,55 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return ssd;
         }
 
+        /// <summary>
+        /// Two-tailed Grubbs outlier test on the residuals of <paramref name="points"/> against
+        /// <paramref name="fitting"/>. Returns the single worst outlier, or null if none is significant at
+        /// <paramref name="confidence"/>. Intended to be applied iteratively (re-fit after each removal).
+        ///
+        /// The residual location/scale use the <b>median and MAD</b> rather than the mean and standard
+        /// deviation: a gross outlier shifts the mean and inflates the standard deviation, so the classic
+        /// mean/stddev statistic can mask the very outlier it should flag (and can flag a good point instead).
+        /// The MAD has a 50% breakdown point and is immune to this. When the MAD degenerates to zero (e.g.
+        /// noiseless data where more than half the residuals are identical) the scale falls back to the
+        /// standard deviation so a lone gross outlier is still detectable.
+        ///
+        /// When <paramref name="weights"/> is supplied (typically 1/σ at each x), the residuals are weighted
+        /// to match the weighting the fit actually minimized, so a point that is far from the curve but has a
+        /// large measurement uncertainty (low weight) is not treated as an outlier.
+        /// </summary>
         public static ScatterErrorPoint RejectionTest(
                 List<ScatterErrorPoint> points,
                 Func<double, double> fitting,
-                double confidence) {
+                double confidence,
+                Func<double, double> weights = null) {
             if (points.Count <= 3) {
                 return null;
             }
 
-            var errors = points.Select(p => p.Y - fitting(p.X)).ToArray();
-            var (errorsMean, errorsStdDev) = MathNet.Numerics.Statistics.Statistics.MeanStandardDeviation(errors);
+            var errors = points.Select(p => {
+                var residual = p.Y - fitting(p.X);
+                return weights != null ? weights(p.X) * residual : residual;
+            }).ToArray();
+
+            var (median, mad) = errors.MedianMAD();
+            var scale = mad;
+            if (scale <= 0.0 || double.IsNaN(scale)) {
+                var (_, stdDev) = MathNet.Numerics.Statistics.Statistics.MeanStandardDeviation(errors);
+                scale = stdDev;
+            }
+            if (scale <= 0.0 || double.IsNaN(scale)) {
+                // Perfect fit (or all residuals identical): no outliers possible.
+                return null;
+            }
+
             var N = points.Count;
             var p = (1.0 - confidence) / (2 * N); // Two-tailed test
             var t = MathNet.Numerics.Distributions.StudentT.InvCDF(location: 0.0d, scale: 1.0d, freedom: (double)(N - 2), p: p);
             var t2 = t * t;
             var grubbZLimit = (double)(N - 1) / Math.Sqrt(N) * Math.Sqrt(t2 / (t2 + N - 2));
 
-            if (errorsStdDev == 0.0) {
-                // Perfect fit: no outliers possible.
-                return null;
-            }
-
-            var maxError = errors.Select((e, i) => (e, i)).MaxBy(v => Math.Abs(v.e));
-            var maxErrorZScore = Math.Abs(maxError.e) / errorsStdDev;
-            if (maxErrorZScore < grubbZLimit) {
+            var maxError = points.Select((pt, i) => (z: Math.Abs(errors[i] - median) / scale, i)).MaxBy(v => v.z);
+            if (maxError.z < grubbZLimit) {
                 return null;
             }
             return points[maxError.i];
