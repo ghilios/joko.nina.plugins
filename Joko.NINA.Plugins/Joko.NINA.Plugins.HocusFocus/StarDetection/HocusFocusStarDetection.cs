@@ -299,10 +299,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 PSFParallelPartitionSize = starDetectionOptions.PSFParallelPartitionSize,
                 PSFResolution = starDetectionOptions.PSFResolution,
                 PSFGoodnessOfFitThreshold = starDetectionOptions.PSFFitThreshold,
+                PSFGoodnessOfFitThresholdChiSq = starDetectionOptions.PSFGoodnessOfFitThresholdChiSq,
                 Region = starDetectionRegion,
                 UsePSFAbsoluteDeviation = starDetectionOptions.UsePSFAbsoluteDeviation,
                 HotpixelThreshold = starDetectionOptions.HotpixelThreshold,
-                SaturationThreshold = starDetectionOptions.SaturationThreshold
+                SaturationThreshold = starDetectionOptions.SaturationThreshold,
+                PSFPixelIntegration = starDetectionOptions.PSFPixelIntegration
             };
 
             // For AutoFocus, don't save intermediate data or model PSFs

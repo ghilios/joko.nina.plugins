@@ -65,6 +65,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         InterpolationAmountEnum InterpolationAmount { get; set; }
         bool FixedSensorCenter { get; set; }
         bool UseRANSAC { get; set; }
+        bool UseAffineAlignment { get; set; }
+        bool AstigmaticCurvatureEnabled { get; set; }
         bool RejectBadBrightnessMatches { get; set; }
         bool RejectBadlyFittingMatches { get; set; }
         double PreviousRunBrightnessDiff { get; set; }
@@ -72,5 +74,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool SaveImagesOnReruns { get; set; }
         bool SaveAlignmentImages { get; set; }
         int MaxStarsPerRegion { get; set; }
+        double AcceptableRSquaredMin { get; set; }
     }
 }

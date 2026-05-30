@@ -1,3 +1,4 @@
+using NINA.Core.Model;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 using System;
@@ -48,6 +49,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 Assert.That(transformed.X, Is.EqualTo(5.0).Within(1e-9));
                 Assert.That(transformed.Y, Is.EqualTo(7.5).Within(1e-9));
             });
+        }
+
+        [Test]
+        public void SimilarityTransform_ToMatrix3x2_ProducesIdenticalPointMapping() {
+            var t = new SimilarityTransform(scale: 1.5, rotation: 0.3, tx: 10.0, ty: -4.0);
+            var m = t.ToMatrix3x2();
+            foreach (var p in new[] { new Point2D(7.0, 11.0), new Point2D(-3.0, 2.0), new Point2D(0.0, 0.0) }) {
+                var viaT = t.Transform(p);
+                var viaM = m.Transform(p);
+                Assert.Multiple(() => {
+                    Assert.That(viaM.X, Is.EqualTo(viaT.X).Within(1e-9));
+                    Assert.That(viaM.Y, Is.EqualTo(viaT.Y).Within(1e-9));
+                });
+            }
         }
 
         [Test]
@@ -248,7 +263,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 Assert.That(tri.NormalizedLengths.Count, Is.EqualTo(3));
                 Assert.That(tri.NormalizedBrightnesses.Count, Is.EqualTo(3));
                 Assert.That(tri.AsPositionMatrix().Length, Is.EqualTo(6));
-                Assert.That(tri.AsShapeMatrix().Length, Is.EqualTo(3));
+                Assert.That(tri.ShapeDescriptor().Length, Is.EqualTo(2));
                 Assert.That(tri.AsBrightnessMatrix().Length, Is.EqualTo(3));
                 Assert.That(tri.AsShapeAndBrightnessMatrix().Length, Is.EqualTo(6));
                 Assert.That(tri.IsReference, Is.True);
@@ -311,6 +326,79 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
             Assert.That(dst.Count, Is.EqualTo(0));
         }
 
+        /// <summary>
+        /// Builds a deterministic set of correspondences: <paramref name="inlierCount"/> points mapped by a
+        /// known similarity transform with sub-pixel noise (well within the inlier threshold), plus a few
+        /// gross outliers. The test RNG is fixed-seed so the data itself is identical every run.
+        /// </summary>
+        private static (List<Point2D> src, List<Point2D> dst) BuildNoisyCorrespondences(
+            double scale, double rotation, double tx, double ty, int inlierCount = 30) {
+            var rng = new Random(20240526);
+            var truth = new SimilarityTransform(scale, rotation, tx, ty);
+            var src = new List<Point2D>();
+            var dst = new List<Point2D>();
+            for (int i = 0; i < inlierCount; i++) {
+                var p = new Point2D(rng.NextDouble() * 1000.0, rng.NextDouble() * 1000.0);
+                var t = truth.Transform(p);
+                // Sub-pixel noise (|d| < 0.25px) keeps every point inside the 3px inlier threshold.
+                src.Add(p);
+                dst.Add(new Point2D(t.X + (rng.NextDouble() - 0.5) * 0.5, t.Y + (rng.NextDouble() - 0.5) * 0.5));
+            }
+            // Gross outliers RANSAC must reject.
+            src.Add(new Point2D(500, 500)); dst.Add(new Point2D(5, 990));
+            src.Add(new Point2D(100, 900)); dst.Add(new Point2D(950, 30));
+            return (src, dst);
+        }
+
+        [Test]
+        public void EstimateSimilarityTransform_RecoversKnownTransform() {
+            double scale = 1.0, rotation = 0.05, tx = 12.0, ty = -7.0;
+            var (src, dst) = BuildNoisyCorrespondences(scale, rotation, tx, ty);
+
+            var result = RANSACRegistration.EstimateSimilarityTransform(src, dst, status: null, progress: null);
+
+            Assert.Multiple(() => {
+                Assert.That(result.Scale, Is.EqualTo(scale).Within(0.01));
+                Assert.That(result.Rotation, Is.EqualTo(rotation).Within(0.01));
+                Assert.That(result.Tx, Is.EqualTo(tx).Within(1.0));
+                Assert.That(result.Ty, Is.EqualTo(ty).Within(1.0));
+            });
+        }
+
+        [Test]
+        public void EstimateSimilarityTransform_FixedSeed_IsBitForBitDeterministic() {
+            var (src, dst) = BuildNoisyCorrespondences(1.0, 0.05, 12.0, -7.0);
+
+            // Small maxIterations forces the seeded subsampling path (fewer samples than candidate pairs),
+            // which is exactly where the old shared unseeded RNG produced run-to-run variation.
+            var a = RANSACRegistration.EstimateSimilarityTransform(src, dst, null, null, maxIterations: 8);
+            var b = RANSACRegistration.EstimateSimilarityTransform(src, dst, null, null, maxIterations: 8);
+
+            Assert.Multiple(() => {
+                Assert.That(a.Scale, Is.EqualTo(b.Scale));
+                Assert.That(a.Rotation, Is.EqualTo(b.Rotation));
+                Assert.That(a.Tx, Is.EqualTo(b.Tx));
+                Assert.That(a.Ty, Is.EqualTo(b.Ty));
+            });
+        }
+
+        [Test]
+        public void EstimateAffineTransform_FixedSeed_IsBitForBitDeterministic() {
+            var (src, dst) = BuildNoisyCorrespondences(1.0, 0.05, 12.0, -7.0);
+
+            var a = RANSACRegistration.EstimateAffineTransform(src, dst, null, null, maxIterations: 8);
+            var b = RANSACRegistration.EstimateAffineTransform(src, dst, null, null, maxIterations: 8);
+
+            Assert.Multiple(() => {
+                Assert.That(a.M11, Is.EqualTo(b.M11));
+                Assert.That(a.M12, Is.EqualTo(b.M12));
+                Assert.That(a.M21, Is.EqualTo(b.M21));
+                Assert.That(a.M22, Is.EqualTo(b.M22));
+                Assert.That(a.M31, Is.EqualTo(b.M31));
+                Assert.That(a.M32, Is.EqualTo(b.M32));
+            });
+        }
+
         [Test]
         public void BuildStarTriangles_OnePerPoint_BuildsAtMostOneTrianglePerPoint() {
             var imageSize = new System.Drawing.Size(1000, 1000);
@@ -327,6 +415,111 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 searchSquareSide: 250, onePerPoint: true, isReference: true);
             // We have two well-separated clusters of three; we expect at most 2 triangles.
             Assert.That(triangles.Count, Is.LessThanOrEqualTo(2));
+        }
+
+        // ---- Similarity-invariant shape descriptor + KdTree triangle matching ----
+
+        private static readonly System.Drawing.Size MatchImageSize = new System.Drawing.Size(2000, 2000);
+
+        private static RANSACRegistration.StarTriangle Tri(
+            (double X, double Y) a, (double X, double Y) b, (double X, double Y) c,
+            bool isReference = false, int referenceID = 0,
+            double ba = 0.5, double bb = 0.5, double bc = 0.5) {
+            return new RANSACRegistration.StarTriangle(
+                MatchImageSize, minBrightness: 0.0, maxBrightness: 1.0,
+                p1: new Point2D(a.X, a.Y, ba),
+                p2: new Point2D(b.X, b.Y, bb),
+                p3: new Point2D(c.X, c.Y, bc),
+                isReference: isReference, referenceID: referenceID);
+        }
+
+        private static (double X, double Y) SimilarityMap((double X, double Y) p, double scale, double thetaRad, double tx, double ty) {
+            var cos = Math.Cos(thetaRad);
+            var sin = Math.Sin(thetaRad);
+            return (scale * (cos * p.X - sin * p.Y) + tx, scale * (sin * p.X + cos * p.Y) + ty);
+        }
+
+        [Test]
+        public void ShapeDescriptor_IsInvariantToSimilarityAndVertexOrder() {
+            var a = (10.0, 20.0);
+            var b = (130.0, 25.0);
+            var c = (60.0, 110.0);
+            var reference = Tri(a, b, c).ShapeDescriptor();
+
+            // Same triangle, transformed by a rotation+scale+translation and with the vertices supplied in
+            // a different (and handedness-reversed) order. A similarity-invariant descriptor must be unchanged.
+            var a2 = SimilarityMap(a, 1.7, 0.9, 500, -300);
+            var b2 = SimilarityMap(b, 1.7, 0.9, 500, -300);
+            var c2 = SimilarityMap(c, 1.7, 0.9, 500, -300);
+            var transformed = Tri(c2, a2, b2).ShapeDescriptor();
+
+            Assert.Multiple(() => {
+                Assert.That(transformed[0], Is.EqualTo(reference[0]).Within(1e-9));
+                Assert.That(transformed[1], Is.EqualTo(reference[1]).Within(1e-9));
+            });
+        }
+
+        [Test]
+        public void GeneratePutativeMatches_MatchesSimilarityTransformedCopyWithinTolerance() {
+            var refTris = new List<RANSACRegistration.StarTriangle> {
+                Tri((10, 20), (130, 25), (60, 110), isReference: true, referenceID: 1)
+            };
+            // The same triangle rotated, scaled and translated — a perfect similarity, so shape distance ≈ 0.
+            var img = new List<RANSACRegistration.StarTriangle> {
+                Tri(SimilarityMap((10, 20), 1.3, 0.5, 200, 150),
+                    SimilarityMap((130, 25), 1.3, 0.5, 200, 150),
+                    SimilarityMap((60, 110), 1.3, 0.5, 200, 150))
+            };
+
+            var (src, dst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                img, refTris, new ApplicationStatus(), maxShapeDistance: 0.02);
+
+            Assert.Multiple(() => {
+                Assert.That(dst.Count, Is.EqualTo(3), "Expected the reference triangle's three vertices");
+                Assert.That(src.Count, Is.EqualTo(3), "Expected the matched image triangle's three vertices");
+                Assert.That(img[0].Matched, Is.True);
+            });
+        }
+
+        [Test]
+        public void GeneratePutativeMatches_RejectsDissimilarShapeBeyondTolerance() {
+            var refTris = new List<RANSACRegistration.StarTriangle> {
+                Tri((10, 20), (130, 25), (60, 110), isReference: true, referenceID: 1)
+            };
+            // A very different (near-degenerate, flat) triangle — large shape-descriptor distance.
+            var img = new List<RANSACRegistration.StarTriangle> {
+                Tri((0, 0), (300, 0), (150, 6))
+            };
+
+            var (src, dst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                img, refTris, new ApplicationStatus(), maxShapeDistance: 0.02);
+
+            Assert.Multiple(() => {
+                Assert.That(src, Is.Empty);
+                Assert.That(dst, Is.Empty);
+                Assert.That(img[0].Matched, Is.False);
+            });
+        }
+
+        [Test]
+        public void GeneratePutativeMatches_IsDeterministicAcrossRuns() {
+            List<RANSACRegistration.StarTriangle> BuildRef() => new() {
+                Tri((10, 20), (130, 25), (60, 110), isReference: true, referenceID: 1),
+                Tri((400, 400), (520, 410), (450, 500), isReference: true, referenceID: 2)
+            };
+            List<RANSACRegistration.StarTriangle> BuildImg() => new() {
+                Tri(SimilarityMap((10, 20), 1.1, 0.3, 50, 60), SimilarityMap((130, 25), 1.1, 0.3, 50, 60), SimilarityMap((60, 110), 1.1, 0.3, 50, 60)),
+                Tri(SimilarityMap((400, 400), 1.1, 0.3, 50, 60), SimilarityMap((520, 410), 1.1, 0.3, 50, 60), SimilarityMap((450, 500), 1.1, 0.3, 50, 60))
+            };
+
+            var (src1, dst1) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(BuildImg(), BuildRef(), new ApplicationStatus(), 0.05);
+            var (src2, dst2) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(BuildImg(), BuildRef(), new ApplicationStatus(), 0.05);
+
+            Assert.Multiple(() => {
+                Assert.That(src2.Select(p => (p.X, p.Y)), Is.EqualTo(src1.Select(p => (p.X, p.Y))));
+                Assert.That(dst2.Select(p => (p.X, p.Y)), Is.EqualTo(dst1.Select(p => (p.X, p.Y))));
+                Assert.That(dst1.Count, Is.GreaterThan(0));
+            });
         }
     }
 }

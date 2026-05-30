@@ -171,10 +171,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             psfParallelPartitionSize = optionsAccessor.GetValueInt32("PSFParallelPartitionSize", 100);
             psfResolution = optionsAccessor.GetValueInt32("PSFResolution", 10);
             psfFitThreshold = optionsAccessor.GetValueDouble("PSFFitThreshold", 0.9);
+            psfGoodnessOfFitThresholdChiSq = optionsAccessor.GetValueDouble(nameof(PSFGoodnessOfFitThresholdChiSq), 2.0);
             usePSFAbsoluteDeviation = optionsAccessor.GetValueBoolean(nameof(UsePSFAbsoluteDeviation), false);
             hotpixelThreshold = optionsAccessor.GetValueDouble(nameof(HotpixelThreshold), 0.001d);
             saturationThreshold = optionsAccessor.GetValueDouble(nameof(SaturationThreshold), 0.99d);
             measurementAverage = optionsAccessor.GetValueEnum<MeasurementAverageEnum>(nameof(MeasurementAverage), MeasurementAverageEnum.Median);
+            psfPixelIntegration = optionsAccessor.GetValueBoolean(nameof(PSFPixelIntegration), false);
             ConfigureSimpleSettings();
         }
 
@@ -212,10 +214,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFParallelPartitionSize = 100;
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
+            PSFGoodnessOfFitThresholdChiSq = 2.0;
             UsePSFAbsoluteDeviation = false;
             HotpixelThreshold = 0.001d;
             SaturationThreshold = 0.99d;
             MeasurementAverage = MeasurementAverageEnum.Median;
+            PSFPixelIntegration = false;
         }
 
         private bool debugMode;
@@ -662,6 +666,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        private double psfGoodnessOfFitThresholdChiSq;
+
+        /// <summary>
+        /// Reduced chi-squared threshold for PSF fit acceptance.
+        /// When &gt; 0, the fit is accepted only when reducedChiSquared ≤ this value (default 2.0).
+        /// Set to 0 to disable and fall back to the R² gate (PSFFitThreshold).
+        /// </summary>
+        public double PSFGoodnessOfFitThresholdChiSq {
+            get => psfGoodnessOfFitThresholdChiSq;
+            set {
+                if (psfGoodnessOfFitThresholdChiSq != value) {
+                    if (value < 0.0) {
+                        throw new ArgumentException("PSFGoodnessOfFitThresholdChiSq must be non-negative (0 disables the chi-squared gate)", nameof(PSFGoodnessOfFitThresholdChiSq));
+                    }
+                    psfGoodnessOfFitThresholdChiSq = value;
+                    optionsAccessor.SetValueDouble(nameof(PSFGoodnessOfFitThresholdChiSq), psfGoodnessOfFitThresholdChiSq);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private bool usePSFAbsoluteDeviation;
 
         public bool UsePSFAbsoluteDeviation {
@@ -719,5 +744,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
         }
+
+        private bool psfPixelIntegration;
+
+        public bool PSFPixelIntegration {
+            get => psfPixelIntegration;
+            set {
+                if (psfPixelIntegration != value) {
+                    psfPixelIntegration = value;
+                    optionsAccessor.SetValueBoolean(nameof(PSFPixelIntegration), psfPixelIntegration);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
     }
 }

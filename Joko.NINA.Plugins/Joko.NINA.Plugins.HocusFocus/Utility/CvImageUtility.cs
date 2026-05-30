@@ -178,7 +178,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     median = i;
                     break;
                 } else if (currentCount == targetMedianCount) {
-                    for (uint j = i + 1; i <= ushort.MaxValue; ++i) {
+                    for (uint j = i + 1; j <= ushort.MaxValue; ++j) {
                         if (histogram[j] > 0) {
                             median = (i + j) / 2.0d;
                             break;

@@ -153,7 +153,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     fRatio: fRatio,
                     focuserStepSizeMicrons: focuserSizeMicrons,
                     finalFocusPosition: finalFocusPosition,
-                    registeredStars: fitResult.RegisteredStars);
+                    registeredStars: fitResult.RegisteredStars,
+                    acceptableRSquaredMin: inspectorOptions.AcceptableRSquaredMin);
 
                 var historyId = Interlocked.Increment(ref nextHistoryId);
                 SensorTiltHistoryModels.Insert(0, new SensorParaboloidTiltHistoryModel(
@@ -191,20 +192,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 sensorSizeMicronsX: imageSize.Width * pixelSize,
                 sensorSizeMicronsY: imageSize.Height * pixelSize,
                 inFocusMicrons: finalFocusPosition * focuserSizeMicrons,
-                fixedSensorCenter: inspectorOptions.FixedSensorCenter);
+                fixedSensorCenter: inspectorOptions.FixedSensorCenter,
+                astigmatic: inspectorOptions.AstigmaticCurvatureEnabled);
             var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(this.alglibAPI);
-            sensorModelSolver.PositiveCurvature = true;
-            var positiveCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct, progress: progress);
-            ct.ThrowIfCancellationRequested();
-            positiveCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
 
-            sensorModelSolver.PositiveCurvature = false;
-            var negativeCurvatureSolution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct, progress: progress);
+            // Single solve: the signed curvature coefficient K can cross zero, so one fit covers both
+            // curvature signs (the old code solved once forcing positive curvature and once forcing
+            // negative, then kept the lower-RMS result — double the optimizer work and a discontinuity
+            // at flat fields).
+            var solution = nlSolver.SolveWinsorizedResiduals(sensorModelSolver, ct: ct, progress: progress);
             ct.ThrowIfCancellationRequested();
-            negativeCurvatureSolution.EvaluateFit(nlSolver, sensorModelSolver);
-
-            var solution = positiveCurvatureSolution.RMSErrorMicrons < negativeCurvatureSolution.RMSErrorMicrons ? positiveCurvatureSolution : negativeCurvatureSolution;
-            Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, Stars: {solution.StarsInModel}");
+            solution.EvaluateFit(nlSolver, sensorModelSolver);
+            Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, ReducedChiSq: {solution.ReducedChiSquared:0.0000}, Stars: {solution.StarsInModel}");
 
             return solution;
         }
@@ -345,7 +344,34 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         private const int searchRadiusRANSAC = 10;
         private const int searchRadiusNonRANSAC = 30;
 
-        private (SensorParaboloidModel, RegistrationAndFitResult) RegisterStarsAndFit(
+        // Fixed default starting point for the brightness-tolerance search when StartingBrightnessDiff
+        // is set to "auto" (-1). Previously the search seeded from (and wrote back to) the cross-run
+        // PreviousRunBrightnessDiff state, which made consecutive runs of the unchanged process diverge.
+        private const double DefaultStartingBrightnessDiff = 0.1d;
+
+        // Hard cap on the brightness-tolerance search so acceptance no longer depends on wall-clock
+        // time (which previously relaxed the R² target on slow machines) and the loop always terminates.
+        private const int MaxBrightnessSearchIterations = 12;
+
+        /// <summary>
+        /// Optional sink for human-readable registration/fit messages. When set (e.g. by tests), report
+        /// messages bypass the UI-bound <see cref="RegistrationAndFitReport"/> collection, allowing the
+        /// registration+fit core to run headless without a dispatcher.
+        /// </summary>
+        public Action<string> RegistrationReportSink { get; set; }
+
+        private void Report(string message) {
+            if (RegistrationReportSink != null) {
+                RegistrationReportSink(message);
+            } else {
+                RegistrationAndFitReport.Add(message);
+            }
+        }
+
+        // Public testability seam: runs the full registration + per-star + paraboloid fit on the supplied
+        // frames and returns the model. Decoupled from UI (via RegistrationReportSink) so it can be driven
+        // end-to-end from tests. Production callers go through UpdateModel.
+        public (SensorParaboloidModel, RegistrationAndFitResult) RegisterStarsAndFit(
             List<SensorDetectedStars> allDetectedStars,
             System.Drawing.Size imageSize,
             double focuserSizeMicrons,
@@ -359,9 +385,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 int maxStars = 0;
                 int refIndex = -1;
                 for (int i = 0; i < allDetectedStars.Count; ++i) {
-                    if (allDetectedStars[i].StarDetectionResult.DetectedStars > maxStars) {
+                    if (allDetectedStars[i].StarDetectionResult.StarList.Count > maxStars) {
                         refIndex = i;
-                        maxStars = allDetectedStars[i].StarDetectionResult.DetectedStars;
+                        maxStars = allDetectedStars[i].StarDetectionResult.StarList.Count;
                     }
                 }
                 ReferenceImage = refIndex;
@@ -390,15 +416,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     if (ransacAligned < allDetectedStars.Count) {
                         Logger.Info("Ransac failed on at least one image.  Search radius will remain the same as for non-aligned processing");
                         if (ransacAligned == 1) { // ransacAligned starts at 1 for the reference image so if it's still 1 it means no other images aligned
-                            RegistrationAndFitReport.Add("All frames failed to align.  An autofocus run where all images align will give more reliable results.");
+                            Report("All frames failed to align.  An autofocus run where all images align will give more reliable results.");
                         } else {
-                            RegistrationAndFitReport.Add($"{allDetectedStars.Count - ransacAligned} frames failed to align.  An autofocus run where all images align will give more reliable results.");
+                            Report($"{allDetectedStars.Count - ransacAligned} frames failed to align.  An autofocus run where all images align will give more reliable results.");
                         }
                     }
                 }
                 ct.ThrowIfCancellationRequested();
 
-                double maxNormalisedBrightnessDiff = (inspectorOptions.StartingBrightnessDiff != -1) ? inspectorOptions.StartingBrightnessDiff : inspectorOptions.PreviousRunBrightnessDiff;
+                // Stateless starting point: the configured StartingBrightnessDiff, or a fixed default
+                // when set to "auto" (-1). startingBrightnessDiff is a local pivot for the bidirectional
+                // up/down search below, so the search no longer depends on (or mutates) cross-run state.
+                double startingBrightnessDiff = (inspectorOptions.StartingBrightnessDiff != -1) ? inspectorOptions.StartingBrightnessDiff : DefaultStartingBrightnessDiff;
+                double maxNormalisedBrightnessDiff = startingBrightnessDiff;
                 SensorParaboloidModel bestPfit = null;
                 RegistrationAndFitResult bestReg = null;
                 double bestBrightnessDiff = maxNormalisedBrightnessDiff;
@@ -414,7 +444,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                 int iterations = 0;
                 for (bool retry = true; retry;) {
-                    var startTime = DateTime.Now;
+                    if (iterations++ >= MaxBrightnessSearchIterations) {
+                        Logger.Warning($"Brightness-tolerance search hit the {MaxBrightnessSearchIterations}-iteration cap; stopping further iterations.");
+                        break;
+                    }
                     retry = false;
                     int rejectionsOnBrightnessDiff;
                     (registeredStars, rejectionsOnBrightnessDiff) = MatchStarsUsingKdTree(allDetectedStars,
@@ -437,10 +470,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     }
 
                     if (inspectorOptions.RejectBadBrightnessMatches) {
-                        double targetR2 = TargetR2BasedOnTimeTaken(DateTime.Now - startTime);  // an R2 of greater than this value will be acceptible and halt further iterations
-                        Logger.Debug($"Target R2 {targetR2:#.##}");
-                        if ((pfit != null) && ((pfit.StarsInModel < 10) || (pfit.GoodnessOfFit < targetR2) || IsFitTooGood(pfit))) {
-                            Logger.Debug($"Only have {pfit.StarsInModel} stars and R2 of {pfit.GoodnessOfFit:#.##} (target is {targetR2:#.##}) with a brightness tolerance of {maxNormalisedBrightnessDiff:#.##}");
+                        // Uncertainty-aware, magnitude-independent acceptance: stop iterating once the fit
+                        // has enough stars and a reduced χ² within the acceptable band. This replaces the
+                        // former R²-vs-target test (and the wall-clock target removed in Phase 1), which
+                        // rejected near-flat-but-good sensors and varied with machine load.
+                        if ((pfit != null) && ((pfit.StarsInModel < 10) || !SensorAberrationCalculator.IsModelAcceptable(pfit, inspectorOptions.AcceptableRSquaredMin))) {
+                            Logger.Debug($"Only have {pfit.StarsInModel} stars and reduced χ² of {pfit.ReducedChiSquared:#.##} (cap {SensorAberrationCalculator.AcceptableReducedChiSquared:#.##} only applies when R² {pfit.GoodnessOfFit:#.##} < min {inspectorOptions.AcceptableRSquaredMin:#.##}) with a brightness tolerance of {maxNormalisedBrightnessDiff:#.##}");
                             retry = true;
                         }
 
@@ -466,9 +501,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                                     if (downExhausted) { // all tried, no retry
                                         retry = false;
                                     } else {
-                                        if (maxNormalisedBrightnessDiff != inspectorOptions.PreviousRunBrightnessDiff)
+                                        if (maxNormalisedBrightnessDiff != startingBrightnessDiff)
                                             upExhausted = true;
-                                        maxNormalisedBrightnessDiff = inspectorOptions.PreviousRunBrightnessDiff / 1.5;
+                                        maxNormalisedBrightnessDiff = startingBrightnessDiff / 1.5;
                                         direction = IterationDirection.Down;
                                         Logger.Debug($"Switching direction to {direction}");
                                     }
@@ -483,9 +518,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                                     if (upExhausted) { // all tried, no retry
                                         retry = false;
                                     } else {
-                                        if (maxNormalisedBrightnessDiff != inspectorOptions.PreviousRunBrightnessDiff)
+                                        if (maxNormalisedBrightnessDiff != startingBrightnessDiff)
                                             downExhausted = true;
-                                        maxNormalisedBrightnessDiff = inspectorOptions.PreviousRunBrightnessDiff * 1.5;
+                                        maxNormalisedBrightnessDiff = startingBrightnessDiff * 1.5;
                                         direction = IterationDirection.Up;
                                         Logger.Debug($"Switching direction to {direction}");
                                     }
@@ -503,7 +538,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                         prevFit = pfit;
                         prevReg = reg;
-                        iterations++;
 
                         Logger.Debug($"End of registerStarsAndFit iteration with R2 of {bestPfit?.GoodnessOfFit:#.##}, retry is {retry}");
                     } else {        // we're not trying to find a better return as we're not rejecting on brightness
@@ -516,6 +550,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                 progress.Report(new ApplicationStatus());
 
+                // Display-only: surfaces the winning tolerance in the UI hint. The search no longer
+                // reads this value back, so writing it here does not affect the repeatability of future runs.
                 inspectorOptions.PreviousRunBrightnessDiff = bestBrightnessDiff;
                 previousRuns.Select(r => (r.Key, r.Value.Item1?.GoodnessOfFit, r.Value.Item1?.StarsInModel))
                     .ToList()
@@ -524,15 +560,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 if (bestPfit == null) {
                     throw new Exception("Failed to find a good model.");
                 }
-                if (bestPfit.GoodnessOfFit < 0.05) {
-                    throw new Exception($"Sensor modeling failed. R² = {bestPfit.GoodnessOfFit:#.00}");
+                // Reduced χ² is only a rejection criterion when R² is very low: fail only when the model
+                // explains almost no variance (R² below the minimum) AND cannot fit the best-focus positions
+                // within their uncertainties (reduced χ² above the fixed cap). A well-fit model with an
+                // adequate R² is accepted even when its reduced χ² is large.
+                if (!SensorAberrationCalculator.IsModelAcceptable(bestPfit, inspectorOptions.AcceptableRSquaredMin)) {
+                    throw new Exception($"Sensor modeling failed. R² = {bestPfit.GoodnessOfFit:#.00} (min {inspectorOptions.AcceptableRSquaredMin:#.00}) and reduced χ² = {bestPfit.ReducedChiSquared:#.00} exceeds {SensorAberrationCalculator.AcceptableReducedChiSquared:#.00}");
                 }
 
                 if (bestPfit.StarsInModel < 10) {
                     if (inspectorOptions.UseRANSAC) {
-                        RegistrationAndFitReport.Add($"There are very few stars in the model ({bestPfit.StarsInModel}).  There may be poor transparancy or seeing.  Frames with more stars will give more reliable results.");
+                        Report($"There are very few stars in the model ({bestPfit.StarsInModel}).  There may be poor transparancy or seeing.  Frames with more stars will give more reliable results.");
                     } else {
-                        RegistrationAndFitReport.Add($"There are very few stars in the model ({bestPfit.StarsInModel}).  If there is movement between the frames, it may help to enable the 'align images' option.");
+                        Report($"There are very few stars in the model ({bestPfit.StarsInModel}).  If there is movement between the frames, it may help to enable the 'align images' option.");
                     }
                 }
 
@@ -540,8 +580,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }
         }
 
-        private static double TargetR2BasedOnTimeTaken(TimeSpan timeSpan) =>
-            SensorAberrationCalculator.TargetR2BasedOnTimeTaken(timeSpan);
+        // Rough per-detection HFR uncertainty used to weight the per-star hyperbolic fit by 1/σ². HFR is a
+        // size measurement whose relative error scales ~1/SNR; the SNR proxy uses the only fields available
+        // on a detected star (mean brightness above background, with a shot-noise-like denominator). This
+        // makes the previously no-op WeightedHyperbolicFitEnabled meaningful. It does not affect the
+        // best-focus standard error, which is self-calibrated from the fit residuals.
+        private static double EstimateHfrStdDev(HocusFocusDetectedStar star) {
+            var signal = star.AverageBrightness - star.Background;
+            var noise = Math.Sqrt(Math.Max(star.AverageBrightness, 1.0));
+            var snr = signal > 0 ? signal / noise : 0.0;
+            var sigma = star.HFR / Math.Max(snr, 1.0);
+            return Math.Max(sigma, 1e-3);
+        }
 
         private static bool IsFitTooGood(SensorParaboloidModel fit) =>
             SensorAberrationCalculator.IsFitTooGood(fit);
@@ -563,6 +613,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 bool rejectBadlyFittingMatches) {
             int discardedStarCount = 0;
             var sensorModelDataPoints = new List<SensorParaboloidDataPoint>();
+            // Best-focus points collected with their per-star σ (NaN when the hyperbolic fit could not
+            // estimate a standard error). σ is resolved to a concrete weight in a second pass below.
+            var pendingPoints = new List<(double X, double Y, double FocuserMicrons, double RSquared, double StdDevMicrons)>();
             var maxOutlierRejectedPoints = this.autoFocusOptions.MaxOutlierRejections;
             var rejectionConfidence = this.autoFocusOptions.OutlierRejectionConfidence;
             const int minStarCountForFitting = 5;
@@ -573,7 +626,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 }
 
                 try {
-                    var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, 0.0d)).ToList();
+                    var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, EstimateHfrStdDev(s.Star))).ToList();
                     var rejectedPoints = new List<ScatterErrorPoint>();
                     bool continueFitting;
                     AlglibHyperbolicFitting fitting;
@@ -615,11 +668,27 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     var dataPointX = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
                     var dataPointY = (registeredStar.RegistrationY - (imageSize.Height / 2.0)) * pixelSize;
                     var focuserMicrons = fitting.Minimum.X * focuserSizeMicrons;
-                    var dataPoint = new SensorParaboloidDataPoint(dataPointX, dataPointY, focuserMicrons, fitting.RSquared);
-                    sensorModelDataPoints.Add(dataPoint);
+                    // Propagate the standard error of this star's best-focus position into the paraboloid
+                    // fit so it is weighted by 1/σ². NaN marks "no estimate available"; resolved below to the
+                    // median of the available σ (rather than a fixed 1 µm, which would give such points a far
+                    // larger weight than well-measured stars and distort the χ² gate).
+                    var bestFocusStdDevMicrons = (!double.IsNaN(fitting.MinimumStdError) && !double.IsInfinity(fitting.MinimumStdError) && fitting.MinimumStdError > 0.0)
+                        ? fitting.MinimumStdError * focuserSizeMicrons
+                        : double.NaN;
+                    pendingPoints.Add((dataPointX, dataPointY, focuserMicrons, fitting.RSquared, bestFocusStdDevMicrons));
                 } catch (Exception e) {
                     Logger.Error(e, $"Failed to calculate hyperbolic at ({registeredStar.RegistrationX}, {registeredStar.RegistrationY}). Error={e.Message}");
                 }
+            }
+
+            // Resolve missing σ to the median of the available ones (or 1.0 if none could be estimated), so a
+            // star whose best-focus standard error is unknown is weighted like a typical star rather than
+            // dominating the fit.
+            var availableStdDevs = pendingPoints.Where(p => !double.IsNaN(p.StdDevMicrons)).Select(p => p.StdDevMicrons).ToList();
+            var fallbackStdDevMicrons = availableStdDevs.Count > 0 ? availableStdDevs.MedianMAD().Item1 : 1.0;
+            foreach (var p in pendingPoints) {
+                var stdDev = double.IsNaN(p.StdDevMicrons) ? fallbackStdDevMicrons : p.StdDevMicrons;
+                sensorModelDataPoints.Add(new SensorParaboloidDataPoint(p.X, p.Y, p.FocuserMicrons, p.RSquared, stdDev));
             }
 
             stopwatch.RecordEntry("fitcurves");
@@ -649,8 +718,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }
         }
 
-        private const double minCosSimStrict = 0.999999; // Cosine similarity threshold for accepting a match
-        private const double minCosSimRelaxed = 0.99999; // Cosine similarity threshold for accepting a match
+        // Max Euclidean distance, in similarity-invariant shape-descriptor space (sorted side-length ratios),
+        // for two triangles to be accepted as a putative match. Replaces the former near-1 cosine-similarity
+        // thresholds, which were brittle to seeing/centroiding noise. Strict is tried first; if it yields too
+        // few matches the relaxed (larger) tolerance is used. Ratios are O(1), so these are small fractions.
+        private const double maxShapeDistanceStrict = 0.02;
+        private const double maxShapeDistanceRelaxed = 0.05;
 
         private int AlignStarsWithRANSAC(
             List<SensorDetectedStars> allDetectedStars,
@@ -733,20 +806,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     theseTriangles,
                     refTriangles,
                     status,
-                    minCosSimStrict);
+                    maxShapeDistanceStrict);
 
                 if (putativeDst.Count < 20) {
-                    Logger.Debug($"Image {imageIndex}: too few triangles ({putativeDst.Count}) with strict cosineSimilarity, switching to relaxed mode");
+                    Logger.Debug($"Image {imageIndex}: too few triangles ({putativeDst.Count}) with strict shape tolerance, switching to relaxed mode");
+                    // Reset the matched flags set by the strict pass so the relaxed pass can re-match freely.
+                    foreach (var t in theseTriangles) {
+                        t.ResetMatch();
+                    }
                     (putativeSrc, putativeDst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
                         theseTriangles,
                         refTriangles,
                         status,
-                        minCosSimRelaxed);
+                        maxShapeDistanceRelaxed);
                 }
                 try {
                     Logger.Info($"Image {imageIndex}, putative star matches: {putativeDst.Count} out of {theseStars.Count()} stars");
-                    // calculate the transform needed to register this image
-                    var transform = RANSACRegistration.EstimateAffineTransform(putativeSrc, putativeDst, status, progress);
+                    // Calculate the transform needed to register this image. Frames in a single AF run differ
+                    // only by small translation/rotation/scale, so a 4-DOF similarity transform is the
+                    // physically correct model. The 6-DOF affine adds shear + anisotropic scale that let RANSAC
+                    // "explain" mismatches by warping the field — degrading the data the paraboloid then fits.
+                    // Affine is retained behind UseAffineAlignment for diagnostics only.
+                    Matrix3x2 transform = inspectorOptions.UseAffineAlignment
+                        ? RANSACRegistration.EstimateAffineTransform(putativeSrc, putativeDst, status, progress)
+                        : RANSACRegistration.EstimateSimilarityTransform(putativeSrc, putativeDst, status, progress).ToMatrix3x2();
                     allDetectedStars[imageIndex].AlignmentTransform = transform;
 
                     // adjust each star according to the transform
@@ -777,11 +860,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     TooFewTrianglesImages++;    // include the reference image in this message
                 }
                 var imageCount = (TooFewTrianglesImages == allDetectedStars.Count) ? "All" : TooFewTrianglesImages.ToString();
-                RegistrationAndFitReport.Add($"{imageCount} images had too few star triangles for reliable alignment.  Alignment may have failed for these images.  Check image quality or star detection parameters.");
+                Report($"{imageCount} images had too few star triangles for reliable alignment.  Alignment may have failed for these images.  Check image quality or star detection parameters.");
             } else {
                 if (refTriangles.Count < minTri) {
                     Logger.Warning("Too few star triangles found in reference image for reliable alignment.  Alignment may fail.");
-                    RegistrationAndFitReport.Add("Too few star triangles found in reference image for reliable alignment.  Check image quality or star detection parameters.");
+                    Report("Too few star triangles found in reference image for reliable alignment.  Check image quality or star detection parameters.");
                 }
             }
 
@@ -835,12 +918,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 var nextStarIndexMap = starIndexMap[imageIndex];
                 var matchedGlobalStars = new bool[globalRegistry.Count];
                 var matchedSourceStars = new bool[nextStarTree.Count];
+                // Tracks whether a source star had ANY registry star within the search radius (regardless of
+                // brightness or one-to-one contention). Used below to restrict frame-union reinjection to
+                // stars that are genuinely absent from the registry's neighborhood.
+                var sourceHadGlobalNeighbor = new bool[nextStarTree.Count];
                 var queue = new KdTree.PriorityQueue<MatchingPair, double>(new DoubleMath());
                 foreach (var (starNode, starNodeIndex) in nextStarTree.Select((starNode, starNodeIndex) => (starNode, starNodeIndex))) {
                     var sourceStar = starNode.Value.DetectedStar;
                     var sourcePoint = starNode.Point;
                     var sourceIndex = starNode.Value.Index;
                     var globalNeighbors = globalRegistry.RadialSearch(sourcePoint, searchRadius);
+                    sourceHadGlobalNeighbor[sourceIndex] = globalNeighbors.Length > 0;
                     int queuedCount = 0;
                     foreach (var globalNeighbor in
                         maxNormalisedBrightnessDiff == -1 ? globalNeighbors :
@@ -874,6 +962,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     nextStarIndexMap.Add(nextCandidate.SourceIndex, nextCandidate.GlobalIndex);
                     matchedGlobalStars[nextCandidate.GlobalIndex] = true;
                     matchedSourceStars[nextCandidate.SourceIndex] = true;
+                }
+
+                // Frame-union coverage: a source star with NO registry star within the search radius is a
+                // physical star not present in (or not detectable from) the earlier frames. Add it as a new
+                // registry entry so it still contributes to the model and can be matched by later frames.
+                // Only genuinely-absent stars are added: a star that HAD a neighbor but went unmatched (lost
+                // the one-to-one contention, or was rejected on brightness) is an ambiguous detection, not a
+                // new star — reinjecting it would duplicate a nearby registry star and partially undo the
+                // brightness filter. Restricting to no-neighbor stars also guarantees the new point cannot
+                // coincide with an existing one, so globalRegistry's AddDuplicateBehavior.Error never trips.
+                foreach (var starNode in nextStarTree) {
+                    var unmatchedSourceIndex = starNode.Value.Index;
+                    if (matchedSourceStars[unmatchedSourceIndex] || sourceHadGlobalNeighbor[unmatchedSourceIndex]) {
+                        continue;
+                    }
+                    var newGlobalIndex = globalRegistry.Count;
+                    globalRegistry.Add(starNode.Point, new DetectedStarIndex(newGlobalIndex, starNode.Value.DetectedStar));
+                    nextStarIndexMap.Add(unmatchedSourceIndex, newGlobalIndex);
                 }
             }
 
@@ -917,7 +1023,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             SensorModelResult.Update(
                 sensorModel: historyModel.SensorModel, imageSize: historyModel.ImageSize, pixelSizeMicrons: historyModel.PixelSizeMicrons,
                 fRatio: historyModel.FRatio, focuserStepSizeMicrons: historyModel.FocuserSizeMicrons, finalFocusPosition: historyModel.FinalFocusPosition,
-                registeredStars: []);
+                registeredStars: [],
+                acceptableRSquaredMin: inspectorOptions.AcceptableRSquaredMin);
             DisplayedSensorModel = historyModel.SensorModel;
         }
 

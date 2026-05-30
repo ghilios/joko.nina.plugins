@@ -10,6 +10,8 @@
 
 #endregion "copyright"
 
+using KdTree;
+using KdTree.Math;
 using MathNet.Numerics.LinearAlgebra;
 using NINA.Core.Model;
 using NINA.Core.Utility;
@@ -82,13 +84,108 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return new Point2D(x, y);
         }
 
+        /// <summary>
+        /// Expresses this similarity transform as an equivalent affine <see cref="Matrix3x2"/> so that
+        /// callers can use a single downstream transform path regardless of which estimator produced it.
+        /// </summary>
+        public Matrix3x2 ToMatrix3x2() {
+            return new Matrix3x2(
+                Scale * cosTheta, -Scale * sinTheta,
+                Scale * sinTheta, Scale * cosTheta,
+                Tx, Ty);
+        }
+
         public override string ToString() {
             return $"S:{Scale}, R:{Rotation}, Tx:{Tx}, Ty:{Ty}";
         }
     }
 
     public class RANSACRegistration {
-        private static Random RNG = new();
+
+        /// <summary>
+        /// Derives a stable RNG seed from the correspondence set so that RANSAC sampling is fully
+        /// deterministic: the same input points always produce the same candidate ordering, and
+        /// therefore the same transform and inlier set, across repeated runs. This is the core of
+        /// the repeatability fix — previously a shared unseeded <see cref="Random"/> made every run
+        /// shuffle differently. Using a hash of the inputs (rather than a fixed constant) keeps the
+        /// seed independent of call order while still being reproducible for identical inputs.
+        /// </summary>
+        private static int ComputeDeterministicSeed(IReadOnlyList<Point2D> srcPoints, IReadOnlyList<Point2D> dstPoints) {
+            unchecked {
+                const int prime = 16777619;
+                int hash = (int)2166136261;
+
+                void MixDouble(double value) {
+                    long bits = BitConverter.DoubleToInt64Bits(value);
+                    for (int b = 0; b < 8; ++b) {
+                        hash = (hash ^ (int)(bits & 0xFF)) * prime;
+                        bits >>= 8;
+                    }
+                }
+
+                MixDouble(srcPoints.Count);
+                int n = Math.Min(srcPoints.Count, dstPoints.Count);
+                for (int i = 0; i < n; ++i) {
+                    MixDouble(srcPoints[i].X);
+                    MixDouble(srcPoints[i].Y);
+                    MixDouble(dstPoints[i].X);
+                    MixDouble(dstPoints[i].Y);
+                }
+                return hash;
+            }
+        }
+
+        /// <summary>
+        /// Lazily yields candidate index pairs for RANSAC sampling. When the full set of C(n,2) pairs fits
+        /// within the iteration budget they are all enumerated (in deterministic order); otherwise
+        /// <paramref name="maxIterations"/> pairs are drawn on demand with the seeded RNG. This avoids
+        /// materializing (and shuffling) the entire O(n²) candidate list before a single model is tested.
+        /// </summary>
+        private static IEnumerable<(int, int)> SamplePairs(int n, long totalPairs, int maxIterations, Random rng) {
+            if (totalPairs <= maxIterations) {
+                for (int i = 0; i < n; i++) {
+                    for (int j = i + 1; j < n; j++) {
+                        yield return (i, j);
+                    }
+                }
+            } else {
+                for (int s = 0; s < maxIterations; s++) {
+                    int i, j;
+                    do {
+                        i = rng.Next(n);
+                        j = rng.Next(n);
+                    } while (i == j);
+                    yield return (i, j);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Lazily yields candidate index triplets for RANSAC sampling. As with <see cref="SamplePairs"/>,
+        /// the full C(n,3) set is enumerated only when it fits the budget; otherwise triplets are drawn on
+        /// demand with the seeded RNG, avoiding O(n³) materialization.
+        /// </summary>
+        private static IEnumerable<(int, int, int)> SampleTriplets(int n, long totalTriplets, int maxIterations, Random rng) {
+            if (totalTriplets <= maxIterations) {
+                for (int i = 0; i < n; i++) {
+                    for (int j = i + 1; j < n; j++) {
+                        for (int k = j + 1; k < n; k++) {
+                            yield return (i, j, k);
+                        }
+                    }
+                }
+            } else {
+                for (int s = 0; s < maxIterations; s++) {
+                    int i, j, k;
+                    do {
+                        i = rng.Next(n);
+                        j = rng.Next(n);
+                        k = rng.Next(n);
+                    } while (i == j || j == k || i == k);
+                    yield return (i, j, k);
+                }
+            }
+        }
 
         // Generate putative matches using nearest neighbor
         public static (List<Point2D> srcPoints, List<Point2D> dstPoints) GeneratePutativeMatchesUsingNN(
@@ -131,6 +228,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             private List<double> normalizedLengths;
             private List<double> normalizedBrightnesses;
             private List<Point2D> normalizedPoints;
+            private readonly double[] shapeDescriptor;
             private bool matched;
             private bool isReference;   // just used for annotating images with triangles
             private double matchScore;
@@ -150,6 +248,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 normalizedLengths = normalizeLength();
                 normalizedBrightnesses = normalizeBrightnesses(minBrightness, maxBrightness);
                 normalizedPoints = normalizePositions(imageSize, minBrightness, maxBrightness);
+                shapeDescriptor = ComputeShapeDescriptor();
             }
 
             public bool SameTriangle(StarTriangle other) {
@@ -205,11 +304,33 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 };
             }
 
-            public double[] AsShapeMatrix() {
+            /// <summary>
+            /// Similarity-invariant shape descriptor: the two longer side lengths expressed as ratios to the
+            /// shortest side, with the sides sorted by length. Because the sides are sorted, the descriptor is
+            /// independent of vertex ordering and handedness, so the same physical triangle seen in two frames
+            /// yields the same descriptor. Two triangles are similar iff their descriptors coincide; the
+            /// Euclidean distance between descriptors is a well-behaved shape-difference metric used for
+            /// tolerance-bounded matching. Computed once in the constructor and cached (it is read in the
+            /// matcher's hot sort path).
+            /// </summary>
+            public double[] ShapeDescriptor() {
+                return shapeDescriptor;
+            }
+
+            private double[] ComputeShapeDescriptor() {
+                var squared = new[] {
+                    lineLengthSquared(Points[0], Points[1]),
+                    lineLengthSquared(Points[1], Points[2]),
+                    lineLengthSquared(Points[2], Points[0])
+                };
+                Array.Sort(squared);
+                var shortest = squared[0];
+                if (shortest <= 0.0) {
+                    return new double[] { 1.0, 1.0 };
+                }
                 return new double[] {
-                    normalizedLengths[0],
-                    normalizedLengths[1],
-                    normalizedLengths[2],
+                    Math.Sqrt(squared[1] / shortest),
+                    Math.Sqrt(squared[2] / shortest)
                 };
             }
 
@@ -246,6 +367,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 this.matchScore = matchScore;
             }
 
+            /// <summary>
+            /// Clears the matched state so the triangle can participate in a subsequent matching pass. Used
+            /// when the strict-tolerance pass yields too few matches and the whole match is re-run with a
+            /// relaxed tolerance, so the relaxed pass produces a superset rather than only the leftovers.
+            /// </summary>
+            public void ResetMatch() {
+                matched = false;
+                matchScore = 0.0;
+                if (!isReference) {
+                    referenceID = 0;
+                }
+            }
+
             public string MatchString {
                 get { return $"{ReferenceID} ({matchScore:0.#########})"; }
             }
@@ -280,6 +414,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             // first pass - build list of triangles in reference image
             var triangles = new List<StarTriangle>();
             var pointsUsed = new HashSet<Point2D>();
+            // De-duplicate triangles by their ordered point identities via an O(1) hash-set lookup instead
+            // of an O(n) SameTriangle scan per candidate. Point2D uses reference equality, matching SameTriangle.
+            var seenTriangles = new HashSet<(Point2D, Point2D, Point2D)>();
             int id = 0;
             var brightnesses = point2Ds.Select(p => p.NormalisedBrightness);
             var minBrightness = brightnesses.Min();
@@ -316,7 +453,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                         for (int k = j + 1; k < nearbyPoints.Count; k++) {
                             var p3 = nearbyPoints[k];
                             var triangle = new StarTriangle(imageSize, minBrightness, maxBrightness, pt, p2, p3, isReference, id++);
-                            if (triangles.Count(tri => tri.SameTriangle(triangle)) == 0)    // avoid duplicates
+                            if (seenTriangles.Add((triangle.P1, triangle.P2, triangle.P3)))    // avoid duplicates
                                 triangles.Add(triangle);
                         }
                     }
@@ -325,58 +462,73 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return triangles;
         }
 
-        // Generate putative matches using triangles
+        // Generate putative matches using triangles. Triangles are matched in a similarity-invariant
+        // shape space (sorted side-length ratios, see StarTriangle.ShapeDescriptor) via a 2-D KdTree
+        // radial search bounded by maxShapeDistance. This replaces the former O(refTri × imgTri)
+        // cosine-similarity scan over vertex-order-dependent side-length vectors gated by a brittle
+        // near-1 cosine threshold: the descriptor is order/handedness invariant, the KdTree makes the
+        // search roughly O(n log n), and a Euclidean ratio tolerance is far more forgiving of seeing/
+        // centroiding noise than a 0.999999 cosine cutoff while still being scale/rotation invariant.
         public static (List<Point2D> srcPoints, List<Point2D> dstPoints) GeneratePutativeMatchesUsingSimilarTriangles(
             List<StarTriangle> imageTriangles,
             List<StarTriangle> referenceTriangles,
             ApplicationStatus status,
-            double minCosSim) {
+            double maxShapeDistance) {
             var srcPoints = new List<Point2D>();
             var dstPoints = new List<Point2D>();
 
-            // For each triangle in the reference image, find closest match in this image
+            // Index the image triangles by shape descriptor. Skip exact-descriptor duplicates (vanishingly
+            // rare with real centroids) to keep the tree valued one-per-point; insertion order is the
+            // deterministic image-triangle order, so the index is reproducible across runs.
+            var tree = new KdTree<double, StarTriangle>(2, new DoubleMath(), AddDuplicateBehavior.Skip);
+            foreach (var imageTriangle in imageTriangles) {
+                tree.Add(imageTriangle.ShapeDescriptor(), imageTriangle);
+            }
 
-            for (int i = 0; i < referenceTriangles.Count; i++) {
-                var referenceTriangle = referenceTriangles[i];
-                double bestCosSimLoc = minCosSim;
-                StarTriangle bestMatch = null;
-                List<(StarTriangle, double)> matches = new();
-                foreach (var imageTriangle in imageTriangles.Where(t => !t.Matched)) {
-                    var cosSim = CosineSimilarity(referenceTriangle.AsShapeMatrix(), imageTriangle.AsShapeMatrix());
-                    if (cosSim > minCosSim) {
-                        matches.Add((imageTriangle, cosSim));
-                    }
+            // For each reference triangle, find the closest-shape unmatched image triangle within tolerance.
+            foreach (var referenceTriangle in referenceTriangles) {
+                var refDescriptor = referenceTriangle.ShapeDescriptor();
+                var neighbors = tree.RadialSearch(refDescriptor, maxShapeDistance, imageTriangles.Count);
+
+                // Order candidates deterministically by shape distance, then by geometry, so ties resolve
+                // identically every run (image triangles carry no stable id of their own).
+                var candidates = neighbors
+                    .Select(n => n.Value)
+                    .Where(t => !t.Matched)
+                    .OrderBy(t => ShapeDistance(refDescriptor, t.ShapeDescriptor()))
+                    .ThenBy(t => t.P1.X).ThenBy(t => t.P1.Y)
+                    .ThenBy(t => t.P2.X).ThenBy(t => t.P2.Y)
+                    .ThenBy(t => t.P3.X).ThenBy(t => t.P3.Y)
+                    .ToList();
+                if (candidates.Count == 0) {
+                    continue;
                 }
 
-                if (matches.Count > 1) {
-                    // examine matches and pick best on brightness - these matches are already pretty close matches based on location (>0.99999)
-                    double bestCosSimBri = 0;
-
-                    foreach (var (tri, cs) in matches) {
-                        var cosSim = CosineSimilarity(referenceTriangle.AsBrightnessMatrix(), tri.AsBrightnessMatrix());
-
+                StarTriangle bestMatch = candidates[0];
+                if (candidates.Count > 1) {
+                    // Multiple near-equal shapes: disambiguate by brightness similarity, as before.
+                    double bestCosSimBri = CosineSimilarity(referenceTriangle.AsBrightnessMatrix(), candidates[0].AsBrightnessMatrix());
+                    foreach (var candidate in candidates.Skip(1)) {
+                        var cosSim = CosineSimilarity(referenceTriangle.AsBrightnessMatrix(), candidate.AsBrightnessMatrix());
                         if (cosSim > bestCosSimBri) {
-                            bestMatch = tri;
+                            bestMatch = candidate;
                             bestCosSimBri = cosSim;
                         }
                     }
-                    //Logger.Debug($"Multiple ({matches.Count}) matches for ref triangle {i} - selected triangle with briCosSim of {bestCosSimBri}");
-                } else {
-                    if (matches.Count == 1) {
-                        var best = matches.First();
-                        bestMatch = best.Item1;
-                        bestCosSimLoc = best.Item2;
-                    }
                 }
 
-                if (bestMatch != null) {
-                    srcPoints.AddRange(new List<Point2D> { bestMatch.P1, bestMatch.P2, bestMatch.P3 });
-                    dstPoints.AddRange(new List<Point2D> { referenceTriangle.P1, referenceTriangle.P2, referenceTriangle.P3 });
-                    bestMatch.MarkAsMatched(referenceTriangle.ReferenceID, bestCosSimLoc);
-                }
+                srcPoints.AddRange(new List<Point2D> { bestMatch.P1, bestMatch.P2, bestMatch.P3 });
+                dstPoints.AddRange(new List<Point2D> { referenceTriangle.P1, referenceTriangle.P2, referenceTriangle.P3 });
+                bestMatch.MarkAsMatched(referenceTriangle.ReferenceID, ShapeDistance(refDescriptor, bestMatch.ShapeDescriptor()));
             }
 
             return (srcPoints, dstPoints);
+        }
+
+        private static double ShapeDistance(double[] a, double[] b) {
+            var dx = a[0] - b[0];
+            var dy = a[1] - b[1];
+            return Math.Sqrt(dx * dx + dy * dy);
         }
 
         private static double CosineSimilarity(double[] vecA, double[] vecB) {
@@ -410,16 +562,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             double bestInlierAveDistance = double.MaxValue;
             SimilarityTransform bestTransform = null;
 
-            // build randomized list of pairs of points
-            List<(int, int)> randIndices = new List<(int, int)>();
-            for (int i = 0; i < srcPoints.Count; i++) {
-                for (int j = i + 1; j < srcPoints.Count; j++) {
-                    randIndices.Add((i, j));
-                }
-            }
-            randIndices = randIndices.OrderBy(x => RNG.Next()).Take(maxIterations).ToList();
+            // Seed the RNG deterministically from the inputs so the candidate sampling (and therefore
+            // the resulting transform) is identical across repeated runs on the same data.
+            var rng = new Random(ComputeDeterministicSeed(srcPoints, dstPoints));
+            int pointCount = srcPoints.Count;
+            long totalPairs = (long)pointCount * (pointCount - 1) / 2;
 
-            foreach ((int idx1, int idx2) in randIndices) {
+            foreach ((int idx1, int idx2) in SamplePairs(pointCount, totalPairs, maxIterations, rng)) {
                 var sampleSrc = new List<Point2D>() { srcPoints[idx1], srcPoints[idx2] };
                 var sampleDst = new List<Point2D>() { dstPoints[idx1], dstPoints[idx2] };
 
@@ -444,7 +593,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     }
                 }
 
-                double aveInlierDistance = inlierDistanceTotal / inlierIndices.Count;
+                // Guard the 0/0 when a sampled transform has no inliers: treat it as worst-possible so it
+                // can never win the tie-break (NaN comparisons are always false, which only worked by luck).
+                double aveInlierDistance = inlierIndices.Count > 0 ? inlierDistanceTotal / inlierIndices.Count : double.MaxValue;
 
                 //Trace.WriteLine($"{idx1},{idx2}: {sampleSrc[0]}, {sampleSrc[1]} -> {sampleDst[0]}, {sampleDst[1]} = {transform}, {inlierIndices.Count*100/srcPoints.Count:0.####}%");
 
@@ -485,18 +636,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             double bestInlierAveDistance = double.MaxValue;
             Matrix3x2 bestTransform = null;
 
-            // build randomized list of pairs of points
-            List<(int, int, int)> randIndices = new List<(int, int, int)>();
-            for (int i = 0; i < srcPoints.Count; i++) {
-                for (int j = i + 1; j < srcPoints.Count; j++) {
-                    for (int k = j + 1; k < srcPoints.Count; k++) {
-                        randIndices.Add((i, j, k));
-                    }
-                }
-            }
-            randIndices = randIndices.OrderBy(x => RNG.Next()).Take(maxIterations).ToList();
+            // Seed the RNG deterministically from the inputs so the candidate sampling (and therefore
+            // the resulting transform) is identical across repeated runs on the same data.
+            var rng = new Random(ComputeDeterministicSeed(srcPoints, dstPoints));
+            int pointCount = srcPoints.Count;
+            long totalTriplets = (long)pointCount * (pointCount - 1) * (pointCount - 2) / 6;
 
-            foreach ((int idx1, int idx2, int idx3) in randIndices) {
+            foreach ((int idx1, int idx2, int idx3) in SampleTriplets(pointCount, totalTriplets, maxIterations, rng)) {
                 var sampleSrc = new List<Point2D>() { srcPoints[idx1], srcPoints[idx2], srcPoints[idx3] };
                 var sampleDst = new List<Point2D>() { dstPoints[idx1], dstPoints[idx2], dstPoints[idx3] };
 
@@ -522,7 +668,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     }
                 }
 
-                double aveInlierDistance = inlierDistanceTotal / inlierIndices.Count;
+                // Guard the 0/0 when a sampled transform has no inliers: treat it as worst-possible so it
+                // can never win the tie-break (NaN comparisons are always false, which only worked by luck).
+                double aveInlierDistance = inlierIndices.Count > 0 ? inlierDistanceTotal / inlierIndices.Count : double.MaxValue;
 
                 //Trace.WriteLine($"{idx1},{idx2}: {sampleSrc[0]}, {sampleSrc[1]} -> {sampleDst[0]}, {sampleDst[1]} = {transform}, {inlierIndices.Count*100/srcPoints.Count:0.####}%");
 

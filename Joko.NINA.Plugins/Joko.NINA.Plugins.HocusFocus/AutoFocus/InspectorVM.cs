@@ -1969,9 +1969,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void ActivateExposureAnalysis() {
-            FWHMContoursActive = true;
-            EccentricityVectorsActive = true;
-            ExposureAnalysisActivatedOnce = true;
+            // Only surface the FWHM contour map and eccentricity vectors when the analyzed validation image
+            // produced stars with a fitted PSF. Both plots skip stars whose PSF could not be modeled
+            // (FWHMContourControl and the eccentricity vector field both ignore PSF == null), so a result
+            // with detections but no usable PSFs would render empty panels. Treat that as "no final
+            // validation data" and stay hidden (the expanders' visibility is bound to
+            // ExposureAnalysisActivatedOnce).
+            var hasValidationData = SnapshotAnalysisStarDetectionResult?.StarList?
+                .OfType<HocusFocusDetectedStar>().Any(s => s.PSF != null) ?? false;
+            FWHMContoursActive = hasValidationData;
+            EccentricityVectorsActive = hasValidationData;
+            ExposureAnalysisActivatedOnce = hasValidationData;
+            if (!hasValidationData) {
+                SimpleAnalysisErrorText = "Cannot display FWHM Contour and Eccentricity Vectors.\nThe final validation image produced no usable star measurements (no fitted PSFs).";
+                Logger.Warning("Final validation image produced no PSF-modeled stars; hiding FWHM contour and eccentricity vectors.");
+            }
         }
 
         private void DeactivateAutoFocusAnalysis() {

@@ -301,9 +301,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Console.WriteLine($"PSF time: {stopwatch.Elapsed}");
                 MaybeSaveIntermediateStars(stars, p, "09-detected-stars.txt");
 
-                var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, Saturated={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
+                var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, SaturatedMasked={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";
                 MaybeSaveIntermediateText(metricsTrace, p, "10-detection-metrics.txt");
                 Logger.Trace(metricsTrace);
+
+                // Log structured rejection breakdown for debugging
+                int totalCandidates = metrics.StructureCandidates;
+                int accepted = metrics.TotalDetected;
+                int rejected = totalCandidates - accepted;
+                var rejectionLog = $"Star detection complete: Found={accepted}, Rejected={rejected}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooFlat={metrics.TooFlat}, TooDistorted={metrics.TooDistorted}, Saturated(masked)={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, OffCenter={metrics.NotCentered}, HFRFailed={metrics.HFRAnalysisFailed}, PSFFailed={metrics.PSFFitFailed}, Degenerate={metrics.Degenerate}, TooLowHFR={metrics.TooLowHFR}, ContaminationSuspected={metrics.ContaminationSuspected}";
+                Logger.Debug(rejectionLog);
                 if (roiRect.HasValue) {
                     // Apply correction for the ROI
                     stars = stars.Select(s => s.AddOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top)).ToList();
@@ -342,16 +349,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             psfResolution: p.PSFResolution,
                             detectedStar: detectedStar,
                             srcImage: srcImage,
-                            pixelScale: p.PixelScale);
+                            pixelScale: p.PixelScale,
+                            saturationThreshold: p.SaturationThreshold,
+                            pixelIntegration: p.PSFPixelIntegration);
                         PSFModel psf = null;
-                        try {
-                            psf = PSFModeler.Solve(modeler, useAbsoluteResiduals: p.UsePSFAbsoluteDeviation, noiseSigma: noiseSigma, ct: ct);
-                        } catch (Exception) {
-                            // Ignore errors and continue
+                        if (modeler != null) {
+                            try {
+                                psf = PSFModeler.Solve(modeler, useAbsoluteResiduals: p.UsePSFAbsoluteDeviation, noiseSigma: noiseSigma, ct: ct);
+                            } catch (Exception) {
+                                // Ignore errors and continue
+                            }
                         }
 
-                        if (psf != null && psf.RSquared >= p.PSFGoodnessOfFitThreshold) {
+                        bool psfAccepted = false;
+                        if (psf != null) {
+                            if (p.PSFGoodnessOfFitThresholdChiSq > 0 && !double.IsNaN(psf.ReducedChiSquared)) {
+                                // Primary gate: accept when reduced chi² is within the threshold
+                                psfAccepted = psf.ReducedChiSquared <= p.PSFGoodnessOfFitThresholdChiSq;
+                            } else {
+                                // Fallback gate: R² must be at or above the threshold
+                                psfAccepted = psf.RSquared >= p.PSFGoodnessOfFitThreshold;
+                            }
+                        }
+                        if (psfAccepted) {
                             detectedStar.PSF = psf;
+                            if (CheckBackgroundContamination(detectedStar, psf, p, noiseSigma)) {
+                                ++metrics.ContaminationSuspected;
+                            }
                         } else {
                             ++metrics.PSFFitFailed;
                         }
@@ -386,10 +410,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private bool MeasureStar(Mat srcImage, Star star, StarDetectorParams p, double noiseSigma) {
+        /// <summary>
+        /// Cross-checks the three background estimates for a star to detect potential contamination.
+        /// Sets <see cref="Star.StarContaminationSuspected"/> and logs at Debug level when any pair
+        /// of estimates disagrees by more than 2× noiseSigma.
+        /// Returns true when contamination is suspected (and the flag has been set on the star).
+        /// </summary>
+        internal static bool CheckBackgroundContamination(Star star, PSFModel psf, StarDetectorParams p, double noiseSigma) {
+            var annulusBg = star.Background;
+            var thresholdBg = annulusBg + p.StarClippingMultiplier * noiseSigma;
+            var psfBg = psf.Background;
+            var twoSigma = 2.0 * noiseSigma;
+            if (Math.Abs(annulusBg - psfBg) > twoSigma ||
+                Math.Abs(annulusBg - thresholdBg) > twoSigma) {
+                star.StarContaminationSuspected = true;
+                Logger.Debug($"Star at ({star.Center.X:F1},{star.Center.Y:F1}) flagged as contamination-suspected: annulus_bg={annulusBg:F4}, psf_bg={psfBg:F4}, noise={noiseSigma:F4}");
+                return true;
+            }
+            return false;
+        }
+
+        internal bool MeasureStar(Mat srcImage, Star star, StarDetectorParams p, double noiseSigma) {
             var background = star.Background;
             double totalBrightness = 0.0;
             double totalWeightedDistance = 0.0;
+
+            // Circular aperture radius — same convention as centroid refinement
+            var apertureRadius = Math.Min(star.StarBoundingBox.Width, star.StarBoundingBox.Height) / 2.0;
 
             // Determine the start position to sample from the star bounding box so that we stay within the box *and* the center point is one of the samples. This ensures
             // we're sampling in a balanced manner around the center
@@ -400,13 +447,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var noiseThreshold = p.StarClippingMultiplier * noiseSigma;
             for (var y = startY; y <= endY; y += p.AnalysisSamplingSize) {
                 for (var x = startX; x <= endX; x += p.AnalysisSamplingSize) {
+                    var dx = x - star.Center.X;
+                    var dy = y - star.Center.Y;
+                    var distance = Math.Sqrt(dx * dx + dy * dy);
+
+                    // Exclude pixels entirely outside the circular aperture
+                    if (distance > apertureRadius + 0.5) {
+                        continue;
+                    }
+
                     var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x) - background - noiseThreshold;
                     if (value > 0.0f) {
-                        var dx = x - star.Center.X;
-                        var dy = y - star.Center.Y;
-                        var distance = Math.Sqrt(dx * dx + dy * dy);
-                        totalWeightedDistance += value * distance;
-                        totalBrightness += value;
+                        // Apply partial-pixel weighting at the aperture boundary (linear interpolation)
+                        var apertureWeight = 1.0 - Math.Max(0.0, distance - (apertureRadius - 0.5));
+                        totalWeightedDistance += apertureWeight * value * distance;
+                        totalBrightness += apertureWeight * value;
                     }
                 }
             }
@@ -543,11 +598,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // we compute its barycenter and include it.
             //
             // Rejection criteria:
-            //  1) Peak values fully saturated
-            //  2) Touching the border. We assume the star is clipped
-            //  3) Elongated stars
-            //  4) Star center too far away from the center of the bounding box
-            //  5) Too flat
+            //  1) Touching the border. We assume the star is clipped
+            //  2) Elongated stars
+            //  3) Star center too far away from the center of the bounding box
+            //  4) Too flat
+            // Note: partially-saturated stars (Background + Peak >= SaturationThreshold) are no longer rejected here.
+            // Instead, they are passed to PSF fitting which masks saturated pixels during the fit.
 
             // Too small
             if (starBounds.Width < p.MinimumStarBoundingBoxSize || starBounds.Height < p.MinimumStarBoundingBoxSize) {
@@ -574,10 +630,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return null;
             }
 
-            // Fully saturated
+            // Track partially-saturated stars in metrics (clipped pixels will be masked during PSF fit instead of rejecting)
             if ((starCandidate.Background + starCandidate.Peak) >= p.SaturationThreshold) {
                 metrics.SaturatedBounds.Add(starBounds);
-                return null;
             }
 
             // Not bright enough (background already subtracted out) relative to noise level
@@ -632,6 +687,107 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var minY = box.Y + (box.Height - centerThresholdBoxHeight) / 2.0;
             var maxY = minY + centerThresholdBoxHeight;
             return starCandidate.Center.X >= minX && starCandidate.Center.X <= maxX && starCandidate.Center.Y >= minY && starCandidate.Center.Y <= maxY;
+        }
+
+        /// <summary>
+        /// Computes the median of a pre-sorted array of doubles.
+        /// For an even-length array, returns the average of the two middle elements.
+        /// </summary>
+        internal static double ComputeMedian(double[] sortedPixels) {
+            if (sortedPixels.Length == 0) {
+                throw new ArgumentException("Array must not be empty", nameof(sortedPixels));
+            }
+            if (sortedPixels.Length % 2 == 1) {
+                return sortedPixels[sortedPixels.Length >> 1];
+            } else {
+                return (sortedPixels[(sortedPixels.Length >> 1) - 1] + sortedPixels[sortedPixels.Length >> 1]) / 2.0;
+            }
+        }
+
+        /// <summary>
+        /// Computes an iterative flux-weighted centroid over a list of candidate star pixels.
+        /// Pass 1 includes every pixel above <paramref name="backgroundThreshold"/>.
+        /// Each subsequent pass restricts the contributing pixels to those that lie within
+        /// a circle of radius <paramref name="apertureRadius"/> centered on the centroid
+        /// estimate from the previous pass.  The circular aperture prevents bright
+        /// off-axis pixels from biasing the centroid for asymmetric or tilted stars.
+        /// </summary>
+        /// <param name="imageData">Pointer to the flat float32 pixel array (unsafe).</param>
+        /// <param name="imageWidth">Number of pixels per row in the image.</param>
+        /// <param name="starPoints">Candidate pixels to consider (from the structure map).</param>
+        /// <param name="backgroundMedian">Median background level to subtract from each pixel.</param>
+        /// <param name="backgroundThreshold">Minimum raw pixel value to include in any pass.</param>
+        /// <param name="apertureRadius">Circular aperture radius used from pass 2 onward.</param>
+        /// <param name="numPasses">Total number of centroid passes (2 or 3 recommended).</param>
+        /// <returns>
+        /// Flux-weighted centroid in image-pixel coordinates, or a fallback centre-of-bounding-box
+        /// value if no pixel survives the threshold cuts.
+        /// </returns>
+        internal static unsafe Point2d ComputeIterativeCentroid(
+            float* imageData,
+            int imageWidth,
+            List<Point> starPoints,
+            double backgroundMedian,
+            double backgroundThreshold,
+            double apertureRadius,
+            int numPasses) {
+
+            // Seed the centroid with an unrestricted flux-weighted pass (pass 1).
+            double sx = 0, sy = 0, sz = 0;
+            foreach (var pt in starPoints) {
+                var pixel = imageData[pt.Y * imageWidth + pt.X];
+                if (pixel <= backgroundThreshold) {
+                    continue;
+                }
+                var flux = pixel - backgroundMedian;
+                sx += flux * pt.X;
+                sy += flux * pt.Y;
+                sz += flux;
+            }
+
+            if (sz <= 0) {
+                // No pixels above threshold — return the unweighted bounding-box centre
+                // (caller can decide to discard this candidate).
+                if (starPoints.Count == 0) {
+                    return new Point2d(0, 0);
+                }
+                double sumX = 0, sumY = 0;
+                foreach (var pt in starPoints) { sumX += pt.X; sumY += pt.Y; }
+                return new Point2d(sumX / starPoints.Count, sumY / starPoints.Count);
+            }
+
+            var cx = sx / sz;
+            var cy = sy / sz;
+
+            // Passes 2..numPasses: restrict to circular aperture around previous estimate.
+            var r2 = apertureRadius * apertureRadius;
+            for (int pass = 2; pass <= numPasses; ++pass) {
+                sx = 0; sy = 0; sz = 0;
+                foreach (var pt in starPoints) {
+                    var pixel = imageData[pt.Y * imageWidth + pt.X];
+                    if (pixel <= backgroundThreshold) {
+                        continue;
+                    }
+                    var dx = pt.X - cx;
+                    var dy = pt.Y - cy;
+                    if (dx * dx + dy * dy > r2) {
+                        continue;
+                    }
+                    var flux = pixel - backgroundMedian;
+                    sx += flux * pt.X;
+                    sy += flux * pt.Y;
+                    sz += flux;
+                }
+
+                if (sz <= 0) {
+                    // Aperture excluded everything — keep the previous estimate
+                    break;
+                }
+                cx = sx / sz;
+                cy = sy / sz;
+            }
+
+            return new Point2d(cx, cy);
         }
 
         private StarCandidate ComputeStarParameters(Mat srcImage, Rect starBounds, StarDetectorParams p, double noiseSigma, List<Point> starPoints) {
@@ -696,7 +852,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var backgroundMedian = surroundingPixels[surroundingPixelCount >> 1];
 
             var backgroundThreshold = backgroundMedian + p.StarClippingMultiplier * noiseSigma;
-            double sx = 0, sy = 0, sz = 0;
             double totalFlux = 0d, peak = 0d;
             int numUnclippedPixels = 0;
             double[] starPixels;
@@ -730,9 +885,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
 
                     pixel -= backgroundMedian;
-                    sx += pixel * starPoint.X;
-                    sy += pixel * starPoint.Y;
-                    sz += pixel;
                     totalFlux += pixel;
                     peak = pixel > peak ? pixel : peak;
                     starPixels[pixelCount++] = pixel;
@@ -740,15 +892,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
 
             Array.Sort(starPixels);
-            double starMedian;
-            if (starPixels.Length % 2 == 1) {
-                starMedian = starPixels[starPixels.Length >> 1];
-            } else {
-                starMedian = (starPixels[starPixels.Length >> 1 + 1] + starPixels[starPixels.Length >> 1]) / 2.0;
-            }
+            var starMedian = ComputeMedian(starPixels);
 
             var meanFlux = totalFlux / starPoints.Count;
-            var center = new Point2d(sx / sz, sy / sz);
+
+            // Compute an iterative centroid: start with all threshold-clipped pixels, then on
+            // subsequent passes restrict to pixels within a circular aperture centered on the
+            // previous estimate.  2-3 passes are enough for sub-pixel convergence.
+            var apertureRadius = Math.Min(starBounds.Width, starBounds.Height) / 2.0;
+            Point2d center;
+            unsafe {
+                center = ComputeIterativeCentroid(
+                    imageData: (float*)srcImage.DataPointer,
+                    imageWidth: srcImage.Width,
+                    starPoints: starPoints,
+                    backgroundMedian: backgroundMedian,
+                    backgroundThreshold: backgroundThreshold,
+                    apertureRadius: apertureRadius,
+                    numPasses: 3);
+            }
             var centerBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: center.Y, x: center.X) - backgroundMedian;
             return new StarCandidate() {
                 Center = center,

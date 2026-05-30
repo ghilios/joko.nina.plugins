@@ -119,6 +119,44 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         [Test]
+        public void MinimumStdError_NoiselessFit_IsFiniteAndSmall() {
+            var pts = SyntheticFocusCurveSamples.SymmetricHyperbolaPoints(
+                x0: 5000, y0: 0.0, a: 2.0, b: 80.0,
+                xStart: 4800, xStep: 25, count: 17);
+            var fit = HyperbolicFittingAlglib.Create(alglibAPI, pts, useWeights: false);
+            Assert.That(fit.Solve(), Is.True);
+
+            Assert.Multiple(() => {
+                Assert.That(double.IsNaN(fit.MinimumStdError), Is.False);
+                Assert.That(fit.MinimumStdError, Is.GreaterThanOrEqualTo(0.0));
+                // Perfect data ⇒ the best-focus position is essentially exactly determined.
+                Assert.That(fit.MinimumStdError, Is.LessThan(1.0));
+            });
+        }
+
+        [Test]
+        public void MinimumStdError_NoisyFit_IsPositiveAndFinite() {
+            var clean = SyntheticFocusCurveSamples.SymmetricHyperbolaPoints(
+                x0: 5000, y0: 0.0, a: 2.0, b: 80.0,
+                xStart: 4700, xStep: 25, count: 25);
+            var rng = new System.Random(13);
+            var noisy = new System.Collections.Generic.List<OxyPlot.Series.ScatterErrorPoint>();
+            foreach (var p in clean) {
+                var n = (rng.NextDouble() - 0.5) * 0.4; // ~±0.2 HFR noise
+                noisy.Add(new OxyPlot.Series.ScatterErrorPoint(p.X, p.Y + n, 0, 1.0));
+            }
+
+            var fit = HyperbolicFittingAlglib.Create(alglibAPI, noisy, useWeights: false);
+            Assert.That(fit.Solve(), Is.True);
+
+            Assert.Multiple(() => {
+                Assert.That(double.IsNaN(fit.MinimumStdError), Is.False);
+                Assert.That(double.IsInfinity(fit.MinimumStdError), Is.False);
+                Assert.That(fit.MinimumStdError, Is.GreaterThan(0.0));
+            });
+        }
+
+        [Test]
         public void Minimum_AtMinimumXValue_EqualsAPlusY0() {
             var pts = SyntheticFocusCurveSamples.SymmetricHyperbolaPoints(
                 x0: 5000, y0: 1.5, a: 2.0, b: 80.0,

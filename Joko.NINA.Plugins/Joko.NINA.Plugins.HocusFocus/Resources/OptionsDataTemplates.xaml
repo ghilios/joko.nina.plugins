@@ -39,6 +39,7 @@
     <hfconverters:DoubleGreaterOneToEmptyStringConverter x:Key="HF_DoubleGreaterOneToEmptyStringConverter" />
     <hfconverters:MeasurementAverageDisplayConverter x:Key="HF_MeasurementAverageDisplayConverter" />
     <hfconverters:EmptyCollectionToVisibilityConverter x:Key="HF_EmptyCollectionToVisibilityCollapsedConverter" />
+    <hfconverters:DoublePositiveToVisibilityCollapsedConverter x:Key="HF_DoublePositiveToVisibilityCollapsedConverter" />
 
     <!--
         AF focus chart used by the Tilt Adapter Wizard to show live measurement feedback.
@@ -418,7 +419,7 @@
     <TextBlock x:Key="HotpixelFiltering_Tooltip" Text="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
     <TextBlock x:Key="HotpixelThresholdingEnabled_Tooltip" Text="A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy" />
     <TextBlock x:Key="HotpixelThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value" />
-    <TextBlock x:Key="SaturationThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a saturated pixel. Star candidates containing any saturated pixels are rejected" />
+    <TextBlock x:Key="SaturationThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a saturated pixel. Star candidates containing saturated pixels are processed with those pixels masked during PSF fitting" />
     <TextBlock x:Key="UseAutoFocusCrop_Tooltip" Text="Uses the inner and outer crop from the Auto Focus options for regular exposures (ie, those that aren't done during focusing)" />
     <TextBlock x:Key="SavePath_Tooltip" Text="The folder to save Auto Focus runs" />
     <TextBlock x:Key="SaveAutoFocus_Tooltip" Text="Saves details about every Auto Focus run, including a copy of the image, the star detection results, and the stretched annotated image" />
@@ -460,7 +461,7 @@
     <TextBlock x:Key="TooDistortedColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowDegenerate_Tooltip" Text="Whether to show the failed degenerate stars" />
     <TextBlock x:Key="DegenerateColor_Tooltip" Text="The color of the failed star bounding box" />
-    <TextBlock x:Key="ShowSaturated_Tooltip" Text="Whether to show the failed saturated stars" />
+    <TextBlock x:Key="ShowSaturated_Tooltip" Text="Whether to show the partially-saturated stars that were processed with masked pixels" />
     <TextBlock x:Key="SaturatedColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowLowSensitivity_Tooltip" Text="Whether to show the failed low sensitivity stars" />
     <TextBlock x:Key="LowSensitivityColor_Tooltip" Text="The color of the failed star bounding box" />
@@ -477,6 +478,12 @@
     <TextBlock x:Key="PSFFitType_Tooltip" Text="What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight" />
     <TextBlock x:Key="PSFResolution_Tooltip" Text="The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting. Higher resolution may be more accurate, but takes longer to calculate" />
     <TextBlock x:Key="PSFFitThreshold_Tooltip" Text="The minimum goodness of fit (R²) required for a PSF" />
+    <TextBlock
+        x:Key="PSFPixelIntegration_Tooltip"
+        Text="When enabled, PSF model values are computed as the integral over the pixel area rather than sampled at the pixel centre. Reduces sigma error on undersampled rigs (FWHM ≈ 1.5 px) from ~8% to less than 5%. Leave off for well-sampled rigs." />
+    <TextBlock
+        x:Key="PSFGoodnessOfFitChiSq_Tooltip"
+        Text="Reduced chi-squared threshold for accepting a PSF fit. A value of 1.0 means residuals match the noise level exactly; 2.0 (default) allows up to ~1.4× noise RMS. Set to 0 to disable and fall back to the R² threshold." />
     <TextBlock x:Key="PSFParallelPartitionSize_Tooltip" Text="Enables parallel processing of PSF modeling by partitioning the detected stars into batches of this size. Set to 0 to disable parallelism" />
     <TextBlock x:Key="SimpleNoiseLevel_Tooltip" Text="Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio" />
     <TextBlock x:Key="SimpleFocusRange_Tooltip" Text="As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection" />
@@ -863,7 +870,8 @@
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <!--  31  -->
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <!--  33  -->
                 <RowDefinition Style="{StaticResource ShowOnUseHotpixelThresholding_Advanced}" />
 
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
@@ -874,7 +882,7 @@
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition />
 
-                <!--  37  -->
+                <!--  39  -->
                 <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
                 <RowDefinition />
                 <RowDefinition />
@@ -1450,7 +1458,8 @@
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="PSF Fit Threshold"
-                ToolTip="{StaticResource PSFFitThreshold_Tooltip}" />
+                ToolTip="{StaticResource PSFFitThreshold_Tooltip}"
+                Visibility="{Binding StarDetectionOptions.PSFGoodnessOfFitThresholdChiSq, Converter={StaticResource HF_DoublePositiveToVisibilityCollapsedConverter}}" />
             <ninactrl:UnitTextBox
                 Grid.Row="29"
                 Grid.Column="1"
@@ -1459,7 +1468,8 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 ToolTip="{StaticResource PSFFitThreshold_Tooltip}"
-                Unit="R²">
+                Unit="R²"
+                Visibility="{Binding StarDetectionOptions.PSFGoodnessOfFitThresholdChiSq, Converter={StaticResource HF_DoublePositiveToVisibilityCollapsedConverter}}">
                 <Binding Path="StarDetectionOptions.PSFFitThreshold" UpdateSourceTrigger="LostFocus">
                     <Binding.ValidationRules>
                         <rules:DoubleRangeRule>
@@ -1475,10 +1485,52 @@
                 Grid.Row="30"
                 Grid.Column="0"
                 VerticalAlignment="Center"
+                Text="PSF Pixel Integration"
+                ToolTip="{StaticResource PSFPixelIntegration_Tooltip}" />
+            <CheckBox
+                Grid.Row="30"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.PSFPixelIntegration}"
+                ToolTip="{StaticResource PSFPixelIntegration_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="31"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="PSF χ² Threshold"
+                ToolTip="{StaticResource PSFGoodnessOfFitChiSq_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="31"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ToolTip="{StaticResource PSFGoodnessOfFitChiSq_Tooltip}"
+                Unit="χ²">
+                <Binding Path="StarDetectionOptions.PSFGoodnessOfFitThresholdChiSq" UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="100.0" Minimum="0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="32"
+                Grid.Column="0"
+                VerticalAlignment="Center"
                 Text="PSF MAD Fitting"
                 ToolTip="{StaticResource UsePSFAbsoluteDeviation_Tooltip}" />
             <CheckBox
-                Grid.Row="30"
+                Grid.Row="32"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1488,13 +1540,13 @@
                 ToolTip="{StaticResource UsePSFAbsoluteDeviation_Tooltip}" />
 
             <TextBlock
-                Grid.Row="31"
+                Grid.Row="33"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Hotpixel Threshold"
                 ToolTip="{StaticResource HotpixelThreshold_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="31"
+                Grid.Row="33"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1517,13 +1569,13 @@
             </ninactrl:UnitTextBox>
 
             <TextBlock
-                Grid.Row="32"
+                Grid.Row="34"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Saturation Threshold"
                 ToolTip="{StaticResource SaturationThreshold_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="32"
+                Grid.Row="34"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1546,14 +1598,14 @@
             </ninactrl:UnitTextBox>
 
             <TextBlock
-                Grid.Row="33"
+                Grid.Row="35"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Measurement Averaging"
                 ToolTip="{StaticResource MeasurementAverage_Tooltip}" />
             <ComboBox
                 Name="PART_MeasurementAverageTypeList"
-                Grid.Row="33"
+                Grid.Row="35"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1570,13 +1622,13 @@
             </ComboBox>
 
             <TextBlock
-                Grid.Row="36"
+                Grid.Row="38"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Debug Mode"
                 ToolTip="{StaticResource DebugMode_Tooltip}" />
             <CheckBox
-                Grid.Row="36"
+                Grid.Row="38"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1586,13 +1638,13 @@
                 ToolTip="{StaticResource DebugMode_Tooltip}" />
 
             <TextBlock
-                Grid.Row="37"
+                Grid.Row="39"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Intermediate Path"
                 ToolTip="{StaticResource SaveIntermediatePath_Tooltip}" />
             <TextBox
-                Grid.Row="37"
+                Grid.Row="39"
                 Grid.Column="1"
                 Margin="5,5,0,0"
                 VerticalAlignment="Center"
@@ -1616,7 +1668,7 @@
                 </TextBox.Style>
             </TextBox>
             <Button
-                Grid.Row="37"
+                Grid.Row="39"
                 Grid.Column="2"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
@@ -1643,13 +1695,13 @@
             </Button>
 
             <TextBlock
-                Grid.Row="38"
+                Grid.Row="40"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Save Intermediate"
                 ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
             <CheckBox
-                Grid.Row="38"
+                Grid.Row="40"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"

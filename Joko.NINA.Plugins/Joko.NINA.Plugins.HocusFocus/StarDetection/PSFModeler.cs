@@ -55,7 +55,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     }
 
     public abstract class PSFModelTypeAlglibBase : PSFModelTypeBase {
-        private readonly IAlglibAPI alglibAPI;
+        /// <summary>
+        /// Multiplier applied to noiseSigma to compute the Huber IRLS threshold δ = HuberThresholdMultiplier * noiseSigma.
+        /// Residuals with |r| ≤ δ are treated as inliers (weight = 1); residuals with |r| > δ are down-weighted as δ/|r|.
+        /// </summary>
+        public const double HuberThresholdMultiplier = 1.5;
+
+        protected readonly IAlglibAPI alglibAPI;
 
         protected PSFModelTypeAlglibBase(IAlglibAPI alglibAPI, double centroidBrightness, double starDetectionBackground, double pixelScale, Rect starBoundingBox, double[][] inputs, double[] outputs)
             : base(centroidBrightness, starDetectionBackground, pixelScale, starBoundingBox) {
@@ -72,7 +78,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double[][] Inputs { get; private set; }
         public double[] Outputs { get; private set; }
 
-        private readonly double[] weights;
+        protected readonly double[] weights;
 
         public abstract double Value(double[] parameters, double[] input);
 
@@ -123,7 +129,60 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        public override double GoodnessOfFit(double A, double B, double x0, double y0, double sigmaX, double sigmaY, double theta) {
+        /// <summary>
+        /// Computes initial sigma guesses from raw image second moments.
+        /// σx² = Σ (pixel - background) · dx² / Σ (pixel - background)
+        /// σy² = Σ (pixel - background) · dy² / Σ (pixel - background)
+        /// where the sum is over pixels above the background and (dx, dy) are already
+        /// centroid-relative offsets stored in Inputs.
+        /// Falls back to box/3 for degenerate cases, and clamps to [0.5, max(w,h)].
+        /// </summary>
+        protected (double sigmaX, double sigmaY) ComputeSecondMomentSigmas() {
+            var background = this.StarDetectionBackground;
+            var maxSigma = Math.Max(this.StarBoundingBox.Width, this.StarBoundingBox.Height);
+            var fallbackX = this.StarBoundingBox.Width / 3.0;
+            var fallbackY = this.StarBoundingBox.Height / 3.0;
+
+            double sumWeight = 0.0;
+            double sumX2 = 0.0;
+            double sumY2 = 0.0;
+
+            for (int i = 0; i < this.Inputs.Length; ++i) {
+                var weight = this.Outputs[i] - background;
+                if (weight <= 0.0) continue;
+                var dx = this.Inputs[i][0];
+                var dy = this.Inputs[i][1];
+                sumWeight += weight;
+                sumX2 += weight * dx * dx;
+                sumY2 += weight * dy * dy;
+            }
+
+            double sigX, sigY;
+            if (sumWeight <= 0.0) {
+                sigX = fallbackX;
+                sigY = fallbackY;
+            } else {
+                var varX = sumX2 / sumWeight;
+                var varY = sumY2 / sumWeight;
+                if (varX <= 0.0 || varY <= 0.0) {
+                    sigX = fallbackX;
+                    sigY = fallbackY;
+                } else {
+                    sigX = Math.Sqrt(varX);
+                    sigY = Math.Sqrt(varY);
+                }
+            }
+
+            sigX = Math.Max(0.5, Math.Min(sigX, maxSigma));
+            sigY = Math.Max(0.5, Math.Min(sigY, maxSigma));
+            return (sigX, sigY);
+        }
+
+        /// <summary>
+        /// Computes residual sum of squares (RSS) and total sum of squares (TSS) for the given parameter set.
+        /// R² = 1 - rss/tss.  Both values are returned so the caller can also derive reduced χ².
+        /// </summary>
+        public (double rss, double tss) ComputeRSS(double A, double B, double x0, double y0, double sigmaX, double sigmaY, double theta) {
             var parameters = new double[] { A, B, x0, y0, sigmaX, sigmaY, theta };
 
             var rss = 0.0d;
@@ -139,6 +198,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 tss += observedDispersion * observedDispersion;
                 rss += residual * residual;
             }
+            return (rss, tss);
+        }
+
+        public override double GoodnessOfFit(double A, double B, double x0, double y0, double sigmaX, double sigmaY, double theta) {
+            var (rss, tss) = ComputeRSS(A, B, x0, y0, sigmaX, sigmaY, theta);
             return 1 - rss / tss;
         }
 
@@ -152,9 +216,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             alglib.minlmstate state = null;
             alglib.minlmreport rep = null;
             var sigmaUpperBound = Math.Sqrt(this.StarBoundingBox.Width * this.StarBoundingBox.Width + this.StarBoundingBox.Height * this.StarBoundingBox.Height) / 2;
-            var initialGuess = new double[] { Math.Max(0.0d, this.CentroidBrightness - this.StarDetectionBackground), this.StarDetectionBackground, 0.0, 0.0, this.StarBoundingBox.Width / 3.0, this.StarBoundingBox.Height / 3.0, 0.0d };
-            var dxLimit = this.StarBoundingBox.Width / 8.0d;
-            var dyLimit = this.StarBoundingBox.Height / 8.0d;
+            var (initSigmaX, initSigmaY) = ComputeSecondMomentSigmas();
+            // Canonical form: sigmaX (parameter index 4) is the major axis (larger σ).
+            // Enforce sigmaX ≥ sigmaY in the initial seed so LM starts in the correct basin.
+            // For near-circular stars (initSigmaX ≈ initSigmaY), a tiny asymmetric nudge prevents
+            // the optimizer from sitting on the symmetry boundary and flipping to the sigmaY > sigmaX
+            // solution on different frames, which would cause a ±π/2 discontinuity in the reported θ.
+            if (initSigmaX < initSigmaY) {
+                (initSigmaX, initSigmaY) = (initSigmaY, initSigmaX);
+            }
+            // Nudge sigmaX slightly above sigmaY so the seed is unambiguously in the sigmaX > sigmaY
+            // basin; 0.1% is negligible for the optimizer but prevents exact ties.
+            initSigmaX *= 1.001;
+            var initialGuess = new double[] { Math.Max(0.0d, this.CentroidBrightness - this.StarDetectionBackground), this.StarDetectionBackground, 0.0, 0.0, initSigmaX, initSigmaY, 0.0d };
+            var dxLimit = this.StarBoundingBox.Width / 2.0d;
+            var dyLimit = this.StarBoundingBox.Height / 2.0d;
             var lowerBounds = new double[] { 0.0d, 0.0d, -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
             var upperBounds = new double[] { 2.0d, 1.0d, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
             var scale = new double[] { 0.01, 0.01, 0.1, 0.1, 1, 1, 1 };
@@ -202,13 +278,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
 
                     var sumOfResiduals = 0.0d;
+                    var huberDelta = HuberThresholdMultiplier * noiseSigma;
                     for (int i = 0; i < this.weights.Length; ++i) {
                         var observedValue = this.Outputs[i];
                         var estimatedValue = Value(solution, this.Inputs[i]);
-                        var newWeightDenom = Math.Abs(estimatedValue - observedValue);
-                        sumOfResiduals += newWeightDenom;
-                        newWeightDenom = Math.Max(noiseSigma, newWeightDenom);
-                        var newWeight = 1.0 / newWeightDenom;
+                        var absResidual = Math.Abs(estimatedValue - observedValue);
+                        sumOfResiduals += absResidual;
+                        // Huber IRLS weights: inliers (|r| ≤ δ) keep weight 1; outliers (|r| > δ) get weight δ/|r|
+                        var newWeight = absResidual <= huberDelta ? 1.0 : huberDelta / absResidual;
                         this.weights[i] = newWeight;
                     }
 
@@ -257,9 +334,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             try {
                 var sigmaUpperBound = Math.Sqrt(this.StarBoundingBox.Width * this.StarBoundingBox.Width + this.StarBoundingBox.Height * this.StarBoundingBox.Height) / 2;
                 var centroidBrightnessAboveBackground = Math.Max(0.0d, this.CentroidBrightness - this.StarDetectionBackground);
-                var initialGuess = new double[] { centroidBrightnessAboveBackground, this.StarDetectionBackground, 0.0, 0.0, this.StarBoundingBox.Width / 3.0, this.StarBoundingBox.Height / 3.0, 0.0d };
-                var dxLimit = this.StarBoundingBox.Width / 8.0d;
-                var dyLimit = this.StarBoundingBox.Height / 8.0d;
+                var (initSigmaX, initSigmaY) = ComputeSecondMomentSigmas();
+                // Canonical form: sigmaX (parameter index 4) is the major axis (larger σ).
+                // Enforce sigmaX ≥ sigmaY in the initial seed so LM starts in the correct basin.
+                // For near-circular stars (initSigmaX ≈ initSigmaY), a tiny asymmetric nudge prevents
+                // the optimizer from sitting on the symmetry boundary and flipping to the sigmaY > sigmaX
+                // solution on different frames, which would cause a ±π/2 discontinuity in the reported θ.
+                if (initSigmaX < initSigmaY) {
+                    (initSigmaX, initSigmaY) = (initSigmaY, initSigmaX);
+                }
+                // Nudge sigmaX slightly above sigmaY so the seed is unambiguously in the sigmaX > sigmaY
+                // basin; 0.1% is negligible for the optimizer but prevents exact ties.
+                initSigmaX *= 1.001;
+                var initialGuess = new double[] { centroidBrightnessAboveBackground, this.StarDetectionBackground, 0.0, 0.0, initSigmaX, initSigmaY, 0.0d };
+                var dxLimit = this.StarBoundingBox.Width / 2.0d;
+                var dyLimit = this.StarBoundingBox.Height / 2.0d;
                 var lowerBounds = new double[] { 0.0d, 0.0d, -dxLimit, -dyLimit, 0, 0, -Math.PI / 2.0d };
                 var upperBounds = new double[] { 2.0d, 1.0d, dxLimit, dyLimit, sigmaUpperBound, sigmaUpperBound, Math.PI / 2.0d };
                 var scale = new double[] { 0.01, 0.01, 0.1, 0.1, 1, 1, 1 };
@@ -337,13 +426,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class PSFModeler {
 
+        /// <summary>
+        /// Minimum number of unsaturated pixels required to attempt a PSF fit.
+        /// If fewer than this many pixels survive the saturation mask, <see cref="Create"/> returns null.
+        /// </summary>
+        public const int MinUnsaturatedPixels = 10;
+
         public static PSFModelTypeBase Create(
             StarDetectorPSFFitType fitType,
             int psfResolution,
             Star detectedStar,
             Mat srcImage,
             double pixelScale,
-            IAlglibAPI alglibAPI) {
+            IAlglibAPI alglibAPI,
+            double saturationThreshold = double.MaxValue,
+            bool pixelIntegration = false) {
             var background = detectedStar.Background;
             var nominalBoundingBoxWidth = Math.Sqrt(detectedStar.StarBoundingBox.Width * detectedStar.StarBoundingBox.Height);
             var samplingSize = nominalBoundingBoxWidth / psfResolution;
@@ -356,27 +453,44 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var numPixels = widthPixels * heightPixels;
             var centroidBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: detectedStar.Center.Y, x: detectedStar.Center.X);
 
-            var inputs = new double[numPixels][];
-            var outputs = new double[numPixels];
-            int pixelIndex = 0;
+            // Collect only unsaturated pixels (raw value < saturationThreshold)
+            var inputsList = new System.Collections.Generic.List<double[]>(numPixels);
+            var outputsList = new System.Collections.Generic.List<double>(numPixels);
             for (var y = startY; y < endY; y += samplingSize) {
                 for (var x = startX; x < endX; x += samplingSize) {
                     var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x);
+                    // Skip saturated pixels — they don't carry valid profile information
+                    if (value >= saturationThreshold) {
+                        continue;
+                    }
                     var dx = x - detectedStar.Center.X;
                     var dy = y - detectedStar.Center.Y;
-                    var input = new double[2] { dx, dy };
-                    inputs[pixelIndex] = input;
-                    outputs[pixelIndex++] = value;
+                    inputsList.Add(new double[2] { dx, dy });
+                    outputsList.Add(value);
                 }
             }
 
-            if (fitType == StarDetectorPSFFitType.Gaussian) {
-                return new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
-            } else if (fitType == StarDetectorPSFFitType.Moffat_40) {
-                return new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale);
-            } else {
-                throw new ArgumentException($"Unknown PSF fit type {fitType}");
+            // Require a minimum number of unsaturated pixels to attempt a reliable fit
+            if (inputsList.Count < MinUnsaturatedPixels) {
+                return null;
             }
+
+            var inputs = inputsList.ToArray();
+            var outputs = outputsList.ToArray();
+
+            return fitType switch {
+                StarDetectorPSFFitType.Gaussian =>
+                    new GaussianPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration),
+                StarDetectorPSFFitType.Moffat_40 =>
+                    new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 4.0, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration),
+                StarDetectorPSFFitType.Moffat_25 =>
+                    new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 2.5, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration),
+                StarDetectorPSFFitType.Moffat_15 =>
+                    new MoffatPSFAlglibType(alglibAPI: alglibAPI, beta: 1.5, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale, pixelIntegration: pixelIntegration),
+                StarDetectorPSFFitType.MoffatFittable =>
+                    new FittableMoffatPSFAlglibType(alglibAPI: alglibAPI, inputs: inputs, outputs: outputs, centroidBrightness: centroidBrightness, starDetectionBackground: background, starBoundingBox: detectedStar.StarBoundingBox, pixelScale: pixelScale),
+                _ => throw new ArgumentException($"Unknown PSF fit type {fitType}")
+            };
         }
 
         public static PSFModel Solve(
@@ -417,7 +531,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // theta is a negative angle, solved to rotate the star back to the X-Y axes
             theta = -theta;
 
-            // Normalize rotation angles by ensuring the X axis is the elongated one
+            // Canonical form: sigX is always the major axis (sigX ≥ sigY).
+            // When the optimizer returns sigY > sigX (which can happen for near-circular stars due to
+            // numerical noise, despite seeding with sigX ≥ sigY), we unconditionally swap and rotate
+            // theta by ±π/2 so that θ always describes the orientation of the major axis.
+            // Seeding with sigX ≥ sigY (in Solve/SolveIRLS) keeps the optimizer in the correct half
+            // of solution space most of the time, so this swap fires only when genuinely needed.
             if (sigY > sigX) {
                 if (theta < 0) {
                     theta += PI_2;
@@ -432,7 +551,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             var fwhmX = modelType.SigmaToFWHM(sigX);
             var fwhmY = modelType.SigmaToFWHM(sigY);
-            var rSquared = modelType.GoodnessOfFit(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta);
+
+            double rSquared;
+            double reducedChiSquared = double.NaN;
+            double beta = double.NaN;
+            if (modelType is FittableMoffatPSFAlglibType fittableMoffat) {
+                // FittableMoffatPSFAlglibType requires 8 parameters (including β); use its specialized RSS method.
+                var (rss, tss) = fittableMoffat.ComputeRSS8(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta, fittableMoffat.Beta);
+                rSquared = 1 - rss / tss;
+                var noiseSigmaSq = noiseSigma * noiseSigma;
+                if (noiseSigmaSq > 0 && fittableMoffat.Inputs.Length > 0) {
+                    reducedChiSquared = rss / (fittableMoffat.Inputs.Length * noiseSigmaSq);
+                }
+                beta = fittableMoffat.Beta;
+            } else if (modelType is MoffatPSFAlglibType moffat) {
+                var (rss, tss) = moffat.ComputeRSS(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta);
+                rSquared = 1 - rss / tss;
+                // Reduced chi-squared: rss / (nPixels * noiseSigma²).  Only meaningful when noiseSigma > 0.
+                var noiseSigmaSq = noiseSigma * noiseSigma;
+                if (noiseSigmaSq > 0 && moffat.Inputs.Length > 0) {
+                    reducedChiSquared = rss / (moffat.Inputs.Length * noiseSigmaSq);
+                }
+                beta = moffat.Beta;
+            } else if (modelType is PSFModelTypeAlglibBase alglibBase) {
+                var (rss, tss) = alglibBase.ComputeRSS(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta);
+                rSquared = 1 - rss / tss;
+                // Reduced chi-squared: rss / (nPixels * noiseSigma²).  Only meaningful when noiseSigma > 0.
+                var noiseSigmaSq = noiseSigma * noiseSigma;
+                if (noiseSigmaSq > 0 && alglibBase.Inputs.Length > 0) {
+                    reducedChiSquared = rss / (alglibBase.Inputs.Length * noiseSigmaSq);
+                }
+            } else {
+                rSquared = modelType.GoodnessOfFit(modelSolution.A, modelSolution.B, modelSolution.X0, modelSolution.Y0, sigX, sigY, theta);
+            }
+
             return new PSFModel(psfType: modelType.PSFType,
                 offsetX: modelSolution.X0, offsetY: modelSolution.Y0,
                 peak: modelSolution.A, background: modelSolution.B,
@@ -440,7 +592,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 fwhmX: fwhmX, fwhmY: fwhmY,
                 thetaRadians: theta,
                 rSquared: rSquared,
-                pixelScale: modelType.PixelScale);
+                pixelScale: modelType.PixelScale,
+                reducedChiSquared: reducedChiSquared,
+                beta: beta);
         }
     }
 }

@@ -270,7 +270,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             this.weights = new double[solver.Inputs.Length];
             this.inputEnabled = new bool[solver.Inputs.Length];
             for (int i = 0; i < weights.Length; ++i) {
-                weights[i] = 1.0;
+                // χ² weighting: weight = 1/σ so the optimizer minimizes Σ((estimated-observed)/σ)².
+                // σ defaults to 1.0 (unweighted) when callers do not supply per-point uncertainties.
+                weights[i] = 1.0 / Math.Max(solver.OutputStdDevs[i], 1e-9);
                 inputEnabled[i] = true;
             }
         }
@@ -311,8 +313,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 }
 
                 Solver.Gradient(parameters, Solver.Inputs[i], singleGradient);
+                // The residual is weight·(f(θ)−y), so its derivative is weight·∂f/∂θ. The Jacobian must
+                // carry the same per-point weight as FitResiduals; otherwise, with non-uniform 1/σ weights,
+                // the optimizer's gradient is inconsistent with its residuals — biasing the LM step and
+                // tripping OptGuard. With uniform weights (1.0) this reduces to the plain gradient.
+                var weight = this.weights[i];
                 for (int j = 0; j < parameters.Length; ++j) {
-                    jac[i, j] = singleGradient[j];
+                    jac[i, j] = weight * singleGradient[j];
                 }
             }
         }
@@ -329,7 +336,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             var rss = 0.0d;
             var tss = 0.0d;
             int pixelCount = solver.Inputs.Length;
-            var yBar = solver.Outputs.Where((o, idx) => inputEnabled[idx]).Average();
+
+            // Weighted mean, so the weighted total sum of squares is taken about the correct center. Using
+            // a plain (unweighted) mean here while weighting the dispersion makes 1 − RSS/TSS no longer a
+            // valid R² (it can exceed 1 or go negative) once the per-point weights are non-uniform (1/σ).
+            // With uniform weights this reduces to the ordinary arithmetic mean.
+            var sumW2 = 0.0d;
+            var sumW2Y = 0.0d;
+            for (int i = 0; i < pixelCount; ++i) {
+                if (!inputEnabled[i]) {
+                    continue;
+                }
+                var w2 = this.weights[i] * this.weights[i];
+                sumW2 += w2;
+                sumW2Y += w2 * solver.Outputs[i];
+            }
+            var yBar = sumW2 > 0.0 ? sumW2Y / sumW2 : 0.0;
+
             for (int i = 0; i < pixelCount; ++i) {
                 if (!inputEnabled[i]) {
                     continue;
@@ -347,10 +370,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return 1 - rss / tss;
         }
 
+        /// <summary>
+        /// Unweighted RMS of the residuals over the enabled points, in the native units of the output
+        /// (e.g. focuser microns). Reported as an intuitive display statistic independent of the χ²
+        /// weighting that the optimizer minimizes.
+        /// </summary>
         public double RMSError(S solver, U model) {
             var parameters = model.ToArray();
             var rss = 0.0d;
-            double weightedPixelCount = 0.0d;
+            int count = 0;
             for (int i = 0; i < solver.Inputs.Length; ++i) {
                 if (!inputEnabled[i]) {
                     continue;
@@ -358,13 +386,50 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
                 var input = solver.Inputs[i];
                 var observedValue = solver.Outputs[i];
-                var weight = this.weights[i];
                 var estimatedValue = solver.Value(parameters, input);
-                var residual = weight * (estimatedValue - observedValue);
+                var residual = estimatedValue - observedValue;
                 rss += residual * residual;
-                weightedPixelCount += weight;
+                ++count;
             }
-            return Math.Sqrt(rss / weightedPixelCount);
+            return count > 0 ? Math.Sqrt(rss / count) : 0.0;
+        }
+
+        /// <summary>Degrees of freedom of the fit: enabled observations minus free parameters (at least 1).</summary>
+        public int DegreesOfFreedom(S solver) => Math.Max(1, InputEnabledCount - solver.NumParameters);
+
+        /// <summary>
+        /// χ² = Σ ((estimated − observed)/σ)² over the enabled points (weight = 1/σ). When per-point σ
+        /// are the true measurement uncertainties, a well-specified model gives χ² ≈ degrees of freedom.
+        /// </summary>
+        public double ChiSquared(S solver, U model) {
+            var parameters = model.ToArray();
+            var chiSquared = 0.0d;
+            for (int i = 0; i < solver.Inputs.Length; ++i) {
+                if (!inputEnabled[i]) {
+                    continue;
+                }
+
+                var residual = this.weights[i] * (solver.Value(parameters, solver.Inputs[i]) - solver.Outputs[i]);
+                chiSquared += residual * residual;
+            }
+            return chiSquared;
+        }
+
+        /// <summary>
+        /// Reduced χ² = χ²/dof. Unlike R², this is independent of overall signal magnitude: a near-flat
+        /// sensor with good residuals and a strongly-tilted one with the same residuals both score ≈ 1,
+        /// which is the property that makes it a repeatable acceptance criterion.
+        /// </summary>
+        public double ReducedChiSquared(S solver, U model) => ChiSquared(solver, model) / DegreesOfFreedom(solver);
+
+        /// <summary>
+        /// Upper-tail p-value P(χ² ≥ observed) for the fit's degrees of freedom. Small values indicate a
+        /// poor fit (or underestimated σ); values near 1 indicate residuals smaller than σ would predict.
+        /// </summary>
+        public double ChiSquaredPValue(S solver, U model) {
+            var dof = DegreesOfFreedom(solver);
+            var chiSquared = ChiSquared(solver, model);
+            return 1.0 - new MathNet.Numerics.Distributions.ChiSquared(dof).CumulativeDistribution(chiSquared);
         }
     }
 }
