@@ -17,6 +17,7 @@ using NINA.Core.Utility;
 using NINA.Image.Interfaces;
 using OpenCvSharp;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -36,6 +37,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     public class StarDetector : IStarDetector {
         private readonly IAlglibAPI alglibAPI;
 
+        // Allocated in DetectImpl only when StarDetectorParams.CollectContaminationDiagnostics is set. Star
+        // scanning is parallel, so accepted-star diagnostic records are collected thread-safely here and then
+        // materialized into an ordered list before DetectImpl returns. Null in normal (non-diagnostic) runs.
+        private ConcurrentBag<ContaminationDiagnosticRecord> contaminationDiagnosticsBag;
+
         public StarDetector(IAlglibAPI alglibAPI) {
             this.alglibAPI = alglibAPI;
         }
@@ -50,6 +56,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             public int PixelCount;
             public Rect StarBoundingBox;
             public double StarMedian;
+            public bool ContaminationSuspected;
+
+            // Contamination diagnostics carry fields, populated in ComputeStarParameters only when
+            // StarDetectorParams.CollectContaminationDiagnostics is true. Null otherwise (zero overhead).
+            public ContaminationDiagnosticRecord ContaminationDiagnostics;
         }
 
         private static void MaybeSaveIntermediateImage(Mat image, StarDetectorParams p, string filename) {
@@ -142,6 +153,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             MaybeSaveIntermediateText(p.ToString(), p, "00-params.txt");
             var metrics = new StarDetectorMetrics();
+            contaminationDiagnosticsBag = p.CollectContaminationDiagnostics ? new ConcurrentBag<ContaminationDiagnosticRecord>() : null;
             using (var stopWatch = MultiStopWatch.Measure()) {
                 var debugData = new DebugData();
 
@@ -317,10 +329,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     metrics.AddROIOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top);
                 }
 
+                // Materialize the (parallel-collected) contamination diagnostics, mirroring the ROI offset
+                // applied to DetectedStars and ordering deterministically by image position so the CSV is stable.
+                List<ContaminationDiagnosticRecord> contaminationDiagnostics = null;
+                if (contaminationDiagnosticsBag != null) {
+                    contaminationDiagnostics = contaminationDiagnosticsBag.ToList();
+                    if (roiRect.HasValue) {
+                        foreach (var rec in contaminationDiagnostics) {
+                            rec.CenterX += roiRect.Value.Left;
+                            rec.CenterY += roiRect.Value.Top;
+                        }
+                    }
+                    contaminationDiagnostics = contaminationDiagnostics.OrderBy(r => r.CenterY).ThenBy(r => r.CenterX).ToList();
+                    contaminationDiagnosticsBag = null;
+                    Logger.Trace($"Collected {contaminationDiagnostics.Count} contamination diagnostic records ({contaminationDiagnostics.Count(r => r.ContaminationSuspected)} suspected)");
+                }
+
                 return new HocusFocusStarDetectorResult() {
                     DetectedStars = stars,
                     Metrics = metrics,
-                    DebugData = debugData
+                    DebugData = debugData,
+                    ContaminationDiagnostics = contaminationDiagnostics
                 };
             }
         }
@@ -363,19 +392,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                         bool psfAccepted = false;
                         if (psf != null) {
-                            if (p.PSFGoodnessOfFitThresholdChiSq > 0 && !double.IsNaN(psf.ReducedChiSquared)) {
-                                // Primary gate: accept when reduced chi² is within the threshold
-                                psfAccepted = psf.ReducedChiSquared <= p.PSFGoodnessOfFitThresholdChiSq;
-                            } else {
-                                // Fallback gate: R² must be at or above the threshold
-                                psfAccepted = psf.RSquared >= p.PSFGoodnessOfFitThreshold;
-                            }
+                            // R² must be at or above the threshold
+                            psfAccepted = psf.RSquared >= p.PSFGoodnessOfFitThreshold;
                         }
                         if (psfAccepted) {
                             detectedStar.PSF = psf;
-                            if (CheckBackgroundContamination(detectedStar, psf, p, noiseSigma)) {
-                                ++metrics.ContaminationSuspected;
-                            }
                         } else {
                             ++metrics.PSFFitFailed;
                         }
@@ -411,23 +432,98 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
-        /// Cross-checks the three background estimates for a star to detect potential contamination.
-        /// Sets <see cref="Star.StarContaminationSuspected"/> and logs at Debug level when any pair
-        /// of estimates disagrees by more than 2× noiseSigma.
-        /// Returns true when contamination is suspected (and the flag has been set on the star).
+        /// Decides whether a star's background annulus is asymmetric enough to indicate one-sided
+        /// contamination (a neighbor star, hot column, or steep local gradient). Compares opposing
+        /// sectors so that a symmetrically elongated star (tilt/coma) is NOT flagged. The threshold
+        /// scales with the standard error of a sector median; <paramref name="sensitivity"/> is the
+        /// required number of sigma of asymmetry (higher = fewer flags; 0 disables).
         /// </summary>
-        internal static bool CheckBackgroundContamination(Star star, PSFModel psf, StarDetectorParams p, double noiseSigma) {
-            var annulusBg = star.Background;
-            var thresholdBg = annulusBg + p.StarClippingMultiplier * noiseSigma;
-            var psfBg = psf.Background;
-            var twoSigma = 2.0 * noiseSigma;
-            if (Math.Abs(annulusBg - psfBg) > twoSigma ||
-                Math.Abs(annulusBg - thresholdBg) > twoSigma) {
-                star.StarContaminationSuspected = true;
-                Logger.Debug($"Star at ({star.Center.X:F1},{star.Center.Y:F1}) flagged as contamination-suspected: annulus_bg={annulusBg:F4}, psf_bg={psfBg:F4}, noise={noiseSigma:F4}");
-                return true;
+        internal static bool IsContaminatedBySectors(double[] sectorMedians, int[] sectorCounts,
+                double noiseSigma, double sensitivity, int minSectorPixels) {
+            if (sensitivity <= 0 || noiseSigma <= 0) {
+                return false;
+            }
+            int n = sectorMedians.Length;
+            const double MedianSE = 1.2533; // sqrt(pi/2): standard error of a median relative to the mean
+            for (int s = 0; s < n / 2; ++s) {
+                int opp = s + n / 2;
+                if (sectorCounts[s] < minSectorPixels || sectorCounts[opp] < minSectorPixels) {
+                    continue;
+                }
+                double diff = Math.Abs(sectorMedians[s] - sectorMedians[opp]);
+                double se = MedianSE * noiseSigma * Math.Sqrt(1.0 / sectorCounts[s] + 1.0 / sectorCounts[opp]);
+                if (diff > sensitivity * se) {
+                    return true;
+                }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Recomputes, for diagnostics only, the per-pair diff / threshold / ratio / skip values that
+        /// <see cref="IsContaminatedBySectors"/> evaluates internally, plus the index of the first tripping
+        /// pair. Uses the identical standard-error model so the record exactly mirrors the production
+        /// decision. Called only when <see cref="StarDetectorParams.CollectContaminationDiagnostics"/> is set.
+        /// </summary>
+        internal static ContaminationDiagnosticRecord BuildContaminationDiagnostics(double[] sectorMedians,
+                int[] sectorCounts, double noiseSigma, double sensitivity, int minSectorPixels) {
+            int n = sectorMedians.Length;
+            const double MedianSE = 1.2533; // sqrt(pi/2): matches IsContaminatedBySectors
+            int halfPairs = n / 2;
+            var pairDiff = new double[halfPairs];
+            var pairThreshold = new double[halfPairs];
+            var pairRatio = new double[halfPairs];
+            var pairSkipped = new bool[halfPairs];
+            int trippingPairIndex = -1;
+            bool enabled = sensitivity > 0 && noiseSigma > 0;
+            for (int s = 0; s < halfPairs; ++s) {
+                int opp = s + halfPairs;
+                if (!enabled || sectorCounts[s] < minSectorPixels || sectorCounts[opp] < minSectorPixels) {
+                    pairSkipped[s] = true;
+                    pairDiff[s] = double.NaN;
+                    pairThreshold[s] = double.NaN;
+                    pairRatio[s] = double.NaN;
+                    continue;
+                }
+                double diff = Math.Abs(sectorMedians[s] - sectorMedians[opp]);
+                double se = MedianSE * noiseSigma * Math.Sqrt(1.0 / sectorCounts[s] + 1.0 / sectorCounts[opp]);
+                double threshold = sensitivity * se;
+                pairDiff[s] = diff;
+                pairThreshold[s] = threshold;
+                pairRatio[s] = threshold > 0 ? diff / threshold : double.NaN;
+                if (diff > threshold && trippingPairIndex < 0) {
+                    trippingPairIndex = s;
+                }
+            }
+            return new ContaminationDiagnosticRecord() {
+                NoiseSigma = noiseSigma,
+                Sensitivity = sensitivity,
+                MinSectorPixels = minSectorPixels,
+                SectorMedians = (double[])sectorMedians.Clone(),
+                SectorCounts = (int[])sectorCounts.Clone(),
+                PairDiff = pairDiff,
+                PairThreshold = pairThreshold,
+                PairRatio = pairRatio,
+                PairSkipped = pairSkipped,
+                TrippingPairIndex = trippingPairIndex
+            };
+        }
+
+        /// <summary>
+        /// Assigns a (dx, dy) offset to one of 8 angular octants such that octant s and octant s+4
+        /// are geometrically opposite. Uses sign/magnitude branches to avoid a per-pixel atan2.
+        /// </summary>
+        private static int OctantOf(double dx, double dy) {
+            if (dx >= 0) {
+                if (dy >= 0) {
+                    return Math.Abs(dx) >= Math.Abs(dy) ? 0 : 1;
+                }
+                return Math.Abs(dx) >= Math.Abs(dy) ? 7 : 6;
+            }
+            if (dy >= 0) {
+                return Math.Abs(dx) >= Math.Abs(dy) ? 3 : 2;
+            }
+            return Math.Abs(dx) >= Math.Abs(dy) ? 4 : 5;
         }
 
         internal bool MeasureStar(Mat srcImage, Star star, StarDetectorParams p, double noiseSigma) {
@@ -675,6 +771,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return null;
             }
 
+            star.StarContaminationSuspected = starCandidate.ContaminationSuspected;
+            if (star.StarContaminationSuspected) {
+                ++metrics.ContaminationSuspected;
+            }
+
+            if (p.CollectContaminationDiagnostics && starCandidate.ContaminationDiagnostics != null && contaminationDiagnosticsBag != null) {
+                var record = starCandidate.ContaminationDiagnostics;
+                record.CenterX = star.Center.X;
+                record.CenterY = star.Center.Y;
+                record.Hfr = star.HFR;
+                record.Background = star.Background;
+                contaminationDiagnosticsBag.Add(record);
+            }
+
             return star;
         }
 
@@ -796,6 +906,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var surroundingPixels = new float[(expandedWidth * expandedHeight) - (starBounds.Width * starBounds.Height)];
             int surroundingPixelCount = 0;
 
+            // Bin each background-annulus pixel into one of 8 angular sectors about the bounding-box
+            // center, so a one-sided neighbor / hot column / gradient can be detected as asymmetry.
+            const int NumSectors = 8;
+            const int MinSectorPixels = 8;
+            var sectorPixels = new List<float>[NumSectors];
+            for (int i = 0; i < NumSectors; ++i) {
+                sectorPixels[i] = new List<float>();
+            }
+            var cx = starBounds.X + starBounds.Width / 2.0;
+            var cy = starBounds.Y + starBounds.Height / 2.0;
+
             // Search an expanded box to estimate the median background value
             unsafe {
                 var imageData = (float*)srcImage.DataPointer;
@@ -810,7 +931,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // Top part of box
                 for (int y = backgroundStartY; y < starBounds.Y; ++y) {
                     for (int x = backgroundStartX; x < backgroundEndX; ++x) {
-                        surroundingPixels[surroundingPixelCount++] = *pixelPtr;
+                        var bgPixel = *pixelPtr;
+                        surroundingPixels[surroundingPixelCount++] = bgPixel;
+                        sectorPixels[OctantOf(x - cx, y - cy)].Add(bgPixel);
                         ++pixelPtr;
                     }
 
@@ -821,14 +944,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // Center part of box
                 for (int y = starBounds.Y; y < starBounds.Bottom; ++y) {
                     for (int x = backgroundStartX; x < starBounds.X; ++x) {
-                        surroundingPixels[surroundingPixelCount++] = *pixelPtr;
+                        var bgPixel = *pixelPtr;
+                        surroundingPixels[surroundingPixelCount++] = bgPixel;
+                        sectorPixels[OctantOf(x - cx, y - cy)].Add(bgPixel);
                         ++pixelPtr;
                     }
 
                     // Skip the inner hole
                     pixelPtr += starBounds.Width;
                     for (int x = starBounds.Right; x < backgroundEndX; ++x) {
-                        surroundingPixels[surroundingPixelCount++] = *pixelPtr;
+                        var bgPixel = *pixelPtr;
+                        surroundingPixels[surroundingPixelCount++] = bgPixel;
+                        sectorPixels[OctantOf(x - cx, y - cy)].Add(bgPixel);
                         ++pixelPtr;
                     }
 
@@ -839,7 +966,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // Bottom part of box
                 for (int y = starBounds.Bottom; y < backgroundEndY; ++y) {
                     for (int x = backgroundStartX; x < backgroundEndX; ++x) {
-                        surroundingPixels[surroundingPixelCount++] = *pixelPtr;
+                        var bgPixel = *pixelPtr;
+                        surroundingPixels[surroundingPixelCount++] = bgPixel;
+                        sectorPixels[OctantOf(x - cx, y - cy)].Add(bgPixel);
                         ++pixelPtr;
                     }
 
@@ -912,6 +1041,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     numPasses: 3);
             }
             var centerBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: center.Y, x: center.X) - backgroundMedian;
+
+            // Per-sector medians/counts for the contamination asymmetry test
+            var sectorMedians = new double[NumSectors];
+            var sectorCounts = new int[NumSectors];
+            for (int s = 0; s < NumSectors; ++s) {
+                var sector = sectorPixels[s];
+                sectorCounts[s] = sector.Count;
+                if (sector.Count > 0) {
+                    sector.Sort();
+                    sectorMedians[s] = sector[sector.Count >> 1];
+                }
+            }
+            var contaminationSuspected = IsContaminatedBySectors(sectorMedians, sectorCounts, noiseSigma, p.ContaminationSensitivity, MinSectorPixels);
+
+            ContaminationDiagnosticRecord contaminationDiagnostics = null;
+            if (p.CollectContaminationDiagnostics) {
+                contaminationDiagnostics = BuildContaminationDiagnostics(sectorMedians, sectorCounts, noiseSigma, p.ContaminationSensitivity, MinSectorPixels);
+                contaminationDiagnostics.ContaminationSuspected = contaminationSuspected;
+            }
+
             return new StarCandidate() {
                 Center = center,
                 CenterBrightness = (float)centerBrightness,
@@ -922,7 +1071,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 NormalizedBrightness = (float)(peak - (1 - p.PeakResponse) * meanFlux),
                 StarBoundingBox = starBounds,
                 StarMedian = starMedian,
-                PixelCount = starPoints.Count
+                PixelCount = starPoints.Count,
+                ContaminationSuspected = contaminationSuspected,
+                ContaminationDiagnostics = contaminationDiagnostics
             };
         }
     }

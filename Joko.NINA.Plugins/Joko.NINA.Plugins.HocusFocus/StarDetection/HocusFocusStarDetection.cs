@@ -197,9 +197,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public PSFModel PSF { get; set; }
         public float NormalisedBrightness { get; set; }
         public Accord.Point OriginalPosition { get; set; }
+        public bool StarContaminationSuspected { get; set; }
 
         public override string ToString() {
-            return $"{{{nameof(PSF)}={PSF}, {nameof(HFR)}={HFR.ToString()}, {nameof(Position)}={Position.ToString()}, {nameof(AverageBrightness)}={AverageBrightness.ToString()}, {nameof(MaxBrightness)}={MaxBrightness.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(BoundingBox)}={BoundingBox.ToString()}}}";
+            return $"{{{nameof(PSF)}={PSF}, {nameof(HFR)}={HFR.ToString()}, {nameof(Position)}={Position.ToString()}, {nameof(AverageBrightness)}={AverageBrightness.ToString()}, {nameof(MaxBrightness)}={MaxBrightness.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(BoundingBox)}={BoundingBox.ToString()}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected.ToString()}}}";
         }
     }
 
@@ -262,6 +263,47 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             };
         }
 
+        /// <summary>
+        /// Builds the option-derived portion of <see cref="StarDetectorParams"/> from
+        /// <see cref="IStarDetectionOptions"/>. This is the single source of truth for the options→params
+        /// mapping, so headless tooling (TestApp) reproduces exactly what NINA does. Image-dependent fields
+        /// (<see cref="StarDetectorParams.PixelScale"/>, <see cref="StarDetectorParams.Region"/>) and the
+        /// auto-focus overrides are layered on by <see cref="GetStarDetectorParams"/>.
+        /// </summary>
+        internal static StarDetectorParams BuildStarDetectorParams(IStarDetectionOptions options) {
+            return new StarDetectorParams() {
+                ModelPSF = options.ModelPSF,
+                StarMeasurementNoiseReductionEnabled = options.StarMeasurementNoiseReductionEnabled,
+                PSFFitType = options.PSFFitType,
+                HotpixelFiltering = options.HotpixelFiltering,
+                HotpixelThresholdingEnabled = options.HotpixelThresholdingEnabled,
+                NoiseReductionRadius = options.NoiseReductionRadius,
+                NoiseClippingMultiplier = options.NoiseClippingMultiplier,
+                StarClippingMultiplier = options.StarClippingMultiplier,
+                ContaminationSensitivity = options.ContaminationSensitivity,
+                StructureLayers = options.StructureLayers,
+                Sensitivity = options.BrightnessSensitivity,
+                PeakResponse = options.StarPeakResponse,
+                MaxDistortion = options.MaxDistortion,
+                StarCenterTolerance = options.StarCenterTolerance,
+                BackgroundBoxExpansion = options.StarBackgroundBoxExpansion,
+                MinimumStarBoundingBoxSize = options.MinStarBoundingBoxSize,
+                MinHFR = options.MinHFR,
+                StructureDilationSize = options.StructureDilationSize,
+                StructureDilationCount = options.StructureDilationCount,
+                AnalysisSamplingSize = (float)options.PixelSampleSize,
+                StoreStructureMap = options.DebugMode,
+                SaveIntermediateFilesPath = options.SaveIntermediateImages ? options.IntermediateSavePath : string.Empty,
+                PSFParallelPartitionSize = options.PSFParallelPartitionSize,
+                PSFResolution = options.PSFResolution,
+                PSFGoodnessOfFitThreshold = options.PSFFitThreshold,
+                UsePSFAbsoluteDeviation = options.UsePSFAbsoluteDeviation,
+                HotpixelThreshold = options.HotpixelThreshold,
+                SaturationThreshold = options.SaturationThreshold,
+                PSFPixelIntegration = options.PSFPixelIntegration
+            };
+        }
+
         public StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
             var binning = Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
             var pixelScale = MathUtility.ArcsecPerPixel(profileService.ActiveProfile.CameraSettings.PixelSize, profileService.ActiveProfile.TelescopeSettings.FocalLength) * binning;
@@ -273,39 +315,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Logger.Warning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
             }
 
-            var detectorParams = new StarDetectorParams() {
-                ModelPSF = starDetectionOptions.ModelPSF,
-                StarMeasurementNoiseReductionEnabled = starDetectionOptions.StarMeasurementNoiseReductionEnabled,
-                PSFFitType = starDetectionOptions.PSFFitType,
-                HotpixelFiltering = starDetectionOptions.HotpixelFiltering,
-                HotpixelThresholdingEnabled = starDetectionOptions.HotpixelThresholdingEnabled,
-                NoiseReductionRadius = starDetectionOptions.NoiseReductionRadius,
-                NoiseClippingMultiplier = starDetectionOptions.NoiseClippingMultiplier,
-                StarClippingMultiplier = starDetectionOptions.StarClippingMultiplier,
-                StructureLayers = starDetectionOptions.StructureLayers,
-                Sensitivity = starDetectionOptions.BrightnessSensitivity,
-                PeakResponse = starDetectionOptions.StarPeakResponse,
-                MaxDistortion = starDetectionOptions.MaxDistortion,
-                StarCenterTolerance = starDetectionOptions.StarCenterTolerance,
-                BackgroundBoxExpansion = starDetectionOptions.StarBackgroundBoxExpansion,
-                MinimumStarBoundingBoxSize = starDetectionOptions.MinStarBoundingBoxSize,
-                MinHFR = starDetectionOptions.MinHFR,
-                StructureDilationSize = starDetectionOptions.StructureDilationSize,
-                StructureDilationCount = starDetectionOptions.StructureDilationCount,
-                AnalysisSamplingSize = (float)starDetectionOptions.PixelSampleSize,
-                StoreStructureMap = starDetectionOptions.DebugMode,
-                SaveIntermediateFilesPath = starDetectionOptions.SaveIntermediateImages ? starDetectionOptions.IntermediateSavePath : string.Empty,
-                PixelScale = pixelScale,
-                PSFParallelPartitionSize = starDetectionOptions.PSFParallelPartitionSize,
-                PSFResolution = starDetectionOptions.PSFResolution,
-                PSFGoodnessOfFitThreshold = starDetectionOptions.PSFFitThreshold,
-                PSFGoodnessOfFitThresholdChiSq = starDetectionOptions.PSFGoodnessOfFitThresholdChiSq,
-                Region = starDetectionRegion,
-                UsePSFAbsoluteDeviation = starDetectionOptions.UsePSFAbsoluteDeviation,
-                HotpixelThreshold = starDetectionOptions.HotpixelThreshold,
-                SaturationThreshold = starDetectionOptions.SaturationThreshold,
-                PSFPixelIntegration = starDetectionOptions.PSFPixelIntegration
-            };
+            var detectorParams = BuildStarDetectorParams(starDetectionOptions);
+            detectorParams.PixelScale = pixelScale;
+            detectorParams.Region = starDetectionRegion;
 
             // For AutoFocus, don't save intermediate data or model PSFs
             if (isAutoFocus) {
@@ -428,7 +440,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 MaxBrightness = star.PeakBrightness,
                 Background = star.Background,
                 BoundingBox = star.StarBoundingBox.ToDrawingRectangle(),
-                PSF = star.PSF
+                PSF = star.PSF,
+                StarContaminationSuspected = star.StarContaminationSuspected
             };
         }
 

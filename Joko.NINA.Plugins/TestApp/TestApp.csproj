@@ -2,6 +2,9 @@
   <PropertyGroup>
     <TargetFramework>net8.0-windows7.0</TargetFramework>
     <OutputType>Exe</OutputType>
+    <!-- Custom CLI entry point. App.xaml stays an ApplicationDefinition (its generated App.Main is still
+         reachable for the GUI path); StartupObject disambiguates the two Main methods. -->
+    <StartupObject>TestApp.Program</StartupObject>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>

@@ -100,6 +100,22 @@ namespace TestApp {
             return ssd;
         }
 
+        [STAThread]
+        private static async Task Main(string[] args) {
+            // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
+            // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
+            bool diagnosticMode = args.Length > 0 &&
+                (args[0].Equals("contamination", StringComparison.OrdinalIgnoreCase)
+                 || args.Any(a => a.Equals("--image", StringComparison.OrdinalIgnoreCase)));
+            if (diagnosticMode) {
+                await ContaminationDiagnosticRunner.Run(args);
+                return;
+            }
+
+            // No diagnostic args: preserve the original WPF window behavior (App.OnStartup shows MainWindow).
+            App.Main();
+        }
+
         private static async Task MainAsync(string[] args) {
             var starAnnotatorOptions = StaticStarAnnotatorOptions.CreateDefault();
             var alglibAPI = new AlglibAPI();
@@ -193,6 +209,8 @@ namespace TestApp {
             public bool ShowTooFlat { get; set; }
             public Color TooDistortedColor { get; set; }
             public bool ShowTooDistorted { get; set; }
+            public bool ShowContaminated { get; set; }
+            public Color ContaminatedColor { get; set; }
 
             public static StaticStarAnnotatorOptions CreateDefault() {
                 return new StaticStarAnnotatorOptions() {
@@ -222,6 +240,8 @@ namespace TestApp {
                     NotCenteredColor = Color.FromArgb(128, 0, 255, 255),
                     ShowTooFlat = false,
                     TooFlatColor = Color.FromArgb(128, 0, 255, 0),
+                    ShowContaminated = false,
+                    ContaminatedColor = Color.FromArgb(128, 255, 0, 255),
                     ShowStructureMap = ShowStructureMapEnum.None,
                     StructureMapColor = Color.FromArgb(128, 255, 0, 255)
                 };

@@ -216,6 +216,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         // Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis
         public double StarClippingMultiplier { get; set; } = 2.0;
+        public double ContaminationSensitivity { get; set; } = 4.0;
+
+        // Diagnostics opt-in. When true, the detector records a per-star ContaminationDiagnosticRecord for
+        // every accepted star (see HocusFocusStarDetectorResult.ContaminationDiagnostics). Off by default so
+        // production NINA runs incur zero extra allocations or math. Excluded from ToString().
+        public bool CollectContaminationDiagnostics { get; set; } = false;
 
         // Half size of a median box filter, used for hotpixel removal if HotpixelFiltering is enabled. Only 1 is supported for now, since OpenCV has native support for
         // a median box filter but not a general circular one
@@ -278,11 +284,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // If PSF modeling is enabled, any R^2 values below this threshold will be rejected
         public double PSFGoodnessOfFitThreshold { get; set; } = 0.9;
 
-        // Reduced chi-squared threshold for PSF fit acceptance.
-        // When > 0, the fit is accepted only when reducedChiSquared <= this value.
-        // Set to 0 to disable and fall back to the R² gate.
-        public double PSFGoodnessOfFitThresholdChiSq { get; set; } = 2.0;
-
         // The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting
         public int PSFResolution { get; set; } = 10;
 
@@ -299,7 +300,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double PixelScale { get; set; } = 1.0d;
 
         public override string ToString() {
-            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFGoodnessOfFitThresholdChiSq)}={PSFGoodnessOfFitThresholdChiSq.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}}}";
+            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}}}";
         }
     }
 
@@ -369,10 +370,39 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         }
     }
 
+    /// <summary>
+    /// Per-star diagnostics for the sector-annulus contamination test, captured only when
+    /// <see cref="StarDetectorParams.CollectContaminationDiagnostics"/> is enabled. One record is produced for
+    /// every accepted star (1:1 with <see cref="HocusFocusStarDetectorResult.DetectedStars"/>), so the
+    /// contamination decision can be reproduced and re-tuned offline. The four "Pair" arrays cover opposite
+    /// octant pairs (s, s+4) for s = 0..3, using the same standard-error model as
+    /// <c>StarDetector.IsContaminatedBySectors</c>.
+    /// </summary>
+    public sealed class ContaminationDiagnosticRecord {
+        public double CenterX { get; set; }            // image/pixel coords (ROI offset applied, like DetectedStars)
+        public double CenterY { get; set; }
+        public double NoiseSigma { get; set; }         // values actually used in the decision
+        public double Sensitivity { get; set; }
+        public int MinSectorPixels { get; set; }       // = 8
+        public double[] SectorMedians { get; set; }    // length 8
+        public int[] SectorCounts { get; set; }        // length 8
+        public double[] PairDiff { get; set; }         // length 4: |m[s]-m[s+4]|
+        public double[] PairThreshold { get; set; }    // length 4: sensitivity*1.2533*noiseSigma*sqrt(1/n_s+1/n_opp)
+        public double[] PairRatio { get; set; }        // length 4: PairDiff/PairThreshold (NaN if skipped)
+        public bool[] PairSkipped { get; set; }        // length 4: either count < MinSectorPixels
+        public int TrippingPairIndex { get; set; }     // first s that tripped, else -1
+        public bool ContaminationSuspected { get; set; }
+        public double Hfr { get; set; }
+        public double Background { get; set; }
+    }
+
     public class HocusFocusStarDetectorResult {
         public List<Star> DetectedStars { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
         public DebugData DebugData { get; set; }
+
+        // Populated only when StarDetectorParams.CollectContaminationDiagnostics is true; otherwise null.
+        public List<ContaminationDiagnosticRecord> ContaminationDiagnostics { get; set; } = null;
     }
 
     public interface IStarDetector {

@@ -17,6 +17,10 @@ using System.Runtime.InteropServices;
 // Allow the test project to access internal types
 [assembly: InternalsVisibleTo("Joko.NINA.Plugins.HocusFocus.Tests")]
 
+// Allow the headless diagnostic harness to call internal helpers (BuildStarDetectorParams, the
+// StarDetectionOptions ctor) so it reproduces production behavior without drift
+[assembly: InternalsVisibleTo("TestApp")]
+
 // [MANDATORY] The following GUID is used as a unique identifier of the plugin
 [assembly: Guid("0f1d10b6-d306-4168-b751-d454cbac9670")]
 
