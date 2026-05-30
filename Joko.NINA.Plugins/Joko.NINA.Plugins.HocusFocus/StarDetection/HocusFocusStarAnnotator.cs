@@ -128,25 +128,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                                 var psf = hocusFocusStar?.PSF;
 
                                 if (StarAnnotatorOptions.ShowStarBounds) {
-                                    if (StarAnnotatorOptions.StarBoundsType == Interfaces.StarBoundsTypeEnum.Box) {
-                                        graphics.DrawRectangle(starBoundsPen, new Rectangle(star.BoundingBox.X, star.BoundingBox.Y, star.BoundingBox.Width, star.BoundingBox.Height));
-                                    } else if (StarAnnotatorOptions.StarBoundsType == Interfaces.StarBoundsTypeEnum.PSF) {
-                                        if (psf != null) {
-                                            var thetaDegrees = MathUtility.RadiansToDegrees(psf.ThetaRadians);
-                                            graphics.TranslateTransform(hocusFocusStar.Position.X, hocusFocusStar.Position.Y);
-
-                                            // Rotation is clockwise, whereas PSF rotation is counter-clockwise
-                                            graphics.RotateTransform(-(float)thetaDegrees);
-                                            graphics.DrawEllipse(starBoundsPen, new RectangleF(
-                                                (float)-psf.FWHMx,
-                                                (float)-psf.FWHMy,
-                                                (float)(psf.FWHMx * 2),
-                                                (float)(psf.FWHMy * 2)));
-                                            graphics.ResetTransform();
-                                        }
-                                    } else {
-                                        graphics.DrawEllipse(starBoundsPen, new RectangleF(star.BoundingBox.X, star.BoundingBox.Y, star.BoundingBox.Width, star.BoundingBox.Height));
-                                    }
+                                    DrawStarBounds(graphics, star, hocusFocusStar, psf, StarAnnotatorOptions.StarBoundsType, starBoundsPen);
                                 }
 
                                 if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.HFR) {
@@ -242,6 +224,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             }
                         }
 
+                        // Contaminated stars are kept in the star list (not rejected), so mark them in a separate
+                        // pass over the full list - independent of the Max Stars / Show All Stars limit applied above.
+                        if (StarAnnotatorOptions.ShowContaminated) {
+                            using (var brush = new SolidBrush(StarAnnotatorOptions.ContaminatedColor.ToDrawingColor()))
+                            using (var pen = new Pen(brush)) {
+                                foreach (var star in result.StarList) {
+                                    token.ThrowIfCancellationRequested();
+                                    var hocusFocusStar = star as HocusFocusDetectedStar;
+                                    if (hocusFocusStar?.StarContaminationSuspected != true) {
+                                        continue;
+                                    }
+                                    DrawStarBounds(graphics, star, hocusFocusStar, hocusFocusStar.PSF, StarAnnotatorOptions.StarBoundsType, pen);
+                                }
+                            }
+                        }
+
                         if (hfResult != null) {
                             if (!hfResult.DetectorParams.Region.IsFull()) {
                                 var outerRegion = hfResult.DetectorParams.Region.OuterBoundary;
@@ -287,6 +285,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         return img;
                     }
                 }
+            }
+        }
+
+        private static void DrawStarBounds(Graphics graphics, DetectedStar star, HocusFocusDetectedStar hocusFocusStar, PSFModel psf, StarBoundsTypeEnum boundsType, Pen pen) {
+            if (boundsType == StarBoundsTypeEnum.Box) {
+                graphics.DrawRectangle(pen, new Rectangle(star.BoundingBox.X, star.BoundingBox.Y, star.BoundingBox.Width, star.BoundingBox.Height));
+            } else if (boundsType == StarBoundsTypeEnum.PSF) {
+                if (psf != null && hocusFocusStar != null) {
+                    var thetaDegrees = MathUtility.RadiansToDegrees(psf.ThetaRadians);
+                    graphics.TranslateTransform(hocusFocusStar.Position.X, hocusFocusStar.Position.Y);
+
+                    // Rotation is clockwise, whereas PSF rotation is counter-clockwise
+                    graphics.RotateTransform(-(float)thetaDegrees);
+                    graphics.DrawEllipse(pen, new RectangleF(
+                        (float)-psf.FWHMx,
+                        (float)-psf.FWHMy,
+                        (float)(psf.FWHMx * 2),
+                        (float)(psf.FWHMy * 2)));
+                    graphics.ResetTransform();
+                }
+            } else {
+                graphics.DrawEllipse(pen, new RectangleF(star.BoundingBox.X, star.BoundingBox.Y, star.BoundingBox.Width, star.BoundingBox.Height));
             }
         }
 

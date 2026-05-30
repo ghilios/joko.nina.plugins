@@ -323,93 +323,105 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         [Test]
-        public void CheckBackgroundContamination_AnnulusVsPSFDiffExceedsTwoSigma_FlagsAndReturnsTrue() {
-            // annulus_bg = 0.1, psf_bg = 0.3, noiseSigma = 0.05
-            // |0.1 - 0.3| = 0.2 > 2 * 0.05 = 0.1  → contamination suspected
-            const double annulusBg = 0.1;
-            const double psfBg = 0.3;
-            const double noiseSigma = 0.05;
-
-            var star = new Star {
-                Center = new Point2d(100.0, 200.0),
-                Background = annulusBg,
-                StarBoundingBox = new Rect(90, 190, 20, 20)
-            };
-            var psf = MakePSF(background: psfBg);
-            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
-
-            var result = StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma);
-
-            Assert.Multiple(() => {
-                Assert.That(result, Is.True, "Should return true when annulus and PSF backgrounds differ by 4σ");
-                Assert.That(star.StarContaminationSuspected, Is.True, "Star.StarContaminationSuspected should be set");
-            });
-        }
-
-        [Test]
-        public void CheckBackgroundContamination_AnnulusVsPSFDiffExactlyTwoSigma_DoesNotFlag() {
-            // |0.1 - 0.2| = 0.1 == 2 * 0.05 = 0.1  → NOT > twoSigma, so not flagged
-            const double annulusBg = 0.1;
-            const double psfBg = 0.2;
-            const double noiseSigma = 0.05;
-
-            var star = new Star {
-                Center = new Point2d(100.0, 200.0),
-                Background = annulusBg,
-                StarBoundingBox = new Rect(90, 190, 20, 20)
-            };
-            var psf = MakePSF(background: psfBg);
-            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
-
-            var result = StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma);
-
-            Assert.Multiple(() => {
-                Assert.That(result, Is.False, "Should not flag when difference equals exactly 2σ (not strictly greater)");
-                Assert.That(star.StarContaminationSuspected, Is.False, "Star.StarContaminationSuspected should remain false");
-            });
-        }
-
-        [Test]
-        public void CheckBackgroundContamination_AnnulusVsPSFAgreement_DoesNotFlag() {
-            // Backgrounds agree: |0.1 - 0.12| = 0.02 < 2 * 0.05 = 0.1
-            const double annulusBg = 0.1;
-            const double psfBg = 0.12;
-            const double noiseSigma = 0.05;
-
-            var star = new Star {
-                Center = new Point2d(50.0, 50.0),
-                Background = annulusBg,
-                StarBoundingBox = new Rect(40, 40, 20, 20)
-            };
-            var psf = MakePSF(background: psfBg);
-            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
-
-            var result = StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma);
-
-            Assert.Multiple(() => {
-                Assert.That(result, Is.False, "Should not flag when backgrounds agree within 2σ");
-                Assert.That(star.StarContaminationSuspected, Is.False, "StarContaminationSuspected should remain false");
-            });
-        }
-
-        [Test]
-        public void CheckBackgroundContamination_MetricsCounterIncremented_WhenFlagged() {
-            // Verify that the caller (ModelPSF) would correctly count the flagged star.
-            // We simulate the counter increment that ModelPSF performs.
-            var metrics = new StarDetectorMetrics();
-            var star = new Star {
-                Center = new Point2d(10.0, 20.0),
-                Background = 0.1,
-                StarBoundingBox = new Rect(5, 15, 20, 20)
-            };
-            var psf = MakePSF(background: 0.3);  // Differs by 4σ from annulus
-            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
-
-            if (StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma: 0.05)) {
-                ++metrics.ContaminationSuspected;
+        public void IsContaminatedBySectors_OneSidedBrightSector_ReturnsTrue() {
+            // A neighbor / hot column brightens a single sector. Its opposing sector is dark,
+            // so the pair difference greatly exceeds the noise-scaled threshold.
+            var medians = new double[8];
+            medians[0] = 10.0;
+            var counts = new int[8];
+            for (int i = 0; i < 8; ++i) {
+                counts[i] = 100;
             }
 
-            Assert.That(metrics.ContaminationSuspected, Is.EqualTo(1));
+            var result = StarDetector.IsContaminatedBySectors(medians, counts, noiseSigma: 1.0, sensitivity: 4.0, minSectorPixels: 8);
+
+            Assert.That(result, Is.True);
+        }
+
+        [Test]
+        public void IsContaminatedBySectors_OppositeSectorsEquallyElevated_ReturnsFalse() {
+            // Elongated star (tilt/coma): two opposing sectors are equally bright, so every
+            // opposing-pair difference is ~0 and the star must NOT be flagged.
+            var medians = new double[8];
+            medians[0] = 10.0;
+            medians[4] = 10.0;
+            var counts = new int[8];
+            for (int i = 0; i < 8; ++i) {
+                counts[i] = 100;
+            }
+
+            var result = StarDetector.IsContaminatedBySectors(medians, counts, noiseSigma: 1.0, sensitivity: 4.0, minSectorPixels: 8);
+
+            Assert.That(result, Is.False);
+        }
+
+        [Test]
+        public void IsContaminatedBySectors_UniformBackground_ReturnsFalse() {
+            var medians = new double[8];
+            var counts = new int[8];
+            for (int i = 0; i < 8; ++i) {
+                medians[i] = 5.0;
+                counts[i] = 100;
+            }
+
+            var result = StarDetector.IsContaminatedBySectors(medians, counts, noiseSigma: 1.0, sensitivity: 4.0, minSectorPixels: 8);
+
+            Assert.That(result, Is.False);
+        }
+
+        [Test]
+        public void IsContaminatedBySectors_SensitivityZero_DisablesAndReturnsFalse() {
+            var medians = new double[8];
+            medians[0] = 1000.0; // extreme asymmetry
+            var counts = new int[8];
+            for (int i = 0; i < 8; ++i) {
+                counts[i] = 100;
+            }
+
+            var result = StarDetector.IsContaminatedBySectors(medians, counts, noiseSigma: 1.0, sensitivity: 0.0, minSectorPixels: 8);
+
+            Assert.That(result, Is.False);
+        }
+
+        [Test]
+        public void IsContaminatedBySectors_SectorsBelowMinPixels_AreSkipped() {
+            // The only asymmetric pair has too few pixels to be trusted, so it is skipped
+            // and the remaining (uniform) pairs leave the star unflagged.
+            var medians = new double[8];
+            medians[0] = 1000.0;
+            var counts = new int[8];
+            for (int i = 0; i < 8; ++i) {
+                counts[i] = 100;
+            }
+            counts[0] = 2; // below minSectorPixels
+            counts[4] = 2; // opposing sector also below
+
+            var result = StarDetector.IsContaminatedBySectors(medians, counts, noiseSigma: 1.0, sensitivity: 4.0, minSectorPixels: 8);
+
+            Assert.That(result, Is.False);
+        }
+
+        [Test]
+        public void IsContaminatedBySectors_LargerSectorCounts_TightenThreshold() {
+            // A fixed, modest asymmetry is below the threshold when sector counts are small
+            // (large standard error) but exceeds it when counts are large (small standard error).
+            var medians = new double[8];
+            medians[0] = 0.5; // modest one-sided elevation vs sector 4 (= 0)
+
+            var smallCounts = new int[8];
+            var largeCounts = new int[8];
+            for (int i = 0; i < 8; ++i) {
+                smallCounts[i] = 10;
+                largeCounts[i] = 10000;
+            }
+
+            var smallResult = StarDetector.IsContaminatedBySectors(medians, smallCounts, noiseSigma: 1.0, sensitivity: 4.0, minSectorPixels: 8);
+            var largeResult = StarDetector.IsContaminatedBySectors(medians, largeCounts, noiseSigma: 1.0, sensitivity: 4.0, minSectorPixels: 8);
+
+            Assert.Multiple(() => {
+                Assert.That(smallResult, Is.False, "Small sector counts → large SE → not flagged");
+                Assert.That(largeResult, Is.True, "Large sector counts → small SE → flagged");
+            });
         }
 
         [Test]

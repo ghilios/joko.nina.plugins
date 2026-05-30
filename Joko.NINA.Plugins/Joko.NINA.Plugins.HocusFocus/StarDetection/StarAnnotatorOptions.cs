@@ -73,6 +73,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             notCenteredColor = optionsAccessor.GetValueColor("NotCenteredColor", Color.FromArgb(128, 0, 255, 0));
             showTooFlat = optionsAccessor.GetValueBoolean("ShowTooFlat", false);
             tooFlatColor = optionsAccessor.GetValueColor("TooFlatColor", Color.FromArgb(128, 0, 255, 0));
+            showContaminated = optionsAccessor.GetValueBoolean("ShowContaminated", false);
+            contaminatedColor = optionsAccessor.GetValueColor("ContaminatedColor", Color.FromArgb(128, 255, 0, 255));
             showStructureMap = optionsAccessor.GetValueEnum<ShowStructureMapEnum>("ShowStructureMap", ShowStructureMapEnum.None);
             structureMapColor = optionsAccessor.GetValueColor("StructureMapColor", Color.FromArgb(128, 255, 0, 255));
         }
@@ -104,6 +106,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             NotCenteredColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
             ShowTooFlat = false;
             TooFlatColor = Color.FromArgb(128, 0, 255, 0); // Green half transparency
+            ShowContaminated = false;
+            ContaminatedColor = Color.FromArgb(128, 255, 0, 255); // Magenta half transparency
             ShowStructureMap = ShowStructureMapEnum.None;
             StructureMapColor = Color.FromArgb(128, 255, 0, 255); // Purple half transparency
         }
@@ -441,6 +445,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (tooFlatColor != value) {
                     tooFlatColor = value;
                     optionsAccessor.SetValueColor("TooFlatColor", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool showContaminated;
+
+        public bool ShowContaminated {
+            get => showContaminated;
+            set {
+                if (showContaminated != value) {
+                    showContaminated = value;
+                    optionsAccessor.SetValueBoolean("ShowContaminated", value);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private Color contaminatedColor;
+
+        public Color ContaminatedColor {
+            get => contaminatedColor;
+            set {
+                if (contaminatedColor != value) {
+                    contaminatedColor = value;
+                    optionsAccessor.SetValueColor("ContaminatedColor", value);
                     RaisePropertyChanged();
                 }
             }

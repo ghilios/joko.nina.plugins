@@ -135,6 +135,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         [Test]
+        public void ToDetectedStar_CopiesContaminationFlag([Values(true, false)] bool contaminated) {
+            var star = new Star {
+                Center = new OpenCvSharp.Point2d(10.0, 20.0),
+                StarBoundingBox = new OpenCvSharp.Rect(5, 15, 10, 10),
+                HFR = 2.0,
+                MeanBrightness = 100.0,
+                PeakBrightness = 200.0,
+                Background = 10.0,
+                StarContaminationSuspected = contaminated
+            };
+
+            var detected = HocusFocusStarDetection.ToDetectedStar(star) as HocusFocusDetectedStar;
+
+            Assert.That(detected, Is.Not.Null);
+            Assert.That(detected.StarContaminationSuspected, Is.EqualTo(contaminated));
+        }
+
+        [Test]
         public void HocusFocusStarDetectionResult_DefaultsAreNaN() {
             var r = new HocusFocusStarDetectionResult();
             Assert.Multiple(() => {
