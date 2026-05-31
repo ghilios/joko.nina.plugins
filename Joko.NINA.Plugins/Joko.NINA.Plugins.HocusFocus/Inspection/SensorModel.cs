@@ -620,7 +620,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var rejectionConfidence = this.autoFocusOptions.OutlierRejectionConfidence;
             const int minStarCountForFitting = 5;
             int totalRejectedPointCount = 0;
-            foreach (var registeredStar in registeredStars) {
+            // Per-star hyperbolic fitting dominates the model build — with the Hybrid model each star fits
+            // several candidate curves, so this loop runs tens of seconds for thousands of stars. Report a
+            // "Fitting sensor model" status so the UI reflects this phase instead of freezing on the previous
+            // ("Matching stars") status. Throttled to ~100 updates to avoid flooding the dispatcher.
+            var starCount = registeredStars.Length;
+            var reportEvery = Math.Max(1, starCount / 100);
+            for (int registeredStarIndex = 0; registeredStarIndex < starCount; ++registeredStarIndex) {
+                var registeredStar = registeredStars[registeredStarIndex];
+                if (registeredStarIndex % reportEvery == 0) {
+                    progress?.Report(new ApplicationStatus() {
+                        Status = "Fitting sensor model",
+                        Status2 = "Star",
+                        ProgressType2 = ApplicationStatus.StatusProgressType.ValueOfMaxValue,
+                        MaxProgress2 = starCount,
+                        Progress2 = registeredStarIndex + 1
+                    });
+                }
                 if (registeredStar.MatchedStars.Count < minStarCountForFitting) {
                     continue;
                 }
@@ -913,7 +929,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 if (imageIndex == referenceImage) {
                     continue;
                 }
-                status.Progress = imageIndex;
+                status.Progress = imageIndex + 1; // 1-based count out of MaxProgress, not the 0-based index
                 progress.Report(status);
 
                 var nextStarList = allDetectedStars[imageIndex].StarDetectionResult.StarList;
