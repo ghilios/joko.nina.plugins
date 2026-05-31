@@ -412,6 +412,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
                 variance *= s2;
                 MinimumStdError = variance > 0 && !double.IsNaN(variance) && !double.IsInfinity(variance) ? Math.Sqrt(variance) : double.NaN;
+
+                // Suppress an ill-conditioned covariance: a standard error larger than the entire sampled sweep
+                // does not localize focus (near-degenerate / barely-determined fit, e.g. n ≈ parameter count or a
+                // monotonic curve). Report it as not-determined rather than a misleadingly precise 1e6+ steps.
+                if (!double.IsNaN(MinimumStdError)) {
+                    double minX = double.PositiveInfinity, maxX = double.NegativeInfinity;
+                    for (int i = 0; i < n; i++) {
+                        var xi = Inputs[i][0];
+                        if (xi < minX) minX = xi;
+                        if (xi > maxX) maxX = xi;
+                    }
+                    var xSpan = maxX - minX;
+                    if (xSpan > 0 && MinimumStdError > xSpan) {
+                        MinimumStdError = double.NaN;
+                    }
+                }
             } catch (Exception) {
                 MinimumStdError = double.NaN;
             }

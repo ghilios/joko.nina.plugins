@@ -22,18 +22,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     /// <summary>
     /// Asymmetric "tilted" hyperbolic fit: a single smooth (C∞) hyperbola plus a linear skew term:
-    ///   y = y0 + (a/b)·√((x − x0)² + b²) + s·(x − x0)
-    /// Five parameters {x0, y0, a, b, s}. The skew s tilts the two asymptotes to slopes a/b ± s (|s| &lt; a/b),
-    /// so the curve is steeper on one side than the other; s = 0 recovers the symmetric hyperbola. Unlike the
-    /// legacy uneven blend this is one differentiable equation with an analytic Jacobian, and the best-focus
-    /// position has a closed form (it is shifted off x0 by the skew).
+    ///   y = y0 + (a/b)·√((x − x0)² + b²) + s·(x − x0),  with s = σ·(a/b)
+    /// Five parameters {x0, y0, a, b, σ}. The skew is parametrized RELATIVE to the asymptotic slope k = a/b:
+    /// the asymptotes have slopes k·(1 ± σ), so the curve is steeper on one side than the other and σ = 0
+    /// recovers the symmetric hyperbola. Because σ is boxed to |σ| ≤ <see cref="MaxRelativeSkew"/> &lt; 1, the
+    /// condition |s| &lt; k that a single finite minimum requires holds STRUCTURALLY for any a, b the optimizer
+    /// picks — unlike an absolute skew s whose static box (built from the initial a/b) can be violated when the
+    /// optimizer inflates b on a shallow/near-linear curve, sending the closed-form minimum off to ±1e14.
+    /// Unlike the legacy uneven blend this is one differentiable equation with an analytic Jacobian, and the
+    /// best-focus position has a closed form (shifted off x0 by the skew).
     /// </summary>
     public class TiltedHyperbolicFittingAlglib : AlglibHyperbolicFitting {
 
-        // When a/b and |s| are nearly equal the closed-form minimum blows up (√(k²−s²) → 0). Floor the radical
-        // at this fraction of k so the model, its minimum, and its derivatives stay finite if the optimizer
-        // transiently pushes |s| toward a/b (the static box on s only uses the initial a/b).
-        private const double SkewRadicalFloorFraction = 0.05;
+        // Relative skew bound: |σ| ≤ 0.9 keeps the radical √(1−σ²) ≥ 0.436 (a single, finite minimum) while still
+        // allowing a strongly asymmetric curve (asymptote slope ratio up to 19:1).
+        private const double MaxRelativeSkew = 0.9d;
+
+        // Cap on b (the hyperbola's focus-depth scale) as a multiple of the sampled x-span. A hyperbola with
+        // b ≫ span is linear across the data — the degenerate near-linear regime that let the skewed minimum
+        // run away. Capping b also bounds the minimum offset |u*| = |σ|·b/√(1−σ²) ≤ ~2.06·b to a few spans.
+        private const double MaxBToSpanRatio = 2.0d;
 
         private TiltedHyperbolicFittingAlglib(IAlglibAPI alglibAPI, double[][] inputs, double[] inputStdDevs, double[] outputs) {
             this.alglibAPI = alglibAPI;
@@ -63,63 +71,63 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var y0 = p[1];
             var a = p[2];
             var b = p[3];
-            var s = p[4];
+            var sigma = p[4];
             var u = x - x0;
-            return y0 + a / b * Math.Sqrt(u * u + b * b) + s * u;
+            var k = a / b;
+            return y0 + k * (Math.Sqrt(u * u + b * b) + sigma * u);
         }
 
         protected override void ModelGradient(double[] p, double x, double[] grad) {
             var x0 = p[0];
             var a = p[2];
             var b = p[3];
-            var s = p[4];
+            var sigma = p[4];
             var u = x - x0;
             var u2 = u * u;
             var b2 = b * b;
             var r = Math.Sqrt(u2 + b2);
             var k = a / b;
 
-            grad[0] = -(k * u / r + s);          // ∂/∂x0
-            grad[1] = 1.0d;                       // ∂/∂y0
-            grad[2] = r / b;                       // ∂/∂a
-            grad[3] = -a * u2 / (b2 * r);          // ∂/∂b
-            grad[4] = u;                           // ∂/∂s
+            grad[0] = -k * (u / r + sigma);             // ∂/∂x0
+            grad[1] = 1.0d;                              // ∂/∂y0
+            grad[2] = (r + sigma * u) / b;               // ∂/∂a
+            grad[3] = -a / b2 * (u2 / r + sigma * u);    // ∂/∂b
+            grad[4] = k * u;                             // ∂/∂σ
         }
 
-        /// <summary>Best-focus offset u* = x_min − x0 = −s·b / √(k²−s²), k = a/b, with the radical floored for
-        /// numerical safety. Also returns k and the (floored) radical for reuse by the covariance gradient.</summary>
-        private static double MinimumOffset(double[] p, out double k, out double d) {
-            var a = p[2];
+        /// <summary>Best-focus offset u* = x_min − x0 = −σ·b / √(1−σ²). Bounded by the |σ| box, so no radical
+        /// floor is needed (√(1−σ²) ≥ √(1−0.9²) = 0.436). Also returns √(1−σ²) for reuse by the covariance gradient.</summary>
+        private static double MinimumOffset(double[] p, out double d) {
             var b = p[3];
-            var s = p[4];
-            k = a / b;
-            var floor = SkewRadicalFloorFraction * Math.Abs(k);
-            var radicand = Math.Max(k * k - s * s, floor * floor);
-            d = Math.Sqrt(radicand);
-            return -s * b / d;
+            var sigma = p[4];
+            d = Math.Sqrt(Math.Max(1.0 - sigma * sigma, 1e-12));
+            return -sigma * b / d;
         }
 
         protected override DataPoint ComputeMinimum(double[] p) {
-            var uMin = MinimumOffset(p, out _, out _);
+            var uMin = MinimumOffset(p, out _);
             var xMin = p[0] + uMin;
             return new DataPoint(xMin, ModelValue(p, xMin));
         }
 
         protected override void MinimumPositionGradient(double[] p, double[] grad) {
-            // x_min = x0 − s·b / D, D = √(k²−s²), k = a/b. Propagate var(x_min) by the delta method.
-            MinimumOffset(p, out var k, out var d);
+            // x_min = x0 − σ·b / D, D = √(1−σ²). Propagate var(x_min) by the delta method. Note x_min no longer
+            // depends on a, which decouples the best-focus uncertainty from the curve's depth parameter.
+            MinimumOffset(p, out var d);
             var b = p[3];
-            var s = p[4];
+            var sigma = p[4];
             var d3 = d * d * d;
-            grad[0] = 1.0;                              // ∂x_min/∂x0
-            grad[1] = 0.0;                              // ∂x_min/∂y0
-            grad[2] = s * k / d3;                       // ∂x_min/∂a
-            grad[3] = -s * (2.0 * k * k - s * s) / d3;  // ∂x_min/∂b
-            grad[4] = -b * k * k / d3;                  // ∂x_min/∂s
+            grad[0] = 1.0;                  // ∂x_min/∂x0
+            grad[1] = 0.0;                  // ∂x_min/∂y0
+            grad[2] = 0.0;                  // ∂x_min/∂a
+            grad[3] = -sigma / d;           // ∂x_min/∂b
+            grad[4] = -b / d3;              // ∂x_min/∂σ  (d/dσ[σ/√(1−σ²)] = 1/(1−σ²)^{3/2})
         }
 
         protected override string FormatExpression(double[] p) {
-            FormattableString expression = $"y = {p[2]:0.###}/{p[3]:0.###} * √((x - {p[0]:0.###})² + {p[3]:0.###}²) + {p[4]:0.#####}·(x - {p[0]:0.###}) + {p[1]:0.###}";
+            // Report the equivalent absolute skew s = σ·(a/b) so the printed slope term matches the curve.
+            var s = p[4] * p[2] / p[3];
+            FormattableString expression = $"y = {p[2]:0.###}/{p[3]:0.###} * √((x - {p[0]:0.###})² + {p[3]:0.###}²) + {s:0.#####}·(x - {p[0]:0.###}) + {p[1]:0.###}";
             return expression.ToString(CultureInfo.InvariantCulture);
         }
 
@@ -151,16 +159,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return false;
             }
 
-            // Asymptotic slope of the seed hyperbola; the skew |s| must stay below it for the curve to keep a
-            // single minimum. Bound s to 0.9·k0 and start unskewed.
-            var k0 = initialA / initialB;
-            var sBound = 0.9 * k0;
+            // Cap b at a multiple of the sampled x-span so the hyperbola cannot degenerate into a line across the
+            // data (which, combined with skew, is what let the minimum run away). Clamp the seed into the box.
+            var xSpan = highestInputX - lowestInputX;
+            var bUpperBound = MaxBToSpanRatio * xSpan;
+            if (!(bUpperBound > 0.001d)) {
+                return false;
+            }
+            initialB = Math.Min(Math.Max(initialB, 0.001d), bUpperBound);
 
+            // The skew is now relative to the asymptotic slope (s = σ·a/b), so its box is a slope-INDEPENDENT
+            // constant in [−0.9, 0.9] that holds for any a, b the optimizer reaches. Start unskewed (σ = 0).
             initialGuess = new double[] { initialX0, initialY0, initialA, initialB, 0.0d };
-            lowerBounds = new double[] { lowestInputX, -lowestOutput, 0.001d, 0.001d, -sBound };
-            upperBounds = new double[] { highestInputX, lowestOutput, lowestOutput * 2, double.PositiveInfinity, sBound };
+            lowerBounds = new double[] { lowestInputX, -lowestOutput, 0.001d, 0.001d, -MaxRelativeSkew };
+            upperBounds = new double[] { highestInputX, lowestOutput, lowestOutput * 2, bUpperBound, MaxRelativeSkew };
             var positionScale = lowestOutput > 0 ? lowestInput / lowestOutput : lowestInput;
-            scale = new double[] { Math.Max(1.0, positionScale), 1, 1, 1, Math.Max(k0, 1e-6) };
+            scale = new double[] { Math.Max(1.0, positionScale), 1, 1, 1, 1 };
             return true;
         }
     }
