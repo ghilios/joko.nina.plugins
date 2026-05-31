@@ -454,13 +454,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         stopwatch, ReferenceImage,
                         ((inspectorOptions.UseRANSAC) && (ransacAligned == allDetectedStars.Count)) ? searchRadiusRANSAC : searchRadiusNonRANSAC,
                         inspectorOptions.RejectBadBrightnessMatches ? maxNormalisedBrightnessDiff : -1,
+                        iterations,
                         progress);
 
                     // registration phase done
                     stopwatch.RecordEntry("registration");
                     ct.ThrowIfCancellationRequested();
 
-                    RegistrationAndFitResult reg = FitImages(imageSize, focuserSizeMicrons, pixelSize, stepSize, stopwatch, registeredStars, progress, inspectorOptions.RejectBadlyFittingMatches, ct);
+                    RegistrationAndFitResult reg = FitImages(imageSize, focuserSizeMicrons, pixelSize, stepSize, stopwatch, registeredStars, progress, inspectorOptions.RejectBadlyFittingMatches, iterations, ct);
                     SensorParaboloidModel pfit = null;
 
                     if (reg.Points.Count >= 9) {  // 9 points is the minimum for fitting the model
@@ -611,8 +612,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 RegisteredStar[] registeredStars,
                 IProgress<ApplicationStatus> progress,
                 bool rejectBadlyFittingMatches,
+                int attempt,
                 CancellationToken ct) {
             var sensorModelDataPoints = new List<SensorParaboloidDataPoint>();
+            // The brightness-tolerance search can re-run this phase; surface which attempt is in progress so a
+            // retry does not look like the bar resetting. Annotated only on retries to keep the common run clean.
+            var phaseLabel = attempt > 1 ? $"Fitting sensor model (attempt {attempt})" : "Fitting sensor model";
             var maxOutlierRejectedPoints = this.autoFocusOptions.MaxOutlierRejections;
             var rejectionConfidence = this.autoFocusOptions.OutlierRejectionConfidence;
             const int minStarCountForFitting = 5;
@@ -642,7 +647,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 var done = Interlocked.Increment(ref processedCount);
                 if (progress != null && (done % reportEvery == 0)) {
                     progress.Report(new ApplicationStatus() {
-                        Status = "Fitting sensor model",
+                        Status = phaseLabel,
                         Status2 = "Star",
                         ProgressType2 = ApplicationStatus.StatusProgressType.ValueOfMaxValue,
                         MaxProgress2 = starCount,
@@ -926,6 +931,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 int referenceImage,
                 float searchRadius,
                 double maxNormalisedBrightnessDiff,
+                int attempt,
                 IProgress<ApplicationStatus> progress) {
             Logger.Debug("MatchStarsUsingKdTree");
 
@@ -948,7 +954,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }
 
             ApplicationStatus status = new ApplicationStatus() {
-                Status = "Matching stars",
+                Status = attempt > 1 ? $"Matching stars (attempt {attempt})" : "Matching stars",
                 MaxProgress = allDetectedStars.Count,
                 ProgressType = ApplicationStatus.StatusProgressType.ValueOfMaxValue
             };
