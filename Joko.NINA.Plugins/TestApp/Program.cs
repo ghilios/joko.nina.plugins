@@ -102,6 +102,13 @@ namespace TestApp {
 
         [STAThread]
         private static async Task Main(string[] args) {
+            // Headless fit-quality mode: `TestApp fit-quality [--dir|--zip ...]`. Operates purely on saved AF
+            // report JSONs (no profile, no images).
+            if (args.Length > 0 && args[0].Equals("fit-quality", StringComparison.OrdinalIgnoreCase)) {
+                FitQualityRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&
