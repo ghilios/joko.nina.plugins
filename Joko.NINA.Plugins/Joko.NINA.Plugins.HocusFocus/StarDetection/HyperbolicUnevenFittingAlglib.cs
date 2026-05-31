@@ -24,10 +24,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     /// Legacy asymmetric ("uneven") hyperbolic fit. Blends a left and right hyperbola with a hard linear
     /// ramp t = clamp((x0 − x)/StepSize, 0, 1):
     ///   y = t·(a/b)·√((x−x0)² + b²) + (1−t)·(a/c)·√((x−x0)² + c²) + y0
-    /// Five parameters {x0, y0, a, b, c}. The blend is only C⁰ (kinked at x0 and x0−StepSize), so this model
-    /// uses numerical differentiation and does not estimate a best-focus standard error. Retained for
-    /// backward compatibility; prefer <see cref="TiltedHyperbolicFittingAlglib"/> or
-    /// <see cref="SmoothBlendHyperbolicFittingAlglib"/>.
+    /// Five parameters {x0, y0, a, b, c}. The blend is only C⁰ (kinked at x0 and x0−StepSize), so the
+    /// optimizer keeps numerical differentiation (<see cref="UseJacobian"/> = false) to avoid the kinks
+    /// destabilizing LM convergence. It does, however, report a best-focus standard error: the global minimum
+    /// of the blend is exactly x_min = x0 (at u=0 both component hyperbolas hit their shared vertex value a,
+    /// and for any u≠0 both exceed a, so the convex blend is minimized at u=0 regardless of b, c, or t), so
+    /// σ(focus) = se(x0) is propagated from the JᵀWJ covariance using the analytic <see cref="ModelGradient"/>
+    /// below (the model is C∞ away from the two kinks). Retained for backward compatibility; prefer
+    /// <see cref="TiltedHyperbolicFittingAlglib"/> or <see cref="SmoothBlendHyperbolicFittingAlglib"/>.
     /// </summary>
     public class HyperbolicUnevenFittingAlglib : AlglibHyperbolicFitting {
 
@@ -59,11 +63,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         protected override int ParameterCount => 5;
 
-        // C⁰ blend: keep numerical differentiation (kinks make an analytic Jacobian unreliable) and skip the
-        // covariance/standard-error estimate, exactly as this model behaved before the base refactor.
+        // C⁰ blend: keep the OPTIMIZER on numerical differentiation (the kinks make an analytic Jacobian
+        // unreliable for LM convergence / OptGuard). The covariance path, however, uses the analytic
+        // ModelGradient below — evaluated post-fit at the sampled x's, where the model is smooth except at the
+        // two measure-zero kink points — so this model can still report σ(focus). See class summary.
         protected override bool UseJacobian => false;
 
-        protected override bool SupportsCovariance => false;
+        protected override bool SupportsCovariance => true;
 
         protected override double ModelValue(double[] p, double x) {
             var x0 = p[0];
@@ -77,6 +83,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return leftSide + rightSide + y0;
         }
 
+        /// <summary>
+        /// Analytic gradient w.r.t. {x0, y0, a, b, c}, used only to build the JᵀWJ covariance for σ(focus)
+        /// (the optimizer uses numerical differentiation; see <see cref="UseJacobian"/>). With u = x − x0,
+        /// sb = √(u²+b²), sc = √(u²+c²), L = (a/b)·sb, R = (a/c)·sc, and tp = ∂t/∂x0 = 1/StepSize strictly
+        /// inside the ramp (else 0; the strict-interior subgradient at the two kinks):
+        ///   ∂y/∂x0 = tp·(L − R) − t·(a/b)·(u/sb) − (1−t)·(a/c)·(u/sc)
+        ///   ∂y/∂y0 = 1
+        ///   ∂y/∂a  = t·(sb/b) + (1−t)·(sc/c)
+        ///   ∂y/∂b  = −t·a·u²/(b²·sb)
+        ///   ∂y/∂c  = −(1−t)·a·u²/(c²·sc)
+        /// </summary>
+        protected override void ModelGradient(double[] p, double x, double[] grad) {
+            var x0 = p[0];
+            var a = p[2];
+            var b = p[3];
+            var c = p[4];
+            var u = x - x0;
+            var rampArg = (x0 - x) / this.StepSize;
+            var t = Math.Clamp(rampArg, 0.0d, 1.0d);
+            var tp = (rampArg > 0.0d && rampArg < 1.0d) ? 1.0d / this.StepSize : 0.0d;
+            var sb = Math.Sqrt(u * u + b * b);
+            var sc = Math.Sqrt(u * u + c * c);
+            var left = a / b * sb;
+            var right = a / c * sc;
+
+            grad[0] = tp * (left - right) - t * (a / b) * (u / sb) - (1.0d - t) * (a / c) * (u / sc);
+            grad[1] = 1.0d;
+            grad[2] = t * (sb / b) + (1.0d - t) * (sc / c);
+            grad[3] = -t * a * u * u / (b * b * sb);
+            grad[4] = -(1.0d - t) * a * u * u / (c * c * sc);
+        }
+
+        // Best focus is exactly x_min = x0 (= p[0]) for this blend (both component hyperbolas share that
+        // vertex), so the base MinimumPositionGradient default [1,0,0,0,0] is correct — do NOT override it.
         protected override DataPoint ComputeMinimum(double[] p) {
             return new DataPoint(p[0], p[2] + p[1]);
         }

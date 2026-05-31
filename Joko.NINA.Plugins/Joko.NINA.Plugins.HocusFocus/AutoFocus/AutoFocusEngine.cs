@@ -236,12 +236,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             /// <summary>
-            /// Hybrid-model finalization: when the option is <see cref="HyperbolicFitModel.Hybrid"/>, refits every
-            /// concrete hyperbolic model on the final points and swaps the region's <see cref="AutoFocusFitting.HyperbolicFitting"/>
-            /// to the one with the least expected best-focus error (see <see cref="AlglibHyperbolicFitting.SelectBestModel"/>),
-            /// recording the concrete pick. No-op for non-Hybrid runs and for non-STARHFR/non-hyperbolic fittings, so all
-            /// existing behavior is unchanged. The heavy multi-model solve runs outside the lock; only the field swap is
-            /// taken under <see cref="SubMeasurementsLock"/> (mirrors <see cref="CalculateCurveFittings"/>).
+            /// Finalizes which concrete hyperbolic model is recorded for the run, so the panel and saved report
+            /// always show it (not only for Hybrid). For a non-Hybrid run the model is fixed by the option, so it
+            /// is recorded as-is. When the option is <see cref="HyperbolicFitModel.Hybrid"/>, this refits every
+            /// concrete hyperbolic model on the final points and swaps the region's
+            /// <see cref="AutoFocusFitting.HyperbolicFitting"/> to the one with the least expected best-focus error
+            /// (see <see cref="AlglibHyperbolicFitting.SelectBestModel"/>), recording the concrete pick. No-op for
+            /// non-STARHFR / non-hyperbolic fittings. The heavy multi-model solve runs outside the lock; only the
+            /// field swap is taken under <see cref="SubMeasurementsLock"/> (mirrors <see cref="CalculateCurveFittings"/>).
             /// </summary>
             public void SelectBestHyperbolicModel() {
                 if (Fittings.Method != AFMethodEnum.STARHFR) {
@@ -250,7 +252,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (Fittings.CurveFittingType != AFCurveFittingEnum.HYPERBOLIC && Fittings.CurveFittingType != AFCurveFittingEnum.TRENDHYPERBOLIC) {
                     return;
                 }
-                if (State.Options.HyperbolicFitModel != HyperbolicFitModel.Hybrid || lastValidFocusPoints == null) {
+
+                // Non-Hybrid: the model is fixed by the option — record it so the panel/report always show which
+                // hyperbolic model produced the fit. No multi-model selection to run.
+                if (State.Options.HyperbolicFitModel != HyperbolicFitModel.Hybrid) {
+                    lock (SubMeasurementsLock) {
+                        this.Fittings.SelectedHyperbolicFitModel = State.Options.HyperbolicFitModel;
+                    }
+                    return;
+                }
+
+                if (lastValidFocusPoints == null) {
                     return;
                 }
 

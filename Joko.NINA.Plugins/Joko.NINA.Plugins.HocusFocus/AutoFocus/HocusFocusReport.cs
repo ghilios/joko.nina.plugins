@@ -43,9 +43,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public double HyperbolicLeaveOneOutStdError { get; set; } = double.NaN;
 
         /// <summary>
-        /// The concrete hyperbolic model actually chosen for this run when the option was
-        /// <see cref="HyperbolicFitModel.Hybrid"/>; null for non-Hybrid runs (and on older reports). Distinct from
-        /// <see cref="HocusFocusAutoFocusOptions"/>.HyperbolicFitModel, which still records the option ("Hybrid").
+        /// The concrete hyperbolic model used for this run: the fixed model for a non-Hybrid run, or the model the
+        /// Hybrid (Best Fit) option resolved to. Null only for non-hyperbolic runs and on older reports. Distinct
+        /// from <see cref="HocusFocusAutoFocusOptions"/>.HyperbolicFitModel, which records the option as configured
+        /// (e.g. "Hybrid").
         /// </summary>
         [JsonProperty]
         public HyperbolicFitModel? HyperbolicFitModelChosen { get; set; } = null;

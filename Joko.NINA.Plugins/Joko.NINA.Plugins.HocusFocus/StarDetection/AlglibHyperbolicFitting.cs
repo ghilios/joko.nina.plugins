@@ -231,9 +231,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// expected error for the best-focus position — the Hybrid "best fit" selection. Candidates that fail to
         /// solve, or whose minimum is non-finite or outside the sampled X range, are dropped. Ranking is tiered:
         /// (1) finite parametric σ(focus) = <see cref="MinimumStdError"/> ascending — already produced by
-        /// <see cref="Solve"/>, so the common path is cheap; (2) when no candidate has a finite σ(focus), the
-        /// leave-one-out best-focus std (<see cref="ComputeLeaveOneOutBestFocusStdError"/>, computed lazily — this
-        /// is where the legacy uneven blend, which has no σ(focus), can win); final tiebreak
+        /// <see cref="Solve"/>, so the common path is cheap. Every concrete model now supplies a σ(focus)
+        /// (the legacy uneven blend included, via se(x0) from its analytic-gradient covariance), so all four
+        /// compete here on equal footing; (2) only when no candidate has a finite σ(focus) — i.e. every fit is
+        /// too degenerate to localize focus — the leave-one-out best-focus std
+        /// (<see cref="ComputeLeaveOneOutBestFocusStdError"/>, computed lazily) breaks the tie; final tiebreak
         /// <see cref="ReducedChiSquared"/> ascending then <see cref="RSquared"/> descending. If nothing survives,
         /// returns <see cref="HyperbolicFitModel.TiltedHyperbola"/> with its solved fit (or null) so the live fit
         /// is preserved. <paramref name="bestFit"/> is the already-solved winning fit.

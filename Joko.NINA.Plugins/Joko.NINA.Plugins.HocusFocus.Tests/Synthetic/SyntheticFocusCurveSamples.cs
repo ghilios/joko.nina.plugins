@@ -90,5 +90,35 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Synthetic {
             }
             return points;
         }
+
+        // Legacy "uneven" blend: y = t*(a/b)*sqrt(u^2+b^2) + (1-t)*(a/c)*sqrt(u^2+c^2) + y0,
+        // t = clamp((x0 - x)/stepSize, 0, 1). Matches HyperbolicUnevenFittingAlglib.ModelValue.
+        public static double UnevenBlend(double x, double x0, double y0, double a, double b, double c, double stepSize) {
+            var u = x - x0;
+            var t = Math.Clamp((x0 - x) / stepSize, 0.0, 1.0);
+            var left = t * a / b * Math.Sqrt(u * u + b * b);
+            var right = (1.0 - t) * a / c * Math.Sqrt(u * u + c * c);
+            return y0 + left + right;
+        }
+
+        public static List<ScatterErrorPoint> UnevenBlendPoints(
+            double x0,
+            double y0,
+            double a,
+            double b,
+            double c,
+            double stepSize,
+            double xStart,
+            double xStep,
+            int count,
+            double errorY = 1.0) {
+            var points = new List<ScatterErrorPoint>(count);
+            for (var i = 0; i < count; ++i) {
+                var x = xStart + i * xStep;
+                var y = UnevenBlend(x, x0, y0, a, b, c, stepSize);
+                points.Add(new ScatterErrorPoint(x, y, 0, errorY));
+            }
+            return points;
+        }
     }
 }
