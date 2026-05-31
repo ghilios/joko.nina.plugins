@@ -21,8 +21,8 @@ using System.Linq;
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     /// <summary>
-    /// Legacy asymmetric ("uneven") hyperbolic fit. Blends a left and right hyperbola with a hard linear
-    /// ramp t = clamp((x0 − x)/StepSize, 0, 1):
+    /// "Uneven Blend" asymmetric hyperbolic fit (the original blended model). Blends a left and right hyperbola
+    /// with a hard linear ramp t = clamp((x0 − x)/StepSize, 0, 1):
     ///   y = t·(a/b)·√((x−x0)² + b²) + (1−t)·(a/c)·√((x−x0)² + c²) + y0
     /// Five parameters {x0, y0, a, b, c}. The blend is only C⁰ (kinked at x0 and x0−StepSize), so the
     /// optimizer keeps numerical differentiation (<see cref="UseJacobian"/> = false) to avoid the kinks

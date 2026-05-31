@@ -81,7 +81,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double LeaveOneOutStdError { get; set; } = double.NaN;
 
         /// <summary>
-        /// Builds the hyperbolic fit selected by <paramref name="model"/>. The legacy uneven blend needs the
+        /// Builds the hyperbolic fit selected by <paramref name="model"/>. The Uneven Blend model needs the
         /// focuser step size for its transition width; the other models ignore it.
         /// </summary>
         public static AlglibHyperbolicFitting Create(IAlglibAPI alglibAPI, HyperbolicFitModel model, ICollection<ScatterErrorPoint> points, int stepSize, bool useWeights) {
@@ -232,7 +232,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// solve, or whose minimum is non-finite or outside the sampled X range, are dropped. Ranking is tiered:
         /// (1) finite parametric σ(focus) = <see cref="MinimumStdError"/> ascending — already produced by
         /// <see cref="Solve"/>, so the common path is cheap. Every concrete model now supplies a σ(focus)
-        /// (the legacy uneven blend included, via se(x0) from its analytic-gradient covariance), so all four
+        /// (the Uneven Blend model included, via se(x0) from its analytic-gradient covariance), so all four
         /// compete here on equal footing; (2) only when no candidate has a finite σ(focus) — i.e. every fit is
         /// too degenerate to localize focus — the leave-one-out best-focus std
         /// (<see cref="ComputeLeaveOneOutBestFocusStdError"/>, computed lazily) breaks the tie; final tiebreak
@@ -479,8 +479,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         /// <summary>
         /// Weighted χ² and reduced χ² of the fit, using the base χ² <see cref="Weights"/> (not the Huber IRLS
-        /// factors). Computed for every model regardless of <see cref="SupportsCovariance"/>, so the legacy
-        /// blend gets it too. The same weighted residual sum the covariance path forms in
+        /// factors). Computed for every model regardless of <see cref="SupportsCovariance"/>, so the Uneven
+        /// Blend model gets it too. The same weighted residual sum the covariance path forms in
         /// <see cref="ComputeMinimumStdError"/>.
         /// </summary>
         protected void ComputeChiSquared(double[] solution) {

@@ -13,7 +13,7 @@ using System.Text;
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
     /// <summary>
-    /// Empirical comparison of the four hyperbolic focus-curve models (Symmetric, Uneven Blend (legacy),
+    /// Empirical comparison of the four hyperbolic focus-curve models (Symmetric, Uneven Blend,
     /// Tilted Hyperbola, Smooth Blend) on synthetic curves with a known best-focus position, and optionally on
     /// real saved auto-focus runs. Produces per-model accuracy and leave-one-out stability metrics.
     ///

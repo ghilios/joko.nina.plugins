@@ -29,7 +29,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     /// condition |s| &lt; k that a single finite minimum requires holds STRUCTURALLY for any a, b the optimizer
     /// picks — unlike an absolute skew s whose static box (built from the initial a/b) can be violated when the
     /// optimizer inflates b on a shallow/near-linear curve, sending the closed-form minimum off to ±1e14.
-    /// Unlike the legacy uneven blend this is one differentiable equation with an analytic Jacobian, and the
+    /// Unlike the Uneven Blend model this is one differentiable equation with an analytic Jacobian, and the
     /// best-focus position has a closed form (shifted off x0 by the skew).
     /// </summary>
     public class TiltedHyperbolicFittingAlglib : AlglibHyperbolicFitting {

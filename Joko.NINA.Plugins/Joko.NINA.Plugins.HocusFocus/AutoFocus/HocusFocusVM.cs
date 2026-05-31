@@ -479,7 +479,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// <summary>
         /// Rebuilds <see cref="PlotFinalFocusPointWithError"/> from the current hyperbolic fit: a single point at the
         /// best-focus minimum with a horizontal error bar (ErrorX) of σ(focus), falling back to the leave-one-out
-        /// stability when σ(focus) is unavailable (e.g. the Uneven Blend Legacy model). Leaves the series empty —
+        /// stability when σ(focus) is unavailable (e.g. a degenerate fit that can't localize focus). Leaves the series empty —
         /// so nothing is drawn — for non-hyperbolic fits or when no uncertainty estimate exists.
         /// </summary>
         private void RefreshFinalFocusPointError() {
@@ -493,7 +493,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
             var errorX = alglibFit.MinimumStdError;
             if (double.IsNaN(errorX) || double.IsInfinity(errorX) || errorX <= 0.0) {
-                errorX = alglibFit.LeaveOneOutStdError; // σ(focus) unavailable (e.g. legacy blend) → use LOO stability
+                errorX = alglibFit.LeaveOneOutStdError; // σ(focus) unavailable (degenerate fit) → use LOO stability
             }
             if (double.IsNaN(errorX) || double.IsInfinity(errorX) || errorX <= 0.0) {
                 return;

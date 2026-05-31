@@ -103,7 +103,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             }
         }
 
-        // σ(focus) is now produced for the legacy model: on a noisy asymmetric curve it must be finite,
+        // σ(focus) is now produced for the Uneven Blend model: on a noisy asymmetric curve it must be finite,
         // positive, and within the sampled span (passing the base ill-conditioning guard).
         [Test]
         public void MinimumStdError_NoisyAsymmetricFit_IsPositiveFiniteAndBounded() {
@@ -155,7 +155,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             Assert.That(fit.Minimum.X, Is.EqualTo(bruteMinX).Within(2.0 * xStep));
         }
 
-        // The behavioral change for Hybrid: the legacy model now contributes a finite σ(focus), so it competes
+        // The behavioral change for Hybrid: the Uneven Blend model now contributes a finite σ(focus), so it competes
         // in Tier 1 (parametric σ(focus)) rather than only the leave-one-out fallback.
         [Test]
         public void SelectBestModel_LegacyContributesFiniteSigmaToTier1() {
@@ -167,7 +167,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 alglibAPI, HyperbolicFitModel.UnevenBlendLegacy, pts, (int)xStep, useWeights: true);
             Assert.That(legacy.Solve(), Is.True);
             Assert.That(double.IsNaN(legacy.MinimumStdError), Is.False,
-                "Legacy uneven blend must now report a finite σ(focus)");
+                "Uneven Blend model must now report a finite σ(focus)");
 
             // And the selector resolves via the Tier-1 (finite σ(focus)) path with a finite-σ winner.
             var chosen = AlglibHyperbolicFitting.SelectBestModel(alglibAPI, pts, (int)xStep, useWeights: true, out var bestFit);

@@ -24,7 +24,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     /// Asymmetric focus-curve model that blends a left and a right hyperbola with a smooth (C∞) logistic
     /// transition centred on the vertex:
     ///   y = y0 + t·(a/b)·√((x−x0)² + b²) + (1−t)·(a/c)·√((x−x0)² + c²),   t = 1 / (1 + exp((x−x0)/w))
-    /// Five parameters {x0, y0, a, b, c}. Unlike the legacy uneven fit's hard clamp this transition is
+    /// Five parameters {x0, y0, a, b, c}. Unlike the Uneven Blend fit's hard clamp this transition is
     /// differentiable everywhere (so it has an analytic Jacobian and no kink artifacts), and the transition
     /// width w is derived from the data spacing rather than fitted — fitting w is weakly identifiable and
     /// destabilizes the best-focus estimate. Reduces to the symmetric hyperbola when b = c.
@@ -32,7 +32,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     public class SmoothBlendHyperbolicFittingAlglib : AlglibHyperbolicFitting {
 
         // Logistic half-width as a fraction of the median sample spacing. The transition occupies roughly a
-        // couple of samples around the vertex, matching the (former) one-step ramp of the legacy model.
+        // couple of samples around the vertex, matching the (former) one-step ramp of the Uneven Blend model.
         private const double WidthSpacingFraction = 0.25;
 
         private double blendWidth;
