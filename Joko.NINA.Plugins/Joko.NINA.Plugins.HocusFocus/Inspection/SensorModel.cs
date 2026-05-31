@@ -460,7 +460,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     stopwatch.RecordEntry("registration");
                     ct.ThrowIfCancellationRequested();
 
-                    RegistrationAndFitResult reg = FitImages(imageSize, focuserSizeMicrons, pixelSize, stepSize, stopwatch, registeredStars, progress, inspectorOptions.RejectBadlyFittingMatches);
+                    RegistrationAndFitResult reg = FitImages(imageSize, focuserSizeMicrons, pixelSize, stepSize, stopwatch, registeredStars, progress, inspectorOptions.RejectBadlyFittingMatches, ct);
                     SensorParaboloidModel pfit = null;
 
                     if (reg.Points.Count >= 9) {  // 9 points is the minimum for fitting the model
@@ -610,35 +610,49 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 MultiStopWatch stopwatch,
                 RegisteredStar[] registeredStars,
                 IProgress<ApplicationStatus> progress,
-                bool rejectBadlyFittingMatches) {
-            int discardedStarCount = 0;
+                bool rejectBadlyFittingMatches,
+                CancellationToken ct) {
             var sensorModelDataPoints = new List<SensorParaboloidDataPoint>();
-            // Best-focus points collected with their per-star σ (NaN when the hyperbolic fit could not
-            // estimate a standard error). σ is resolved to a concrete weight in a second pass below.
-            var pendingPoints = new List<(double X, double Y, double FocuserMicrons, double RSquared, double StdDevMicrons)>();
             var maxOutlierRejectedPoints = this.autoFocusOptions.MaxOutlierRejections;
             var rejectionConfidence = this.autoFocusOptions.OutlierRejectionConfidence;
             const int minStarCountForFitting = 5;
-            int totalRejectedPointCount = 0;
-            // Per-star hyperbolic fitting dominates the model build — with the Hybrid model each star fits
-            // several candidate curves, so this loop runs tens of seconds for thousands of stars. Report a
-            // "Fitting sensor model" status so the UI reflects this phase instead of freezing on the previous
-            // ("Matching stars") status. Throttled to ~100 updates to avoid flooding the dispatcher.
             var starCount = registeredStars.Length;
+
+            // Each star's curve fit is independent (its own points, its own alglib state — AlglibAPI serializes
+            // only the alloc/free of the shared handle pool), and per-star fitting dominates the model build:
+            // with the Hybrid model every star fits several candidate curves, taking tens of seconds for
+            // thousands of stars. Parallelize it across cores. Results are written to index-aligned slots and
+            // assembled in order afterward, so the data-point list — and therefore the surface fit — is
+            // identical regardless of completion order (keeps the build deterministic; see
+            // SensorModelRepeatabilityTests). Best-focus σ is NaN when the hyperbolic fit could not estimate a
+            // standard error; it is resolved to a concrete weight in the second pass below. The "Fitting sensor
+            // model" progress is driven by a shared counter, throttled to ~100 updates to avoid flooding the
+            // dispatcher (its ordering is cosmetic and does not affect the result).
+            var pointPerStar = new (double X, double Y, double FocuserMicrons, double RSquared, double StdDevMicrons)?[starCount];
+            var discardedFlags = new bool[starCount];
+            var rejectedCounts = new int[starCount];
             var reportEvery = Math.Max(1, starCount / 100);
-            for (int registeredStarIndex = 0; registeredStarIndex < starCount; ++registeredStarIndex) {
-                var registeredStar = registeredStars[registeredStarIndex];
-                if (registeredStarIndex % reportEvery == 0) {
-                    progress?.Report(new ApplicationStatus() {
+            int processedCount = 0;
+            var parallelOptions = new ParallelOptions {
+                CancellationToken = ct,
+                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount)
+            };
+
+            Parallel.For(0, starCount, parallelOptions, registeredStarIndex => {
+                var done = Interlocked.Increment(ref processedCount);
+                if (progress != null && (done % reportEvery == 0)) {
+                    progress.Report(new ApplicationStatus() {
                         Status = "Fitting sensor model",
                         Status2 = "Star",
                         ProgressType2 = ApplicationStatus.StatusProgressType.ValueOfMaxValue,
                         MaxProgress2 = starCount,
-                        Progress2 = registeredStarIndex + 1
+                        Progress2 = done
                     });
                 }
+
+                var registeredStar = registeredStars[registeredStarIndex];
                 if (registeredStar.MatchedStars.Count < minStarCountForFitting) {
-                    continue;
+                    return;
                 }
 
                 try {
@@ -673,17 +687,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                     if (!solveResult) {
                         Logger.Trace($"Failed to fit hyperbolic curve to star matches at ({registeredStar.RegistrationX:0.00}, {registeredStar.RegistrationY:0.00})");
-                        discardedStarCount++;
-                        continue;
+                        discardedFlags[registeredStarIndex] = true;
+                        return;
                     }
 
                     if (fitting.RSquared < 0.90) {
                         // Discard bad fitting
-                        discardedStarCount++;
-                        continue;
+                        discardedFlags[registeredStarIndex] = true;
+                        return;
                     }
 
-                    totalRejectedPointCount += rejectedPoints.Count;
+                    rejectedCounts[registeredStarIndex] = rejectedPoints.Count;
                     var dataPointX = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
                     var dataPointY = (registeredStar.RegistrationY - (imageSize.Height / 2.0)) * pixelSize;
                     var focuserMicrons = fitting.Minimum.X * focuserSizeMicrons;
@@ -694,9 +708,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     var bestFocusStdDevMicrons = (!double.IsNaN(fitting.MinimumStdError) && !double.IsInfinity(fitting.MinimumStdError) && fitting.MinimumStdError > 0.0)
                         ? fitting.MinimumStdError * focuserSizeMicrons
                         : double.NaN;
-                    pendingPoints.Add((dataPointX, dataPointY, focuserMicrons, fitting.RSquared, bestFocusStdDevMicrons));
+                    pointPerStar[registeredStarIndex] = (dataPointX, dataPointY, focuserMicrons, fitting.RSquared, bestFocusStdDevMicrons);
                 } catch (Exception e) {
                     Logger.Error(e, $"Failed to calculate hyperbolic at ({registeredStar.RegistrationX}, {registeredStar.RegistrationY}). Error={e.Message}");
+                }
+            });
+
+            // Assemble per-star results in index order so the data-point list is deterministic.
+            var pendingPoints = new List<(double X, double Y, double FocuserMicrons, double RSquared, double StdDevMicrons)>();
+            int discardedStarCount = 0;
+            int totalRejectedPointCount = 0;
+            for (int i = 0; i < starCount; ++i) {
+                if (discardedFlags[i]) {
+                    discardedStarCount++;
+                }
+                totalRejectedPointCount += rejectedCounts[i];
+                if (pointPerStar[i].HasValue) {
+                    pendingPoints.Add(pointPerStar[i].Value);
                 }
             }
 
