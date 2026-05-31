@@ -17,6 +17,7 @@ using NINA.Core.Utility;
 using NINA.Image.Interfaces;
 using OpenCvSharp;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -36,6 +37,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     public class StarDetector : IStarDetector {
         private readonly IAlglibAPI alglibAPI;
 
+        // Allocated in DetectImpl only when StarDetectorParams.CollectContaminationDiagnostics is set. Star
+        // scanning is parallel, so accepted-star diagnostic records are collected thread-safely here and then
+        // materialized into an ordered list before DetectImpl returns. Null in normal (non-diagnostic) runs.
+        private ConcurrentBag<ContaminationDiagnosticRecord> contaminationDiagnosticsBag;
+
         public StarDetector(IAlglibAPI alglibAPI) {
             this.alglibAPI = alglibAPI;
         }
@@ -44,12 +50,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             public Point2d Center;
             public double CenterBrightness;
             public double Background;
+            public LocalBackgroundPlane BackgroundPlane;
             public double NormalizedBrightness;
             public double TotalFlux;
             public double Peak;
             public int PixelCount;
             public Rect StarBoundingBox;
             public double StarMedian;
+            public bool ContaminationSuspected;
+
+            // Contamination diagnostics carry fields, populated in ComputeStarParameters only when
+            // StarDetectorParams.CollectContaminationDiagnostics is true. Null otherwise (zero overhead).
+            public ContaminationDiagnosticRecord ContaminationDiagnostics;
         }
 
         private static void MaybeSaveIntermediateImage(Mat image, StarDetectorParams p, string filename) {
@@ -142,6 +154,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             MaybeSaveIntermediateText(p.ToString(), p, "00-params.txt");
             var metrics = new StarDetectorMetrics();
+            contaminationDiagnosticsBag = p.CollectContaminationDiagnostics ? new ConcurrentBag<ContaminationDiagnosticRecord>() : null;
             using (var stopWatch = MultiStopWatch.Measure()) {
                 var debugData = new DebugData();
 
@@ -317,10 +330,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     metrics.AddROIOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top);
                 }
 
+                // Materialize the (parallel-collected) contamination diagnostics, mirroring the ROI offset
+                // applied to DetectedStars and ordering deterministically by image position so the CSV is stable.
+                List<ContaminationDiagnosticRecord> contaminationDiagnostics = null;
+                if (contaminationDiagnosticsBag != null) {
+                    contaminationDiagnostics = contaminationDiagnosticsBag.ToList();
+                    if (roiRect.HasValue) {
+                        foreach (var rec in contaminationDiagnostics) {
+                            rec.CenterX += roiRect.Value.Left;
+                            rec.CenterY += roiRect.Value.Top;
+                        }
+                    }
+                    contaminationDiagnostics = contaminationDiagnostics.OrderBy(r => r.CenterY).ThenBy(r => r.CenterX).ToList();
+                    contaminationDiagnosticsBag = null;
+                    Logger.Trace($"Collected {contaminationDiagnostics.Count} contamination diagnostic records ({contaminationDiagnostics.Count(r => r.ContaminationSuspected)} suspected)");
+                }
+
                 return new HocusFocusStarDetectorResult() {
                     DetectedStars = stars,
                     Metrics = metrics,
-                    DebugData = debugData
+                    DebugData = debugData,
+                    ContaminationDiagnostics = contaminationDiagnostics
                 };
             }
         }
@@ -363,19 +393,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                         bool psfAccepted = false;
                         if (psf != null) {
-                            if (p.PSFGoodnessOfFitThresholdChiSq > 0 && !double.IsNaN(psf.ReducedChiSquared)) {
-                                // Primary gate: accept when reduced chi² is within the threshold
-                                psfAccepted = psf.ReducedChiSquared <= p.PSFGoodnessOfFitThresholdChiSq;
-                            } else {
-                                // Fallback gate: R² must be at or above the threshold
-                                psfAccepted = psf.RSquared >= p.PSFGoodnessOfFitThreshold;
-                            }
+                            // R² must be at or above the threshold
+                            psfAccepted = psf.RSquared >= p.PSFGoodnessOfFitThreshold;
                         }
                         if (psfAccepted) {
                             detectedStar.PSF = psf;
-                            if (CheckBackgroundContamination(detectedStar, psf, p, noiseSigma)) {
-                                ++metrics.ContaminationSuspected;
-                            }
                         } else {
                             ++metrics.PSFFitFailed;
                         }
@@ -411,27 +433,183 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
-        /// Cross-checks the three background estimates for a star to detect potential contamination.
-        /// Sets <see cref="Star.StarContaminationSuspected"/> and logs at Debug level when any pair
-        /// of estimates disagrees by more than 2× noiseSigma.
-        /// Returns true when contamination is suspected (and the flag has been set on the star).
+        /// Result of the local-background analysis: a robust background plane fit (always attempted) plus the
+        /// gradient-robust contamination decision (only when sensitivity &gt; 0). Scalar fields are always set;
+        /// the per-sector residual arrays are populated only when <c>fillSectors</c> is requested (diagnostics).
         /// </summary>
-        internal static bool CheckBackgroundContamination(Star star, PSFModel psf, StarDetectorParams p, double noiseSigma) {
-            var annulusBg = star.Background;
-            var thresholdBg = annulusBg + p.StarClippingMultiplier * noiseSigma;
-            var psfBg = psf.Background;
-            var twoSigma = 2.0 * noiseSigma;
-            if (Math.Abs(annulusBg - psfBg) > twoSigma ||
-                Math.Abs(annulusBg - thresholdBg) > twoSigma) {
-                star.StarContaminationSuspected = true;
-                Logger.Debug($"Star at ({star.Center.X:F1},{star.Center.Y:F1}) flagged as contamination-suspected: annulus_bg={annulusBg:F4}, psf_bg={psfBg:F4}, noise={noiseSigma:F4}");
-                return true;
+        internal struct GradientContaminationResult {
+            public bool PlaneValid;               // true when B0/B1/B2 are a usable robust fit
+            public double B0;                     // background at the annulus origin (dx = dy = 0)
+            public double B1;                     // d(background)/dx
+            public double B2;                     // d(background)/dy
+            public bool Suspected;
+            public double GradientSlope;
+            public double LocalSigmaResidual;
+            public double MaxSectorResidualOverSE;
+            public int TrippingSector;
+            public double[] SectorResidualMedian; // null unless fillSectors
+            public int[] SectorResidualCount;     // null unless fillSectors
+        }
+
+        /// <summary>
+        /// Fits a robust local background plane (b0 + b1*dx + b2*dy) to the annulus pixels via IRLS with Huber
+        /// weights to model a smooth one-sided background (galaxy/nebula gradient), and runs the gradient-robust
+        /// contamination test on the plane-subtracted residuals: it flags only a one-sided POSITIVE residual
+        /// excess in a sector — a contaminant adds light, so this ignores both smooth gradients (removed by the
+        /// fit) and edge-clipping deficits (negative residuals). The plane is fit whenever there are enough
+        /// non-degenerate points (so it can serve as the local background even when the contamination test is
+        /// disabled); the contamination decision additionally requires <paramref name="sensitivity"/> &gt; 0.
+        /// </summary>
+        internal static GradientContaminationResult ComputeGradientContamination(
+                float[] dx, float[] dy, float[] val, int n,
+                double fallbackSigma, double sensitivity, int minSectorPixels, bool fillSectors) {
+            const int numSectors = 8;
+            var result = new GradientContaminationResult {
+                PlaneValid = false,
+                B0 = double.NaN, B1 = double.NaN, B2 = double.NaN,
+                Suspected = false,
+                GradientSlope = double.NaN,
+                LocalSigmaResidual = double.NaN,
+                MaxSectorResidualOverSE = double.NaN,
+                TrippingSector = -1
+            };
+            if (fillSectors) {
+                result.SectorResidualMedian = new double[numSectors];
+                result.SectorResidualCount = new int[numSectors];
+                for (int s = 0; s < numSectors; ++s) result.SectorResidualMedian[s] = double.NaN;
             }
-            return false;
+
+            // Too few points to fit a 3-parameter plane with margin, or null input → no plane, not suspected.
+            if (dx == null || n < 12) {
+                return result;
+            }
+
+            // Robust plane fit via iteratively reweighted least squares (Huber).
+            double b0 = 0, b1 = 0, b2 = 0;
+            var w = new double[n];
+            for (int i = 0; i < n; ++i) w[i] = 1.0;
+            const double huberC = 1.345;
+            for (int iter = 0; iter < 4; ++iter) {
+                if (!SolveWeightedPlane(dx, dy, val, w, n, out b0, out b1, out b2)) {
+                    return result; // singular / collinear geometry → no usable plane
+                }
+                var absr = new double[n];
+                for (int i = 0; i < n; ++i) absr[i] = Math.Abs(val[i] - (b0 + b1 * dx[i] + b2 * dy[i]));
+                double sigma = 1.4826 * MedianInPlace(absr);
+                if (sigma <= 0) break; // residuals essentially zero; fit is exact
+                for (int i = 0; i < n; ++i) {
+                    double z = Math.Abs(val[i] - (b0 + b1 * dx[i] + b2 * dy[i])) / sigma;
+                    w[i] = z <= huberC ? 1.0 : huberC / z;
+                }
+            }
+
+            result.PlaneValid = true;
+            result.B0 = b0;
+            result.B1 = b1;
+            result.B2 = b2;
+            result.GradientSlope = Math.Sqrt(b1 * b1 + b2 * b2);
+
+            var absResid = new double[n];
+            for (int i = 0; i < n; ++i) absResid[i] = Math.Abs(val[i] - (b0 + b1 * dx[i] + b2 * dy[i]));
+            double localSigma = 1.4826 * MedianInPlace(absResid);
+            if (localSigma <= 0) localSigma = fallbackSigma;
+            result.LocalSigmaResidual = localSigma;
+
+            // Contamination decision (only when enabled).
+            if (sensitivity <= 0 || localSigma <= 0) {
+                return result;
+            }
+            var bySector = new List<double>[numSectors];
+            for (int s = 0; s < numSectors; ++s) bySector[s] = new List<double>();
+            for (int i = 0; i < n; ++i) {
+                bySector[OctantOf(dx[i], dy[i])].Add(val[i] - (b0 + b1 * dx[i] + b2 * dy[i]));
+            }
+            double maxStat = double.NaN;
+            for (int s = 0; s < numSectors; ++s) {
+                int count = bySector[s].Count;
+                if (fillSectors) result.SectorResidualCount[s] = count;
+                if (count == 0) continue;
+                bySector[s].Sort();
+                double med = bySector[s][count >> 1];
+                if (fillSectors) result.SectorResidualMedian[s] = med;
+                if (count < minSectorPixels) continue;
+                double se = 1.2533 * localSigma / Math.Sqrt(count);
+                if (se <= 0) continue;
+                double stat = med / se; // one-sided: positive excess over the local plane
+                if (double.IsNaN(maxStat) || stat > maxStat) maxStat = stat;
+                if (med > sensitivity * se && result.TrippingSector < 0) {
+                    result.TrippingSector = s;
+                }
+            }
+            result.MaxSectorResidualOverSE = maxStat;
+            result.Suspected = result.TrippingSector >= 0;
+            return result;
+        }
+
+        // Solves the weighted least-squares plane val ≈ b0 + b1*dx + b2*dy. Returns false if the normal
+        // matrix is singular (collinear / degenerate annulus geometry).
+        private static bool SolveWeightedPlane(float[] dx, float[] dy, float[] val, double[] w, int n,
+                out double b0, out double b1, out double b2) {
+            double sw = 0, swx = 0, swy = 0, swxx = 0, swxy = 0, swyy = 0, swv = 0, swxv = 0, swyv = 0;
+            for (int i = 0; i < n; ++i) {
+                double wi = w[i], x = dx[i], y = dy[i], v = val[i];
+                sw += wi; swx += wi * x; swy += wi * y;
+                swxx += wi * x * x; swxy += wi * x * y; swyy += wi * y * y;
+                swv += wi * v; swxv += wi * x * v; swyv += wi * y * v;
+            }
+            var a = new double[3, 3] { { sw, swx, swy }, { swx, swxx, swxy }, { swy, swxy, swyy } };
+            var g = new double[3] { swv, swxv, swyv };
+            b0 = b1 = b2 = 0;
+            // Gaussian elimination with partial pivoting.
+            for (int col = 0; col < 3; ++col) {
+                int piv = col;
+                for (int r = col + 1; r < 3; ++r) if (Math.Abs(a[r, col]) > Math.Abs(a[piv, col])) piv = r;
+                if (Math.Abs(a[piv, col]) < 1e-12) return false;
+                if (piv != col) {
+                    for (int c = 0; c < 3; ++c) { var t = a[col, c]; a[col, c] = a[piv, c]; a[piv, c] = t; }
+                    var tg = g[col]; g[col] = g[piv]; g[piv] = tg;
+                }
+                for (int r = 0; r < 3; ++r) {
+                    if (r == col) continue;
+                    double f = a[r, col] / a[col, col];
+                    for (int c = col; c < 3; ++c) a[r, c] -= f * a[col, c];
+                    g[r] -= f * g[col];
+                }
+            }
+            b0 = g[0] / a[0, 0];
+            b1 = g[1] / a[1, 1];
+            b2 = g[2] / a[2, 2];
+            return true;
+        }
+
+        // Median of an array, sorting it in place (caller passes a scratch array it owns).
+        private static double MedianInPlace(double[] a) {
+            if (a.Length == 0) return 0;
+            Array.Sort(a);
+            return a[a.Length >> 1];
+        }
+
+        /// <summary>
+        /// Assigns a (dx, dy) offset to one of 8 angular octants such that octant s and octant s+4
+        /// are geometrically opposite. Uses sign/magnitude branches to avoid a per-pixel atan2.
+        /// </summary>
+        internal static int OctantOf(double dx, double dy) {
+            if (dx >= 0) {
+                if (dy >= 0) {
+                    return Math.Abs(dx) >= Math.Abs(dy) ? 0 : 1;
+                }
+                return Math.Abs(dx) >= Math.Abs(dy) ? 7 : 6;
+            }
+            if (dy >= 0) {
+                return Math.Abs(dx) >= Math.Abs(dy) ? 3 : 2;
+            }
+            return Math.Abs(dx) >= Math.Abs(dy) ? 4 : 5;
         }
 
         internal bool MeasureStar(Mat srcImage, Star star, StarDetectorParams p, double noiseSigma) {
-            var background = star.Background;
+            // Subtract the local background plane per pixel so a one-sided gradient does not bias HFR. Fall back
+            // to a flat plane at the scalar background if no plane is available.
+            var backgroundPlane = star.BackgroundPlane ?? LocalBackgroundPlane.Flat(star.Center.X, star.Center.Y, star.Background);
             double totalBrightness = 0.0;
             double totalWeightedDistance = 0.0;
 
@@ -456,6 +634,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         continue;
                     }
 
+                    var background = backgroundPlane.ValueAt(x, y);
                     var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x) - background - noiseThreshold;
                     if (value > 0.0f) {
                         // Apply partial-pixel weighting at the aperture boundary (linear interpolation)
@@ -658,6 +837,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var star = new Star() {
                 Center = starCandidate.Center,
                 Background = starCandidate.Background,
+                BackgroundPlane = starCandidate.BackgroundPlane,
                 MeanBrightness = starCandidate.TotalFlux / starCandidate.PixelCount,
                 StarBoundingBox = starBounds,
                 PeakBrightness = starCandidate.Peak
@@ -675,6 +855,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return null;
             }
 
+            star.StarContaminationSuspected = starCandidate.ContaminationSuspected;
+            if (star.StarContaminationSuspected) {
+                // Record the bounds regardless of whether the star is rejected, so the annotator can mark
+                // contaminated stars even when RejectContaminatedStars removes them from the detected set.
+                metrics.ContaminatedBounds.Add(starBounds);
+                // Quality gate: reject contaminated stars so HFR/PSF statistics stay clean of one-sided
+                // contaminants. Disabled (flag-only) when RejectContaminatedStars is off (e.g. diagnostics).
+                if (p.RejectContaminatedStars) {
+                    return null;
+                }
+            }
+
+            if (p.CollectContaminationDiagnostics && starCandidate.ContaminationDiagnostics != null && contaminationDiagnosticsBag != null) {
+                var record = starCandidate.ContaminationDiagnostics;
+                record.CenterX = star.Center.X;
+                record.CenterY = star.Center.Y;
+                record.Hfr = star.HFR;
+                record.Background = star.Background;
+                contaminationDiagnosticsBag.Add(record);
+            }
+
             return star;
         }
 
@@ -687,6 +888,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var minY = box.Y + (box.Height - centerThresholdBoxHeight) / 2.0;
             var maxY = minY + centerThresholdBoxHeight;
             return starCandidate.Center.X >= minX && starCandidate.Center.X <= maxX && starCandidate.Center.Y >= minY && starCandidate.Center.Y <= maxY;
+        }
+
+        /// <summary>
+        /// Estimates a robust local background scatter (sigma) from a background-annulus sample, used as the
+        /// noise scale for the contamination asymmetry test instead of the global image-noise floor. Near
+        /// bright stars and in gradients/nebulosity the local background roughness is several times the global
+        /// noise, so a bar built on the global sigma is far too tight and flags ordinary stars.
+        ///
+        /// Uses the median absolute deviation (MAD), whose 50% breakdown point means a single contaminated
+        /// sector (≤ 1/8 of the annulus) cannot inflate it enough to hide itself, while smooth gradients that
+        /// lift every sector are correctly absorbed into the bar. <paramref name="sortedPixels"/> must be sorted
+        /// ascending over [0, <paramref name="count"/>). Returns the consistency-corrected sigma (1.4826 × MAD),
+        /// or 0 if the sample is too small or perfectly flat — signaling the caller to fall back to the global
+        /// noise sigma.
+        /// </summary>
+        internal static double ComputeLocalBackgroundSigma(float[] sortedPixels, int count, double median) {
+            const int MinPixelsForLocalSigma = 8;
+            if (sortedPixels == null || count < MinPixelsForLocalSigma) {
+                return 0.0;
+            }
+            var deviations = new double[count];
+            for (int i = 0; i < count; ++i) {
+                deviations[i] = Math.Abs(sortedPixels[i] - median);
+            }
+            Array.Sort(deviations);
+            var mad = ComputeMedian(deviations);
+            return 1.4826 * mad;
         }
 
         /// <summary>
@@ -715,8 +943,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// <param name="imageData">Pointer to the flat float32 pixel array (unsafe).</param>
         /// <param name="imageWidth">Number of pixels per row in the image.</param>
         /// <param name="starPoints">Candidate pixels to consider (from the structure map).</param>
-        /// <param name="backgroundMedian">Median background level to subtract from each pixel.</param>
-        /// <param name="backgroundThreshold">Minimum raw pixel value to include in any pass.</param>
+        /// <param name="backgroundPlane">Local background plane subtracted (per pixel) from each value.</param>
+        /// <param name="clipMargin">Pixels must exceed plane + this margin to be included (clipping band).</param>
         /// <param name="apertureRadius">Circular aperture radius used from pass 2 onward.</param>
         /// <param name="numPasses">Total number of centroid passes (2 or 3 recommended).</param>
         /// <returns>
@@ -727,8 +955,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             float* imageData,
             int imageWidth,
             List<Point> starPoints,
-            double backgroundMedian,
-            double backgroundThreshold,
+            LocalBackgroundPlane backgroundPlane,
+            double clipMargin,
             double apertureRadius,
             int numPasses) {
 
@@ -736,10 +964,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             double sx = 0, sy = 0, sz = 0;
             foreach (var pt in starPoints) {
                 var pixel = imageData[pt.Y * imageWidth + pt.X];
-                if (pixel <= backgroundThreshold) {
+                var background = backgroundPlane.ValueAt(pt.X, pt.Y);
+                if (pixel <= background + clipMargin) {
                     continue;
                 }
-                var flux = pixel - backgroundMedian;
+                var flux = pixel - background;
                 sx += flux * pt.X;
                 sy += flux * pt.Y;
                 sz += flux;
@@ -765,7 +994,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 sx = 0; sy = 0; sz = 0;
                 foreach (var pt in starPoints) {
                     var pixel = imageData[pt.Y * imageWidth + pt.X];
-                    if (pixel <= backgroundThreshold) {
+                    var background = backgroundPlane.ValueAt(pt.X, pt.Y);
+                    if (pixel <= background + clipMargin) {
                         continue;
                     }
                     var dx = pt.X - cx;
@@ -773,7 +1003,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     if (dx * dx + dy * dy > r2) {
                         continue;
                     }
-                    var flux = pixel - backgroundMedian;
+                    var flux = pixel - background;
                     sx += flux * pt.X;
                     sy += flux * pt.Y;
                     sz += flux;
@@ -796,6 +1026,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var surroundingPixels = new float[(expandedWidth * expandedHeight) - (starBounds.Width * starBounds.Height)];
             int surroundingPixelCount = 0;
 
+            const int MinSectorPixels = 8;
+            var cx = starBounds.X + starBounds.Width / 2.0;
+            var cy = starBounds.Y + starBounds.Height / 2.0;
+
+            // Retain each background-annulus pixel's (dx, dy, value) relative to the bounding-box center so the
+            // robust background plane (used as the local background for centroid/flux/HFR/PSF) and the
+            // gradient-robust contamination test can be computed below.
+            float[] annDx = new float[surroundingPixels.Length];
+            float[] annDy = new float[surroundingPixels.Length];
+            float[] annVal = new float[surroundingPixels.Length];
+
             // Search an expanded box to estimate the median background value
             unsafe {
                 var imageData = (float*)srcImage.DataPointer;
@@ -810,7 +1051,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // Top part of box
                 for (int y = backgroundStartY; y < starBounds.Y; ++y) {
                     for (int x = backgroundStartX; x < backgroundEndX; ++x) {
-                        surroundingPixels[surroundingPixelCount++] = *pixelPtr;
+                        var bgPixel = *pixelPtr;
+                        int annIdx = surroundingPixelCount++;
+                        surroundingPixels[annIdx] = bgPixel;
+                        annDx[annIdx] = (float)(x - cx); annDy[annIdx] = (float)(y - cy); annVal[annIdx] = bgPixel;
                         ++pixelPtr;
                     }
 
@@ -821,14 +1065,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // Center part of box
                 for (int y = starBounds.Y; y < starBounds.Bottom; ++y) {
                     for (int x = backgroundStartX; x < starBounds.X; ++x) {
-                        surroundingPixels[surroundingPixelCount++] = *pixelPtr;
+                        var bgPixel = *pixelPtr;
+                        int annIdx = surroundingPixelCount++;
+                        surroundingPixels[annIdx] = bgPixel;
+                        annDx[annIdx] = (float)(x - cx); annDy[annIdx] = (float)(y - cy); annVal[annIdx] = bgPixel;
                         ++pixelPtr;
                     }
 
                     // Skip the inner hole
                     pixelPtr += starBounds.Width;
                     for (int x = starBounds.Right; x < backgroundEndX; ++x) {
-                        surroundingPixels[surroundingPixelCount++] = *pixelPtr;
+                        var bgPixel = *pixelPtr;
+                        int annIdx = surroundingPixelCount++;
+                        surroundingPixels[annIdx] = bgPixel;
+                        annDx[annIdx] = (float)(x - cx); annDy[annIdx] = (float)(y - cy); annVal[annIdx] = bgPixel;
                         ++pixelPtr;
                     }
 
@@ -839,7 +1089,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // Bottom part of box
                 for (int y = starBounds.Bottom; y < backgroundEndY; ++y) {
                     for (int x = backgroundStartX; x < backgroundEndX; ++x) {
-                        surroundingPixels[surroundingPixelCount++] = *pixelPtr;
+                        var bgPixel = *pixelPtr;
+                        int annIdx = surroundingPixelCount++;
+                        surroundingPixels[annIdx] = bgPixel;
+                        annDx[annIdx] = (float)(x - cx); annDy[annIdx] = (float)(y - cy); annVal[annIdx] = bgPixel;
                         ++pixelPtr;
                     }
 
@@ -851,7 +1104,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             Array.Sort(surroundingPixels, 0, surroundingPixelCount);
             var backgroundMedian = surroundingPixels[surroundingPixelCount >> 1];
 
-            var backgroundThreshold = backgroundMedian + p.StarClippingMultiplier * noiseSigma;
+            // Robust local background scatter from the annulus pixels themselves, used as the noise scale for
+            // the contamination test. The global noiseSigma is the image-noise floor; near bright stars and in
+            // gradients/nebulosity the real local roughness is several times larger, so feeding the global value
+            // to the standard-error model makes the bar far too tight. Fall back to the global sigma when the
+            // sample is too small or perfectly flat (helper returns 0).
+            var localBackgroundSigma = ComputeLocalBackgroundSigma(surroundingPixels, surroundingPixelCount, backgroundMedian);
+            var contaminationSigma = localBackgroundSigma > 0.0 ? localBackgroundSigma : noiseSigma;
+
+            // Fit the robust local background plane and run the gradient-robust contamination test in one pass.
+            var gr = ComputeGradientContamination(annDx, annDy, annVal, surroundingPixelCount,
+                contaminationSigma, p.ContaminationSensitivity, MinSectorPixels, fillSectors: p.CollectContaminationDiagnostics);
+            var contaminationSuspected = gr.Suspected;
+
+            // Local background model: the fitted plane when usable, else a flat plane at the annulus median.
+            // Used as the per-pixel background for clipping, flux, centroid, HFR and PSF so a one-sided gradient
+            // (galaxy/nebula) does not bias any measurement; for flat fields the plane equals the median.
+            var backgroundPlane = gr.PlaneValid
+                ? new LocalBackgroundPlane(cx, cy, gr.B0, gr.B1, gr.B2, isFlat: false)
+                : LocalBackgroundPlane.Flat(cx, cy, backgroundMedian);
+
+            var clipMargin = p.StarClippingMultiplier * noiseSigma;
             double totalFlux = 0d, peak = 0d;
             int numUnclippedPixels = 0;
             double[] starPixels;
@@ -859,12 +1132,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var imageData = (float*)srcImage.DataPointer;
                 float minPixel = 1.0f, maxPixel = 0.0f;
                 foreach (var starPoint in starPoints) {
-                    var pixel = imageData[starPoint.Y * srcImage.Width + starPoint.X];
-                    if (pixel <= backgroundThreshold) {
+                    var raw = imageData[starPoint.Y * srcImage.Width + starPoint.X];
+                    var background = backgroundPlane.ValueAt(starPoint.X, starPoint.Y);
+                    if (raw <= background + clipMargin) {
                         continue;
                     }
 
-                    pixel -= backgroundMedian;
+                    var pixel = (float)(raw - background);
 
                     ++numUnclippedPixels;
                     if (pixel < minPixel) minPixel = pixel;
@@ -879,12 +1153,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 starPixels = new double[numUnclippedPixels];
                 int pixelCount = 0;
                 foreach (var starPoint in starPoints) {
-                    var pixel = imageData[starPoint.Y * srcImage.Width + starPoint.X];
-                    if (pixel <= backgroundThreshold) {
+                    var raw = imageData[starPoint.Y * srcImage.Width + starPoint.X];
+                    var background = backgroundPlane.ValueAt(starPoint.X, starPoint.Y);
+                    if (raw <= background + clipMargin) {
                         continue;
                     }
 
-                    pixel -= backgroundMedian;
+                    var pixel = raw - background;
                     totalFlux += pixel;
                     peak = pixel > peak ? pixel : peak;
                     starPixels[pixelCount++] = pixel;
@@ -906,23 +1181,45 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     imageData: (float*)srcImage.DataPointer,
                     imageWidth: srcImage.Width,
                     starPoints: starPoints,
-                    backgroundMedian: backgroundMedian,
-                    backgroundThreshold: backgroundThreshold,
+                    backgroundPlane: backgroundPlane,
+                    clipMargin: clipMargin,
                     apertureRadius: apertureRadius,
                     numPasses: 3);
             }
-            var centerBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: center.Y, x: center.X) - backgroundMedian;
+            var backgroundAtCenter = backgroundPlane.ValueAt(center.X, center.Y);
+            var centerBrightness = CvImageUtility.BilinearSamplePixelValue(srcImage, y: center.Y, x: center.X) - backgroundAtCenter;
+
+            ContaminationDiagnosticRecord contaminationDiagnostics = null;
+            if (p.CollectContaminationDiagnostics) {
+                contaminationDiagnostics = new ContaminationDiagnosticRecord() {
+                    NoiseSigma = contaminationSigma,
+                    Sensitivity = p.ContaminationSensitivity,
+                    MinSectorPixels = MinSectorPixels,
+                    ContaminationSuspected = contaminationSuspected,
+                    GradientSlope = gr.GradientSlope,
+                    LocalSigmaResidual = gr.LocalSigmaResidual,
+                    SectorResidualMedian = gr.SectorResidualMedian,
+                    SectorResidualCount = gr.SectorResidualCount,
+                    MaxSectorResidualOverSE = gr.MaxSectorResidualOverSE,
+                    ResidualTrippingSector = gr.TrippingSector
+                    // CenterX/CenterY/Hfr/Background are filled later in CreateStar.
+                };
+            }
+
             return new StarCandidate() {
                 Center = center,
                 CenterBrightness = (float)centerBrightness,
-                Background = backgroundMedian,
+                Background = backgroundAtCenter,
+                BackgroundPlane = backgroundPlane,
                 TotalFlux = (float)totalFlux,
                 Peak = (float)peak,
                 // Detection level for the star's brightness corrected for the peak response
                 NormalizedBrightness = (float)(peak - (1 - p.PeakResponse) * meanFlux),
                 StarBoundingBox = starBounds,
                 StarMedian = starMedian,
-                PixelCount = starPoints.Count
+                PixelCount = starPoints.Count,
+                ContaminationSuspected = contaminationSuspected,
+                ContaminationDiagnostics = contaminationDiagnostics
             };
         }
     }

@@ -149,6 +149,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             noiseReductionRadius = optionsAccessor.GetValueInt32("NoiseReductionRadius", 3);
             noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 4.0);
             starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 2.0);
+            contaminationSensitivity = optionsAccessor.GetValueDouble("ContaminationSensitivity", 5.0);
+            rejectContaminatedStars = optionsAccessor.GetValueBoolean("RejectContaminatedStars", true);
             structureLayers = optionsAccessor.GetValueInt32("StructureLayers", 4);
             brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 10.0);
             starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.75);
@@ -171,7 +173,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             psfParallelPartitionSize = optionsAccessor.GetValueInt32("PSFParallelPartitionSize", 100);
             psfResolution = optionsAccessor.GetValueInt32("PSFResolution", 10);
             psfFitThreshold = optionsAccessor.GetValueDouble("PSFFitThreshold", 0.9);
-            psfGoodnessOfFitThresholdChiSq = optionsAccessor.GetValueDouble(nameof(PSFGoodnessOfFitThresholdChiSq), 2.0);
             usePSFAbsoluteDeviation = optionsAccessor.GetValueBoolean(nameof(UsePSFAbsoluteDeviation), false);
             hotpixelThreshold = optionsAccessor.GetValueDouble(nameof(HotpixelThreshold), 0.001d);
             saturationThreshold = optionsAccessor.GetValueDouble(nameof(SaturationThreshold), 0.99d);
@@ -195,6 +196,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             NoiseReductionRadius = 3;
             NoiseClippingMultiplier = 4.0;
             StarClippingMultiplier = 2.0;
+            ContaminationSensitivity = 5.0;
+            RejectContaminatedStars = true;
             StructureLayers = 4;
             BrightnessSensitivity = 10.0;
             StarPeakResponse = 0.6;
@@ -214,7 +217,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFParallelPartitionSize = 100;
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
-            PSFGoodnessOfFitThresholdChiSq = 2.0;
             UsePSFAbsoluteDeviation = false;
             HotpixelThreshold = 0.001d;
             SaturationThreshold = 0.99d;
@@ -402,6 +404,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         private double starClippingMultiplier;
+
+        private double contaminationSensitivity;
+        public double ContaminationSensitivity {
+            get => contaminationSensitivity;
+            set {
+                if (value < 0.0) {
+                    value = 0.0;
+                }
+                if (contaminationSensitivity != value) {
+                    contaminationSensitivity = value;
+                    optionsAccessor.SetValueDouble("ContaminationSensitivity", contaminationSensitivity);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool rejectContaminatedStars;
+        public bool RejectContaminatedStars {
+            get => rejectContaminatedStars;
+            set {
+                if (rejectContaminatedStars != value) {
+                    rejectContaminatedStars = value;
+                    optionsAccessor.SetValueBoolean("RejectContaminatedStars", rejectContaminatedStars);
+                    RaisePropertyChanged();
+                }
+            }
+        }
 
         public double StarClippingMultiplier {
             get => starClippingMultiplier;
@@ -661,27 +690,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     psfFitThreshold = value;
                     optionsAccessor.SetValueDouble("PSFFitThreshold", psfFitThreshold);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double psfGoodnessOfFitThresholdChiSq;
-
-        /// <summary>
-        /// Reduced chi-squared threshold for PSF fit acceptance.
-        /// When &gt; 0, the fit is accepted only when reducedChiSquared ≤ this value (default 2.0).
-        /// Set to 0 to disable and fall back to the R² gate (PSFFitThreshold).
-        /// </summary>
-        public double PSFGoodnessOfFitThresholdChiSq {
-            get => psfGoodnessOfFitThresholdChiSq;
-            set {
-                if (psfGoodnessOfFitThresholdChiSq != value) {
-                    if (value < 0.0) {
-                        throw new ArgumentException("PSFGoodnessOfFitThresholdChiSq must be non-negative (0 disables the chi-squared gate)", nameof(PSFGoodnessOfFitThresholdChiSq));
-                    }
-                    psfGoodnessOfFitThresholdChiSq = value;
-                    optionsAccessor.SetValueDouble(nameof(PSFGoodnessOfFitThresholdChiSq), psfGoodnessOfFitThresholdChiSq);
                     RaisePropertyChanged();
                 }
             }

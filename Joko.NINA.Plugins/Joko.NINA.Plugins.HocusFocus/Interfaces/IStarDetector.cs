@@ -216,6 +216,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         // Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis
         public double StarClippingMultiplier { get; set; } = 2.0;
+        public double ContaminationSensitivity { get; set; } = 5.0;
+
+        // When true (default), stars flagged as contaminated by the gradient-robust test are rejected
+        // outright (quality gate) rather than merely flagged, keeping HFR/PSF statistics clean of
+        // one-sided contaminants. When false, contaminated stars are kept and only flagged.
+        public bool RejectContaminatedStars { get; set; } = true;
+
+        // Diagnostics opt-in. When true, the detector records a per-star ContaminationDiagnosticRecord for
+        // every accepted star (see HocusFocusStarDetectorResult.ContaminationDiagnostics). Off by default so
+        // production NINA runs incur zero extra allocations or math. Excluded from ToString().
+        public bool CollectContaminationDiagnostics { get; set; } = false;
 
         // Half size of a median box filter, used for hotpixel removal if HotpixelFiltering is enabled. Only 1 is supported for now, since OpenCV has native support for
         // a median box filter but not a general circular one
@@ -278,11 +289,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // If PSF modeling is enabled, any R^2 values below this threshold will be rejected
         public double PSFGoodnessOfFitThreshold { get; set; } = 0.9;
 
-        // Reduced chi-squared threshold for PSF fit acceptance.
-        // When > 0, the fit is accepted only when reducedChiSquared <= this value.
-        // Set to 0 to disable and fall back to the R² gate.
-        public double PSFGoodnessOfFitThresholdChiSq { get; set; } = 2.0;
-
         // The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting
         public int PSFResolution { get; set; } = 10;
 
@@ -299,24 +305,49 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double PixelScale { get; set; } = 1.0d;
 
         public override string ToString() {
-            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFGoodnessOfFitThresholdChiSq)}={PSFGoodnessOfFitThresholdChiSq.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}}}";
+            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}}}";
         }
+    }
+
+    /// <summary>
+    /// A fitted local background plane B(x, y) = B0 + B1·(x − OriginX) + B2·(y − OriginY), estimated robustly
+    /// from a star's background annulus. Used as the local background everywhere a scalar median was used
+    /// (centroid, flux, HFR, PSF) so a one-sided gradient (galaxy/nebula) does not bias measurements. When a
+    /// usable gradient fit is unavailable, <see cref="Flat"/> yields a constant plane equal to the median.
+    /// </summary>
+    public sealed class LocalBackgroundPlane {
+        public double OriginX { get; }
+        public double OriginY { get; }
+        public double B0 { get; }   // background at the origin
+        public double B1 { get; }   // d(background)/dx
+        public double B2 { get; }   // d(background)/dy
+        public bool IsFlat { get; } // true when constructed from a scalar median (no usable gradient fit)
+
+        public LocalBackgroundPlane(double originX, double originY, double b0, double b1, double b2, bool isFlat) {
+            OriginX = originX; OriginY = originY; B0 = b0; B1 = b1; B2 = b2; IsFlat = isFlat;
+        }
+
+        public static LocalBackgroundPlane Flat(double originX, double originY, double value)
+            => new LocalBackgroundPlane(originX, originY, value, 0.0, 0.0, isFlat: true);
+
+        public double ValueAt(double x, double y) => B0 + B1 * (x - OriginX) + B2 * (y - OriginY);
     }
 
     public class Star {
         public Point2d Center { get; set; }
         public Rect StarBoundingBox { get; set; }
         public double Background { get; set; }
+        public LocalBackgroundPlane BackgroundPlane { get; set; }
         public double MeanBrightness { get; set; }
         public double PeakBrightness { get; set; }
         public double HFR { get; set; }
         public PSFModel PSF { get; set; }
 
         /// <summary>
-        /// Set to true when the three background estimates (annulus median, per-pixel threshold, and PSF-fitted
-        /// background) disagree by more than 2× noiseSigma, indicating the star may be contaminated by a
-        /// neighbor star, a background gradient, or a hot column. The star is not rejected — this flag is
-        /// available for downstream diagnostics.
+        /// Set to true when the gradient-robust contamination test detects a one-sided positive residual excess
+        /// in the background annulus (a neighbor star, hot column, or other localized source), after removing
+        /// the smooth local gradient. When <see cref="StarDetectorParams.RejectContaminatedStars"/> is enabled
+        /// the star is rejected outright; otherwise it is kept and merely flagged for downstream diagnostics.
         /// </summary>
         public bool StarContaminationSuspected { get; set; }
 
@@ -345,7 +376,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int TooLowHFR { get; set; } = 0;
         public int HFRAnalysisFailed { get; set; } = 0;
         public int PSFFitFailed { get; set; } = 0;
-        public int ContaminationSuspected { get; set; } = 0;
+        public int ContaminationSuspected { get => ContaminatedBounds.Count; set => throw new NotSupportedException("Can't set ContaminationSuspected directly"); }
+        public List<Rect> ContaminatedBounds { get; private set; } = new List<Rect>();
         public int OutsideROI { get; set; } = 0;
         public long SaturatedPixelCount { get; set; } = 0L;
         public long HotpixelCount { get; set; } = 0L;
@@ -357,7 +389,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
                 SaturatedBounds,
                 LowSensitivityBounds,
                 NotCenteredBounds,
-                TooFlatBounds
+                TooFlatBounds,
+                ContaminatedBounds
             };
 
             var offset = new Point(xOffset, yOffset);
@@ -369,10 +402,40 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         }
     }
 
+    /// <summary>
+    /// Per-star diagnostics for the gradient-robust contamination test, captured only when
+    /// <see cref="StarDetectorParams.CollectContaminationDiagnostics"/> is enabled. One record is produced for
+    /// every accepted star (1:1 with <see cref="HocusFocusStarDetectorResult.DetectedStars"/>), so the
+    /// contamination decision can be reproduced and re-tuned offline. The test fits a robust plane to the
+    /// annulus pixels (removing the local gradient), then flags a one-sided POSITIVE residual excess in any
+    /// octant (a contaminant only adds light), which ignores both smooth gradients and edge-clip deficits.
+    /// </summary>
+    public sealed class ContaminationDiagnosticRecord {
+        public double CenterX { get; set; }            // image/pixel coords (ROI offset applied, like DetectedStars)
+        public double CenterY { get; set; }
+        public double NoiseSigma { get; set; }         // fallback sigma (used if the residual sigma is degenerate)
+        public double Sensitivity { get; set; }
+        public int MinSectorPixels { get; set; }       // = 8
+        public bool ContaminationSuspected { get; set; } // production decision
+        public double Hfr { get; set; }
+        public double Background { get; set; }          // local background plane value at the star center
+
+        // Gradient-robust test details.
+        public double GradientSlope { get; set; } = double.NaN;        // |fitted plane gradient| in counts/pixel
+        public double LocalSigmaResidual { get; set; } = double.NaN;   // robust sigma of plane-subtracted residuals
+        public double[] SectorResidualMedian { get; set; }            // length 8, plane-subtracted
+        public int[] SectorResidualCount { get; set; }                // length 8
+        public double MaxSectorResidualOverSE { get; set; } = double.NaN; // test statistic (max over sectors)
+        public int ResidualTrippingSector { get; set; } = -1;          // first sector that tripped, else -1
+    }
+
     public class HocusFocusStarDetectorResult {
         public List<Star> DetectedStars { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
         public DebugData DebugData { get; set; }
+
+        // Populated only when StarDetectorParams.CollectContaminationDiagnostics is true; otherwise null.
+        public List<ContaminationDiagnosticRecord> ContaminationDiagnostics { get; set; } = null;
     }
 
     public interface IStarDetector {

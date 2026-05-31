@@ -104,8 +104,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     imageData: imageData,
                     imageWidth: side,
                     starPoints: points,
-                    backgroundMedian: background,
-                    backgroundThreshold: backgroundThreshold,
+                    backgroundPlane: LocalBackgroundPlane.Flat(0, 0, background),
+                    clipMargin: backgroundThreshold - background,
                     apertureRadius: apertureRadius,
                     numPasses: 3);
 
@@ -157,8 +157,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     imageData: imageData,
                     imageWidth: side,
                     starPoints: points,
-                    backgroundMedian: background,
-                    backgroundThreshold: backgroundThreshold,
+                    backgroundPlane: LocalBackgroundPlane.Flat(0, 0, background),
+                    clipMargin: backgroundThreshold - background,
                     apertureRadius: apertureRadius,
                     numPasses: 1);
 
@@ -167,8 +167,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     imageData: imageData,
                     imageWidth: side,
                     starPoints: points,
-                    backgroundMedian: background,
-                    backgroundThreshold: backgroundThreshold,
+                    backgroundPlane: LocalBackgroundPlane.Flat(0, 0, background),
+                    clipMargin: backgroundThreshold - background,
                     apertureRadius: apertureRadius,
                     numPasses: 3);
 
@@ -208,8 +208,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     imageData: imageData,
                     imageWidth: side,
                     starPoints: points,
-                    backgroundMedian: background,
-                    backgroundThreshold: backgroundThreshold,
+                    backgroundPlane: LocalBackgroundPlane.Flat(0, 0, background),
+                    clipMargin: backgroundThreshold - background,
                     apertureRadius: 3.0,
                     numPasses: 3);
 
@@ -322,94 +322,159 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 pixelScale: 1.0);
         }
 
-        [Test]
-        public void CheckBackgroundContamination_AnnulusVsPSFDiffExceedsTwoSigma_FlagsAndReturnsTrue() {
-            // annulus_bg = 0.1, psf_bg = 0.3, noiseSigma = 0.05
-            // |0.1 - 0.3| = 0.2 > 2 * 0.05 = 0.1  → contamination suspected
-            const double annulusBg = 0.1;
-            const double psfBg = 0.3;
-            const double noiseSigma = 0.05;
+        // -----------------------------------------------------------------------
+        // Gradient-robust contamination test + local background plane
+        // -----------------------------------------------------------------------
 
-            var star = new Star {
-                Center = new Point2d(100.0, 200.0),
-                Background = annulusBg,
-                StarBoundingBox = new Rect(90, 190, 20, 20)
-            };
-            var psf = MakePSF(background: psfBg);
-            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
-
-            var result = StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma);
-
-            Assert.Multiple(() => {
-                Assert.That(result, Is.True, "Should return true when annulus and PSF backgrounds differ by 4σ");
-                Assert.That(star.StarContaminationSuspected, Is.True, "Star.StarContaminationSuspected should be set");
-            });
-        }
-
-        [Test]
-        public void CheckBackgroundContamination_AnnulusVsPSFDiffExactlyTwoSigma_DoesNotFlag() {
-            // |0.1 - 0.2| = 0.1 == 2 * 0.05 = 0.1  → NOT > twoSigma, so not flagged
-            const double annulusBg = 0.1;
-            const double psfBg = 0.2;
-            const double noiseSigma = 0.05;
-
-            var star = new Star {
-                Center = new Point2d(100.0, 200.0),
-                Background = annulusBg,
-                StarBoundingBox = new Rect(90, 190, 20, 20)
-            };
-            var psf = MakePSF(background: psfBg);
-            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
-
-            var result = StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma);
-
-            Assert.Multiple(() => {
-                Assert.That(result, Is.False, "Should not flag when difference equals exactly 2σ (not strictly greater)");
-                Assert.That(star.StarContaminationSuspected, Is.False, "Star.StarContaminationSuspected should remain false");
-            });
-        }
-
-        [Test]
-        public void CheckBackgroundContamination_AnnulusVsPSFAgreement_DoesNotFlag() {
-            // Backgrounds agree: |0.1 - 0.12| = 0.02 < 2 * 0.05 = 0.1
-            const double annulusBg = 0.1;
-            const double psfBg = 0.12;
-            const double noiseSigma = 0.05;
-
-            var star = new Star {
-                Center = new Point2d(50.0, 50.0),
-                Background = annulusBg,
-                StarBoundingBox = new Rect(40, 40, 20, 20)
-            };
-            var psf = MakePSF(background: psfBg);
-            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
-
-            var result = StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma);
-
-            Assert.Multiple(() => {
-                Assert.That(result, Is.False, "Should not flag when backgrounds agree within 2σ");
-                Assert.That(star.StarContaminationSuspected, Is.False, "StarContaminationSuspected should remain false");
-            });
-        }
-
-        [Test]
-        public void CheckBackgroundContamination_MetricsCounterIncremented_WhenFlagged() {
-            // Verify that the caller (ModelPSF) would correctly count the flagged star.
-            // We simulate the counter increment that ModelPSF performs.
-            var metrics = new StarDetectorMetrics();
-            var star = new Star {
-                Center = new Point2d(10.0, 20.0),
-                Background = 0.1,
-                StarBoundingBox = new Rect(5, 15, 20, 20)
-            };
-            var psf = MakePSF(background: 0.3);  // Differs by 4σ from annulus
-            var p = new StarDetectorParams { StarClippingMultiplier = 1.0 };
-
-            if (StarDetector.CheckBackgroundContamination(star, psf, p, noiseSigma: 0.05)) {
-                ++metrics.ContaminationSuspected;
+        /// <summary>
+        /// Builds a synthetic background annulus: a ring of pixels (inner..outer radius) around the origin,
+        /// each valued by a planar gradient plus an optional localized positive bump in one octant.
+        /// </summary>
+        private static (float[] dx, float[] dy, float[] val, int n) MakeAnnulus(
+                double b0, double b1, double b2, int bumpOctant = -1, double bumpValue = 0.0,
+                int innerRadius = 4, int outerRadius = 8) {
+            var dxs = new List<float>();
+            var dys = new List<float>();
+            var vals = new List<float>();
+            for (int y = -outerRadius; y <= outerRadius; ++y) {
+                for (int x = -outerRadius; x <= outerRadius; ++x) {
+                    var r = Math.Sqrt(x * x + y * y);
+                    if (r < innerRadius || r > outerRadius) {
+                        continue;
+                    }
+                    double v = b0 + b1 * x + b2 * y;
+                    if (bumpOctant >= 0 && StarDetector.OctantOf(x, y) == bumpOctant) {
+                        v += bumpValue;
+                    }
+                    dxs.Add(x); dys.Add(y); vals.Add((float)v);
+                }
             }
+            return (dxs.ToArray(), dys.ToArray(), vals.ToArray(), dxs.Count);
+        }
 
-            Assert.That(metrics.ContaminationSuspected, Is.EqualTo(1));
+        [Test]
+        public void LocalBackgroundPlane_ValueAt_EvaluatesPlaneRelativeToOrigin() {
+            var plane = new LocalBackgroundPlane(originX: 100, originY: 50, b0: 5.0, b1: 0.1, b2: -0.2, isFlat: false);
+            Assert.Multiple(() => {
+                Assert.That(plane.ValueAt(100, 50), Is.EqualTo(5.0).Within(1e-9), "At origin → b0");
+                Assert.That(plane.ValueAt(110, 50), Is.EqualTo(5.0 + 0.1 * 10).Within(1e-9));
+                Assert.That(plane.ValueAt(100, 60), Is.EqualTo(5.0 + -0.2 * 10).Within(1e-9));
+                var flat = LocalBackgroundPlane.Flat(0, 0, 3.0);
+                Assert.That(flat.IsFlat, Is.True);
+                Assert.That(flat.ValueAt(123, -45), Is.EqualTo(3.0).Within(1e-12), "Flat plane is constant everywhere");
+            });
+        }
+
+        [Test]
+        public void ComputeGradientContamination_SmoothGradientNoContaminant_NotSuspectedButFitsPlane() {
+            // A pure one-sided gradient (galaxy/nebula slope) with no localized source must NOT be flagged,
+            // and the fitted plane should recover the gradient coefficients.
+            var (dx, dy, val, n) = MakeAnnulus(b0: 10.0, b1: 0.5, b2: -0.25);
+
+            var r = StarDetector.ComputeGradientContamination(dx, dy, val, n,
+                fallbackSigma: 1.0, sensitivity: 5.0, minSectorPixels: 8, fillSectors: true);
+
+            Assert.Multiple(() => {
+                Assert.That(r.PlaneValid, Is.True);
+                Assert.That(r.B0, Is.EqualTo(10.0).Within(1e-3));
+                Assert.That(r.B1, Is.EqualTo(0.5).Within(1e-3));
+                Assert.That(r.B2, Is.EqualTo(-0.25).Within(1e-3));
+                Assert.That(r.Suspected, Is.False, "A smooth gradient is removed by the plane fit → not contamination");
+            });
+        }
+
+        [Test]
+        public void ComputeGradientContamination_LocalizedBrightOctantOnGradient_IsSuspected() {
+            // The same gradient plus a strong localized positive bump in one octant must be flagged, because the
+            // bump survives as a one-sided positive residual after the gradient is removed.
+            var (dx, dy, val, n) = MakeAnnulus(b0: 10.0, b1: 0.5, b2: -0.25, bumpOctant: 0, bumpValue: 50.0);
+
+            var r = StarDetector.ComputeGradientContamination(dx, dy, val, n,
+                fallbackSigma: 1.0, sensitivity: 5.0, minSectorPixels: 8, fillSectors: true);
+
+            Assert.Multiple(() => {
+                Assert.That(r.PlaneValid, Is.True);
+                Assert.That(r.Suspected, Is.True, "A localized bright octant is real contamination → flagged");
+                Assert.That(r.TrippingSector, Is.EqualTo(0));
+            });
+        }
+
+        [Test]
+        public void ComputeGradientContamination_OneSidedDeficit_NotSuspected() {
+            // An edge-clipped annulus has one side reading far BELOW the plane (a deficit). The test is
+            // one-sided (positive excess only), so a deficit must not be flagged as contamination.
+            var (dx, dy, val, n) = MakeAnnulus(b0: 10.0, b1: 0.0, b2: 0.0, bumpOctant: 2, bumpValue: -9.0);
+
+            var r = StarDetector.ComputeGradientContamination(dx, dy, val, n,
+                fallbackSigma: 1.0, sensitivity: 5.0, minSectorPixels: 8, fillSectors: false);
+
+            Assert.That(r.Suspected, Is.False, "A one-sided deficit (edge clip) is not a contaminant");
+        }
+
+        [Test]
+        public void ComputeGradientContamination_SensitivityZero_FitsPlaneButNeverSuspected() {
+            // Sensitivity 0 disables the contamination decision, but the background plane must still be fit so
+            // it can serve as the local background for HFR/PSF — even in the presence of a localized contaminant.
+            var (dx, dy, val, n) = MakeAnnulus(b0: 10.0, b1: 0.5, b2: -0.25, bumpOctant: 0, bumpValue: 50.0);
+
+            var r = StarDetector.ComputeGradientContamination(dx, dy, val, n,
+                fallbackSigma: 1.0, sensitivity: 0.0, minSectorPixels: 8, fillSectors: false);
+
+            Assert.Multiple(() => {
+                Assert.That(r.Suspected, Is.False, "Sensitivity 0 disables the decision");
+                Assert.That(r.PlaneValid, Is.True, "Plane is still fit when the contamination test is disabled");
+            });
+        }
+
+        [Test]
+        public void ComputeGradientContamination_TooFewPoints_NoPlaneNotSuspected() {
+            var dx = new float[] { -1, 0, 1 };
+            var dy = new float[] { 0, 1, 0 };
+            var val = new float[] { 1, 1, 1 };
+
+            var r = StarDetector.ComputeGradientContamination(dx, dy, val, dx.Length,
+                fallbackSigma: 1.0, sensitivity: 5.0, minSectorPixels: 8, fillSectors: false);
+
+            Assert.Multiple(() => {
+                Assert.That(r.PlaneValid, Is.False);
+                Assert.That(r.Suspected, Is.False);
+            });
+        }
+
+        // -----------------------------------------------------------------------
+        // ComputeLocalBackgroundSigma + local-sigma contamination behavior
+        // -----------------------------------------------------------------------
+
+        [Test]
+        public void ComputeLocalBackgroundSigma_SampleTooSmall_ReturnsZero() {
+            // Fewer than the minimum sample size cannot give a trustworthy MAD, so the helper
+            // returns 0 to signal the caller to fall back to the global noise sigma.
+            var pixels = new float[] { 1f, 2f, 3f, 4f, 5f }; // 5 < 8
+            Array.Sort(pixels);
+            var median = pixels[pixels.Length >> 1];
+            var sigma = StarDetector.ComputeLocalBackgroundSigma(pixels, pixels.Length, median);
+            Assert.That(sigma, Is.EqualTo(0.0));
+        }
+
+        [Test]
+        public void ComputeLocalBackgroundSigma_FlatSample_ReturnsZero() {
+            // A perfectly flat annulus has MAD = 0; the helper returns 0 (fall back to global sigma)
+            // rather than a zero scale that would flag every star.
+            var pixels = new float[10];
+            for (int i = 0; i < pixels.Length; ++i) pixels[i] = 7.0f;
+            var sigma = StarDetector.ComputeLocalBackgroundSigma(pixels, pixels.Length, 7.0);
+            Assert.That(sigma, Is.EqualTo(0.0));
+        }
+
+        [Test]
+        public void ComputeLocalBackgroundSigma_KnownScatter_ScalesByMadConstant() {
+            // Symmetric sample [-4..4] about median 0. Absolute deviations are
+            // {0,1,1,2,2,3,3,4,4}; their median is 2, so sigma = 1.4826 * 2 = 2.9652.
+            var pixels = new float[] { -4f, -3f, -2f, -1f, 0f, 1f, 2f, 3f, 4f };
+            Array.Sort(pixels);
+            var median = pixels[pixels.Length >> 1]; // 0
+            var sigma = StarDetector.ComputeLocalBackgroundSigma(pixels, pixels.Length, median);
+            Assert.That(sigma, Is.EqualTo(1.4826 * 2.0).Within(1e-9));
         }
 
         [Test]
@@ -437,8 +502,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     imageData: imageData,
                     imageWidth: side,
                     starPoints: points,
-                    backgroundMedian: background,
-                    backgroundThreshold: backgroundThreshold,
+                    backgroundPlane: LocalBackgroundPlane.Flat(0, 0, background),
+                    clipMargin: backgroundThreshold - background,
                     apertureRadius: apertureRadius,
                     numPasses: 3);
 

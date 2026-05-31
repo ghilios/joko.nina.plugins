@@ -442,6 +442,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             double saturationThreshold = double.MaxValue,
             bool pixelIntegration = false) {
             var background = detectedStar.Background;
+            // Local background plane (value at the star center == background). Subtracting its gradient TILT
+            // from each sample flattens a one-sided background so the PSF shape fit (sigma/FWHM/eccentricity)
+            // is not biased by it, while leaving the constant background for the model's B parameter to fit.
+            var backgroundPlane = detectedStar.BackgroundPlane;
+            var removeGradient = backgroundPlane != null && !backgroundPlane.IsFlat;
             var nominalBoundingBoxWidth = Math.Sqrt(detectedStar.StarBoundingBox.Width * detectedStar.StarBoundingBox.Height);
             var samplingSize = nominalBoundingBoxWidth / psfResolution;
             var startX = detectedStar.Center.X - samplingSize * Math.Floor((detectedStar.Center.X - detectedStar.StarBoundingBox.Left) / samplingSize);
@@ -459,9 +464,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             for (var y = startY; y < endY; y += samplingSize) {
                 for (var x = startX; x < endX; x += samplingSize) {
                     var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x);
-                    // Skip saturated pixels — they don't carry valid profile information
+                    // Skip saturated pixels — they don't carry valid profile information (test the RAW value)
                     if (value >= saturationThreshold) {
                         continue;
+                    }
+                    // Remove the local background gradient tilt (zero at the star center, so the constant
+                    // background and the central amplitude are unaffected).
+                    if (removeGradient) {
+                        value -= backgroundPlane.ValueAt(x, y) - background;
                     }
                     var dx = x - detectedStar.Center.X;
                     var dy = y - detectedStar.Center.Y;
