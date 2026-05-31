@@ -214,16 +214,19 @@ namespace TestApp {
                 curve.SavedMethod = (string)json["Method"] ?? "";
                 curve.SavedFitting = (string)json["Fitting"] ?? "";
 
-                var regionIdx = json["Region"]?["Index"];
+                // Use `as JObject` before indexing a child: a present-but-null field (e.g. "Region": null in
+                // older reports) is a JValue(Null), not C# null, so json["Region"]?["Index"] would NOT
+                // short-circuit and would throw "Cannot access child value on JValue".
+                var regionIdx = (json["Region"] as JObject)?["Index"];
                 if (regionIdx != null && regionIdx.Type != JTokenType.Null) {
                     curve.Region = regionIdx.ToString();
                 }
 
-                curve.StoredRSquared = ReadDouble(json["RSquares"]?["Hyperbolic"]);
+                curve.StoredRSquared = ReadDouble((json["RSquares"] as JObject)?["Hyperbolic"]);
                 curve.StoredMinStdErr = ReadDouble(json["HyperbolicMinimumStdError"]);
                 curve.StoredReducedChiSquared = ReadDouble(json["HyperbolicReducedChiSquared"]);
                 curve.StoredLooStd = ReadDouble(json["HyperbolicLeaveOneOutStdError"]);
-                curve.SavedModel = ReadModelName(json["HocusFocusAutoFocusOptions"]?["HyperbolicFitModel"]);
+                curve.SavedModel = ReadModelName((json["HocusFocusAutoFocusOptions"] as JObject)?["HyperbolicFitModel"]);
                 return curve;
             } catch (Exception ex) {
                 Logger.Warning($"Failed to parse {rel}: {ex.Message}");
@@ -243,9 +246,12 @@ namespace TestApp {
             }
             var pts = new List<ScatterErrorPoint>();
             foreach (var mp in measurePoints) {
-                var x = (double?)mp["Position"] ?? double.NaN;
-                var y = (double?)mp["Value"] ?? double.NaN;
-                var e = (double?)mp["Error"] ?? 1.0;
+                if (mp is not JObject mpo) {
+                    continue;
+                }
+                var x = ReadDouble(mpo["Position"]);
+                var y = ReadDouble(mpo["Value"]);
+                var e = double.IsNaN(ReadDouble(mpo["Error"])) ? 1.0 : ReadDouble(mpo["Error"]);
                 if (!double.IsNaN(x) && !double.IsNaN(y) && y > 0) {
                     pts.Add(new ScatterErrorPoint(x, y, 0, e <= 0 ? 1.0 : e));
                 }
