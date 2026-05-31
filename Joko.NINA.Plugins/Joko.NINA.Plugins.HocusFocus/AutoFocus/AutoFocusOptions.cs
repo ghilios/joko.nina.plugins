@@ -76,6 +76,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             } else {
                 hyperbolicFitModel = optionsAccessor.GetValueEnum(nameof(HyperbolicFitModel), HyperbolicFitModel.UnevenBlendLegacy);
             }
+
+            fitRejectionCriterion = optionsAccessor.GetValueEnum(nameof(FitRejectionCriterion), FitRejectionCriterion.RSquared);
+            reducedChiSquaredRejectionThreshold = optionsAccessor.GetValueDouble(nameof(ReducedChiSquaredRejectionThreshold), 5.0);
         }
 
         public void ResetDefaults() {
@@ -98,6 +101,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             UnevenHyperbolicFitEnabled = true;
             WeightedHyperbolicFitEnabled = true;
             HyperbolicFitModel = HyperbolicFitModel.UnevenBlendLegacy;
+            FitRejectionCriterion = FitRejectionCriterion.RSquared;
+            ReducedChiSquaredRejectionThreshold = 5.0;
         }
 
         private int maxConcurrent;
@@ -374,6 +379,35 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (hyperbolicFitModel != value) {
                     hyperbolicFitModel = value;
                     optionsAccessor.SetValueEnum(nameof(HyperbolicFitModel), hyperbolicFitModel);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private FitRejectionCriterion fitRejectionCriterion;
+
+        public FitRejectionCriterion FitRejectionCriterion {
+            get => fitRejectionCriterion;
+            set {
+                if (fitRejectionCriterion != value) {
+                    fitRejectionCriterion = value;
+                    optionsAccessor.SetValueEnum(nameof(FitRejectionCriterion), fitRejectionCriterion);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double reducedChiSquaredRejectionThreshold;
+
+        public double ReducedChiSquaredRejectionThreshold {
+            get => reducedChiSquaredRejectionThreshold;
+            set {
+                if (double.IsNaN(value) || double.IsInfinity(value)) {
+                    throw new ArgumentException("ReducedChiSquaredRejectionThreshold must be a real, finite number", "ReducedChiSquaredRejectionThreshold");
+                }
+                if (reducedChiSquaredRejectionThreshold != value) {
+                    reducedChiSquaredRejectionThreshold = value;
+                    optionsAccessor.SetValueDouble(nameof(ReducedChiSquaredRejectionThreshold), reducedChiSquaredRejectionThreshold);
                     RaisePropertyChanged();
                 }
             }

@@ -14,6 +14,7 @@ using Newtonsoft.Json;
 using NINA.Core.Enum;
 using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Utility.AutoFocus;
 using OxyPlot;
@@ -28,6 +29,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         [JsonProperty]
         public double FinalHFR { get; set; } = 0.0d;
+
+        /// <summary>Standard error of the hyperbolic best-focus position, in focuser steps (NaN if unavailable).</summary>
+        [JsonProperty]
+        public double HyperbolicMinimumStdError { get; set; } = double.NaN;
+
+        /// <summary>Reduced χ² of the hyperbolic fit (NaN if unavailable). See the AF panel tooltip for the weighted-fit caveat.</summary>
+        [JsonProperty]
+        public double HyperbolicReducedChiSquared { get; set; } = double.NaN;
+
+        /// <summary>Leave-one-out best-focus stability, in focuser steps (NaN if unavailable / not computed).</summary>
+        [JsonProperty]
+        public double HyperbolicLeaveOneOutStdError { get; set; } = double.NaN;
 
         [JsonProperty]
         public StarDetectionRegion Region { get; set; } = StarDetectionRegion.Full;
@@ -60,6 +73,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var trendlineFitting = fittings.TrendlineFitting;
             var quadraticFitting = fittings.QuadraticFitting;
             var hyperbolicFitting = fittings.HyperbolicFitting;
+            var alglibHyperbolicFitting = hyperbolicFitting as AlglibHyperbolicFitting;
             var gaussianFitting = fittings.GaussianFitting;
             var report = new HocusFocusReport() {
                 Filter = filter,
@@ -80,6 +94,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Value = lastFocusPoint?.Focuspoint.Y ?? double.NaN
                 },
                 FinalHFR = finalHFR,
+                HyperbolicMinimumStdError = alglibHyperbolicFitting?.MinimumStdError ?? double.NaN,
+                HyperbolicReducedChiSquared = alglibHyperbolicFitting?.ReducedChiSquared ?? double.NaN,
+                HyperbolicLeaveOneOutStdError = alglibHyperbolicFitting?.LeaveOneOutStdError ?? double.NaN,
                 Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod.ToString(),
                 Fitting = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR ? profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting.ToString() : "GAUSSIAN",
                 MeasurePoints = focusPoints.Select(x => new FocusPoint() { Position = x.X, Value = x.Y, Error = x.ErrorY }),

@@ -32,5 +32,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool UnevenHyperbolicFitEnabled { get; set; }
         bool WeightedHyperbolicFitEnabled { get; set; }
         HyperbolicFitModel HyperbolicFitModel { get; set; }
+        FitRejectionCriterion FitRejectionCriterion { get; set; }
+        double ReducedChiSquaredRejectionThreshold { get; set; }
     }
 }

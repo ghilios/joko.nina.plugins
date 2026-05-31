@@ -244,4 +244,58 @@ public class AutoFocusOptionsTests {
         options.ResetDefaults();
         Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.UnevenBlendLegacy));
     }
+
+    [Test]
+    public void FitRejectionCriterion_Defaults() {
+        var (options, _, _) = Build();
+        Assert.Multiple(() => {
+            Assert.That(options.FitRejectionCriterion, Is.EqualTo(FitRejectionCriterion.RSquared));
+            Assert.That(options.ReducedChiSquaredRejectionThreshold, Is.EqualTo(5.0));
+        });
+    }
+
+    [Test]
+    public void FitRejectionCriterion_SettersPersist() {
+        var (options, store, _) = Build();
+        options.FitRejectionCriterion = FitRejectionCriterion.ReducedChiSquared;
+        options.ReducedChiSquaredRejectionThreshold = 8.0;
+        Assert.Multiple(() => {
+            Assert.That(store.Snapshot[nameof(AutoFocusOptions.FitRejectionCriterion)], Is.EqualTo(FitRejectionCriterion.ReducedChiSquared));
+            Assert.That(store.Snapshot[nameof(AutoFocusOptions.ReducedChiSquaredRejectionThreshold)], Is.EqualTo(8.0));
+        });
+    }
+
+    [Test]
+    public void FitRejectionCriterion_ResetRestoresDefaults() {
+        var (options, _, _) = Build();
+        options.FitRejectionCriterion = FitRejectionCriterion.ReducedChiSquared;
+        options.ReducedChiSquaredRejectionThreshold = 12.0;
+        options.ResetDefaults();
+        Assert.Multiple(() => {
+            Assert.That(options.FitRejectionCriterion, Is.EqualTo(FitRejectionCriterion.RSquared));
+            Assert.That(options.ReducedChiSquaredRejectionThreshold, Is.EqualTo(5.0));
+        });
+    }
+
+    [Test]
+    public void FitRejectionCriterion_SetterRaisesPropertyChanged() {
+        var (options, _, _) = Build();
+        var raised = new List<string>();
+        options.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        options.FitRejectionCriterion = FitRejectionCriterion.ReducedChiSquared;
+        options.ReducedChiSquaredRejectionThreshold = 7.5;
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(AutoFocusOptions.FitRejectionCriterion)));
+            Assert.That(raised, Does.Contain(nameof(AutoFocusOptions.ReducedChiSquaredRejectionThreshold)));
+        });
+    }
+
+    [Test]
+    public void ReducedChiSquaredRejectionThreshold_RejectsNonFinite() {
+        var (options, _, _) = Build();
+        Assert.Multiple(() => {
+            Assert.Throws<ArgumentException>(() => options.ReducedChiSquaredRejectionThreshold = double.NaN);
+            Assert.Throws<ArgumentException>(() => options.ReducedChiSquaredRejectionThreshold = double.PositiveInfinity);
+        });
+    }
 }

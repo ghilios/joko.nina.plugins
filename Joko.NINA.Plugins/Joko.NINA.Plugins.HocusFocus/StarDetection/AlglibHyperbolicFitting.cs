@@ -20,6 +20,7 @@ using OxyPlot;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -53,6 +54,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// gradient). Used downstream to weight the paraboloid fit by 1/σ².
         /// </summary>
         public double MinimumStdError { get; protected set; } = double.NaN;
+
+        /// <summary>
+        /// Weighted χ² of the fit: Σ (Weights[i]·(model(xᵢ) − yᵢ))². When <see cref="WeightedHyperbolicFitEnabled"/>
+        /// is on (Weights = 1/σ from each point's ErrorY) this is a true χ²; unweighted (Weights = 1) it degenerates
+        /// to the plain residual sum of squares, which is scale-dependent. Computed for every model.
+        /// </summary>
+        public double ChiSquared { get; protected set; } = double.NaN;
+
+        /// <summary>Degrees of freedom of the fit, max(1, n − parameter count). Zero until <see cref="Solve"/> runs.</summary>
+        public int DegreesOfFreedom { get; protected set; } = 0;
+
+        /// <summary>
+        /// Reduced χ² = <see cref="ChiSquared"/> / <see cref="DegreesOfFreedom"/>. Meaningful as a goodness-of-fit
+        /// measure (≈1 for a correct model with well-estimated per-point σ) only for weighted fits; see
+        /// <see cref="ChiSquared"/>. <see cref="double.NaN"/> when not computed.
+        /// </summary>
+        public double ReducedChiSquared { get; protected set; } = double.NaN;
+
+        /// <summary>
+        /// Leave-one-out best-focus stability: the sample standard deviation (in focuser steps) of the predicted
+        /// best-focus position across the N drop-one refits. A non-parametric robustness companion to
+        /// <see cref="MinimumStdError"/>; populated once at run completion via
+        /// <see cref="ComputeLeaveOneOutBestFocusStdError"/>. <see cref="double.NaN"/> when not computed.
+        /// </summary>
+        public double LeaveOneOutStdError { get; set; } = double.NaN;
 
         /// <summary>
         /// Builds the hyperbolic fit selected by <paramref name="model"/>. The legacy uneven blend needs the
@@ -149,8 +175,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             Fitting = x => ModelValue(solution, x);
             Minimum = ComputeMinimum(solution);
             ComputeRSquared(solution);
+            ComputeChiSquared(solution);
             ComputeMinimumStdError(solution);
             return true;
+        }
+
+        /// <summary>
+        /// Refits the curve dropping each point in turn (leave-one-out) and returns the sample standard deviation
+        /// of the predicted best-focus position across those refits — a non-parametric measure of how much the
+        /// answer moves when any single measurement is removed. Returns <see cref="double.NaN"/> when there are
+        /// fewer than 5 points or fewer than 2 successful refits. Mirrors the offline benchmark's LeaveOneOutStd.
+        /// </summary>
+        public static double ComputeLeaveOneOutBestFocusStdError(IAlglibAPI alglibAPI, HyperbolicFitModel model, IList<ScatterErrorPoint> points, int stepSize, bool useWeights) {
+            if (points == null || points.Count < 5) {
+                return double.NaN;
+            }
+            var predictions = new List<double>(points.Count);
+            for (int skip = 0; skip < points.Count; ++skip) {
+                var subset = new List<ScatterErrorPoint>(points.Count - 1);
+                for (int i = 0; i < points.Count; ++i) {
+                    if (i != skip) {
+                        subset.Add(points[i]);
+                    }
+                }
+                var fit = Create(alglibAPI, model, subset, stepSize, useWeights);
+                if (fit.Solve() && !double.IsNaN(fit.Minimum.X) && !double.IsInfinity(fit.Minimum.X)) {
+                    predictions.Add(fit.Minimum.X);
+                }
+            }
+            if (predictions.Count < 2) {
+                return double.NaN;
+            }
+            var mean = predictions.Average();
+            var variance = predictions.Sum(p => (p - mean) * (p - mean)) / (predictions.Count - 1);
+            return Math.Sqrt(variance);
         }
 
         /// <summary>
@@ -286,6 +344,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 transformed[i] = ModelValue(solution, Inputs[i][0]);
             }
             RSquared = rSquared.Loss(transformed);
+        }
+
+        /// <summary>
+        /// Weighted χ² and reduced χ² of the fit, using the base χ² <see cref="Weights"/> (not the Huber IRLS
+        /// factors). Computed for every model regardless of <see cref="SupportsCovariance"/>, so the legacy
+        /// blend gets it too. The same weighted residual sum the covariance path forms in
+        /// <see cref="ComputeMinimumStdError"/>.
+        /// </summary>
+        protected void ComputeChiSquared(double[] solution) {
+            int n = Inputs.Length;
+            int p = ParameterCount;
+            var chiSquared = 0.0;
+            for (int i = 0; i < n; i++) {
+                var weightedResidual = Weights[i] * (ModelValue(solution, Inputs[i][0]) - Outputs[i]);
+                chiSquared += weightedResidual * weightedResidual;
+            }
+            ChiSquared = chiSquared;
+            DegreesOfFreedom = Math.Max(1, n - p);
+            ReducedChiSquared = chiSquared / DegreesOfFreedom;
         }
 
         /// <summary>

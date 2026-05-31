@@ -230,6 +230,28 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 this.FinalFocusPoint = DetermineFinalFocusPoint();
             }
 
+            /// <summary>
+            /// Computes the leave-one-out best-focus stability for the final hyperbolic fit and stores it on that
+            /// fit object (for the panel and saved report). A run-completion diagnostic only — never a rejection
+            /// gate — so it is intentionally not part of the live per-point fitting path. No-op unless this is a
+            /// STARHFR hyperbolic run with an alglib-backed fit and enough points.
+            /// </summary>
+            public void ComputeLeaveOneOutStability() {
+                if (Fittings.Method != AFMethodEnum.STARHFR) {
+                    return;
+                }
+                if (Fittings.CurveFittingType != AFCurveFittingEnum.HYPERBOLIC && Fittings.CurveFittingType != AFCurveFittingEnum.TRENDHYPERBOLIC) {
+                    return;
+                }
+                if (!(Fittings.HyperbolicFitting is AlglibHyperbolicFitting hyperbolicFitting) || lastValidFocusPoints == null) {
+                    return;
+                }
+
+                var validPoints = lastValidFocusPoints.Where(p => p.Y > 0.0).ToList();
+                hyperbolicFitting.LeaveOneOutStdError = AlglibHyperbolicFitting.ComputeLeaveOneOutBestFocusStdError(
+                    State.AlglibAPI, State.Options.HyperbolicFitModel, validPoints, State.Options.AutoFocusStepSize, State.Options.WeightedHyperbolicFitEnabled);
+            }
+
             private DataPoint? DetermineFinalFocusPoint() {
                 using (MyStopWatch.Measure()) {
                     var method = Fittings.Method;
@@ -1076,6 +1098,29 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio < 1 && profileService.ActiveProfile.FocuserSettings.AutoFocusOuterCropRatio == 1;
         }
 
+        /// <summary>
+        /// Decides whether a hyperbolic fit passes the configured rejection gate. With
+        /// <see cref="FitRejectionCriterion.RSquared"/> (default) this reproduces the legacy rule — reject when
+        /// the R² threshold is positive and the fit's R² falls below it. With
+        /// <see cref="FitRejectionCriterion.ReducedChiSquared"/> it rejects only when the threshold is positive
+        /// and the reduced χ² is finite and above it (a non-finite reduced χ² never rejects). A threshold of zero
+        /// or less disables the respective gate. Returns true when the fit is acceptable.
+        /// </summary>
+        public static bool IsHyperbolicFitAcceptable(FitRejectionCriterion criterion, double rSquared, double reducedChiSquared, double rSquaredThreshold, double reducedChiSquaredThreshold) {
+            switch (criterion) {
+                case FitRejectionCriterion.ReducedChiSquared:
+                    var chiSquaredBad = reducedChiSquaredThreshold > 0
+                        && !double.IsNaN(reducedChiSquared) && !double.IsInfinity(reducedChiSquared)
+                        && reducedChiSquared > reducedChiSquaredThreshold;
+                    return !chiSquaredBad;
+
+                case FitRejectionCriterion.RSquared:
+                default:
+                    var rSquaredBad = rSquaredThreshold > 0 && rSquared < rSquaredThreshold;
+                    return !rSquaredBad;
+            }
+        }
+
         private async Task<bool> ValidateCalculatedFocusPosition(
             AutoFocusState autoFocusState,
             CancellationToken token,
@@ -1089,19 +1134,34 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         throw new Exception($"Failed to fit curve to region {autoFocusRegionState.RegionIndex}");
                     }
 
+                    var fitting = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
+
+                    // Hyperbolic uses the configurable rejection criterion (R² or reduced χ²). It is evaluated
+                    // independently of the R² threshold so a reduced-χ² gate still applies when R² gating is off.
+                    // Default criterion is R² ⇒ identical behavior to the legacy R²-only test.
+                    if (fitting == AFCurveFittingEnum.HYPERBOLIC || fitting == AFCurveFittingEnum.TRENDHYPERBOLIC) {
+                        var hyperbolicFitting = fittings.HyperbolicFitting;
+                        if (hyperbolicFitting != null) {
+                            var criterion = autoFocusState.Options.FitRejectionCriterion;
+                            var reducedChiSquaredThreshold = autoFocusState.Options.ReducedChiSquaredRejectionThreshold;
+                            var reducedChiSquared = (hyperbolicFitting as AlglibHyperbolicFitting)?.ReducedChiSquared ?? double.NaN;
+                            if (!IsHyperbolicFitAcceptable(criterion, hyperbolicFitting.RSquared, reducedChiSquared, rSquaredThreshold, reducedChiSquaredThreshold)) {
+                                if (criterion == FitRejectionCriterion.ReducedChiSquared) {
+                                    Logger.Error($"Auto Focus Failed! Reduced χ² for Hyperbolic Fitting is above threshold. {Math.Round(reducedChiSquared, 2)} / {reducedChiSquaredThreshold}; Region: {autoFocusRegionState.Region}");
+                                    Notification.ShowError(string.Format("Auto focus failed. Hyperbolic fit reduced χ² {0} exceeds the threshold {1}.", Math.Round(reducedChiSquared, 2), reducedChiSquaredThreshold));
+                                } else {
+                                    Logger.Error($"Auto Focus Failed! R² (Coefficient of determination) for Hyperbolic Fitting is below threshold. {Math.Round(hyperbolicFitting.RSquared, 2)} / {rSquaredThreshold}; Region: {autoFocusRegionState.Region}");
+                                    Notification.ShowError(string.Format(Loc.Instance["LblAutoFocusCurveCorrelationCoefficientLow"], Math.Round(hyperbolicFitting.RSquared, 2), rSquaredThreshold));
+                                }
+                                return false;
+                            }
+                        }
+                    }
+
                     if (rSquaredThreshold > 0) {
-                        var hyperbolicBad = fittings.HyperbolicFitting != null && fittings.HyperbolicFitting.RSquared < rSquaredThreshold;
                         var quadraticBad = fittings.QuadraticFitting != null && fittings.QuadraticFitting.RSquared < rSquaredThreshold;
                         var trendlineBad = (fittings.TrendlineFitting?.LeftTrend != null && fittings.TrendlineFitting.LeftTrend.RSquared < rSquaredThreshold) ||
                             (fittings.TrendlineFitting?.RightTrend != null && fittings.TrendlineFitting.RightTrend.RSquared < rSquaredThreshold);
-
-                        var fitting = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
-
-                        if ((fitting == AFCurveFittingEnum.HYPERBOLIC || fitting == AFCurveFittingEnum.TRENDHYPERBOLIC) && hyperbolicBad) {
-                            Logger.Error($"Auto Focus Failed! R² (Coefficient of determination) for Hyperbolic Fitting is below threshold. {Math.Round(fittings.HyperbolicFitting.RSquared, 2)} / {rSquaredThreshold}; Region: {autoFocusRegionState.Region}");
-                            Notification.ShowError(string.Format(Loc.Instance["LblAutoFocusCurveCorrelationCoefficientLow"], Math.Round(fittings.HyperbolicFitting.RSquared, 2), rSquaredThreshold));
-                            return false;
-                        }
 
                         if ((fitting == AFCurveFittingEnum.PARABOLIC || fitting == AFCurveFittingEnum.TRENDPARABOLIC) && quadraticBad) {
                             Logger.Error($"Auto Focus Failed! R² (Coefficient of determination) for Parabolic Fitting is below threshold. {Math.Round(fittings.QuadraticFitting.RSquared, 2)} / {rSquaredThreshold}; Region: {autoFocusRegionState.Region}");
@@ -1120,6 +1180,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var max = autoFocusRegionState.MeasurementsByFocuserPoint.Max(x => x.Key);
 
                     autoFocusRegionState.CalculateFinalFocusPoint();
+                    autoFocusRegionState.ComputeLeaveOneOutStability();
                     var finalFocusPosition = (int)Math.Round(autoFocusRegionState.FinalFocusPoint?.X ?? -1);
                     if (finalFocusPosition < 0) {
                         Logger.Error("Fit failed. There likely weren't enough data points with detected stars");
@@ -1606,6 +1667,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 UnevenHyperbolicFitEnabled = autoFocusOptions.UnevenHyperbolicFitEnabled,
                 WeightedHyperbolicFitEnabled = autoFocusOptions.WeightedHyperbolicFitEnabled,
                 HyperbolicFitModel = autoFocusOptions.HyperbolicFitModel,
+                FitRejectionCriterion = autoFocusOptions.FitRejectionCriterion,
+                ReducedChiSquaredRejectionThreshold = autoFocusOptions.ReducedChiSquaredRejectionThreshold,
             };
         }
 

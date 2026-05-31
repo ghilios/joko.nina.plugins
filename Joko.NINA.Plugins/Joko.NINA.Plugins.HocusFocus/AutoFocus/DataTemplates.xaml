@@ -35,6 +35,10 @@
     <TextBlock x:Key="SensorROI_Tooltip" Text="Uses only a centered portion of the full sensor when evaluating aberration. This is useful if you have a flattener that cannot produce a flat field for your sensor." />
     <TextBlock x:Key="CornersROI_Tooltip" Text="Reduces the size of the corner regions when performing corners analysis. This can be useful if you want to evaluate only stars closer to the corners than the full 1/9th region. This can be combined with Sensor ROI." />
 
+    <TextBlock x:Key="HyperbolicMinimumStdError_Tooltip" Text="The standard error of the best-focus position, in focuser steps, propagated from the hyperbolic fit's covariance. This is the parametric uncertainty estimate (it assumes the model is correct and the measurement errors are Gaussian) and is the quantity that most directly indicates how well the run pinned down focus. Smaller is better." />
+    <TextBlock x:Key="HyperbolicReducedChiSquared_Tooltip" Text="Reduced χ² (χ² per degree of freedom) of the hyperbolic fit. ≈1 means the model fits the measured curve to within the per-point measurement uncertainties. It is a true reduced χ² only when the weighted hyperbolic fit is enabled (per-point σ from the HFR error bars); without weighting it degenerates to the residual sum of squares per degree of freedom, whose absolute scale is rig-dependent. Because the per-point σ is approximate, reduced χ² routinely runs above 1 even for good fits." />
+    <TextBlock x:Key="HyperbolicLeaveOneOutStdError_Tooltip" Text="Best-focus stability from leave-one-out refitting: the standard deviation, in focuser steps, of the predicted best-focus position across refits that each drop one measurement. This is a non-parametric robustness estimate — it shows how much the answer moves if any single point is removed. When it is much larger than the parametric se(focus), it flags a single high-leverage point or model misspecification. Diagnostic only; it is not a rejection gate." />
+
     <TextBlock x:Key="SensorModel_Tilt_Tooltip" Text="The angle the sensor is tilted. 0 indicates no tilt, and values here are typically very small" />
     <TextBlock x:Key="SensorModel_CriticalFocus_Tooltip" Text="The focuser distance a pixel can be from optimal focus before the effects can be noticed. This value increases with larger (slower) F/ratios, which can tolerate more curvature before affecting image quality" />
     <TextBlock x:Key="SensorModel_CurvatureRadius_Tooltip" Text="Near focus, the base of the sensor parabola is close to a sphere. This value represents the radius of that sphere. Larger values indicate flatter curves, which are better." />
@@ -464,6 +468,72 @@
                         <TextBlock Text=" R²" />
                     </StackPanel>
                     <TextBlock Margin="5,0,0,0" Text="{Binding HyperbolicFitting.RSquared, StringFormat=\{0:0.00\}}" />
+                </UniformGrid>
+                <UniformGrid
+                    Margin="0,5,0,0"
+                    VerticalAlignment="Center"
+                    Columns="2">
+                    <UniformGrid.Visibility>
+                        <MultiBinding Converter="{StaticResource HF_AutoFocusFittingToVisibilityConverter}">
+                            <Binding>
+                                <Binding.Source>
+                                    <s:String>HyperbolicFitting</s:String>
+                                </Binding.Source>
+                            </Binding>
+                            <Binding Path="AutoFocusChartMethod" />
+                            <Binding Path="AutoFocusChartCurveFitting" />
+                            <Binding Path="GaussianFitting" />
+                            <Binding Path="HyperbolicFitting" />
+                            <Binding Path="QuadraticFitting" />
+                            <Binding Path="TrendlineFitting" />
+                        </MultiBinding>
+                    </UniformGrid.Visibility>
+                    <TextBlock Text="Hyperbolic se(focus)" ToolTip="{StaticResource HyperbolicMinimumStdError_Tooltip}" />
+                    <TextBlock Margin="5,0,0,0" ToolTip="{StaticResource HyperbolicMinimumStdError_Tooltip}" Text="{Binding HyperbolicFitting.MinimumStdError, StringFormat=± {0:0.#} steps, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                </UniformGrid>
+                <UniformGrid
+                    Margin="0,5,0,0"
+                    VerticalAlignment="Center"
+                    Columns="2">
+                    <UniformGrid.Visibility>
+                        <MultiBinding Converter="{StaticResource HF_AutoFocusFittingToVisibilityConverter}">
+                            <Binding>
+                                <Binding.Source>
+                                    <s:String>HyperbolicFitting</s:String>
+                                </Binding.Source>
+                            </Binding>
+                            <Binding Path="AutoFocusChartMethod" />
+                            <Binding Path="AutoFocusChartCurveFitting" />
+                            <Binding Path="GaussianFitting" />
+                            <Binding Path="HyperbolicFitting" />
+                            <Binding Path="QuadraticFitting" />
+                            <Binding Path="TrendlineFitting" />
+                        </MultiBinding>
+                    </UniformGrid.Visibility>
+                    <TextBlock Text="Hyperbolic Reduced χ²" ToolTip="{StaticResource HyperbolicReducedChiSquared_Tooltip}" />
+                    <TextBlock Margin="5,0,0,0" ToolTip="{StaticResource HyperbolicReducedChiSquared_Tooltip}" Text="{Binding HyperbolicFitting.ReducedChiSquared, StringFormat=\{0:0.00\}, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                </UniformGrid>
+                <UniformGrid
+                    Margin="0,5,0,0"
+                    VerticalAlignment="Center"
+                    Columns="2">
+                    <UniformGrid.Visibility>
+                        <MultiBinding Converter="{StaticResource HF_AutoFocusFittingToVisibilityConverter}">
+                            <Binding>
+                                <Binding.Source>
+                                    <s:String>HyperbolicFitting</s:String>
+                                </Binding.Source>
+                            </Binding>
+                            <Binding Path="AutoFocusChartMethod" />
+                            <Binding Path="AutoFocusChartCurveFitting" />
+                            <Binding Path="GaussianFitting" />
+                            <Binding Path="HyperbolicFitting" />
+                            <Binding Path="QuadraticFitting" />
+                            <Binding Path="TrendlineFitting" />
+                        </MultiBinding>
+                    </UniformGrid.Visibility>
+                    <TextBlock Text="Best-focus stability (LOO)" ToolTip="{StaticResource HyperbolicLeaveOneOutStdError_Tooltip}" />
+                    <TextBlock Margin="5,0,0,0" ToolTip="{StaticResource HyperbolicLeaveOneOutStdError_Tooltip}" Text="{Binding HyperbolicFitting.LeaveOneOutStdError, StringFormat=± {0:0.#} steps, Converter={StaticResource NaNToDoubleDashConverter}}" />
                 </UniformGrid>
                 <UniformGrid
                     Margin="0,5,0,0"

@@ -415,6 +415,8 @@
     <TextBlock x:Key="HFRImprovementThreshold_Tooltip" Text="How much wiggle room when validating HFR improvements. The default value of 15% means that the Auto Focus fails if the initial HFR is 15% or more better than the final HFR" />
     <TextBlock x:Key="HyperbolicFitModel_Tooltip" Text="Which hyperbolic model is fit to the focus curve. Symmetric is the classic 4-parameter hyperbola. The others are asymmetric (different slope on either side of focus, common because out-of-focus HFR behaves differently than in-focus): Tilted Hyperbola is a single smooth curve with a linear skew (recommended), Smooth Blend smoothly blends two hyperbolas, and Uneven Blend (Legacy) is the original blended fit." />
     <TextBlock x:Key="WeightedHyperbolicFit_Tooltip" Text="Weights each point in the hyperbolic fit based on measurement error." />
+    <TextBlock x:Key="FitRejectionCriterion_Tooltip" Text="Which goodness-of-fit metric decides whether an auto-focus run is rejected. R² (default) keeps the existing behavior, rejecting when the fit's R² falls below NINA's R² threshold (Focuser settings). Reduced χ² instead rejects when the hyperbolic fit's reduced χ² exceeds the threshold below — a more meaningful test for a focus curve, but it is only valid when 'Weighted Hyperbolic Fit' is enabled (it relies on per-point measurement σ). Quadratic and trendline fits always use R² regardless of this setting." />
+    <TextBlock x:Key="ReducedChiSquaredRejectionThreshold_Tooltip" Text="Upper bound on the hyperbolic fit's reduced χ² (χ² per degree of freedom) above which the run is rejected, when the rejection criterion is set to Reduced χ². Reduced χ² ≈ 1 means the model fits the measured curve to within the per-point measurement uncertainties; because that σ is approximate, reduced χ² routinely runs above 1 even for good fits, so the default of 5 is a generous sanity bound. Set to 0 to disable. Meaningful only with weighted fits." />
     <TextBlock x:Key="HotpixelFiltering_Tooltip" Text="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
     <TextBlock x:Key="HotpixelThresholdingEnabled_Tooltip" Text="A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy" />
     <TextBlock x:Key="HotpixelThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value" />
@@ -794,6 +796,54 @@
                 VerticalAlignment="Center"
                 IsChecked="{Binding AutoFocusOptions.WeightedHyperbolicFitEnabled}"
                 ToolTip="{StaticResource WeightedHyperbolicFit_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="13"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Fit Rejection Criterion"
+                ToolTip="{StaticResource FitRejectionCriterion_Tooltip}" />
+            <ComboBox
+                Grid.Row="13"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:FitRejectionCriterion}}}"
+                SelectedItem="{Binding AutoFocusOptions.FitRejectionCriterion}"
+                ToolTip="{StaticResource FitRejectionCriterion_Tooltip}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock
+                Grid.Row="14"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Reduced χ² Rejection Threshold"
+                ToolTip="{StaticResource ReducedChiSquaredRejectionThreshold_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="14"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ToolTip="{StaticResource ReducedChiSquaredRejectionThreshold_Tooltip}">
+                <Binding Path="AutoFocusOptions.ReducedChiSquaredRejectionThreshold" UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="1000.0" Minimum="0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">
