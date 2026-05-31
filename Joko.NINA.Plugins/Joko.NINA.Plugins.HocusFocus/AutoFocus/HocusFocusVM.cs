@@ -414,6 +414,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
                         var hf = AlglibHyperbolicFitting.Create(this.alglibAPI, autoFocusOptions.HyperbolicFitModel, validFocusPoints, profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
                         hf.Solve();
+                        // Best-focus stability is a one-time computation here (saved-run display), so unlike the
+                        // live engine path it is safe to compute it directly after solving the final curve.
+                        hf.LeaveOneOutStdError = AlglibHyperbolicFitting.ComputeLeaveOneOutBestFocusStdError(
+                            this.alglibAPI, autoFocusOptions.HyperbolicFitModel, validFocusPoints,
+                            profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
                         HyperbolicFitting = hf;
                     }
                 }
