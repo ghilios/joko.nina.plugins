@@ -33,6 +33,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         TiltedHyperbola,
 
         [Description("Smooth Blend")]
-        SmoothBlend
+        SmoothBlend,
+
+        [Description("Hybrid (Best Fit)")]
+        Hybrid
     }
 }

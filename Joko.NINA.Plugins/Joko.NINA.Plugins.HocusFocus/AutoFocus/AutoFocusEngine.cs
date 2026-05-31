@@ -190,6 +190,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     this.FinalHFRSubMeasurements.Clear();
                     this.FinalHFR = null;
                     this.Fittings.Reset();
+                    this.selectedHyperbolicModel = null;
                 }
             }
 
@@ -201,6 +202,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             private List<ScatterErrorPoint> lastValidFocusPoints;
+
+            // The concrete hyperbolic model resolved at finalization when the option is Hybrid (null otherwise),
+            // so the LOO stability below scores the same curve that was chosen rather than re-running selection.
+            private HyperbolicFitModel? selectedHyperbolicModel;
 
             public void UpdateCurveFittings(List<ScatterErrorPoint> validFocusPoints) {
                 this.lastValidFocusPoints = validFocusPoints;
@@ -231,6 +236,44 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             /// <summary>
+            /// Hybrid-model finalization: when the option is <see cref="HyperbolicFitModel.Hybrid"/>, refits every
+            /// concrete hyperbolic model on the final points and swaps the region's <see cref="AutoFocusFitting.HyperbolicFitting"/>
+            /// to the one with the least expected best-focus error (see <see cref="AlglibHyperbolicFitting.SelectBestModel"/>),
+            /// recording the concrete pick. No-op for non-Hybrid runs and for non-STARHFR/non-hyperbolic fittings, so all
+            /// existing behavior is unchanged. The heavy multi-model solve runs outside the lock; only the field swap is
+            /// taken under <see cref="SubMeasurementsLock"/> (mirrors <see cref="CalculateCurveFittings"/>).
+            /// </summary>
+            public void SelectBestHyperbolicModel() {
+                if (Fittings.Method != AFMethodEnum.STARHFR) {
+                    return;
+                }
+                if (Fittings.CurveFittingType != AFCurveFittingEnum.HYPERBOLIC && Fittings.CurveFittingType != AFCurveFittingEnum.TRENDHYPERBOLIC) {
+                    return;
+                }
+                if (State.Options.HyperbolicFitModel != HyperbolicFitModel.Hybrid || lastValidFocusPoints == null) {
+                    return;
+                }
+
+                var validPoints = lastValidFocusPoints.Where(p => p.Y > 0.0).ToList();
+                if (validPoints.Count < 3) {
+                    return;
+                }
+
+                var best = AlglibHyperbolicFitting.SelectBestModel(
+                    State.AlglibAPI, validPoints, State.Options.AutoFocusStepSize, State.Options.WeightedHyperbolicFitEnabled, out var bestFit);
+                if (bestFit == null) {
+                    return;
+                }
+
+                lock (SubMeasurementsLock) {
+                    this.Fittings.HyperbolicFitting = bestFit;
+                    this.Fittings.SelectedHyperbolicFitModel = best;
+                    this.selectedHyperbolicModel = best;
+                }
+                Logger.Info($"Hybrid auto-focus model selection chose {best} for region {RegionIndex}");
+            }
+
+            /// <summary>
             /// Computes the leave-one-out best-focus stability for the final hyperbolic fit and stores it on that
             /// fit object (for the panel and saved report). A run-completion diagnostic only — never a rejection
             /// gate — so it is intentionally not part of the live per-point fitting path. No-op unless this is a
@@ -247,9 +290,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return;
                 }
 
+                // Use the model actually chosen for this run (Hybrid resolves to a concrete model in
+                // SelectBestHyperbolicModel); for non-Hybrid runs this is the option model, preserving prior behavior.
+                var modelForLoo = selectedHyperbolicModel ?? State.Options.HyperbolicFitModel;
                 var validPoints = lastValidFocusPoints.Where(p => p.Y > 0.0).ToList();
                 hyperbolicFitting.LeaveOneOutStdError = AlglibHyperbolicFitting.ComputeLeaveOneOutBestFocusStdError(
-                    State.AlglibAPI, State.Options.HyperbolicFitModel, validPoints, State.Options.AutoFocusStepSize, State.Options.WeightedHyperbolicFitEnabled);
+                    State.AlglibAPI, modelForLoo, validPoints, State.Options.AutoFocusStepSize, State.Options.WeightedHyperbolicFitEnabled);
             }
 
             private DataPoint? DetermineFinalFocusPoint() {
@@ -1179,6 +1225,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var min = autoFocusRegionState.MeasurementsByFocuserPoint.Min(x => x.Key);
                     var max = autoFocusRegionState.MeasurementsByFocuserPoint.Max(x => x.Key);
 
+                    autoFocusRegionState.SelectBestHyperbolicModel();
                     autoFocusRegionState.CalculateFinalFocusPoint();
                     autoFocusRegionState.ComputeLeaveOneOutStability();
                     var finalFocusPosition = (int)Math.Round(autoFocusRegionState.FinalFocusPoint?.X ?? -1);
@@ -1509,7 +1556,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 await Task.WhenAll(focuserPositionTasks);
                 foreach (var regionState in state.FocusRegionStates) {
+                    regionState.SelectBestHyperbolicModel();
                     regionState.CalculateFinalFocusPoint();
+                    // Mirror the live Run path: compute best-focus stability so a replayed/loaded run shows LOO in
+                    // the panel instead of NaN (uses the model resolved by SelectBestHyperbolicModel for Hybrid runs).
+                    regionState.ComputeLeaveOneOutStability();
                 }
 
                 OnCompleted(state, 0.0d, TimeSpan.Zero);

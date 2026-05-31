@@ -51,8 +51,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private AFMethodEnum autoFocusChartMethod;
         private DataPoint finalFocusPoint;
         private AsyncObservableCollection<ScatterErrorPoint> focusPointsObservable;
+        private AsyncObservableCollection<ScatterErrorPoint> plotFinalFocusPointWithErrorObservable;
         private GaussianFitting gaussianFitting;
         private HyperbolicFitting hyperbolicFitting;
+        private HyperbolicFitModel? selectedHyperbolicFitModel;
         private ReportAutoFocusPoint lastAutoFocusPoint;
         private AsyncObservableCollection<DataPoint> plotFocusPointsObservable;
         private AsyncObservableCollection<ScatterPoint> plotRejectedFocusPointsObservable;
@@ -96,6 +98,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.alglibAPI = alglibAPI;
 
             FocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
+            PlotFinalFocusPointWithError = new AsyncObservableCollection<ScatterErrorPoint>();
             PlotFocusPoints = new AsyncObservableCollection<DataPoint>();
             PlotRejectedFocusPoints = new AsyncObservableCollection<ScatterPoint>();
             ClearCharts();
@@ -214,6 +217,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        /// <summary>
+        /// Single-element series carrying the final best-focus point with a horizontal error bar (ErrorX) equal to
+        /// σ(focus) — or the leave-one-out stability when σ(focus) is unavailable — so the chart shows the
+        /// uncertainty of the calculated focus position along the focuser axis. Empty when neither estimate exists
+        /// (e.g. non-hyperbolic fits), so nothing is drawn.
+        /// </summary>
+        public AsyncObservableCollection<ScatterErrorPoint> PlotFinalFocusPointWithError {
+            get {
+                return plotFinalFocusPointWithErrorObservable;
+            }
+            set {
+                plotFinalFocusPointWithErrorObservable = value;
+                RaisePropertyChanged();
+            }
+        }
+
         public GaussianFitting GaussianFitting {
             get {
                 return gaussianFitting;
@@ -230,6 +249,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
             set {
                 hyperbolicFitting = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        /// <summary>
+        /// The concrete hyperbolic model chosen for a Hybrid run (null for non-Hybrid runs), surfaced in the AF
+        /// metrics panel so the user can see which model the run actually settled on.
+        /// </summary>
+        public HyperbolicFitModel? SelectedHyperbolicFitModel {
+            get => selectedHyperbolicFitModel;
+            set {
+                selectedHyperbolicFitModel = value;
                 RaisePropertyChanged();
             }
         }
@@ -298,6 +329,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusChartMethod = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod;
             AutoFocusChartCurveFitting = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting;
             FocusPoints.Clear();
+            PlotFinalFocusPointWithError.Clear();
             PlotFocusPoints.Clear();
             PlotRejectedFocusPoints.Clear();
             TrendlineFitting = null;
@@ -332,6 +364,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 QuadraticFitting = QuadraticFitting,
                 HyperbolicFitting = HyperbolicFitting,
                 TrendlineFitting = TrendlineFitting,
+                SelectedHyperbolicFitModel = SelectedHyperbolicFitModel,
                 Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod,
                 CurveFittingType = profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting
             };
@@ -412,13 +445,27 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
 
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
-                        var hf = AlglibHyperbolicFitting.Create(this.alglibAPI, autoFocusOptions.HyperbolicFitModel, validFocusPoints, profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
-                        hf.Solve();
+                        var stepSize = profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize;
+                        // When the option is Hybrid, reproduce the engine's best-fit pick on this saved point set so
+                        // a reloaded run shows the concrete chosen model (and its LOO) instead of falling back to
+                        // Tilted. SelectBestModel returns the already-solved winning fit, so no extra Solve() is needed.
+                        AlglibHyperbolicFitting hf;
+                        var modelForRun = autoFocusOptions.HyperbolicFitModel;
+                        if (modelForRun == HyperbolicFitModel.Hybrid) {
+                            modelForRun = AlglibHyperbolicFitting.SelectBestModel(this.alglibAPI, validFocusPoints, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled, out hf);
+                            if (hf == null) {
+                                hf = AlglibHyperbolicFitting.Create(this.alglibAPI, modelForRun, validFocusPoints, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                                hf.Solve();
+                            }
+                        } else {
+                            hf = AlglibHyperbolicFitting.Create(this.alglibAPI, modelForRun, validFocusPoints, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                            hf.Solve();
+                        }
                         // Best-focus stability is a one-time computation here (saved-run display), so unlike the
-                        // live engine path it is safe to compute it directly after solving the final curve.
+                        // live engine path it is safe to compute it directly after solving the final curve. Use the
+                        // resolved concrete model so the LOO matches the chosen curve.
                         hf.LeaveOneOutStdError = AlglibHyperbolicFitting.ComputeLeaveOneOutBestFocusStdError(
-                            this.alglibAPI, autoFocusOptions.HyperbolicFitModel, validFocusPoints,
-                            profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                            this.alglibAPI, modelForRun, validFocusPoints, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
                         HyperbolicFitting = hf;
                     }
                 }
@@ -426,6 +473,32 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 TrendlineFitting = new TrendlineFitting().Calculate(validFocusPoints, method);
                 GaussianFitting = new GaussianFitting().Calculate(validFocusPoints);
             }
+            RefreshFinalFocusPointError();
+        }
+
+        /// <summary>
+        /// Rebuilds <see cref="PlotFinalFocusPointWithError"/> from the current hyperbolic fit: a single point at the
+        /// best-focus minimum with a horizontal error bar (ErrorX) of σ(focus), falling back to the leave-one-out
+        /// stability when σ(focus) is unavailable (e.g. the Uneven Blend Legacy model). Leaves the series empty —
+        /// so nothing is drawn — for non-hyperbolic fits or when no uncertainty estimate exists.
+        /// </summary>
+        private void RefreshFinalFocusPointError() {
+            PlotFinalFocusPointWithError.Clear();
+            if (!(HyperbolicFitting is AlglibHyperbolicFitting alglibFit)) {
+                return;
+            }
+            var minimum = alglibFit.Minimum;
+            if (double.IsNaN(minimum.X) || double.IsInfinity(minimum.X)) {
+                return;
+            }
+            var errorX = alglibFit.MinimumStdError;
+            if (double.IsNaN(errorX) || double.IsInfinity(errorX) || errorX <= 0.0) {
+                errorX = alglibFit.LeaveOneOutStdError; // σ(focus) unavailable (e.g. legacy blend) → use LOO stability
+            }
+            if (double.IsNaN(errorX) || double.IsInfinity(errorX) || errorX <= 0.0) {
+                return;
+            }
+            PlotFinalFocusPointWithError.Add(new ScatterErrorPoint(minimum.X, minimum.Y, errorX, 0.0));
         }
 
         public async Task<AutoFocusReport> StartAutoFocus(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
@@ -541,6 +614,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             FocusPoints.Clear();
+            PlotFinalFocusPointWithError.Clear();
             PlotFocusPoints.Clear();
             PlotRejectedFocusPoints.Clear();
         }
@@ -570,8 +644,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 this.QuadraticFitting = firstRegion.Fittings.QuadraticFitting;
                 this.GaussianFitting = firstRegion.Fittings.GaussianFitting;
                 this.HyperbolicFitting = firstRegion.Fittings.HyperbolicFitting;
+                this.SelectedHyperbolicFitModel = firstRegion.Fittings.SelectedHyperbolicFitModel;
             }
 
+            RefreshFinalFocusPointError();
             AutoFocusDuration = e.Duration;
         }
 

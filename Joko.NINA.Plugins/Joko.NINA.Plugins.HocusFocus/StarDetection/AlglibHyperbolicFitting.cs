@@ -87,6 +87,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public static AlglibHyperbolicFitting Create(IAlglibAPI alglibAPI, HyperbolicFitModel model, ICollection<ScatterErrorPoint> points, int stepSize, bool useWeights) {
             switch (model) {
                 case HyperbolicFitModel.TiltedHyperbola:
+                // Hybrid is a meta-model: live it renders as the Tilted hyperbola (and any caller passing
+                // Hybrid straight into Create gets Tilted as a defensive fallback). The actual per-run /
+                // per-star best-fit selection happens in SelectBestModel. Never recurses through Create.
+                case HyperbolicFitModel.Hybrid:
                     return TiltedHyperbolicFittingAlglib.Create(alglibAPI, points, useWeights);
                 case HyperbolicFitModel.SmoothBlend:
                     return SmoothBlendHyperbolicFittingAlglib.Create(alglibAPI, points, useWeights);
@@ -209,6 +213,131 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var mean = predictions.Average();
             var variance = predictions.Sum(p => (p - mean) * (p - mean)) / (predictions.Count - 1);
             return Math.Sqrt(variance);
+        }
+
+        /// <summary>
+        /// The concrete models the Hybrid "best fit" meta-model competes. Excludes <see cref="HyperbolicFitModel.Hybrid"/>
+        /// itself, so selection never recurses.
+        /// </summary>
+        private static readonly HyperbolicFitModel[] HybridCandidateModels = {
+            HyperbolicFitModel.Symmetric,
+            HyperbolicFitModel.UnevenBlendLegacy,
+            HyperbolicFitModel.TiltedHyperbola,
+            HyperbolicFitModel.SmoothBlend,
+        };
+
+        /// <summary>
+        /// Fits all concrete hyperbolic models to <paramref name="points"/> and returns the one with the least
+        /// expected error for the best-focus position — the Hybrid "best fit" selection. Candidates that fail to
+        /// solve, or whose minimum is non-finite or outside the sampled X range, are dropped. Ranking is tiered:
+        /// (1) finite parametric σ(focus) = <see cref="MinimumStdError"/> ascending — already produced by
+        /// <see cref="Solve"/>, so the common path is cheap; (2) when no candidate has a finite σ(focus), the
+        /// leave-one-out best-focus std (<see cref="ComputeLeaveOneOutBestFocusStdError"/>, computed lazily — this
+        /// is where the legacy uneven blend, which has no σ(focus), can win); final tiebreak
+        /// <see cref="ReducedChiSquared"/> ascending then <see cref="RSquared"/> descending. If nothing survives,
+        /// returns <see cref="HyperbolicFitModel.TiltedHyperbola"/> with its solved fit (or null) so the live fit
+        /// is preserved. <paramref name="bestFit"/> is the already-solved winning fit.
+        /// </summary>
+        public static HyperbolicFitModel SelectBestModel(IAlglibAPI alglibAPI, IList<ScatterErrorPoint> points, int stepSize, bool useWeights, out AlglibHyperbolicFitting bestFit) {
+            double minX = double.PositiveInfinity, maxX = double.NegativeInfinity;
+            if (points != null) {
+                foreach (var p in points) {
+                    if (p.X < minX) minX = p.X;
+                    if (p.X > maxX) maxX = p.X;
+                }
+            }
+
+            var survivors = new List<AlglibHyperbolicFitting>();
+            var survivorModels = new List<HyperbolicFitModel>();
+            AlglibHyperbolicFitting tiltedFit = null;
+            foreach (var model in HybridCandidateModels) {
+                AlglibHyperbolicFitting fit;
+                try {
+                    fit = Create(alglibAPI, model, points, stepSize, useWeights);
+                    if (!fit.Solve()) {
+                        continue;
+                    }
+                } catch (Exception ex) {
+                    Logger.Trace($"Hybrid selection: model {model} failed to solve ({ex.Message})");
+                    continue;
+                }
+                if (model == HyperbolicFitModel.TiltedHyperbola) {
+                    tiltedFit = fit;
+                }
+                var x = fit.Minimum.X;
+                if (double.IsNaN(x) || double.IsInfinity(x)) {
+                    continue;
+                }
+                if (maxX >= minX && (x < minX || x > maxX)) {
+                    continue;
+                }
+                survivors.Add(fit);
+                survivorModels.Add(model);
+            }
+
+            if (survivors.Count == 0) {
+                // All candidates degenerate/out-of-range — keep the live (Tilted) fit so the rest of the pipeline
+                // stays consistent with what was rendered during the sweep.
+                bestFit = tiltedFit;
+                return HyperbolicFitModel.TiltedHyperbola;
+            }
+
+            // Tier 1: candidates whose parametric σ(focus) is finite.
+            var tier1 = new List<int>();
+            for (int i = 0; i < survivors.Count; ++i) {
+                var se = survivors[i].MinimumStdError;
+                if (!double.IsNaN(se) && !double.IsInfinity(se)) {
+                    tier1.Add(i);
+                }
+            }
+
+            var primary = new double[survivors.Count];
+            List<int> contenders;
+            if (tier1.Count > 0) {
+                for (int i = 0; i < survivors.Count; ++i) {
+                    primary[i] = survivors[i].MinimumStdError;
+                }
+                contenders = tier1;
+            } else {
+                // Tier 2: leave-one-out fallback (lazy — only when no candidate has a finite σ(focus)).
+                contenders = new List<int>();
+                for (int i = 0; i < survivors.Count; ++i) {
+                    var loo = ComputeLeaveOneOutBestFocusStdError(alglibAPI, survivorModels[i], points, stepSize, useWeights);
+                    primary[i] = loo;
+                    if (!double.IsNaN(loo) && !double.IsInfinity(loo)) {
+                        contenders.Add(i);
+                    }
+                }
+                if (contenders.Count == 0) {
+                    // Neither σ(focus) nor LOO available (e.g. < 5 points and no covariance) — rank every survivor
+                    // by the χ²/R² tiebreak alone.
+                    for (int i = 0; i < survivors.Count; ++i) {
+                        primary[i] = 0.0;
+                        contenders.Add(i);
+                    }
+                }
+            }
+
+            contenders.Sort((i, j) => {
+                int c = primary[i].CompareTo(primary[j]);
+                if (c != 0) return c;
+                c = CompareAscNaNLast(survivors[i].ReducedChiSquared, survivors[j].ReducedChiSquared);
+                if (c != 0) return c;
+                return CompareAscNaNLast(-survivors[i].RSquared, -survivors[j].RSquared); // R² descending
+            });
+
+            var best = contenders[0];
+            bestFit = survivors[best];
+            return survivorModels[best];
+        }
+
+        // Ascending comparison treating NaN as the worst (sorted last).
+        private static int CompareAscNaNLast(double a, double b) {
+            bool na = double.IsNaN(a), nb = double.IsNaN(b);
+            if (na && nb) return 0;
+            if (na) return 1;
+            if (nb) return -1;
+            return a.CompareTo(b);
         }
 
         /// <summary>

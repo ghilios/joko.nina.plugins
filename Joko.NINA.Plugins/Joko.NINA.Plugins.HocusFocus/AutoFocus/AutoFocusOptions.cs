@@ -66,15 +66,23 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             unevenHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(UnevenHyperbolicFitEnabled), true);
             weightedHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(WeightedHyperbolicFitEnabled), true);
 
-            // HyperbolicFitModel supersedes the UnevenHyperbolicFitEnabled boolean. Migrate the boolean to the
-            // new selector once (true => the previous default of the uneven blend, false => symmetric), then
-            // read the selector thereafter.
+            // HyperbolicFitModel supersedes the UnevenHyperbolicFitEnabled boolean, and new profiles default to the
+            // Hybrid best-fit model. Migrate once: an upgrading user (the legacy boolean is actually present in the
+            // store) keeps their effective behavior (true => uneven blend, false => symmetric); a brand-new profile
+            // (boolean absent) gets Hybrid. Presence is detected by reading the boolean with two different defaults —
+            // they agree only when a stored value exists. Thereafter the selector is read directly.
             if (!optionsAccessor.GetValueBoolean("HyperbolicFitModelMigrated", false)) {
-                hyperbolicFitModel = unevenHyperbolicFitEnabled ? HyperbolicFitModel.UnevenBlendLegacy : HyperbolicFitModel.Symmetric;
+                var legacyBooleanPresent = optionsAccessor.GetValueBoolean(nameof(UnevenHyperbolicFitEnabled), false)
+                                        == optionsAccessor.GetValueBoolean(nameof(UnevenHyperbolicFitEnabled), true);
+                if (legacyBooleanPresent) {
+                    hyperbolicFitModel = unevenHyperbolicFitEnabled ? HyperbolicFitModel.UnevenBlendLegacy : HyperbolicFitModel.Symmetric;
+                } else {
+                    hyperbolicFitModel = HyperbolicFitModel.Hybrid;
+                }
                 optionsAccessor.SetValueEnum(nameof(HyperbolicFitModel), hyperbolicFitModel);
                 optionsAccessor.SetValueBoolean("HyperbolicFitModelMigrated", true);
             } else {
-                hyperbolicFitModel = optionsAccessor.GetValueEnum(nameof(HyperbolicFitModel), HyperbolicFitModel.UnevenBlendLegacy);
+                hyperbolicFitModel = optionsAccessor.GetValueEnum(nameof(HyperbolicFitModel), HyperbolicFitModel.Hybrid);
             }
 
             fitRejectionCriterion = optionsAccessor.GetValueEnum(nameof(FitRejectionCriterion), FitRejectionCriterion.RSquared);
@@ -100,7 +108,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             OutlierRejectionConfidence = 0.90;
             UnevenHyperbolicFitEnabled = true;
             WeightedHyperbolicFitEnabled = true;
-            HyperbolicFitModel = HyperbolicFitModel.UnevenBlendLegacy;
+            HyperbolicFitModel = HyperbolicFitModel.Hybrid;
             FitRejectionCriterion = FitRejectionCriterion.RSquared;
             ReducedChiSquaredRejectionThreshold = 5.0;
         }

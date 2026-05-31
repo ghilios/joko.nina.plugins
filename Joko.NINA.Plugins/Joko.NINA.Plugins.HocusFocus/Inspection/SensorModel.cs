@@ -627,13 +627,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                 try {
                     var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, EstimateHfrStdDev(s.Star))).ToList();
+                    // When the option is Hybrid, run the full best-fit selection on this star's curve and use the
+                    // winning concrete model for the (rejection) fit below — each star self-selects the most
+                    // trustworthy model. Non-Hybrid options pass straight through unchanged.
+                    var modelForStar = autoFocusOptions.HyperbolicFitModel;
+                    if (modelForStar == HyperbolicFitModel.Hybrid) {
+                        modelForStar = AlglibHyperbolicFitting.SelectBestModel(this.alglibAPI, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled, out _);
+                    }
                     var rejectedPoints = new List<ScatterErrorPoint>();
                     bool continueFitting;
                     AlglibHyperbolicFitting fitting;
                     bool solveResult;
                     do {
                         continueFitting = false;
-                        fitting = AlglibHyperbolicFitting.Create(this.alglibAPI, autoFocusOptions.HyperbolicFitModel, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                        fitting = AlglibHyperbolicFitting.Create(this.alglibAPI, modelForStar, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
 
                         solveResult = fitting.Solve();
                         if (rejectBadlyFittingMatches) {

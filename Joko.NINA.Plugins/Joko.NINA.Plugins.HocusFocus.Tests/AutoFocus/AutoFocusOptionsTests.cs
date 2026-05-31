@@ -201,10 +201,10 @@ public class AutoFocusOptionsTests {
     }
 
     [Test]
-    public void HyperbolicFitModel_DefaultsToUnevenBlendLegacy() {
-        // Fresh store => migrates from the legacy default (uneven enabled) to the legacy blend model.
+    public void HyperbolicFitModel_DefaultsToHybrid() {
+        // Brand-new profile (no legacy boolean in the store) => the Hybrid best-fit model is the new default.
         var (options, _, _) = Build();
-        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.UnevenBlendLegacy));
+        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.Hybrid));
     }
 
     [Test]
@@ -238,11 +238,11 @@ public class AutoFocusOptionsTests {
     }
 
     [Test]
-    public void HyperbolicFitModel_ResetRestoresUnevenBlendLegacy() {
+    public void HyperbolicFitModel_ResetRestoresHybrid() {
         var (options, _, _) = Build();
         options.HyperbolicFitModel = HyperbolicFitModel.SmoothBlend;
         options.ResetDefaults();
-        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.UnevenBlendLegacy));
+        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.Hybrid));
     }
 
     [Test]

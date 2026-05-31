@@ -123,11 +123,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         public GaussianFitting GaussianFitting { get; set; } = null;
 
+        /// <summary>
+        /// The concrete hyperbolic model actually chosen for this run when the option is
+        /// <see cref="HyperbolicFitModel.Hybrid"/> (selected at finalization by
+        /// <see cref="StarDetection.AlglibHyperbolicFitting.SelectBestModel"/>). Null for non-Hybrid runs, so
+        /// downstream consumers (report, UI) can tell "no per-run selection happened" from a real pick.
+        /// </summary>
+        public HyperbolicFitModel? SelectedHyperbolicFitModel { get; set; } = null;
+
         public void Reset() {
             TrendlineFitting = new TrendlineFitting();
             QuadraticFitting = null;
             HyperbolicFitting = null;
             GaussianFitting = null;
+            SelectedHyperbolicFitModel = null;
         }
 
         public AutoFocusFitting Clone() {
@@ -137,7 +146,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
                 TrendlineFitting = TrendlineFitting,
                 QuadraticFitting = QuadraticFitting,
                 HyperbolicFitting = HyperbolicFitting,
-                GaussianFitting = GaussianFitting
+                GaussianFitting = GaussianFitting,
+                SelectedHyperbolicFitModel = SelectedHyperbolicFitModel
             };
         }
 

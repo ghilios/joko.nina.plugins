@@ -38,6 +38,7 @@
     <TextBlock x:Key="HyperbolicMinimumStdError_Tooltip" Text="σ(focus): the standard error of the best-focus position, in focuser steps, propagated from the hyperbolic fit's covariance. This is the parametric uncertainty estimate (it assumes the model is correct and the measurement errors are Gaussian) and is the quantity that most directly indicates how well the run pinned down focus. Smaller is better. Shown as — for the Uneven Blend (Legacy) fit model, which has no analytic covariance; choose the Symmetric, Tilted Hyperbola, or Smooth Blend model to compute it. The leave-one-out stability below is the non-parametric alternative available for every model." />
     <TextBlock x:Key="HyperbolicReducedChiSquared_Tooltip" Text="Reduced χ² (χ² per degree of freedom) of the hyperbolic fit. ≈1 means the model fits the measured curve to within the per-point measurement uncertainties. It is a true reduced χ² only when the weighted hyperbolic fit is enabled (per-point σ from the HFR error bars); without weighting it degenerates to the residual sum of squares per degree of freedom, whose absolute scale is rig-dependent. Because the per-point σ is approximate, reduced χ² routinely runs above 1 even for good fits." />
     <TextBlock x:Key="HyperbolicLeaveOneOutStdError_Tooltip" Text="Best-focus stability from leave-one-out refitting: the standard deviation, in focuser steps, of the predicted best-focus position across refits that each drop one measurement. This is a non-parametric robustness estimate — it shows how much the answer moves if any single point is removed. When it is much larger than the parametric σ(focus), it flags a single high-leverage point or model misspecification. Unlike σ(focus) it is available for every fit model (including Uneven Blend Legacy). Diagnostic only; it is not a rejection gate." />
+    <TextBlock x:Key="SelectedHyperbolicFitModel_Tooltip" Text="The concrete hyperbolic model the Hybrid (Best Fit) option selected for this run — the one with the least expected error for the best-focus position. Shown only for Hybrid runs." />
 
     <TextBlock x:Key="SensorModel_Tilt_Tooltip" Text="The angle the sensor is tilted. 0 indicates no tilt, and values here are typically very small" />
     <TextBlock x:Key="SensorModel_CriticalFocus_Tooltip" Text="The focuser distance a pixel can be from optimal focus before the effects can be noticed. This value increases with larger (slower) F/ratios, which can tolerate more curvature before affecting image quality" />
@@ -147,6 +148,15 @@
                         MarkerStroke="Red"
                         MarkerStrokeThickness="2"
                         MarkerSize="10" />
+                    <!--  Horizontal error bar (ErrorX = σ(focus), or LOO fallback) on the final calculated point.  -->
+                    <oxy:ScatterErrorSeries
+                        DataFieldX="FocusPosition"
+                        DataFieldY="HFR"
+                        ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
+                        ErrorBarStopWidth="4"
+                        ErrorBarStrokeThickness="2"
+                        ItemsSource="{Binding PlotFinalFocusPointWithError}"
+                        MarkerType="None" />
                 </oxy:Plot.Series>
                 <oxy:Plot.Annotations>
                     <oxy:LineAnnotation Intercept="{Binding TrendlineFitting.LeftTrend.Offset}" Slope="{Binding TrendlineFitting.LeftTrend.Slope}">
@@ -534,6 +544,14 @@
                     </UniformGrid.Visibility>
                     <TextBlock Text="Best-focus stability (LOO)" ToolTip="{StaticResource HyperbolicLeaveOneOutStdError_Tooltip}" />
                     <TextBlock Margin="5,0,0,0" ToolTip="{StaticResource HyperbolicLeaveOneOutStdError_Tooltip}" Text="{Binding HyperbolicFitting.LeaveOneOutStdError, StringFormat=± {0:0.#} steps, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                </UniformGrid>
+                <UniformGrid
+                    Margin="0,5,0,0"
+                    VerticalAlignment="Center"
+                    Columns="2"
+                    Visibility="{Binding SelectedHyperbolicFitModel, Converter={StaticResource HF_NullToVisibilityCollapsedConverter}}">
+                    <TextBlock Text="Hyperbolic model" ToolTip="{StaticResource SelectedHyperbolicFitModel_Tooltip}" />
+                    <TextBlock Margin="5,0,0,0" ToolTip="{StaticResource SelectedHyperbolicFitModel_Tooltip}" Text="{Binding SelectedHyperbolicFitModel, Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
                 </UniformGrid>
                 <UniformGrid
                     Margin="0,5,0,0"

@@ -226,7 +226,14 @@ namespace TestApp {
                 curve.StoredMinStdErr = ReadDouble(json["HyperbolicMinimumStdError"]);
                 curve.StoredReducedChiSquared = ReadDouble(json["HyperbolicReducedChiSquared"]);
                 curve.StoredLooStd = ReadDouble(json["HyperbolicLeaveOneOutStdError"]);
-                curve.SavedModel = ReadModelName((json["HocusFocusAutoFocusOptions"] as JObject)?["HyperbolicFitModel"]);
+                // Prefer the concrete model the Hybrid meta-model actually chose for this run (HyperbolicFitModelChosen,
+                // present only on Hybrid runs); otherwise fall back to the option (which is "Hybrid" or a fixed model).
+                var chosen = json["HyperbolicFitModelChosen"];
+                if (chosen != null && chosen.Type != JTokenType.Null) {
+                    curve.SavedModel = ReadModelName(chosen);
+                } else {
+                    curve.SavedModel = ReadModelName((json["HocusFocusAutoFocusOptions"] as JObject)?["HyperbolicFitModel"]);
+                }
                 return curve;
             } catch (Exception ex) {
                 Logger.Warning($"Failed to parse {rel}: {ex.Message}");

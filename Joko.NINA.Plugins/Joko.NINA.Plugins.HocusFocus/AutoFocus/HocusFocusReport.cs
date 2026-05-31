@@ -42,6 +42,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         [JsonProperty]
         public double HyperbolicLeaveOneOutStdError { get; set; } = double.NaN;
 
+        /// <summary>
+        /// The concrete hyperbolic model actually chosen for this run when the option was
+        /// <see cref="HyperbolicFitModel.Hybrid"/>; null for non-Hybrid runs (and on older reports). Distinct from
+        /// <see cref="HocusFocusAutoFocusOptions"/>.HyperbolicFitModel, which still records the option ("Hybrid").
+        /// </summary>
+        [JsonProperty]
+        public HyperbolicFitModel? HyperbolicFitModelChosen { get; set; } = null;
+
         [JsonProperty]
         public StarDetectionRegion Region { get; set; } = StarDetectionRegion.Full;
 
@@ -97,6 +105,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 HyperbolicMinimumStdError = alglibHyperbolicFitting?.MinimumStdError ?? double.NaN,
                 HyperbolicReducedChiSquared = alglibHyperbolicFitting?.ReducedChiSquared ?? double.NaN,
                 HyperbolicLeaveOneOutStdError = alglibHyperbolicFitting?.LeaveOneOutStdError ?? double.NaN,
+                HyperbolicFitModelChosen = fittings.SelectedHyperbolicFitModel,
                 Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod.ToString(),
                 Fitting = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR ? profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting.ToString() : "GAUSSIAN",
                 MeasurePoints = focusPoints.Select(x => new FocusPoint() { Position = x.X, Value = x.Y, Error = x.ErrorY }),
