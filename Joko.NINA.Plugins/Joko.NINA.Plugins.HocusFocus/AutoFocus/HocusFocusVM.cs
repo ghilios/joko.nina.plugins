@@ -559,6 +559,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 FinalHFR = firstRegion.FinalHFR.Value;
             }
 
+            // During the run the fit properties are updated only from the intermediate per-point fit
+            // (AutoFocusEngine_MeasurementPointCompleted). The finalized region fit carries the values computed
+            // in the engine's final pass — leave-one-out stability, plus the final-curve σ(focus)/reduced χ² —
+            // which the intermediate fit lacks (LOO is always NaN there). Re-sync to it on completion so the
+            // panel shows them instead of NaN/stale intermediates, and so the report generated right after this
+            // (which serializes these VM properties) records them too. Runs for both live and re-run completions.
+            if (firstRegion.Fittings != null) {
+                this.TrendlineFitting = firstRegion.Fittings.TrendlineFitting;
+                this.QuadraticFitting = firstRegion.Fittings.QuadraticFitting;
+                this.GaussianFitting = firstRegion.Fittings.GaussianFitting;
+                this.HyperbolicFitting = firstRegion.Fittings.HyperbolicFitting;
+            }
+
             AutoFocusDuration = e.Duration;
         }
 
