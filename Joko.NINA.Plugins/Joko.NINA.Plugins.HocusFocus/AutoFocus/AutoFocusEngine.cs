@@ -592,8 +592,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return Task.CompletedTask;
                 }
 
-                var averageMeasurement = values.AverageMeasurement();
-                regionState.MeasurementsByFocuserPoint.Add(focuserPosition, averageMeasurement);
+                // A focuser position can be revisited - most commonly when reprocessing a saved run whose frames
+                // map more than one measurement point to the same focuser position. Complete each position only
+                // once; the second completion previously threw "An item with the same key has already been added".
+                if (!TryCompleteFocuserPoint(regionState.MeasurementsByFocuserPoint, focuserPosition, values)) {
+                    Logger.Trace($"Ignoring duplicate completion at focuser position {focuserPosition}");
+                    return Task.CompletedTask;
+                }
 
                 var focusPoints = regionState.MeasurementsByFocuserPoint.Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, Math.Max(0.001, fp.Value.Stdev))).ToList();
                 regionState.UpdateCurveFittings(focusPoints);
@@ -601,6 +606,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 this.OnMeasurementPointCompleted(imageState, regionState, measurement);
             }
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Records the averaged sub-measurements for a focuser position, completing that point exactly once.
+        /// Returns false (leaving the map unchanged) when the position was already completed, which happens when
+        /// a saved run being reprocessed maps more than one measurement point to the same focuser position.
+        /// </summary>
+        internal static bool TryCompleteFocuserPoint(Dictionary<int, MeasureAndError> measurementsByFocuserPoint, int focuserPosition, List<MeasureAndError> subMeasurements) {
+            if (measurementsByFocuserPoint.ContainsKey(focuserPosition)) {
+                return false;
+            }
+            measurementsByFocuserPoint.Add(focuserPosition, subMeasurements.AverageMeasurement());
+            return true;
         }
 
         private Task InitialHFRMeasurementAction(AutoFocusImageState imageState, MeasureAndError measurement, AutoFocusState state, AutoFocusRegionState regionState) {
