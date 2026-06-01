@@ -710,7 +710,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         return;
                     }
 
-                    if (fitting.RSquared < 0.90) {
+                    if (fitting.RSquared < SensorAberrationCalculator.PerStarAcceptableRSquared) {
                         // Discard bad fitting
                         discardedFlags[registeredStarIndex] = true;
                         return;
