@@ -29,7 +29,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         int FocuserOffset { get; set; }
         int MaxOutlierRejections { get; set; }
         double OutlierRejectionConfidence { get; set; }
-        bool UnevenHyperbolicFitEnabled { get; set; }
         bool WeightedHyperbolicFitEnabled { get; set; }
+        HyperbolicFitModel HyperbolicFitModel { get; set; }
+        FitRejectionCriterion FitRejectionCriterion { get; set; }
+        double ReducedChiSquaredRejectionThreshold { get; set; }
     }
 }

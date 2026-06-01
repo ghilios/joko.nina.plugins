@@ -454,13 +454,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         stopwatch, ReferenceImage,
                         ((inspectorOptions.UseRANSAC) && (ransacAligned == allDetectedStars.Count)) ? searchRadiusRANSAC : searchRadiusNonRANSAC,
                         inspectorOptions.RejectBadBrightnessMatches ? maxNormalisedBrightnessDiff : -1,
+                        iterations,
                         progress);
 
                     // registration phase done
                     stopwatch.RecordEntry("registration");
                     ct.ThrowIfCancellationRequested();
 
-                    RegistrationAndFitResult reg = FitImages(imageSize, focuserSizeMicrons, pixelSize, stepSize, stopwatch, registeredStars, progress, inspectorOptions.RejectBadlyFittingMatches);
+                    RegistrationAndFitResult reg = FitImages(imageSize, focuserSizeMicrons, pixelSize, stepSize, stopwatch, registeredStars, progress, inspectorOptions.RejectBadlyFittingMatches, iterations, ct);
                     SensorParaboloidModel pfit = null;
 
                     if (reg.Points.Count >= 9) {  // 9 points is the minimum for fitting the model
@@ -610,61 +611,112 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 MultiStopWatch stopwatch,
                 RegisteredStar[] registeredStars,
                 IProgress<ApplicationStatus> progress,
-                bool rejectBadlyFittingMatches) {
-            int discardedStarCount = 0;
+                bool rejectBadlyFittingMatches,
+                int attempt,
+                CancellationToken ct) {
             var sensorModelDataPoints = new List<SensorParaboloidDataPoint>();
-            // Best-focus points collected with their per-star σ (NaN when the hyperbolic fit could not
-            // estimate a standard error). σ is resolved to a concrete weight in a second pass below.
-            var pendingPoints = new List<(double X, double Y, double FocuserMicrons, double RSquared, double StdDevMicrons)>();
+            // The brightness-tolerance search can re-run this phase; surface which attempt is in progress so a
+            // retry does not look like the bar resetting. Annotated only on retries to keep the common run clean.
+            var phaseLabel = attempt > 1 ? $"Fitting sensor model (attempt {attempt})" : "Fitting sensor model";
             var maxOutlierRejectedPoints = this.autoFocusOptions.MaxOutlierRejections;
             var rejectionConfidence = this.autoFocusOptions.OutlierRejectionConfidence;
             const int minStarCountForFitting = 5;
-            int totalRejectedPointCount = 0;
-            foreach (var registeredStar in registeredStars) {
+            var starCount = registeredStars.Length;
+
+            // Each star's curve fit is independent (its own points, its own alglib state — AlglibAPI serializes
+            // only the alloc/free of the shared handle pool), and per-star fitting dominates the model build:
+            // with the Hybrid model every star fits several candidate curves, taking tens of seconds for
+            // thousands of stars. Parallelize it across cores. Results are written to index-aligned slots and
+            // assembled in order afterward, so the data-point list — and therefore the surface fit — is
+            // identical regardless of completion order (keeps the build deterministic; see
+            // SensorModelRepeatabilityTests). Best-focus σ is NaN when the hyperbolic fit could not estimate a
+            // standard error; it is resolved to a concrete weight in the second pass below. The "Fitting sensor
+            // model" progress is driven by a shared counter, throttled to ~100 updates to avoid flooding the
+            // dispatcher (its ordering is cosmetic and does not affect the result).
+            var pointPerStar = new (double X, double Y, double FocuserMicrons, double RSquared, double StdDevMicrons)?[starCount];
+            var discardedFlags = new bool[starCount];
+            var rejectedCounts = new int[starCount];
+            var reportEvery = Math.Max(1, starCount / 100);
+            int processedCount = 0;
+            var parallelOptions = new ParallelOptions {
+                CancellationToken = ct,
+                MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount)
+            };
+
+            Parallel.For(0, starCount, parallelOptions, registeredStarIndex => {
+                var done = Interlocked.Increment(ref processedCount);
+                if (progress != null && (done % reportEvery == 0)) {
+                    progress.Report(new ApplicationStatus() {
+                        Status = phaseLabel,
+                        Status2 = "Star",
+                        ProgressType2 = ApplicationStatus.StatusProgressType.ValueOfMaxValue,
+                        MaxProgress2 = starCount,
+                        Progress2 = done
+                    });
+                }
+
+                var registeredStar = registeredStars[registeredStarIndex];
                 if (registeredStar.MatchedStars.Count < minStarCountForFitting) {
-                    continue;
+                    return;
                 }
 
                 try {
                     var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, EstimateHfrStdDev(s.Star))).ToList();
-                    var rejectedPoints = new List<ScatterErrorPoint>();
-                    bool continueFitting;
+                    var useWeights = autoFocusOptions.WeightedHyperbolicFitEnabled;
+                    // Outlier budget: the configured cap when bad-match rejection is on, but never enough to prune a
+                    // star below minStarCountForFitting points (so each per-star fit keeps a reliable point count).
+                    var rejectionBudget = rejectBadlyFittingMatches
+                        ? Math.Max(0, Math.Min(maxOutlierRejectedPoints, points.Count - minStarCountForFitting))
+                        : 0;
+
                     AlglibHyperbolicFitting fitting;
                     bool solveResult;
-                    do {
-                        continueFitting = false;
-                        if (autoFocusOptions.UnevenHyperbolicFitEnabled) {
-                            fitting = HyperbolicUnevenFittingAlglib.Create(this.alglibAPI, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
-                        } else {
-                            fitting = HyperbolicFittingAlglib.Create(this.alglibAPI, points, autoFocusOptions.WeightedHyperbolicFitEnabled);
-                        }
+                    int rejectedCount;
+                    if (autoFocusOptions.HyperbolicFitModel == HyperbolicFitModel.Hybrid) {
+                        // Pick the best model for THIS star after each candidate rejects its own outliers — outlier-ness
+                        // is model-specific, so the winner is judged on the curve it produces once cleaned, exactly like
+                        // the Hybrid pick during an auto-focus run.
+                        AlglibHyperbolicFitting.SelectBestModel(
+                            this.alglibAPI, points, stepSize, useWeights,
+                            rejectionBudget, rejectionConfidence,
+                            out fitting, out var rejected);
+                        solveResult = fitting != null;
+                        rejectedCount = rejected.Count;
+                    } else {
+                        // Fixed model: reject its own outliers via reject-and-refit (unchanged).
+                        var modelForStar = autoFocusOptions.HyperbolicFitModel;
+                        var rejectedPoints = new List<ScatterErrorPoint>();
+                        bool continueFitting;
+                        do {
+                            continueFitting = false;
+                            fitting = AlglibHyperbolicFitting.Create(this.alglibAPI, modelForStar, points, stepSize, useWeights);
 
-                        solveResult = fitting.Solve();
-                        if (rejectBadlyFittingMatches) {
-                            if (solveResult && rejectedPoints.Count < maxOutlierRejectedPoints && points.Count > minStarCountForFitting) {
-                                var rejectedPoint = MathUtility.RejectionTest(points: points, fitting: fitting.Fitting, confidence: rejectionConfidence);
+                            solveResult = fitting.Solve();
+                            if (rejectBadlyFittingMatches && solveResult && rejectedPoints.Count < maxOutlierRejectedPoints && points.Count > minStarCountForFitting) {
+                                var rejectedPoint = MathUtility.RejectionTest(points: points, fitting: fitting.Fitting, confidence: rejectionConfidence, weights: AlglibHyperbolicFitting.BuildResidualWeights(points, useWeights));
                                 if (rejectedPoint != null) {
                                     rejectedPoints.Add(rejectedPoint);
                                     points.Remove(rejectedPoint);
                                     continueFitting = true;
                                 }
                             }
-                        }
-                    } while (continueFitting);
+                        } while (continueFitting);
+                        rejectedCount = rejectedPoints.Count;
+                    }
 
-                    if (!solveResult) {
+                    if (!solveResult || fitting == null) {
                         Logger.Trace($"Failed to fit hyperbolic curve to star matches at ({registeredStar.RegistrationX:0.00}, {registeredStar.RegistrationY:0.00})");
-                        discardedStarCount++;
-                        continue;
+                        discardedFlags[registeredStarIndex] = true;
+                        return;
                     }
 
-                    if (fitting.RSquared < 0.90) {
+                    if (fitting.RSquared < SensorAberrationCalculator.PerStarAcceptableRSquared) {
                         // Discard bad fitting
-                        discardedStarCount++;
-                        continue;
+                        discardedFlags[registeredStarIndex] = true;
+                        return;
                     }
 
-                    totalRejectedPointCount += rejectedPoints.Count;
+                    rejectedCounts[registeredStarIndex] = rejectedCount;
                     var dataPointX = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
                     var dataPointY = (registeredStar.RegistrationY - (imageSize.Height / 2.0)) * pixelSize;
                     var focuserMicrons = fitting.Minimum.X * focuserSizeMicrons;
@@ -675,9 +727,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     var bestFocusStdDevMicrons = (!double.IsNaN(fitting.MinimumStdError) && !double.IsInfinity(fitting.MinimumStdError) && fitting.MinimumStdError > 0.0)
                         ? fitting.MinimumStdError * focuserSizeMicrons
                         : double.NaN;
-                    pendingPoints.Add((dataPointX, dataPointY, focuserMicrons, fitting.RSquared, bestFocusStdDevMicrons));
+                    pointPerStar[registeredStarIndex] = (dataPointX, dataPointY, focuserMicrons, fitting.RSquared, bestFocusStdDevMicrons);
                 } catch (Exception e) {
                     Logger.Error(e, $"Failed to calculate hyperbolic at ({registeredStar.RegistrationX}, {registeredStar.RegistrationY}). Error={e.Message}");
+                }
+            });
+
+            // Assemble per-star results in index order so the data-point list is deterministic.
+            var pendingPoints = new List<(double X, double Y, double FocuserMicrons, double RSquared, double StdDevMicrons)>();
+            int discardedStarCount = 0;
+            int totalRejectedPointCount = 0;
+            for (int i = 0; i < starCount; ++i) {
+                if (discardedFlags[i]) {
+                    discardedStarCount++;
+                }
+                totalRejectedPointCount += rejectedCounts[i];
+                if (pointPerStar[i].HasValue) {
+                    pendingPoints.Add(pointPerStar[i].Value);
                 }
             }
 
@@ -879,6 +945,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 int referenceImage,
                 float searchRadius,
                 double maxNormalisedBrightnessDiff,
+                int attempt,
                 IProgress<ApplicationStatus> progress) {
             Logger.Debug("MatchStarsUsingKdTree");
 
@@ -901,7 +968,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }
 
             ApplicationStatus status = new ApplicationStatus() {
-                Status = "Matching stars",
+                Status = attempt > 1 ? $"Matching stars (attempt {attempt})" : "Matching stars",
                 MaxProgress = allDetectedStars.Count,
                 ProgressType = ApplicationStatus.StatusProgressType.ValueOfMaxValue
             };
@@ -910,7 +977,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 if (imageIndex == referenceImage) {
                     continue;
                 }
-                status.Progress = imageIndex;
+                status.Progress = imageIndex + 1; // 1-based count out of MaxProgress, not the 0-based index
                 progress.Report(status);
 
                 var nextStarList = allDetectedStars[imageIndex].StarDetectionResult.StarList;

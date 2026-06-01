@@ -207,4 +207,51 @@ public class MathUtilityTests {
         Assert.That(rejected.X, Is.EqualTo(5));
         Assert.That(rejected.Y, Is.EqualTo(100));
     }
+
+    [Test]
+    public void RejectionTest_NoisyClusterPlusOutlier_FlagsTheTrueOutlier() {
+        // Inliers carry small, deterministic noise (so the MAD is non-zero and the robust path is
+        // exercised) and sit on a model that is biased low by ~10 (a non-zero residual offset). A single
+        // gross outlier sits far above the cluster. The robust median/MAD test must flag the gross
+        // outlier itself, not one of the noisy inliers.
+        var fitting = (Func<double, double>)(x => x); // model
+        var rng = new System.Random(7);
+        var points = new System.Collections.Generic.List<ScatterErrorPoint>();
+        for (int x = 0; x < 14; ++x) {
+            var noise = (rng.NextDouble() - 0.5) * 1.0; // ±0.5
+            points.Add(new ScatterErrorPoint(x, x + 10.0 + noise, 0, 1.0)); // residual ≈ +10
+        }
+        points.Add(new ScatterErrorPoint(20, 20 + 60.0, 0, 1.0)); // gross outlier, residual ≈ +60
+
+        var rejected = MathUtility.RejectionTest(points, fitting, confidence: 0.95);
+        Assert.That(rejected, Is.Not.Null);
+        Assert.That(rejected.X, Is.EqualTo(20));
+    }
+
+    [Test]
+    public void RejectionTest_WeightedResiduals_RespectsPerPointUncertainty() {
+        // One point sits far off the curve. Unweighted, it is rejected. But if it carries a large
+        // measurement uncertainty (tiny weight), the weighted test must NOT reject it.
+        var fitting = (Func<double, double>)(x => x);
+        var rng = new System.Random(11);
+        var points = new System.Collections.Generic.List<ScatterErrorPoint>();
+        for (int x = 0; x < 12; ++x) {
+            var noise = (rng.NextDouble() - 0.5) * 0.5;
+            points.Add(new ScatterErrorPoint(x, x + noise, 0, 1.0));
+        }
+        const int farX = 6;
+        points.Add(new ScatterErrorPoint(farX, farX + 25.0, 0, 1.0)); // far from curve
+
+        // Unweighted: the far point is an obvious outlier.
+        var unweighted = MathUtility.RejectionTest(points, fitting, confidence: 0.95);
+        // Weighted so the far point has a tiny weight (huge uncertainty) and the rest weight 1.
+        Func<double, double> weights = x => x == farX ? 0.01 : 1.0;
+        var weighted = MathUtility.RejectionTest(points, fitting, confidence: 0.95, weights: weights);
+
+        Assert.Multiple(() => {
+            Assert.That(unweighted, Is.Not.Null);
+            Assert.That(unweighted.X, Is.EqualTo(farX));
+            Assert.That(weighted, Is.Null, "A far point with large uncertainty should not be rejected when weighted");
+        });
+    }
 }

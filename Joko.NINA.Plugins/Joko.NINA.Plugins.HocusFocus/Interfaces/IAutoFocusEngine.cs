@@ -66,8 +66,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int FocuserOffset { get; set; }
         public int MaxOutlierRejections { get; set; }
         public double OutlierRejectionConfidence { get; set; }
-        public bool UnevenHyperbolicFitEnabled { get; set; }
         public bool WeightedHyperbolicFitEnabled { get; set; }
+        public HyperbolicFitModel HyperbolicFitModel { get; set; }
+        public FitRejectionCriterion FitRejectionCriterion { get; set; }
+        public double ReducedChiSquaredRejectionThreshold { get; set; }
         public bool PreserveExposures { get; set; }
     }
 
@@ -120,11 +122,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         public GaussianFitting GaussianFitting { get; set; } = null;
 
+        /// <summary>
+        /// The concrete hyperbolic model used for this run: the fixed option model for a non-Hybrid run, or — when
+        /// the option is <see cref="HyperbolicFitModel.Hybrid"/> — the model selected at finalization by
+        /// <see cref="StarDetection.AlglibHyperbolicFitting.SelectBestModel"/>. Null only for non-hyperbolic runs,
+        /// so downstream consumers (report, UI) can tell "no hyperbolic fit" from a real model.
+        /// </summary>
+        public HyperbolicFitModel? SelectedHyperbolicFitModel { get; set; } = null;
+
         public void Reset() {
             TrendlineFitting = new TrendlineFitting();
             QuadraticFitting = null;
             HyperbolicFitting = null;
             GaussianFitting = null;
+            SelectedHyperbolicFitModel = null;
         }
 
         public AutoFocusFitting Clone() {
@@ -134,7 +145,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
                 TrendlineFitting = TrendlineFitting,
                 QuadraticFitting = QuadraticFitting,
                 HyperbolicFitting = HyperbolicFitting,
-                GaussianFitting = GaussianFitting
+                GaussianFitting = GaussianFitting,
+                SelectedHyperbolicFitModel = SelectedHyperbolicFitModel
             };
         }
 

@@ -191,12 +191,84 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public double ReducedChiSquared { get; private set; }
         public double ChiSquaredPValue { get; private set; }
 
+        /// <summary>
+        /// 1-sigma standard error of the tilt angle <see cref="Theta"/>, in radians, from the fit covariance
+        /// (delta method). NaN when not determined (e.g. a rank-deficient or ill-conditioned fit).
+        /// </summary>
+        public double ThetaStdError { get; private set; } = double.NaN;
+
+        /// <summary>
+        /// 1-sigma standard error of the curvature radius (millimeters), from the fit covariance (delta
+        /// method). NaN when not determined (rank-deficient/ill-conditioned fit, or a flat field where the
+        /// radius itself diverges).
+        /// </summary>
+        public double CurvatureRadiusStdErrorMillimeters { get; private set; } = double.NaN;
+
         public void EvaluateFit(NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel> nlSolver, SensorParaboloidSolver sensorModelSolver) {
             StarsInModel = nlSolver.InputEnabledCount;
             GoodnessOfFit = nlSolver.GoodnessOfFit(sensorModelSolver, this);
             RMSErrorMicrons = nlSolver.RMSError(sensorModelSolver, this);
             ReducedChiSquared = nlSolver.ReducedChiSquared(sensorModelSolver, this);
             ChiSquaredPValue = nlSolver.ChiSquaredPValue(sensorModelSolver, this);
+            ComputeParameterStandardErrors(nlSolver.ParameterCovariance(sensorModelSolver, this));
+        }
+
+        /// <summary>
+        /// Propagates the fit's parameter covariance to the displayed tilt angle and curvature radius by the
+        /// delta method. The covariance is in the canonical parameter order of <see cref="ToArray"/>:
+        /// [X0, Y0, Z0, Gx, Gy, K] (isotropic) or [X0, Y0, Z0, Gx, Gy, Kx, Ky] (astigmatic). A null covariance
+        /// (unavailable/ill-conditioned fit) leaves both standard errors as NaN.
+        /// </summary>
+        private void ComputeParameterStandardErrors(double[,] covariance) {
+            ThetaStdError = double.NaN;
+            CurvatureRadiusStdErrorMillimeters = double.NaN;
+            if (covariance == null) {
+                return;
+            }
+
+            const int gxIdx = 3;
+            const int gyIdx = 4;
+
+            // Tilt angle θ = atan(g), g = √(Gx²+Gy²). By the chain rule,
+            //   ∂θ/∂Gx = Gx / (g·(1+g²)),  ∂θ/∂Gy = Gy / (g·(1+g²)).
+            // Var(θ) = Jθ·Cov·Jθᵀ over the (Gx, Gy) block. Undefined at g = 0 (azimuth unidentifiable), so
+            // leave θ's standard error NaN there — consistent with how the flat-field radius is left NaN.
+            var g2 = Gx * Gx + Gy * Gy;
+            var g = Math.Sqrt(g2);
+            if (g > 0.0) {
+                var denom = g * (1.0 + g2);
+                var dThetaDGx = Gx / denom;
+                var dThetaDGy = Gy / denom;
+                var thetaVar = dThetaDGx * dThetaDGx * covariance[gxIdx, gxIdx]
+                             + dThetaDGy * dThetaDGy * covariance[gyIdx, gyIdx]
+                             + 2.0 * dThetaDGx * dThetaDGy * covariance[gxIdx, gyIdx];
+                if (thetaVar >= 0.0 && !double.IsNaN(thetaVar) && !double.IsInfinity(thetaVar)) {
+                    ThetaStdError = Math.Sqrt(thetaVar);
+                }
+            }
+
+            // Curvature radius R = 1/(2000·|K|) mm (since C² = |K|). For the isotropic model K is a single
+            // parameter; for the astigmatic model K = (Kx+Ky)/2, so
+            //   Var(K) = ¼·(Var(Kx) + Var(Ky) + 2·Cov(Kx,Ky)).
+            // R ∝ 1/|K|, so ∂R/∂K = −R/K and σ_R = R·σ_K/|K| (relative errors are equal).
+            double varK;
+            if (Astigmatic) {
+                const int kxIdx = 5;
+                const int kyIdx = 6;
+                varK = 0.25 * (covariance[kxIdx, kxIdx] + covariance[kyIdx, kyIdx] + 2.0 * covariance[kxIdx, kyIdx]);
+            } else {
+                const int kIdx = 5;
+                varK = covariance[kIdx, kIdx];
+            }
+
+            var absK = Math.Abs(K);
+            if (absK > 0.0 && varK >= 0.0 && !double.IsNaN(varK) && !double.IsInfinity(varK)) {
+                var radiusMm = 1.0 / (2000.0 * absK);
+                var sigmaR = radiusMm * Math.Sqrt(varK) / absK;
+                if (!double.IsNaN(sigmaR) && !double.IsInfinity(sigmaR)) {
+                    CurvatureRadiusStdErrorMillimeters = sigmaR;
+                }
+            }
         }
 
         public override string ToString() {

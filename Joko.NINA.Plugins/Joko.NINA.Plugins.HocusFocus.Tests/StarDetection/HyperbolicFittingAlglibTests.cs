@@ -157,6 +157,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         [Test]
+        public void Solve_WithAnalyticJacobianAndOptGuard_Succeeds() {
+            // UseJacobian defaults to true. Enabling OptGuard makes alglib cross-check the analytic
+            // Jacobian against a numerical estimate; Solve throws if they disagree. A clean solve here
+            // is therefore proof the analytic Jacobian matches the model.
+            var pts = SyntheticFocusCurveSamples.SymmetricHyperbolaPoints(
+                x0: 5000, y0: 0.5, a: 2.0, b: 80.0,
+                xStart: 4700, xStep: 25, count: 25);
+            var fit = HyperbolicFittingAlglib.Create(alglibAPI, pts, useWeights: true);
+            fit.OptGuardEnabled = true;
+
+            Assert.Multiple(() => {
+                Assert.That(fit.Solve(), Is.True);
+                Assert.That(fit.Minimum.X, Is.EqualTo(5000).Within(1.0));
+                Assert.That(fit.RSquared, Is.GreaterThan(0.99));
+            });
+        }
+
+        [Test]
         public void Minimum_AtMinimumXValue_EqualsAPlusY0() {
             var pts = SyntheticFocusCurveSamples.SymmetricHyperbolaPoints(
                 x0: 5000, y0: 1.5, a: 2.0, b: 80.0,

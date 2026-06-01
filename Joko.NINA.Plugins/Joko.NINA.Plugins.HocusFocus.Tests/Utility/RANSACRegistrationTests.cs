@@ -502,6 +502,45 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
         }
 
         [Test]
+        public void GeneratePutativeMatches_NoImageTriangles_ReturnsEmptyWithoutThrowing() {
+            // Regression: a too-sparse / blank frame can yield 0 image triangles. The image-triangle count was
+            // passed straight to KdTree.RadialSearch as its neighbour cap, and a count of 0 made it build a
+            // zero-capacity priority queue → ArgumentException("Capacity must be greater than zero").
+            var refTris = new List<RANSACRegistration.StarTriangle> {
+                Tri((10, 20), (130, 25), (60, 110), isReference: true, referenceID: 1)
+            };
+            var img = new List<RANSACRegistration.StarTriangle>(); // 0 triangles
+
+            (List<Point2D> src, List<Point2D> dst) result = default;
+            Assert.DoesNotThrow(() => {
+                result = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                    img, refTris, new ApplicationStatus(), maxShapeDistance: 0.02);
+            });
+            Assert.Multiple(() => {
+                Assert.That(result.src, Is.Empty);
+                Assert.That(result.dst, Is.Empty);
+            });
+        }
+
+        [Test]
+        public void GeneratePutativeMatches_NoReferenceTriangles_ReturnsEmptyWithoutThrowing() {
+            var img = new List<RANSACRegistration.StarTriangle> {
+                Tri((10, 20), (130, 25), (60, 110))
+            };
+            var refTris = new List<RANSACRegistration.StarTriangle>(); // 0 reference triangles
+
+            (List<Point2D> src, List<Point2D> dst) result = default;
+            Assert.DoesNotThrow(() => {
+                result = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                    img, refTris, new ApplicationStatus(), maxShapeDistance: 0.02);
+            });
+            Assert.Multiple(() => {
+                Assert.That(result.src, Is.Empty);
+                Assert.That(result.dst, Is.Empty);
+            });
+        }
+
+        [Test]
         public void GeneratePutativeMatches_IsDeterministicAcrossRuns() {
             List<RANSACRegistration.StarTriangle> BuildRef() => new() {
                 Tri((10, 20), (130, 25), (60, 110), isReference: true, referenceID: 1),

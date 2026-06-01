@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -38,7 +39,6 @@ public class AutoFocusOptionsTests {
             Assert.That(options.FocuserOffset, Is.EqualTo(0));
             Assert.That(options.MaxOutlierRejections, Is.EqualTo(1));
             Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.90));
-            Assert.That(options.UnevenHyperbolicFitEnabled, Is.True);
             Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
         });
     }
@@ -62,7 +62,6 @@ public class AutoFocusOptionsTests {
         options.FocuserOffset = -10;
         options.MaxOutlierRejections = 3;
         options.OutlierRejectionConfidence = 0.95;
-        options.UnevenHyperbolicFitEnabled = false;
         options.WeightedHyperbolicFitEnabled = false;
 
         Assert.Multiple(() => {
@@ -82,7 +81,6 @@ public class AutoFocusOptionsTests {
             Assert.That(store.Snapshot["FocuserOffset"], Is.EqualTo(-10));
             Assert.That(store.Snapshot[nameof(AutoFocusOptions.MaxOutlierRejections)], Is.EqualTo(3));
             Assert.That(store.Snapshot[nameof(AutoFocusOptions.OutlierRejectionConfidence)], Is.EqualTo(0.95));
-            Assert.That(store.Snapshot[nameof(AutoFocusOptions.UnevenHyperbolicFitEnabled)], Is.False);
             Assert.That(store.Snapshot[nameof(AutoFocusOptions.WeightedHyperbolicFitEnabled)], Is.False);
         });
     }
@@ -105,7 +103,6 @@ public class AutoFocusOptionsTests {
             Assert.That(options.Save, Is.False);
             Assert.That(options.MaxOutlierRejections, Is.EqualTo(1));
             Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.90));
-            Assert.That(options.UnevenHyperbolicFitEnabled, Is.True);
             Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
         });
     }
@@ -123,7 +120,6 @@ public class AutoFocusOptionsTests {
     [TestCase(nameof(AutoFocusOptions.FocuserOffset), 5)]
     [TestCase(nameof(AutoFocusOptions.MaxOutlierRejections), 2)]
     [TestCase(nameof(AutoFocusOptions.OutlierRejectionConfidence), 0.95)]
-    [TestCase(nameof(AutoFocusOptions.UnevenHyperbolicFitEnabled), false)]
     [TestCase(nameof(AutoFocusOptions.WeightedHyperbolicFitEnabled), false)]
     public void Setter_RaisesPropertyChanged(string propertyName, object newValue) {
         var (options, _, _) = Build();
@@ -197,5 +193,95 @@ public class AutoFocusOptionsTests {
     public void Constructor_ThrowsOnNullAccessor() {
         var profile = Substitute.For<IProfileService>();
         Assert.Throws<ArgumentNullException>(() => new AutoFocusOptions(profile, null));
+    }
+
+    [Test]
+    public void HyperbolicFitModel_DefaultsToHybrid() {
+        // A profile that never chose a fit model => the Hybrid best-fit model is the default.
+        var (options, _, _) = Build();
+        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.Hybrid));
+    }
+
+    [Test]
+    public void HyperbolicFitModel_IgnoresLegacyUnevenBoolean() {
+        // The legacy UnevenHyperbolicFitEnabled boolean has been removed. A value left in the store from an
+        // older version must no longer influence the fit model: a profile that never chose a HyperbolicFitModel
+        // still defaults to Hybrid.
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        store.SetValueBoolean("UnevenHyperbolicFitEnabled", true);
+
+        var options = new AutoFocusOptions(profile, store);
+
+        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.Hybrid));
+    }
+
+    [Test]
+    public void HyperbolicFitModel_SetterPersistsEnum() {
+        var (options, store, _) = Build();
+        options.HyperbolicFitModel = HyperbolicFitModel.TiltedHyperbola;
+        Assert.That(store.Snapshot[nameof(AutoFocusOptions.HyperbolicFitModel)], Is.EqualTo(HyperbolicFitModel.TiltedHyperbola));
+    }
+
+    [Test]
+    public void HyperbolicFitModel_ResetRestoresHybrid() {
+        var (options, _, _) = Build();
+        options.HyperbolicFitModel = HyperbolicFitModel.SmoothBlend;
+        options.ResetDefaults();
+        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.Hybrid));
+    }
+
+    [Test]
+    public void FitRejectionCriterion_Defaults() {
+        var (options, _, _) = Build();
+        Assert.Multiple(() => {
+            Assert.That(options.FitRejectionCriterion, Is.EqualTo(FitRejectionCriterion.RSquared));
+            Assert.That(options.ReducedChiSquaredRejectionThreshold, Is.EqualTo(5.0));
+        });
+    }
+
+    [Test]
+    public void FitRejectionCriterion_SettersPersist() {
+        var (options, store, _) = Build();
+        options.FitRejectionCriterion = FitRejectionCriterion.ReducedChiSquared;
+        options.ReducedChiSquaredRejectionThreshold = 8.0;
+        Assert.Multiple(() => {
+            Assert.That(store.Snapshot[nameof(AutoFocusOptions.FitRejectionCriterion)], Is.EqualTo(FitRejectionCriterion.ReducedChiSquared));
+            Assert.That(store.Snapshot[nameof(AutoFocusOptions.ReducedChiSquaredRejectionThreshold)], Is.EqualTo(8.0));
+        });
+    }
+
+    [Test]
+    public void FitRejectionCriterion_ResetRestoresDefaults() {
+        var (options, _, _) = Build();
+        options.FitRejectionCriterion = FitRejectionCriterion.ReducedChiSquared;
+        options.ReducedChiSquaredRejectionThreshold = 12.0;
+        options.ResetDefaults();
+        Assert.Multiple(() => {
+            Assert.That(options.FitRejectionCriterion, Is.EqualTo(FitRejectionCriterion.RSquared));
+            Assert.That(options.ReducedChiSquaredRejectionThreshold, Is.EqualTo(5.0));
+        });
+    }
+
+    [Test]
+    public void FitRejectionCriterion_SetterRaisesPropertyChanged() {
+        var (options, _, _) = Build();
+        var raised = new List<string>();
+        options.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        options.FitRejectionCriterion = FitRejectionCriterion.ReducedChiSquared;
+        options.ReducedChiSquaredRejectionThreshold = 7.5;
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(AutoFocusOptions.FitRejectionCriterion)));
+            Assert.That(raised, Does.Contain(nameof(AutoFocusOptions.ReducedChiSquaredRejectionThreshold)));
+        });
+    }
+
+    [Test]
+    public void ReducedChiSquaredRejectionThreshold_RejectsNonFinite() {
+        var (options, _, _) = Build();
+        Assert.Multiple(() => {
+            Assert.Throws<ArgumentException>(() => options.ReducedChiSquaredRejectionThreshold = double.NaN);
+            Assert.Throws<ArgumentException>(() => options.ReducedChiSquaredRejectionThreshold = double.PositiveInfinity);
+        });
     }
 }

@@ -1,4 +1,4 @@
-﻿#region "copyright"
+#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -10,27 +10,26 @@
 
 #endregion "copyright"
 
-using Accord.Math.Optimization.Losses;
-using MathNet.Numerics.LinearAlgebra;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using OxyPlot;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
+    /// <summary>
+    /// Symmetric hyperbolic auto-focus fit: y = (a/b)·√((x−x0)² + b²) + y0. Four parameters
+    /// {x0, y0, a, b}; the minimum (best focus) is at x0 with value a + y0.
+    /// </summary>
     public class HyperbolicFittingAlglib : AlglibHyperbolicFitting {
-        public bool UseJacobian { get; set; } = false;
-        private readonly IAlglibAPI alglibAPI;
 
         private HyperbolicFittingAlglib(IAlglibAPI alglibAPI, double[][] inputs, double[] inputStdDevs, double[] outputs) {
+            this.alglibAPI = alglibAPI;
             this.Inputs = inputs;
             this.Outputs = outputs;
-            this.alglibAPI = alglibAPI;
             this.Weights = inputStdDevs.Select(sd => 1.0d / Math.Max(Math.Abs(sd), 1e-6)).ToArray();
         }
 
@@ -48,62 +47,42 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return new HyperbolicFittingAlglib(alglibAPI, inputs, inputStdDevs, outputs);
         }
 
-        private Func<double, double> GetFittingForParameters(double[] parameters) {
-            var x0 = parameters[0];
-            var y0 = parameters[1];
-            var a = parameters[2];
-            var b = parameters[3];
-            return x => a / b * Math.Sqrt((x - x0) * (x - x0) + b * b) + y0;
+        protected override int ParameterCount => 4;
+
+        protected override double ModelValue(double[] p, double x) {
+            var x0 = p[0];
+            var y0 = p[1];
+            var a = p[2];
+            var b = p[3];
+            return a / b * Math.Sqrt((x - x0) * (x - x0) + b * b) + y0;
         }
 
-        private Action<double, double[]> GetGradientForParameters(double[] parameters) {
-            var x0 = parameters[0];
-            var y0 = parameters[1];
-            var a = parameters[2];
-            var b = parameters[3];
-            return (x, fi) => {
-                var XPrime = x - x0;
-                var XPrime2 = XPrime * XPrime;
-                var B2 = b * b;
-                var SQRT_TERM = Math.Sqrt(B2 + XPrime2);
+        protected override void ModelGradient(double[] p, double x, double[] grad) {
+            var x0 = p[0];
+            var a = p[2];
+            var b = p[3];
+            var XPrime = x - x0;
+            var XPrime2 = XPrime * XPrime;
+            var B2 = b * b;
+            var sqrtTerm = Math.Sqrt(B2 + XPrime2);
 
-                var da = SQRT_TERM / b;
-
-                var db_part1 = -a * XPrime2;
-                var db_part2 = B2 * SQRT_TERM;
-                var db = db_part1 / db_part2;
-
-                var dx0_part1 = -a * XPrime;
-                var dx0_part2 = b * SQRT_TERM;
-                var dx0 = dx0_part1 / dx0_part2;
-
-                var dy0 = 1.0d;
-                fi[0] = dx0;
-                fi[1] = dy0;
-                fi[2] = da;
-                fi[3] = db;
-            };
+            grad[0] = -a * XPrime / (b * sqrtTerm);     // ∂/∂x0
+            grad[1] = 1.0d;                             // ∂/∂y0
+            grad[2] = sqrtTerm / b;                     // ∂/∂a
+            grad[3] = -a * XPrime2 / (B2 * sqrtTerm);   // ∂/∂b
         }
 
-        public virtual void FitResiduals(double[] parameters, double[] fi, object obj) {
-            var fitting = GetFittingForParameters(parameters);
-            for (int i = 0; i < this.Inputs.Length; ++i) {
-                var input = this.Inputs[i][0];
-                var observedValue = this.Outputs[i];
-                var estimatedValue = fitting(input);
-                var weight = this.Weights[i];
-                fi[i] = weight * (estimatedValue - observedValue);
-            }
+        protected override DataPoint ComputeMinimum(double[] p) {
+            return new DataPoint(p[0], p[2] + p[1]);
         }
 
-        public virtual void FitResidualsJacobian(double[] parameters, double[] fi, double[,] jac, object obj) {
-            throw new NotImplementedException();
+        protected override string FormatExpression(double[] p) {
+            FormattableString expression = $"y = {p[2]:0.###}/{p[3]:0.###} * √((x - {p[0]:0.###})² + {p[3]:0.###}²) + {p[1]:0.###}";
+            return expression.ToString(CultureInfo.InvariantCulture);
         }
 
-        public override bool Solve() {
-            if (Inputs.Length == 0) {
-                return false;
-            }
+        protected override bool TryComputeInitialState(out double[] initialGuess, out double[] lowerBounds, out double[] upperBounds, out double[] scale) {
+            initialGuess = lowerBounds = upperBounds = scale = null;
 
             var lowestInputX = Inputs.Min(i => i[0]);
             var highestInputX = Inputs.Max(i => i[0]);
@@ -130,151 +109,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var initialY0 = 0.0d;
 
             if (double.IsNaN(initialA) || double.IsNaN(initialB) || initialA == 0 || initialB == 0 || inputDelta == 0) {
-                //Not enough valid data points to fit a curve
                 return false;
             }
 
-            alglib.minlmstate state = null;
-            alglib.minlmreport rep = null;
-            try {
-                var initialGuess = new double[] { initialX0, initialY0, initialA, initialB };
-                var lowerBounds = new double[] { lowestInputX, -lowestOutput, 0.001d, 0.001d };
-                var upperBounds = new double[] { highestInputX, lowestOutput, lowestOutput * 2, double.PositiveInfinity, double.PositiveInfinity };
-                var positionScale = lowestOutput > 0 ? lowestInput / lowestOutput : lowestInput;
-                var scale = new double[] { Math.Max(1.0, positionScale), 1, 1, 1 };
-                var solution = new double[4];
-                var tolerance = 1E-6;
-                var maxIterations = 1000;
-                const double deltaForNumericIntegration = 1E-6;
-                if (UseJacobian) {
-                    this.alglibAPI.minlmcreatevj(this.Inputs.Length, initialGuess, out state);
-                    this.alglibAPI.minlmsetacctype(state, 1);
-                } else {
-                    this.alglibAPI.minlmcreatev(this.Inputs.Length, initialGuess, deltaForNumericIntegration, out state);
-                }
-
-                this.alglibAPI.minlmsetbc(state, lowerBounds, upperBounds);
-
-                // Set the termination conditions
-                this.alglibAPI.minlmsetcond(state, tolerance, maxIterations);
-
-                // Set all variables to the same scale, except for x0, y0. This feature is useful if the magnitude if some variables is dramatically different than others
-                this.alglibAPI.minlmsetscale(state, scale);
-
-                if (OptGuardEnabled) {
-                    this.alglibAPI.minlmoptguardgradient(state, deltaForNumericIntegration);
-                }
-
-                // Perform the optimization
-                this.alglibAPI.minlmoptimize(state, this.FitResiduals, this.FitResidualsJacobian, null, null);
-
-                this.alglibAPI.minlmresults(state, out solution, out rep);
-                if (rep.terminationtype < 0 && rep.terminationtype != -5) {
-                    string reason;
-                    if (rep.terminationtype == -8) {
-                        reason = "optimizer detected NAN/INF values either in the function itself, or in its Jacobian";
-                    } else if (rep.terminationtype == -3) {
-                        reason = "constraints are inconsistent";
-                    } else {
-                        reason = "unknown";
-                    }
-                    throw new Exception($"Hyperbolic modeling failed with type {rep.terminationtype} and reason: {reason}");
-                }
-
-                if (OptGuardEnabled) {
-                    alglib.optguardreport ogrep;
-                    this.alglibAPI.minlmoptguardresults(state, out ogrep);
-                    try {
-                        if (ogrep.badgradsuspected) {
-                            var differences = new double[ogrep.badgraduser.GetLength(0), ogrep.badgraduser.GetLength(1)];
-                            for (int i = 0; i < ogrep.badgraduser.GetLength(0); ++i) {
-                                for (int j = 0; j < ogrep.badgraduser.GetLength(1); ++j) {
-                                    differences[i, j] = ogrep.badgradnum[i, j] - ogrep.badgraduser[i, j];
-                                }
-                            }
-                            // throw new OptGuardBadGradientException(differences);
-                            throw new Exception();
-                        }
-                    } finally {
-                        this.alglibAPI.deallocateimmediately(ref ogrep);
-                    }
-                }
-
-                var x0 = solution[0];
-                var y0 = solution[1];
-                var a = solution[2];
-                var b = solution[3];
-
-                FormattableString expression = $"y = {a:0.###}/{b:0.###} * √((x - {x0:0.###})² + {b:0.###}²) + {y0:0.###}";
-                Expression = expression.ToString(CultureInfo.InvariantCulture);
-                Fitting = GetFittingForParameters(solution);
-                Minimum = new DataPoint(x0, a + y0);
-
-                var transformed = new double[Inputs.Length];
-                var rSquared = new RSquaredLoss(Inputs.Length, Outputs);
-                rSquared.Weights = Weights;
-                for (var i = 0; i < Inputs.Length; i++) {
-                    transformed[i] = Fitting(Inputs[i][0]);
-                }
-                RSquared = rSquared.Loss(transformed);
-                ComputeMinimumStdError(solution);
-                return true;
-            } finally {
-                if (state != null) {
-                    this.alglibAPI.deallocateimmediately(ref state);
-                }
-                if (rep != null) {
-                    this.alglibAPI.deallocateimmediately(ref rep);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Estimates the standard error of the fitted minimum position x0 from the fit covariance
-        /// Cov ≈ s²·(JᵀWJ)⁻¹, where J is the analytic Jacobian of the hyperbola at the solution,
-        /// W = diag(weight²), and s² = weighted RSS/(n−p) is a robust variance estimate. Using the
-        /// data-driven s² makes se(x0) a genuine standard error in focuser-position units even when the
-        /// per-point HFR uncertainties are only relative (or unweighted). Guarded so a failure here never
-        /// affects the fit result; <see cref="AlglibHyperbolicFitting.MinimumStdError"/> stays NaN.
-        /// </summary>
-        private void ComputeMinimumStdError(double[] solution) {
-            try {
-                const int p = 4;
-                int n = Inputs.Length;
-                if (n <= p) {
-                    MinimumStdError = double.NaN;
-                    return;
-                }
-
-                var gradient = GetGradientForParameters(solution);
-                var fit = GetFittingForParameters(solution);
-                var jtwj = Matrix<double>.Build.Dense(p, p);
-                var g = new double[p];
-                var weightedRss = 0.0;
-                for (int i = 0; i < n; i++) {
-                    var x = Inputs[i][0];
-                    var w2 = Weights[i] * Weights[i];
-                    gradient(x, g);
-                    for (int r = 0; r < p; r++) {
-                        for (int c = 0; c < p; c++) {
-                            jtwj[r, c] += w2 * g[r] * g[c];
-                        }
-                    }
-                    var residual = fit(x) - Outputs[i];
-                    weightedRss += w2 * residual * residual;
-                }
-
-                var s2 = weightedRss / (n - p);
-                var cov = jtwj.Inverse();
-                var varX0 = s2 * cov[0, 0];
-                MinimumStdError = varX0 > 0 && !double.IsNaN(varX0) && !double.IsInfinity(varX0) ? Math.Sqrt(varX0) : double.NaN;
-            } catch (Exception) {
-                MinimumStdError = double.NaN;
-            }
-        }
-
-        public override string ToString() {
-            return $"{Expression}";
+            initialGuess = new double[] { initialX0, initialY0, initialA, initialB };
+            lowerBounds = new double[] { lowestInputX, -lowestOutput, 0.001d, 0.001d };
+            upperBounds = new double[] { highestInputX, lowestOutput, lowestOutput * 2, double.PositiveInfinity };
+            var positionScale = lowestOutput > 0 ? lowestInput / lowestOutput : lowestInput;
+            scale = new double[] { Math.Max(1.0, positionScale), 1, 1, 1 };
+            return true;
         }
     }
 }

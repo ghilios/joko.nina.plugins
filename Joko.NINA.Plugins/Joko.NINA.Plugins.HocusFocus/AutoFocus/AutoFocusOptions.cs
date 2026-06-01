@@ -22,6 +22,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
     [JsonObject]
     public class AutoFocusOptions : BaseINPC, IAutoFocusOptions {
         private readonly IPluginOptionsAccessor optionsAccessor;
+        private readonly IProfileService profileService;
 
         public AutoFocusOptions(IProfileService profileService)
             : this(profileService, CreateDefaultAccessor(profileService)) {
@@ -29,6 +30,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         internal AutoFocusOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor) {
             this.optionsAccessor = optionsAccessor ?? throw new ArgumentNullException(nameof(optionsAccessor));
+            this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             profileService.ProfileChanged += ProfileService_ProfileChanged;
             InitializeOptions();
         }
@@ -63,8 +65,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             focuserOffset = optionsAccessor.GetValueInt32("FocuserOffset", 0);
             maxOutlierRejections = optionsAccessor.GetValueInt32(nameof(MaxOutlierRejections), 1);
             outlierRejectionConfidence = optionsAccessor.GetValueDouble(nameof(OutlierRejectionConfidence), 0.90);
-            unevenHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(UnevenHyperbolicFitEnabled), true);
             weightedHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(WeightedHyperbolicFitEnabled), true);
+            hyperbolicFitModel = optionsAccessor.GetValueEnum(nameof(HyperbolicFitModel), HyperbolicFitModel.Hybrid);
+            fitRejectionCriterion = optionsAccessor.GetValueEnum(nameof(FitRejectionCriterion), FitRejectionCriterion.RSquared);
+            reducedChiSquaredRejectionThreshold = optionsAccessor.GetValueDouble(nameof(ReducedChiSquaredRejectionThreshold), 5.0);
         }
 
         public void ResetDefaults() {
@@ -84,8 +88,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             FocuserOffset = 0;
             MaxOutlierRejections = 1;
             OutlierRejectionConfidence = 0.90;
-            UnevenHyperbolicFitEnabled = true;
             WeightedHyperbolicFitEnabled = true;
+            HyperbolicFitModel = HyperbolicFitModel.Hybrid;
+            FitRejectionCriterion = FitRejectionCriterion.RSquared;
+            ReducedChiSquaredRejectionThreshold = 5.0;
         }
 
         private int maxConcurrent;
@@ -328,19 +334,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private bool unevenHyperbolicFitEnabled;
-
-        public bool UnevenHyperbolicFitEnabled {
-            get => unevenHyperbolicFitEnabled;
-            set {
-                if (unevenHyperbolicFitEnabled != value) {
-                    unevenHyperbolicFitEnabled = value;
-                    optionsAccessor.SetValueBoolean(nameof(UnevenHyperbolicFitEnabled), unevenHyperbolicFitEnabled);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
         private bool weightedHyperbolicFitEnabled;
 
         public bool WeightedHyperbolicFitEnabled {
@@ -349,6 +342,69 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (weightedHyperbolicFitEnabled != value) {
                     weightedHyperbolicFitEnabled = value;
                     optionsAccessor.SetValueBoolean(nameof(WeightedHyperbolicFitEnabled), weightedHyperbolicFitEnabled);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private HyperbolicFitModel hyperbolicFitModel;
+
+        public HyperbolicFitModel HyperbolicFitModel {
+            get => hyperbolicFitModel;
+            set {
+                if (hyperbolicFitModel != value) {
+                    hyperbolicFitModel = value;
+                    optionsAccessor.SetValueEnum(nameof(HyperbolicFitModel), hyperbolicFitModel);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private FitRejectionCriterion fitRejectionCriterion;
+
+        public FitRejectionCriterion FitRejectionCriterion {
+            get => fitRejectionCriterion;
+            set {
+                if (fitRejectionCriterion != value) {
+                    fitRejectionCriterion = value;
+                    optionsAccessor.SetValueEnum(nameof(FitRejectionCriterion), fitRejectionCriterion);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// The R² rejection threshold used when <see cref="FitRejectionCriterion"/> is
+        /// <see cref="FitRejectionCriterion.RSquared"/>. This is a proxy for NINA's own
+        /// <c>FocuserSettings.RSquaredThreshold</c> (the value the engine actually compares against, also
+        /// editable in NINA's Focuser settings) — surfaced here so the threshold for the selected criterion can
+        /// be shown and tuned next to it. Not persisted as a HocusFocus option, so it is excluded from JSON.
+        /// </summary>
+        [JsonIgnore]
+        public double RSquaredRejectionThreshold {
+            get => profileService.ActiveProfile.FocuserSettings.RSquaredThreshold;
+            set {
+                if (double.IsNaN(value) || double.IsInfinity(value)) {
+                    throw new ArgumentException("RSquaredRejectionThreshold must be a real, finite number", nameof(RSquaredRejectionThreshold));
+                }
+                if (profileService.ActiveProfile.FocuserSettings.RSquaredThreshold != value) {
+                    profileService.ActiveProfile.FocuserSettings.RSquaredThreshold = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double reducedChiSquaredRejectionThreshold;
+
+        public double ReducedChiSquaredRejectionThreshold {
+            get => reducedChiSquaredRejectionThreshold;
+            set {
+                if (double.IsNaN(value) || double.IsInfinity(value)) {
+                    throw new ArgumentException("ReducedChiSquaredRejectionThreshold must be a real, finite number", "ReducedChiSquaredRejectionThreshold");
+                }
+                if (reducedChiSquaredRejectionThreshold != value) {
+                    reducedChiSquaredRejectionThreshold = value;
+                    optionsAccessor.SetValueDouble(nameof(ReducedChiSquaredRejectionThreshold), reducedChiSquaredRejectionThreshold);
                     RaisePropertyChanged();
                 }
             }

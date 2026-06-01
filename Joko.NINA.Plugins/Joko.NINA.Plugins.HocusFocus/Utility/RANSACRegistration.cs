@@ -477,6 +477,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             var srcPoints = new List<Point2D>();
             var dstPoints = new List<Point2D>();
 
+            // No image triangles → no possible matches. Return early: KdTree.RadialSearch below is given
+            // imageTriangles.Count as its neighbour cap, and a count of 0 makes it build a zero-capacity
+            // priority queue that throws "Capacity must be greater than zero". A too-sparse / blank frame
+            // (e.g. one image in an AF set with almost no detectable stars) legitimately yields 0 triangles;
+            // the caller treats an empty match set as an unaligned image rather than a fatal error.
+            if (imageTriangles.Count == 0) {
+                return (srcPoints, dstPoints);
+            }
+
             // Index the image triangles by shape descriptor. Skip exact-descriptor duplicates (vanishingly
             // rare with real centroids) to keep the tree valued one-per-point; insertion order is the
             // deterministic image-triangle order, so the index is reproducible across runs.

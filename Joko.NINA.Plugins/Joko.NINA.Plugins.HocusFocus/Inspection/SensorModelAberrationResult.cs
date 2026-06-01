@@ -33,6 +33,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }
         }
 
+        private Angle tiltStdError = Angle.Zero;
+
+        /// <summary>
+        /// 1-sigma standard error of <see cref="Tilt"/>, propagated from the paraboloid fit covariance.
+        /// Carries NaN radians (→ NaN degrees) when the fit could not determine it, so the UI can show a dash.
+        /// </summary>
+        public Angle TiltStdError {
+            get => tiltStdError;
+            private set {
+                if (!tiltStdError.Equals(value)) {
+                    tiltStdError = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private double tiltEffectMicrons = 0.0d;
 
         public double TiltEffectMicrons {
@@ -112,6 +128,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             private set {
                 if (curvatureRadiusMillimeters != value) {
                     curvatureRadiusMillimeters = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double curvatureRadiusStdErrorMillimeters = double.NaN;
+
+        /// <summary>
+        /// 1-sigma standard error of <see cref="CurvatureRadiusMillimeters"/>, propagated from the paraboloid
+        /// fit covariance. NaN when the fit could not determine it (so the UI shows a dash).
+        /// </summary>
+        public double CurvatureRadiusStdErrorMillimeters {
+            get => curvatureRadiusStdErrorMillimeters;
+            private set {
+                if (curvatureRadiusStdErrorMillimeters != value) {
+                    curvatureRadiusStdErrorMillimeters = value;
                     RaisePropertyChanged();
                 }
             }
@@ -252,6 +284,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             CenterOffsetXMicrons = sensorModel.X0;
             CenterOffsetYMicrons = sensorModel.Y0;
             CurvatureRadiusMillimeters = 1.0 / (2.0 * sensorModel.C * sensorModel.C * 1000.0);
+            CurvatureRadiusStdErrorMillimeters = sensorModel.CurvatureRadiusStdErrorMillimeters;
             RegisteredStars = registeredStars;
 
             var sensorWidthMicrons = imageSize.Width * pixelSizeMicrons;
@@ -272,6 +305,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
             TiltEffectMicrons = (tiltCorners.Max() - tiltCorners.Min()) / 2.0;
             Tilt = Angle.ByRadians(sensorModel.Theta);
+            TiltStdError = Angle.ByRadians(sensorModel.ThetaStdError);
             var tiltPlaneModel = CreateTiltPlaneModel(imageSize, focuserStepSizeMicrons, pixelSizeMicrons, sensorModel);
             UpdateTiltModels(tiltPlaneModel);
             TiltPlaneModel = tiltPlaneModel;

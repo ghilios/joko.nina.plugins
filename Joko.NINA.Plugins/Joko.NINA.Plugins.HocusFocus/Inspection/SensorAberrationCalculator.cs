@@ -40,6 +40,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public const double DefaultAcceptableRSquaredMin = 0.05;
 
         /// <summary>
+        /// Minimum R² required for an individual star's curve fit to be trusted and included in the
+        /// sensor model. A star whose hyperbolic fit explains less variance than this is discarded
+        /// rather than contributing a noisy best-focus position to the paraboloid surface fit.
+        /// </summary>
+        public const double PerStarAcceptableRSquared = 0.90;
+
+        /// <summary>
         /// True if the fit's reduced χ² is finite and within the acceptable bound. A fit with very small
         /// reduced χ² (residuals smaller than the declared σ) is still acceptable — only large values,
         /// indicating the model cannot explain the data within its uncertainties, are rejected.

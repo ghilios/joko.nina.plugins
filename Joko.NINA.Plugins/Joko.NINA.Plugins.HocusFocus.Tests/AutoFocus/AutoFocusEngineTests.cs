@@ -8,6 +8,7 @@ using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
+using NINA.WPF.Base.ViewModel.AutoFocus;
 using NSubstitute;
 using NUnit.Framework;
 using System;
@@ -57,7 +58,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             autoFocusOptions.SavePath.Returns(@"C:\tmp");
             autoFocusOptions.MaxOutlierRejections.Returns(3);
             autoFocusOptions.OutlierRejectionConfidence.Returns(0.95);
-            autoFocusOptions.UnevenHyperbolicFitEnabled.Returns(true);
             autoFocusOptions.WeightedHyperbolicFitEnabled.Returns(true);
             autoFocusOptions.HFRImprovementThreshold.Returns(0.1);
             autoFocusOptions.ValidateHfrImprovement.Returns(true);
@@ -81,7 +81,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 Assert.That(options.SavePath, Is.EqualTo(@"C:\tmp"));
                 Assert.That(options.MaxOutlierRejections, Is.EqualTo(3));
                 Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.95));
-                Assert.That(options.UnevenHyperbolicFitEnabled, Is.True);
                 Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
                 Assert.That(options.HFRImprovementThreshold, Is.EqualTo(0.1));
                 Assert.That(options.ValidateHfrImprovement, Is.True);
@@ -200,6 +199,32 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 Assert.That(attempt.Attempt, Is.EqualTo(-1));
                 Assert.That(attempt.SavedImages, Has.Count.EqualTo(1));
                 Assert.That(attempt.StepSize, Is.EqualTo(0));
+            });
+        }
+
+        [Test]
+        public void TryCompleteFocuserPoint_DuplicatePosition_DoesNotThrowAndKeepsFirstCompletion() {
+            var map = new Dictionary<int, MeasureAndError>();
+            var firstFrames = new List<MeasureAndError> {
+                new MeasureAndError { Measure = 2.0, Stdev = 0.1 },
+                new MeasureAndError { Measure = 2.2, Stdev = 0.1 },
+            };
+            var secondFrames = new List<MeasureAndError> {
+                new MeasureAndError { Measure = 9.0, Stdev = 0.5 },
+            };
+
+            var firstResult = AutoFocusEngine.TryCompleteFocuserPoint(map, 21209, firstFrames);
+
+            // Reprocessing a saved run can map two measurement points to the same focuser position. The second
+            // completion must not throw "An item with the same key has already been added. Key: 21209".
+            bool secondResult = false;
+            Assert.DoesNotThrow(() => secondResult = AutoFocusEngine.TryCompleteFocuserPoint(map, 21209, secondFrames));
+
+            Assert.Multiple(() => {
+                Assert.That(firstResult, Is.True);
+                Assert.That(secondResult, Is.False);
+                Assert.That(map, Has.Count.EqualTo(1));
+                Assert.That(map[21209].Measure, Is.EqualTo(2.1).Within(1e-9));
             });
         }
 
