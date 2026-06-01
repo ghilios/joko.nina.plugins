@@ -134,6 +134,107 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             });
         }
 
+        // Per-model rejection: a gross outlier is removed before the model competes, and the winning (cleaned) fit
+        // localizes focus closer to truth than the outlier-contaminated fit (max=0).
+        [Test]
+        public void SelectBestModel_RejectsGrossOutlier_AndExcludesItFromWinningFit() {
+            const double trueX0 = 1000;
+            var clean = SyntheticFocusCurveSamples.SymmetricHyperbolaPoints(
+                x0: trueX0, y0: 2.0, a: 6.0, b: 12.0, xStart: 910, xStep: 15, count: 13, errorY: 0.1);
+            var stepSize = InferStep(clean);
+
+            var outlierX = clean[9].X;
+            var withOutlier = clean.Select(p => p.X == outlierX
+                ? new ScatterErrorPoint(p.X, p.Y + 3.0, 0, p.ErrorY) : p).ToList();
+
+            AlglibHyperbolicFitting.SelectBestModel(
+                alglibAPI, withOutlier, stepSize, useWeights: true, maxOutlierRejections: 0, rejectionConfidence: 0.95,
+                out var fitNoReject, out var rejectsNoReject);
+            AlglibHyperbolicFitting.SelectBestModel(
+                alglibAPI, withOutlier, stepSize, useWeights: true, maxOutlierRejections: 1, rejectionConfidence: 0.95,
+                out var bestFit, out var rejects);
+
+            Assert.Multiple(() => {
+                Assert.That(rejectsNoReject, Is.Empty, "max=0 must reject nothing");
+                Assert.That(rejects.Count, Is.EqualTo(1), "the gross outlier must be rejected");
+                Assert.That(rejects[0].X, Is.EqualTo(outlierX), "the rejected point must be the injected outlier");
+                Assert.That(Math.Abs(bestFit.Minimum.X - trueX0),
+                    Is.LessThan(Math.Abs(fitNoReject.Minimum.X - trueX0)),
+                    "cleaned fit must localize focus closer to truth than the contaminated fit");
+                Assert.That(Math.Abs(bestFit.Minimum.X - trueX0), Is.LessThan(stepSize));
+            });
+        }
+
+        // The no-rejection overload (and maxOutlierRejections = 0) must reproduce the legacy behavior exactly.
+        [Test]
+        public void SelectBestModel_MaxRejectionsZero_MatchesLegacyOverload() {
+            var points = SyntheticFocusCurveSamples.TiltedHyperbolaPoints(
+                x0: 1000, y0: 2.0, a: 6.0, b: 12.0, s: 0.012, xStart: 880, xStep: 15, count: 17, errorY: 0.05);
+            var stepSize = InferStep(points);
+
+            var legacy = AlglibHyperbolicFitting.SelectBestModel(alglibAPI, points, stepSize, useWeights: true, out var legacyFit);
+            var modern = AlglibHyperbolicFitting.SelectBestModel(
+                alglibAPI, points, stepSize, useWeights: true, maxOutlierRejections: 0, rejectionConfidence: 0.95,
+                out var modernFit, out var rejects);
+
+            Assert.Multiple(() => {
+                Assert.That(rejects, Is.Empty);
+                Assert.That(modern, Is.EqualTo(legacy), "max=0 must match the legacy (no-rejection) overload");
+                Assert.That(modernFit.Minimum.X, Is.EqualTo(legacyFit.Minimum.X).Within(1e-6));
+            });
+        }
+
+        // Rejection is capped by maxOutlierRejections.
+        [Test]
+        public void SelectBestModel_RespectsMaxOutlierRejectionCap() {
+            var clean = SyntheticFocusCurveSamples.SymmetricHyperbolaPoints(
+                x0: 1000, y0: 2.0, a: 6.0, b: 12.0, xStart: 880, xStep: 12, count: 21, errorY: 0.1);
+            var stepSize = InferStep(clean);
+            var x1 = clean[6].X;
+            var x2 = clean[14].X;
+            var withTwo = clean.Select(p =>
+                p.X == x1 || p.X == x2 ? new ScatterErrorPoint(p.X, p.Y + 3.0, 0, p.ErrorY) : p).ToList();
+
+            AlglibHyperbolicFitting.SelectBestModel(alglibAPI, withTwo, stepSize, useWeights: true, 1, 0.95, out _, out var oneReject);
+            AlglibHyperbolicFitting.SelectBestModel(alglibAPI, withTwo, stepSize, useWeights: true, 2, 0.95, out _, out var twoReject);
+
+            Assert.Multiple(() => {
+                Assert.That(oneReject.Count, Is.EqualTo(1), "cap of 1 must stop after one rejection");
+                Assert.That(twoReject.Count, Is.EqualTo(2), "cap of 2 must remove both injected outliers");
+                Assert.That(twoReject.Select(p => p.X), Is.EquivalentTo(new[] { x1, x2 }));
+            });
+        }
+
+        // The rejected points are exactly those the WINNING model's own residuals flag — proving rejection is
+        // per-model (against the chosen fit), not shared from some other model's residuals.
+        [Test]
+        public void SelectBestModel_RejectionMatchesWinningModelResiduals() {
+            var clean = SyntheticFocusCurveSamples.TiltedHyperbolaPoints(
+                x0: 1000, y0: 2.0, a: 6.0, b: 12.0, s: 0.012, xStart: 880, xStep: 15, count: 17, errorY: 0.1);
+            var stepSize = InferStep(clean);
+            var outlierX = clean[5].X;
+            var withOutlier = clean.Select(p => p.X == outlierX
+                ? new ScatterErrorPoint(p.X, p.Y + 3.0, 0, p.ErrorY) : p).ToList();
+
+            AlglibHyperbolicFitting.SelectBestModel(
+                alglibAPI, withOutlier, stepSize, useWeights: true, maxOutlierRejections: 1, rejectionConfidence: 0.95,
+                out var bestFit, out var rejects);
+
+            Assert.That(rejects.Count, Is.EqualTo(1));
+            var cleaned = withOutlier.Where(p => p.X != outlierX).ToList();
+
+            var flaggedOnFull = MathUtility.RejectionTest(
+                withOutlier, bestFit.Fitting, 0.95, AlglibHyperbolicFitting.BuildResidualWeights(withOutlier, true));
+            var flaggedOnCleaned = MathUtility.RejectionTest(
+                cleaned, bestFit.Fitting, 0.95, AlglibHyperbolicFitting.BuildResidualWeights(cleaned, true));
+
+            Assert.Multiple(() => {
+                Assert.That(flaggedOnFull, Is.Not.Null, "the winning model flags the outlier on the full set");
+                Assert.That(flaggedOnFull.X, Is.EqualTo(outlierX));
+                Assert.That(flaggedOnCleaned, Is.Null, "the winning model finds no outlier in the set it was cleaned to");
+            });
+        }
+
         private static List<ScatterErrorPoint> ToPoints(double[][] data) =>
             data.Select(r => new ScatterErrorPoint(r[0], r[1], 0, r[2])).ToList();
 

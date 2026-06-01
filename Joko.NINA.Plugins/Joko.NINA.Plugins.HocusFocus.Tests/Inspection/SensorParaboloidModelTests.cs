@@ -3,6 +3,7 @@ using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
 
@@ -407,6 +408,124 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
                 Assert.That(flatR2, Is.LessThan(0.5));
                 Assert.That(tiltedR2, Is.GreaterThan(0.95));
             });
+        }
+
+        // ---- Parameter standard errors (tilt + curvature radius) ----
+
+        [Test]
+        public void EvaluateFit_NoisyFit_ProducesFiniteStandardErrors() {
+            var truth = new SensorParaboloidModel(x0: 0, y0: 0, z0: 1000, gx: 0.003, gy: -0.001, k: 1e-7);
+            var pts = NoisyGrid(truth, sigma: 2.0, declaredSigma: 2.0, seed: 4242);
+
+            var nlls = SolveModel(pts, out var result, sensorHalf: 6000);
+            result.EvaluateFit(nlls, nlls.Solver);
+
+            Assert.Multiple(() => {
+                Assert.That(double.IsNaN(result.ThetaStdError), Is.False);
+                Assert.That(result.ThetaStdError, Is.GreaterThan(0.0));
+                Assert.That(double.IsNaN(result.CurvatureRadiusStdErrorMillimeters), Is.False);
+                Assert.That(result.CurvatureRadiusStdErrorMillimeters, Is.GreaterThan(0.0));
+            });
+        }
+
+        [Test]
+        public void EvaluateFit_MoreNoise_IncreasesStandardErrors() {
+            // Same seed, σ scaled ×6 ⇒ residuals scale ×6 and s² scales ×36, so both standard errors must
+            // grow monotonically with the noise level (sanity check that they track the fit uncertainty).
+            var truth = new SensorParaboloidModel(x0: 0, y0: 0, z0: 1000, gx: 0.003, gy: -0.001, k: 1e-7);
+
+            var lowNlls = SolveModel(NoisyGrid(truth, sigma: 1.0, declaredSigma: 1.0, seed: 11), out var lowResult, sensorHalf: 6000);
+            lowResult.EvaluateFit(lowNlls, lowNlls.Solver);
+
+            var highNlls = SolveModel(NoisyGrid(truth, sigma: 6.0, declaredSigma: 6.0, seed: 11), out var highResult, sensorHalf: 6000);
+            highResult.EvaluateFit(highNlls, highNlls.Solver);
+
+            Assert.Multiple(() => {
+                Assert.That(highResult.ThetaStdError, Is.GreaterThan(lowResult.ThetaStdError));
+                Assert.That(highResult.CurvatureRadiusStdErrorMillimeters, Is.GreaterThan(lowResult.CurvatureRadiusStdErrorMillimeters));
+            });
+        }
+
+        [Test]
+        public void EvaluateFit_Astigmatic_ProducesFiniteStandardErrors() {
+            // Astigmatic curvature variance combines Kx, Ky (and their covariance); the standard errors must
+            // still resolve to finite positive values.
+            var truth = new SensorParaboloidModel(x0: 0, y0: 0, z0: 1000, gx: 0.002, gy: -0.0015, kx: 6e-7, ky: -3e-7);
+            var pts = NoisyGrid(truth, sigma: 1.5, declaredSigma: 1.5, seed: 777);
+
+            var nlls = SolveModelAstigmatic(pts, out var result, sensorHalf: 6000);
+            result.EvaluateFit(nlls, nlls.Solver);
+
+            Assert.Multiple(() => {
+                Assert.That(result.Astigmatic, Is.True);
+                Assert.That(double.IsNaN(result.ThetaStdError), Is.False);
+                Assert.That(result.ThetaStdError, Is.GreaterThan(0.0));
+                Assert.That(double.IsNaN(result.CurvatureRadiusStdErrorMillimeters), Is.False);
+                Assert.That(result.CurvatureRadiusStdErrorMillimeters, Is.GreaterThan(0.0));
+            });
+        }
+
+        [Test]
+        public void EvaluateFit_TiltStandardError_AgreesWithMonteCarloScatter() {
+            // End-to-end check of the delta-method tilt error: repeat the fit over many independent noise
+            // realizations and confirm the analytic ThetaStdError matches the empirical scatter of θ.
+            var truth = new SensorParaboloidModel(x0: 0, y0: 0, z0: 1000, gx: 0.004, gy: 0.002, k: 1e-7);
+            const double sigma = 2.0;
+
+            var thetas = new List<double>();
+            double analyticStdError = 0.0;
+            for (int trial = 0; trial < 200; ++trial) {
+                var pts = NoisyGrid(truth, sigma: sigma, declaredSigma: sigma, seed: 1000 + trial);
+                var nlls = SolveModel(pts, out var result, sensorHalf: 6000);
+                result.EvaluateFit(nlls, nlls.Solver);
+                thetas.Add(result.Theta);
+                analyticStdError += result.ThetaStdError;
+            }
+            analyticStdError /= thetas.Count;
+
+            double mean = thetas.Sum() / thetas.Count;
+            double empiricalStdError = Math.Sqrt(thetas.Sum(t => (t - mean) * (t - mean)) / (thetas.Count - 1));
+
+            // The mean analytic standard error should track the Monte-Carlo scatter to within ~25%.
+            Assert.That(analyticStdError, Is.EqualTo(empiricalStdError).Within(25.0).Percent);
+        }
+
+        [Test]
+        public void EvaluateFit_TooFewPoints_LeavesTiltStandardErrorNaN() {
+            // The center is fixed, leaving four free parameters {Z0, Gx, Gy, K}. Four points ⇒ zero degrees of
+            // freedom ⇒ covariance is undetermined, so both standard errors must remain NaN even though the
+            // tilt itself is non-zero.
+            var pts = new List<SensorParaboloidDataPoint> {
+                new SensorParaboloidDataPoint(-500, -500, 1000 + 0.002 * -500, 0.99),
+                new SensorParaboloidDataPoint(500, -500, 1000 + 0.002 * 500, 0.99),
+                new SensorParaboloidDataPoint(-500, 500, 1000 + 0.002 * -500, 0.99),
+                new SensorParaboloidDataPoint(500, 500, 1000 + 0.002 * 500, 0.99)
+            };
+
+            var nlls = SolveModel(pts, out var result, sensorHalf: 4000);
+            result.EvaluateFit(nlls, nlls.Solver);
+
+            Assert.That(double.IsNaN(result.ThetaStdError), Is.True);
+            Assert.That(double.IsNaN(result.CurvatureRadiusStdErrorMillimeters), Is.True);
+        }
+
+        [Test]
+        public void EvaluateFit_FreeSensorCenter_LeavesTiltStandardErrorNaN() {
+            // With a free sensor center the tilt gradients and the center offset are confounded (the model is
+            // non-identifiable: ∂z/∂x0 is a linear combination of ∂z/∂Z0 and ∂z/∂Gx), so JᵀWJ is singular and
+            // the tilt standard error is genuinely undetermined — it must be reported as NaN, not a fabricated
+            // value from an ill-conditioned inverse.
+            var truth = new SensorParaboloidModel(x0: 0, y0: 0, z0: 1000, gx: 0.003, gy: -0.001, k: 1e-7);
+            var pts = NoisyGrid(truth, sigma: 2.0, declaredSigma: 2.0, seed: 4242);
+
+            var solver = new SensorParaboloidSolver(
+                dataPoints: pts, sensorSizeMicronsX: 12000, sensorSizeMicronsY: 12000,
+                inFocusMicrons: 1000, fixedSensorCenter: false);
+            var nlls = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(alglibAPI);
+            var result = nlls.Solve(solver, tolerance: 1e-12);
+            result.EvaluateFit(nlls, nlls.Solver);
+
+            Assert.That(double.IsNaN(result.ThetaStdError), Is.True);
         }
 
         /// <summary>

@@ -662,35 +662,49 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                 try {
                     var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, EstimateHfrStdDev(s.Star))).ToList();
-                    // When the option is Hybrid, run the full best-fit selection on this star's curve and use the
-                    // winning concrete model for the (rejection) fit below — each star self-selects the most
-                    // trustworthy model. Non-Hybrid options pass straight through unchanged.
-                    var modelForStar = autoFocusOptions.HyperbolicFitModel;
-                    if (modelForStar == HyperbolicFitModel.Hybrid) {
-                        modelForStar = AlglibHyperbolicFitting.SelectBestModel(this.alglibAPI, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled, out _);
-                    }
-                    var rejectedPoints = new List<ScatterErrorPoint>();
-                    bool continueFitting;
+                    var useWeights = autoFocusOptions.WeightedHyperbolicFitEnabled;
+                    // Outlier budget: the configured cap when bad-match rejection is on, but never enough to prune a
+                    // star below minStarCountForFitting points (so each per-star fit keeps a reliable point count).
+                    var rejectionBudget = rejectBadlyFittingMatches
+                        ? Math.Max(0, Math.Min(maxOutlierRejectedPoints, points.Count - minStarCountForFitting))
+                        : 0;
+
                     AlglibHyperbolicFitting fitting;
                     bool solveResult;
-                    do {
-                        continueFitting = false;
-                        fitting = AlglibHyperbolicFitting.Create(this.alglibAPI, modelForStar, points, stepSize, autoFocusOptions.WeightedHyperbolicFitEnabled);
+                    int rejectedCount;
+                    if (autoFocusOptions.HyperbolicFitModel == HyperbolicFitModel.Hybrid) {
+                        // Pick the best model for THIS star after each candidate rejects its own outliers — outlier-ness
+                        // is model-specific, so the winner is judged on the curve it produces once cleaned, exactly like
+                        // the Hybrid pick during an auto-focus run.
+                        AlglibHyperbolicFitting.SelectBestModel(
+                            this.alglibAPI, points, stepSize, useWeights,
+                            rejectionBudget, rejectionConfidence,
+                            out fitting, out var rejected);
+                        solveResult = fitting != null;
+                        rejectedCount = rejected.Count;
+                    } else {
+                        // Fixed model: reject its own outliers via reject-and-refit (unchanged).
+                        var modelForStar = autoFocusOptions.HyperbolicFitModel;
+                        var rejectedPoints = new List<ScatterErrorPoint>();
+                        bool continueFitting;
+                        do {
+                            continueFitting = false;
+                            fitting = AlglibHyperbolicFitting.Create(this.alglibAPI, modelForStar, points, stepSize, useWeights);
 
-                        solveResult = fitting.Solve();
-                        if (rejectBadlyFittingMatches) {
-                            if (solveResult && rejectedPoints.Count < maxOutlierRejectedPoints && points.Count > minStarCountForFitting) {
-                                var rejectedPoint = MathUtility.RejectionTest(points: points, fitting: fitting.Fitting, confidence: rejectionConfidence, weights: AlglibHyperbolicFitting.BuildResidualWeights(points, autoFocusOptions.WeightedHyperbolicFitEnabled));
+                            solveResult = fitting.Solve();
+                            if (rejectBadlyFittingMatches && solveResult && rejectedPoints.Count < maxOutlierRejectedPoints && points.Count > minStarCountForFitting) {
+                                var rejectedPoint = MathUtility.RejectionTest(points: points, fitting: fitting.Fitting, confidence: rejectionConfidence, weights: AlglibHyperbolicFitting.BuildResidualWeights(points, useWeights));
                                 if (rejectedPoint != null) {
                                     rejectedPoints.Add(rejectedPoint);
                                     points.Remove(rejectedPoint);
                                     continueFitting = true;
                                 }
                             }
-                        }
-                    } while (continueFitting);
+                        } while (continueFitting);
+                        rejectedCount = rejectedPoints.Count;
+                    }
 
-                    if (!solveResult) {
+                    if (!solveResult || fitting == null) {
                         Logger.Trace($"Failed to fit hyperbolic curve to star matches at ({registeredStar.RegistrationX:0.00}, {registeredStar.RegistrationY:0.00})");
                         discardedFlags[registeredStarIndex] = true;
                         return;
@@ -702,7 +716,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         return;
                     }
 
-                    rejectedCounts[registeredStarIndex] = rejectedPoints.Count;
+                    rejectedCounts[registeredStarIndex] = rejectedCount;
                     var dataPointX = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
                     var dataPointY = (registeredStar.RegistrationY - (imageSize.Height / 2.0)) * pixelSize;
                     var focuserMicrons = fitting.Minimum.X * focuserSizeMicrons;

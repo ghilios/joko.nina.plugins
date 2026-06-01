@@ -418,6 +418,7 @@
     <TextBlock x:Key="WeightedHyperbolicFit_Tooltip" Text="Weights each point in the hyperbolic fit based on measurement error." />
     <TextBlock x:Key="FitRejectionCriterion_Tooltip" Text="Which goodness-of-fit metric decides whether an auto-focus run is rejected. R² (default) keeps the existing behavior, rejecting when the fit's R² falls below NINA's R² threshold (Focuser settings). Reduced χ² instead rejects when the hyperbolic fit's reduced χ² exceeds the threshold below — a more meaningful test for a focus curve, but it is only valid when 'Weighted Hyperbolic Fit' is enabled (it relies on per-point measurement σ). Quadratic and trendline fits always use R² regardless of this setting." />
     <TextBlock x:Key="ReducedChiSquaredRejectionThreshold_Tooltip" Text="Upper bound on the hyperbolic fit's reduced χ² (χ² per degree of freedom) above which the run is rejected, when the rejection criterion is set to Reduced χ². Reduced χ² ≈ 1 means the model fits the measured curve to within the per-point measurement uncertainties; because that σ is approximate, reduced χ² routinely runs above 1 even for good fits, so the default of 5 is a generous sanity bound. Set to 0 to disable. Meaningful only with weighted fits." />
+    <TextBlock x:Key="RSquaredRejectionThreshold_Tooltip" Text="The minimum R² (coefficient of determination) below which an auto-focus run is rejected, when the rejection criterion is set to R². This is NINA's own R² threshold from the Focuser settings; editing it here changes that same profile setting. R² closer to 1 indicates a better fit to the measured focus curve." />
     <TextBlock x:Key="HotpixelFiltering_Tooltip" Text="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
     <TextBlock x:Key="HotpixelThresholdingEnabled_Tooltip" Text="A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy" />
     <TextBlock x:Key="HotpixelThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value" />
@@ -507,6 +508,23 @@
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
+                <!--  Only the rejection-threshold row matching the selected Fit Rejection Criterion is shown.  -->
+                <Style x:Key="ShowOnRSquaredCriterion" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="Auto" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding AutoFocusOptions.FitRejectionCriterion}" Value="{x:Static interfaces:FitRejectionCriterion.ReducedChiSquared}">
+                            <Setter Property="Height" Value="0" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+                <Style x:Key="ShowOnReducedChiSquaredCriterion" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="Auto" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding AutoFocusOptions.FitRejectionCriterion}" Value="{x:Static interfaces:FitRejectionCriterion.RSquared}">
+                            <Setter Property="Height" Value="0" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
             </Grid.Resources>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -528,7 +546,8 @@
                 <RowDefinition />
                 <RowDefinition />
                 <RowDefinition />
-                <RowDefinition />
+                <RowDefinition Style="{StaticResource ShowOnReducedChiSquaredCriterion}" />
+                <RowDefinition Style="{StaticResource ShowOnRSquaredCriterion}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -840,6 +859,31 @@
                         <rules:DoubleRangeRule>
                             <rules:DoubleRangeRule.ValidRange>
                                 <rules:DoubleRangeChecker Maximum="1000.0" Minimum="0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="15"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="R² Rejection Threshold"
+                ToolTip="{StaticResource RSquaredRejectionThreshold_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="15"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ToolTip="{StaticResource RSquaredRejectionThreshold_Tooltip}">
+                <Binding Path="AutoFocusOptions.RSquaredRejectionThreshold" UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="1.0" Minimum="0" />
                             </rules:DoubleRangeRule.ValidRange>
                         </rules:DoubleRangeRule>
                     </Binding.ValidationRules>

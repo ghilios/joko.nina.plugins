@@ -36,6 +36,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
             return parameters[0] + parameters[1] * input[0];
         }
 
+        // d/dA = 1, d/dB = x. Supplied so ParameterCovariance (which forms JᵀWJ from Gradient) works.
+        public override bool UseJacobian => true;
+
+        public override void Gradient(double[] parameters, double[] input, double[] result) {
+            result[0] = 1.0;
+            result[1] = input[0];
+        }
+
         public override void SetInitialGuess(double[] initialGuess) {
             initialGuess[0] = 0.0;
             initialGuess[1] = 0.0;
@@ -102,6 +110,55 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
 
             var rms = nlls.RMSError(solver, result);
             Assert.That(rms, Is.LessThan(1e-4));
+        }
+
+        [Test]
+        public void ParameterCovariance_UnweightedLinearFit_MatchesOlsClosedForm() {
+            // For an unweighted (σ = 1) straight-line fit, the asymptotic covariance s²·(JᵀWJ)⁻¹ reduces to
+            // the textbook OLS result s²·(XᵀX)⁻¹ with X = [1, x]. Compute that independently and compare.
+            var rng = new Random(1234);
+            var xs = Enumerable.Range(0, 15).Select(i => (double)i).ToArray();
+            var pts = xs.Select(x => new LinearDataPoint { X = x, Y = 2.0 + 0.5 * x + (rng.NextDouble() - 0.5) }).ToList();
+            var solver = new LinearSolver(pts);
+            var nlls = new NonLinearLeastSquaresSolver<LinearSolver, LinearDataPoint, LinearParameters>(alglibAPI);
+            var result = nlls.Solve(solver, tolerance: 1e-12);
+
+            var cov = nlls.ParameterCovariance(solver, result);
+            Assert.That(cov, Is.Not.Null);
+
+            int n = pts.Count;
+            double sx = xs.Sum();
+            double sxx = xs.Sum(x => x * x);
+            double det = n * sxx - sx * sx;
+            double rss = pts.Sum(p => {
+                var r = result.A + result.B * p.X - p.Y;
+                return r * r;
+            });
+            double s2 = rss / (n - 2);
+            double expVarA = s2 * sxx / det;
+            double expVarB = s2 * n / det;
+            double expCovAB = -s2 * sx / det;
+
+            Assert.Multiple(() => {
+                Assert.That(cov[0, 0], Is.EqualTo(expVarA).Within(1e-4).Percent);
+                Assert.That(cov[1, 1], Is.EqualTo(expVarB).Within(1e-4).Percent);
+                Assert.That(cov[0, 1], Is.EqualTo(expCovAB).Within(1e-4).Percent);
+                Assert.That(cov[1, 0], Is.EqualTo(cov[0, 1]).Within(1e-12)); // symmetric
+            });
+        }
+
+        [Test]
+        public void ParameterCovariance_InsufficientData_ReturnsNull() {
+            // n = p (2 points, 2 parameters) ⇒ zero degrees of freedom ⇒ covariance is undetermined.
+            var pts = new List<LinearDataPoint> {
+                new LinearDataPoint { X = 0, Y = 1 },
+                new LinearDataPoint { X = 1, Y = 2 }
+            };
+            var solver = new LinearSolver(pts);
+            var nlls = new NonLinearLeastSquaresSolver<LinearSolver, LinearDataPoint, LinearParameters>(alglibAPI);
+            var result = nlls.Solve(solver, tolerance: 1e-10);
+
+            Assert.That(nlls.ParameterCovariance(solver, result), Is.Null);
         }
 
         [Test]

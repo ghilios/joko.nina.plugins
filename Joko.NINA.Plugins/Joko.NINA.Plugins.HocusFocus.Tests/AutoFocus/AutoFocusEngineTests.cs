@@ -58,7 +58,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             autoFocusOptions.SavePath.Returns(@"C:\tmp");
             autoFocusOptions.MaxOutlierRejections.Returns(3);
             autoFocusOptions.OutlierRejectionConfidence.Returns(0.95);
-            autoFocusOptions.UnevenHyperbolicFitEnabled.Returns(true);
             autoFocusOptions.WeightedHyperbolicFitEnabled.Returns(true);
             autoFocusOptions.HFRImprovementThreshold.Returns(0.1);
             autoFocusOptions.ValidateHfrImprovement.Returns(true);
@@ -82,7 +81,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 Assert.That(options.SavePath, Is.EqualTo(@"C:\tmp"));
                 Assert.That(options.MaxOutlierRejections, Is.EqualTo(3));
                 Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.95));
-                Assert.That(options.UnevenHyperbolicFitEnabled, Is.True);
                 Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
                 Assert.That(options.HFRImprovementThreshold, Is.EqualTo(0.1));
                 Assert.That(options.ValidateHfrImprovement, Is.True);

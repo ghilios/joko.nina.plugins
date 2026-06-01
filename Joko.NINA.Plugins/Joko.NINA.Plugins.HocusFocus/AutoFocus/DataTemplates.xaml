@@ -2941,7 +2941,7 @@
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 ToolTip="{StaticResource SensorModel_Tilt_Tooltip}">
-                                <Run Text="{Binding SensorModel.SensorModelResult.Tilt.Degree, StringFormat=\{0:0.000\}, Mode=OneWay}" /><Run Text="°" />
+                                <Run Text="{Binding SensorModel.SensorModelResult.Tilt.Degree, StringFormat=\{0:0.000\}, Mode=OneWay}" /><Run Text="°" /><Run Text=" ± " /><Run Text="{Binding SensorModel.SensorModelResult.TiltStdError.Degree, StringFormat=\{0:0.000\}, Converter={StaticResource NaNToDoubleDashConverter}, Mode=OneWay}" /><Run Text="°" />
                             </TextBlock>
                             <TextBlock
                                 Grid.Row="1"
@@ -2956,7 +2956,7 @@
                                 Margin="5"
                                 VerticalAlignment="Center"
                                 ToolTip="{StaticResource SensorModel_CurvatureRadius_Tooltip}">
-                                <Run Text="{Binding SensorModel.SensorModelResult.CurvatureRadiusMillimeters, StringFormat=\{0:0.\}, Mode=OneWay}" /> <Run Text="mm" />
+                                <Run Text="{Binding SensorModel.SensorModelResult.CurvatureRadiusMillimeters, StringFormat=\{0:0.\}, Mode=OneWay}" /><Run Text=" ± " /><Run Text="{Binding SensorModel.SensorModelResult.CurvatureRadiusStdErrorMillimeters, StringFormat=\{0:0.\}, Converter={StaticResource NaNToDoubleDashConverter}, Mode=OneWay}" /> <Run Text="mm" />
                             </TextBlock>
                             <TextBlock
                                 Grid.Row="1"

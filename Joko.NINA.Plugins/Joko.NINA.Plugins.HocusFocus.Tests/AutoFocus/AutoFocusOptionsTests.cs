@@ -39,7 +39,6 @@ public class AutoFocusOptionsTests {
             Assert.That(options.FocuserOffset, Is.EqualTo(0));
             Assert.That(options.MaxOutlierRejections, Is.EqualTo(1));
             Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.90));
-            Assert.That(options.UnevenHyperbolicFitEnabled, Is.True);
             Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
         });
     }
@@ -63,7 +62,6 @@ public class AutoFocusOptionsTests {
         options.FocuserOffset = -10;
         options.MaxOutlierRejections = 3;
         options.OutlierRejectionConfidence = 0.95;
-        options.UnevenHyperbolicFitEnabled = false;
         options.WeightedHyperbolicFitEnabled = false;
 
         Assert.Multiple(() => {
@@ -83,7 +81,6 @@ public class AutoFocusOptionsTests {
             Assert.That(store.Snapshot["FocuserOffset"], Is.EqualTo(-10));
             Assert.That(store.Snapshot[nameof(AutoFocusOptions.MaxOutlierRejections)], Is.EqualTo(3));
             Assert.That(store.Snapshot[nameof(AutoFocusOptions.OutlierRejectionConfidence)], Is.EqualTo(0.95));
-            Assert.That(store.Snapshot[nameof(AutoFocusOptions.UnevenHyperbolicFitEnabled)], Is.False);
             Assert.That(store.Snapshot[nameof(AutoFocusOptions.WeightedHyperbolicFitEnabled)], Is.False);
         });
     }
@@ -106,7 +103,6 @@ public class AutoFocusOptionsTests {
             Assert.That(options.Save, Is.False);
             Assert.That(options.MaxOutlierRejections, Is.EqualTo(1));
             Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.90));
-            Assert.That(options.UnevenHyperbolicFitEnabled, Is.True);
             Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
         });
     }
@@ -124,7 +120,6 @@ public class AutoFocusOptionsTests {
     [TestCase(nameof(AutoFocusOptions.FocuserOffset), 5)]
     [TestCase(nameof(AutoFocusOptions.MaxOutlierRejections), 2)]
     [TestCase(nameof(AutoFocusOptions.OutlierRejectionConfidence), 0.95)]
-    [TestCase(nameof(AutoFocusOptions.UnevenHyperbolicFitEnabled), false)]
     [TestCase(nameof(AutoFocusOptions.WeightedHyperbolicFitEnabled), false)]
     public void Setter_RaisesPropertyChanged(string propertyName, object newValue) {
         var (options, _, _) = Build();
@@ -202,32 +197,23 @@ public class AutoFocusOptionsTests {
 
     [Test]
     public void HyperbolicFitModel_DefaultsToHybrid() {
-        // Brand-new profile (no legacy boolean in the store) => the Hybrid best-fit model is the new default.
+        // A profile that never chose a fit model => the Hybrid best-fit model is the default.
         var (options, _, _) = Build();
         Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.Hybrid));
     }
 
     [Test]
-    public void HyperbolicFitModel_MigratesLegacyUnevenFalseToSymmetric() {
+    public void HyperbolicFitModel_IgnoresLegacyUnevenBoolean() {
+        // The legacy UnevenHyperbolicFitEnabled boolean has been removed. A value left in the store from an
+        // older version must no longer influence the fit model: a profile that never chose a HyperbolicFitModel
+        // still defaults to Hybrid.
         var profile = Substitute.For<IProfileService>();
         var store = new InMemoryPluginOptionsAccessor();
-        // Simulate a profile that previously turned the uneven fit off (and never saw the new selector).
-        store.SetValueBoolean(nameof(AutoFocusOptions.UnevenHyperbolicFitEnabled), false);
+        store.SetValueBoolean("UnevenHyperbolicFitEnabled", true);
 
         var options = new AutoFocusOptions(profile, store);
 
-        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.Symmetric));
-    }
-
-    [Test]
-    public void HyperbolicFitModel_MigratesLegacyUnevenTrueToUnevenBlend() {
-        var profile = Substitute.For<IProfileService>();
-        var store = new InMemoryPluginOptionsAccessor();
-        store.SetValueBoolean(nameof(AutoFocusOptions.UnevenHyperbolicFitEnabled), true);
-
-        var options = new AutoFocusOptions(profile, store);
-
-        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.UnevenBlendLegacy));
+        Assert.That(options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.Hybrid));
     }
 
     [Test]

@@ -227,20 +227,41 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         };
 
         /// <summary>
+        /// Backwards-compatible overload that performs no outlier rejection (used by callers that prune outliers
+        /// themselves, or do not prune at all). Equivalent to passing <c>maxOutlierRejections = 0</c>.
+        /// </summary>
+        public static HyperbolicFitModel SelectBestModel(IAlglibAPI alglibAPI, IList<ScatterErrorPoint> points, int stepSize, bool useWeights, out AlglibHyperbolicFitting bestFit)
+            => SelectBestModel(alglibAPI, points, stepSize, useWeights, maxOutlierRejections: 0, rejectionConfidence: 0.0, out bestFit, out _);
+
+        /// <summary>
         /// Fits all concrete hyperbolic models to <paramref name="points"/> and returns the one with the least
         /// expected error for the best-focus position — the Hybrid "best fit" selection. Candidates that fail to
-        /// solve, or whose minimum is non-finite or outside the sampled X range, are dropped. Ranking is tiered:
-        /// (1) finite parametric σ(focus) = <see cref="MinimumStdError"/> ascending — already produced by
-        /// <see cref="Solve"/>, so the common path is cheap. Every concrete model now supplies a σ(focus)
+        /// solve, or whose minimum is non-finite or outside the sampled X range, are dropped.
+        ///
+        /// Each candidate rejects its <b>own</b> outliers: up to <paramref name="maxOutlierRejections"/> points
+        /// are removed by the Grubbs test against that model's residuals (weighted when <paramref name="useWeights"/>
+        /// is set), refitting after each removal, before the model competes. Outlier-ness is model-specific — a
+        /// point far from a Symmetric hyperbola may sit on a Tilted one — so sharing a single pruned set across all
+        /// candidates would bias the choice; instead every model is judged on the fit it produces after cleaning
+        /// the points that are outliers <i>for it</i>. <paramref name="rejectedPoints"/> returns the winning
+        /// model's rejected points (so the caller can report exactly what the chosen fit excluded).
+        ///
+        /// Ranking is tiered: (1) finite parametric σ(focus) = <see cref="MinimumStdError"/> ascending — already
+        /// produced by <see cref="Solve"/>, so the common path is cheap. Every concrete model supplies a σ(focus)
         /// (the Uneven Blend model included, via se(x0) from its analytic-gradient covariance), so all four
-        /// compete here on equal footing; (2) only when no candidate has a finite σ(focus) — i.e. every fit is
-        /// too degenerate to localize focus — the leave-one-out best-focus std
+        /// compete on equal footing; (2) only when no candidate has a finite σ(focus) — i.e. every fit is too
+        /// degenerate to localize focus — the leave-one-out best-focus std
         /// (<see cref="ComputeLeaveOneOutBestFocusStdError"/>, computed lazily) breaks the tie; final tiebreak
         /// <see cref="ReducedChiSquared"/> ascending then <see cref="RSquared"/> descending. If nothing survives,
         /// returns <see cref="HyperbolicFitModel.TiltedHyperbola"/> with its solved fit (or null) so the live fit
-        /// is preserved. <paramref name="bestFit"/> is the already-solved winning fit.
+        /// is preserved. <paramref name="bestFit"/> is the already-solved winning (cleaned) fit. Callers cap how far
+        /// a fit may be pruned by lowering <paramref name="maxOutlierRejections"/> (e.g. the sensor model passes
+        /// <c>min(configuredCap, count − minPointsPerStar)</c> to keep at least its required points per star).
         /// </summary>
-        public static HyperbolicFitModel SelectBestModel(IAlglibAPI alglibAPI, IList<ScatterErrorPoint> points, int stepSize, bool useWeights, out AlglibHyperbolicFitting bestFit) {
+        public static HyperbolicFitModel SelectBestModel(
+                IAlglibAPI alglibAPI, IList<ScatterErrorPoint> points, int stepSize, bool useWeights,
+                int maxOutlierRejections, double rejectionConfidence,
+                out AlglibHyperbolicFitting bestFit, out IReadOnlyList<ScatterErrorPoint> rejectedPoints) {
             double minX = double.PositiveInfinity, maxX = double.NegativeInfinity;
             if (points != null) {
                 foreach (var p in points) {
@@ -251,12 +272,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             var survivors = new List<AlglibHyperbolicFitting>();
             var survivorModels = new List<HyperbolicFitModel>();
+            var survivorRejects = new List<List<ScatterErrorPoint>>();
+            var survivorClean = new List<List<ScatterErrorPoint>>();
             AlglibHyperbolicFitting tiltedFit = null;
+            List<ScatterErrorPoint> tiltedRejects = null;
             foreach (var model in HybridCandidateModels) {
                 AlglibHyperbolicFitting fit;
+                List<ScatterErrorPoint> modelRejects, modelClean;
                 try {
-                    fit = Create(alglibAPI, model, points, stepSize, useWeights);
-                    if (!fit.Solve()) {
+                    fit = FitWithOutlierRejection(alglibAPI, model, points, stepSize, useWeights, maxOutlierRejections, rejectionConfidence, out modelRejects, out modelClean);
+                    if (fit == null) {
                         continue;
                     }
                 } catch (Exception ex) {
@@ -265,6 +290,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
                 if (model == HyperbolicFitModel.TiltedHyperbola) {
                     tiltedFit = fit;
+                    tiltedRejects = modelRejects;
                 }
                 var x = fit.Minimum.X;
                 if (double.IsNaN(x) || double.IsInfinity(x)) {
@@ -275,12 +301,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
                 survivors.Add(fit);
                 survivorModels.Add(model);
+                survivorRejects.Add(modelRejects);
+                survivorClean.Add(modelClean);
             }
 
             if (survivors.Count == 0) {
                 // All candidates degenerate/out-of-range — keep the live (Tilted) fit so the rest of the pipeline
                 // stays consistent with what was rendered during the sweep.
                 bestFit = tiltedFit;
+                rejectedPoints = tiltedRejects ?? (IReadOnlyList<ScatterErrorPoint>)Array.Empty<ScatterErrorPoint>();
                 return HyperbolicFitModel.TiltedHyperbola;
             }
 
@@ -301,10 +330,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
                 contenders = tier1;
             } else {
-                // Tier 2: leave-one-out fallback (lazy — only when no candidate has a finite σ(focus)).
+                // Tier 2: leave-one-out fallback (lazy — only when no candidate has a finite σ(focus)). Each model's
+                // LOO uses its own cleaned point set, consistent with how it was ranked.
                 contenders = new List<int>();
                 for (int i = 0; i < survivors.Count; ++i) {
-                    var loo = ComputeLeaveOneOutBestFocusStdError(alglibAPI, survivorModels[i], points, stepSize, useWeights);
+                    var loo = ComputeLeaveOneOutBestFocusStdError(alglibAPI, survivorModels[i], survivorClean[i], stepSize, useWeights);
                     primary[i] = loo;
                     if (!double.IsNaN(loo) && !double.IsInfinity(loo)) {
                         contenders.Add(i);
@@ -330,7 +360,52 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             var best = contenders[0];
             bestFit = survivors[best];
+            rejectedPoints = survivorRejects[best];
             return survivorModels[best];
+        }
+
+        /// <summary>
+        /// Fits <paramref name="model"/> to <paramref name="points"/>, then iteratively removes up to
+        /// <paramref name="maxOutlierRejections"/> Grubbs-test outliers — judged against <b>this model's own</b>
+        /// residuals (weighted when <paramref name="useWeights"/> is set) — refitting after each removal. Returns
+        /// the cleaned fit (the last fit that solved) plus the points it rejected and the points it kept, or null
+        /// if the model fails to solve even on the full set. A refit that fails to solve ends the loop with the
+        /// last good fit, so a rejection is recorded only when its refit succeeded. With
+        /// <paramref name="maxOutlierRejections"/> = 0 this is a single solve on all points (no rejection).
+        /// </summary>
+        private static AlglibHyperbolicFitting FitWithOutlierRejection(
+                IAlglibAPI alglibAPI, HyperbolicFitModel model, IList<ScatterErrorPoint> points, int stepSize, bool useWeights,
+                int maxOutlierRejections, double rejectionConfidence,
+                out List<ScatterErrorPoint> rejectedPoints, out List<ScatterErrorPoint> cleanedPoints) {
+            rejectedPoints = new List<ScatterErrorPoint>();
+            var working = new List<ScatterErrorPoint>(points);
+
+            var fit = Create(alglibAPI, model, working, stepSize, useWeights);
+            if (!fit.Solve()) {
+                cleanedPoints = working;
+                return null;
+            }
+
+            while (rejectedPoints.Count < maxOutlierRejections) {
+                var weights = BuildResidualWeights(working, useWeights);
+                var rejected = MathUtility.RejectionTest(working, fit.Fitting, rejectionConfidence, weights);
+                if (rejected == null) {
+                    break;
+                }
+
+                var trial = new List<ScatterErrorPoint>(working);
+                trial.Remove(rejected);
+                var refit = Create(alglibAPI, model, trial, stepSize, useWeights);
+                if (!refit.Solve()) {
+                    break; // cannot refit without this point; keep the current fit and stop
+                }
+
+                working = trial;
+                fit = refit;
+                rejectedPoints.Add(rejected);
+            }
+            cleanedPoints = working;
+            return fit;
         }
 
         // Ascending comparison treating NaN as the worst (sorted last).

@@ -271,8 +271,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return;
                 }
 
+                // Each candidate rejects its own outliers (Grubbs test on that model's residuals) before competing,
+                // since outlier-ness is model-specific. The winner's rejected set replaces the live (Tilted) one.
                 var best = AlglibHyperbolicFitting.SelectBestModel(
-                    State.AlglibAPI, validPoints, State.Options.AutoFocusStepSize, State.Options.WeightedHyperbolicFitEnabled, out var bestFit);
+                    State.AlglibAPI, validPoints, State.Options.AutoFocusStepSize, State.Options.WeightedHyperbolicFitEnabled,
+                    State.Options.MaxOutlierRejections, State.Options.OutlierRejectionConfidence,
+                    out var bestFit, out var bestRejectedPoints);
                 if (bestFit == null) {
                     return;
                 }
@@ -281,8 +285,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     this.Fittings.HyperbolicFitting = bestFit;
                     this.Fittings.SelectedHyperbolicFitModel = best;
                     this.selectedHyperbolicModel = best;
+
+                    // Surface the chosen model's outliers (not the live Tilted model's) so the panel/report match
+                    // the fit that actually determined focus.
+                    this.RejectedPoints.Clear();
+                    foreach (var rp in bestRejectedPoints) {
+                        var focuserPosition = (int)Math.Round(rp.X);
+                        this.RejectedPoints[focuserPosition] = new MeasureAndError() { Measure = rp.Y, Stdev = rp.ErrorY };
+                    }
                 }
-                Logger.Info($"Hybrid auto-focus model selection chose {best} for region {RegionIndex}");
+                Logger.Info($"Hybrid auto-focus model selection chose {best} for region {RegionIndex} (rejected {bestRejectedPoints.Count} outlier(s))");
             }
 
             /// <summary>
@@ -1727,7 +1739,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 FocuserOffset = autoFocusOptions.FocuserOffset,
                 MaxOutlierRejections = autoFocusOptions.MaxOutlierRejections,
                 OutlierRejectionConfidence = autoFocusOptions.OutlierRejectionConfidence,
-                UnevenHyperbolicFitEnabled = autoFocusOptions.UnevenHyperbolicFitEnabled,
                 WeightedHyperbolicFitEnabled = autoFocusOptions.WeightedHyperbolicFitEnabled,
                 HyperbolicFitModel = autoFocusOptions.HyperbolicFitModel,
                 FitRejectionCriterion = autoFocusOptions.FitRejectionCriterion,

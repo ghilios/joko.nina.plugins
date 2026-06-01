@@ -105,7 +105,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
         [Test]
         public void SetCurveFittings_StarHFR_Hyperbolic_PopulatesHyperbolicFit() {
             var autoFocusOptions = Substitute.For<IAutoFocusOptions>();
-            autoFocusOptions.UnevenHyperbolicFitEnabled.Returns(false);
             autoFocusOptions.WeightedHyperbolicFitEnabled.Returns(false);
             var vm = Build(alglibAPI: new AlglibAPI(), autoFocusOptions: autoFocusOptions);
 
