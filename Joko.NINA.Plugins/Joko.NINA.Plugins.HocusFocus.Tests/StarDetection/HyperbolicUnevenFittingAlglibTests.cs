@@ -164,7 +164,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 x0: x0, y0: y0, a: a, b: b, c: c, stepSize: xStep, xStart: 4600, xStep: xStep, count: 33, errorY: 0.05);
 
             var legacy = AlglibHyperbolicFitting.Create(
-                alglibAPI, HyperbolicFitModel.UnevenBlendLegacy, pts, (int)xStep, useWeights: true);
+                alglibAPI, HyperbolicFitModel.UnevenBlend, pts, (int)xStep, useWeights: true);
             Assert.That(legacy.Solve(), Is.True);
             Assert.That(double.IsNaN(legacy.MinimumStdError), Is.False,
                 "Uneven Blend model must now report a finite σ(focus)");

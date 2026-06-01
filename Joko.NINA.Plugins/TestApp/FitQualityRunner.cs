@@ -40,7 +40,7 @@ namespace TestApp {
 
         private static readonly HyperbolicFitModel[] AllModels = {
             HyperbolicFitModel.Symmetric,
-            HyperbolicFitModel.UnevenBlendLegacy,
+            HyperbolicFitModel.UnevenBlend,
             HyperbolicFitModel.TiltedHyperbola,
             HyperbolicFitModel.SmoothBlend,
         };

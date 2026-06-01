@@ -22,7 +22,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
         private static readonly HyperbolicFitModel[] Candidates = {
             HyperbolicFitModel.Symmetric,
-            HyperbolicFitModel.UnevenBlendLegacy,
+            HyperbolicFitModel.UnevenBlend,
             HyperbolicFitModel.TiltedHyperbola,
             HyperbolicFitModel.SmoothBlend,
         };

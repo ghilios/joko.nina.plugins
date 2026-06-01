@@ -96,7 +96,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     return SmoothBlendHyperbolicFittingAlglib.Create(alglibAPI, points, useWeights);
                 case HyperbolicFitModel.Symmetric:
                     return HyperbolicFittingAlglib.Create(alglibAPI, points, useWeights);
-                case HyperbolicFitModel.UnevenBlendLegacy:
+                case HyperbolicFitModel.UnevenBlend:
                 default:
                     return HyperbolicUnevenFittingAlglib.Create(alglibAPI, points, stepSize, useWeights);
             }
@@ -221,7 +221,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         private static readonly HyperbolicFitModel[] HybridCandidateModels = {
             HyperbolicFitModel.Symmetric,
-            HyperbolicFitModel.UnevenBlendLegacy,
+            HyperbolicFitModel.UnevenBlend,
             HyperbolicFitModel.TiltedHyperbola,
             HyperbolicFitModel.SmoothBlend,
         };

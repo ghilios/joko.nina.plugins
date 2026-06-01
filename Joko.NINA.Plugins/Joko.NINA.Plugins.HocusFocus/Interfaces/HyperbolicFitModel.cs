@@ -26,11 +26,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         [Description("Symmetric")]
         Symmetric,
 
-        // Display name is "Uneven Blend"; the identifier keeps the "Legacy" suffix because the selector is
-        // persisted by enum name (NINA's PluginOptionsAccessor) and serialized in saved reports — renaming the
-        // member would reset existing profiles and break old reports. Internal token only; not user-facing.
         [Description("Uneven Blend")]
-        UnevenBlendLegacy,
+        UnevenBlend,
 
         [Description("Tilted Hyperbola")]
         TiltedHyperbola,
