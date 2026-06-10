@@ -122,5 +122,51 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 prevRel = rel;
             }
         }
+
+        [Test]
+        public void MeasureStar_UnderstatedSigma_InflatesHfrUnderNoise() {
+            // A small star in a large aperture surrounded by noise. With correctly-scaled τ the noise is
+            // clipped; with an understated σ (production measures σ on a ~4-5× smoothed copy but samples the
+            // sharp image) positive noise at large radius leaks into the flux sum and inflates HFR (F4).
+            const double sigma = 3.0, peak = 1.0, bg = 0.0;
+            const double sigmaSharp = 0.02; // true white-noise σ of the measurement image
+            const int seed = 12345;
+            const int bigSize = 121;        // R = 60.5 = 20σ → a large pure-noise annulus inside the aperture
+            const double bigC = 60.0;
+            var detector = new StarDetector(new AlglibAPI());
+            var p = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 2.0 };
+
+            double MeasureWith(double noiseSigmaArg) {
+                using var image = SyntheticGaussianStarImage.Create(bigSize, bigSize, bigC, bigC, sigma, sigma, peak, bg);
+                SyntheticDefocusedStarImage.AddGaussianNoise(image, sigmaSharp, seed);
+                var star = new Star {
+                    Center = new Point2d(bigC, bigC),
+                    StarBoundingBox = new Rect(0, 0, bigSize, bigSize),
+                    Background = bg
+                };
+                detector.MeasureStar(image, star, p, noiseSigmaArg);
+                return star.HFR;
+            }
+
+            double hfrTrue = MeasureWith(sigmaSharp);              // τ = 2·σ_sharp     → noise clipped
+            double hfrUnderstated = MeasureWith(sigmaSharp / 5.0); // τ = 2·σ_sharp/5 → noise leaks in
+            TestContext.WriteLine($"HFR(trueσ)={hfrTrue:F4}  HFR(understatedσ)={hfrUnderstated:F4}  inflation={hfrUnderstated - hfrTrue:F4}");
+            Assert.That(hfrUnderstated, Is.GreaterThan(hfrTrue + 0.5), "understated σ should inflate HFR by leaking large-radius noise");
+        }
+
+        [Test]
+        public void MeasureStar_Annulus_HfrExceedsFilledDisk_SameOuterRadius() {
+            const double outer = 14.0, inner = 8.0, peak = 1.0, bg = 0.0;
+            var detector = new StarDetector(new AlglibAPI());
+            var p = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 0.0 };
+            using var disk = SyntheticDefocusedStarImage.CreateDisk(Size, Size, Cx, Cy, outer, peak, bg);
+            using var annulus = SyntheticDefocusedStarImage.CreateAnnulus(Size, Size, Cx, Cy, inner, outer, peak, bg);
+            var sd = NewStar(bg);
+            var sa = NewStar(bg);
+            detector.MeasureStar(disk, sd, p, 0.0);
+            detector.MeasureStar(annulus, sa, p, 0.0);
+            TestContext.WriteLine($"disk HFR={sd.HFR:F4}  annulus HFR={sa.HFR:F4}");
+            Assert.That(sa.HFR, Is.GreaterThan(sd.HFR), "annulus pushes flux outward → larger HFR than a filled disk of the same outer radius");
+        }
     }
 }
