@@ -255,9 +255,51 @@ namespace TestApp {
 
         private static string F(double v) => double.IsNaN(v) ? "NaN" : v.ToString("G9", CultureInfo.InvariantCulture);
 
-        // --- Synthesize: replaced with the real body in Task B4. Placeholder keeps the file compiling. ---
+        // Writes `count` synthetic 16-bit TIFF frames named with the saved-AF convention, with a V-shaped HFR
+        // (sharp in the middle, defocused at the ends). Lets the diagnostic be exercised end-to-end with no
+        // real data. Self-contained (cannot reference the Tests project's generators).
         private static void SynthesizeAfRun(string dir, int count) {
-            throw new NotImplementedException("Implemented in Task B4");
+            Directory.CreateDirectory(dir);
+            const int frameSize = 128;
+            const int basePos = 10000, stepPos = 100;
+            int center = count / 2;
+            for (int i = 0; i < count; ++i) {
+                int pos = basePos + i * stepPos;
+                // V-shaped width, kept gentle (≤ ~4px σ) and bright so stars stay detectable at the ends and
+                // the median HFR forms a clean V instead of the defocused frames dropping out entirely.
+                double sigma = 2.0 + 0.5 * Math.Abs(i - center);
+                using var f = SynthFrame(frameSize, frameSize, sigma, peak: 0.85, background: 0.02);
+                using var u16 = new Mat();
+                f.ConvertTo(u16, MatType.CV_16U, ushort.MaxValue);
+                var name = $"{i:00}_Frame00_BitDepth16_Bayered0_Focuser{pos}.tif";
+                Cv2.ImWrite(Path.Combine(dir, name), u16);
+            }
+        }
+
+        // A 3x3 grid of Gaussian stars on a flat background.
+        private static Mat SynthFrame(int w, int h, double sigma, double peak, double background) {
+            var mat = new Mat(new Size(w, h), MatType.CV_32F, new Scalar(background));
+            for (int gy = 1; gy <= 3; ++gy) {
+                for (int gx = 1; gx <= 3; ++gx) {
+                    AddGaussian(mat, w * gx / 4.0, h * gy / 4.0, sigma, peak);
+                }
+            }
+            return mat;
+        }
+
+        private static void AddGaussian(Mat mat, double cx, double cy, double sigma, double peak) {
+            int w = mat.Width, h = mat.Height;
+            double inv = 1.0 / (2.0 * sigma * sigma);
+            int rad = (int)Math.Ceiling(5.0 * sigma);
+            unsafe {
+                var data = (float*)mat.DataPointer;
+                for (int y = Math.Max(0, (int)(cy - rad)); y < Math.Min(h, (int)(cy + rad)); ++y) {
+                    for (int x = Math.Max(0, (int)(cx - rad)); x < Math.Min(w, (int)(cx + rad)); ++x) {
+                        double dx = x - cx, dy = y - cy;
+                        data[y * w + x] += (float)(peak * Math.Exp(-(dx * dx + dy * dy) * inv));
+                    }
+                }
+            }
         }
     }
 }
