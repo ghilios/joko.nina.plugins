@@ -150,7 +150,8 @@ namespace TestApp {
             var rows = byPosition.Values.ToList();
             WriteCsv(Path.Combine(outDir, "focus_sweep.csv"), rows);
             WriteSummary(Path.Combine(outDir, "focus_sweep_summary.txt"), afRun, baseParams, rows);
-            Console.WriteLine($"Wrote focus_sweep.csv, focus_sweep_summary.txt to {outDir}");
+            WriteVCurvePng(Path.Combine(outDir, "focus_sweep_hfr.png"), rows);
+            Console.WriteLine($"Wrote focus_sweep.csv, focus_sweep_summary.txt, focus_sweep_hfr.png to {outDir}");
         }
 
         private static List<Frame> ParseAfRun(string dir) {
@@ -226,6 +227,30 @@ namespace TestApp {
                     $"(median HFR {F(MedianMad(best.Hfrs).median)}, {best.Hfrs.Count} stars)");
             }
             File.WriteAllText(path, sb.ToString());
+        }
+
+        private static void WriteVCurvePng(string path, List<PositionAccum> rows) {
+            try {
+                var data = rows.Where(r => r.Hfrs.Count > 0)
+                    .Select(r => (x: (double)r.FocuserPosition, y: MedianMad(r.Hfrs)))
+                    .OrderBy(t => t.x).ToList();
+                if (data.Count == 0) {
+                    Logger.Warning("V-curve PNG skipped: no positions had detected stars");
+                    return;
+                }
+                var xs = data.Select(d => d.x).ToArray();
+                var ys = data.Select(d => d.y.median).ToArray();
+                var err = data.Select(d => double.IsNaN(d.y.mad) ? 0.0 : d.y.mad).ToArray();
+                var plt = new ScottPlot.Plot(900, 600);
+                plt.AddScatter(xs, ys, markerSize: 6);
+                plt.AddErrorBars(xs, ys, null, err);
+                plt.XLabel("Focuser Position");
+                plt.YLabel("Median HFR (px)");
+                plt.Title("Focus Sweep — detector HFR vs position");
+                plt.SaveFig(path);
+            } catch (Exception ex) {
+                Logger.Warning($"V-curve PNG render failed ({ex.Message}); CSV/summary still written");
+            }
         }
 
         private static string F(double v) => double.IsNaN(v) ? "NaN" : v.ToString("G9", CultureInfo.InvariantCulture);
