@@ -143,7 +143,9 @@ unit tests.
 
 ## 5. Real-data validation (required PR evidence)
 
-Before/after `TestApp focus-sweep` on a saved AF image sequence (user-provided):
+Before/after `TestApp focus-sweep` on saved AF image sequences. The implementation plan's first task
+explicitly asks the user for the AF run paths (1–3 runs), captures the baselines **before any
+production change**, and reuses the same runs for the after-comparison:
 
 - Star counts per focuser position comparable at defaults (recalibration worked).
 - V-curve shape sane; fitted minimum within tolerance of before.
