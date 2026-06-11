@@ -138,12 +138,25 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
-    public void SimpleMode_PixelScaleLongFocalLength_BoostsBrightnessSensitivity() {
-        var (options, _, _) = Build();
-        options.UseAdvanced = false;
-        options.Simple_NoiseLevel = NoiseLevelEnum.Typical;
-        options.Simple_PixelScale = PixelScaleEnum.LongFocalLength;
-        Assert.That(options.BrightnessSensitivity, Is.GreaterThan(10.0));
+    public void SimpleMode_PixelScaleLongFocalLength_IncreasesSensitivity() {
+        // Longer focal length spreads star flux over more pixels, so detection must be MORE sensitive than
+        // Typical. BrightnessSensitivity is a threshold where SMALLER = more sensitive (regression guard for
+        // the previously-inverted sign: it used to be raised to 12, making LongFocalLength LESS sensitive).
+        var (typical, _, _) = Build();
+        typical.UseAdvanced = false;
+        typical.Simple_PixelScale = PixelScaleEnum.Typical;
+        typical.Simple_FocusRange = FocusRangeEnum.Typical;
+
+        var (longFl, _, _) = Build();
+        longFl.UseAdvanced = false;
+        longFl.Simple_PixelScale = PixelScaleEnum.LongFocalLength;
+        longFl.Simple_FocusRange = FocusRangeEnum.Typical;
+
+        Assert.Multiple(() => {
+            Assert.That(typical.BrightnessSensitivity, Is.EqualTo(10.0));
+            Assert.That(longFl.BrightnessSensitivity, Is.EqualTo(8.0));
+            Assert.That(longFl.BrightnessSensitivity, Is.LessThan(typical.BrightnessSensitivity));
+        });
     }
 
     [Test]
@@ -153,6 +166,28 @@ public class StarDetectionOptionsTests {
         options.Simple_PixelScale = PixelScaleEnum.Typical;
         options.Simple_FocusRange = FocusRangeEnum.WideRange;
         Assert.That(options.StructureLayers, Is.GreaterThanOrEqualTo(5));
+    }
+
+    [Test]
+    public void SimpleMode_FocusRangeWideRange_IncreasesSensitivity() {
+        // WideRange targets faint/defocused stars, so it must make detection MORE sensitive than Typical.
+        // BrightnessSensitivity is a threshold where SMALLER = more sensitive (regression guard for the
+        // previously-inverted sign: it used to be raised to 12, making WideRange LESS sensitive).
+        var (typical, _, _) = Build();
+        typical.UseAdvanced = false;
+        typical.Simple_PixelScale = PixelScaleEnum.Typical;
+        typical.Simple_FocusRange = FocusRangeEnum.Typical;
+
+        var (wide, _, _) = Build();
+        wide.UseAdvanced = false;
+        wide.Simple_PixelScale = PixelScaleEnum.Typical;
+        wide.Simple_FocusRange = FocusRangeEnum.WideRange;
+
+        Assert.Multiple(() => {
+            Assert.That(typical.BrightnessSensitivity, Is.EqualTo(10.0));
+            Assert.That(wide.BrightnessSensitivity, Is.EqualTo(8.0));
+            Assert.That(wide.BrightnessSensitivity, Is.LessThan(typical.BrightnessSensitivity));
+        });
     }
 
     [Test]
