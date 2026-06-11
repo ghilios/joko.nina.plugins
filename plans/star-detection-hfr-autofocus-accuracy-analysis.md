@@ -270,3 +270,23 @@ masking, pixel-integration options.
 quantitative claims were independently re-verified by an adversarial reviewer against the code (all
 confirmed; two refinements incorporated: effective default noise kernel is 9 px, and NINA-profile
 defaults are outside this repo's purview).
+
+---
+
+## 10. Implementation progress
+
+Tracks the Section 9 follow-ups. Each step is its own branch + PR.
+
+| Step | Status | Notes |
+|---|---|---|
+| 1. Evidence base | ✅ Done (PR #46, merged) | Synthetic disk/annulus generator + ground truth, `MeasureStar` bias tests (F3/F4 magnitudes measured), `TestApp focus-sweep` diagnostic. Plans: `focus-sweep-evidence-base-{design,plan}.md`. |
+| 2. Defocus robustness (F1/F2) | 🟡 Planned | Scope decided: **fix the WideRange sensitivity direction** (F2 — `BrightnessSensitivity` 10→8); **document that TooFlat is intentionally kept active during AF** (F1 — no behavior change, by decision); StructureLayers-from-HFR deferred. Plan: `defocus-robustness-plan.md`. |
+| 3. σ consistency (F4, then F3) | ⬜ Not started | Scale/estimate σ on the measured image; then decide τ semantics. |
+| 4. Weight-chain hygiene (F5/F6) | ⬜ Not started | ErrorY floor/cap, invalid-σ accumulation fix, √FramesPerPoint, χ² gate. |
+| 5. Small fixes (F7–F14) | ⬜ Not started | Independent one-liner-to-small patches. |
+
+**Measured F3/F4 magnitudes (from step 1's tests, for steps 2–4 to target):** F3 soft-threshold biases HFR
+*down* on a Gaussian by −0.47px (τ=0.02) to −1.90px (τ=0.20, ≈30% of true), with relative bias rising
+13%→45% as τ/peak goes 0.05→0.40; the uniform-disk control shifts only −0.12px (confirming the bias needs a
+radial gradient). F4 understated-σ inflated HFR by up to +16.9px in a worst-case stress test (tiny star, large
+aperture, σ understated 5×). The estimator is exact on clean shapes (<0.01px error).
