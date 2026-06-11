@@ -324,6 +324,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (isAutoFocus) {
                 detectorParams.SaveIntermediateFilesPath = string.Empty;
                 detectorParams.ModelPSF = false;
+                // Design decision (accuracy analysis F1): the TooFlat gate (StarDetector rejects candidates whose
+                // median >= PeakResponse*peak) is intentionally left ACTIVE during AutoFocus. It can reject bright,
+                // heavily-defocused flat-top/donut stars, but relaxing it here risks admitting flat noise blobs, and
+                // PeakResponse is also reused in the sensitivity (NormalizedBrightness) calc so loosening it has side
+                // effects. Revisit with a real defocus dataset (TestApp focus-sweep) if AF star counts drop at sweep
+                // extremes.
             } else {
                 // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again
                 starDetectionOptions.SaveIntermediateImages = false;

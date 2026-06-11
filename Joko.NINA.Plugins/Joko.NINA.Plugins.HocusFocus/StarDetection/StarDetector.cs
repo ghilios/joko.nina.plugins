@@ -827,7 +827,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return null;
             }
 
-            // Too flat
+            // Too flat. Intentionally active during AutoFocus as well — see
+            // HocusFocusStarDetection.GetStarDetectorParams (accuracy analysis F1).
             if (starCandidate.StarMedian >= (p.PeakResponse * starCandidate.Peak)) {
                 metrics.TooFlatBounds.Add(starBounds);
                 return null;
