@@ -109,6 +109,12 @@ namespace TestApp {
                 return;
             }
 
+            // Headless focus-sweep diagnostic mode: `TestApp focus-sweep --af-run <dir> ...`
+            if (args.Length > 0 && args[0].Equals("focus-sweep", StringComparison.OrdinalIgnoreCase)) {
+                await FocusSweepDiagnosticRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&
