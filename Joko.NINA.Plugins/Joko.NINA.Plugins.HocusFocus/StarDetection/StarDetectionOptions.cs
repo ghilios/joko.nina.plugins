@@ -102,7 +102,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             } else if (Simple_PixelScale == PixelScaleEnum.LongFocalLength) {
                 StructureLayers += 1;
                 MinStarBoundingBoxSize += 1;
-                BrightnessSensitivity += 2.0;
+                // Longer focal length spreads star flux over more pixels, so we want to be more sensitive.
+                // BrightnessSensitivity is a threshold where SMALLER = more sensitive, so we LOWER it.
+                BrightnessSensitivity -= 2.0;
             }
 
             if (HotpixelThresholdingEnabled && HotpixelFiltering) {
