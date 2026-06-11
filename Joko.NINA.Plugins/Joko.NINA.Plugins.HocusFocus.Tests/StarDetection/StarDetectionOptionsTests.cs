@@ -156,6 +156,28 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
+    public void SimpleMode_FocusRangeWideRange_IncreasesSensitivity() {
+        // WideRange targets faint/defocused stars, so it must make detection MORE sensitive than Typical.
+        // BrightnessSensitivity is a threshold where SMALLER = more sensitive (regression guard for the
+        // previously-inverted sign: it used to be raised to 12, making WideRange LESS sensitive).
+        var (typical, _, _) = Build();
+        typical.UseAdvanced = false;
+        typical.Simple_PixelScale = PixelScaleEnum.Typical;
+        typical.Simple_FocusRange = FocusRangeEnum.Typical;
+
+        var (wide, _, _) = Build();
+        wide.UseAdvanced = false;
+        wide.Simple_PixelScale = PixelScaleEnum.Typical;
+        wide.Simple_FocusRange = FocusRangeEnum.WideRange;
+
+        Assert.Multiple(() => {
+            Assert.That(typical.BrightnessSensitivity, Is.EqualTo(10.0));
+            Assert.That(wide.BrightnessSensitivity, Is.EqualTo(8.0));
+            Assert.That(wide.BrightnessSensitivity, Is.LessThan(typical.BrightnessSensitivity));
+        });
+    }
+
+    [Test]
     public void AdvancedMode_DoesNotAutoConfigure() {
         var (options, _, _) = Build();
         options.UseAdvanced = true;

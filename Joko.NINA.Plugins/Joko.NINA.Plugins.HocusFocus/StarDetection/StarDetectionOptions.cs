@@ -88,8 +88,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             BrightnessSensitivity = 10.0;
             if (Simple_FocusRange == FocusRangeEnum.WideRange) {
                 StructureLayers += 1;
-                // As we get further from focus, we want to be more sensitive as the chance for bad data increases
-                BrightnessSensitivity += 2.0;
+                // As we get further from focus, we want to be more sensitive as the chance for bad data
+                // increases. BrightnessSensitivity is a threshold where SMALLER = more sensitive, so we LOWER it.
+                BrightnessSensitivity -= 2.0;
             }
 
             MinStarBoundingBoxSize = 5;
