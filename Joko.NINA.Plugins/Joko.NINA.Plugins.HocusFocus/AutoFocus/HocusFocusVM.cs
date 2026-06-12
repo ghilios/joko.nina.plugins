@@ -656,7 +656,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return;
             }
 
-            FocusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, Math.Max(0.001, e.Measurement.Stdev)), focusPointComparer);
+            FocusPoints.AddSorted(new ScatterErrorPoint(e.FocuserPosition, e.Measurement.Measure, 0, AutoFocusEngine.SafeDisplayError(e.Measurement.Stdev)), focusPointComparer);
             var dataPoint = new DataPoint(e.FocuserPosition, e.Measurement.Measure);
             PlotFocusPoints.AddSorted(dataPoint, plotPointComparer);
             this.focuserMediator.BroadcastNewAutoFocusPoint(dataPoint);

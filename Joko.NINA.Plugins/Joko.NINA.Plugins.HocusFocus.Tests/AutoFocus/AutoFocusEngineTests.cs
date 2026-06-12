@@ -228,6 +228,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             });
         }
 
+        [Test]
+        public void SafeDisplayError_MapsNaNAndNegativeToZero_KeepsMeasuredValues() {
+            Assert.Multiple(() => {
+                Assert.That(AutoFocusEngine.SafeDisplayError(double.NaN), Is.EqualTo(0.0));
+                Assert.That(AutoFocusEngine.SafeDisplayError(double.PositiveInfinity), Is.EqualTo(0.0));
+                Assert.That(AutoFocusEngine.SafeDisplayError(-0.5), Is.EqualTo(0.0));
+                Assert.That(AutoFocusEngine.SafeDisplayError(0.0), Is.EqualTo(0.0));
+                // Below the old 0.001 fabrication threshold: must now pass through unmodified.
+                Assert.That(AutoFocusEngine.SafeDisplayError(0.0004), Is.EqualTo(0.0004));
+                Assert.That(AutoFocusEngine.SafeDisplayError(0.25), Is.EqualTo(0.25));
+            });
+        }
+
         private sealed class TempDir : IDisposable {
             public string Path { get; }
             public TempDir() {

@@ -692,7 +692,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return Task.CompletedTask;
                 }
 
-                var focusPoints = regionState.MeasurementsByFocuserPoint.Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, Math.Max(0.001, fp.Value.Stdev))).ToList();
+                var focusPoints = regionState.MeasurementsByFocuserPoint.Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, SafeDisplayError(fp.Value.Stdev))).ToList();
                 regionState.UpdateCurveFittings(focusPoints);
 
                 this.OnMeasurementPointCompleted(imageState, regionState, measurement);
@@ -711,6 +711,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
             measurementsByFocuserPoint.Add(focuserPosition, subMeasurements.AverageMeasurement());
             return true;
+        }
+
+        /// <summary>
+        /// σ for the display/report layer: keep the measured value; non-finite σ (NaN = no valid per-frame σ; ±Infinity) and
+        /// negatives render as 0 = "no error bar". The old code fabricated a 0.001 floor here, which
+        /// downstream 1/σ weighting turned into a 1000× weight (F5a). Fitters never consume this raw
+        /// value directly — every weighted fit receives WeightRegularization copies, which map 0 or
+        /// unknown σ to the sweep's median σ.
+        /// </summary>
+        internal static double SafeDisplayError(double stdev) {
+            return double.IsFinite(stdev) ? Math.Max(0.0, stdev) : 0.0;
         }
 
         private Task InitialHFRMeasurementAction(AutoFocusImageState imageState, MeasureAndError measurement, AutoFocusState state, AutoFocusRegionState regionState) {
