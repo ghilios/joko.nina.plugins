@@ -286,8 +286,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // are detected
         public int MinimumStarBoundingBoxSize { get; set; } = 5;
 
-        // Minimum HFR for a star to be considered viable
-        public double MinHFR { get; set; } = 1.5d;
+        // Minimum HFR for a star to be considered viable. The old 1.5 floor was calibrated against faint-star
+        // HFRs inflated ~1.24× by one-sided noise rectification at the legacy soft-threshold τ; with the honest
+        // gate-only τ (F3) faint stars measure at/below truth, so the floor is scaled down accordingly —
+        // see plans/sigma-consistency-f3-results.md (follow-up).
+        public double MinHFR { get; set; } = 1.2d;
 
         public StarDetectionRegion Region { get; set; } = StarDetectionRegion.Full;
 

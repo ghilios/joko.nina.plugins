@@ -69,3 +69,17 @@ faint donut, `gate@2.0σ` bias (1.56) vs `subtract@0.4σ` (5.48) is a 3.5× impr
 ## Decision
 
 **gate@2.0σ** — chosen 2026-06-11 at the F3 decision gate. Rationale: lowest HFR bias on all three shapes (0.46/3.54/1.56 px vs subtract@0.4σ's 2.62/11.02/5.48) with an absolute std penalty ≤0.24 px; the dominant error mode at low τ is one-sided noise rectification, which τ=2.0σ suppresses. Applies StarClippingMultiplier=2.0 uniformly (None/High presets included — the empirically better level wins); real-data before/after sweeps at the next checkpoint arbitrate.
+
+## Follow-up: MinHFR floor recalibration (Checkpoint C investigation)
+
+The real-data before/after sweeps surfaced a `TooLowHFR` cliff near focus on dense, well-sampled runs
+(e.g. `standard_example2` @20500: 261→6035 rejections). Investigation (synthetic small-star probe at
+production geometry + matched per-star analysis of the real frame) showed the casualties were faint stars
+whose **old HFRs were inflated ~1.24× by one-sided noise rectification** at the legacy soft-threshold τ
+(tiny faint: old +32% above truth vs new −2.3%; bright stars shift <1% between policies). The new
+gate@2.0σ values are the accurate ones; the MinHFR=1.5 floor was implicitly calibrated against the old
+inflated values and was rejecting genuinely well-measured stars (true HFR 1.2–1.7 now measures 1.15–1.55).
+
+**Resolution (user-approved): MinHFR default 1.5 → 1.2** (≈ 1.5 ÷ 1.24; synthetic band 1.11–1.27).
+τ stays gate@2.0σ — the probe vindicated it at production geometry (gate@1.0σ would have kept the
+faint-star inflation). Users with a hand-set MinHFR should scale it by ~0.8 (release note).

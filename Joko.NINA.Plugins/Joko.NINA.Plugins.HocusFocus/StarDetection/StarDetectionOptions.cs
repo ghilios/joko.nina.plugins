@@ -125,7 +125,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             MaxDistortion = 0.5;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
-            MinHFR = 1.5;
+            MinHFR = 1.2; // honest-HFR floor; the old 1.5 was calibrated against noise-inflated faint HFRs (F3 follow-up)
             StructureDilationSize = 3;
             StructureDilationCount = 0;
             PSFFitType = StarDetectorPSFFitType.Moffat_40;
@@ -170,7 +170,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             starCenterTolerance = optionsAccessor.GetValueDouble("StarCenterTolerance", 0.3);
             starBackgroundBoxExpansion = optionsAccessor.GetValueInt32("StarBackgroundBoxExpansion", 3);
             minStarBoundingBoxSize = optionsAccessor.GetValueInt32("MinStarBoundingBoxSize", 5);
-            minHFR = optionsAccessor.GetValueDouble("MinHFR", 1.5);
+            minHFR = optionsAccessor.GetValueDouble("MinHFR", 1.2);
             structureDilationSize = optionsAccessor.GetValueInt32("StructureDilationSize", 3);
             structureDilationCount = optionsAccessor.GetValueInt32("StructureDilationCount", 0);
             pixelSampleSize = optionsAccessor.GetValueDouble("PixelSampleSize", 1.0);
@@ -217,7 +217,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
-            MinHFR = 1.5;
+            MinHFR = 1.2;
             StructureDilationSize = 3;
             StructureDilationCount = 0;
             PixelSampleSize = 1.0;

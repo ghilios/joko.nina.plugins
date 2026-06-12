@@ -106,7 +106,8 @@ public class StarDetectorParamsTests {
             Assert.That(p.StarCenterTolerance, Is.EqualTo(0.3));
             Assert.That(p.BackgroundBoxExpansion, Is.EqualTo(3));
             Assert.That(p.MinimumStarBoundingBoxSize, Is.EqualTo(5));
-            Assert.That(p.MinHFR, Is.EqualTo(1.5));
+            // Honest-HFR floor (F3 follow-up): 1.5 was calibrated against ~1.24× noise-inflated faint HFRs.
+            Assert.That(p.MinHFR, Is.EqualTo(1.2));
             Assert.That(p.Region, Is.SameAs(StarDetectionRegion.Full));
             Assert.That(p.AnalysisSamplingSize, Is.EqualTo(1.0f));
             Assert.That(p.StoreStructureMap, Is.False);
