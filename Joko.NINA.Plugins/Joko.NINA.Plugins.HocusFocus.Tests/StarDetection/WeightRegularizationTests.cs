@@ -83,5 +83,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             var result = WeightRegularization.Regularize(Points(0.25));
             Assert.That(result[0].ErrorY, Is.EqualTo(0.25).Within(1e-12));
         }
+
+        [Test]
+        public void Regularize_AppliedTwice_IsIdempotent() {
+            // Floored values land strictly below the median and unknown σ lands on it, so a second
+            // pass recomputes the same median and changes nothing. Five production call sites make
+            // accidental chaining plausible; idempotency is what makes that safe.
+            var once = WeightRegularization.Regularize(Points(0.001, 0.0, double.NaN, 0.2, 0.3, 0.4, 0.5));
+            var twice = WeightRegularization.Regularize(once);
+            Assert.That(twice.Select(p => p.ErrorY), Is.EqualTo(once.Select(p => p.ErrorY)).Within(1e-15));
+        }
     }
 }

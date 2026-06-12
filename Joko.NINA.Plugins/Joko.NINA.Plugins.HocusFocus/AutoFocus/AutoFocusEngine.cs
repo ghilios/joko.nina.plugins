@@ -99,7 +99,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 AFMethodEnum method,
                 AFCurveFittingEnum fitting,
                 List<ScatterErrorPoint> focusPoints) {
-                var validFocusPoints = focusPoints.Where(p => p.Y > 0.0).ToList();
+                // Weighted fitters — ours and NINA core's Trendline/QuadraticFitting, which weight by
+                // 1/ErrorY² — must never see a degenerate σ: fit on regularized copies. Raw points
+                // still feed reports/charts upstream; rejected points recorded from this path carry
+                // the regularized σ.
+                var validFocusPoints = WeightRegularization.Regularize(focusPoints.Where(p => p.Y > 0.0).ToList());
                 if (validFocusPoints.Count < 3) {
                     return null;
                 }
@@ -266,7 +270,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return;
                 }
 
-                var validPoints = lastValidFocusPoints.Where(p => p.Y > 0.0).ToList();
+                var validPoints = WeightRegularization.Regularize(lastValidFocusPoints.Where(p => p.Y > 0.0).ToList());
                 if (validPoints.Count < 3) {
                     return;
                 }
@@ -317,7 +321,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // Use the model actually chosen for this run (Hybrid resolves to a concrete model in
                 // SelectBestHyperbolicModel); for non-Hybrid runs this is the option model, preserving prior behavior.
                 var modelForLoo = selectedHyperbolicModel ?? State.Options.HyperbolicFitModel;
-                var validPoints = lastValidFocusPoints.Where(p => p.Y > 0.0).ToList();
+                var validPoints = WeightRegularization.Regularize(lastValidFocusPoints.Where(p => p.Y > 0.0).ToList());
                 hyperbolicFitting.LeaveOneOutStdError = AlglibHyperbolicFitting.ComputeLeaveOneOutBestFocusStdError(
                     State.AlglibAPI, modelForLoo, validPoints, State.Options.AutoFocusStepSize, State.Options.WeightedHyperbolicFitEnabled);
             }

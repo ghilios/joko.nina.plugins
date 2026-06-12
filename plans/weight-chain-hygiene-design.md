@@ -66,8 +66,16 @@ Rules, applied to ErrorY only (X/Y/ErrorX pass through):
   no UI knob).
 
 Bounds: one point can exceed the median weight by at most 1/k = 5× (25× squared influence),
-preserving legitimate ~3× near-focus/wing weight ratios while killing the 1000× path. With the pin
-released, Huber IRLS and Grubbs can engage on a degenerate point that is also an outlier.
+preserving legitimate ~3× near-focus/wing weight ratios while killing the 1000× path.
+Implementation finding (Task 5 investigation, noise-free synthetic sweep): the 5× cap bounds weights
+as designed, but it does not let Huber IRLS recover a *displaced* degenerate-σ point — any point whose
+capped weight ratio exceeds ~1.25× self-masks (the weighted fit nearly interpolates it, so its
+residual stays under the Huber threshold while its clean neighbors get downweighted; measured recovery
+cliff at k ≥ 0.8). Fit-level damage from one max-leverage wing outlier saturates (~56–61 steps)
+almost independently of weight ratio (5× vs 1000×). The regularization contract is therefore the
+weight bound itself; robust rejection of high-weight displaced points would need a structural IRLS
+change (e.g. judging residuals against an unweighted reference fit) — out of scope, recorded for the
+step-5 small-fixes batch.
 
 Call sites (regularize once per fit entry, on the copy handed to fitters):
 
@@ -78,6 +86,10 @@ Call sites (regularize once per fit entry, on the copy handed to fitters):
   regularized σ — acceptable cosmetic difference, noted in code.
 - `AutoFocusRegionState.SelectBestHyperbolicModel` → `SelectBestModel` path.
 - `ComputeLeaveOneOutStability` → `ComputeLeaveOneOutBestFocusStdError`.
+- `HocusFocusVM.SetCurveFittings` — NINA core's saved-chart reload (`AutoFocusToolVM.LoadChart`)
+  rebuilds `FocusPoints` from a saved report's raw `Error` values and re-fits through this method
+  (NINA-core trendline/quadratic + our weighted hyperbolics). Found in Task 4 code review; without
+  it, a reloaded report with `Error: 0` resurrects the degenerate-weight path after Task 5.
 - `FitQualityRunner` re-fit path (TestApp) — so harness numbers match production behavior, and old
   saved reports containing fabricated 0.001 values are regularized identically (0.001 → k·m).
 
@@ -89,8 +101,8 @@ keeps its formula (its inputs are now regularized).
 `AutoFocusEngine.cs:695` changes from `Math.Max(0.001, σ)` to a NaN-guarded raw value:
 `double.IsNaN(σ) ? 0.0 : Math.Max(0.0, σ)`. ErrorY = 0 renders as "no error bar" and is treated as
 *unknown* by the regularizer (→ median σ). Saved reports (`HocusFocusReport` MeasurePoints.Error)
-carry measured values, never fabricated floors. No other consumer divides by raw ErrorY (verified:
-report and charts only display it; all fitters go through §1).
+carry measured values, never fabricated floors. Within the plugin, report and charts only display raw ErrorY; all plugin fitters go through §1
+(including the saved-report reload path via `SetCurveFittings`).
 
 ### 3. `AverageMeasurement` rewrite (F5b + F6 pooling)
 
@@ -181,3 +193,17 @@ row 4 → 🟡 In progress (this design + plan).
   calibration step must bucket by FramesPerPoint when reading the corpus.
 - Saved-report Error values written by the new code are raw (0 possible); FitQualityRunner and any
   external consumer must tolerate 0/absent error — regularization handles this uniformly.
+- HF-written reports live in the shared NINA AutoFocus report directory. If the user switches the
+  AF behavior back to NINA's built-in VM and reloads an HF-written report whose `Error` is 0,
+  NINA core's own `SetCurveFittings` computes 1/0² unguarded (NaN trendline) — outside plugin
+  control, display-only, rare (degenerate run + behavior switch + reload). Accepted.
+- Latent pre-existing bug found during the Task 5 investigation: `AlglibHyperbolicFitting.SolveHuberIrls`
+  returns the FAILED solve's parameters when a mid-loop `SolveOnce` fails (the `out` solution is
+  overwritten before the termination check), despite intending to keep the previous good solution.
+  Unexercised today; fix belongs in the step-5 small-fixes batch, together with the related nit that
+  the Huber threshold compares uncentered |r| against a median-centered MAD.
+- Sibling hazard (out of scope, found in Task 5 review): the Inspection module's per-star weighted
+  hyperbolic fits (`SensorModel.cs` ~664/692) do not route through `WeightRegularization`. Their σ
+  comes from a different estimator (`EstimateHfrStdDev`, HFR/max(SNR,1) floored at 1e-3), but has
+  the same structural hazard — a high-SNR frame hitting the 1e-3 floor gets a ~1000× weight within
+  one star's sweep. Recorded for the step-5 small-fixes batch.

@@ -432,7 +432,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public void SetCurveFittings(string method, string fitting) {
-            var validFocusPoints = FocusPoints.Where(fp => fp.Y > 0.0).ToList();
+            // NINA core's saved-chart reload (AutoFocusToolVM.LoadChart) rebuilds FocusPoints from a
+            // saved report's raw Error values and calls this method — another fit entry point, so the
+            // same regularization the live engine applies must happen here too.
+            var validFocusPoints = WeightRegularization.Regularize(FocusPoints.Where(fp => fp.Y > 0.0).ToList());
 
             if (AFMethodEnum.STARHFR.ToString() == method) {
                 if (validFocusPoints.Count() >= 3) {

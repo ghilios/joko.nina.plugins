@@ -138,7 +138,7 @@ namespace TestApp {
             Console.WriteLine($"Scanning: {scanDir} (recursive)");
             Console.WriteLine($"Output:   {outDir}");
             Console.WriteLine($"Models:   {string.Join(", ", models.Select(m => m.ToString()))}");
-            Console.WriteLine($"Weights:  {(useWeights ? "weighted (1/Error)" : "unweighted")}    min-points: {minPoints}");
+            Console.WriteLine($"Weights:  {(useWeights ? "weighted (1/regularized Error)" : "unweighted")}    min-points: {minPoints}");
 
             if (!Directory.Exists(scanDir)) {
                 throw new DirectoryNotFoundException($"Scan directory not found: {scanDir}");
@@ -242,9 +242,10 @@ namespace TestApp {
         }
 
         /// <summary>
-        /// Builds the weighted focus points from <c>MeasurePoints</c> — the exact pattern used by the offline
-        /// FocusCurveBenchmark: keep points with finite Position and positive Value, weight = 1/Error
-        /// (ScatterErrorPoint carries ErrorY, from which the fit derives the 1/σ weight).
+        /// Builds the weighted focus points from <c>MeasurePoints</c>: keep points with finite Position
+        /// and positive Value, then regularize σ exactly like the production fit path
+        /// (<see cref="WeightRegularization"/>) — invalid/absent errors become the unknown sentinel (0)
+        /// and map to the median σ; historical fabricated 0.001 floors are floored to 0.2·median.
         /// </summary>
         private static List<ScatterErrorPoint> LoadMeasurePoints(JObject json) {
             var measurePoints = json["MeasurePoints"] as JArray;
@@ -258,12 +259,12 @@ namespace TestApp {
                 }
                 var x = ReadDouble(mpo["Position"]);
                 var y = ReadDouble(mpo["Value"]);
-                var e = double.IsNaN(ReadDouble(mpo["Error"])) ? 1.0 : ReadDouble(mpo["Error"]);
+                var e = ReadDouble(mpo["Error"]);
                 if (!double.IsNaN(x) && !double.IsNaN(y) && y > 0) {
-                    pts.Add(new ScatterErrorPoint(x, y, 0, e <= 0 ? 1.0 : e));
+                    pts.Add(new ScatterErrorPoint(x, y, 0, double.IsNaN(e) ? 0.0 : Math.Max(0.0, e)));
                 }
             }
-            return pts;
+            return WeightRegularization.Regularize(pts);
         }
 
         private static Row Evaluate(IAlglibAPI alglibAPI, Curve curve, HyperbolicFitModel model, int stepSize, bool useWeights) {
@@ -358,7 +359,7 @@ namespace TestApp {
             sb.AppendLine($"Files found:   {filesFound}");
             sb.AppendLine($"Curves parsed: {parsed}");
             sb.AppendLine($"Skipped:       {skipped}");
-            sb.AppendLine($"Weights:       {(useWeights ? "weighted (1/Error)" : "unweighted")}");
+            sb.AppendLine($"Weights:       {(useWeights ? "weighted (1/regularized Error)" : "unweighted")}");
             sb.AppendLine($"Min points:    {minPoints}");
             sb.AppendLine($"Models:        {string.Join(", ", models.Select(m => m.ToString()))}");
             sb.AppendLine();
