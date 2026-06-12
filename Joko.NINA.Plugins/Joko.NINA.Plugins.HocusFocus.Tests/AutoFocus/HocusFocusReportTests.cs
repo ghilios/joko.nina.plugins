@@ -89,12 +89,14 @@ public class StarDetectorParamsTests {
             Assert.That(p.HotpixelThreshold, Is.EqualTo(0.001));
             Assert.That(p.NoiseReductionRadius, Is.EqualTo(3));
             Assert.That(p.NoiseClippingMultiplier, Is.EqualTo(4.0));
-            Assert.That(p.StarClippingMultiplier, Is.EqualTo(2.0));
+            // F4 recalibration: σ is now measured on the image actually sampled, so the σ-multiple knobs were
+            // scaled ×0.2 (2.0→0.4, 10.0→2.0) to approximately preserve effective default behavior.
+            Assert.That(p.StarClippingMultiplier, Is.EqualTo(0.4));
             Assert.That(p.HotpixelFilterRadius, Is.EqualTo(1));
             Assert.That(p.StructureLayers, Is.EqualTo(4));
             Assert.That(p.StructureDilationSize, Is.EqualTo(3));
             Assert.That(p.StructureDilationCount, Is.EqualTo(0));
-            Assert.That(p.Sensitivity, Is.EqualTo(10.0));
+            Assert.That(p.Sensitivity, Is.EqualTo(2.0));
             Assert.That(p.PeakResponse, Is.EqualTo(0.75));
             Assert.That(p.MaxDistortion, Is.EqualTo(0.5));
             Assert.That(p.StarCenterTolerance, Is.EqualTo(0.3));

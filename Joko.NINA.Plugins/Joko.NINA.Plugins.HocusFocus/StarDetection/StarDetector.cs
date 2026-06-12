@@ -233,6 +233,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     return result;
                 });
 
+                // F4 (σ consistency): thresholds applied to the image actually sampled must use that image's σ.
+                // The estimate above is computed on the (possibly blurred) structure-map source; when a noise
+                // reduction radius is set but measurement noise reduction is off, srcImage was never blurred and
+                // its white-noise σ is ~4x larger. Measure it directly on srcImage (rather than applying an
+                // analytic kernel factor) so correlated real-camera noise and hotpixel filtering are accounted
+                // for automatically. srcImage is read-only from here until ScanStars, so the concurrent read is safe.
+                var measurementImageDiffers = p.NoiseReductionRadius > 0 && !noiseReductionApplied;
+                var measurementNoiseEstimateTask = measurementImageDiffers
+                    ? Task.Run(() => {
+                        var result = CvImageUtility.KappaSigmaNoiseEstimate(srcImage, clippingMultipler: p.NoiseClippingMultiplier);
+                        var trace = $"Measurement Image K-Sigma Noise Estimate: {result.Sigma}, Background Mean: {result.BackgroundMean}, NumIterations={result.NumIterations}";
+                        Logger.Trace(trace);
+                        MaybeSaveIntermediateText(trace, p, "02-ksigma-estimate-measurement.txt");
+                        return result;
+                    })
+                    : null;
+
                 MaybeSaveIntermediateImage(structureMap, p, "03-structure-map-start.tif");
                 stopWatch.RecordEntry("StructureMapPreparation");
 
@@ -257,6 +274,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 stopWatch.RecordEntry("BinarizationStatistics");
 
                 var noiseReducedImageNoise = await noiseReducedNoiseEstimateTask;
+                var measurementImageNoise = measurementNoiseEstimateTask != null
+                    ? await measurementNoiseEstimateTask
+                    : noiseReducedImageNoise;
                 double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * noiseReducedImageNoise.Sigma;
                 var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}, Clipping Multiplier: {p.NoiseClippingMultiplier}, Noise Sigma: {noiseReducedImageNoise.Sigma}";
                 Logger.Trace(binarizeTrace);
@@ -298,7 +318,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 // Step 8: Scan structure map for stars
                 progress?.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
-                var stars = ScanStars(srcImage, structureMap, p, noiseReducedImageNoise.Sigma, metrics, token);
+                var stars = ScanStars(srcImage, structureMap, p, measurementImageNoise.Sigma, metrics, token);
                 stopWatch.RecordEntry("StarAnalysis");
 
                 // Step 9: Fit PSF models
@@ -306,7 +326,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 stopwatch.Start();
                 if (p.ModelPSF) {
                     progress?.Report(new ApplicationStatus() { Status = "Modeling PSFs" });
-                    await ModelPSF(srcImage, noiseReducedImageNoise.Sigma, stars, p, metrics, token);
+                    await ModelPSF(srcImage, measurementImageNoise.Sigma, stars, p, metrics, token);
 
                     stopWatch.RecordEntry("ModelPSF");
                 }
@@ -350,7 +370,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     DetectedStars = stars,
                     Metrics = metrics,
                     DebugData = debugData,
-                    ContaminationDiagnostics = contaminationDiagnostics
+                    ContaminationDiagnostics = contaminationDiagnostics,
+                    StructureNoiseSigma = noiseReducedImageNoise.Sigma,
+                    MeasurementNoiseSigma = measurementImageNoise.Sigma
                 };
             }
         }

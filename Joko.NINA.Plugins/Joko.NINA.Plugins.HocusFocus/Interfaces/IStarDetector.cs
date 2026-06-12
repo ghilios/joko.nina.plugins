@@ -204,7 +204,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double HotpixelThreshold { get; set; } = 0.001;
 
         // If this is true, then the source image used for star measurement has the noise reduction settings applied to it. Otherwise, noise reduction is done only on the structure map
-        public bool StarMeasurementNoiseReductionEnabled { get; set; } = true;
+        public bool StarMeasurementNoiseReductionEnabled { get; set; } = false;
 
         // Half size in pixels of a Gaussian convolution filter used for noise reduction. This is useful for low-SNR images
         // Setting this value also implies hotpixel filtering is enabled, since otherwise we would blend the hot pixels into their neighbors
@@ -214,8 +214,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // spurious detected stars in combination with light noise reduction
         public double NoiseClippingMultiplier { get; set; } = 4.0;
 
-        // Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis
-        public double StarClippingMultiplier { get; set; } = 2.0;
+        // Number of measurement-image noise standard deviations above the local background median to filter star
+        // candidate pixels out from star consideration and HFR analysis. σ is measured on the image actually
+        // sampled (F4), so the default compensates for the removed ~4-5× understatement (was 2.0 against a smoothed σ)
+        public double StarClippingMultiplier { get; set; } = 0.4;
         public double ContaminationSensitivity { get; set; } = 5.0;
 
         // When true (default), stars flagged as contaminated by the gradient-robust test are rejected
@@ -241,8 +243,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Number of times to perform dilation on the structure map
         public int StructureDilationCount { get; set; } = 0;
 
-        // Sensitivity is the minimum value of a star's brightness (with the background n subtracted out) above the noise floor (s - b)/n. Smaller values increase sensitivity
-        public double Sensitivity { get; set; } = 10.0;
+        // Sensitivity is the minimum value of a star's brightness (with the background n subtracted out) above the
+        // noise floor (s - b)/n, with n measured on the image actually sampled (F4). Smaller values increase
+        // sensitivity. The default compensates for the removed ~4-5× σ understatement (was 10.0 against a smoothed σ)
+        public double Sensitivity { get; set; } = 2.0;
 
         // Maximum ratio of median pixel value to the peak for a candidate pixel to be rejected. Large values are more tolerant of flat structures
         public double PeakResponse { get; set; } = 0.75;
@@ -433,6 +437,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public List<Star> DetectedStars { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
         public DebugData DebugData { get; set; }
+
+        // Noise σ estimated on the noise-reduced structure-map source; drives only the binarize threshold.
+        public double StructureNoiseSigma { get; set; }
+
+        // Noise σ estimated on the image actually sampled for star measurement; drives the sensitivity gate,
+        // clip margins, MeasureStar τ, the PSF noise floor, and the contamination fallback. Equal to
+        // StructureNoiseSigma when the two images are identical (no noise reduction, or measurement noise
+        // reduction enabled).
+        public double MeasurementNoiseSigma { get; set; }
 
         // Populated only when StarDetectorParams.CollectContaminationDiagnostics is true; otherwise null.
         public List<ContaminationDiagnosticRecord> ContaminationDiagnostics { get; set; } = null;
