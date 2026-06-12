@@ -657,8 +657,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
 
                     var background = backgroundPlane.ValueAt(x, y);
-                    var value = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x) - background - noiseThreshold;
-                    if (value > 0.0f) {
+                    var flux = CvImageUtility.BilinearSamplePixelValue(srcImage, y: y, x: x) - background;
+                    if (flux > noiseThreshold) {
+                        // SubtractTau preserves the legacy soft-threshold (flux − τ): identical gating, but wing
+                        // pixels lose relative weight, biasing HFR low on radial gradients (F3). GateOnly keeps
+                        // the full flux of surviving pixels, matching the centroid's gate-only convention.
+                        var value = p.HfrTauPolicy == TauClipPolicy.SubtractTau ? flux - noiseThreshold : flux;
                         // Apply partial-pixel weighting at the aperture boundary (linear interpolation)
                         var apertureWeight = 1.0 - Math.Max(0.0, distance - (apertureRadius - 0.5));
                         totalWeightedDistance += apertureWeight * value * distance;

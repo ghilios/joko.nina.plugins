@@ -74,7 +74,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             using var image = SyntheticDefocusedStarImage.CreateDisk(Size, Size, Cx, Cy, a, peak, bg);
             var detector = new StarDetector(new AlglibAPI());
             var pNoClip = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 0.0 };
-            var pClip = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 1.0 };
+            var pClip = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 1.0, HfrTauPolicy = TauClipPolicy.SubtractTau };
             var s0 = NewStar(bg);
             var sT = NewStar(bg);
             detector.MeasureStar(image, s0, pNoClip, 0.0);
@@ -88,7 +88,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             const double sigma = 5.0, peak = 1.0, bg = 0.0;
             using var image = SyntheticGaussianStarImage.Create(Size, Size, Cx, Cy, sigma, sigma, peak, bg);
             var detector = new StarDetector(new AlglibAPI());
-            var p = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 1.0 }; // τ == noiseSigma
+            var p = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 1.0, HfrTauPolicy = TauClipPolicy.SubtractTau }; // τ == noiseSigma
             double[] taus = { 0.0, 0.02, 0.05, 0.10, 0.20 };
             var hfrs = new double[taus.Length];
             for (int i = 0; i < taus.Length; ++i) {
@@ -106,7 +106,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         public void MeasureStar_GaussianSoftThreshold_RelativeBiasGrowsForFainterStars() {
             const double sigma = 5.0, bg = 0.0, tau = 0.05;
             var detector = new StarDetector(new AlglibAPI());
-            var p = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 1.0 };
+            var p = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 1.0, HfrTauPolicy = TauClipPolicy.SubtractTau };
             double[] peaks = { 1.0, 0.5, 0.25, 0.125 };
             double prevRel = -1.0;
             foreach (var peak in peaks) {
@@ -134,7 +134,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             const int bigSize = 121;        // R = 60.5 = 20σ → a large pure-noise annulus inside the aperture
             const double bigC = 60.0;
             var detector = new StarDetector(new AlglibAPI());
-            var p = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 2.0 };
+            var p = new StarDetectorParams { AnalysisSamplingSize = 1.0f, StarClippingMultiplier = 2.0, HfrTauPolicy = TauClipPolicy.SubtractTau };
 
             double MeasureWith(double noiseSigmaArg) {
                 using var image = SyntheticGaussianStarImage.Create(bigSize, bigSize, bigC, bigC, sigma, sigma, peak, bg);

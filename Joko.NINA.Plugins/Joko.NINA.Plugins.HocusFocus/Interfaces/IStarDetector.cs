@@ -192,6 +192,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         }
     }
 
+    // How the τ clip (StarClippingMultiplier × measurement-image σ) is applied inside MeasureStar's flux sum.
+    // SubtractTau subtracts τ from every surviving pixel (legacy soft-threshold; biases HFR low on stars with a
+    // radial gradient — accuracy analysis F3 — but suppresses one-sided noise at large radii more aggressively).
+    // GateOnly uses τ purely as an inclusion gate, matching the convention of the iterative centroid and the
+    // star-parameter computation. The production default is chosen empirically — see
+    // plans/sigma-consistency-design.md §3.
+    public enum TauClipPolicy {
+        SubtractTau,
+        GateOnly
+    }
+
     public class StarDetectorParams {
         public bool HotpixelFiltering { get; set; } = true;
 
@@ -221,6 +232,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // default radius; hotpixel filtering compresses the ratio, and the ×0.2 constant is arbitrated by the
         // real-data before/after sweep) — was 2.0 against a smoothed σ
         public double StarClippingMultiplier { get; set; } = 0.4;
+
+        // See TauClipPolicy. Applies only inside MeasureStar; the centroid and star-parameter clip sites are
+        // gate-only by construction.
+        public TauClipPolicy HfrTauPolicy { get; set; } = TauClipPolicy.SubtractTau;
+
         public double ContaminationSensitivity { get; set; } = 5.0;
 
         // When true (default), stars flagged as contaminated by the gradient-robust test are rejected
