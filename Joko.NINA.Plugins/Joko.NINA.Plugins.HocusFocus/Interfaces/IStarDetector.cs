@@ -196,8 +196,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     // SubtractTau subtracts τ from every surviving pixel (legacy soft-threshold; biases HFR low on stars with a
     // radial gradient — accuracy analysis F3 — but suppresses one-sided noise at large radii more aggressively).
     // GateOnly uses τ purely as an inclusion gate, matching the convention of the iterative centroid and the
-    // star-parameter computation. The production default is chosen empirically — see
-    // plans/sigma-consistency-design.md §3.
+    // star-parameter computation. The production default is GateOnly at τ=2.0σ, chosen empirically — see
+    // plans/sigma-consistency-f3-results.md.
     public enum TauClipPolicy {
         SubtractTau,
         GateOnly
@@ -228,14 +228,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         // Number of measurement-image noise standard deviations above the local background median to filter star
         // candidate pixels out from star consideration and HFR analysis. σ is measured on the image actually
-        // sampled (F4), so the default compensates for the removed understatement (~4× for white noise at the
-        // default radius; hotpixel filtering compresses the ratio, and the ×0.2 constant is arbitrated by the
-        // real-data before/after sweep) — was 2.0 against a smoothed σ
-        public double StarClippingMultiplier { get; set; } = 0.4;
+        // sampled (F4) and the level + gate-only policy were chosen empirically — see
+        // plans/sigma-consistency-f3-results.md (was 2.0 against a smoothed σ before F4; the empirically chosen
+        // honest level is also 2.0).
+        public double StarClippingMultiplier { get; set; } = 2.0;
 
         // See TauClipPolicy. Applies only inside MeasureStar; the centroid and star-parameter clip sites are
         // gate-only by construction.
-        public TauClipPolicy HfrTauPolicy { get; set; } = TauClipPolicy.SubtractTau;
+        public TauClipPolicy HfrTauPolicy { get; set; } = TauClipPolicy.GateOnly;
 
         public double ContaminationSensitivity { get; set; } = 5.0;
 

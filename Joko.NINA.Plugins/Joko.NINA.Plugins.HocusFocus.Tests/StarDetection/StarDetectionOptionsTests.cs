@@ -193,9 +193,10 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
-    public void SimpleMode_NoiseLevelNone_KeepsUncompensatedSensitivity() {
-        // The None preset never blurred the structure copy, so its σ was already honest — its knob values
-        // must NOT be compensated (they would become far more permissive than today).
+    public void SimpleMode_NoiseLevelNone_KeepsUncompensatedBrightnessSensitivity() {
+        // The None preset never blurred the structure copy, so its σ was already honest — BrightnessSensitivity
+        // must NOT be compensated (it would become far more permissive than today). StarClippingMultiplier is
+        // now a uniform empirical τ level (F3, gate-only at 2.0σ), no longer per-preset compensation.
         var (options, _, _) = Build();
         options.UseAdvanced = false;
         options.Simple_NoiseLevel = NoiseLevelEnum.None;
@@ -208,9 +209,10 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
-    public void SimpleMode_NoiseLevelHigh_KeepsUncompensatedSensitivity() {
+    public void SimpleMode_NoiseLevelHigh_KeepsUncompensatedBrightnessSensitivity() {
         // High blurs the measured image itself (measurement noise reduction on), so σ was already
-        // consistent — no compensation.
+        // consistent — BrightnessSensitivity must NOT be compensated. StarClippingMultiplier is now a uniform
+        // empirical τ level (F3, gate-only at 2.0σ), no longer per-preset compensation.
         var (options, _, _) = Build();
         options.UseAdvanced = false;
         options.Simple_NoiseLevel = NoiseLevelEnum.High;

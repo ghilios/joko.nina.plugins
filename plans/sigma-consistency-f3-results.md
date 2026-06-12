@@ -63,3 +63,9 @@ is slightly higher than `subtract@0.4σ` (0.48 vs 0.24 on faint Gaussian; 0.21 v
 that is the noise-admission penalty from not subtracting the threshold. On the bright Gaussian `gate@2.0σ`
 bias (0.46) is ~6× lower than `subtract@0.4σ` (2.62) and ~9× lower than `gate@0.4σ` (4.00). On the
 faint donut, `gate@2.0σ` bias (1.56) vs `subtract@0.4σ` (5.48) is a 3.5× improvement.
+
+---
+
+## Decision
+
+**gate@2.0σ** — chosen 2026-06-11 at the F3 decision gate. Rationale: lowest HFR bias on all three shapes (0.46/3.54/1.56 px vs subtract@0.4σ's 2.62/11.02/5.48) with an absolute std penalty ≤0.24 px; the dominant error mode at low τ is one-sided noise rectification, which τ=2.0σ suppresses. Applies StarClippingMultiplier=2.0 uniformly (None/High presets included — the empirically better level wins); real-data before/after sweeps at the next checkpoint arbitrate.

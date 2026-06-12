@@ -92,7 +92,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     break;
             }
             NoiseClippingMultiplier = 4; // structure-map path: σ_structure is unchanged by F4, so no rescale
-            StarClippingMultiplier = 2 * sensitivityScale;
+            StarClippingMultiplier = 2.0; // uniform honest τ level, chosen empirically (F3) — see plans/sigma-consistency-f3-results.md
             StructureLayers = 4;
             BrightnessSensitivity = 10.0 * sensitivityScale;
             if (Simple_FocusRange == FocusRangeEnum.WideRange) {
@@ -160,7 +160,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             starMeasurementNoiseReductionEnabled = optionsAccessor.GetValueBoolean(nameof(StarMeasurementNoiseReductionEnabled), false);
             noiseReductionRadius = optionsAccessor.GetValueInt32("NoiseReductionRadius", 3);
             noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 4.0);
-            starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 0.4);
+            starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 2.0);
             contaminationSensitivity = optionsAccessor.GetValueDouble("ContaminationSensitivity", 5.0);
             rejectContaminatedStars = optionsAccessor.GetValueBoolean("RejectContaminatedStars", true);
             structureLayers = optionsAccessor.GetValueInt32("StructureLayers", 4);
@@ -207,7 +207,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             StarMeasurementNoiseReductionEnabled = false;
             NoiseReductionRadius = 3;
             NoiseClippingMultiplier = 4.0;
-            StarClippingMultiplier = 0.4;
+            StarClippingMultiplier = 2.0;
             ContaminationSensitivity = 5.0;
             RejectContaminatedStars = true;
             StructureLayers = 4;
