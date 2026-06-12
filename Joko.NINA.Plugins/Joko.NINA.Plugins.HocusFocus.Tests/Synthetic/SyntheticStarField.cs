@@ -19,6 +19,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Synthetic {
 
         /// <summary>Adds a Gaussian star (peak above background) at (cx, cy) with the given σ in pixels.</summary>
         public static void AddStar(Mat mat, double cx, double cy, double sigma, double peak) {
+            if (mat.Type() != MatType.CV_32F || !mat.IsContinuous()) throw new ArgumentException("AddStar requires a continuous CV_32F Mat");
             int rad = (int)Math.Ceiling(5.0 * sigma);
             double inv = 1.0 / (2.0 * sigma * sigma);
             int width = mat.Width, height = mat.Height;
