@@ -142,6 +142,7 @@ public class StarDetectionOptionsTests {
         // Longer focal length spreads star flux over more pixels, so detection must be MORE sensitive than
         // Typical. BrightnessSensitivity is a threshold where SMALLER = more sensitive (regression guard for
         // the previously-inverted sign: it used to be raised to 12, making LongFocalLength LESS sensitive).
+        // Values are honest σ multiples after the F4 recalibration (10→2.0 baseline, deltas ×0.2).
         var (typical, _, _) = Build();
         typical.UseAdvanced = false;
         typical.Simple_PixelScale = PixelScaleEnum.Typical;
@@ -153,8 +154,8 @@ public class StarDetectionOptionsTests {
         longFl.Simple_FocusRange = FocusRangeEnum.Typical;
 
         Assert.Multiple(() => {
-            Assert.That(typical.BrightnessSensitivity, Is.EqualTo(10.0));
-            Assert.That(longFl.BrightnessSensitivity, Is.EqualTo(8.0));
+            Assert.That(typical.BrightnessSensitivity, Is.EqualTo(2.0));
+            Assert.That(longFl.BrightnessSensitivity, Is.EqualTo(1.6));
             Assert.That(longFl.BrightnessSensitivity, Is.LessThan(typical.BrightnessSensitivity));
         });
     }
@@ -173,6 +174,7 @@ public class StarDetectionOptionsTests {
         // WideRange targets faint/defocused stars, so it must make detection MORE sensitive than Typical.
         // BrightnessSensitivity is a threshold where SMALLER = more sensitive (regression guard for the
         // previously-inverted sign: it used to be raised to 12, making WideRange LESS sensitive).
+        // Values are honest σ multiples after the F4 recalibration (10→2.0 baseline, deltas ×0.2).
         var (typical, _, _) = Build();
         typical.UseAdvanced = false;
         typical.Simple_PixelScale = PixelScaleEnum.Typical;
@@ -184,9 +186,41 @@ public class StarDetectionOptionsTests {
         wide.Simple_FocusRange = FocusRangeEnum.WideRange;
 
         Assert.Multiple(() => {
-            Assert.That(typical.BrightnessSensitivity, Is.EqualTo(10.0));
-            Assert.That(wide.BrightnessSensitivity, Is.EqualTo(8.0));
+            Assert.That(typical.BrightnessSensitivity, Is.EqualTo(2.0));
+            Assert.That(wide.BrightnessSensitivity, Is.EqualTo(1.6));
             Assert.That(wide.BrightnessSensitivity, Is.LessThan(typical.BrightnessSensitivity));
+        });
+    }
+
+    [Test]
+    public void SimpleMode_NoiseLevelNone_KeepsUncompensatedBrightnessSensitivity() {
+        // The None preset never blurred the structure copy, so its σ was already honest — BrightnessSensitivity
+        // must NOT be compensated (it would become far more permissive than today). StarClippingMultiplier is
+        // now a uniform empirical τ level (F3, gate-only at 2.0σ), no longer per-preset compensation.
+        var (options, _, _) = Build();
+        options.UseAdvanced = false;
+        options.Simple_NoiseLevel = NoiseLevelEnum.None;
+        options.Simple_PixelScale = PixelScaleEnum.Typical;
+        options.Simple_FocusRange = FocusRangeEnum.Typical;
+        Assert.Multiple(() => {
+            Assert.That(options.BrightnessSensitivity, Is.EqualTo(10.0));
+            Assert.That(options.StarClippingMultiplier, Is.EqualTo(2.0));
+        });
+    }
+
+    [Test]
+    public void SimpleMode_NoiseLevelHigh_KeepsUncompensatedBrightnessSensitivity() {
+        // High blurs the measured image itself (measurement noise reduction on), so σ was already
+        // consistent — BrightnessSensitivity must NOT be compensated. StarClippingMultiplier is now a uniform
+        // empirical τ level (F3, gate-only at 2.0σ), no longer per-preset compensation.
+        var (options, _, _) = Build();
+        options.UseAdvanced = false;
+        options.Simple_NoiseLevel = NoiseLevelEnum.High;
+        options.Simple_PixelScale = PixelScaleEnum.Typical;
+        options.Simple_FocusRange = FocusRangeEnum.Typical;
+        Assert.Multiple(() => {
+            Assert.That(options.BrightnessSensitivity, Is.EqualTo(10.0));
+            Assert.That(options.StarClippingMultiplier, Is.EqualTo(2.0));
         });
     }
 

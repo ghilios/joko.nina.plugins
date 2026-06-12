@@ -192,6 +192,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         }
     }
 
+    // How the τ clip (StarClippingMultiplier × measurement-image σ) is applied inside MeasureStar's flux sum.
+    // SubtractTau subtracts τ from every surviving pixel (legacy soft-threshold; biases HFR low on stars with a
+    // radial gradient — accuracy analysis F3 — but suppresses one-sided noise at large radii more aggressively).
+    // GateOnly uses τ purely as an inclusion gate, matching the convention of the iterative centroid and the
+    // star-parameter computation. The production default is GateOnly at τ=2.0σ, chosen empirically — see
+    // plans/sigma-consistency-f3-results.md.
+    public enum TauClipPolicy {
+        SubtractTau,
+        GateOnly
+    }
+
     public class StarDetectorParams {
         public bool HotpixelFiltering { get; set; } = true;
 
@@ -204,7 +215,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double HotpixelThreshold { get; set; } = 0.001;
 
         // If this is true, then the source image used for star measurement has the noise reduction settings applied to it. Otherwise, noise reduction is done only on the structure map
-        public bool StarMeasurementNoiseReductionEnabled { get; set; } = true;
+        // Default mirrors the StarDetectionOptions default so the class-default bundle stays self-consistent (F4): sharp measurement + honest σ + the compensated 0.4/2.0 knob defaults below.
+        public bool StarMeasurementNoiseReductionEnabled { get; set; } = false;
 
         // Half size in pixels of a Gaussian convolution filter used for noise reduction. This is useful for low-SNR images
         // Setting this value also implies hotpixel filtering is enabled, since otherwise we would blend the hot pixels into their neighbors
@@ -214,8 +226,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // spurious detected stars in combination with light noise reduction
         public double NoiseClippingMultiplier { get; set; } = 4.0;
 
-        // Number of noise standard deviations above the local background median to filter star candidate pixels out from star consideration and HFR analysis
+        // Number of measurement-image noise standard deviations above the local background median to filter star
+        // candidate pixels out from star consideration and HFR analysis. σ is measured on the image actually
+        // sampled (F4) and the level + gate-only policy were chosen empirically — see
+        // plans/sigma-consistency-f3-results.md (was 2.0 against a smoothed σ before F4; the empirically chosen
+        // honest level is also 2.0).
         public double StarClippingMultiplier { get; set; } = 2.0;
+
+        // See TauClipPolicy. Applies only inside MeasureStar; the centroid and star-parameter clip sites are
+        // gate-only by construction.
+        public TauClipPolicy HfrTauPolicy { get; set; } = TauClipPolicy.GateOnly;
+
         public double ContaminationSensitivity { get; set; } = 5.0;
 
         // When true (default), stars flagged as contaminated by the gradient-robust test are rejected
@@ -241,8 +262,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Number of times to perform dilation on the structure map
         public int StructureDilationCount { get; set; } = 0;
 
-        // Sensitivity is the minimum value of a star's brightness (with the background n subtracted out) above the noise floor (s - b)/n. Smaller values increase sensitivity
-        public double Sensitivity { get; set; } = 10.0;
+        // Sensitivity is the minimum value of a star's brightness (with the background n subtracted out) above the
+        // noise floor (s - b)/n, with n measured on the image actually sampled (F4). Smaller values increase
+        // sensitivity. The default compensates for the removed σ understatement (~4× for white noise at the
+        // default radius; hotpixel filtering compresses the ratio, and the ×0.2 constant is arbitrated by the
+        // real-data before/after sweep) — was 10.0 against a smoothed σ
+        public double Sensitivity { get; set; } = 2.0;
 
         // Maximum ratio of median pixel value to the peak for a candidate pixel to be rejected. Large values are more tolerant of flat structures
         public double PeakResponse { get; set; } = 0.75;
@@ -261,8 +286,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // are detected
         public int MinimumStarBoundingBoxSize { get; set; } = 5;
 
-        // Minimum HFR for a star to be considered viable
-        public double MinHFR { get; set; } = 1.5d;
+        // Minimum HFR for a star to be considered viable. The old 1.5 floor was calibrated against faint-star
+        // HFRs inflated ~1.24× by one-sided noise rectification at the legacy soft-threshold τ; with the honest
+        // gate-only τ (F3) faint stars measure at/below truth, so the floor is scaled down accordingly —
+        // see plans/sigma-consistency-f3-results.md (follow-up).
+        public double MinHFR { get; set; } = 1.2d;
 
         public StarDetectionRegion Region { get; set; } = StarDetectionRegion.Full;
 
@@ -433,6 +461,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public List<Star> DetectedStars { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
         public DebugData DebugData { get; set; }
+
+        // Noise σ estimated on the noise-reduced structure-map source; drives only the binarize threshold.
+        public double StructureNoiseSigma { get; set; }
+
+        // Noise σ estimated on the image actually sampled for star measurement; drives the sensitivity gate,
+        // clip margins, MeasureStar τ, the PSF noise floor, and the contamination fallback. Equal to
+        // StructureNoiseSigma when the two images are identical (no noise reduction, or measurement noise
+        // reduction enabled).
+        public double MeasurementNoiseSigma { get; set; }
 
         // Populated only when StarDetectorParams.CollectContaminationDiagnostics is true; otherwise null.
         public List<ContaminationDiagnosticRecord> ContaminationDiagnostics { get; set; } = null;

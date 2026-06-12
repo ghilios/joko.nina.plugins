@@ -55,6 +55,8 @@ namespace TestApp {
             public int FocuserPosition;
             public int Frames;
             public readonly List<double> Hfrs = new List<double>();
+            public readonly List<double> MeasurementSigmas = new List<double>();
+            public readonly List<double> StructureSigmas = new List<double>();
             public long StructureCandidates, TotalDetected, TooSmall, OnBorder, TooDistorted, Degenerate,
                 Saturated, LowSensitivity, NotCentered, TooFlat, TooLowHFR, HFRAnalysisFailed, PSFFitFailed,
                 ContaminationSuspected, OutsideROI;
@@ -190,6 +192,8 @@ namespace TestApp {
             a.PSFFitFailed += m.PSFFitFailed;
             a.ContaminationSuspected += m.ContaminationSuspected;
             a.OutsideROI += m.OutsideROI;
+            a.MeasurementSigmas.Add(result.MeasurementNoiseSigma);
+            a.StructureSigmas.Add(result.StructureNoiseSigma);
             foreach (var s in result.DetectedStars) a.Hfrs.Add(s.HFR);
         }
 
@@ -202,14 +206,17 @@ namespace TestApp {
             var sb = new StringBuilder();
             sb.AppendLine("FocuserPosition,Frames,StarCount,MedianHFR,MAD_HFR,StructureCandidates,TotalDetected," +
                 "TooSmall,OnBorder,TooDistorted,Degenerate,Saturated,LowSensitivity,NotCentered,TooFlat," +
-                "TooLowHFR,HFRAnalysisFailed,PSFFitFailed,ContaminationSuspected,OutsideROI");
+                "TooLowHFR,HFRAnalysisFailed,PSFFitFailed,ContaminationSuspected,OutsideROI," +
+                "MedianMeasurementSigma,MedianStructureSigma");
             foreach (var r in rows) {
                 var (median, mad) = MedianMad(r.Hfrs);
+                var (mSig, _) = MedianMad(r.MeasurementSigmas);
+                var (sSig, _) = MedianMad(r.StructureSigmas);
                 sb.AppendLine(string.Join(",",
                     r.FocuserPosition, r.Frames, r.Hfrs.Count, F(median), F(mad),
                     r.StructureCandidates, r.TotalDetected, r.TooSmall, r.OnBorder, r.TooDistorted, r.Degenerate,
                     r.Saturated, r.LowSensitivity, r.NotCentered, r.TooFlat, r.TooLowHFR, r.HFRAnalysisFailed,
-                    r.PSFFitFailed, r.ContaminationSuspected, r.OutsideROI));
+                    r.PSFFitFailed, r.ContaminationSuspected, r.OutsideROI, F(mSig), F(sSig)));
             }
             File.WriteAllText(path, sb.ToString());
         }

@@ -89,18 +89,25 @@ public class StarDetectorParamsTests {
             Assert.That(p.HotpixelThreshold, Is.EqualTo(0.001));
             Assert.That(p.NoiseReductionRadius, Is.EqualTo(3));
             Assert.That(p.NoiseClippingMultiplier, Is.EqualTo(4.0));
+            // F4 recalibration: σ is now measured on the image actually sampled; the σ-multiple knob 10.0→2.0
+            // (BrightnessSensitivity) remains the F4 recalibration. StarClippingMultiplier is 2.0 as the uniform
+            // empirical τ level (F3, gate-only) — see plans/sigma-consistency-f3-results.md.
             Assert.That(p.StarClippingMultiplier, Is.EqualTo(2.0));
+            Assert.That(p.HfrTauPolicy, Is.EqualTo(TauClipPolicy.GateOnly), "empirical F3 default — see plans/sigma-consistency-f3-results.md");
             Assert.That(p.HotpixelFilterRadius, Is.EqualTo(1));
             Assert.That(p.StructureLayers, Is.EqualTo(4));
             Assert.That(p.StructureDilationSize, Is.EqualTo(3));
             Assert.That(p.StructureDilationCount, Is.EqualTo(0));
-            Assert.That(p.Sensitivity, Is.EqualTo(10.0));
+            Assert.That(p.Sensitivity, Is.EqualTo(2.0));
+            Assert.That(p.StarMeasurementNoiseReductionEnabled, Is.False,
+                "mirrors the StarDetectionOptions default; the recalibrated 0.4/2.0 σ-knob defaults assume the sharp-measurement path");
             Assert.That(p.PeakResponse, Is.EqualTo(0.75));
             Assert.That(p.MaxDistortion, Is.EqualTo(0.5));
             Assert.That(p.StarCenterTolerance, Is.EqualTo(0.3));
             Assert.That(p.BackgroundBoxExpansion, Is.EqualTo(3));
             Assert.That(p.MinimumStarBoundingBoxSize, Is.EqualTo(5));
-            Assert.That(p.MinHFR, Is.EqualTo(1.5));
+            // Honest-HFR floor (F3 follow-up): 1.5 was calibrated against ~1.24× noise-inflated faint HFRs.
+            Assert.That(p.MinHFR, Is.EqualTo(1.2));
             Assert.That(p.Region, Is.SameAs(StarDetectionRegion.Full));
             Assert.That(p.AnalysisSamplingSize, Is.EqualTo(1.0f));
             Assert.That(p.StoreStructureMap, Is.False);

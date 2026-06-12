@@ -61,6 +61,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
 
             HotpixelFiltering = Simple_NoiseLevel != NoiseLevelEnum.None;
+            // F4: σ-based knobs are honest multiples of the measured image's σ. The old code measured σ on a
+            // blurred copy (~4× understated for white noise) on the Low/Typical path only, so the same knob value
+            // used to mean very different effective thresholds across noise presets. sensitivityScale compensates
+            // per preset so each preset's EFFECTIVE behavior is approximately unchanged (the real-data before/after
+            // sweep arbitrates the constant): ×0.2 where the mismatch existed, ×1 where σ was already honest
+            // (None: no blur; High: measurement noise reduction blurs the measured image itself).
+            double sensitivityScale = 1.0;
             switch (Simple_NoiseLevel) {
                 case NoiseLevelEnum.None:
                     StarMeasurementNoiseReductionEnabled = false;
@@ -70,11 +77,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 case NoiseLevelEnum.Low:
                     StarMeasurementNoiseReductionEnabled = false;
                     NoiseReductionRadius = 3;
+                    sensitivityScale = 0.2;
                     break;
 
                 case NoiseLevelEnum.Typical:
                     StarMeasurementNoiseReductionEnabled = false;
                     NoiseReductionRadius = 3;
+                    sensitivityScale = 0.2;
                     break;
 
                 case NoiseLevelEnum.High:
@@ -82,15 +91,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     NoiseReductionRadius = 5;
                     break;
             }
-            NoiseClippingMultiplier = 4;
-            StarClippingMultiplier = 2;
+            NoiseClippingMultiplier = 4; // structure-map path: σ_structure is unchanged by F4, so no rescale
+            StarClippingMultiplier = 2.0; // uniform honest τ level, chosen empirically (F3) — see plans/sigma-consistency-f3-results.md
             StructureLayers = 4;
-            BrightnessSensitivity = 10.0;
+            BrightnessSensitivity = 10.0 * sensitivityScale;
             if (Simple_FocusRange == FocusRangeEnum.WideRange) {
                 StructureLayers += 1;
                 // As we get further from focus, we want to be more sensitive as the chance for bad data
                 // increases. BrightnessSensitivity is a threshold where SMALLER = more sensitive, so we LOWER it.
-                BrightnessSensitivity -= 2.0;
+                BrightnessSensitivity -= 2.0 * sensitivityScale;
             }
 
             MinStarBoundingBoxSize = 5;
@@ -104,7 +113,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 MinStarBoundingBoxSize += 1;
                 // Longer focal length spreads star flux over more pixels, so we want to be more sensitive.
                 // BrightnessSensitivity is a threshold where SMALLER = more sensitive, so we LOWER it.
-                BrightnessSensitivity -= 2.0;
+                BrightnessSensitivity -= 2.0 * sensitivityScale;
             }
 
             if (HotpixelThresholdingEnabled && HotpixelFiltering) {
@@ -116,7 +125,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             MaxDistortion = 0.5;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
-            MinHFR = 1.5;
+            MinHFR = 1.2; // honest-HFR floor; the old 1.5 was calibrated against noise-inflated faint HFRs (F3 follow-up)
             StructureDilationSize = 3;
             StructureDilationCount = 0;
             PSFFitType = StarDetectorPSFFitType.Moffat_40;
@@ -155,13 +164,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             contaminationSensitivity = optionsAccessor.GetValueDouble("ContaminationSensitivity", 5.0);
             rejectContaminatedStars = optionsAccessor.GetValueBoolean("RejectContaminatedStars", true);
             structureLayers = optionsAccessor.GetValueInt32("StructureLayers", 4);
-            brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 10.0);
+            brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 2.0);
             starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.75);
             maxDistortion = optionsAccessor.GetValueDouble("MaxDistortion", 0.5);
             starCenterTolerance = optionsAccessor.GetValueDouble("StarCenterTolerance", 0.3);
             starBackgroundBoxExpansion = optionsAccessor.GetValueInt32("StarBackgroundBoxExpansion", 3);
             minStarBoundingBoxSize = optionsAccessor.GetValueInt32("MinStarBoundingBoxSize", 5);
-            minHFR = optionsAccessor.GetValueDouble("MinHFR", 1.5);
+            minHFR = optionsAccessor.GetValueDouble("MinHFR", 1.2);
             structureDilationSize = optionsAccessor.GetValueInt32("StructureDilationSize", 3);
             structureDilationCount = optionsAccessor.GetValueInt32("StructureDilationCount", 0);
             pixelSampleSize = optionsAccessor.GetValueDouble("PixelSampleSize", 1.0);
@@ -202,13 +211,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             ContaminationSensitivity = 5.0;
             RejectContaminatedStars = true;
             StructureLayers = 4;
-            BrightnessSensitivity = 10.0;
+            BrightnessSensitivity = 2.0;
             StarPeakResponse = 0.6;
             MaxDistortion = 0.5;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
-            MinHFR = 1.5;
+            MinHFR = 1.2;
             StructureDilationSize = 3;
             StructureDilationCount = 0;
             PixelSampleSize = 1.0;
