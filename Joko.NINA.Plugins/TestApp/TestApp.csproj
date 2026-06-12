@@ -61,4 +61,18 @@
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Exec Command="echo TargetPath3: $(TargetPath)" />
   </Target>
+  <!-- NINA.Image's FITS loader P/Invokes cfitsionative.dll (plus pthreadVC2/zlib) from
+       <appdir>\External\x64\Cfitsio, a tree NINA's installer deploys but no NuGet package ships —
+       without it TestApp's headless diagnostics die on .fits with DllNotFoundException. Mirror it
+       from a local NINA installation; when NINA isn't installed the wildcard expands empty and the
+       copy is a quiet no-op (.xisf/.tif still work). Override NinaInstallDir if installed elsewhere. -->
+  <PropertyGroup>
+    <NinaInstallDir Condition="'$(NinaInstallDir)' == ''">$(ProgramFiles)\N.I.N.A. - Nighttime Imaging 'N' Astronomy</NinaInstallDir>
+  </PropertyGroup>
+  <Target Name="CopyNinaCfitsioNatives" AfterTargets="Build">
+    <ItemGroup>
+      <NinaCfitsioNatives Include="$(NinaInstallDir)\External\x64\Cfitsio\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NinaCfitsioNatives)" DestinationFiles="@(NinaCfitsioNatives->'$(OutDir)External\x64\Cfitsio\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
 </Project>
