@@ -985,9 +985,9 @@
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition />
 
-                <!--  39  -->
-                <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
+                <!--  38: Debug Mode (always visible); 39: Intermediate Path (only with Save Intermediate on)  -->
                 <RowDefinition />
+                <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
                 <RowDefinition />
                 <RowDefinition />
             </Grid.RowDefinitions>
@@ -1776,11 +1776,6 @@
                 <TextBox.Style>
                     <Style BasedOn="{StaticResource StandardTextbox}" TargetType="{x:Type TextBox}">
                         <Setter Property="MaxWidth" Value="150" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding StarDetectionOptions.SaveIntermediateImages}" Value="False">
-                                <Setter Property="MaxWidth" Value="0" />
-                            </DataTrigger>
-                        </Style.Triggers>
                     </Style>
                 </TextBox.Style>
             </TextBox>
@@ -1800,13 +1795,6 @@
                         <Setter Property="Width" Value="20" />
                         <Setter Property="Height" Value="20" />
                         <Setter Property="Margin" Value="5,5,0,0" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding StarDetectionOptions.SaveIntermediateImages}" Value="False">
-                                <Setter Property="Width" Value="0" />
-                                <Setter Property="Height" Value="0" />
-                                <Setter Property="Margin" Value="0" />
-                            </DataTrigger>
-                        </Style.Triggers>
                     </Style>
                 </Button.Style>
             </Button>
