@@ -204,6 +204,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double HotpixelThreshold { get; set; } = 0.001;
 
         // If this is true, then the source image used for star measurement has the noise reduction settings applied to it. Otherwise, noise reduction is done only on the structure map
+        // Default mirrors the StarDetectionOptions default so the class-default bundle stays self-consistent (F4): sharp measurement + honest σ + the compensated 0.4/2.0 knob defaults below.
         public bool StarMeasurementNoiseReductionEnabled { get; set; } = false;
 
         // Half size in pixels of a Gaussian convolution filter used for noise reduction. This is useful for low-SNR images
@@ -216,7 +217,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         // Number of measurement-image noise standard deviations above the local background median to filter star
         // candidate pixels out from star consideration and HFR analysis. σ is measured on the image actually
-        // sampled (F4), so the default compensates for the removed ~4-5× understatement (was 2.0 against a smoothed σ)
+        // sampled (F4), so the default compensates for the removed understatement (~4× for white noise at the
+        // default radius; hotpixel filtering compresses the ratio, and the ×0.2 constant is arbitrated by the
+        // real-data before/after sweep) — was 2.0 against a smoothed σ
         public double StarClippingMultiplier { get; set; } = 0.4;
         public double ContaminationSensitivity { get; set; } = 5.0;
 
@@ -245,7 +248,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         // Sensitivity is the minimum value of a star's brightness (with the background n subtracted out) above the
         // noise floor (s - b)/n, with n measured on the image actually sampled (F4). Smaller values increase
-        // sensitivity. The default compensates for the removed ~4-5× σ understatement (was 10.0 against a smoothed σ)
+        // sensitivity. The default compensates for the removed σ understatement (~4× for white noise at the
+        // default radius; hotpixel filtering compresses the ratio, and the ×0.2 constant is arbitrated by the
+        // real-data before/after sweep) — was 10.0 against a smoothed σ
         public double Sensitivity { get; set; } = 2.0;
 
         // Maximum ratio of median pixel value to the peak for a candidate pixel to be rejected. Large values are more tolerant of flat structures

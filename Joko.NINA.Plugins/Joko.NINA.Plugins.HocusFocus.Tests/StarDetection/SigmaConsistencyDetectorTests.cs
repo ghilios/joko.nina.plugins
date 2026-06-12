@@ -139,9 +139,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
             Assert.Multiple(() => {
                 Assert.That(r1.MeasurementNoiseSigma, Is.EqualTo(r1.StructureNoiseSigma),
-                    "with measurement NR on, the images are identical — the estimate must be reused, not recomputed");
+                    "with measurement NR on, the images are identical and must yield identical σ — today guaranteed by reusing the same estimate; a deterministic recompute refactor may relax this to Within(1e-12)");
                 Assert.That(r2.MeasurementNoiseSigma, Is.EqualTo(r2.StructureNoiseSigma),
-                    "with radius 0 the images are identical — the estimate must be reused, not recomputed");
+                    "with radius 0 the images are identical and must yield identical σ — today guaranteed by reusing the same estimate; a deterministic recompute refactor may relax this to Within(1e-12)");
             });
         }
 

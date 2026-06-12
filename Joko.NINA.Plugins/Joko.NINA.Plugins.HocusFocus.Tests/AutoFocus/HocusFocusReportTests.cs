@@ -97,6 +97,8 @@ public class StarDetectorParamsTests {
             Assert.That(p.StructureDilationSize, Is.EqualTo(3));
             Assert.That(p.StructureDilationCount, Is.EqualTo(0));
             Assert.That(p.Sensitivity, Is.EqualTo(2.0));
+            Assert.That(p.StarMeasurementNoiseReductionEnabled, Is.False,
+                "mirrors the StarDetectionOptions default; the recalibrated 0.4/2.0 σ-knob defaults assume the sharp-measurement path");
             Assert.That(p.PeakResponse, Is.EqualTo(0.75));
             Assert.That(p.MaxDistortion, Is.EqualTo(0.5));
             Assert.That(p.StarCenterTolerance, Is.EqualTo(0.3));

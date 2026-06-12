@@ -238,14 +238,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // reduction radius is set but measurement noise reduction is off, srcImage was never blurred and
                 // its white-noise σ is ~4x larger. Measure it directly on srcImage (rather than applying an
                 // analytic kernel factor) so correlated real-camera noise and hotpixel filtering are accounted
-                // for automatically. srcImage is read-only from here until ScanStars, so the concurrent read is safe.
+                // for automatically. srcImage is read-only from here until this task is awaited (before binarization), so the concurrent read is safe.
                 var measurementImageDiffers = p.NoiseReductionRadius > 0 && !noiseReductionApplied;
                 var measurementNoiseEstimateTask = measurementImageDiffers
                     ? Task.Run(() => {
                         var result = CvImageUtility.KappaSigmaNoiseEstimate(srcImage, clippingMultipler: p.NoiseClippingMultiplier);
-                        var trace = $"Measurement Image K-Sigma Noise Estimate: {result.Sigma}, Background Mean: {result.BackgroundMean}, NumIterations={result.NumIterations}";
-                        Logger.Trace(trace);
-                        MaybeSaveIntermediateText(trace, p, "02-ksigma-estimate-measurement.txt");
+                        var ksigmaTraceMeasurement = $"Measurement Image K-Sigma Noise Estimate: {result.Sigma}, Background Mean: {result.BackgroundMean}, NumIterations={result.NumIterations}";
+                        Logger.Trace(ksigmaTraceMeasurement);
+                        MaybeSaveIntermediateText(ksigmaTraceMeasurement, p, "02-ksigma-estimate-measurement.txt");
                         return result;
                     })
                     : null;
