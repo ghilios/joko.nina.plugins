@@ -281,8 +281,8 @@ Tracks the Section 9 follow-ups. Each step is its own branch + PR.
 |---|---|---|
 | 1. Evidence base | ✅ Done (PR #46, merged) | Synthetic disk/annulus generator + ground truth, `MeasureStar` bias tests (F3/F4 magnitudes measured), `TestApp focus-sweep` diagnostic. Plans: `focus-sweep-evidence-base-{design,plan}.md`. |
 | 2. Defocus robustness (F1/F2) | ✅ Done (PR #47, merged) | WideRange sensitivity direction fixed (F2 — 10→8); TooFlat intentionally kept active during AF, documented (F1); LongFocalLength preset also made more sensitive (tuning). StructureLayers-from-HFR deferred. Plan: `defocus-robustness-plan.md`. |
-| 3. σ consistency (F4, then F3) | 🟡 In review | Honest measured-image σ for all measurement-side thresholds; per-preset knob recalibration preserves effective behavior; τ semantics decided empirically (gate-only @2.0σ) and MinHFR floor recalibrated 1.5→1.2 for honest faint-star HFRs (see `sigma-consistency-f3-results.md`). Plans: `sigma-consistency-{design,plan}.md`. |
-| 4. Weight-chain hygiene (F5/F6) | ⬜ Not started | ErrorY floor/cap, invalid-σ accumulation fix, √FramesPerPoint, χ² gate. |
+| 3. σ consistency (F4, then F3) | ✅ Done (PR #48, merged) | Honest measured-image σ for all measurement-side thresholds; per-preset knob recalibration preserves effective behavior; τ semantics decided empirically (gate-only @2.0σ) and MinHFR floor recalibrated 1.5→1.2 for honest faint-star HFRs (see `sigma-consistency-f3-results.md`). Plans: `sigma-consistency-{design,plan}.md`. |
+| 4. Weight-chain hygiene (F5/F6) | 🟡 In progress | ErrorY regularization (median floor at fit entry, protecting NINA-core 1/σ² fitters too), invalid-σ accumulation fix, √FramesPerPoint SEM pooling, χ² gate calibration. Plans: `weight-chain-hygiene-{design,plan}.md`. |
 | 5. Small fixes (F7–F14) | ⬜ Not started | Independent one-liner-to-small patches. |
 
 **Measured F3/F4 magnitudes (from step 1's tests, for steps 2–4 to target):** F3 soft-threshold biases HFR
