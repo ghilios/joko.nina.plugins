@@ -57,8 +57,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         /// <summary>
         /// Weighted χ² of the fit: Σ (Weights[i]·(model(xᵢ) − yᵢ))². When <see cref="WeightedHyperbolicFitEnabled"/>
-        /// is on (Weights = 1/σ from each point's ErrorY) this is a true χ²; unweighted (Weights = 1) it degenerates
-        /// to the plain residual sum of squares, which is scale-dependent. Computed for every model.
+        /// is on (Weights = 1/σ from each point's regularized ErrorY) this is a χ² in <b>scatter units</b>:
+        /// per-point σ is the star-ensemble scatter (1.483·MAD), which overstates the uncertainty of the
+        /// plotted median HFR by roughly √(detected stars) — so values ≪ 1 are normal for star-rich fields.
+        /// Unweighted (Weights = 1) it degenerates to the plain residual sum of squares, which is
+        /// scale-dependent. Computed for every model.
         /// </summary>
         public double ChiSquared { get; protected set; } = double.NaN;
 
@@ -66,9 +69,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public int DegreesOfFreedom { get; protected set; } = 0;
 
         /// <summary>
-        /// Reduced χ² = <see cref="ChiSquared"/> / <see cref="DegreesOfFreedom"/>. Meaningful as a goodness-of-fit
-        /// measure (≈1 for a correct model with well-estimated per-point σ) only for weighted fits; see
-        /// <see cref="ChiSquared"/>. <see cref="double.NaN"/> when not computed.
+        /// Reduced χ² = <see cref="ChiSquared"/> / <see cref="DegreesOfFreedom"/>. Comparable across runs
+        /// only as a <b>relative</b> goodness measure: per-point σ is ensemble scatter, so this runs ≪ 1
+        /// for star-rich fields (≈ 1/N* scaling) and grows ×FramesPerPoint now that multi-frame σ is
+        /// SEM-pooled. Meaningful only for weighted fits; see <see cref="ChiSquared"/>.
+        /// <see cref="double.NaN"/> when not computed.
         /// </summary>
         public double ReducedChiSquared { get; protected set; } = double.NaN;
 
