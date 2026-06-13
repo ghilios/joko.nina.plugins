@@ -58,35 +58,44 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             alglibAPI = new AlglibAPI();
         }
 
-        // Case 1: on a clean curve where σ(focus) is well-determined, the winner's σ(focus) is the smallest finite
-        // σ(focus) across all concrete candidates (Tier 1), and the returned fit is a concrete, solved fit.
+        // The gate restricts the winner to the asymmetric models when the tilt is significant; among those the
+        // winner has the lowest σ(focus). This data is a genuine gate discriminator: a mild tilt with deterministic
+        // noise where Symmetric actually has the LOWEST σ(focus) of all candidates — so WITHOUT the gate Symmetric
+        // would win on variance; the gate excludes it (the asymmetry is significant) and the lowest-σ asymmetric
+        // model wins instead. (The dedicated "is the winner asymmetric" check is Gate_ReportsAsymmetric_* in
+        // ModelFairRejectionTests; this test additionally pins the within-asymmetric σ ranking.)
         [Test]
-        public void SelectBestModel_PicksLowestExpectedError() {
-            // A tilted hyperbola: the asymmetric models fit it tighter than Symmetric, so σ(focus) differs by model.
+        public void SelectBestModel_PicksLowestExpectedError_AmongJustifiedAsymmetricModels() {
             var points = SyntheticFocusCurveSamples.TiltedHyperbolaPoints(
-                x0: 1000, y0: 2.0, a: 6.0, b: 12.0, s: 0.012, xStart: 880, xStep: 15, count: 17, errorY: 0.05);
+                x0: 1000, y0: 2.0, a: 6.0, b: 12.0, s: 0.003, xStart: 760, xStep: 16, count: 21, errorY: 0.04,
+                noiseSigma: 0.04, seed: 0);
             var stepSize = InferStep(points);
 
-            // Independently fit every candidate and find the minimum finite σ(focus).
-            var perModelSigma = new Dictionary<HyperbolicFitModel, double>();
+            var asymmetric = new[] { HyperbolicFitModel.UnevenBlend, HyperbolicFitModel.TiltedHyperbola, HyperbolicFitModel.SmoothBlend };
+            double symSigma = double.NaN;
+            var asymSigmas = new List<double>();
             foreach (var model in Candidates) {
                 var f = AlglibHyperbolicFitting.Create(alglibAPI, model, points, stepSize, useWeights: true);
-                if (f.Solve()) {
-                    perModelSigma[model] = f.MinimumStdError;
+                if (f.Solve() && !double.IsNaN(f.MinimumStdError) && !double.IsInfinity(f.MinimumStdError)) {
+                    if (model == HyperbolicFitModel.Symmetric) symSigma = f.MinimumStdError;
+                    else asymSigmas.Add(f.MinimumStdError);
                 }
             }
-            var finiteSigmas = perModelSigma.Values.Where(s => !double.IsNaN(s) && !double.IsInfinity(s)).ToList();
-            Assert.That(finiteSigmas, Is.Not.Empty, "Expected at least one candidate with a finite σ(focus)");
-            var minFiniteSigma = finiteSigmas.Min();
+            Assert.That(asymSigmas, Is.Not.Empty);
+            var minAsymSigma = asymSigmas.Min();
+            // Precondition: this data must be a real gate discriminator — Symmetric has the global-min σ, so the
+            // gate (not variance ranking) is what excludes it. If this fails, the test no longer proves the gate.
+            Assert.That(symSigma, Is.LessThan(minAsymSigma),
+                "test data must have Symmetric as the global-min σ(focus) so the gate's exclusion is what flips the winner");
 
             var chosen = AlglibHyperbolicFitting.SelectBestModel(alglibAPI, points, stepSize, useWeights: true, out var bestFit);
 
             Assert.Multiple(() => {
-                Assert.That(Candidates, Does.Contain(chosen), "Chosen model must be a concrete candidate");
-                Assert.That(bestFit, Is.Not.Null, "Winning fit must be returned");
-                Assert.That(double.IsNaN(bestFit.MinimumStdError), Is.False, "Tier-1 winner must have a finite σ(focus)");
-                Assert.That(bestFit.MinimumStdError, Is.EqualTo(minFiniteSigma).Within(1e-9),
-                    "Winner's σ(focus) must equal the minimum finite σ(focus) across candidates");
+                Assert.That(bestFit, Is.Not.Null);
+                Assert.That(asymmetric, Does.Contain(chosen),
+                    "a significant tilt must yield an asymmetric winner even though Symmetric has the lower σ(focus)");
+                Assert.That(bestFit.MinimumStdError, Is.EqualTo(minAsymSigma).Within(1e-6),
+                    "winner has the lowest σ(focus) among the justified asymmetric models");
             });
         }
 
@@ -205,34 +214,34 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             });
         }
 
-        // The rejected points are exactly those the WINNING model's own residuals flag — proving rejection is
-        // per-model (against the chosen fit), not shared from some other model's residuals.
+        // Proves the rejected point is a genuine CROSS-MODEL unanimous outlier: a single gross bad frame is removed,
+        // and it is independently flagged by BOTH a symmetric and an asymmetric fit on the full set. (The
+        // complementary half — that a point flagged by only SOME models, e.g. a tilt wing, is NOT removed — is
+        // covered by ModelFairRejectionTests.Consensus_KeepsTiltRevealingPoints_NoSpuriousRemoval.)
         [Test]
-        public void SelectBestModel_RejectionMatchesWinningModelResiduals() {
+        public void SelectBestModel_RejectionIsCrossModelConsensus() {
             var clean = SyntheticFocusCurveSamples.TiltedHyperbolaPoints(
                 x0: 1000, y0: 2.0, a: 6.0, b: 12.0, s: 0.012, xStart: 880, xStep: 15, count: 17, errorY: 0.1);
             var stepSize = InferStep(clean);
-            var outlierX = clean[5].X;
+            var outlierX = clean[5].X; // left-wing point, X = 880 + 5*15 = 955
             var withOutlier = clean.Select(p => p.X == outlierX
                 ? new ScatterErrorPoint(p.X, p.Y + 3.0, 0, p.ErrorY) : p).ToList();
 
             AlglibHyperbolicFitting.SelectBestModel(
                 alglibAPI, withOutlier, stepSize, useWeights: true, maxOutlierRejections: 1, rejectionConfidence: 0.95,
-                out var bestFit, out var rejects);
+                out _, out var rejects);
 
             Assert.That(rejects.Count, Is.EqualTo(1));
-            var cleaned = withOutlier.Where(p => p.X != outlierX).ToList();
+            Assert.That(rejects[0].X, Is.EqualTo(outlierX), "the unanimous gross outlier is the consensus rejection");
 
-            var flaggedOnFull = MathUtility.RejectionTest(
-                withOutlier, bestFit.Fitting, 0.95, AlglibHyperbolicFitting.BuildResidualWeights(withOutlier, true));
-            var flaggedOnCleaned = MathUtility.RejectionTest(
-                cleaned, bestFit.Fitting, 0.95, AlglibHyperbolicFitting.BuildResidualWeights(cleaned, true));
-
-            Assert.Multiple(() => {
-                Assert.That(flaggedOnFull, Is.Not.Null, "the winning model flags the outlier on the full set");
-                Assert.That(flaggedOnFull.X, Is.EqualTo(outlierX));
-                Assert.That(flaggedOnCleaned, Is.Null, "the winning model finds no outlier in the set it was cleaned to");
-            });
+            // It is flagged independently by both a symmetric and an asymmetric fit on the full set (unanimous).
+            foreach (var model in new[] { HyperbolicFitModel.Symmetric, HyperbolicFitModel.TiltedHyperbola }) {
+                var f = AlglibHyperbolicFitting.Create(alglibAPI, model, withOutlier, stepSize, useWeights: true);
+                Assume.That(f.Solve(), Is.True);
+                var flagged = MathUtility.RejectionTest(withOutlier, f.Fitting, 0.95,
+                    AlglibHyperbolicFitting.BuildResidualWeights(withOutlier, true));
+                Assert.That(flagged?.X, Is.EqualTo(outlierX), $"{model} also flags the gross outlier");
+            }
         }
 
         private static List<ScatterErrorPoint> ToPoints(double[][] data) =>
