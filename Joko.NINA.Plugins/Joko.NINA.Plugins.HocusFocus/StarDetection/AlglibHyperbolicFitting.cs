@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using Accord.Math.Optimization.Losses;
+using MathNet.Numerics.Distributions;
 using MathNet.Numerics.LinearAlgebra;
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -257,6 +258,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         };
 
         /// <summary>
+        /// Confidence for the nested F-test that gates the asymmetric (5-parameter) models against the
+        /// Symmetric (4-parameter) baseline in <see cref="SelectBestModel"/>. Hardcoded — an internal
+        /// statistical threshold, not a user tuning knob (design §6). Higher ⇒ stricter ⇒ more reluctant to
+        /// report tilt.
+        /// </summary>
+        private const double TiltSignificanceConfidence = 0.95;
+
+        /// <summary>
         /// Backwards-compatible overload that performs no outlier rejection (used by callers that prune outliers
         /// themselves, or do not prune at all). Equivalent to passing <c>maxOutlierRejections = 0</c>.
         /// </summary>
@@ -481,6 +490,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (na) return 1;
             if (nb) return -1;
             return a.CompareTo(b);
+        }
+
+        /// <summary>
+        /// Nested F-test: is the 5-parameter asymmetric fit a statistically significant improvement over the
+        /// 4-parameter Symmetric baseline, at <paramref name="confidence"/>? Both χ² are the weighted χ² of the
+        /// two fits on the SAME point set (same regularized 1/σ weights), so the ratio is scale-invariant.
+        /// Returns false when there are too few points to test (n − 5 &lt; 1), when inputs are non-finite, or when
+        /// the asymmetric fit does not actually reduce χ².
+        /// </summary>
+        internal static bool IsAsymmetryJustified(double chiSquaredSymmetric, double chiSquaredAsymmetric, int n, double confidence) {
+            const int pSym = 4, pAsym = 5;
+            int dofDenom = n - pAsym;
+            if (dofDenom < 1) return false;
+            if (double.IsNaN(chiSquaredSymmetric) || double.IsNaN(chiSquaredAsymmetric) || chiSquaredAsymmetric <= 0.0) return false;
+            double improvement = chiSquaredSymmetric - chiSquaredAsymmetric;
+            if (improvement <= 0.0) return false;
+            double f = (improvement / (pAsym - pSym)) / (chiSquaredAsymmetric / dofDenom);
+            double fCritical = new FisherSnedecor(pAsym - pSym, dofDenom).InverseCumulativeDistribution(confidence);
+            return f > fCritical;
         }
 
         /// <summary>
