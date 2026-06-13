@@ -874,6 +874,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Center = starCandidate.Center,
                 Background = starCandidate.Background,
                 BackgroundPlane = starCandidate.BackgroundPlane,
+                // NOTE (F11): MeanBrightness intentionally divides TotalFlux by the full structure-footprint
+                // pixel count (PixelCount = starPoints.Count), unlike NormalizedBrightness's meanFlux which uses
+                // the clip-survivor count. This per-footprint surface-brightness value feeds only the optional
+                // "brightest N AF stars" selection (analysis F8); it is left as-is by decision (design §1).
                 MeanBrightness = starCandidate.TotalFlux / starCandidate.PixelCount,
                 StarBoundingBox = starBounds,
                 PeakBrightness = starCandidate.Peak
@@ -1205,7 +1209,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             Array.Sort(starPixels);
             var starMedian = ComputeMedian(starPixels);
 
-            var meanFlux = totalFlux / starPoints.Count;
+            // meanFlux is the mean over clip-survivors (the pixels actually summed into totalFlux), NOT the full
+            // structure footprint. Dividing by starPoints.Count understated it and inflated NormalizedBrightness
+            // for faint/spread stars (low survivor fraction), loosening the sensitivity gate (F11).
+            var meanFlux = totalFlux / numUnclippedPixels;
 
             // Compute an iterative centroid: start with all threshold-clipped pixels, then on
             // subsequent passes restrict to pixels within a circular aperture centered on the

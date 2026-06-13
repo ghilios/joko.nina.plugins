@@ -88,7 +88,7 @@ namespace TestApp {
             }
 
             if (string.IsNullOrWhiteSpace(afRun)) {
-                Console.Error.WriteLine("Usage: TestApp focus-sweep --af-run <dir> [--profile-id <guid>] [--out <dir>] [--default-params]");
+                Console.Error.WriteLine("Usage: TestApp focus-sweep --af-run <dir> [--profile-id <guid>] [--out <dir>] [--default-params] [--noise-level <None|Low|Typical|High>] [--brightness-sensitivity <v>] [--brightness-sensitivity-sweep <a,b,step>]");
                 Console.Error.WriteLine("       TestApp focus-sweep --synthesize <dir> [--synthesize-count <n>] --default-params [--out <dir>]");
                 Environment.ExitCode = 2;
                 return;
@@ -131,10 +131,42 @@ namespace TestApp {
                 var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions));
                 var accessor = new PluginOptionsAccessor(profileService, guid.Value);
                 var options = new StarDetectionOptions(profileService, accessor);
+                // F11 step 6: optionally apply a NoiseLevel preset's exact params (for the None/High recalibration
+                // measurement) by switching the in-memory options to simple mode at the requested preset with the
+                // Typical FocusRange/PixelScale (so no WideRange/LongFL deltas apply). BuildStarDetectorParams then
+                // produces that preset's canonical knobs. TestApp never saves the profile, so this does not persist.
+                var noiseLevelArg = DiagnosticUtil.GetArg(args, "--noise-level");
+                if (!string.IsNullOrWhiteSpace(noiseLevelArg)) {
+                    if (!Enum.TryParse<NoiseLevelEnum>(noiseLevelArg, ignoreCase: true, out var noiseLevel)) {
+                        throw new ArgumentException($"--noise-level: '{noiseLevelArg}' is not a valid NoiseLevel (None, Low, Typical, High)");
+                    }
+                    options.UseAdvanced = false;
+                    options.Simple_FocusRange = FocusRangeEnum.Typical;
+                    options.Simple_PixelScale = PixelScaleEnum.Typical;
+                    options.Simple_NoiseLevel = noiseLevel;
+                    Console.WriteLine($"Applied NoiseLevel preset: {noiseLevel} (simple mode; BrightnessSensitivity={options.BrightnessSensitivity})");
+                }
                 baseParams = HocusFocusStarDetection.BuildStarDetectorParams(options);
             }
             // Mirror real AF: PSF modeling is disabled during AutoFocus, so HFR is the measured quantity.
             baseParams.ModelPSF = false;
+
+            // F11 step 6: a single-value override and a sweep for BrightnessSensitivity, applied on top of the
+            // built base params (profile-derived or --default-params). The sweep is how the recalibrated knob
+            // value is chosen empirically — see plans/f11-meanflux-sensitivity-recalibration-design.md §3.
+            var brightnessOverride = DiagnosticUtil.GetArg(args, "--brightness-sensitivity");
+            if (!string.IsNullOrWhiteSpace(brightnessOverride)) {
+                if (!double.TryParse(brightnessOverride, NumberStyles.Float, CultureInfo.InvariantCulture, out var overrideValue)) {
+                    throw new ArgumentException($"--brightness-sensitivity: '{brightnessOverride}' is not a valid number");
+                }
+                baseParams.Sensitivity = overrideValue;
+                Console.WriteLine($"Override: BrightnessSensitivity = {baseParams.Sensitivity}");
+            }
+            var brightnessSweepArg = DiagnosticUtil.GetArg(args, "--brightness-sensitivity-sweep");
+            if (!string.IsNullOrWhiteSpace(brightnessSweepArg)) {
+                await RunBrightnessSweep(frames, baseParams, profileService, brightnessSweepArg, outDir);
+                return;
+            }
 
             var byPosition = new SortedDictionary<int, PositionAccum>();
             var detector = new StarDetector(new AlglibAPI());
@@ -154,6 +186,60 @@ namespace TestApp {
             WriteSummary(Path.Combine(outDir, "focus_sweep_summary.txt"), afRun, baseParams, rows);
             WriteVCurvePng(Path.Combine(outDir, "focus_sweep_hfr.png"), rows);
             Console.WriteLine($"Wrote focus_sweep.csv, focus_sweep_summary.txt, focus_sweep_hfr.png to {outDir}");
+        }
+
+        private static async Task RunBrightnessSweep(
+            List<Frame> frames, StarDetectorParams baseParams, IProfileService profileService,
+            string sweepArg, string outDir) {
+            var parts = sweepArg.Split(',');
+            if (parts.Length != 3) {
+                throw new ArgumentException("--brightness-sensitivity-sweep expects <a,b,step>");
+            }
+            if (!double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double a) ||
+                !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double b) ||
+                !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double step)) {
+                throw new ArgumentException("--brightness-sensitivity-sweep: all three values must be valid numbers (e.g. 0.8,2.4,0.1)");
+            }
+            if (step <= 0) {
+                throw new ArgumentException("--brightness-sensitivity-sweep step must be > 0");
+            }
+            if (a > b) {
+                throw new ArgumentException($"--brightness-sensitivity-sweep: start ({a}) must be <= end ({b}); the sweep would be empty");
+            }
+
+            var detector = new StarDetector(new AlglibAPI());
+            var rows = new List<string> { "sensitivity,FocuserPosition,StarCount,LowSensitivity,MedianHFR" };
+            var totals = new List<string> { "sensitivity,TotalStars,TotalLowSensitivity" };
+            // Detect only reads its params, so reusing the same (mutable) instance per value is safe.
+            for (double s = a; s <= b + 1e-9; s += step) {
+                baseParams.Sensitivity = s;
+                var byPos = new SortedDictionary<int, (int stars, long lowSens, List<double> hfrs)>();
+                long totalStars = 0, totalLow = 0;
+                foreach (var frame in frames) {
+                    using var img = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService);
+                    var result = await detector.Detect(img, baseParams, null, CancellationToken.None);
+                    if (!byPos.TryGetValue(frame.FocuserPosition, out var acc)) {
+                        acc = (0, 0, new List<double>());
+                    }
+                    acc.stars += result.DetectedStars.Count;
+                    acc.lowSens += result.Metrics.LowSensitivity;
+                    foreach (var st in result.DetectedStars) acc.hfrs.Add(st.HFR);
+                    byPos[frame.FocuserPosition] = acc;
+                    totalStars += result.DetectedStars.Count;
+                    totalLow += result.Metrics.LowSensitivity;
+                }
+                var tag = s.ToString("0.###", CultureInfo.InvariantCulture);
+                foreach (var kv in byPos) {
+                    var (median, _) = MedianMad(kv.Value.hfrs);
+                    rows.Add(string.Join(",", tag, kv.Key, kv.Value.stars, kv.Value.lowSens,
+                        median.ToString("0.####", CultureInfo.InvariantCulture)));
+                }
+                totals.Add(string.Join(",", tag, totalStars, totalLow));
+                Console.WriteLine($"BrightnessSensitivity={tag}: {totalStars} stars total, {totalLow} low-sensitivity rejections");
+            }
+            File.WriteAllLines(Path.Combine(outDir, "brightness_sweep.csv"), rows);
+            File.WriteAllLines(Path.Combine(outDir, "brightness_sweep_totals.csv"), totals);
+            Console.WriteLine($"Wrote brightness_sweep.csv, brightness_sweep_totals.csv to {outDir}");
         }
 
         private static List<Frame> ParseAfRun(string dir) {
