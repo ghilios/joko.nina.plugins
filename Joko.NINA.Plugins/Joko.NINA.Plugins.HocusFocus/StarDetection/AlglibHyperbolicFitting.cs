@@ -432,12 +432,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             const int maxIrlsIterations = 10;
             const double tolerance = 1e-6;
             solution = null;
+            double[] lastGoodSolution = null;
             var prevSumAbsResiduals = double.PositiveInfinity;
             var guess = initialGuess;
             for (int iter = 0; iter < maxIrlsIterations; ++iter) {
                 if (!SolveOnce(guess, lowerBounds, upperBounds, scale, out solution)) {
-                    return iter > 0; // keep the previous good solution if a later reweighting fails
+                    // SolveOnce just overwrote the out param with the failed attempt (or null) —
+                    // restore the previous good solution instead of returning the failed parameters.
+                    solution = lastGoodSolution;
+                    return solution != null;
                 }
+                lastGoodSolution = solution;
                 guess = solution; // warm-start the next reweighted solve
 
                 // Residual scale from the MAD of the unweighted residuals.

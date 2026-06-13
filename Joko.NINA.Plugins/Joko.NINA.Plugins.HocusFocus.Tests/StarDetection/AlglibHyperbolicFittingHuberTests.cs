@@ -1,5 +1,6 @@
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Tests.Synthetic;
+using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 using OxyPlot.Series;
@@ -46,6 +47,33 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 // The robust fit should be no worse, and meaningfully better, than the outlier-pulled plain fit.
                 Assert.That(robustErr, Is.LessThanOrEqualTo(plainErr));
                 Assert.That(robustErr, Is.LessThan(5.0), "Huber IRLS should keep the best-focus estimate near truth despite the outlier");
+            });
+        }
+
+        [Test]
+        public void SolveHuberIrls_MidLoopSolveFailure_ReturnsLastGoodSolution() {
+            // The IRLS loop always attempts a second reweighted solve after a successful first one
+            // (the convergence check cannot pass on iteration 0: prevSumAbsResiduals starts at +inf).
+            // Failing solve #2 must leave the result exactly equal to the plain non-IRLS solution —
+            // not the failed solve's parameters.
+            // WHY the first IRLS solve equals the plain solve: at iter=0 the IRLS path initializes
+            // effectiveWeights as a fresh clone of Weights (all 1.0 when useWeights:false), which is
+            // the same uniform weight vector the plain non-IRLS path uses — so solve #1 is numerically
+            // identical to the plain solve, and restoring it on solve-#2 failure reproduces it exactly.
+            var failing = new FailNthSolveAlglibAPI(failOnCall: 2);
+            var robust = HyperbolicFittingAlglib.Create(failing, CleanCurveWithOutlier(), useWeights: false);
+            robust.HuberIrlsEnabled = true;
+            Assert.That(robust.Solve(), Is.True);
+
+            var plain = HyperbolicFittingAlglib.Create(alglibAPI, CleanCurveWithOutlier(), useWeights: false);
+            plain.HuberIrlsEnabled = false;
+            Assert.That(plain.Solve(), Is.True);
+
+            Assert.Multiple(() => {
+                Assert.That(robust.Minimum.X, Is.Not.NaN);
+                Assert.That(robust.Minimum.Y, Is.Not.NaN);
+                Assert.That(robust.Minimum.X, Is.EqualTo(plain.Minimum.X).Within(1e-6));
+                Assert.That(robust.Minimum.Y, Is.EqualTo(plain.Minimum.Y).Within(1e-6));
             });
         }
     }
