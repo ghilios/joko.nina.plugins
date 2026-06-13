@@ -436,6 +436,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// <see cref="TotalDetected"/>, <see cref="OutsideROI"/>) start at 0 on a fresh thread-local instance,
         /// so the fold is additive and does not double-count values already present on the main metrics.
         /// </summary>
+        /// <summary>
+        /// Returns all seven <c>*Bounds</c> lists in a fixed, canonical order. Every method that needs to
+        /// iterate over all bounds lists (Merge, SortBounds, AddROIOffset) uses this helper so that adding an
+        /// eighth bounds list in the future requires only a single edit here.
+        /// </summary>
+        private List<List<Rect>> AllBoundsLists() => new List<List<Rect>> {
+            TooDistortedBounds,
+            DegenerateBounds,
+            SaturatedBounds,
+            LowSensitivityBounds,
+            NotCenteredBounds,
+            TooFlatBounds,
+            ContaminatedBounds
+        };
+
         public void Merge(StarDetectorMetrics other) {
             if (other == null) {
                 return;
@@ -452,13 +467,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
             SaturatedPixelCount += other.SaturatedPixelCount;
             HotpixelCount += other.HotpixelCount;
 
-            TooDistortedBounds.AddRange(other.TooDistortedBounds);
-            DegenerateBounds.AddRange(other.DegenerateBounds);
-            SaturatedBounds.AddRange(other.SaturatedBounds);
-            LowSensitivityBounds.AddRange(other.LowSensitivityBounds);
-            NotCenteredBounds.AddRange(other.NotCenteredBounds);
-            TooFlatBounds.AddRange(other.TooFlatBounds);
-            ContaminatedBounds.AddRange(other.ContaminatedBounds);
+            var thisBounds = AllBoundsLists();
+            var otherBounds = other.AllBoundsLists();
+            for (int i = 0; i < thisBounds.Count; i++) {
+                thisBounds[i].AddRange(otherBounds[i]);
+            }
         }
 
         /// <summary>
@@ -467,17 +480,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// scheduling order. (The Task-1 equivalence Signature already sorts bounds the same way.)
         /// </summary>
         public void SortBounds() {
-            var allRectBounds = new List<List<Rect>>() {
-                TooDistortedBounds,
-                DegenerateBounds,
-                SaturatedBounds,
-                LowSensitivityBounds,
-                NotCenteredBounds,
-                TooFlatBounds,
-                ContaminatedBounds
-            };
-
-            foreach (var rectBounds in allRectBounds) {
+            foreach (var rectBounds in AllBoundsLists()) {
                 rectBounds.Sort((a, b) => {
                     int cmp = a.Y.CompareTo(b.Y);
                     return cmp != 0 ? cmp : a.X.CompareTo(b.X);
@@ -486,18 +489,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         }
 
         public void AddROIOffset(int xOffset, int yOffset) {
-            var allRectBounds = new List<List<Rect>>() {
-                TooDistortedBounds,
-                DegenerateBounds,
-                SaturatedBounds,
-                LowSensitivityBounds,
-                NotCenteredBounds,
-                TooFlatBounds,
-                ContaminatedBounds
-            };
-
             var offset = new Point(xOffset, yOffset);
-            foreach (var rectBounds in allRectBounds) {
+            foreach (var rectBounds in AllBoundsLists()) {
                 var newRectBounds = rectBounds.Select(r => new Rect(r.Location + offset, r.Size)).ToList();
                 rectBounds.Clear();
                 rectBounds.AddRange(newRectBounds);

@@ -15,6 +15,7 @@ using NUnit.Framework;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using OpenCvSharp;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
@@ -109,8 +110,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         [Test]
-        public async Task StarDetectorMetrics_Merge_SumsScalarsAndConcatenatesBounds() {
+        public void StarDetectorMetrics_Merge_SumsScalarsAndConcatenatesBounds() {
             // Direct unit test of the Merge fold used to combine thread-local metrics.
+            // Covers all seven *Bounds lists plus representative scalars so that a future
+            // eighth bounds list cannot be silently dropped from Merge without a test failure.
             var a = new StarDetectorMetrics {
                 StructureCandidates = 3,
                 TotalDetected = 2,
@@ -123,7 +126,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 SaturatedPixelCount = 10L,
                 HotpixelCount = 100L,
             };
-            a.TooDistortedBounds.Add(new OpenCvSharp.Rect(5, 5, 2, 2));
+            a.TooDistortedBounds.Add(new Rect(5, 5, 2, 2));
+            a.DegenerateBounds.Add(new Rect(6, 6, 2, 2));
+            a.SaturatedBounds.Add(new Rect(7, 7, 2, 2));
+            a.LowSensitivityBounds.Add(new Rect(8, 8, 2, 2));
+            a.NotCenteredBounds.Add(new Rect(9, 9, 2, 2));
+            a.TooFlatBounds.Add(new Rect(10, 10, 2, 2));
+            a.ContaminatedBounds.Add(new Rect(11, 11, 2, 2));
 
             var b = new StarDetectorMetrics {
                 StructureCandidates = 4,
@@ -137,13 +146,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 SaturatedPixelCount = 1L,
                 HotpixelCount = 23L,
             };
-            b.TooDistortedBounds.Add(new OpenCvSharp.Rect(1, 1, 3, 3));
-            b.ContaminatedBounds.Add(new OpenCvSharp.Rect(7, 7, 4, 4));
+            b.TooDistortedBounds.Add(new Rect(1, 1, 3, 3));
+            b.DegenerateBounds.Add(new Rect(2, 2, 3, 3));
+            b.SaturatedBounds.Add(new Rect(3, 3, 3, 3));
+            b.LowSensitivityBounds.Add(new Rect(4, 4, 3, 3));
+            b.NotCenteredBounds.Add(new Rect(5, 5, 3, 3));
+            b.TooFlatBounds.Add(new Rect(6, 6, 3, 3));
+            b.ContaminatedBounds.Add(new Rect(7, 7, 4, 4));
 
             a.Merge(b);
 
-            await Task.CompletedTask;
             Assert.Multiple(() => {
+                // Scalars must be summed.
                 Assert.That(a.StructureCandidates, Is.EqualTo(7));
                 Assert.That(a.TotalDetected, Is.EqualTo(5));
                 Assert.That(a.TooSmall, Is.EqualTo(3));
@@ -154,8 +168,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 Assert.That(a.OutsideROI, Is.EqualTo(1));
                 Assert.That(a.SaturatedPixelCount, Is.EqualTo(11L));
                 Assert.That(a.HotpixelCount, Is.EqualTo(123L));
-                Assert.That(a.TooDistortedBounds.Count, Is.EqualTo(2));
-                Assert.That(a.ContaminatedBounds.Count, Is.EqualTo(1));
+
+                // All seven *Bounds lists must be concatenated (1 from a + 1 from b = 2 each).
+                Assert.That(a.TooDistortedBounds.Count, Is.EqualTo(2), "TooDistortedBounds not concatenated");
+                Assert.That(a.DegenerateBounds.Count, Is.EqualTo(2), "DegenerateBounds not concatenated");
+                Assert.That(a.SaturatedBounds.Count, Is.EqualTo(2), "SaturatedBounds not concatenated");
+                Assert.That(a.LowSensitivityBounds.Count, Is.EqualTo(2), "LowSensitivityBounds not concatenated");
+                Assert.That(a.NotCenteredBounds.Count, Is.EqualTo(2), "NotCenteredBounds not concatenated");
+                Assert.That(a.TooFlatBounds.Count, Is.EqualTo(2), "TooFlatBounds not concatenated");
+                Assert.That(a.ContaminatedBounds.Count, Is.EqualTo(2), "ContaminatedBounds not concatenated");
             });
         }
 
