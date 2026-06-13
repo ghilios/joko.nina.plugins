@@ -222,7 +222,8 @@ namespace TestApp {
             Emit("");
             Emit($"Consensus outliers (rejected by ALL {candidates.Length} models) = {(consensus.Count == 0 ? "(none)" : string.Join(" ", consensus))}");
             Emit("  -> A point only some models reject is model-misfit (tilt signal), not a true outlier; consensus keeps it.");
-            // Who wins after removing only the consensus set (the proposed model-fair behavior).
+            // Who wins after removing only the consensus set, ranked by variance alone — i.e. the consensus step
+            // WITHOUT the F-test significance gate. Contrast with the production table above (which applies the gate).
             var cleaned = regular.Where(p => !consensus.Contains((int)Math.Round(p.X))).Select(Clone).ToList();
             HyperbolicFitModel? fairWinner = null; double bestErr = double.PositiveInfinity; double minX = rows.Min(r => (double)r.Position), maxX = rows.Max(r => (double)r.Position);
             foreach (var m in candidates) {
@@ -233,7 +234,10 @@ namespace TestApp {
                 if (double.IsNaN(fit.MinimumStdError) || double.IsNaN(mx) || mx < minX || mx > maxX) continue;
                 if (fit.MinimumStdError < bestErr) { bestErr = fit.MinimumStdError; fairWinner = m; }
             }
-            Emit($"Model-fair winner (after consensus cleaning, ranked by sigma(focus)) = {(fairWinner?.ToString() ?? "n/a")} (sigma(focus)={F(bestErr)})");
+            Emit($"Pre-gate variance ranking (consensus-cleaned, by sigma(focus) only) = {(fairWinner?.ToString() ?? "n/a")} (sigma(focus)={F(bestErr)})");
+            Emit("  -> This is the variance-only ranking BEFORE the F-test gate. The production winner (top table)");
+            Emit("     additionally applies the nested F-test vs Symmetric, which unlocks the asymmetric models when");
+            Emit("     they significantly improve the fit — so a genuine tilt is reported instead of lower-variance Symmetric.");
             Emit("");
 
             // ---- Detailed Grubbs breakdown: iteratively reject against the chosen model's own fit. ----
