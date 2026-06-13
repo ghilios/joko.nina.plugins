@@ -683,7 +683,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         AlglibHyperbolicFitting.SelectBestModel(
                             this.alglibAPI, points, stepSize, useWeights,
                             rejectionBudget, rejectionConfidence,
-                            out fitting, out var rejected);
+                            out fitting, out var rejected,
+                            // This per-star call already runs inside SensorModel's parallel per-star loop, so keep the
+                            // inner model/LOO fitting sequential to avoid oversubscribing cores (nested Parallel.For).
+                            maxDegreeOfParallelism: 1);
                         solveResult = fitting != null;
                         rejectedCount = rejected.Count;
                     } else {
