@@ -349,11 +349,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 var commonKeys = (common ?? Enumerable.Empty<int>()).ToHashSet();
                 if (commonKeys.Count > 0) {
                     // Materialize consensus points from the first solved model's proposed set (identical X across
-                    // models), preserving that model's rejection order, then cap at maxOutlierRejections.
+                    // models), preserving that model's rejection order. The Take() cap is defensive only: each
+                    // per-model reject set is already <= maxOutlierRejections (FitWithOutlierRejection enforces it),
+                    // so their intersection is too and Take() never actually truncates — hence the design's "min-z"
+                    // cap ordering is moot here; the result is deterministic regardless.
                     var firstSolved = Array.FindIndex(solved, s => s);
                     consensus = modelRejects[firstSolved]
                         .Where(p => commonKeys.Contains((int)Math.Round(p.X)))
-                        .Take(maxOutlierRejections) // cap preserves the first solved model's residual-rejection order (deterministic)
+                        .Take(maxOutlierRejections)
                         .ToList();
                 }
             }
