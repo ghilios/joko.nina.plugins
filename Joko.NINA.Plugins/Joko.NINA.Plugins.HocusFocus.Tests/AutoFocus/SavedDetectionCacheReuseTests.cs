@@ -37,9 +37,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
         private const int FrameNumber = 1;
         private const int RegionIndex = 2;
 
-        private static string CacheFileName(int imageNumber, int frameNumber, int regionIndex)
-            => $"{imageNumber:00}_Frame{frameNumber:00}_Region{regionIndex:00}_star_detection_result.json";
-
         private static PSFModel BuildPsf() {
             return new PSFModel(
                 psfType: StarDetectorPSFFitType.Moffat_40,
@@ -88,7 +85,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
 
         // Writes the cached JSON to the canonical per-region filename inside the source folder.
         private static void WriteCache(string folder, HocusFocusStarDetectionResult result, int imageNumber = ImageNumber, int frameNumber = FrameNumber, int regionIndex = RegionIndex) {
-            var path = Path.Combine(folder, CacheFileName(imageNumber, frameNumber, regionIndex));
+            var path = Path.Combine(folder, AutoFocusEngine.BuildStarDetectionResultFileName(imageNumber, frameNumber, regionIndex));
             File.WriteAllText(path, StarDetectionResultCacheSerializer.Serialize(result));
         }
 
@@ -194,7 +191,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
         public void CorruptFile_ReturnsFalse() {
             using var tmp = new TempDir();
             var currentParams = new StarDetectorParams { Sensitivity = 0.5 };
-            var path = Path.Combine(tmp.Path, CacheFileName(ImageNumber, FrameNumber, RegionIndex));
+            var path = Path.Combine(tmp.Path, AutoFocusEngine.BuildStarDetectionResultFileName(ImageNumber, FrameNumber, RegionIndex));
             File.WriteAllText(path, "{ this is not valid json ]]]");
 
             var hit = AutoFocusEngine.TryLoadValidCachedDetection(

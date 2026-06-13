@@ -585,7 +585,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
                     var saveAttemptFolder = GetSaveAttemptFolder(state, imageState.AttemptNumber, imageState.FinalValidation);
-                    var resultFileName = $"{imageState.ImageNumber:00}_Frame{imageState.FrameNumber:00}_Region{regionState.RegionIndex:00}_star_detection_result.json";
+                    var resultFileName = BuildStarDetectionResultFileName(imageState.ImageNumber, imageState.FrameNumber, regionState.RegionIndex);
                     var resultTargetPath = Path.Combine(saveAttemptFolder, resultFileName);
                     // Use the dedicated cache serializer (not default Json.NET settings) so the polymorphic
                     // StarList entries (HocusFocusDetectedStar, incl. PSF) and the DetectorVersion/CacheKey
@@ -771,17 +771,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// saved filename — they name the saved <c>_star_detection_result.json</c>. The replay loop reassigns a
         /// fresh <c>imageState.ImageNumber</c> for ordering, which must NOT be used to look up the cache file.</para>
         /// </summary>
-        internal sealed class SavedDetectionCacheSource {
-            public string SourceFolder { get; }
-            public int ImageNumber { get; }
-            public int FrameNumber { get; }
+        internal sealed record SavedDetectionCacheSource(string SourceFolder, int ImageNumber, int FrameNumber);
 
-            public SavedDetectionCacheSource(string sourceFolder, int imageNumber, int frameNumber) {
-                SourceFolder = sourceFolder;
-                ImageNumber = imageNumber;
-                FrameNumber = frameNumber;
-            }
-        }
+        /// <summary>
+        /// Returns the canonical filename for a per-region star-detection result JSON, derived from the original
+        /// image/frame/region numbers. This is the single source of truth for the filename format used by both the
+        /// save path and the cache-reuse path (<see cref="TryLoadValidCachedDetection"/>).
+        /// </summary>
+        internal static string BuildStarDetectionResultFileName(int imageNumber, int frameNumber, int regionIndex)
+            => $"{imageNumber:00}_Frame{frameNumber:00}_Region{regionIndex:00}_star_detection_result.json";
 
         /// <summary>
         /// Reuse-side gate for the replay detection-result cache. Tries to load the saved per-region
@@ -811,7 +809,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return false;
             }
 
-            var fileName = $"{imageNumber:00}_Frame{frameNumber:00}_Region{regionIndex:00}_star_detection_result.json";
+            var fileName = BuildStarDetectionResultFileName(imageNumber, frameNumber, regionIndex);
             var path = Path.Combine(sourceFolder, fileName);
             if (!File.Exists(path)) {
                 Logger.Debug($"Saved detection cache miss (file not found): {path}");
@@ -840,7 +838,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             var expectedKey = StarDetector.ComputeCacheKey(currentParams);
             if (!string.Equals(deserialized.CacheKey, expectedKey, StringComparison.Ordinal)) {
-                Logger.Debug($"Saved detection cache miss (cache key mismatch) for {path}");
+                Logger.Debug($"Saved detection cache miss (cache key saved={deserialized.CacheKey} != current={expectedKey}): {path}");
                 return false;
             }
 
