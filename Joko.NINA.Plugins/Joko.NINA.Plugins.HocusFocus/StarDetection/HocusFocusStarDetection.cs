@@ -301,7 +301,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 UsePSFAbsoluteDeviation = options.UsePSFAbsoluteDeviation,
                 HotpixelThreshold = options.HotpixelThreshold,
                 SaturationThreshold = options.SaturationThreshold,
-                PSFPixelIntegration = options.PSFPixelIntegration
+                PSFPixelIntegration = options.PSFPixelIntegration,
+                // Internal parallelism knob — 0 = auto (Environment.ProcessorCount via ParallelExecution governor).
+                // Not exposed in the options UI; callers may override after BuildStarDetectorParams returns.
+                MaxStarEvaluationParallelism = 0
             };
         }
 
