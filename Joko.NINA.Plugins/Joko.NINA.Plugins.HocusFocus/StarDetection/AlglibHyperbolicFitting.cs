@@ -277,13 +277,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// expected error for the best-focus position — the Hybrid "best fit" selection. Candidates that fail to
         /// solve, or whose minimum is non-finite or outside the sampled X range, are dropped.
         ///
-        /// Each candidate rejects its <b>own</b> outliers: up to <paramref name="maxOutlierRejections"/> points
-        /// are removed by the Grubbs test against that model's residuals (weighted when <paramref name="useWeights"/>
-        /// is set), refitting after each removal, before the model competes. Outlier-ness is model-specific — a
-        /// point far from a Symmetric hyperbola may sit on a Tilted one — so sharing a single pruned set across all
-        /// candidates would bias the choice; instead every model is judged on the fit it produces after cleaning
-        /// the points that are outliers <i>for it</i>. <paramref name="rejectedPoints"/> returns the winning
-        /// model's rejected points (so the caller can report exactly what the chosen fit excluded).
+        /// Outlier rejection uses <b>consensus</b>: each candidate independently proposes its Grubbs outliers
+        /// (pass 1, weighted when <paramref name="useWeights"/> is set), and only the <i>intersection</i> —
+        /// points every solved model flags — is removed (up to <paramref name="maxOutlierRejections"/>). All
+        /// models then compete on the single common cleaned set (pass 2), so no model can improve its ranking by
+        /// aggressively pruning its own data. Fewer than two solved models cannot form a meaningful consensus,
+        /// so pass 1 removes nothing in that case. <paramref name="rejectedPoints"/> returns the consensus set
+        /// (not any single model's rejects).
         ///
         /// Ranking is tiered: (1) finite parametric σ(focus) = <see cref="MinimumStdError"/> ascending — already
         /// produced by <see cref="Solve"/>, so the common path is cheap. Every concrete model supplies a σ(focus)
@@ -310,118 +310,128 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            // The four candidate fits are fully independent — each FitWithOutlierRejection builds its own working
-            // point list and its own AlglibHyperbolicFitting through the shared alglibAPI (which serializes only
-            // handle alloc/free; SensorModel.cs 626-627). Run them in parallel into index-aligned slots so the
-            // survivor selection / tiering / tie-break below can read them back in fixed HybridCandidateModels index
-            // order — that keeps the winning-model choice and tie-break deterministic and independent of completion
-            // order. The per-model try/catch is preserved exactly: a model whose fit throws leaves its slot null,
-            // identical to today's `continue` after a caught exception. Default scheduler (NOT SharedScheduler) to
-            // avoid nested-Parallel.For starvation when SelectBestModel runs inside SensorModel's parallel per-star
-            // loop (that caller passes maxDegreeOfParallelism: 1 ⇒ sequential inner).
-            var modelFits = new AlglibHyperbolicFitting[HybridCandidateModels.Length];
-            var modelRejectsSlots = new List<ScatterErrorPoint>[HybridCandidateModels.Length];
-            var modelCleanSlots = new List<ScatterErrorPoint>[HybridCandidateModels.Length];
-            var fitParallelOptions = new ParallelOptions {
-                // Cap at HybridCandidateModels.Length: never spin up more parallelism than there are candidate fits.
-                // Use the default scheduler (not a limited shared one): SensorModel's outer per-star Parallel.For
-                // already saturates the cores, so callers in that context pass maxDegreeOfParallelism: 1 to keep
-                // the inner loop sequential and avoid ~ProcessorCount² active threads (oversubscription).
+            // PASS 1: each candidate proposes its own Grubbs outliers (against its own residuals), but does NOT
+            // commit them. modelRejects[k] = the points model k WOULD reject; solved[k] = whether it fit at all.
+            var modelRejects = new List<ScatterErrorPoint>[HybridCandidateModels.Length];
+            var solved = new bool[HybridCandidateModels.Length];
+            var fitOptions = new ParallelOptions {
                 MaxDegreeOfParallelism = Math.Min(ParallelExecution.ResolveDegreeOfParallelism(maxDegreeOfParallelism), HybridCandidateModels.Length)
             };
-            Parallel.For(0, HybridCandidateModels.Length, fitParallelOptions, k => {
-                var model = HybridCandidateModels[k];
+            Parallel.For(0, HybridCandidateModels.Length, fitOptions, k => {
                 try {
-                    var fit = FitWithOutlierRejection(alglibAPI, model, points, stepSize, useWeights, maxOutlierRejections, rejectionConfidence, out var modelRejects, out var modelClean);
-                    if (fit == null) {
-                        return;
+                    var fit = FitWithOutlierRejection(alglibAPI, HybridCandidateModels[k], points, stepSize, useWeights,
+                        maxOutlierRejections, rejectionConfidence, out var rejects, out _);
+                    if (fit != null) {
+                        solved[k] = true;
+                        modelRejects[k] = rejects;
                     }
-                    modelFits[k] = fit;
-                    modelRejectsSlots[k] = modelRejects;
-                    modelCleanSlots[k] = modelClean;
                 } catch (Exception ex) {
-                    Logger.Trace($"Hybrid selection: model {model} failed to solve ({ex.Message})");
+                    Logger.Trace($"Hybrid selection (pass 1): model {HybridCandidateModels[k]} failed ({ex.Message})");
                 }
             });
 
-            // Survivor selection — SEQUENTIAL, iterating in fixed HybridCandidateModels index order, reading the
-            // index-aligned slots. This reproduces the original loop's ordering exactly (and therefore its tie-break).
-            var survivors = new List<AlglibHyperbolicFitting>();
-            var survivorModels = new List<HyperbolicFitModel>();
-            var survivorRejects = new List<List<ScatterErrorPoint>>();
-            var survivorClean = new List<List<ScatterErrorPoint>>();
-            AlglibHyperbolicFitting tiltedFit = null;
-            List<ScatterErrorPoint> tiltedRejects = null;
-            for (int k = 0; k < HybridCandidateModels.Length; ++k) {
-                var model = HybridCandidateModels[k];
-                var fit = modelFits[k];
-                if (fit == null) {
-                    continue;
+            // CONSENSUS: a point is a true outlier only if EVERY solved model flags it. Fewer than 2 solved models
+            // cannot distinguish tilt from a bad frame, so reject nothing. Key points by rounded focuser position.
+            var solvedCount = solved.Count(s => s);
+            var consensus = new List<ScatterErrorPoint>();
+            if (solvedCount >= 2 && maxOutlierRejections > 0) {
+                IEnumerable<int> common = null;
+                for (int k = 0; k < HybridCandidateModels.Length; ++k) {
+                    if (!solved[k]) continue;
+                    var keys = (modelRejects[k] ?? new List<ScatterErrorPoint>()).Select(p => (int)Math.Round(p.X)).ToHashSet();
+                    common = common == null ? keys : common.Intersect(keys);
                 }
-                var modelRejects = modelRejectsSlots[k];
-                var modelClean = modelCleanSlots[k];
-                if (model == HyperbolicFitModel.TiltedHyperbola) {
-                    tiltedFit = fit;
-                    tiltedRejects = modelRejects;
+                var commonKeys = (common ?? Enumerable.Empty<int>()).ToHashSet();
+                if (commonKeys.Count > 0) {
+                    // Materialize consensus points from the first solved model's proposed set (identical X across
+                    // models), preserving that model's rejection order, then cap at maxOutlierRejections.
+                    var firstSolved = Array.FindIndex(solved, s => s);
+                    consensus = modelRejects[firstSolved]
+                        .Where(p => commonKeys.Contains((int)Math.Round(p.X)))
+                        .Take(maxOutlierRejections) // cap preserves the first solved model's residual-rejection order (deterministic)
+                        .ToList();
                 }
-                var x = fit.Minimum.X;
-                if (double.IsNaN(x) || double.IsInfinity(x)) {
-                    continue;
-                }
-                if (maxX >= minX && (x < minX || x > maxX)) {
-                    continue;
-                }
-                survivors.Add(fit);
-                survivorModels.Add(model);
-                survivorRejects.Add(modelRejects);
-                survivorClean.Add(modelClean);
             }
 
+            // Build the single common cleaned set every model is judged on (fair comparison; no model cleans its
+            // own data differently).
+            var consensusKeysFinal = consensus.Select(p => (int)Math.Round(p.X)).ToHashSet();
+            var cleaned = points.Where(p => !consensusKeysFinal.Contains((int)Math.Round(p.X))).ToList(); // when consensus is empty (< 2 solved models or no intersection), cleaned == points: pass 2 is a plain multi-model fit on the full set
+
+            // PASS 2: fit every model on the common cleaned set — these fits drive viability, the F-test gate, and ranking.
+            var modelFits = new AlglibHyperbolicFitting[HybridCandidateModels.Length];
+            Parallel.For(0, HybridCandidateModels.Length, fitOptions, k => {
+                try {
+                    var fit = Create(alglibAPI, HybridCandidateModels[k], cleaned, stepSize, useWeights);
+                    if (fit.Solve()) {
+                        modelFits[k] = fit;
+                    }
+                } catch (Exception ex) {
+                    Logger.Trace($"Hybrid selection (pass 2): model {HybridCandidateModels[k]} failed ({ex.Message})");
+                }
+            });
+
+            // Survivor selection — SEQUENTIAL, fixed HybridCandidateModels index order (preserves deterministic tie-break).
+            var survivors = new List<AlglibHyperbolicFitting>();
+            var survivorModels = new List<HyperbolicFitModel>();
+            var survivorClean = new List<List<ScatterErrorPoint>>();
+            AlglibHyperbolicFitting tiltedFit = null;
+            for (int k = 0; k < HybridCandidateModels.Length; ++k) {
+                var fit = modelFits[k];
+                if (fit == null) continue;
+                if (HybridCandidateModels[k] == HyperbolicFitModel.TiltedHyperbola) tiltedFit = fit;
+                var x = fit.Minimum.X;
+                if (double.IsNaN(x) || double.IsInfinity(x)) continue;
+                if (maxX >= minX && (x < minX || x > maxX)) continue;
+                survivors.Add(fit);
+                survivorModels.Add(HybridCandidateModels[k]);
+                survivorClean.Add(cleaned);
+            }
+
+            rejectedPoints = consensus;
+
             if (survivors.Count == 0) {
-                // All candidates degenerate/out-of-range — keep the live (Tilted) fit so the rest of the pipeline
-                // stays consistent with what was rendered during the sweep.
                 bestFit = tiltedFit;
-                rejectedPoints = tiltedRejects ?? (IReadOnlyList<ScatterErrorPoint>)Array.Empty<ScatterErrorPoint>();
                 return HyperbolicFitModel.TiltedHyperbola;
             }
 
-            // Tier 1: candidates whose parametric σ(focus) is finite.
-            var tier1 = new List<int>();
-            for (int i = 0; i < survivors.Count; ++i) {
-                var se = survivors[i].MinimumStdError;
-                if (!double.IsNaN(se) && !double.IsInfinity(se)) {
-                    tier1.Add(i);
-                }
-            }
+            // Rank ALL viable survivors (no gate yet — Task 3 adds it).
+            var allIndices = Enumerable.Range(0, survivors.Count).ToList();
+            int winner = RankBest(alglibAPI, survivors, survivorModels, survivorClean, allIndices, stepSize, useWeights, maxDegreeOfParallelism);
+            bestFit = survivors[winner];
+            return survivorModels[winner];
+        }
 
-            var primary = new double[survivors.Count];
+        /// <summary>
+        /// Ranks the given <paramref name="allowed"/> survivor indices by the standard tiering: Tier 1 = ascending
+        /// finite σ(focus) (<see cref="MinimumStdError"/>); Tier 2 = ascending leave-one-out best-focus std (lazy,
+        /// only when no allowed candidate has a finite σ(focus)); final tiebreak ascending <see cref="ReducedChiSquared"/>
+        /// then descending <see cref="RSquared"/>. Returns the winning index into <paramref name="survivors"/>.
+        /// <paramref name="allowed"/> must be non-empty.
+        /// </summary>
+        private static int RankBest(
+                IAlglibAPI alglibAPI, List<AlglibHyperbolicFitting> survivors, List<HyperbolicFitModel> survivorModels,
+                List<List<ScatterErrorPoint>> survivorClean, List<int> allowed, int stepSize, bool useWeights, int maxDegreeOfParallelism) {
+            var tier1 = allowed.Where(i => {
+                var se = survivors[i].MinimumStdError;
+                return !double.IsNaN(se) && !double.IsInfinity(se);
+            }).ToList();
+
+            var primary = new Dictionary<int, double>();
             List<int> contenders;
             if (tier1.Count > 0) {
-                for (int i = 0; i < survivors.Count; ++i) {
-                    primary[i] = survivors[i].MinimumStdError;
-                }
+                foreach (var i in allowed) primary[i] = survivors[i].MinimumStdError;
                 contenders = tier1;
             } else {
-                // Tier 2: leave-one-out fallback (lazy — only when no candidate has a finite σ(focus)). Each model's
-                // LOO uses its own cleaned point set, consistent with how it was ranked.
                 contenders = new List<int>();
-                for (int i = 0; i < survivors.Count; ++i) {
-                    // Propagate the same inner-parallelism degree: when SelectBestModel is called sequentially-inner
-                    // (e.g. per-star inside SensorModel), its LOO refits stay sequential too. The per-survivor loop
-                    // itself stays sequential.
+                foreach (var i in allowed) {
                     var loo = ComputeLeaveOneOutBestFocusStdError(alglibAPI, survivorModels[i], survivorClean[i], stepSize, useWeights, maxDegreeOfParallelism);
                     primary[i] = loo;
-                    if (!double.IsNaN(loo) && !double.IsInfinity(loo)) {
-                        contenders.Add(i);
-                    }
+                    if (!double.IsNaN(loo) && !double.IsInfinity(loo)) contenders.Add(i);
                 }
                 if (contenders.Count == 0) {
-                    // Neither σ(focus) nor LOO available (e.g. < 5 points and no covariance) — rank every survivor
-                    // by the χ²/R² tiebreak alone.
-                    for (int i = 0; i < survivors.Count; ++i) {
-                        primary[i] = 0.0;
-                        contenders.Add(i);
-                    }
+                    foreach (var i in allowed) primary[i] = 0.0;
+                    contenders = new List<int>(allowed);
                 }
             }
 
@@ -430,13 +440,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (c != 0) return c;
                 c = CompareAscNaNLast(survivors[i].ReducedChiSquared, survivors[j].ReducedChiSquared);
                 if (c != 0) return c;
-                return CompareAscNaNLast(-survivors[i].RSquared, -survivors[j].RSquared); // R² descending
+                return CompareAscNaNLast(-survivors[i].RSquared, -survivors[j].RSquared);
             });
-
-            var best = contenders[0];
-            bestFit = survivors[best];
-            rejectedPoints = survivorRejects[best];
-            return survivorModels[best];
+            return contenders[0];
         }
 
         /// <summary>
