@@ -691,7 +691,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // A focuser position can be revisited - most commonly when reprocessing a saved run whose frames
                 // map more than one measurement point to the same focuser position. Complete each position only
                 // once; the second completion previously threw "An item with the same key has already been added".
-                if (!TryCompleteFocuserPoint(regionState.MeasurementsByFocuserPoint, focuserPosition, values)) {
+                if (!TryCompleteFocuserPoint(regionState.MeasurementsByFocuserPoint, focuserPosition, values, out var pooledMeasurement)) {
                     Logger.Trace($"Ignoring duplicate completion at focuser position {focuserPosition}");
                     return Task.CompletedTask;
                 }
@@ -699,7 +699,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var focusPoints = regionState.MeasurementsByFocuserPoint.Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, SafeDisplayError(fp.Value.Stdev))).ToList();
                 regionState.UpdateCurveFittings(focusPoints);
 
-                this.OnMeasurementPointCompleted(imageState, regionState, measurement);
+                this.OnMeasurementPointCompleted(imageState, regionState, pooledMeasurement);
             }
             return Task.CompletedTask;
         }
@@ -708,12 +708,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// Records the averaged sub-measurements for a focuser position, completing that point exactly once.
         /// Returns false (leaving the map unchanged) when the position was already completed, which happens when
         /// a saved run being reprocessed maps more than one measurement point to the same focuser position.
+        /// <paramref name="pooledMeasurement"/> is set to the pooled (averaged) value stored in the map on new
+        /// completion, or the previously stored value on a duplicate — on new completion, callers should forward
+        /// this to the MeasurementPointCompleted event so that charts, the NINA broadcast point, and saved-report
+        /// MeasurePoints agree with the fit inputs when FramesPerPoint > 1.
         /// </summary>
-        internal static bool TryCompleteFocuserPoint(Dictionary<int, MeasureAndError> measurementsByFocuserPoint, int focuserPosition, List<MeasureAndError> subMeasurements) {
-            if (measurementsByFocuserPoint.ContainsKey(focuserPosition)) {
+        internal static bool TryCompleteFocuserPoint(Dictionary<int, MeasureAndError> measurementsByFocuserPoint, int focuserPosition, List<MeasureAndError> subMeasurements, out MeasureAndError pooledMeasurement) {
+            if (measurementsByFocuserPoint.TryGetValue(focuserPosition, out pooledMeasurement)) {
                 return false;
             }
-            measurementsByFocuserPoint.Add(focuserPosition, subMeasurements.AverageMeasurement());
+            pooledMeasurement = subMeasurements.AverageMeasurement();
+            measurementsByFocuserPoint.Add(focuserPosition, pooledMeasurement);
             return true;
         }
 

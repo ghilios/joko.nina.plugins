@@ -125,6 +125,9 @@ Within the plugin, report and charts only display raw ErrorY; all plugin fitters
 
 Also used by the InitialHFR/FinalHFR paths (AutoFocusEngine.cs:716-735): `Measure` semantics there
 are unchanged; their σ becomes honest for multi-frame users.
+The `MeasurementPointCompleted` event now carries the pooled measurement rather than the last
+sub-frame's (found in Task 3 review; fixed in this PR), so charts, the NINA broadcast point, and
+saved-report MeasurePoints agree with the fit inputs when FramesPerPoint > 1.
 
 Per-frame σ stays the ensemble scatter (1.483·MAD) — documented in the XML doc of
 `AverageMeasurement` and in `MeasureAndError` usage comments as a *relative* precision proxy.

@@ -213,18 +213,42 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 new MeasureAndError { Measure = 9.0, Stdev = 0.5 },
             };
 
-            var firstResult = AutoFocusEngine.TryCompleteFocuserPoint(map, 21209, firstFrames);
+            var firstResult = AutoFocusEngine.TryCompleteFocuserPoint(map, 21209, firstFrames, out var firstPooled);
 
             // Reprocessing a saved run can map two measurement points to the same focuser position. The second
             // completion must not throw "An item with the same key has already been added. Key: 21209".
             bool secondResult = false;
-            Assert.DoesNotThrow(() => secondResult = AutoFocusEngine.TryCompleteFocuserPoint(map, 21209, secondFrames));
+            MeasureAndError duplicatePooled = default;
+            Assert.DoesNotThrow(() => secondResult = AutoFocusEngine.TryCompleteFocuserPoint(map, 21209, secondFrames, out duplicatePooled));
 
             Assert.Multiple(() => {
                 Assert.That(firstResult, Is.True);
                 Assert.That(secondResult, Is.False);
                 Assert.That(map, Has.Count.EqualTo(1));
                 Assert.That(map[21209].Measure, Is.EqualTo(2.1).Within(1e-9));
+                Assert.That(firstPooled.Measure, Is.EqualTo(2.1).Within(1e-9));
+                Assert.That(duplicatePooled.Measure, Is.EqualTo(2.1).Within(1e-9));
+            });
+        }
+
+        [Test]
+        public void TryCompleteFocuserPoint_MultiFrame_OutputsPooledMeasurementForEvent() {
+            // The MeasurementPointCompleted event must carry this pooled value — not the last
+            // sub-frame — so charts, the NINA broadcast point, and saved reports agree with the fit
+            // inputs when FramesPerPoint > 1.
+            var map = new Dictionary<int, MeasureAndError>();
+            var frames = new List<MeasureAndError> {
+                new MeasureAndError { Measure = 2.0, Stdev = 0.4 },
+                new MeasureAndError { Measure = 3.0, Stdev = 0.4 },
+            };
+
+            var completed = AutoFocusEngine.TryCompleteFocuserPoint(map, 100, frames, out var pooled);
+
+            Assert.Multiple(() => {
+                Assert.That(completed, Is.True);
+                Assert.That(pooled.Measure, Is.EqualTo(2.5).Within(1e-12));
+                Assert.That(pooled.Stdev, Is.EqualTo(0.4 / Math.Sqrt(2)).Within(1e-12));
+                Assert.That(map[100].Measure, Is.EqualTo(pooled.Measure));
             });
         }
 
