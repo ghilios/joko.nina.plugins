@@ -357,6 +357,61 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
         }
 
         [Test]
+        public void KappaSigmaNoiseEstimate_ZeroBorder_MaskedFromFirstIteration() {
+            const int width = 64, height = 64;
+            const float mean = 0.5f, sigma = 0.05f;
+            using var mat = new Mat(new Size(width, height), MatType.CV_32F);
+            var rng = new Random(42);
+            unsafe {
+                var p = (float*)mat.DataPointer;
+                for (var i = 0; i < width * height; ++i) {
+                    // Deterministic Gaussian noise via Box-Muller
+                    var u1 = 1.0 - rng.NextDouble();
+                    var u2 = rng.NextDouble();
+                    var n = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+                    p[i] = (float)Math.Max(0.01, mean + sigma * n);
+                }
+                // Zero the left quarter — a calibrated/stacked frame's empty border
+                for (var y = 0; y < height; ++y) {
+                    for (var x = 0; x < width / 4; ++x) {
+                        p[y * width + x] = 0.0f;
+                    }
+                }
+            }
+
+            // With maxIterations=1 the estimate IS the first-iteration statistic: unmasked zeros inflate
+            // σ to ~0.22 (the 0 vs 0.5 split dominates); masked from iteration 0 it stays ≈ the noise σ.
+            var firstIteration = CvImageUtility.KappaSigmaNoiseEstimate(mat, maxIterations: 1);
+            Assert.Multiple(() => {
+                Assert.That(firstIteration.Sigma, Is.EqualTo(sigma).Within(0.01));
+                Assert.That(firstIteration.BackgroundMean, Is.EqualTo(mean).Within(0.01));
+            });
+        }
+
+        [Test]
+        public void KappaSigmaNoiseEstimate_GaussianNoise_NoZeros_MatchesKnownSigma() {
+            const int width = 64, height = 64;
+            const float mean = 0.5f, sigma = 0.05f;
+            using var mat = new Mat(new Size(width, height), MatType.CV_32F);
+            var rng = new Random(1234);
+            unsafe {
+                var p = (float*)mat.DataPointer;
+                for (var i = 0; i < width * height; ++i) {
+                    var u1 = 1.0 - rng.NextDouble();
+                    var u2 = rng.NextDouble();
+                    var n = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+                    p[i] = (float)Math.Max(0.01, mean + sigma * n);
+                }
+            }
+
+            var result = CvImageUtility.KappaSigmaNoiseEstimate(mat);
+            Assert.Multiple(() => {
+                Assert.That(result.Sigma, Is.EqualTo(sigma).Within(0.01));
+                Assert.That(result.BackgroundMean, Is.EqualTo(mean).Within(0.01));
+            });
+        }
+
+        [Test]
         public void CalculateStatistics_Histogram_UInt16_TieBreakCondition_ComputesCorrectMedian() {
             // 4 pixels total → targetMedianCount = 2.0
             // 2 pixels at value 100, 2 pixels at value 105

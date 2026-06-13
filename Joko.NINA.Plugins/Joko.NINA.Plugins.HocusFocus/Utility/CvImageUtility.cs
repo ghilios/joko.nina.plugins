@@ -514,11 +514,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 int numIterations = 0;
 
                 while (numIterations < maxIterations) {
-                    if (numIterations > 0) {
-                        Cv2.InRange(image, float.Epsilon, threshold - float.Epsilon, backgroundMaskMat);
-                    }
+                    // Exclude zero/negative pixels from the very first iteration too — calibrated/stacked
+                    // frames can carry exact-zero borders that would otherwise bias the initial mean/σ
+                    // (accuracy analysis F13). threshold starts at float.MaxValue, so iteration 0 keeps
+                    // every positive finite pixel.
+                    Cv2.InRange(image, float.Epsilon, threshold - float.Epsilon, backgroundMaskMat);
 
-                    Cv2.MeanStdDev(image, out var meanScalar, out var sigmaScalar, numIterations > 0 ? backgroundMaskMat : null);
+                    Cv2.MeanStdDev(image, out var meanScalar, out var sigmaScalar, backgroundMaskMat);
                     var sigma = sigmaScalar.ToDouble();
                     var mean = meanScalar.ToDouble();
                     if (++numIterations > 1) {
