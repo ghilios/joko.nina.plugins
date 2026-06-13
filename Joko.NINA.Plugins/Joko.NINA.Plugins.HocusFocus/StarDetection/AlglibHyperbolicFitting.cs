@@ -424,20 +424,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         /// <summary>
         /// Iteratively reweighted least squares with Huber weights. Each iteration re-solves the LM fit, then
-        /// recomputes per-point weights from the residual scale: inliers (|r| ≤ δ) keep weight 1, outliers are
-        /// down-weighted by δ/|r|, where δ = HuberSigmaMultiplier·σ and σ is the MAD of the current residuals.
+        /// recomputes per-point weights from the residual scale: inliers (|r − median(r)| ≤ δ) keep weight 1, outliers are
+        /// down-weighted by δ/|r − median(r)|, where δ = HuberSigmaMultiplier·σ and σ is the MAD of the current residuals.
         /// Folds those factors into the base χ² weights and repeats until the residual sum stabilizes.
         /// </summary>
         private bool SolveHuberIrls(double[] initialGuess, double[] lowerBounds, double[] upperBounds, double[] scale, out double[] solution) {
             const int maxIrlsIterations = 10;
             const double tolerance = 1e-6;
             solution = null;
+            double[] lastGoodSolution = null;
             var prevSumAbsResiduals = double.PositiveInfinity;
             var guess = initialGuess;
             for (int iter = 0; iter < maxIrlsIterations; ++iter) {
                 if (!SolveOnce(guess, lowerBounds, upperBounds, scale, out solution)) {
-                    return iter > 0; // keep the previous good solution if a later reweighting fails
+                    // SolveOnce just overwrote the out param with the failed attempt (or null) —
+                    // restore the previous good solution instead of returning the failed parameters.
+                    solution = lastGoodSolution;
+                    return solution != null;
                 }
+                lastGoodSolution = solution;
                 guess = solution; // warm-start the next reweighted solve
 
                 // Residual scale from the MAD of the unweighted residuals.
@@ -447,13 +452,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     residuals[i] = ModelValue(solution, Inputs[i][0]) - Outputs[i];
                     sumAbs += Math.Abs(residuals[i]);
                 }
-                var (_, mad) = residuals.MedianMAD();
+                var (residualMedian, mad) = residuals.MedianMAD();
                 if (mad <= 0.0 || double.IsNaN(mad)) {
                     break; // residuals already tight; no robust reweighting needed
                 }
                 var delta = HuberSigmaMultiplier * mad;
                 for (int i = 0; i < Inputs.Length; ++i) {
-                    var absR = Math.Abs(residuals[i]);
+                    // Center on the residual median so the comparison is consistent with the
+                    // median-centered MAD that defines δ — an offset residual distribution would
+                    // otherwise down-weight the bulk and under-penalize one-sided outliers.
+                    var absR = Math.Abs(residuals[i] - residualMedian);
                     var huber = absR <= delta ? 1.0 : delta / absR;
                     effectiveWeights[i] = Weights[i] * huber;
                 }

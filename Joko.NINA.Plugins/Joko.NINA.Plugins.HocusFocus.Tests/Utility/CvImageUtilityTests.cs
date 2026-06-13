@@ -1,3 +1,4 @@
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.Synthetic;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
@@ -307,6 +308,107 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
             // Sampling at (-0.5, -0.5) — implementations vary on edge handling, but it should not throw and return finite.
             var v = CvImageUtility.BilinearSamplePixelValue(mat, y: 0.0, x: 0.0);
             Assert.That(double.IsFinite(v), Is.True);
+        }
+
+        [Test]
+        public void AddOffset_CarriesAllFields_AndTranslatesBackgroundPlane() {
+            var star = new Star() {
+                Center = new Point2d(15, 27),
+                StarBoundingBox = new Rect(10, 22, 11, 11),
+                Background = 0.25,
+                BackgroundPlane = new LocalBackgroundPlane(originX: 15, originY: 27, b0: 0.25, b1: 0.01, b2: -0.02, isFlat: false),
+                MeanBrightness = 0.6,
+                PeakBrightness = 0.9,
+                HFR = 2.5,
+                PSF = null,
+                StarContaminationSuspected = true
+            };
+
+            var offset = star.AddOffset(xOffset: 100, yOffset: 200);
+
+            Assert.Multiple(() => {
+                Assert.That(offset.Center.X, Is.EqualTo(115));
+                Assert.That(offset.Center.Y, Is.EqualTo(227));
+                Assert.That(offset.StarBoundingBox, Is.EqualTo(new Rect(110, 222, 11, 11)));
+                Assert.That(offset.Background, Is.EqualTo(0.25));
+                Assert.That(offset.MeanBrightness, Is.EqualTo(0.6));
+                Assert.That(offset.PeakBrightness, Is.EqualTo(0.9));
+                Assert.That(offset.HFR, Is.EqualTo(2.5));
+                Assert.That(offset.StarContaminationSuspected, Is.True);
+                Assert.That(offset.BackgroundPlane, Is.Not.Null);
+                Assert.That(offset.BackgroundPlane.IsFlat, Is.False);
+                // The plane is anchored at the star center: translated plane at translated point == original at original point.
+                Assert.That(offset.BackgroundPlane.ValueAt(115 + 3, 227 + 4),
+                    Is.EqualTo(star.BackgroundPlane.ValueAt(15 + 3, 27 + 4)).Within(1e-12));
+            });
+        }
+
+        [Test]
+        public void AddOffset_NullBackgroundPlane_StaysNull() {
+            var star = new Star() {
+                Center = new Point2d(5, 6),
+                StarBoundingBox = new Rect(1, 2, 8, 8),
+                BackgroundPlane = null
+            };
+
+            var offset = star.AddOffset(xOffset: 10, yOffset: 20);
+
+            Assert.That(offset.BackgroundPlane, Is.Null);
+        }
+
+        [Test]
+        public void KappaSigmaNoiseEstimate_ZeroBorder_MaskedFromFirstIteration() {
+            const int width = 64, height = 64;
+            const float mean = 0.5f, sigma = 0.05f;
+            using var mat = new Mat(new Size(width, height), MatType.CV_32F);
+            var rng = new Random(42);
+            unsafe {
+                var p = (float*)mat.DataPointer;
+                for (var i = 0; i < width * height; ++i) {
+                    // Deterministic Gaussian noise via Box-Muller
+                    var u1 = 1.0 - rng.NextDouble();
+                    var u2 = rng.NextDouble();
+                    var n = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+                    p[i] = (float)Math.Max(0.01, mean + sigma * n);
+                }
+                // Zero the left quarter — a calibrated/stacked frame's empty border
+                for (var y = 0; y < height; ++y) {
+                    for (var x = 0; x < width / 4; ++x) {
+                        p[y * width + x] = 0.0f;
+                    }
+                }
+            }
+
+            // With maxIterations=1 the estimate IS the first-iteration statistic: unmasked zeros inflate
+            // σ to ~0.22 (the 0 vs 0.5 split dominates); masked from iteration 0 it stays ≈ the noise σ.
+            var firstIteration = CvImageUtility.KappaSigmaNoiseEstimate(mat, maxIterations: 1);
+            Assert.Multiple(() => {
+                Assert.That(firstIteration.Sigma, Is.EqualTo(sigma).Within(0.01));
+                Assert.That(firstIteration.BackgroundMean, Is.EqualTo(mean).Within(0.01));
+            });
+        }
+
+        [Test]
+        public void KappaSigmaNoiseEstimate_GaussianNoise_NoZeros_MatchesKnownSigma() {
+            const int width = 64, height = 64;
+            const float mean = 0.5f, sigma = 0.05f;
+            using var mat = new Mat(new Size(width, height), MatType.CV_32F);
+            var rng = new Random(1234);
+            unsafe {
+                var p = (float*)mat.DataPointer;
+                for (var i = 0; i < width * height; ++i) {
+                    var u1 = 1.0 - rng.NextDouble();
+                    var u2 = rng.NextDouble();
+                    var n = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+                    p[i] = (float)Math.Max(0.01, mean + sigma * n);
+                }
+            }
+
+            var result = CvImageUtility.KappaSigmaNoiseEstimate(mat);
+            Assert.Multiple(() => {
+                Assert.That(result.Sigma, Is.EqualTo(sigma).Within(0.01));
+                Assert.That(result.BackgroundMean, Is.EqualTo(mean).Within(0.01));
+            });
         }
 
         [Test]

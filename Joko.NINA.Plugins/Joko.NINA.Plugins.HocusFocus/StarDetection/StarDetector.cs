@@ -628,6 +628,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return Math.Abs(dx) >= Math.Abs(dy) ? 4 : 5;
         }
 
+        /// <summary>
+        /// Computes the star's HFR — the flux-weighted mean radius over a circular aperture, sampled
+        /// on an AnalysisSamplingSize grid through the centroid with per-pixel background-plane
+        /// subtraction. Saturated pixels are NOT masked here (unlike the PSF fit, which is off during
+        /// AF): a flat saturated core under-weights the center, biasing HFR high — most likely near
+        /// focus. No correction is attempted because HFR is an empirical flux sum (masking core pixels
+        /// would bias it further); median aggregation across stars limits the damage, and the
+        /// Saturated metric tracks exposure (accuracy analysis F14, decided document-only).
+        /// </summary>
         internal bool MeasureStar(Mat srcImage, Star star, StarDetectorParams p, double noiseSigma) {
             // Subtract the local background plane per pixel so a one-sided gradient does not bias HFR. Fall back
             // to a flat plane at the scalar background if no plane is available.

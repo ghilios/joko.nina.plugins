@@ -661,7 +661,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 }
 
                 try {
-                    var points = registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, EstimateHfrStdDev(s.Star))).ToList();
+                    // Same 5× weight cap as the AF fit path: EstimateHfrStdDev floors σ at 1e-3, so a
+                    // high-SNR frame could otherwise carry ~1000× weight inside this star's sweep fit
+                    // (the weight-chain F5a hazard's sibling — see WeightRegularization).
+                    var points = WeightRegularization.Regularize(
+                        registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, EstimateHfrStdDev(s.Star))).ToList());
                     var useWeights = autoFocusOptions.WeightedHyperbolicFitEnabled;
                     // Outlier budget: the configured cap when bad-match rejection is on, but never enough to prune a
                     // star below minStarCountForFitting points (so each per-star fit keeps a reliable point count).

@@ -124,7 +124,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         if (validFocusPoints.Count >= 3) {
                             if (AFCurveFittingEnum.PARABOLIC == fitting || AFCurveFittingEnum.TRENDPARABOLIC == fitting) {
                                 fittings.QuadraticFitting = new QuadraticFitting().Calculate(validFocusPoints);
-                                rejectedPoint = MathUtility.RejectionTest(points: validFocusPoints, fitting: fittings.QuadraticFitting.Fitting, confidence: rejectionConfidence);
+                                // NINA core's QuadraticFitting always weights by 1/ErrorY² (it has no unweighted
+                                // mode), so its Grubbs test must be weighted too — unconditionally, unlike the
+                                // hyperbolic site below where WeightedHyperbolicFitEnabled gates it. BuildResidualWeights
+                                // yields the matching standardized-residual weight (1/ErrorY): a 1/ErrorY²-weighted fit
+                                // makes (Y−f)/ErrorY the natural residual, which is what RejectionTest then ranks
+                                // (analysis F12).
+                                rejectedPoint = MathUtility.RejectionTest(points: validFocusPoints, fitting: fittings.QuadraticFitting.Fitting, confidence: rejectionConfidence, weights: AlglibHyperbolicFitting.BuildResidualWeights(validFocusPoints, useWeights: true));
                             }
 
                             if (AFCurveFittingEnum.HYPERBOLIC == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC == fitting) {

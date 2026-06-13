@@ -353,6 +353,25 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
+    public void ResetDefaults_FocusRangePersistedAndNotified_PeakResponseMatchesSimpleMode() {
+        var (options, store, _) = Build();
+        options.Simple_FocusRange = FocusRangeEnum.WideRange;
+        var raised = new List<string>();
+        options.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        options.ResetDefaults();
+
+        Assert.Multiple(() => {
+            Assert.That(options.Simple_FocusRange, Is.EqualTo(FocusRangeEnum.Typical));
+            Assert.That(raised, Does.Contain(nameof(StarDetectionOptions.Simple_FocusRange)));
+            // Persisted value must match the in-memory value (the old code wrote the backing field only).
+            Assert.That(store.GetValueEnum("Simple_FocusRange", FocusRangeEnum.WideRange), Is.EqualTo(FocusRangeEnum.Typical));
+            // ResetDefaults and ConfigureSimpleSettings must agree on the canonical default.
+            Assert.That(options.StarPeakResponse, Is.EqualTo(0.75));
+        });
+    }
+
+    [Test]
     public void ProfileChanged_ReinitializesValues() {
         var profile = Substitute.For<IProfileService>();
         var store = new InMemoryPluginOptionsAccessor();
