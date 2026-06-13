@@ -5,8 +5,10 @@ plus the four follow-ups recorded in the Risks/notes section of `plans/weight-ch
 (SolveHuberIrls failed-solve bug, uncentered-MAD Huber threshold, SensorModel per-star fits not
 regularized, structural IRLS reference-fit change).
 
-Branch: `ghilios/step5-small-fixes` → single PR to `develop`. One PR carries everything in scope;
-the only deferral is the structural IRLS change (W4), which becomes roadmap step 6.
+Branch: `ghilios/step5-small-fixes` → single PR to `develop`. The PR carries everything in scope
+except two deferrals discovered/decided along the way: F11 (meanFlux), pulled during execution after
+it measured an 8.1% star-count drop → roadmap step 6 (with a sensitivity recalibration); and the
+structural IRLS change (W4) → roadmap step 7.
 
 ## Decisions taken (brainstorm 2026-06-12)
 
@@ -23,7 +25,7 @@ the only deferral is the structural IRLS change (W4), which becomes roadmap step
 | W1 — `SolveHuberIrls` failed-solve bug | Mechanical fix, in batch. |
 | W2 — uncentered-MAD Huber threshold | Mechanical fix, in batch (median-center the comparison). |
 | W3 — SensorModel per-star fits not regularized | Mechanical fix, in batch (route through `WeightRegularization`). |
-| W4 — structural IRLS reference-fit change | **Own step** — new roadmap step 6. Changes every weighted Huber fit and needs FitQualityRunner corpus validation; exactly the "big or risky" category excluded from this batch. |
+| W4 — structural IRLS reference-fit change | **Own step** — new roadmap step 7. Changes every weighted Huber fit and needs FitQualityRunner corpus validation; exactly the "big or risky" category excluded from this batch. |
 
 ## Code changes
 
@@ -137,13 +139,16 @@ the floor see relative-weight changes only if some σ < 0.2·median — the cap 
   stars limits the damage. The `Saturated` metric already tracks exposure to this.
 - **F7 / F8 (won't fix)**: recorded in the roadmap row-5 notes (F7: rarely used; F8: only active
   with "use brightest N stars" > 0, kept as-is by decision).
-- **W4 (deferred)**: new roadmap step 6 — "Structural IRLS robustness: judge Huber residuals
+- **F11 (deferred during execution)**: new roadmap step 6 — apply the meanFlux denominator fix plus
+  a BrightnessSensitivity recalibration per preset (the knob was tuned against the inflated
+  `NormalizedBrightness`); the fix alone dropped accepted stars 8.1% on the corpus image.
+- **W4 (deferred)**: new roadmap step 7 — "Structural IRLS robustness: judge Huber residuals
   against an unweighted reference fit so a high-weight displaced point cannot self-mask." Links to
   the investigation notes in `plans/weight-chain-hygiene-design.md` (§1 implementation finding:
   recovery cliff at capped weight ratio ≥ ~1.25×; fit-level damage saturates regardless of cap).
   Requires FitQualityRunner corpus validation and synthetic-sweep experiments before any change.
 - **Roadmap §10**: row 5 → in progress (this design + plan), with the F7/F8/F14 decisions noted;
-  add step 6 row (⬜ Not started).
+  add step 6 row (F11 + sensitivity recalibration) and step 7 row (W4), both ⬜ Not started.
 
 ## Testing
 

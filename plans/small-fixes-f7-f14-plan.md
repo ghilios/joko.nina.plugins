@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Execution outcome (recorded post-run):** Tasks 1–5, 7, 8 (F9, F10, F13, W1, W2, F12, W3) and the
+> Task 9 F14 doc landed as planned. **Task 6 (F11) was deferred**: its meanFlux fix is correct but
+> Step 4's TestApp check measured an 8.1% accepted-star drop on the corpus image (1970→1810), so per
+> this plan's own Task 6 decision rule it was pulled from the batch into a new roadmap step 6 (F11 +
+> BrightnessSensitivity recalibration). W4 accordingly became roadmap step 7. The Task 9 roadmap edit
+> below was written to reflect that split rather than the original in-batch F11 wording.
+
 **Goal:** Land roadmap step 5 — eight small accuracy/correctness fixes (F9, F10, F11, F12, F13, W1, W2, W3), an F14 documentation note, and roadmap updates — in a single PR on branch `ghilios/step5-small-fixes`.
 
 **Architecture:** Each fix is independent and localized (one production file + one test file per task). No new components except one small test double (`FailNthSolveAlglibAPI`). Design doc: `plans/small-fixes-f7-f14-design.md` (approved). F7/F8 are won't-fix decisions; W4 is deferred to roadmap step 6 — neither gets code.
@@ -851,9 +858,12 @@ In `plans/star-detection-hfr-autofocus-accuracy-analysis.md` §10, replace the r
 with:
 
 ```markdown
-| 5. Small fixes (F7–F14) | 🟡 In progress | One PR: F9 AddOffset fields, F10 ResetDefaults, F11 meanFlux denominator, F12 weighted parabolic Grubbs, F13 kappa-sigma zero mask, plus weight-chain follow-ups W1 (SolveHuberIrls last-good), W2 (centered Huber), W3 (SensorModel regularization). F14 document-only; F7/F8 won't-fix by decision (rarely-used paths). Plans: `small-fixes-f7-f14-{design,plan}.md`. |
-| 6. Structural IRLS robustness (W4) | ⬜ Not started | Judge Huber residuals against an unweighted reference fit so a high-weight displaced point cannot self-mask (recovery cliff at ≥ ~1.25× capped weight ratio — see `weight-chain-hygiene-design.md` §1 implementation finding). Needs FitQualityRunner corpus validation before any change. |
+| 5. Small fixes (F7–F14) | 🟡 In progress | One PR: F9 AddOffset fields, F10 ResetDefaults, F12 weighted parabolic Grubbs, F13 kappa-sigma zero mask, plus weight-chain follow-ups W1 (SolveHuberIrls last-good), W2 (centered Huber), W3 (SensorModel regularization). F14 document-only; F7/F8 won't-fix; **F11 pulled to step 6 after an 8.1% star-count drop**. Plans: `small-fixes-f7-f14-{design,plan}.md`. |
+| 6. F11 meanFlux + sensitivity recalibration | ⬜ Not started | meanFlux denominator fix (÷ clip-survivor count) + BrightnessSensitivity recalibration per preset (the knob was tuned against the inflated NormalizedBrightness). Measured −8.1% accepted stars before recalibration. |
+| 7. Structural IRLS robustness (W4) | ⬜ Not started | Judge Huber residuals against an unweighted reference fit so a high-weight displaced point cannot self-mask (recovery cliff at ≥ ~1.25× capped weight ratio — see `weight-chain-hygiene-design.md` §1 implementation finding). Needs FitQualityRunner corpus validation before any change. |
 ```
+
+(The actual landed roadmap edit matches the split above — F11 → step 6, W4 → step 7. The original single-PR wording that listed F11 in row 5 and W4 as step 6 was superseded by the Task 6 deferral.)
 
 - [ ] **Step 3: Build to confirm the doc-only code change compiles**
 
@@ -903,7 +913,6 @@ Roadmap step 5 of plans/star-detection-hfr-autofocus-accuracy-analysis.md (desig
 ## Code fixes
 - **F9**: Star.AddOffset now carries PeakBrightness, StarContaminationSuspected, and a translated BackgroundPlane (ROI/AF-crop detections no longer lose them)
 - **F10**: ResetDefaults sets Simple_FocusRange through its property (persist+notify) and aligns StarPeakResponse to the canonical 0.75
-- **F11**: meanFlux divides by the clip-survivor count (NormalizedBrightness no longer inflated for faint stars; TestApp before/after star-count check within tolerance)
 - **F12**: parabolic Grubbs rejection now weighted, matching NINA core's always-weighted QuadraticFitting
 - **F13**: kappa-sigma noise estimate masks zero pixels from the first iteration
 - **W1**: SolveHuberIrls returns the last good solution when a mid-loop solve fails (was: the failed solve's parameters)
@@ -913,7 +922,8 @@ Roadmap step 5 of plans/star-detection-hfr-autofocus-accuracy-analysis.md (desig
 ## Decisions (no code)
 - F14 saturation-in-HFR: document-only (XML doc on MeasureStar)
 - F7 TRENDHYPERBOLIC averaging, F8 brightest-N selection: won't-fix (rarely-used paths)
-- W4 structural IRLS reference-fit: deferred to roadmap step 6
+- F11 meanFlux: deferred to roadmap step 6 (8.1% star-count drop needs a BrightnessSensitivity recalibration)
+- W4 structural IRLS reference-fit: deferred to roadmap step 7
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
