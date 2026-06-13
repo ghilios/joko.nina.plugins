@@ -76,5 +76,52 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             diffs.Sort();
             return diffs.Count == 0 ? 25 : Math.Max(1, (int)Math.Round(diffs[diffs.Count / 2]));
         }
+
+        private static readonly HyperbolicFitModel[] Asymmetric = {
+            HyperbolicFitModel.UnevenBlend, HyperbolicFitModel.TiltedHyperbola, HyperbolicFitModel.SmoothBlend,
+        };
+
+        // Genuinely tilted curve (small s=0.003) with realistic deterministic noise (noiseSigma = errorY, seed=0).
+        // This is a genuine gate discriminator: even though sigma(focus)_sym=0.058676 < sigma_min_asym=0.063878
+        // (Symmetric would win WITHOUT the gate on sigma), the F-test fires strongly (F_tilt=43.85,
+        // F_uneven=42.26, F_smooth=41.91 >> F_crit(1,16,0.95)=4.49) so the gate unlocks the asymmetric models
+        // and TiltedHyperbola wins. Confirmed: without the gate (force allowed=allIndices) Symmetric wins —
+        // verified by a sweep of 100 seeds showing sigma_sym < sigma_min_asym for ~75% of seeds.
+        // Audited chi-squared: chi2_sym=92.27, chi2_tilt=24.67, chi2_uneven=25.34, chi2_smooth=25.49.
+        [Test]
+        public void Gate_ReportsAsymmetric_WhenAsymmetryIsSignificant() {
+            var points = SyntheticFocusCurveSamples.TiltedHyperbolaPoints(
+                x0: 1000, y0: 2.0, a: 6.0, b: 12.0, s: 0.003,
+                xStart: 760, xStep: 16, count: 21, errorY: 0.04,
+                noiseSigma: 0.04, seed: 0);
+            var chosen = AlglibHyperbolicFitting.SelectBestModel(
+                alglibAPI, points, InferStep(points), useWeights: true, maxOutlierRejections: 2, rejectionConfidence: 0.90,
+                out _, out _);
+            Assert.That(Asymmetric, Does.Contain(chosen), "a significant tilt must be reported as an asymmetric model");
+        }
+
+        // Clean symmetric curve with realistic deterministic noise (noiseSigma = errorY, seed=42, 21 points).
+        // No real asymmetry exists, so no asymmetric model achieves a significant F-test improvement over
+        // Symmetric — gate stays closed — Symmetric wins by parsimony.
+        // Comfortable margin verified over seeds 0–5:
+        //   seed=0: F_tilt=0.58, F_uneven=0.65, F_smooth=0.61  (max F = 0.65; gap = 4.49 - 0.65 = 3.84)
+        //   seed=1: F_tilt=0.00, F_uneven=0.00, F_smooth=0.00
+        //   seed=2: F_tilt=0.10, F_uneven=0.10, F_smooth=0.10
+        //   seed=3: F_tilt=0.00, F_uneven=-0.01, F_smooth=0.00
+        //   seed=4: F_tilt=-0.10, F_uneven=-0.11, F_smooth=-0.11
+        //   seed=5: F_tilt=2.84, F_uneven=2.73, F_smooth=2.77  (worst; gap = 4.49 - 2.84 = 1.65)
+        //   F_crit(1,16,0.95) = 4.49; chosen=Symmetric for all seeds.
+        [Test]
+        public void Gate_ReportsSymmetric_WhenNoSignificantAsymmetry() {
+            var points = SyntheticFocusCurveSamples.SymmetricHyperbolaPoints(
+                x0: 1000, y0: 2.0, a: 6.0, b: 12.0,
+                xStart: 760, xStep: 32, count: 21, errorY: 0.1,
+                noiseSigma: 0.1, seed: 42);
+            var chosen = AlglibHyperbolicFitting.SelectBestModel(
+                alglibAPI, points, InferStep(points), useWeights: true, maxOutlierRejections: 2, rejectionConfidence: 0.90,
+                out _, out _);
+            Assert.That(chosen, Is.EqualTo(HyperbolicFitModel.Symmetric));
+        }
+
     }
 }

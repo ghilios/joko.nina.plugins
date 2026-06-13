@@ -285,6 +285,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// so pass 1 removes nothing in that case. <paramref name="rejectedPoints"/> returns the consensus set
         /// (not any single model's rejects).
         ///
+        /// Before ranking, a nested F-test (at <see cref="TiltSignificanceConfidence"/>) gates the asymmetric
+        /// (5-parameter) models against the Symmetric (4-parameter) baseline: an asymmetric model may win only when
+        /// it significantly improves on Symmetric; otherwise only Symmetric is eligible (parsimony). The gate is
+        /// bypassed when no viable Symmetric baseline survives.
+        ///
         /// Ranking is tiered: (1) finite parametric σ(focus) = <see cref="MinimumStdError"/> ascending — already
         /// produced by <see cref="Solve"/>, so the common path is cheap. Every concrete model supplies a σ(focus)
         /// (the Uneven Blend model included, via se(x0) from its analytic-gradient covariance), so all four
@@ -395,9 +400,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return HyperbolicFitModel.TiltedHyperbola;
             }
 
-            // Rank ALL viable survivors (no gate yet — Task 3 adds it).
+            // Significance gate: unlock the asymmetric (5-parameter) models only when at least one significantly
+            // improves on the Symmetric (4-parameter) baseline (nested F-test at TiltSignificanceConfidence, on the
+            // common cleaned set). Otherwise prefer parsimony (Symmetric). Requires a viable Symmetric baseline.
+            int symIndex = survivorModels.IndexOf(HyperbolicFitModel.Symmetric);
             var allIndices = Enumerable.Range(0, survivors.Count).ToList();
-            int winner = RankBest(alglibAPI, survivors, survivorModels, survivorClean, allIndices, stepSize, useWeights, maxDegreeOfParallelism);
+            List<int> allowed = allIndices;
+            if (symIndex >= 0) {
+                double chiSym = survivors[symIndex].ChiSquared;
+                // n is the common cleaned-set size (design §5). The per-model Y>=0.1 input filter is a no-op for
+                // valid focus data (HFR is never < 0.1 px), so this equals each fit's actual fitted-point count and
+                // the F-denominator dof (n − 5) is correct.
+                int n = cleaned.Count;
+                var justified = new List<int>();
+                for (int i = 0; i < survivors.Count; ++i) {
+                    if (survivorModels[i] == HyperbolicFitModel.Symmetric) continue;
+                    if (IsAsymmetryJustified(chiSym, survivors[i].ChiSquared, n, TiltSignificanceConfidence)) {
+                        justified.Add(i);
+                    }
+                }
+                allowed = justified.Count > 0 ? justified : new List<int> { symIndex };
+            }
+
+            int winner = RankBest(alglibAPI, survivors, survivorModels, survivorClean, allowed, stepSize, useWeights, maxDegreeOfParallelism);
             bestFit = survivors[winner];
             return survivorModels[winner];
         }
