@@ -421,7 +421,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         if (psfAccepted) {
                             detectedStar.PSF = psf;
                         } else {
-                            ++metrics.PSFFitFailed;
+                            // ModelPSF runs across multiple parallel Task.Run partitions, so this counter must
+                            // be incremented atomically rather than with a plain ++ (pre-existing data race).
+                            metrics.IncrementPsfFitFailed();
                         }
                     }
                 }, ct);
@@ -702,14 +704,61 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        // A candidate star collected by the sequential flood-fill (Stage A) and evaluated in parallel (Stage B).
+        // Each candidate owns its OWN point list (no sharing/reuse) so the parallel evaluation is data-race free.
+        private readonly struct StarCandidateRegion {
+            public readonly Rect Bounds;
+            public readonly List<Point> Points;
+
+            public StarCandidateRegion(Rect bounds, List<Point> points) {
+                Bounds = bounds;
+                Points = points;
+            }
+        }
+
         private List<Star> ScanStars(Mat srcImage, Mat structureMap, StarDetectorParams p, double srcImageNoiseSigma, StarDetectorMetrics metrics, CancellationToken ct) {
+            // Stage A: sequential flood-fill raster walk. Collects each candidate (bounds + its own point list)
+            // and zeroes the candidate's pixels so it is not re-scanned. EvaluateGlobalMetrics and the per-
+            // candidate StructureCandidates count run here, single-threaded, on the main metrics.
+            var candidates = CollectStarCandidates(srcImage, structureMap, p, metrics, ct);
+
+            // Stage B: evaluate every candidate in parallel. Per-star evaluation is independent (only LOCAL
+            // arrays + read-only image reads), so the only shared mutable state is the metrics (handled via
+            // thread-locals merged afterward) and the already-concurrent contaminationDiagnosticsBag.
+            var results = new Star[candidates.Count];
+            using var localMetrics = new ThreadLocal<StarDetectorMetrics>(() => new StarDetectorMetrics(), trackAllValues: true);
+
+            Parallel.For(0, candidates.Count, ParallelExecution.CreateOptions(p.MaxStarEvaluationParallelism, ct), i => {
+                ct.ThrowIfCancellationRequested();
+                results[i] = EvaluateStarCandidate(srcImage, p, candidates[i].Bounds, candidates[i].Points, srcImageNoiseSigma, localMetrics.Value);
+            });
+
+            // Fold each per-thread metrics instance into the main metrics (additive — see Merge), then sort the
+            // bounds lists by (Y, X) so the output is independent of thread scheduling.
+            foreach (var threadMetrics in localMetrics.Values) {
+                metrics.Merge(threadMetrics);
+            }
+            metrics.SortBounds();
+
+            // Assemble in index order to preserve today's exact top-left raster ordering of DetectedStars, and
+            // count detections on the main metrics.
+            var stars = new List<Star>(candidates.Count);
+            int totalDetected = 0;
+            for (int i = 0; i < results.Length; ++i) {
+                if (results[i] != null) {
+                    stars.Add(results[i]);
+                    ++totalDetected;
+                }
+            }
+            metrics.TotalDetected = totalDetected;
+
+            return stars;
+        }
+
+        private List<StarCandidateRegion> CollectStarCandidates(Mat srcImage, Mat structureMap, StarDetectorParams p, StarDetectorMetrics metrics, CancellationToken ct) {
             const float ZERO_THRESHOLD = 0.001f;
 
-            var stars = new List<Star>();
-
-            // TODO: Measure performance of allocating a new list for each star vs reusing the same list. Clear doesn't free memory, which is
-            //       intentional here
-            var starPoints = new List<Point>(1024);
+            var candidates = new List<StarCandidateRegion>();
             int width = structureMap.Width;
             int height = structureMap.Height;
             EvaluateGlobalMetrics(srcImage, p, metrics);
@@ -725,7 +774,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             continue;
                         }
 
-                        starPoints.Clear();
+                        // Each candidate gets its OWN point list so the parallel Stage B can read them
+                        // concurrently without sharing/reuse.
+                        var starPoints = new List<Point>(256);
 
                         // Grow the star bounding box as we walk around the image, downward and to the right
                         var starBounds = new Rect(xLeft, yTop, 1, 1);
@@ -788,13 +839,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         }
 
                         ++metrics.StructureCandidates;
-                        var star = EvaluateStarCandidate(srcImage, p, starBounds, starPoints, srcImageNoiseSigma, metrics);
-                        if (star != null) {
-                            ++metrics.TotalDetected;
-                            stars.Add(star);
-                        }
+                        candidates.Add(new StarCandidateRegion(starBounds, starPoints));
 
-                        // Now that we've evaluated the pixels within the star bounding box, we can zero them all out so we don't look again
+                        // Now that we've collected the pixels within the star bounding box, we can zero them all out so we don't look again
                         for (int y = starBounds.Top; y < starBounds.Bottom; ++y) {
                             for (int x = starBounds.Left; x < starBounds.Right; ++x) {
                                 structureData[y * width + x] = 0.0f;
@@ -804,7 +851,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            return stars;
+            return candidates;
         }
 
         private Star EvaluateStarCandidate(Mat srcImage, StarDetectorParams p, Rect starBounds, List<Point> starPoints, double srcImageNoiseSigma, StarDetectorMetrics metrics) {

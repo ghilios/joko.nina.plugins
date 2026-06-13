@@ -408,12 +408,82 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public List<Rect> TooFlatBounds { get; private set; } = new List<Rect>();
         public int TooLowHFR { get; set; } = 0;
         public int HFRAnalysisFailed { get; set; } = 0;
-        public int PSFFitFailed { get; set; } = 0;
+
+        // Backing field so PSFFitFailed can be incremented atomically from the parallel PSF-fit partitions
+        // (see IncrementPsfFitFailed). The public getter/setter behavior is preserved for existing
+        // readers/writers (e.g. TestApp's FocusSweepDiagnosticRunner) and for Merge.
+        private int psfFitFailed = 0;
+
+        public int PSFFitFailed { get => psfFitFailed; set => psfFitFailed = value; }
+
+        /// <summary>
+        /// Atomically increments <see cref="PSFFitFailed"/>. Used by ModelPSF, which runs across multiple
+        /// parallel partitions, so a plain <c>++</c> would race.
+        /// </summary>
+        public void IncrementPsfFitFailed() => System.Threading.Interlocked.Increment(ref psfFitFailed);
+
         public int ContaminationSuspected { get => ContaminatedBounds.Count; set => throw new NotSupportedException("Can't set ContaminationSuspected directly"); }
         public List<Rect> ContaminatedBounds { get; private set; } = new List<Rect>();
         public int OutsideROI { get; set; } = 0;
         public long SaturatedPixelCount { get; set; } = 0L;
         public long HotpixelCount { get; set; } = 0L;
+
+        /// <summary>
+        /// Folds <paramref name="other"/> into this instance: SUMs all scalar counters and CONCATENATEs every
+        /// <c>*Bounds</c> list. Used to combine the per-thread metrics produced by the parallel star-evaluation
+        /// stage back into the run's main metrics. Counters that the parallel stage never touches (e.g.
+        /// <see cref="StructureCandidates"/>, <see cref="HotpixelCount"/>, <see cref="SaturatedPixelCount"/>,
+        /// <see cref="TotalDetected"/>, <see cref="OutsideROI"/>) start at 0 on a fresh thread-local instance,
+        /// so the fold is additive and does not double-count values already present on the main metrics.
+        /// </summary>
+        public void Merge(StarDetectorMetrics other) {
+            if (other == null) {
+                return;
+            }
+
+            StructureCandidates += other.StructureCandidates;
+            TotalDetected += other.TotalDetected;
+            TooSmall += other.TooSmall;
+            OnBorder += other.OnBorder;
+            TooLowHFR += other.TooLowHFR;
+            HFRAnalysisFailed += other.HFRAnalysisFailed;
+            PSFFitFailed += other.PSFFitFailed;
+            OutsideROI += other.OutsideROI;
+            SaturatedPixelCount += other.SaturatedPixelCount;
+            HotpixelCount += other.HotpixelCount;
+
+            TooDistortedBounds.AddRange(other.TooDistortedBounds);
+            DegenerateBounds.AddRange(other.DegenerateBounds);
+            SaturatedBounds.AddRange(other.SaturatedBounds);
+            LowSensitivityBounds.AddRange(other.LowSensitivityBounds);
+            NotCenteredBounds.AddRange(other.NotCenteredBounds);
+            TooFlatBounds.AddRange(other.TooFlatBounds);
+            ContaminatedBounds.AddRange(other.ContaminatedBounds);
+        }
+
+        /// <summary>
+        /// Sorts every <c>*Bounds</c> list in place by (Y, then X) of the rect's top-left corner. Called after
+        /// merging the parallel star-evaluation results so that production output is independent of thread
+        /// scheduling order. (The Task-1 equivalence Signature already sorts bounds the same way.)
+        /// </summary>
+        public void SortBounds() {
+            var allRectBounds = new List<List<Rect>>() {
+                TooDistortedBounds,
+                DegenerateBounds,
+                SaturatedBounds,
+                LowSensitivityBounds,
+                NotCenteredBounds,
+                TooFlatBounds,
+                ContaminatedBounds
+            };
+
+            foreach (var rectBounds in allRectBounds) {
+                rectBounds.Sort((a, b) => {
+                    int cmp = a.Y.CompareTo(b.Y);
+                    return cmp != 0 ? cmp : a.X.CompareTo(b.X);
+                });
+            }
+        }
 
         public void AddROIOffset(int xOffset, int yOffset) {
             var allRectBounds = new List<List<Rect>>() {
