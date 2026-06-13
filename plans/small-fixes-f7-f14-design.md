@@ -16,7 +16,7 @@ the only deferral is the structural IRLS change (W4), which becomes roadmap step
 | F8 — brightest-N score units + unbounded/duplicate position matching | **Won't fix**, keep as-is (only active when NINA's "use brightest N stars" > 0). Recorded; no code change. |
 | F9 — `AddOffset` drops fields | Mechanical fix, in batch. |
 | F10 — `ResetDefaults` inconsistencies | Mechanical fix, in batch. |
-| F11 — `meanFlux` denominator mismatch | Mechanical fix, in batch; TestApp before/after sanity check. |
+| F11 — `meanFlux` denominator mismatch | ~~Mechanical fix, in batch~~ → **deferred during execution to its own step (roadmap step 6)**. The fix is correct but the TestApp sanity check measured an 8.1% accepted-star drop on the corpus image (1970→1810), far above the 2% gate — the BrightnessSensitivity knob was tuned against the inflated `NormalizedBrightness`, so it needs a recalibration pass (mirrors the F4 σ-consistency precedent). |
 | F12 — parabolic Grubbs unweighted | Mechanical fix, in batch; weights unconditional (see below). |
 | F13 — kappa-sigma first iteration unmasked | Fix (mask zeros from iteration 0); keep the 5-iteration cap. |
 | F14 — saturated pixels unmasked in HFR | **Document-only** (XML doc on `MeasureStar`); no correction attempted. |
@@ -171,9 +171,11 @@ before completion.
 ## Risks / notes
 
 - **F11** slightly tightens the sensitivity gate for faint stars with clipped skirt pixels. The
-  term is scaled by 0.25 (PeakResponse 0.75), so shifts are small; the TestApp check guards
-  against surprises. If a real image shows a material star-count drop, stop and reassess before
-  merging (the fix may then warrant its own calibration pass like F4 got).
+  term is scaled by 0.25 (PeakResponse 0.75), so shifts were expected to be small; the TestApp check
+  guards against surprises. **Outcome (execution):** the check measured a material −8.1% accepted-star
+  drop on the corpus image, so F11 was pulled from this batch and given its own calibration step
+  (roadmap step 6) — exactly the "stop and reassess … own calibration pass like F4 got" contingency
+  this note anticipated.
 - **F13** changes σ only for images containing exact-zero pixels; σ-derived knobs recalibrated in
   PR #48 are unaffected for normal frames.
 - **W2** changes robust weighting only when the residual median is materially non-zero —
