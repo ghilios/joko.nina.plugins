@@ -8,7 +8,7 @@
 
 **Tech Stack:** C# / .NET 8.0-windows, NUnit 4.4 (Tests project references the plugin project; `InternalsVisibleTo` is already in place), alglib LM fitting, OxyPlot `ScatterErrorPoint`.
 
-**Design doc:** `plans/weight-chain-hygiene-design.md` (approved 2026-06-12). Read it first.
+**Design doc:** `docs/weight-chain-hygiene-design.md` (approved 2026-06-12). Read it first.
 
 ---
 
@@ -32,7 +32,7 @@
 ### Task 1: Roadmap §10 update (rows 3 and 4)
 
 **Files:**
-- Modify: `plans/star-detection-hfr-autofocus-accuracy-analysis.md` (§10 table, lines ~284-285)
+- Modify: `docs/star-detection-hfr-autofocus-accuracy-analysis.md` (§10 table, lines ~284-285)
 
 - [ ] **Step 1: Update row 3 to Done and row 4 to In progress**
 
@@ -53,7 +53,7 @@ with
 - [ ] **Step 2: Commit**
 
 ```bash
-git add plans/star-detection-hfr-autofocus-accuracy-analysis.md
+git add docs/star-detection-hfr-autofocus-accuracy-analysis.md
 GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
   git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "Update roadmap: step 3 done (PR #48), step 4 in progress
 
@@ -784,7 +784,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 7: χ² gate empirical calibration (needs the user's saved-report corpus)
 
 **Files:**
-- Create: `plans/weight-chain-hygiene-chi2-results.md` (findings write-up; same pattern as `sigma-consistency-f3-results.md`)
+- Create: `docs/weight-chain-hygiene-chi2-results.md` (findings write-up; same pattern as `sigma-consistency-f3-results.md`)
 - Conditionally modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/AutoFocus/AutoFocusOptions.cs:71,94`, `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/AutoFocus/AutoFocusOptionsTests.cs:239`, and the Task 6 tooltip number
 
 - [ ] **Step 1: Build TestApp**
@@ -814,7 +814,7 @@ From the output CSV, per model and overall, compute median / P90 / P99 / max of 
 - **Tight distribution** (good-run χ²_red spread ≲ 2 orders of magnitude): pick the new default `ReducedChiSquaredRejectionThreshold` as a robust upper fence (median × 10, or ≈ P99 with margin, rounded to one significant figure). Then update: `AutoFocusOptions.cs` line 71 (the `GetValueDouble(nameof(ReducedChiSquaredRejectionThreshold), <default>)` literal) and line 94 (`ResetDefaults`), the pinned expectation at `AutoFocusOptionsTests.cs:239`, and the threshold guidance sentence in the Task 6 tooltip.
 - **Sprawling distribution**: keep 5.0 everywhere; the Task 6 docs already describe the gate as a coarse sanity bound.
 
-- [ ] **Step 6: Write `plans/weight-chain-hygiene-chi2-results.md`**
+- [ ] **Step 6: Write `docs/weight-chain-hygiene-chi2-results.md`**
 
 Record: corpus size, per-model χ²_red percentiles (old vs new chain), the decision taken and why, and any runs whose fitted minimum moved materially under regularization (these are the F5a victims — list file + shift in steps).
 
@@ -826,7 +826,7 @@ Expected: errors=0.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add -A plans/weight-chain-hygiene-chi2-results.md \
+git add -A docs/weight-chain-hygiene-chi2-results.md \
         Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/AutoFocus/AutoFocusOptions.cs \
         Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/AutoFocus/AutoFocusOptionsTests.cs \
         Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/Resources/OptionsDataTemplates.xaml

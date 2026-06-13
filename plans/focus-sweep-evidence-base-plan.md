@@ -8,7 +8,7 @@
 
 **Tech Stack:** C# / .NET 8 (`net8.0-windows7.0`), NUnit 4.4.0, OpenCvSharp4 (`Mat`, `CV_32F`), ScottPlot.WPF 4.1.59, alglib.net. Build via `rtk dotnet` (or `cmd.exe /c "dotnet …"`).
 
-**Reference spec:** [`plans/focus-sweep-evidence-base-design.md`](focus-sweep-evidence-base-design.md). **Branch:** `ghilios/focus-sweep-evidence-base` (already created).
+**Reference spec:** [`docs/focus-sweep-evidence-base-design.md`](../docs/focus-sweep-evidence-base-design.md). **Branch:** `ghilios/focus-sweep-evidence-base` (already created).
 
 ---
 

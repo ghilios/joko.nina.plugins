@@ -254,7 +254,7 @@ Step 2 of the star-detection accuracy analysis (defocus robustness, findings F1/
 - Full unit suite passes, including the new `SimpleMode_FocusRangeWideRange_IncreasesSensitivity`.
 - Optional local `TestApp focus-sweep` before/after on a real AF run (not in CI).
 
-Roadmap status updated in `plans/star-detection-hfr-autofocus-accuracy-analysis.md` (§10).
+Roadmap status updated in `docs/star-detection-hfr-autofocus-accuracy-analysis.md` (§10).
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF

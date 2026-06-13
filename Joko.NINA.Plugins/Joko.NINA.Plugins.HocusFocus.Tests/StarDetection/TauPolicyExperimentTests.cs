@@ -16,7 +16,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
     /// noise (std across seeds). subtract@0.4σ is the status-quo effective behavior after the F4 recalibration;
     /// the gate-only candidates trade the radial-gradient bias against one-sided noise admission at large radii.
     /// Assertions are deliberately loose — the printed table is the product (captured into
-    /// plans/sigma-consistency-f3-results.md for the decision gate).
+    /// docs/sigma-consistency-f3-results.md for the decision gate).
     /// </summary>
     [TestFixture]
     public class TauPolicyExperimentTests {

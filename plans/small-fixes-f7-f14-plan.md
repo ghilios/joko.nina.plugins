@@ -11,7 +11,7 @@
 
 **Goal:** Land roadmap step 5 — eight small accuracy/correctness fixes (F9, F10, F11, F12, F13, W1, W2, W3), an F14 documentation note, and roadmap updates — in a single PR on branch `ghilios/step5-small-fixes`.
 
-**Architecture:** Each fix is independent and localized (one production file + one test file per task). No new components except one small test double (`FailNthSolveAlglibAPI`). Design doc: `plans/small-fixes-f7-f14-design.md` (approved). F7/F8 are won't-fix decisions; W4 is deferred to roadmap step 6 — neither gets code.
+**Architecture:** Each fix is independent and localized (one production file + one test file per task). No new components except one small test double (`FailNthSolveAlglibAPI`). Design doc: `docs/small-fixes-f7-f14-design.md` (approved). F7/F8 are won't-fix decisions; W4 is deferred to roadmap step 6 — neither gets code.
 
 **Tech Stack:** C# / .NET 8.0-windows, NUnit 4 + NSubstitute, OpenCvSharp, alglib. Windows toolchain from WSL: wrap `dotnet` in `cmd.exe /c "..."` or use `rtk dotnet ...` (see `~/.claude/CLAUDE.md`). Always pass `timeout: 600000` to Bash for build/test commands.
 
@@ -829,7 +829,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/StarDetection/StarDetector.cs:631` (XML doc only)
-- Modify: `plans/star-detection-hfr-autofocus-accuracy-analysis.md` (§10 table)
+- Modify: `docs/star-detection-hfr-autofocus-accuracy-analysis.md` (§10 table)
 
 - [ ] **Step 1: Add the F14 XML doc on `MeasureStar`**
 
@@ -849,7 +849,7 @@ Above `internal bool MeasureStar(...)` (StarDetector.cs:631), add:
 
 - [ ] **Step 2: Update the roadmap table**
 
-In `plans/star-detection-hfr-autofocus-accuracy-analysis.md` §10, replace the row:
+In `docs/star-detection-hfr-autofocus-accuracy-analysis.md` §10, replace the row:
 
 ```markdown
 | 5. Small fixes (F7–F14) | ⬜ Not started | Independent one-liner-to-small patches. |
@@ -876,7 +876,7 @@ rtk dotnet build Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo
 - [ ] **Step 4: Commit**
 
 ```bash
-git add Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/StarDetection/StarDetector.cs plans/star-detection-hfr-autofocus-accuracy-analysis.md
+git add Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/StarDetection/StarDetector.cs docs/star-detection-hfr-autofocus-accuracy-analysis.md
 GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
   git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "Document F14 saturation limitation; update roadmap for step 5 and add step 6 (W4)
 
@@ -908,7 +908,7 @@ Expected: ~10 commits (design + plan docs + 8 fix/doc commits), touching the 6 p
 ```bash
 git push -u origin ghilios/step5-small-fixes
 gh pr create --base develop --title "Step 5 small fixes: F9-F13 + weight-chain follow-ups (W1-W3)" --body "$(cat <<'EOF'
-Roadmap step 5 of plans/star-detection-hfr-autofocus-accuracy-analysis.md (design: plans/small-fixes-f7-f14-design.md).
+Roadmap step 5 of docs/star-detection-hfr-autofocus-accuracy-analysis.md (design: docs/small-fixes-f7-f14-design.md).
 
 ## Code fixes
 - **F9**: Star.AddOffset now carries PeakBrightness, StarContaminationSuspected, and a translated BackgroundPlane (ROI/AF-crop detections no longer lose them)

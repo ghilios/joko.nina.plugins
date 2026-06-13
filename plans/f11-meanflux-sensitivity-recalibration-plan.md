@@ -8,7 +8,7 @@
 
 **Tech Stack:** C# / .NET 8.0-windows7.0, NUnit 4, OpenCvSharp, headless `TestApp focus-sweep` for real-data measurement and validation.
 
-**Spec:** `plans/f11-meanflux-sensitivity-recalibration-design.md` (approved). Branch: `ghilios/f11-meanflux-sensitivity-recalibration` (already created; contains the design-doc commit `9ff17da`).
+**Spec:** `docs/f11-meanflux-sensitivity-recalibration-design.md` (approved). Branch: `ghilios/f11-meanflux-sensitivity-recalibration` (already created; contains the design-doc commit `9ff17da`).
 
 **Environment notes (read first):**
 - All `dotnet` commands run via WSL interop. Use `rtk dotnet ...` (trust `errors=0` / exit code, not the header word) or `cmd.exe /c "dotnet ..."`. Set the Bash `timeout` to `600000` for build/test.
@@ -48,7 +48,7 @@ In `Joko.NINA.Plugins/TestApp/FocusSweepDiagnosticRunner.cs`, immediately AFTER 
 ```csharp
             // F11 step 6: a single-value override and a sweep for BrightnessSensitivity, applied on top of the
             // built base params (profile-derived or --default-params). The sweep is how the recalibrated knob
-            // value is chosen empirically — see plans/f11-meanflux-sensitivity-recalibration-design.md §3.
+            // value is chosen empirically — see docs/f11-meanflux-sensitivity-recalibration-design.md §3.
             var brightnessOverride = DiagnosticUtil.GetArg(args, "--brightness-sensitivity");
             if (!string.IsNullOrWhiteSpace(brightnessOverride)) {
                 baseParams.Sensitivity = double.Parse(brightnessOverride, CultureInfo.InvariantCulture);
@@ -199,7 +199,7 @@ The fix is applied to the working tree here (to enable the measurement) but **no
 - Test: create `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/StarDetection/MeanFluxDenominatorTests.cs`
 - Create: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/Synthetic/SyntheticHaloStarField.cs`
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/StarDetection/StarDetector.cs` (`:877`, `:1208`)
-- Create: `plans/f11-meanflux-sensitivity-recalibration-results.md`
+- Create: `docs/f11-meanflux-sensitivity-recalibration-results.md`
 
 - [ ] **Step 1: Write the synthetic halo-star field helper**
 
@@ -386,10 +386,10 @@ Wait for the answer. If the user requests the None/High empirical pass, run two 
 
 - [ ] **Step 11: Record the decision in the results file**
 
-Create `plans/f11-meanflux-sensitivity-recalibration-results.md` with: a one-paragraph header (what was measured — anchor `uneven/final`, the pre/post overlay, link to design §3/§5); the overlay table from Step 9; the reproduced 2.0 → ~1810 drop; and a `## Decision` section recording K_typ (+ K_none/K_high if measured), the date, the None/High scope decision, and a one-sentence rationale. Commit just this file:
+Create `docs/f11-meanflux-sensitivity-recalibration-results.md` with: a one-paragraph header (what was measured — anchor `uneven/final`, the pre/post overlay, link to design §3/§5); the overlay table from Step 9; the reproduced 2.0 → ~1810 drop; and a `## Decision` section recording K_typ (+ K_none/K_high if measured), the date, the None/High scope decision, and a one-sentence rationale. Commit just this file:
 
 ```bash
-git add plans/f11-meanflux-sensitivity-recalibration-results.md
+git add docs/f11-meanflux-sensitivity-recalibration-results.md
 GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
   git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "Record F11 BrightnessSensitivity recalibration measurement + decision
 
@@ -419,7 +419,7 @@ In `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/Interfaces/IStarDetector.cs`,
         // Sensitivity is the minimum value of a star's brightness (with the background subtracted out) above the
         // noise floor (s - b)/n, with n measured on the image actually sampled (F4) and the brightness measure
         // using the honest survivor-mean meanFlux (F11). Smaller values increase sensitivity. The default was
-        // lowered from 2.0 to restore the pre-F11 faint-star yield — see plans/f11-meanflux-sensitivity-recalibration-results.md.
+        // lowered from 2.0 to restore the pre-F11 faint-star yield — see docs/f11-meanflux-sensitivity-recalibration-results.md.
         public double Sensitivity { get; set; } = <K_typ>;
 ```
 
@@ -435,7 +435,7 @@ In `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/StarDetection/StarDetectionOp
                     NoiseReductionRadius = 3;
                     // 0.2 = F4 honest-σ compensation; further reduced by the F11 yield factor (K_typ/2.0) because
                     // the survivor-mean meanFlux fix lowered NormalizedBrightness. 0.2·(K_typ/2.0) = <scale>.
-                    // Empirical — see plans/f11-meanflux-sensitivity-recalibration-results.md.
+                    // Empirical — see docs/f11-meanflux-sensitivity-recalibration-results.md.
                     sensitivityScale = <scale>; // = K_typ / 10.0; gives BrightnessSensitivity = 10·<scale> = K_typ
                     break;
 
@@ -626,10 +626,10 @@ Show the tables plus a one-paragraph reading: per-position `StarCount` should be
 
 - [ ] **Step 5 (only if counts shifted materially or junk was re-admitted): nudge and loop**
 
-If the anchor count over/under-shoots N_anchor_prefix, or a validation run shows a new dominant rejection mode among recovered stars: pick a corrected K_typ from the after-anchor sweep curve (or move it up slightly to shed junk), update consistently — `sensitivityScale` (`StarDetectionOptions.cs` Low/Typical cases), `BrightnessSensitivity` defaults (`InitializeOptions`, `ResetDefaults`), the `IStarDetector.cs` class default, and the options/report test expectations (`<K_typ>` and `<K_typ*0.8>`) — re-run the full suite (Task 4 Step 7), rebuild TestApp, re-run Steps 2-4. Update `plans/f11-meanflux-sensitivity-recalibration-results.md` with the final value. Commit the nudge:
+If the anchor count over/under-shoots N_anchor_prefix, or a validation run shows a new dominant rejection mode among recovered stars: pick a corrected K_typ from the after-anchor sweep curve (or move it up slightly to shed junk), update consistently — `sensitivityScale` (`StarDetectionOptions.cs` Low/Typical cases), `BrightnessSensitivity` defaults (`InitializeOptions`, `ResetDefaults`), the `IStarDetector.cs` class default, and the options/report test expectations (`<K_typ>` and `<K_typ*0.8>`) — re-run the full suite (Task 4 Step 7), rebuild TestApp, re-run Steps 2-4. Update `docs/f11-meanflux-sensitivity-recalibration-results.md` with the final value. Commit the nudge:
 
 ```bash
-git add -A Joko.NINA.Plugins plans/f11-meanflux-sensitivity-recalibration-results.md
+git add -A Joko.NINA.Plugins docs/f11-meanflux-sensitivity-recalibration-results.md
 GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
   git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "Tune F11 BrightnessSensitivity from real-data before/after sweeps
 
@@ -642,7 +642,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Modify (only if needed): `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/Resources/OptionsDataTemplates.xaml` (`BrightnessSensitivity_Tooltip`)
-- Modify: `plans/f11-meanflux-sensitivity-recalibration-results.md`
+- Modify: `docs/f11-meanflux-sensitivity-recalibration-results.md`
 
 - [ ] **Step 1: Check the BrightnessSensitivity tooltip**
 
@@ -653,14 +653,14 @@ Expected: exit 0, `errors=0`.
 
 - [ ] **Step 2: Add the advanced-mode release note to the results file**
 
-Append a `## Release note (advanced-mode users)` section to `plans/f11-meanflux-sensitivity-recalibration-results.md`:
+Append a `## Release note (advanced-mode users)` section to `docs/f11-meanflux-sensitivity-recalibration-results.md`:
 
 > `BrightnessSensitivity` now operates against a slightly lower `NormalizedBrightness` (the meanFlux fix uses the clip-survivor mean instead of the full-footprint mean). Hand-tuned advanced-mode values may be lowered by ~`(K_typ/2.0)` to preserve prior faint-star yield. Simple-mode presets are recalibrated automatically.
 
 - [ ] **Step 3: Commit (if anything changed)**
 
 ```bash
-git add -A Joko.NINA.Plugins plans/f11-meanflux-sensitivity-recalibration-results.md
+git add -A Joko.NINA.Plugins docs/f11-meanflux-sensitivity-recalibration-results.md
 GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
   git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "Update BrightnessSensitivity tooltip + add F11 release note
 
@@ -674,7 +674,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 7: Roadmap housekeeping, full suite, push, PR
 
 **Files:**
-- Modify: `plans/star-detection-hfr-autofocus-accuracy-analysis.md` (§10 table, rows 5-6 ~:286-287)
+- Modify: `docs/star-detection-hfr-autofocus-accuracy-analysis.md` (§10 table, rows 5-6 ~:286-287)
 
 - [ ] **Step 1: Update §10**
 
@@ -694,7 +694,7 @@ Expected: all pass. Fix any failure's cause before pushing — never skip or mar
 - [ ] **Step 3: Commit, push, open the PR**
 
 ```bash
-git add plans/star-detection-hfr-autofocus-accuracy-analysis.md
+git add docs/star-detection-hfr-autofocus-accuracy-analysis.md
 GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
   git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "Update roadmap progress for step 6 (F11)
 
@@ -706,7 +706,7 @@ Then create the PR (fill in K_typ and the before/after summary):
 
 ```bash
 gh pr create --base develop --title "F11 meanFlux fix + BrightnessSensitivity recalibration (step 6)" --body "$(cat <<'EOF'
-Step 6 of the star-detection accuracy analysis (finding F11). Design: `plans/f11-meanflux-sensitivity-recalibration-design.md`; measurement + decision: `plans/f11-meanflux-sensitivity-recalibration-results.md`.
+Step 6 of the star-detection accuracy analysis (finding F11). Design: `docs/f11-meanflux-sensitivity-recalibration-design.md`; measurement + decision: `docs/f11-meanflux-sensitivity-recalibration-results.md`.
 
 ## Changes
 - **F11 fix:** `NormalizedBrightness`'s `meanFlux` now divides `totalFlux` by the clip-survivor count (`numUnclippedPixels`) instead of the full structure-footprint count (`starPoints.Count`). The old denominator understated `meanFlux` and inflated NB for faint/spread stars, loosening the sensitivity gate.

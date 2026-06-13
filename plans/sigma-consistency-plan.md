@@ -8,7 +8,7 @@
 
 **Tech Stack:** C# / .NET 8.0-windows7.0, NUnit 4, OpenCvSharp, headless `TestApp focus-sweep` for real-data validation.
 
-**Spec:** `plans/sigma-consistency-design.md` (approved). Branch: `ghilios/sigma-consistency` (already created; contains the design doc commit).
+**Spec:** `docs/sigma-consistency-design.md` (approved). Branch: `ghilios/sigma-consistency` (already created; contains the design doc commit).
 
 **Environment notes (read first):**
 - All `dotnet` commands run via WSL interop. Use `rtk dotnet ...` (trust `errors=0`/exit code, not the header word) or `cmd.exe /c "dotnet ..."`. Set Bash timeout to 600000 for build/test.
@@ -688,7 +688,7 @@ In `IStarDetector.cs`, directly above `public class StarDetectorParams` (line ~1
     // radial gradient — accuracy analysis F3 — but suppresses one-sided noise at large radii more aggressively).
     // GateOnly uses τ purely as an inclusion gate, matching the convention of the iterative centroid and the
     // star-parameter computation. The production default is chosen empirically — see
-    // plans/sigma-consistency-design.md §3.
+    // docs/sigma-consistency-design.md §3.
     public enum TauClipPolicy {
         SubtractTau,
         GateOnly
@@ -762,7 +762,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Files:**
 - Test: create `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/StarDetection/TauPolicyExperimentTests.cs`
-- Create: `plans/sigma-consistency-f3-results.md` (the captured table)
+- Create: `docs/sigma-consistency-f3-results.md` (the captured table)
 
 - [ ] **Step 1: Write the experiment fixture**
 
@@ -785,7 +785,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
     /// noise (std across seeds). subtract@0.4σ is the status-quo effective behavior after the F4 recalibration;
     /// the gate-only candidates trade the radial-gradient bias against one-sided noise admission at large radii.
     /// Assertions are deliberately loose — the printed table is the product (captured into
-    /// plans/sigma-consistency-f3-results.md for the decision gate).
+    /// docs/sigma-consistency-f3-results.md for the decision gate).
     /// </summary>
     [TestFixture]
     public class TauPolicyExperimentTests {
@@ -878,7 +878,7 @@ Expected: PASS (loose bounds), with three printed tables. If a cell trips a boun
 
 If the per-cell numbers are not visible in rtk's output, re-run the filter via `cmd.exe /c "dotnet test Joko.NINA.Plugins\Joko.NINA.Plugins.sln -c Debug --nologo --filter FullyQualifiedName~TauPolicyExperimentTests --logger \"console;verbosity=detailed\""` to capture the TestContext tables.
 
-- [ ] **Step 3: Capture the tables into `plans/sigma-consistency-f3-results.md`**
+- [ ] **Step 3: Capture the tables into `docs/sigma-consistency-f3-results.md`**
 
 Create the file with: a one-paragraph header (what was measured, link to design §3), the three tables verbatim, and a short "Reading the table" note (bias closest to 0 wins on accuracy; std materially above subtract@0.4σ's is the noise-admission penalty; the faint donut row is the AF-critical regime).
 
@@ -886,7 +886,7 @@ Create the file with: a one-paragraph header (what was measured, link to design 
 
 ```bash
 git add Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/StarDetection/TauPolicyExperimentTests.cs \
-        plans/sigma-consistency-f3-results.md
+        docs/sigma-consistency-f3-results.md
 GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
   git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "Add tau-policy experiment matrix and captured results (F3 evidence)
 
@@ -899,14 +899,14 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Present the evidence and ask**
 
-Show the user the three tables from `plans/sigma-consistency-f3-results.md` plus a recommendation derived from them (pick the cell with near-zero bias on the faint Gaussian AND faint donut whose std does not materially exceed subtract@0.4σ's; if gate-only's noise penalty at 0.4σ is large, prefer gate@1.0σ or gate@2.0σ). Ask the user to choose one of:
+Show the user the three tables from `docs/sigma-consistency-f3-results.md` plus a recommendation derived from them (pick the cell with near-zero bias on the faint Gaussian AND faint donut whose std does not materially exceed subtract@0.4σ's; if gate-only's noise penalty at 0.4σ is large, prefer gate@1.0σ or gate@2.0σ). Ask the user to choose one of:
 
 1. `gate@0.4σ` — gate-only, keep recalibrated multiplier
 2. `gate@1.0σ` — gate-only, raise multiplier to 1.0
 3. `gate@2.0σ` — gate-only, raise multiplier to 2.0
 4. `subtract@0.4σ` — keep legacy subtraction, close F3 as won't-fix
 
-Wait for the answer. Record it in `plans/sigma-consistency-f3-results.md` under a `## Decision` heading (one line: chosen cell + date + one-sentence rationale).
+Wait for the answer. Record it in `docs/sigma-consistency-f3-results.md` under a `## Decision` heading (one line: chosen cell + date + one-sentence rationale).
 
 ---
 
@@ -915,19 +915,19 @@ Wait for the answer. Record it in `plans/sigma-consistency-f3-results.md` under 
 **Files:**
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/Interfaces/IStarDetector.cs`
 - Modify (option 2/3 only): `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/StarDetection/StarDetectionOptions.cs`, `StarDetectionOptionsTests.cs`, `SigmaConsistencyDetectorTests.cs`
-- Modify: `plans/sigma-consistency-f3-results.md` (already updated in Task 8)
+- Modify: `docs/sigma-consistency-f3-results.md` (already updated in Task 8)
 
 Exactly ONE of the following branches applies. All branches end with the same suite run + commit steps.
 
 **If the user chose `gate@0.4σ` (option 1):**
 
-- [ ] Flip the default in `IStarDetector.cs`: `public TauClipPolicy HfrTauPolicy { get; set; } = TauClipPolicy.GateOnly;` and update the enum's doc comment last sentence to: `// The production default is GateOnly, chosen empirically — see plans/sigma-consistency-f3-results.md.`
+- [ ] Flip the default in `IStarDetector.cs`: `public TauClipPolicy HfrTauPolicy { get; set; } = TauClipPolicy.GateOnly;` and update the enum's doc comment last sentence to: `// The production default is GateOnly, chosen empirically — see docs/sigma-consistency-f3-results.md.`
 
 **If the user chose `gate@1.0σ` or `gate@2.0σ` (option 2/3 — L = 1.0 or 2.0):**
 
 - [ ] Flip the default to `GateOnly` as in option 1.
 - [ ] Set `StarClippingMultiplier` to L everywhere it was recalibrated to 0.4, since the level was chosen against the honest σ and applies uniformly (this intentionally also changes the None/High preset τ — the empirically better level wins; say so at Checkpoint C):
-  - `IStarDetector.cs` class default: `public double StarClippingMultiplier { get; set; } = <L>;` (update its comment's "compensates" sentence to "chosen empirically — see plans/sigma-consistency-f3-results.md").
+  - `IStarDetector.cs` class default: `public double StarClippingMultiplier { get; set; } = <L>;` (update its comment's "compensates" sentence to "chosen empirically — see docs/sigma-consistency-f3-results.md").
   - `StarDetectionOptions.cs` `InitializeOptions`: `starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", <L>);`
   - `StarDetectionOptions.cs` `ResetDefaults`: `StarClippingMultiplier = <L>;`
   - `StarDetectionOptions.cs` `ConfigureSimpleSettings`: replace `StarClippingMultiplier = 2 * sensitivityScale;` with `StarClippingMultiplier = <L>; // uniform honest τ level, chosen empirically (F3)`.
@@ -936,7 +936,7 @@ Exactly ONE of the following branches applies. All branches end with the same su
 
 **If the user chose `subtract@0.4σ` (option 4):**
 
-- [ ] No production change. In `StarDetector.cs`, extend the comment inside the `MeasureStar` clip block with one line: `// Decision (F3): subtraction retained deliberately — see plans/sigma-consistency-f3-results.md.`
+- [ ] No production change. In `StarDetector.cs`, extend the comment inside the `MeasureStar` clip block with one line: `// Decision (F3): subtraction retained deliberately — see docs/sigma-consistency-f3-results.md.`
 
 **All branches:**
 
@@ -948,7 +948,7 @@ Expected: all pass (`TauPolicyExperimentTests` is policy-explicit per cell, so i
 - [ ] **Commit**
 
 ```bash
-git add -A Joko.NINA.Plugins plans/sigma-consistency-f3-results.md
+git add -A Joko.NINA.Plugins docs/sigma-consistency-f3-results.md
 GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
   git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "Apply empirically chosen tau policy for MeasureStar (F3)
 
@@ -1000,7 +1000,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ### Task 11: Roadmap housekeeping, full suite, push, PR
 
 **Files:**
-- Modify: `plans/star-detection-hfr-autofocus-accuracy-analysis.md` (§10 table, lines ~283-284)
+- Modify: `docs/star-detection-hfr-autofocus-accuracy-analysis.md` (§10 table, lines ~283-284)
 
 - [ ] **Step 1: Update §10**
 
@@ -1024,7 +1024,7 @@ Expected: all pass. If anything fails, fix the cause before pushing — never sk
 - [ ] **Step 3: Commit, push, open the PR**
 
 ```bash
-git add plans/star-detection-hfr-autofocus-accuracy-analysis.md
+git add docs/star-detection-hfr-autofocus-accuracy-analysis.md
 GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
   git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "Update roadmap progress for steps 2 and 3
 
@@ -1036,7 +1036,7 @@ Then create the PR (use the actual chosen F3 policy in the second bullet; attach
 
 ```bash
 gh pr create --base develop --title "Sigma consistency (step 3): honest measurement-image sigma (F4), empirical tau semantics (F3)" --body "$(cat <<'EOF'
-Step 3 of the star-detection accuracy analysis (σ consistency, findings F4 then F3). Design: `plans/sigma-consistency-design.md`; F3 evidence: `plans/sigma-consistency-f3-results.md`.
+Step 3 of the star-detection accuracy analysis (σ consistency, findings F4 then F3). Design: `docs/sigma-consistency-design.md`; F3 evidence: `docs/sigma-consistency-f3-results.md`.
 
 ## Changes
 - **F4 — honest σ (behavior-preserving at defaults):** the sensitivity gate, clip margins, MeasureStar τ, PSF noise floor, and contamination fallback now use σ measured on the image actually sampled (second parallel kappa-sigma estimate, reused when the images are identical). The structure-map binarize threshold keeps the smoothed-image σ.

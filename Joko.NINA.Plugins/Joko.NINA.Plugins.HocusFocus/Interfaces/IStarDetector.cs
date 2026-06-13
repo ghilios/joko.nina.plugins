@@ -215,7 +215,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     // radial gradient — accuracy analysis F3 — but suppresses one-sided noise at large radii more aggressively).
     // GateOnly uses τ purely as an inclusion gate, matching the convention of the iterative centroid and the
     // star-parameter computation. The production default is GateOnly at τ=2.0σ, chosen empirically — see
-    // plans/sigma-consistency-f3-results.md.
+    // docs/sigma-consistency-f3-results.md.
     public enum TauClipPolicy {
         SubtractTau,
         GateOnly
@@ -247,7 +247,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Number of measurement-image noise standard deviations above the local background median to filter star
         // candidate pixels out from star consideration and HFR analysis. σ is measured on the image actually
         // sampled (F4) and the level + gate-only policy were chosen empirically — see
-        // plans/sigma-consistency-f3-results.md (was 2.0 against a smoothed σ before F4; the empirically chosen
+        // docs/sigma-consistency-f3-results.md (was 2.0 against a smoothed σ before F4; the empirically chosen
         // honest level is also 2.0).
         public double StarClippingMultiplier { get; set; } = 2.0;
 
@@ -307,7 +307,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Minimum HFR for a star to be considered viable. The old 1.5 floor was calibrated against faint-star
         // HFRs inflated ~1.24× by one-sided noise rectification at the legacy soft-threshold τ; with the honest
         // gate-only τ (F3) faint stars measure at/below truth, so the floor is scaled down accordingly —
-        // see plans/sigma-consistency-f3-results.md (follow-up).
+        // see docs/sigma-consistency-f3-results.md (follow-up).
         public double MinHFR { get; set; } = 1.2d;
 
         public StarDetectionRegion Region { get; set; } = StarDetectionRegion.Full;
