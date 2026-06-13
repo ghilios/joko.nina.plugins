@@ -45,8 +45,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// a positive finite σ, all σ become 1.0 (the fit degenerates to unweighted). X, Y, and ErrorX
         /// pass through unchanged.
         /// </summary>
-        private static bool IsUsableSigma(double sigma) => double.IsFinite(sigma) && sigma > 0.0;
-
         public static List<ScatterErrorPoint> Regularize(IReadOnlyList<ScatterErrorPoint> points) {
             if (points == null || points.Count == 0) {
                 return new List<ScatterErrorPoint>();
@@ -70,5 +68,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return new ScatterErrorPoint(p.X, p.Y, p.ErrorX, regularized);
             }).ToList();
         }
+
+        private static bool IsUsableSigma(double sigma) => double.IsFinite(sigma) && sigma > 0.0;
     }
 }

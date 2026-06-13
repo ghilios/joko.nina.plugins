@@ -57,7 +57,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         /// <summary>
         /// Weighted χ² of the fit: Σ (Weights[i]·(model(xᵢ) − yᵢ))². When <see cref="WeightedHyperbolicFitEnabled"/>
-        /// is on (Weights = 1/σ from each point's regularized ErrorY) this is a χ² in <b>scatter units</b>:
+        /// is on (Weights = 1/σ from each point's ErrorY, regularized at the auto-focus fit entry points) this is a χ² in <b>scatter units</b>:
         /// per-point σ is the star-ensemble scatter (1.483·MAD), which overstates the uncertainty of the
         /// plotted median HFR by roughly √(detected stars) — so values ≪ 1 are normal for star-rich fields.
         /// Unweighted (Weights = 1) it degenerates to the plain residual sum of squares, which is

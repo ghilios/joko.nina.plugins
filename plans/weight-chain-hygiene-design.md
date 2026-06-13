@@ -98,10 +98,13 @@ keeps its formula (its inputs are now regularized).
 
 ### 2. Honest point construction (display/report layer)
 
-`AutoFocusEngine.cs:695` changes from `Math.Max(0.001, σ)` to a NaN-guarded raw value:
-`double.IsNaN(σ) ? 0.0 : Math.Max(0.0, σ)`. ErrorY = 0 renders as "no error bar" and is treated as
-*unknown* by the regularizer (→ median σ). Saved reports (`HocusFocusReport` MeasurePoints.Error)
-carry measured values, never fabricated floors. Within the plugin, report and charts only display raw ErrorY; all plugin fitters go through §1
+`AutoFocusEngine.cs:695` changes from `Math.Max(0.001, σ)` to a finite-guarded raw value via the
+shared helper `AutoFocusEngine.SafeDisplayError`: `double.IsFinite(σ) ? Math.Max(0.0, σ) : 0.0`
+(catches ±Inf as well as NaN). Applied at all three construction sites: the engine's per-point
+construction (~line 695), `HocusFocusVM` chart points, and `InspectorVM` chart points.
+ErrorY = 0 renders as "no error bar" and is treated as *unknown* by the regularizer (→ median σ).
+Saved reports (`HocusFocusReport` MeasurePoints.Error) carry measured values, never fabricated floors.
+Within the plugin, report and charts only display raw ErrorY; all plugin fitters go through §1
 (including the saved-report reload path via `SetCurveFittings`).
 
 ### 3. `AverageMeasurement` rewrite (F5b + F6 pooling)
