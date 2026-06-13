@@ -21,6 +21,7 @@ using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -195,12 +196,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// answer moves when any single measurement is removed. Returns <see cref="double.NaN"/> when there are
         /// fewer than 5 points or fewer than 2 successful refits. Mirrors the offline benchmark's LeaveOneOutStd.
         /// </summary>
-        public static double ComputeLeaveOneOutBestFocusStdError(IAlglibAPI alglibAPI, HyperbolicFitModel model, IList<ScatterErrorPoint> points, int stepSize, bool useWeights) {
+        public static double ComputeLeaveOneOutBestFocusStdError(IAlglibAPI alglibAPI, HyperbolicFitModel model, IList<ScatterErrorPoint> points, int stepSize, bool useWeights, int maxDegreeOfParallelism = 0) {
             if (points == null || points.Count < 5) {
                 return double.NaN;
             }
-            var predictions = new List<double>(points.Count);
-            for (int skip = 0; skip < points.Count; ++skip) {
+
+            // Drop-one refits are independent: each builds its own point subset and its own AlglibHyperbolicFitting
+            // (Create+Solve) through the shared alglibAPI, which serializes only handle alloc/free (SensorModel.cs
+            // 626-627). Predictions are written to index-aligned slots (slot = skip index) and reduced in ascending
+            // skip-index order AFTER the loop, so the floating-point reduction order is identical to the original
+            // sequential loop ⇒ the result is bit-identical regardless of completion order. A skip whose fit fails or
+            // produces a non-finite minimum leaves its slot null and is skipped (exactly the sequential `continue`).
+            var predictionSlots = new double?[points.Count];
+            var parallelOptions = new ParallelOptions {
+                // Cap at points.Count: never spin up more parallelism than there are drop-one iterations.
+                MaxDegreeOfParallelism = Math.Min(ParallelExecution.ResolveDegreeOfParallelism(maxDegreeOfParallelism), points.Count)
+            };
+            // Use the default scheduler (not a limited shared one): when this runs inside SensorModel's outer
+            // per-star Parallel.For (which already saturates the cores with the default scheduler), callers
+            // pass maxDegreeOfParallelism: 1 to keep the inner loop sequential and avoid ~ProcessorCount²
+            // active threads (oversubscription).
+            Parallel.For(0, points.Count, parallelOptions, skip => {
                 var subset = new List<ScatterErrorPoint>(points.Count - 1);
                 for (int i = 0; i < points.Count; ++i) {
                     if (i != skip) {
@@ -209,7 +225,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
                 var fit = Create(alglibAPI, model, subset, stepSize, useWeights);
                 if (fit.Solve() && !double.IsNaN(fit.Minimum.X) && !double.IsInfinity(fit.Minimum.X)) {
-                    predictions.Add(fit.Minimum.X);
+                    predictionSlots[skip] = fit.Minimum.X;
+                }
+            });
+
+            // Collect the finite predictions in ascending skip-index order — same order the sequential loop appended
+            // them — so Average/variance accumulate in the identical floating-point sequence.
+            var predictions = new List<double>(points.Count);
+            for (int skip = 0; skip < predictionSlots.Length; ++skip) {
+                if (predictionSlots[skip].HasValue) {
+                    predictions.Add(predictionSlots[skip].Value);
                 }
             }
             if (predictions.Count < 2) {
@@ -266,7 +291,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public static HyperbolicFitModel SelectBestModel(
                 IAlglibAPI alglibAPI, IList<ScatterErrorPoint> points, int stepSize, bool useWeights,
                 int maxOutlierRejections, double rejectionConfidence,
-                out AlglibHyperbolicFitting bestFit, out IReadOnlyList<ScatterErrorPoint> rejectedPoints) {
+                out AlglibHyperbolicFitting bestFit, out IReadOnlyList<ScatterErrorPoint> rejectedPoints,
+                int maxDegreeOfParallelism = 0) {
             double minX = double.PositiveInfinity, maxX = double.NegativeInfinity;
             if (points != null) {
                 foreach (var p in points) {
@@ -275,24 +301,56 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
+            // The four candidate fits are fully independent — each FitWithOutlierRejection builds its own working
+            // point list and its own AlglibHyperbolicFitting through the shared alglibAPI (which serializes only
+            // handle alloc/free; SensorModel.cs 626-627). Run them in parallel into index-aligned slots so the
+            // survivor selection / tiering / tie-break below can read them back in fixed HybridCandidateModels index
+            // order — that keeps the winning-model choice and tie-break deterministic and independent of completion
+            // order. The per-model try/catch is preserved exactly: a model whose fit throws leaves its slot null,
+            // identical to today's `continue` after a caught exception. Default scheduler (NOT SharedScheduler) to
+            // avoid nested-Parallel.For starvation when SelectBestModel runs inside SensorModel's parallel per-star
+            // loop (that caller passes maxDegreeOfParallelism: 1 ⇒ sequential inner).
+            var modelFits = new AlglibHyperbolicFitting[HybridCandidateModels.Length];
+            var modelRejectsSlots = new List<ScatterErrorPoint>[HybridCandidateModels.Length];
+            var modelCleanSlots = new List<ScatterErrorPoint>[HybridCandidateModels.Length];
+            var fitParallelOptions = new ParallelOptions {
+                // Cap at HybridCandidateModels.Length: never spin up more parallelism than there are candidate fits.
+                // Use the default scheduler (not a limited shared one): SensorModel's outer per-star Parallel.For
+                // already saturates the cores, so callers in that context pass maxDegreeOfParallelism: 1 to keep
+                // the inner loop sequential and avoid ~ProcessorCount² active threads (oversubscription).
+                MaxDegreeOfParallelism = Math.Min(ParallelExecution.ResolveDegreeOfParallelism(maxDegreeOfParallelism), HybridCandidateModels.Length)
+            };
+            Parallel.For(0, HybridCandidateModels.Length, fitParallelOptions, k => {
+                var model = HybridCandidateModels[k];
+                try {
+                    var fit = FitWithOutlierRejection(alglibAPI, model, points, stepSize, useWeights, maxOutlierRejections, rejectionConfidence, out var modelRejects, out var modelClean);
+                    if (fit == null) {
+                        return;
+                    }
+                    modelFits[k] = fit;
+                    modelRejectsSlots[k] = modelRejects;
+                    modelCleanSlots[k] = modelClean;
+                } catch (Exception ex) {
+                    Logger.Trace($"Hybrid selection: model {model} failed to solve ({ex.Message})");
+                }
+            });
+
+            // Survivor selection — SEQUENTIAL, iterating in fixed HybridCandidateModels index order, reading the
+            // index-aligned slots. This reproduces the original loop's ordering exactly (and therefore its tie-break).
             var survivors = new List<AlglibHyperbolicFitting>();
             var survivorModels = new List<HyperbolicFitModel>();
             var survivorRejects = new List<List<ScatterErrorPoint>>();
             var survivorClean = new List<List<ScatterErrorPoint>>();
             AlglibHyperbolicFitting tiltedFit = null;
             List<ScatterErrorPoint> tiltedRejects = null;
-            foreach (var model in HybridCandidateModels) {
-                AlglibHyperbolicFitting fit;
-                List<ScatterErrorPoint> modelRejects, modelClean;
-                try {
-                    fit = FitWithOutlierRejection(alglibAPI, model, points, stepSize, useWeights, maxOutlierRejections, rejectionConfidence, out modelRejects, out modelClean);
-                    if (fit == null) {
-                        continue;
-                    }
-                } catch (Exception ex) {
-                    Logger.Trace($"Hybrid selection: model {model} failed to solve ({ex.Message})");
+            for (int k = 0; k < HybridCandidateModels.Length; ++k) {
+                var model = HybridCandidateModels[k];
+                var fit = modelFits[k];
+                if (fit == null) {
                     continue;
                 }
+                var modelRejects = modelRejectsSlots[k];
+                var modelClean = modelCleanSlots[k];
                 if (model == HyperbolicFitModel.TiltedHyperbola) {
                     tiltedFit = fit;
                     tiltedRejects = modelRejects;
@@ -339,7 +397,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // LOO uses its own cleaned point set, consistent with how it was ranked.
                 contenders = new List<int>();
                 for (int i = 0; i < survivors.Count; ++i) {
-                    var loo = ComputeLeaveOneOutBestFocusStdError(alglibAPI, survivorModels[i], survivorClean[i], stepSize, useWeights);
+                    // Propagate the same inner-parallelism degree: when SelectBestModel is called sequentially-inner
+                    // (e.g. per-star inside SensorModel), its LOO refits stay sequential too. The per-survivor loop
+                    // itself stays sequential.
+                    var loo = ComputeLeaveOneOutBestFocusStdError(alglibAPI, survivorModels[i], survivorClean[i], stepSize, useWeights, maxDegreeOfParallelism);
                     primary[i] = loo;
                     if (!double.IsNaN(loo) && !double.IsInfinity(loo)) {
                         contenders.Add(i);

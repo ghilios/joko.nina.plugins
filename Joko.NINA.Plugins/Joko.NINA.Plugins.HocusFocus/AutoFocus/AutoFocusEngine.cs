@@ -520,7 +520,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusRegionState regionState,
             AutoFocusImageState imageState,
             IRenderedImage image,
-            CancellationToken token) {
+            CancellationToken token,
+            SavedDetectionCacheSource cacheSource = null) {
             Logger.Trace($"Evaluating auto focus exposure at position {imageState.FocuserPosition}");
 
             var imageProperties = image.RawImageData.Properties;
@@ -560,16 +561,37 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var hfStarDetection = (IHocusFocusStarDetection)starDetection;
                     var hfParams = hfStarDetection.ToHocusFocusParams(analysisParams);
                     var starDetectorParams = hfStarDetection.GetStarDetectorParams(image, regionState.Region, true);
-                    var hfAnalysisResult = (HocusFocusStarDetectionResult)await hfStarDetection.Detect(image, hfParams, starDetectorParams, null, token);
+
+                    // Replay reuse cache (Task 8, default OFF): when replaying a saved run and the option is on, reuse
+                    // the saved per-region detection JSON in place of re-running the (expensive) Detect — but ONLY when
+                    // TryLoadValidCachedDetection confirms the saved result's detector version + params (region
+                    // included) still match. cacheSource is null on the live path, so the && short-circuits before any
+                    // disk access and detection runs exactly as before. Any miss/mismatch/error ⇒ cached is null ⇒ we
+                    // fall through to Detect. The cached result is a HocusFocusStarDetectionResult whose StarList is
+                    // HocusFocusDetectedStar, so the downstream SubMeasurementPointCompleted event feeds the sensor
+                    // model identically to a fresh detection.
+                    HocusFocusStarDetectionResult hfAnalysisResult;
+                    if (state.Options.ReuseSavedDetection
+                        && cacheSource != null
+                        && TryLoadValidCachedDetection(cacheSource.SourceFolder, cacheSource.ImageNumber, cacheSource.FrameNumber, regionState.RegionIndex, starDetectorParams, out var cachedResult)) {
+                        Logger.Debug($"Reusing saved star detection result for image {cacheSource.ImageNumber}, frame {cacheSource.FrameNumber}, region {regionState.RegionIndex} (focuser {imageState.FocuserPosition})");
+                        hfAnalysisResult = cachedResult;
+                    } else {
+                        hfAnalysisResult = (HocusFocusStarDetectionResult)await hfStarDetection.Detect(image, hfParams, starDetectorParams, null, token);
+                    }
                     hfAnalysisResult.FocuserPosition = imageState.FocuserPosition;
                     analysisResult = hfAnalysisResult;
                 }
 
                 if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
                     var saveAttemptFolder = GetSaveAttemptFolder(state, imageState.AttemptNumber, imageState.FinalValidation);
-                    var resultFileName = $"{imageState.ImageNumber:00}_Frame{imageState.FrameNumber:00}_Region{regionState.RegionIndex:00}_star_detection_result.json";
+                    var resultFileName = BuildStarDetectionResultFileName(imageState.ImageNumber, imageState.FrameNumber, regionState.RegionIndex);
                     var resultTargetPath = Path.Combine(saveAttemptFolder, resultFileName);
-                    File.WriteAllText(resultTargetPath, JsonConvert.SerializeObject(analysisResult, Formatting.Indented));
+                    // Use the dedicated cache serializer (not default Json.NET settings) so the polymorphic
+                    // StarList entries (HocusFocusDetectedStar, incl. PSF) and the DetectorVersion/CacheKey
+                    // survive a future reload — see StarDetectionResultCacheSerializer. The format change is
+                    // safe today because nothing reads this file back yet.
+                    File.WriteAllText(resultTargetPath, StarDetectionResultCacheSerializer.Serialize(analysisResult));
 
                     var annotatedFileName = $"{imageState.ImageNumber:00}_Frame{imageState.FrameNumber:00}_Region{regionState.RegionIndex:00}_annotated.tiff";
                     var annotatedTargetPath = Path.Combine(saveAttemptFolder, annotatedFileName);
@@ -737,6 +759,91 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// </summary>
         internal static double SafeDisplayError(double stdev) {
             return double.IsFinite(stdev) ? Math.Max(0.0, stdev) : 0.0;
+        }
+
+        /// <summary>
+        /// Identifies the on-disk source of a saved per-region detection result for the replay reuse cache. Only
+        /// the REPLAY path supplies one (built from the <see cref="SavedAutoFocusImage"/> being replayed); the
+        /// live AF path passes <c>null</c>, which (together with the default-off <c>ReuseSavedDetection</c> flag)
+        /// keeps detection running exactly as before.
+        ///
+        /// <para><see cref="ImageNumber"/>/<see cref="FrameNumber"/> are the ORIGINAL numbers parsed from the
+        /// saved filename — they name the saved <c>_star_detection_result.json</c>. The replay loop reassigns a
+        /// fresh <c>imageState.ImageNumber</c> for ordering, which must NOT be used to look up the cache file.</para>
+        /// </summary>
+        internal sealed record SavedDetectionCacheSource(string SourceFolder, int ImageNumber, int FrameNumber);
+
+        /// <summary>
+        /// Returns the canonical filename for a per-region star-detection result JSON, derived from the original
+        /// image/frame/region numbers. This is the single source of truth for the filename format used by both the
+        /// save path and the cache-reuse path (<see cref="TryLoadValidCachedDetection"/>).
+        /// </summary>
+        internal static string BuildStarDetectionResultFileName(int imageNumber, int frameNumber, int regionIndex)
+            => $"{imageNumber:00}_Frame{frameNumber:00}_Region{regionIndex:00}_star_detection_result.json";
+
+        /// <summary>
+        /// Reuse-side gate for the replay detection-result cache. Tries to load the saved per-region
+        /// <c>_star_detection_result.json</c> for the given (original) image/frame/region and returns it ONLY when
+        /// it is provably interchangeable with a fresh detection for <paramref name="currentParams"/>: the saved
+        /// <see cref="HocusFocusStarDetectionResult.DetectorVersion"/> equals the current
+        /// <see cref="StarDetector.StarDetectorVersion"/> AND the saved
+        /// <see cref="HocusFocusStarDetectionResult.CacheKey"/> equals
+        /// <see cref="StarDetector.ComputeCacheKey(StarDetectorParams)"/> for the current params (region included).
+        ///
+        /// <para>Every other outcome — file missing, unreadable/corrupt JSON, any deserialize exception, version
+        /// mismatch, or key mismatch — returns <c>false</c> with <paramref name="cached"/> = <c>null</c>, so the
+        /// caller falls back to a full detection. The helper never throws: its only failure mode is a (safe)
+        /// cache miss, never a stale or incorrect reuse. The filename is built from the ORIGINAL
+        /// <paramref name="imageNumber"/>/<paramref name="frameNumber"/> (the saved-file numbers), not any
+        /// replay-reassigned counter.</para>
+        /// </summary>
+        internal static bool TryLoadValidCachedDetection(
+            string sourceFolder,
+            int imageNumber,
+            int frameNumber,
+            int regionIndex,
+            StarDetectorParams currentParams,
+            out HocusFocusStarDetectionResult cached) {
+            cached = null;
+            if (string.IsNullOrEmpty(sourceFolder) || currentParams == null) {
+                return false;
+            }
+
+            var fileName = BuildStarDetectionResultFileName(imageNumber, frameNumber, regionIndex);
+            var path = Path.Combine(sourceFolder, fileName);
+            if (!File.Exists(path)) {
+                Logger.Debug($"Saved detection cache miss (file not found): {path}");
+                return false;
+            }
+
+            HocusFocusStarDetectionResult deserialized;
+            try {
+                var json = File.ReadAllText(path);
+                deserialized = StarDetectionResultCacheSerializer.Deserialize(json);
+            } catch (Exception e) {
+                // Unreadable / corrupt / format-incompatible cache file. Treat as a miss and re-detect.
+                Logger.Debug($"Saved detection cache miss (failed to read/deserialize {path}): {e.Message}");
+                return false;
+            }
+
+            if (deserialized == null) {
+                Logger.Debug($"Saved detection cache miss (deserialized to null): {path}");
+                return false;
+            }
+
+            if (deserialized.DetectorVersion != StarDetector.StarDetectorVersion) {
+                Logger.Debug($"Saved detection cache miss (detector version {deserialized.DetectorVersion} != current {StarDetector.StarDetectorVersion}): {path}");
+                return false;
+            }
+
+            var expectedKey = StarDetector.ComputeCacheKey(currentParams);
+            if (!string.Equals(deserialized.CacheKey, expectedKey, StringComparison.Ordinal)) {
+                Logger.Debug($"Saved detection cache miss (cache key saved={deserialized.CacheKey} != current={expectedKey}): {path}");
+                return false;
+            }
+
+            cached = deserialized;
+            return true;
         }
 
         private Task InitialHFRMeasurementAction(AutoFocusImageState imageState, MeasureAndError measurement, AutoFocusState state, AutoFocusRegionState regionState) {
@@ -1477,7 +1584,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusRegionState regionState,
             AutoFocusImageState imageState,
             IRenderedImage renderedImage,
-            CancellationToken token) {
+            CancellationToken token,
+            SavedDetectionCacheSource cacheSource = null) {
             try {
                 state.MeasurementStarted();
                 return await EvaluateExposure(
@@ -1485,7 +1593,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     regionState: regionState,
                     imageState: imageState,
                     image: renderedImage,
-                    token: token);
+                    token: token,
+                    cacheSource: cacheSource);
             } finally {
                 state.MeasurementCompleted();
             }
@@ -1547,6 +1656,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ProgressType = ApplicationStatus.StatusProgressType.ValueOfMaxValue
             });
 
+            // Bounded prefetch: allow several saved-file loads (disk read + decode + PrepareExposure) to be in
+            // flight at once so loads overlap each other and the parallel star detection, instead of the loop
+            // blocking on each load sequentially. The bound is deliberately SMALL (not ProcessorCount): each
+            // decoded frame is multi-MB and must stay resident until all of its region-analysis tasks finish,
+            // so maxPrefetch caps the number of decoded frames held in memory at once. A slot is acquired before
+            // each load is started and released only after that frame's analysis completes and its imageState is
+            // disposed, so acquire<->release are paired and resident decoded frames never exceed maxPrefetch.
+            // Floor 2: one frame can load while the previous is analyzed; ceiling 4: memory (multi-MB decoded frames) grows linearly with little extra overlap benefit past this.
+            var maxPrefetch = Math.Max(2, Math.Min(4, Environment.ProcessorCount));
+            var prefetchSemaphore = new SemaphoreSlim(maxPrefetch, maxPrefetch);
+            // Flat list of every post-task spawned, so the finally can wait for ALL of them (each of which releases
+            // its slot) before disposing the semaphore — even if the loop is left early via cancellation/exception
+            // before a group's combined task is added to focuserPositionTasks. Avoids disposing while a Release is
+            // still in flight.
+            var allPostTasks = new List<Task>();
             try {
                 var framesPerFile = savedFiles
                     .GroupBy(f => f.ImageNumber)
@@ -1564,25 +1688,57 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var files = focuserPositionGroup.OrderBy(g => g.FrameNumber).ToList();
                     var allMeasurementTasks = new List<Task>();
                     foreach (var savedFile in files) {
+                        // OnNextImage assigns ImageNumber/ordering and MUST stay sequential and ordered.
                         var imageState = await state.OnNextImage(savedFile.FrameNumber, savedFile.FocuserPosition, false, token);
 
-                        var localSavedFile = savedFile;
-                        var loadedImage = await ReloadSavedFile(state, localSavedFile, token);
+                        // Acquire a prefetch slot BEFORE starting the load. If WaitAsync throws (e.g. cancellation),
+                        // dispose imageState to release the ExposureSemaphore slot OnNextImage acquired — mirrors the
+                        // live-run catch at ~line 882. Nothing between the successful WaitAsync and the post-task
+                        // creation throws synchronously (ReloadSavedFile is async; Task.Run/List.Add don't throw), so
+                        // the post-task reliably takes ownership of cleanup from that point on. If synchronously-
+                        // throwing code is ever added in that window, this guard must be widened to also release the
+                        // acquired prefetch slot.
+                        try {
+                            await prefetchSemaphore.WaitAsync(token);
+                        } catch {
+                            imageState.Dispose();
+                            throw;
+                        }
+
+                        // Start the load without awaiting it inline so loads overlap each other and analysis. The
+                        // returned Task is awaited by the region-analysis tasks below. Any load failure is captured
+                        // in loadTask and surfaces when those tasks await it.
+                        var loadTask = ReloadSavedFile(state, savedFile, token);
+                        // Source for the replay reuse cache (consumed only when Options.ReuseSavedDetection is on).
+                        // Uses the ORIGINAL image/frame numbers from the saved filename (NOT imageState.ImageNumber,
+                        // which OnNextImage reassigned as a fresh ordering counter) and the saved file's own folder,
+                        // so it points at the matching _star_detection_result.json written next to this exposure.
+                        var cacheSource = new SavedDetectionCacheSource(Path.GetDirectoryName(savedFile.Path), savedFile.ImageNumber, savedFile.FrameNumber);
                         var singleFileAnalysisTasks = new List<Task>();
                         foreach (var regionState in state.FocusRegionStates) {
                             var partialMeasurementTask = Task.Run(async () => {
+                                // Image is read-only during detection and is shared across region tasks, so awaiting
+                                // the same loadTask from each is safe.
+                                var loadedImage = await loadTask;
                                 lock (state.StatesLock) {
                                     var imageProperties = loadedImage.RawImageData.Properties;
                                     state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
                                 }
 
-                                var measurement = await AnalyzeSavedFile(state, regionState, imageState, loadedImage, token);
+                                var measurement = await AnalyzeSavedFile(state, regionState, imageState, loadedImage, token, cacheSource);
                                 await FocusPointMeasurementAction(imageState, measurement, state, regionState);
                             });
 
                             singleFileAnalysisTasks.Add(partialMeasurementTask);
                         }
 
+                        // Created unconditionally and immediately after acquiring the slot (no awaitable code in
+                        // between can throw synchronously), so this post-task is the sole, guaranteed owner of the
+                        // slot release. Its finally releases the slot and disposes imageState EXACTLY ONCE on every
+                        // path (success, load/analysis failure, or cancellation), pairing 1:1 with the WaitAsync
+                        // above. The decoded image is held until WhenAll completes, so it is never disposed before
+                        // all region-analysis tasks finish reading it. No token is passed to Task.Run so the finally
+                        // always runs (a token-canceled Task.Run would skip the delegate and leak the slot/imageState).
                         var singleFilePostTask = Task.Run(async () => {
                             try {
                                 await Task.WhenAll(singleFileAnalysisTasks);
@@ -1595,9 +1751,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                                 });
                             } finally {
                                 imageState.Dispose();
+                                prefetchSemaphore.Release();
                             }
-                        }, token);
+                        });
                         allMeasurementTasks.Add(singleFilePostTask);
+                        allPostTasks.Add(singleFilePostTask);
                     }
 
                     var focuserPositionTask = Task.WhenAll(allMeasurementTasks);
@@ -1630,6 +1788,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     SaveFolder = state.SaveFolder
                 };
             } finally {
+                // Wait for every spawned post-task to finish so all slot Releases have completed before disposing
+                // the semaphore. This also covers the early-exit paths (e.g. a WaitAsync/OnNextImage cancellation
+                // mid-loop) where some post-tasks were created but their group was never added to
+                // focuserPositionTasks. Exceptions are swallowed here because the original (already-thrown)
+                // exception must be the one that propagates out of RerunImpl; this await is cleanup only.
+                try {
+                    await Task.WhenAll(allPostTasks);
+                } catch {
+                }
+                prefetchSemaphore.Dispose();
                 await Task.Delay(1000);
                 progress.Report(new ApplicationStatus());
             }

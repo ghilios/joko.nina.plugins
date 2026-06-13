@@ -17,6 +17,7 @@ using NINA.Core.Utility;
 using NINA.Image.Interfaces;
 using OpenCvSharp;
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -35,6 +36,12 @@ using NINA.Core.Utility.Notification;
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class StarDetector : IStarDetector {
+        // Bump whenever star-detection logic changes; invalidates the saved-run detection cache so replays
+        // re-detect. The version is stamped onto HocusFocusStarDetectionResult.DetectorVersion and folded into
+        // HocusFocusStarDetectionResult.CacheKey, so a later reuse-side task can reject any saved
+        // _star_detection_result.json that was produced by a different detector version (or different params).
+        public const int StarDetectorVersion = 1;
+
         private readonly IAlglibAPI alglibAPI;
 
         // Allocated in DetectImpl only when StarDetectorParams.CollectContaminationDiagnostics is set. Star
@@ -44,6 +51,45 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         public StarDetector(IAlglibAPI alglibAPI) {
             this.alglibAPI = alglibAPI;
+        }
+
+        /// <summary>
+        /// Computes a stable, culture-invariant cache key for a saved star-detection result. The key is the
+        /// SHA-256 (lowercase hex) of a canonical string built from
+        /// <see cref="StarDetectorParams.ToCanonicalCacheString()"/> (which reflects over every public detection
+        /// param — region geometry included — sorted by name, formatted with
+        /// <see cref="System.Globalization.CultureInfo.InvariantCulture"/>, and excludes only an explicit
+        /// denylist of provably output-neutral fields) plus the <see cref="StarDetectorVersion"/>. Two results
+        /// are interchangeable for reuse only when this key matches: identical detection params (including
+        /// region) AND identical detector logic version.
+        ///
+        /// The key is culture-invariant: identical params yield the identical key under any locale (e.g. de-DE
+        /// vs en-US). Its safe failure mode is a spurious cache miss, never stale reuse — a param toggle that
+        /// affects detection output is guaranteed to change the key (the canonical builder includes a field by
+        /// default and drops only the commented denylist).
+        ///
+        /// This is the single source of truth for the cache-key computation so the later reuse-side task can
+        /// recompute the expected key for the current params/version and compare. <paramref name="p"/> must be
+        /// the effective <see cref="StarDetectorParams"/> actually used for detection (region included).
+        /// </summary>
+        public static string ComputeCacheKey(StarDetectorParams p) {
+            if (p == null) {
+                throw new ArgumentNullException(nameof(p));
+            }
+
+            // ToCanonicalCacheString() emits all detection-output-affecting params (region included) in a fixed
+            // (name-sorted) order, every value formatted with InvariantCulture. Prefix the version so a version
+            // bump alone changes the key even when params are byte-identical.
+            var canonical = $"v{StarDetectorVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{p.ToCanonicalCacheString()}";
+            var bytes = Encoding.UTF8.GetBytes(canonical);
+            using (var sha = System.Security.Cryptography.SHA256.Create()) {
+                var hash = sha.ComputeHash(bytes);
+                var sb = new StringBuilder(hash.Length * 2);
+                foreach (var b in hash) {
+                    sb.Append(b.ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
+                }
+                return sb.ToString();
+            }
         }
 
         private class StarCandidate {
@@ -421,7 +467,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         if (psfAccepted) {
                             detectedStar.PSF = psf;
                         } else {
-                            ++metrics.PSFFitFailed;
+                            // ModelPSF runs across multiple parallel Task.Run partitions, so this counter must
+                            // be incremented atomically rather than with a plain ++ (pre-existing data race).
+                            metrics.IncrementPsfFitFailed();
                         }
                     }
                 }, ct);
@@ -702,14 +750,61 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        // A candidate star collected by the sequential flood-fill (Stage A) and evaluated in parallel (Stage B).
+        // Each candidate owns its OWN point list (no sharing/reuse) so the parallel evaluation is data-race free.
+        private readonly struct StarCandidateRegion {
+            public readonly Rect Bounds;
+            public readonly List<Point> Points;
+
+            public StarCandidateRegion(Rect bounds, List<Point> points) {
+                Bounds = bounds;
+                Points = points;
+            }
+        }
+
         private List<Star> ScanStars(Mat srcImage, Mat structureMap, StarDetectorParams p, double srcImageNoiseSigma, StarDetectorMetrics metrics, CancellationToken ct) {
+            // Stage A: sequential flood-fill raster walk. Collects each candidate (bounds + its own point list)
+            // and zeroes the candidate's pixels so it is not re-scanned. EvaluateGlobalMetrics and the per-
+            // candidate StructureCandidates count run here, single-threaded, on the main metrics.
+            var candidates = CollectStarCandidates(srcImage, structureMap, p, metrics, ct);
+
+            // Stage B: evaluate every candidate in parallel. Per-star evaluation is independent (only LOCAL
+            // arrays + read-only image reads), so the only shared mutable state is the metrics (handled via
+            // thread-locals merged afterward) and the already-concurrent contaminationDiagnosticsBag.
+            var results = new Star[candidates.Count];
+            using var localMetrics = new ThreadLocal<StarDetectorMetrics>(() => new StarDetectorMetrics(), trackAllValues: true);
+
+            Parallel.For(0, candidates.Count, ParallelExecution.CreateOptions(p.MaxStarEvaluationParallelism, ct), i => {
+                ct.ThrowIfCancellationRequested();
+                results[i] = EvaluateStarCandidate(srcImage, p, candidates[i].Bounds, candidates[i].Points, srcImageNoiseSigma, localMetrics.Value);
+            });
+
+            // Fold each per-thread metrics instance into the main metrics (additive — see Merge), then sort the
+            // bounds lists by (Y, X) so the output is independent of thread scheduling.
+            foreach (var threadMetrics in localMetrics.Values) {
+                metrics.Merge(threadMetrics);
+            }
+            metrics.SortBounds();
+
+            // Assemble in index order to preserve today's exact top-left raster ordering of DetectedStars, and
+            // count detections on the main metrics.
+            var stars = new List<Star>(candidates.Count);
+            int totalDetected = 0;
+            for (int i = 0; i < results.Length; ++i) {
+                if (results[i] != null) {
+                    stars.Add(results[i]);
+                    ++totalDetected;
+                }
+            }
+            metrics.TotalDetected = totalDetected;
+
+            return stars;
+        }
+
+        private List<StarCandidateRegion> CollectStarCandidates(Mat srcImage, Mat structureMap, StarDetectorParams p, StarDetectorMetrics metrics, CancellationToken ct) {
             const float ZERO_THRESHOLD = 0.001f;
 
-            var stars = new List<Star>();
-
-            // TODO: Measure performance of allocating a new list for each star vs reusing the same list. Clear doesn't free memory, which is
-            //       intentional here
-            var starPoints = new List<Point>(1024);
+            var candidates = new List<StarCandidateRegion>();
             int width = structureMap.Width;
             int height = structureMap.Height;
             EvaluateGlobalMetrics(srcImage, p, metrics);
@@ -725,7 +820,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             continue;
                         }
 
-                        starPoints.Clear();
+                        // Each candidate gets its OWN point list so the parallel Stage B can read them
+                        // concurrently without sharing/reuse.
+                        var starPoints = new List<Point>(256);
 
                         // Grow the star bounding box as we walk around the image, downward and to the right
                         var starBounds = new Rect(xLeft, yTop, 1, 1);
@@ -788,13 +885,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         }
 
                         ++metrics.StructureCandidates;
-                        var star = EvaluateStarCandidate(srcImage, p, starBounds, starPoints, srcImageNoiseSigma, metrics);
-                        if (star != null) {
-                            ++metrics.TotalDetected;
-                            stars.Add(star);
-                        }
+                        candidates.Add(new StarCandidateRegion(starBounds, starPoints));
 
-                        // Now that we've evaluated the pixels within the star bounding box, we can zero them all out so we don't look again
+                        // Now that we've collected the pixels within the star bounding box, we can zero them all out so we don't look again
                         for (int y = starBounds.Top; y < starBounds.Bottom; ++y) {
                             for (int x = starBounds.Left; x < starBounds.Right; ++x) {
                                 structureData[y * width + x] = 0.0f;
@@ -804,7 +897,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            return stars;
+            return candidates;
         }
 
         private Star EvaluateStarCandidate(Mat srcImage, StarDetectorParams p, Rect starBounds, List<Point> starPoints, double srcImageNoiseSigma, StarDetectorMetrics metrics) {
@@ -973,6 +1066,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
+        /// Computes the median of the first <paramref name="count"/> elements of a pre-sorted array of doubles.
+        /// For an even count, returns the average of the two middle elements.
+        /// Use this overload when the array may be larger than the logical data (e.g. rented from ArrayPool).
+        /// </summary>
+        internal static double ComputeMedian(double[] sortedPixels, int count) {
+            if (count == 0) {
+                throw new ArgumentException("Count must be greater than zero", nameof(count));
+            }
+            if (count % 2 == 1) {
+                return sortedPixels[count >> 1];
+            } else {
+                return (sortedPixels[(count >> 1) - 1] + sortedPixels[count >> 1]) / 2.0;
+            }
+        }
+
+        /// <summary>
         /// Computes an iterative flux-weighted centroid over a list of candidate star pixels.
         /// Pass 1 includes every pixel above <paramref name="backgroundThreshold"/>.
         /// Each subsequent pass restricts the contributing pixels to those that lie within
@@ -1063,20 +1172,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         private StarCandidate ComputeStarParameters(Mat srcImage, Rect starBounds, StarDetectorParams p, double noiseSigma, List<Point> starPoints) {
             var expandedWidth = starBounds.Width + p.BackgroundBoxExpansion * 2;
             var expandedHeight = starBounds.Height + p.BackgroundBoxExpansion * 2;
-            var surroundingPixels = new float[(expandedWidth * expandedHeight) - (starBounds.Width * starBounds.Height)];
+            // Annulus capacity: expanded box minus star inner box.
+            var annulusCapacity = (expandedWidth * expandedHeight) - (starBounds.Width * starBounds.Height);
             int surroundingPixelCount = 0;
 
             const int MinSectorPixels = 8;
             var cx = starBounds.X + starBounds.Width / 2.0;
             var cy = starBounds.Y + starBounds.Height / 2.0;
 
+            // Rent per-star scratch arrays from the pool to avoid per-star GC pressure in the parallel hot path.
+            // ArrayPool.Rent returns an array of length >= requested, with arbitrary stale contents beyond
+            // the logical count — we always index within [0, surroundingPixelCount) or [0, numUnclippedPixels).
+            var surroundingPixels = ArrayPool<float>.Shared.Rent(annulusCapacity);
             // Retain each background-annulus pixel's (dx, dy, value) relative to the bounding-box center so the
             // robust background plane (used as the local background for centroid/flux/HFR/PSF) and the
             // gradient-robust contamination test can be computed below.
-            float[] annDx = new float[surroundingPixels.Length];
-            float[] annDy = new float[surroundingPixels.Length];
-            float[] annVal = new float[surroundingPixels.Length];
-
+            var annDx = ArrayPool<float>.Shared.Rent(annulusCapacity);
+            var annDy = ArrayPool<float>.Shared.Rent(annulusCapacity);
+            var annVal = ArrayPool<float>.Shared.Rent(annulusCapacity);
+            // starPixels is rented only after the counting pass; null until then so the finally guard works.
+            double[] starPixels = null;
+            try {
             // Search an expanded box to estimate the median background value
             unsafe {
                 var imageData = (float*)srcImage.DataPointer;
@@ -1141,6 +1257,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
+            // Count-bounded sort: the rented array may be larger than annulusCapacity; only [0, surroundingPixelCount) is valid.
             Array.Sort(surroundingPixels, 0, surroundingPixelCount);
             var backgroundMedian = surroundingPixels[surroundingPixelCount >> 1];
 
@@ -1167,7 +1284,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var clipMargin = p.StarClippingMultiplier * noiseSigma;
             double totalFlux = 0d, peak = 0d;
             int numUnclippedPixels = 0;
-            double[] starPixels;
             unsafe {
                 var imageData = (float*)srcImage.DataPointer;
                 float minPixel = 1.0f, maxPixel = 0.0f;
@@ -1190,7 +1306,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     return null;
                 }
 
-                starPixels = new double[numUnclippedPixels];
+                // Rent starPixels after the counting pass so the finally guard (null-check) correctly
+                // skips returning it on the early-return path above.
+                starPixels = ArrayPool<double>.Shared.Rent(numUnclippedPixels);
                 int pixelCount = 0;
                 foreach (var starPoint in starPoints) {
                     var raw = imageData[starPoint.Y * srcImage.Width + starPoint.X];
@@ -1206,8 +1324,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            Array.Sort(starPixels);
-            var starMedian = ComputeMedian(starPixels);
+            // Count-bounded sort: the rented array may be larger than numUnclippedPixels; only [0, numUnclippedPixels) is valid.
+            Array.Sort(starPixels, 0, numUnclippedPixels);
+            var starMedian = ComputeMedian(starPixels, numUnclippedPixels);
 
             // meanFlux is the mean over clip-survivors (the pixels actually summed into totalFlux), NOT the full
             // structure footprint. Dividing by starPoints.Count understated it and inflated NormalizedBrightness
@@ -1264,6 +1383,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 ContaminationSuspected = contaminationSuspected,
                 ContaminationDiagnostics = contaminationDiagnostics
             };
+            } finally {
+                // Return all rented arrays exactly once on every exit path (normal return, early null return,
+                // or exception). starPixels is null when the early-return path (degenerate case) fires before
+                // the counting pass allocates it, so guard it before returning.
+                ArrayPool<float>.Shared.Return(surroundingPixels);
+                ArrayPool<float>.Shared.Return(annDx);
+                ArrayPool<float>.Shared.Return(annDy);
+                ArrayPool<float>.Shared.Return(annVal);
+                if (starPixels != null) {
+                    ArrayPool<double>.Shared.Return(starPixels);
+                }
+            }
         }
     }
 }

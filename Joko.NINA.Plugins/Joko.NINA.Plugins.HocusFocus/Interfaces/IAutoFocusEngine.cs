@@ -71,6 +71,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public FitRejectionCriterion FitRejectionCriterion { get; set; }
         public double ReducedChiSquaredRejectionThreshold { get; set; }
         public bool PreserveExposures { get; set; }
+
+        // When replaying a saved auto-focus run, reuse the per-region star-detection JSON saved alongside each
+        // exposure instead of re-running detection — but ONLY when the saved result's detector version and
+        // params (region included) still match the current run. OFF by default and intentionally not exposed in
+        // the options UI: replay's normal purpose is to re-detect, possibly with new params, so opting into reuse
+        // is a programmatic/future-facing choice. With this false (always, for live AF) the engine runs detection
+        // exactly as before — byte-identical behavior. Any cache miss/mismatch/read error silently falls back to
+        // detection, so a stale or unreadable cache can never produce a wrong measurement.
+        public bool ReuseSavedDetection { get; set; } = false;
     }
 
     public interface IAutoFocusEngine {

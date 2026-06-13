@@ -15,6 +15,7 @@ using NINA.Image.Interfaces;
 using NINA.WPF.Base.ViewModel.AutoFocus;
 using OpenCvSharp;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using NINA.Core.Enum;
@@ -158,90 +159,96 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         }
 
         private static CvImageStatistics CalculateStatistics_Histogram_UInt16(Mat image) {
-            var histogram = new uint[ushort.MaxValue + 1];
-            unsafe {
-                var dataPtr = (ushort*)image.DataPointer;
-                for (var i = 0; i < image.Rows * image.Cols; ++i) {
-                    histogram[dataPtr[i]] += 1;
+            const int numBuckets = ushort.MaxValue + 1; // 65536
+            var histogram = ArrayPool<uint>.Shared.Rent(numBuckets);
+            try {
+                Array.Clear(histogram, 0, numBuckets);
+                unsafe {
+                    var dataPtr = (ushort*)image.DataPointer;
+                    for (var i = 0; i < image.Rows * image.Cols; ++i) {
+                        histogram[dataPtr[i]] += 1;
+                    }
                 }
-            }
 
-            var numPixels = image.Rows * image.Cols;
+                var numPixels = image.Rows * image.Cols;
 
-            // Median
-            var targetMedianCount = numPixels / 2.0d;
-            uint currentCount = 0;
-            double median = -1.0d;
-            for (uint i = 0; i <= ushort.MaxValue; ++i) {
-                currentCount += histogram[i];
-                if (currentCount > targetMedianCount) {
-                    median = i;
-                    break;
-                } else if (currentCount == targetMedianCount) {
-                    for (uint j = i + 1; j <= ushort.MaxValue; ++j) {
-                        if (histogram[j] > 0) {
-                            median = (i + j) / 2.0d;
-                            break;
+                // Median
+                var targetMedianCount = numPixels / 2.0d;
+                uint currentCount = 0;
+                double median = -1.0d;
+                for (uint i = 0; i < numBuckets; ++i) {
+                    currentCount += histogram[i];
+                    if (currentCount > targetMedianCount) {
+                        median = i;
+                        break;
+                    } else if (currentCount == targetMedianCount) {
+                        for (uint j = i + 1; j < numBuckets; ++j) {
+                            if (histogram[j] > 0) {
+                                median = (i + j) / 2.0d;
+                                break;
+                            }
                         }
+                        break;
                     }
-                    break;
-                }
-            }
-
-            // MAD
-            currentCount = 0;
-            int upIndex = (int)Math.Ceiling(median);
-            int downIndex = (int)Math.Floor(median);
-            double beforeMedian = -1;
-            double mad;
-            while (true) {
-                while (upIndex <= ushort.MaxValue && histogram[upIndex] == 0) {
-                    ++upIndex;
-                }
-                while (downIndex >= 0 && histogram[downIndex] == 0) {
-                    --downIndex;
                 }
 
-                var upDistance = upIndex <= ushort.MaxValue ? Math.Abs(upIndex - median) : double.MaxValue;
-                var downDistance = downIndex >= 0 ? Math.Abs(downIndex - median) : double.MaxValue;
-                int chosenIndex;
-                if (upDistance <= downDistance) {
-                    chosenIndex = upIndex;
-                    currentCount += histogram[upIndex++];
-                } else {
-                    chosenIndex = downIndex;
-                    currentCount += histogram[downIndex--];
-                }
+                // MAD
+                currentCount = 0;
+                int upIndex = (int)Math.Ceiling(median);
+                int downIndex = (int)Math.Floor(median);
+                double beforeMedian = -1;
+                double mad;
+                while (true) {
+                    while (upIndex < numBuckets && histogram[upIndex] == 0) {
+                        ++upIndex;
+                    }
+                    while (downIndex >= 0 && histogram[downIndex] == 0) {
+                        --downIndex;
+                    }
 
-                if (currentCount == targetMedianCount) {
-                    beforeMedian = Math.Abs(chosenIndex - median);
-                } else if (currentCount > targetMedianCount) {
-                    if (beforeMedian >= 0) {
-                        mad = (beforeMedian + Math.Abs(chosenIndex - median)) / 2.0d;
+                    var upDistance = upIndex < numBuckets ? Math.Abs(upIndex - median) : double.MaxValue;
+                    var downDistance = downIndex >= 0 ? Math.Abs(downIndex - median) : double.MaxValue;
+                    int chosenIndex;
+                    if (upDistance <= downDistance) {
+                        chosenIndex = upIndex;
+                        currentCount += histogram[upIndex++];
                     } else {
-                        mad = Math.Abs(chosenIndex - median);
+                        chosenIndex = downIndex;
+                        currentCount += histogram[downIndex--];
                     }
-                    break;
+
+                    if (currentCount == targetMedianCount) {
+                        beforeMedian = Math.Abs(chosenIndex - median);
+                    } else if (currentCount > targetMedianCount) {
+                        if (beforeMedian >= 0) {
+                            mad = (beforeMedian + Math.Abs(chosenIndex - median)) / 2.0d;
+                        } else {
+                            mad = Math.Abs(chosenIndex - median);
+                        }
+                        break;
+                    }
                 }
-            }
 
-            // Mean
-            ulong pixelTotal = 0L;
-            for (uint i = 0; i <= ushort.MaxValue; ++i) {
-                pixelTotal += histogram[i] * i;
-            }
-            double mean = pixelTotal / (double)numPixels;
+                // Mean
+                ulong pixelTotal = 0L;
+                for (uint i = 0; i < numBuckets; ++i) {
+                    pixelTotal += histogram[i] * i;
+                }
+                double mean = pixelTotal / (double)numPixels;
 
-            // Variance
-            double sse = 0d;
-            for (uint i = 0; i <= ushort.MaxValue; ++i) {
-                var error = i - mean;
-                sse += error * error;
-            }
-            double variance = sse / (numPixels - 1);
-            double stdDev = Math.Sqrt(variance);
+                // Variance
+                double sse = 0d;
+                for (uint i = 0; i < numBuckets; ++i) {
+                    var error = i - mean;
+                    sse += error * error;
+                }
+                double variance = sse / (numPixels - 1);
+                double stdDev = Math.Sqrt(variance);
 
-            return new CvImageStatistics() { Median = median, MAD = mad, Mean = mean, StdDev = stdDev };
+                return new CvImageStatistics() { Median = median, MAD = mad, Mean = mean, StdDev = stdDev };
+            } finally {
+                ArrayPool<uint>.Shared.Return(histogram);
+            }
         }
 
         public struct Ranged {
@@ -270,142 +277,147 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
             var result = new CvImageStatistics();
             int numBuckets = 1 << 16;
-            var histogram = new uint[numBuckets];
-            var bucketLowerBounds = new double[numBuckets];
-            double firstLogValue = Math.Log(1.0 / numBuckets / 2.0); // Pick a starting lower bound close enough to 0 to be a useful precision
-            double logBucketSize = (0.0 - firstLogValue) / numBuckets; // Last bucket is ln(1) = 0
+            var histogram = ArrayPool<uint>.Shared.Rent(numBuckets);
+            try {
+                Array.Clear(histogram, 0, numBuckets);
+                var bucketLowerBounds = new double[numBuckets];
+                double firstLogValue = Math.Log(1.0 / numBuckets / 2.0); // Pick a starting lower bound close enough to 0 to be a useful precision
+                double logBucketSize = (0.0 - firstLogValue) / numBuckets; // Last bucket is ln(1) = 0
 
-            if (useLogHistogram) {
-                bucketLowerBounds[0] = 0;
-                double nextLogValue = firstLogValue;
-                for (int i = 1; i < numBuckets; ++i) {
-                    bucketLowerBounds[i] = Math.Exp(nextLogValue);
-                    nextLogValue += logBucketSize;
-                }
-            } else {
-                for (int i = 0; i < numBuckets; ++i) {
-                    bucketLowerBounds[i] = (double)i / numBuckets;
-                }
-            }
-
-            long numPixels = 0L;
-            var height = rect.HasValue ? rect.Value.Height : image.Height;
-            var width = rect.HasValue ? rect.Value.Width : image.Width;
-            unsafe {
-                var imageData = (float*)image.DataPointer;
-                var dataRowSizeBytes = width * sizeof(float);
-                var data = (float*)image.DataPointer;
-                var rowStride = image.Width - width;
-                var startX = rect.HasValue ? rect.Value.X : 0;
-                var startY = rect.HasValue ? rect.Value.Y : 0;
-                var p = data + startY * image.Width + startX;
-                if (valueRange.HasValue) {
-                    var valueRangeValue = valueRange.Value;
-                    for (int row = 0; row < height; ++row) {
-                        for (int col = 0; col < width; ++col) {
-                            var pixelValue = (double)*(p++);
-                            if (pixelValue < valueRangeValue.Start || pixelValue >= valueRangeValue.End) {
-                                continue;
-                            }
-                            int bucketIndex;
-                            if (useLogHistogram) {
-                                var logValue = Math.Log(pixelValue);
-                                bucketIndex = (int)Math.Ceiling((logValue - firstLogValue) / logBucketSize);
-                            } else {
-                                bucketIndex = (int)Math.Floor(pixelValue * numBuckets);
-                            }
-                            if (bucketIndex < 0) bucketIndex = 0;
-                            if (bucketIndex >= numBuckets) bucketIndex = numBuckets - 1;
-                            ++histogram[bucketIndex];
-                            ++numPixels;
-                        }
-                        p += rowStride;
+                if (useLogHistogram) {
+                    bucketLowerBounds[0] = 0;
+                    double nextLogValue = firstLogValue;
+                    for (int i = 1; i < numBuckets; ++i) {
+                        bucketLowerBounds[i] = Math.Exp(nextLogValue);
+                        nextLogValue += logBucketSize;
                     }
                 } else {
-                    // Keep the hot path for computing statistics without bounds fast
-                    for (int row = 0; row < height; ++row) {
-                        for (int col = 0; col < width; ++col) {
-                            var pixelValue = (double)*(p++);
-                            int bucketIndex;
-                            if (useLogHistogram) {
-                                var logValue = Math.Log(pixelValue);
-                                bucketIndex = (int)Math.Ceiling((logValue - firstLogValue) / logBucketSize);
-                            } else {
-                                bucketIndex = (int)Math.Floor(pixelValue * numBuckets);
+                    for (int i = 0; i < numBuckets; ++i) {
+                        bucketLowerBounds[i] = (double)i / numBuckets;
+                    }
+                }
+
+                long numPixels = 0L;
+                var height = rect.HasValue ? rect.Value.Height : image.Height;
+                var width = rect.HasValue ? rect.Value.Width : image.Width;
+                unsafe {
+                    var imageData = (float*)image.DataPointer;
+                    var dataRowSizeBytes = width * sizeof(float);
+                    var data = (float*)image.DataPointer;
+                    var rowStride = image.Width - width;
+                    var startX = rect.HasValue ? rect.Value.X : 0;
+                    var startY = rect.HasValue ? rect.Value.Y : 0;
+                    var p = data + startY * image.Width + startX;
+                    if (valueRange.HasValue) {
+                        var valueRangeValue = valueRange.Value;
+                        for (int row = 0; row < height; ++row) {
+                            for (int col = 0; col < width; ++col) {
+                                var pixelValue = (double)*(p++);
+                                if (pixelValue < valueRangeValue.Start || pixelValue >= valueRangeValue.End) {
+                                    continue;
+                                }
+                                int bucketIndex;
+                                if (useLogHistogram) {
+                                    var logValue = Math.Log(pixelValue);
+                                    bucketIndex = (int)Math.Ceiling((logValue - firstLogValue) / logBucketSize);
+                                } else {
+                                    bucketIndex = (int)Math.Floor(pixelValue * numBuckets);
+                                }
+                                if (bucketIndex < 0) bucketIndex = 0;
+                                if (bucketIndex >= numBuckets) bucketIndex = numBuckets - 1;
+                                ++histogram[bucketIndex];
+                                ++numPixels;
                             }
-                            if (bucketIndex < 0) bucketIndex = 0;
-                            if (bucketIndex >= numBuckets) bucketIndex = numBuckets - 1;
-                            ++histogram[bucketIndex];
+                            p += rowStride;
                         }
-                        p += rowStride;
-                    }
-                    numPixels = height * width;
-                }
-            }
-
-            if (flags.HasFlag(CvImageStatisticsFlags.MAD) || flags.HasFlag(CvImageStatisticsFlags.Median)) {
-                var targetMedianCount = numPixels / 2.0d;
-                uint currentCount = 0;
-                int medianPosition = -1;
-                for (int i = 0; i <= numBuckets; ++i) {
-                    currentCount += histogram[i];
-                    // Ignore the case where we land directly in the middle of an even count array. This is already an approximation anyways, so it's not worth the complexity
-                    if (currentCount >= targetMedianCount) {
-                        // Interpolate within the bucket containing the median
-                        var interpolationRatio = (currentCount - targetMedianCount) / histogram[i];
-                        // Handle the case where the median is within the last bucket
-                        var nextBucket = i < (numBuckets - 1) ? bucketLowerBounds[i + 1] : 1.0d;
-                        var thisBucket = bucketLowerBounds[i];
-                        result.Median = thisBucket + (nextBucket - thisBucket) * interpolationRatio;
-                        medianPosition = i;
-                        break;
+                    } else {
+                        // Keep the hot path for computing statistics without bounds fast
+                        for (int row = 0; row < height; ++row) {
+                            for (int col = 0; col < width; ++col) {
+                                var pixelValue = (double)*(p++);
+                                int bucketIndex;
+                                if (useLogHistogram) {
+                                    var logValue = Math.Log(pixelValue);
+                                    bucketIndex = (int)Math.Ceiling((logValue - firstLogValue) / logBucketSize);
+                                } else {
+                                    bucketIndex = (int)Math.Floor(pixelValue * numBuckets);
+                                }
+                                if (bucketIndex < 0) bucketIndex = 0;
+                                if (bucketIndex >= numBuckets) bucketIndex = numBuckets - 1;
+                                ++histogram[bucketIndex];
+                            }
+                            p += rowStride;
+                        }
+                        numPixels = height * width;
                     }
                 }
 
-                // MAD
-                if (flags.HasFlag(CvImageStatisticsFlags.MAD)) {
-                    int upIndex = medianPosition;
-                    int downIndex = medianPosition - 1;
-                    currentCount = 0;
-                    while (true) {
-                        var upDistance = upIndex < numBuckets ? Math.Abs(bucketLowerBounds[upIndex] - result.Median) : double.MaxValue;
-                        var downDistance = downIndex >= 0 ? Math.Abs(bucketLowerBounds[downIndex] - result.Median) : double.MaxValue;
-                        int chosenIndex;
-                        if (upDistance <= downDistance) {
-                            chosenIndex = upIndex++;
-                        } else {
-                            chosenIndex = downIndex--;
-                        }
-
-                        currentCount += histogram[chosenIndex];
+                if (flags.HasFlag(CvImageStatisticsFlags.MAD) || flags.HasFlag(CvImageStatisticsFlags.Median)) {
+                    var targetMedianCount = numPixels / 2.0d;
+                    uint currentCount = 0;
+                    int medianPosition = -1;
+                    for (int i = 0; i < numBuckets; ++i) {
+                        currentCount += histogram[i];
+                        // Ignore the case where we land directly in the middle of an even count array. This is already an approximation anyways, so it's not worth the complexity
                         if (currentCount >= targetMedianCount) {
-                            result.MAD = Math.Abs(bucketLowerBounds[chosenIndex] - result.Median);
+                            // Interpolate within the bucket containing the median
+                            var interpolationRatio = (currentCount - targetMedianCount) / histogram[i];
+                            // Handle the case where the median is within the last bucket
+                            var nextBucket = i < (numBuckets - 1) ? bucketLowerBounds[i + 1] : 1.0d;
+                            var thisBucket = bucketLowerBounds[i];
+                            result.Median = thisBucket + (nextBucket - thisBucket) * interpolationRatio;
+                            medianPosition = i;
                             break;
                         }
                     }
-                }
-            }
 
-            if (flags.HasFlag(CvImageStatisticsFlags.Mean) || flags.HasFlag(CvImageStatisticsFlags.StdDev)) {
-                // Mean
-                double pixelTotal = 0d;
-                for (int i = 0; i < numBuckets; ++i) {
-                    pixelTotal += histogram[i] * bucketLowerBounds[i];
-                }
-                result.Mean = pixelTotal / numPixels;
+                    // MAD
+                    if (flags.HasFlag(CvImageStatisticsFlags.MAD)) {
+                        int upIndex = medianPosition;
+                        int downIndex = medianPosition - 1;
+                        currentCount = 0;
+                        while (true) {
+                            var upDistance = upIndex < numBuckets ? Math.Abs(bucketLowerBounds[upIndex] - result.Median) : double.MaxValue;
+                            var downDistance = downIndex >= 0 ? Math.Abs(bucketLowerBounds[downIndex] - result.Median) : double.MaxValue;
+                            int chosenIndex;
+                            if (upDistance <= downDistance) {
+                                chosenIndex = upIndex++;
+                            } else {
+                                chosenIndex = downIndex--;
+                            }
 
-                // Variance
-                if (flags.HasFlag(CvImageStatisticsFlags.StdDev)) {
-                    double sse = 0d;
-                    for (int i = 0; i < numBuckets; ++i) {
-                        var error = bucketLowerBounds[i] - result.Mean;
-                        sse += histogram[i] * (error * error);
+                            currentCount += histogram[chosenIndex];
+                            if (currentCount >= targetMedianCount) {
+                                result.MAD = Math.Abs(bucketLowerBounds[chosenIndex] - result.Median);
+                                break;
+                            }
+                        }
                     }
-                    double variance = sse / (numPixels - 1);
-                    result.StdDev = Math.Sqrt(variance);
                 }
+
+                if (flags.HasFlag(CvImageStatisticsFlags.Mean) || flags.HasFlag(CvImageStatisticsFlags.StdDev)) {
+                    // Mean
+                    double pixelTotal = 0d;
+                    for (int i = 0; i < numBuckets; ++i) {
+                        pixelTotal += histogram[i] * bucketLowerBounds[i];
+                    }
+                    result.Mean = pixelTotal / numPixels;
+
+                    // Variance
+                    if (flags.HasFlag(CvImageStatisticsFlags.StdDev)) {
+                        double sse = 0d;
+                        for (int i = 0; i < numBuckets; ++i) {
+                            var error = bucketLowerBounds[i] - result.Mean;
+                            sse += histogram[i] * (error * error);
+                        }
+                        double variance = sse / (numPixels - 1);
+                        result.StdDev = Math.Sqrt(variance);
+                    }
+                }
+                return result;
+            } finally {
+                ArrayPool<uint>.Shared.Return(histogram);
             }
-            return result;
         }
 
         public static Mat GetB3SplineFilter(int dyadicLayer) {

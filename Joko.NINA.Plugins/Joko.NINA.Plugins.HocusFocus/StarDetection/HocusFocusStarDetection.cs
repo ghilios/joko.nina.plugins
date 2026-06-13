@@ -176,6 +176,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public StarDetectionRegion Region { get; set; }
         public int FocuserPosition { get; set; }
 
+        // Version of the star-detection logic that produced this result. Stamped from
+        // StarDetector.StarDetectorVersion at construction and persisted to the saved
+        // _star_detection_result.json so a later reuse-side task can reject a cache produced by a different
+        // detector version. Defaults to the current version for in-memory results.
+        public int DetectorVersion { get; set; } = StarDetector.StarDetectorVersion;
+
+        // Stable hash of the effective detection params (region + version included), computed via
+        // StarDetector.ComputeCacheKey at construction. A later reuse-side task compares this against the key
+        // recomputed for the current params/version to decide whether a saved result may be reused.
+        public string CacheKey { get; set; }
+
         [JsonIgnore]
         public DebugData DebugData { get; set; }
 
@@ -301,7 +312,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 UsePSFAbsoluteDeviation = options.UsePSFAbsoluteDeviation,
                 HotpixelThreshold = options.HotpixelThreshold,
                 SaturationThreshold = options.SaturationThreshold,
-                PSFPixelIntegration = options.PSFPixelIntegration
+                PSFPixelIntegration = options.PSFPixelIntegration,
+                // Internal parallelism knob — 0 = auto (Environment.ProcessorCount via ParallelExecution governor).
+                // Not exposed in the options UI; callers may override after BuildStarDetectorParams returns.
+                MaxStarEvaluationParallelism = 0
             };
         }
 
@@ -350,7 +364,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 FocuserPosition = focuserMediator.GetInfo().Position,
                 PixelSize = pixelSize,
                 PixelScale = detectorParams.PixelScale,
-                MeasurementAverage = this.starDetectionOptions.MeasurementAverage
+                MeasurementAverage = this.starDetectionOptions.MeasurementAverage,
+                DetectorVersion = StarDetector.StarDetectorVersion,
+                CacheKey = StarDetector.ComputeCacheKey(detectorParams)
             };
             var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
             if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
