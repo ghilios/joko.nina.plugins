@@ -17,6 +17,7 @@ using NINA.Core.Utility;
 using NINA.Image.Interfaces;
 using OpenCvSharp;
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -1020,6 +1021,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
+        /// Computes the median of the first <paramref name="count"/> elements of a pre-sorted array of doubles.
+        /// For an even count, returns the average of the two middle elements.
+        /// Use this overload when the array may be larger than the logical data (e.g. rented from ArrayPool).
+        /// </summary>
+        internal static double ComputeMedian(double[] sortedPixels, int count) {
+            if (count == 0) {
+                throw new ArgumentException("Count must be greater than zero", nameof(count));
+            }
+            if (count % 2 == 1) {
+                return sortedPixels[count >> 1];
+            } else {
+                return (sortedPixels[(count >> 1) - 1] + sortedPixels[count >> 1]) / 2.0;
+            }
+        }
+
+        /// <summary>
         /// Computes an iterative flux-weighted centroid over a list of candidate star pixels.
         /// Pass 1 includes every pixel above <paramref name="backgroundThreshold"/>.
         /// Each subsequent pass restricts the contributing pixels to those that lie within
@@ -1110,20 +1127,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         private StarCandidate ComputeStarParameters(Mat srcImage, Rect starBounds, StarDetectorParams p, double noiseSigma, List<Point> starPoints) {
             var expandedWidth = starBounds.Width + p.BackgroundBoxExpansion * 2;
             var expandedHeight = starBounds.Height + p.BackgroundBoxExpansion * 2;
-            var surroundingPixels = new float[(expandedWidth * expandedHeight) - (starBounds.Width * starBounds.Height)];
+            // Annulus capacity: expanded box minus star inner box.
+            var annulusCapacity = (expandedWidth * expandedHeight) - (starBounds.Width * starBounds.Height);
             int surroundingPixelCount = 0;
 
             const int MinSectorPixels = 8;
             var cx = starBounds.X + starBounds.Width / 2.0;
             var cy = starBounds.Y + starBounds.Height / 2.0;
 
+            // Rent per-star scratch arrays from the pool to avoid per-star GC pressure in the parallel hot path.
+            // ArrayPool.Rent returns an array of length >= requested, with arbitrary stale contents beyond
+            // the logical count — we always index within [0, surroundingPixelCount) or [0, numUnclippedPixels).
+            var surroundingPixels = ArrayPool<float>.Shared.Rent(annulusCapacity);
             // Retain each background-annulus pixel's (dx, dy, value) relative to the bounding-box center so the
             // robust background plane (used as the local background for centroid/flux/HFR/PSF) and the
             // gradient-robust contamination test can be computed below.
-            float[] annDx = new float[surroundingPixels.Length];
-            float[] annDy = new float[surroundingPixels.Length];
-            float[] annVal = new float[surroundingPixels.Length];
-
+            var annDx = ArrayPool<float>.Shared.Rent(annulusCapacity);
+            var annDy = ArrayPool<float>.Shared.Rent(annulusCapacity);
+            var annVal = ArrayPool<float>.Shared.Rent(annulusCapacity);
+            // starPixels is rented only after the counting pass; null until then so the finally guard works.
+            double[] starPixels = null;
+            try {
             // Search an expanded box to estimate the median background value
             unsafe {
                 var imageData = (float*)srcImage.DataPointer;
@@ -1188,6 +1212,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
+            // Count-bounded sort: the rented array may be larger than annulusCapacity; only [0, surroundingPixelCount) is valid.
             Array.Sort(surroundingPixels, 0, surroundingPixelCount);
             var backgroundMedian = surroundingPixels[surroundingPixelCount >> 1];
 
@@ -1214,7 +1239,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var clipMargin = p.StarClippingMultiplier * noiseSigma;
             double totalFlux = 0d, peak = 0d;
             int numUnclippedPixels = 0;
-            double[] starPixels;
             unsafe {
                 var imageData = (float*)srcImage.DataPointer;
                 float minPixel = 1.0f, maxPixel = 0.0f;
@@ -1237,7 +1261,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     return null;
                 }
 
-                starPixels = new double[numUnclippedPixels];
+                // Rent starPixels after the counting pass so the finally guard (null-check) correctly
+                // skips returning it on the early-return path above.
+                starPixels = ArrayPool<double>.Shared.Rent(numUnclippedPixels);
                 int pixelCount = 0;
                 foreach (var starPoint in starPoints) {
                     var raw = imageData[starPoint.Y * srcImage.Width + starPoint.X];
@@ -1253,8 +1279,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            Array.Sort(starPixels);
-            var starMedian = ComputeMedian(starPixels);
+            // Count-bounded sort: the rented array may be larger than numUnclippedPixels; only [0, numUnclippedPixels) is valid.
+            Array.Sort(starPixels, 0, numUnclippedPixels);
+            var starMedian = ComputeMedian(starPixels, numUnclippedPixels);
 
             // meanFlux is the mean over clip-survivors (the pixels actually summed into totalFlux), NOT the full
             // structure footprint. Dividing by starPoints.Count understated it and inflated NormalizedBrightness
@@ -1311,6 +1338,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 ContaminationSuspected = contaminationSuspected,
                 ContaminationDiagnostics = contaminationDiagnostics
             };
+            } finally {
+                // Return all rented arrays exactly once on every exit path (normal return, early null return,
+                // or exception). starPixels is null when the early-return path (degenerate case) fires before
+                // the counting pass allocates it, so guard it before returning.
+                ArrayPool<float>.Shared.Return(surroundingPixels);
+                ArrayPool<float>.Shared.Return(annDx);
+                ArrayPool<float>.Shared.Return(annDy);
+                ArrayPool<float>.Shared.Return(annVal);
+                if (starPixels != null) {
+                    ArrayPool<double>.Shared.Return(starPixels);
+                }
+            }
         }
     }
 }
