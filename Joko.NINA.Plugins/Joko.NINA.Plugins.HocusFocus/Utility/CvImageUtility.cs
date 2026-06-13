@@ -604,21 +604,29 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             bmp.SetPixel(x, y, blendedColor);
         }
 
+        /// <summary>
+        /// Pools multi-frame sub-measurements into one measurement: the mean of the positive measures,
+        /// with the standard error of that mean derived from the per-frame σs. Per-frame σ is the
+        /// star-ensemble scatter (e.g. 1.483·MAD across stars for the median mode) — a relative precision proxy, not the
+        /// median's absolute uncertainty — and the pooled value keeps those units: RMS of the valid
+        /// per-frame σs divided by √(number of averaged frames). Frames with an invalid σ (≤ 0 or NaN,
+        /// e.g. a single detected star) still contribute their measure to the mean but are excluded
+        /// from the σ pool; when no frame has a valid σ the pooled Stdev is NaN ("unknown"), which the
+        /// fit layer maps to the sweep's median σ (see WeightRegularization) and displays render as no
+        /// error bar.
+        /// </summary>
         public static MeasureAndError AverageMeasurement(this List<MeasureAndError> measurement) {
             int total = 0;
+            int validVarianceCount = 0;
             double sum = 0.0d;
             double sumVariance = 0.0d;
-            bool invalidStdDev = false;
             foreach (var measure in measurement) {
                 if (measure.Measure > 0) {
                     sum += measure.Measure;
                     ++total;
-
-                    if (measure.Stdev <= 0.0 || double.IsNaN(measure.Stdev)) {
-                        invalidStdDev = true;
-                    }
-                    if (!invalidStdDev) {
+                    if (double.IsFinite(measure.Stdev) && measure.Stdev > 0.0) {
                         sumVariance += measure.Stdev * measure.Stdev;
+                        ++validVarianceCount;
                     }
                 }
             }
@@ -628,12 +636,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                     Measure = 0.0,
                     Stdev = double.NaN
                 };
-            } else {
-                return new MeasureAndError() {
-                    Measure = sum / total,
-                    Stdev = Math.Sqrt(sumVariance / total)
-                };
             }
+            var stdev = validVarianceCount > 0
+                ? Math.Sqrt(sumVariance / validVarianceCount) / Math.Sqrt(total)
+                : double.NaN;
+            return new MeasureAndError() {
+                Measure = sum / total,
+                Stdev = stdev
+            };
         }
 
         public static void ApplyLUT(Mat src, Mat lut, Mat dst) {

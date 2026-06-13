@@ -99,7 +99,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 AFMethodEnum method,
                 AFCurveFittingEnum fitting,
                 List<ScatterErrorPoint> focusPoints) {
-                var validFocusPoints = focusPoints.Where(p => p.Y > 0.0).ToList();
+                // Weighted fitters — ours and NINA core's Trendline/QuadraticFitting, which weight by
+                // 1/ErrorY² — must never see a degenerate σ: fit on regularized copies. Raw points
+                // still feed reports/charts upstream; rejected points recorded from this path carry
+                // the regularized σ.
+                var validFocusPoints = WeightRegularization.Regularize(focusPoints.Where(p => p.Y > 0.0).ToList());
                 if (validFocusPoints.Count < 3) {
                     return null;
                 }
@@ -266,7 +270,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return;
                 }
 
-                var validPoints = lastValidFocusPoints.Where(p => p.Y > 0.0).ToList();
+                var validPoints = WeightRegularization.Regularize(lastValidFocusPoints.Where(p => p.Y > 0.0).ToList());
                 if (validPoints.Count < 3) {
                     return;
                 }
@@ -317,7 +321,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // Use the model actually chosen for this run (Hybrid resolves to a concrete model in
                 // SelectBestHyperbolicModel); for non-Hybrid runs this is the option model, preserving prior behavior.
                 var modelForLoo = selectedHyperbolicModel ?? State.Options.HyperbolicFitModel;
-                var validPoints = lastValidFocusPoints.Where(p => p.Y > 0.0).ToList();
+                var validPoints = WeightRegularization.Regularize(lastValidFocusPoints.Where(p => p.Y > 0.0).ToList());
                 hyperbolicFitting.LeaveOneOutStdError = AlglibHyperbolicFitting.ComputeLeaveOneOutBestFocusStdError(
                     State.AlglibAPI, modelForLoo, validPoints, State.Options.AutoFocusStepSize, State.Options.WeightedHyperbolicFitEnabled);
             }
@@ -687,15 +691,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // A focuser position can be revisited - most commonly when reprocessing a saved run whose frames
                 // map more than one measurement point to the same focuser position. Complete each position only
                 // once; the second completion previously threw "An item with the same key has already been added".
-                if (!TryCompleteFocuserPoint(regionState.MeasurementsByFocuserPoint, focuserPosition, values)) {
+                if (!TryCompleteFocuserPoint(regionState.MeasurementsByFocuserPoint, focuserPosition, values, out var pooledMeasurement)) {
                     Logger.Trace($"Ignoring duplicate completion at focuser position {focuserPosition}");
                     return Task.CompletedTask;
                 }
 
-                var focusPoints = regionState.MeasurementsByFocuserPoint.Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, Math.Max(0.001, fp.Value.Stdev))).ToList();
+                var focusPoints = regionState.MeasurementsByFocuserPoint.Select(fp => new ScatterErrorPoint(fp.Key, fp.Value.Measure, 0, SafeDisplayError(fp.Value.Stdev))).ToList();
                 regionState.UpdateCurveFittings(focusPoints);
 
-                this.OnMeasurementPointCompleted(imageState, regionState, measurement);
+                this.OnMeasurementPointCompleted(imageState, regionState, pooledMeasurement);
             }
             return Task.CompletedTask;
         }
@@ -704,13 +708,29 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// Records the averaged sub-measurements for a focuser position, completing that point exactly once.
         /// Returns false (leaving the map unchanged) when the position was already completed, which happens when
         /// a saved run being reprocessed maps more than one measurement point to the same focuser position.
+        /// <paramref name="pooledMeasurement"/> is set to the pooled (averaged) value stored in the map on new
+        /// completion, or the previously stored value on a duplicate — on new completion, callers should forward
+        /// this to the MeasurementPointCompleted event so that charts, the NINA broadcast point, and saved-report
+        /// MeasurePoints agree with the fit inputs when FramesPerPoint > 1.
         /// </summary>
-        internal static bool TryCompleteFocuserPoint(Dictionary<int, MeasureAndError> measurementsByFocuserPoint, int focuserPosition, List<MeasureAndError> subMeasurements) {
-            if (measurementsByFocuserPoint.ContainsKey(focuserPosition)) {
+        internal static bool TryCompleteFocuserPoint(Dictionary<int, MeasureAndError> measurementsByFocuserPoint, int focuserPosition, List<MeasureAndError> subMeasurements, out MeasureAndError pooledMeasurement) {
+            if (measurementsByFocuserPoint.TryGetValue(focuserPosition, out pooledMeasurement)) {
                 return false;
             }
-            measurementsByFocuserPoint.Add(focuserPosition, subMeasurements.AverageMeasurement());
+            pooledMeasurement = subMeasurements.AverageMeasurement();
+            measurementsByFocuserPoint.Add(focuserPosition, pooledMeasurement);
             return true;
+        }
+
+        /// <summary>
+        /// σ for the display/report layer: keep the measured value; non-finite σ (NaN = no valid per-frame σ; ±Infinity) and
+        /// negatives render as 0 = "no error bar". The old code fabricated a 0.001 floor here, which
+        /// downstream 1/σ weighting turned into a 1000× weight (F5a). Fitters never consume this raw
+        /// value directly — every weighted fit receives WeightRegularization copies, which map 0 or
+        /// unknown σ to the sweep's median σ.
+        /// </summary>
+        internal static double SafeDisplayError(double stdev) {
+            return double.IsFinite(stdev) ? Math.Max(0.0, stdev) : 0.0;
         }
 
         private Task InitialHFRMeasurementAction(AutoFocusImageState imageState, MeasureAndError measurement, AutoFocusState state, AutoFocusRegionState regionState) {
