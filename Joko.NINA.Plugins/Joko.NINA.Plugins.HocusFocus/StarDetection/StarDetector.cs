@@ -36,6 +36,12 @@ using NINA.Core.Utility.Notification;
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     public class StarDetector : IStarDetector {
+        // Bump whenever star-detection logic changes; invalidates the saved-run detection cache so replays
+        // re-detect. The version is stamped onto HocusFocusStarDetectionResult.DetectorVersion and folded into
+        // HocusFocusStarDetectionResult.CacheKey, so a later reuse-side task can reject any saved
+        // _star_detection_result.json that was produced by a different detector version (or different params).
+        public const int StarDetectorVersion = 1;
+
         private readonly IAlglibAPI alglibAPI;
 
         // Allocated in DetectImpl only when StarDetectorParams.CollectContaminationDiagnostics is set. Star
@@ -45,6 +51,38 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         public StarDetector(IAlglibAPI alglibAPI) {
             this.alglibAPI = alglibAPI;
+        }
+
+        /// <summary>
+        /// Computes a stable, culture-invariant cache key for a saved star-detection result. The key is the
+        /// SHA-256 (lowercase hex) of a canonical string built from <see cref="StarDetectorParams.ToString()"/>
+        /// (which already includes the full region geometry via <c>Region</c> →
+        /// <c>StarDetectionRegion.ToString()</c> → <c>RatioRect.ToString()</c>) plus the
+        /// <see cref="StarDetectorVersion"/>. Two results are interchangeable for reuse only when this key
+        /// matches: identical detection params (including region) AND identical detector logic version.
+        ///
+        /// This is the single source of truth for the cache-key computation so the later reuse-side task can
+        /// recompute the expected key for the current params/version and compare. <paramref name="p"/> must be
+        /// the effective <see cref="StarDetectorParams"/> actually used for detection (region included).
+        /// </summary>
+        public static string ComputeCacheKey(StarDetectorParams p) {
+            if (p == null) {
+                throw new ArgumentNullException(nameof(p));
+            }
+
+            // p.ToString() emits all detection-relevant params (region included) in a fixed order using the
+            // invariant-by-construction numeric formatting from each member's ToString(). Prefix the version so
+            // a version bump alone changes the key even when params are byte-identical.
+            var canonical = $"v{StarDetectorVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{p}";
+            var bytes = Encoding.UTF8.GetBytes(canonical);
+            using (var sha = System.Security.Cryptography.SHA256.Create()) {
+                var hash = sha.ComputeHash(bytes);
+                var sb = new StringBuilder(hash.Length * 2);
+                foreach (var b in hash) {
+                    sb.Append(b.ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
+                }
+                return sb.ToString();
+            }
         }
 
         private class StarCandidate {

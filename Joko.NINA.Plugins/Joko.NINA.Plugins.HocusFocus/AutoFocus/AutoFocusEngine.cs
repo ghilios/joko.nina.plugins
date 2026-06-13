@@ -569,7 +569,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var saveAttemptFolder = GetSaveAttemptFolder(state, imageState.AttemptNumber, imageState.FinalValidation);
                     var resultFileName = $"{imageState.ImageNumber:00}_Frame{imageState.FrameNumber:00}_Region{regionState.RegionIndex:00}_star_detection_result.json";
                     var resultTargetPath = Path.Combine(saveAttemptFolder, resultFileName);
-                    File.WriteAllText(resultTargetPath, JsonConvert.SerializeObject(analysisResult, Formatting.Indented));
+                    // Use the dedicated cache serializer (not default Json.NET settings) so the polymorphic
+                    // StarList entries (HocusFocusDetectedStar, incl. PSF) and the DetectorVersion/CacheKey
+                    // survive a future reload — see StarDetectionResultCacheSerializer. The format change is
+                    // safe today because nothing reads this file back yet.
+                    File.WriteAllText(resultTargetPath, StarDetectionResultCacheSerializer.Serialize(analysisResult));
 
                     var annotatedFileName = $"{imageState.ImageNumber:00}_Frame{imageState.FrameNumber:00}_Region{regionState.RegionIndex:00}_annotated.tiff";
                     var annotatedTargetPath = Path.Combine(saveAttemptFolder, annotatedFileName);
