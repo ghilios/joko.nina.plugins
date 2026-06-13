@@ -88,7 +88,7 @@ namespace TestApp {
             }
 
             if (string.IsNullOrWhiteSpace(afRun)) {
-                Console.Error.WriteLine("Usage: TestApp focus-sweep --af-run <dir> [--profile-id <guid>] [--out <dir>] [--default-params] [--brightness-sensitivity <v>] [--brightness-sensitivity-sweep <a,b,step>]");
+                Console.Error.WriteLine("Usage: TestApp focus-sweep --af-run <dir> [--profile-id <guid>] [--out <dir>] [--default-params] [--noise-level <None|Low|Typical|High>] [--brightness-sensitivity <v>] [--brightness-sensitivity-sweep <a,b,step>]");
                 Console.Error.WriteLine("       TestApp focus-sweep --synthesize <dir> [--synthesize-count <n>] --default-params [--out <dir>]");
                 Environment.ExitCode = 2;
                 return;
@@ -131,6 +131,21 @@ namespace TestApp {
                 var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions));
                 var accessor = new PluginOptionsAccessor(profileService, guid.Value);
                 var options = new StarDetectionOptions(profileService, accessor);
+                // F11 step 6: optionally apply a NoiseLevel preset's exact params (for the None/High recalibration
+                // measurement) by switching the in-memory options to simple mode at the requested preset with the
+                // Typical FocusRange/PixelScale (so no WideRange/LongFL deltas apply). BuildStarDetectorParams then
+                // produces that preset's canonical knobs. TestApp never saves the profile, so this does not persist.
+                var noiseLevelArg = DiagnosticUtil.GetArg(args, "--noise-level");
+                if (!string.IsNullOrWhiteSpace(noiseLevelArg)) {
+                    if (!Enum.TryParse<NoiseLevelEnum>(noiseLevelArg, ignoreCase: true, out var noiseLevel)) {
+                        throw new ArgumentException($"--noise-level: '{noiseLevelArg}' is not a valid NoiseLevel (None, Low, Typical, High)");
+                    }
+                    options.UseAdvanced = false;
+                    options.Simple_FocusRange = FocusRangeEnum.Typical;
+                    options.Simple_PixelScale = PixelScaleEnum.Typical;
+                    options.Simple_NoiseLevel = noiseLevel;
+                    Console.WriteLine($"Applied NoiseLevel preset: {noiseLevel} (simple mode; BrightnessSensitivity={options.BrightnessSensitivity})");
+                }
                 baseParams = HocusFocusStarDetection.BuildStarDetectorParams(options);
             }
             // Mirror real AF: PSF modeling is disabled during AutoFocus, so HFR is the measured quantity.
