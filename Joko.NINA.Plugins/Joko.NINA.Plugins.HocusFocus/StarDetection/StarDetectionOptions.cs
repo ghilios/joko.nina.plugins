@@ -200,7 +200,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFFitType = StarDetectorPSFFitType.Moffat_40;
             Simple_NoiseLevel = NoiseLevelEnum.Typical;
             Simple_PixelScale = PixelScaleEnum.Typical;
-            simple_FocusRange = FocusRangeEnum.Typical;
+            Simple_FocusRange = FocusRangeEnum.Typical;
             HotpixelFiltering = true;
             HotpixelThresholdingEnabled = true;
             UseAutoFocusCrop = true;
@@ -212,7 +212,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             RejectContaminatedStars = true;
             StructureLayers = 4;
             BrightnessSensitivity = 2.0;
-            StarPeakResponse = 0.6;
+            StarPeakResponse = 0.75;
             MaxDistortion = 0.5;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
