@@ -1554,8 +1554,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // so maxPrefetch caps the number of decoded frames held in memory at once. A slot is acquired before
             // each load is started and released only after that frame's analysis completes and its imageState is
             // disposed, so acquire<->release are paired and resident decoded frames never exceed maxPrefetch.
+            // Floor 2: one frame can load while the previous is analyzed; ceiling 4: memory (multi-MB decoded frames) grows linearly with little extra overlap benefit past this.
             var maxPrefetch = Math.Max(2, Math.Min(4, Environment.ProcessorCount));
-            var prefetchSemaphore = new SemaphoreSlim(maxPrefetch);
+            var prefetchSemaphore = new SemaphoreSlim(maxPrefetch, maxPrefetch);
             // Flat list of every post-task spawned, so the finally can wait for ALL of them (each of which releases
             // its slot) before disposing the semaphore — even if the loop is left early via cancellation/exception
             // before a group's combined task is added to focuserPositionTasks. Avoids disposing while a Release is
@@ -1581,16 +1582,24 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         // OnNextImage assigns ImageNumber/ordering and MUST stay sequential and ordered.
                         var imageState = await state.OnNextImage(savedFile.FrameNumber, savedFile.FocuserPosition, false, token);
 
-                        var localSavedFile = savedFile;
-
-                        // Acquire a prefetch slot BEFORE starting the load. If WaitAsync throws (e.g. cancellation)
-                        // no slot was acquired, so there is nothing to release and we do not create a post-task.
-                        await prefetchSemaphore.WaitAsync(token);
+                        // Acquire a prefetch slot BEFORE starting the load. If WaitAsync throws (e.g. cancellation),
+                        // dispose imageState to release the ExposureSemaphore slot OnNextImage acquired — mirrors the
+                        // live-run catch at ~line 882. Nothing between the successful WaitAsync and the post-task
+                        // creation throws synchronously (ReloadSavedFile is async; Task.Run/List.Add don't throw), so
+                        // the post-task reliably takes ownership of cleanup from that point on. If synchronously-
+                        // throwing code is ever added in that window, this guard must be widened to also release the
+                        // acquired prefetch slot.
+                        try {
+                            await prefetchSemaphore.WaitAsync(token);
+                        } catch {
+                            imageState.Dispose();
+                            throw;
+                        }
 
                         // Start the load without awaiting it inline so loads overlap each other and analysis. The
                         // returned Task is awaited by the region-analysis tasks below. Any load failure is captured
                         // in loadTask and surfaces when those tasks await it.
-                        var loadTask = ReloadSavedFile(state, localSavedFile, token);
+                        var loadTask = ReloadSavedFile(state, savedFile, token);
                         var singleFileAnalysisTasks = new List<Task>();
                         foreach (var regionState in state.FocusRegionStates) {
                             var partialMeasurementTask = Task.Run(async () => {
