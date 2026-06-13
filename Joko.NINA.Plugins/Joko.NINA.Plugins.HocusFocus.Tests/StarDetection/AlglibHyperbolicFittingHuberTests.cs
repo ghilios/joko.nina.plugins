@@ -28,6 +28,41 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             return pts;
         }
 
+        private static List<ScatterErrorPoint> CleanCurveWithSameSideOutliers() {
+            var pts = SyntheticFocusCurveSamples.SymmetricHyperbolaPoints(
+                x0: 5000, y0: 0.5, a: 2.0, b: 80.0,
+                xStart: 4700, xStep: 25, count: 25);
+            // Several outliers on the SAME side shift the residual median away from zero, which is
+            // exactly where an uncentered |r| comparison and a median-centered MAD disagree.
+            foreach (var i in new[] { 3, 9, 20 }) {
+                var bad = pts[i];
+                pts[i] = new ScatterErrorPoint(bad.X, bad.Y + 4.0, 0, 1.0);
+            }
+            return pts;
+        }
+
+        [Test]
+        public void HuberIrls_SameSideOutliers_RecoversMinimumNearTruth() {
+            var robust = HyperbolicFittingAlglib.Create(alglibAPI, CleanCurveWithSameSideOutliers(), useWeights: false);
+            robust.HuberIrlsEnabled = true;
+            Assert.That(robust.Solve(), Is.True);
+
+            var plain = HyperbolicFittingAlglib.Create(alglibAPI, CleanCurveWithSameSideOutliers(), useWeights: false);
+            plain.HuberIrlsEnabled = false;
+            Assert.That(plain.Solve(), Is.True);
+
+            var robustErr = Math.Abs(robust.Minimum.X - 5000);
+            var plainErr = Math.Abs(plain.Minimum.X - 5000);
+            Assert.Multiple(() => {
+                // The scenario must be non-trivial: same-side outliers pull the non-robust fit off truth...
+                Assert.That(plainErr, Is.GreaterThan(robustErr),
+                    "same-side outliers should pull the non-robust fit further from truth than the robust fit");
+                // ...and Huber IRLS should keep best-focus near truth despite them.
+                Assert.That(robustErr, Is.LessThan(10.0),
+                    "Huber IRLS should keep best-focus near truth despite same-side outliers");
+            });
+        }
+
         [Test]
         public void HuberIrls_GrossOutlier_RecoversMinimumBetterThanPlainFit() {
             const double trueX0 = 5000;
