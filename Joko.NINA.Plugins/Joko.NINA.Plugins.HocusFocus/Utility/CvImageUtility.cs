@@ -563,9 +563,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 Center = star.Center.Add(new Point2d(xOffset, yOffset)),
                 StarBoundingBox = star.StarBoundingBox.Add(new Point(xOffset, yOffset)),
                 Background = star.Background,
+                // The plane is anchored at the star's ROI-space center — translate its origin so
+                // ValueAt(translated point) matches the original plane at the original point.
+                BackgroundPlane = star.BackgroundPlane == null
+                    ? null
+                    : new LocalBackgroundPlane(
+                        star.BackgroundPlane.OriginX + xOffset,
+                        star.BackgroundPlane.OriginY + yOffset,
+                        star.BackgroundPlane.B0,
+                        star.BackgroundPlane.B1,
+                        star.BackgroundPlane.B2,
+                        star.BackgroundPlane.IsFlat),
                 MeanBrightness = star.MeanBrightness,
+                PeakBrightness = star.PeakBrightness,
                 HFR = star.HFR,
-                PSF = star.PSF
+                PSF = star.PSF,
+                StarContaminationSuspected = star.StarContaminationSuspected
             };
         }
 
