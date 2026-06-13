@@ -209,11 +209,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // produces a non-finite minimum leaves its slot null and is skipped (exactly the sequential `continue`).
             var predictionSlots = new double?[points.Count];
             var parallelOptions = new ParallelOptions {
-                MaxDegreeOfParallelism = ParallelExecution.ResolveDegreeOfParallelism(maxDegreeOfParallelism)
+                // Cap at points.Count: never spin up more parallelism than there are drop-one iterations.
+                MaxDegreeOfParallelism = Math.Min(ParallelExecution.ResolveDegreeOfParallelism(maxDegreeOfParallelism), points.Count)
             };
-            // Default scheduler (do NOT bind to ParallelExecution.SharedScheduler): SelectBestModel's LOO can run
-            // inside SensorModel's already-parallel per-star loop, where nesting on the limited scheduler risks
-            // starvation/deadlock. Callers in a parallel context pass maxDegreeOfParallelism: 1 (sequential inner).
+            // Use the default scheduler (not a limited shared one): when this runs inside SensorModel's outer
+            // per-star Parallel.For (which already saturates the cores with the default scheduler), callers
+            // pass maxDegreeOfParallelism: 1 to keep the inner loop sequential and avoid ~ProcessorCount²
+            // active threads (oversubscription).
             Parallel.For(0, points.Count, parallelOptions, skip => {
                 var subset = new List<ScatterErrorPoint>(points.Count - 1);
                 for (int i = 0; i < points.Count; ++i) {
@@ -312,6 +314,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var modelRejectsSlots = new List<ScatterErrorPoint>[HybridCandidateModels.Length];
             var modelCleanSlots = new List<ScatterErrorPoint>[HybridCandidateModels.Length];
             var fitParallelOptions = new ParallelOptions {
+                // Cap at HybridCandidateModels.Length: never spin up more parallelism than there are candidate fits.
+                // Use the default scheduler (not a limited shared one): SensorModel's outer per-star Parallel.For
+                // already saturates the cores, so callers in that context pass maxDegreeOfParallelism: 1 to keep
+                // the inner loop sequential and avoid ~ProcessorCount² active threads (oversubscription).
                 MaxDegreeOfParallelism = Math.Min(ParallelExecution.ResolveDegreeOfParallelism(maxDegreeOfParallelism), HybridCandidateModels.Length)
             };
             Parallel.For(0, HybridCandidateModels.Length, fitParallelOptions, k => {

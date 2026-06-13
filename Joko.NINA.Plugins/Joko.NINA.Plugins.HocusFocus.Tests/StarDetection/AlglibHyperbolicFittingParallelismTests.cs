@@ -158,6 +158,33 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             });
         }
 
+        // The 5-parameter SelectBestModel overload (no rejectedPoints out, no rejection params) is the one
+        // used by HocusFocusVM. It delegates to the full overload with maxOutlierRejections=0, so the
+        // winning model and best-focus position must be identical to the full overload with the same settings.
+        [Test]
+        public void SelectBestModel_FiveParamOverload_MatchesFullOverload() {
+            var points = TiltedCurve();
+            var stepSize = InferStep(points);
+
+            // Full overload with no rejection (maxOutlierRejections=0 is the sentinel the 5-param overload passes).
+            var fullModel = AlglibHyperbolicFitting.SelectBestModel(
+                alglibAPI, points, stepSize, useWeights: true,
+                maxOutlierRejections: 0, rejectionConfidence: 0.0,
+                out var fullFit, out _);
+
+            // 5-param overload — the one used by HocusFocusVM.
+            var shortModel = AlglibHyperbolicFitting.SelectBestModel(
+                alglibAPI, points, stepSize, useWeights: true,
+                out var shortFit);
+
+            Assert.Multiple(() => {
+                Assert.That(shortModel, Is.EqualTo(fullModel), "5-param overload must pick the same winning model");
+                Assert.That(shortFit, Is.Not.Null);
+                Assert.That(shortFit.Minimum.X, Is.EqualTo(fullFit.Minimum.X), "best-focus X must match");
+                Assert.That(shortFit.Minimum.Y, Is.EqualTo(fullFit.Minimum.Y), "best-focus Y must match");
+            });
+        }
+
         // UC108, n=21: a monotonic ramp (no real vertex in range) — drives every asymmetric model degenerate, so
         // σ(focus) is NaN for all and selection falls back to LOO. Mirrors HybridModelSelectionTests.
         private static readonly double[][] MonotonicRamp_NoVertexInRange = {
