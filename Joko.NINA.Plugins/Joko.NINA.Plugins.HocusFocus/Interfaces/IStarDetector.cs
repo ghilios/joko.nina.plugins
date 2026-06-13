@@ -16,6 +16,9 @@ using NINA.Image.Interfaces;
 using OpenCvSharp;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Reflection;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
@@ -103,6 +106,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
             return $"{{{nameof(StartX)}={StartX.ToString()}, {nameof(StartY)}={StartY.ToString()}, {nameof(Height)}={Height.ToString()}, {nameof(Width)}={Width.ToString()}}}";
         }
 
+        // Culture-invariant canonical form used by StarDetectorParams.ToCanonicalCacheString(). Captures the
+        // full geometry (StartX/StartY/Width/Height) formatted with InvariantCulture so the cache key is stable
+        // across locales. Distinct from ToString(), which is for human/debug display and is not locale-safe.
+        public string ToCanonicalString() {
+            return $"{{StartX={StartX.ToString(CultureInfo.InvariantCulture)},StartY={StartY.ToString(CultureInfo.InvariantCulture)},Width={Width.ToString(CultureInfo.InvariantCulture)},Height={Height.ToString(CultureInfo.InvariantCulture)}}}";
+        }
+
         public static RatioRect FromCenterROI(double roi) {
             return new RatioRect(
                 (1.0d - roi) / 2.0,
@@ -171,6 +181,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         public override string ToString() {
             return $"{{{nameof(OuterBoundary)}={OuterBoundary}, {nameof(InnerCropBoundary)}={InnerCropBoundary}}}";
+        }
+
+        // Culture-invariant canonical form used by StarDetectorParams.ToCanonicalCacheString(). Captures Index
+        // plus both boundaries' full invariant geometry. Changing the region (outer/inner boundary or index)
+        // changes the detected-star results, so it must change the cache key.
+        public string ToCanonicalString() {
+            var inner = InnerCropBoundary == null ? "null" : InnerCropBoundary.ToCanonicalString();
+            return $"{{Index={Index.ToString(CultureInfo.InvariantCulture)},Outer={OuterBoundary.ToCanonicalString()},Inner={inner}}}";
         }
 
         public bool IsFull() {
@@ -339,6 +357,90 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         public override string ToString() {
             return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}, {nameof(MaxStarEvaluationParallelism)}={MaxStarEvaluationParallelism.ToString()}}}";
+        }
+
+        // Properties intentionally EXCLUDED from the detection-result cache key (ToCanonicalCacheString). The
+        // SAFE failure mode of this key is "spurious cache miss", never "stale reuse" — so a property is listed
+        // here ONLY when it provably does not change which stars are detected or their measured values. When in
+        // doubt, do NOT add it here (the default is to include it). Each entry documents why it is output-neutral.
+        private static readonly HashSet<string> CacheKeyExcludedProperties = new HashSet<string>(StringComparer.Ordinal) {
+            // Perf only: controls inner per-star evaluation parallelism. Not exposed in the UI, not persisted,
+            // and the detected-star results are identical regardless of its value.
+            nameof(MaxStarEvaluationParallelism),
+
+            // Diagnostics only: when true the detector fills the side-channel
+            // HocusFocusStarDetectorResult.ContaminationDiagnostics list; the production contamination decision
+            // and every detected-star value are unaffected (already excluded from ToString() for the same reason).
+            nameof(CollectContaminationDiagnostics),
+
+            // Debug/intermediate-output only: stashes the structure map into DebugData for inspection. Does not
+            // change which stars are detected or any measured value.
+            nameof(StoreStructureMap),
+
+            // Save-path/side-effect only: if non-empty, intermediate images/text are written to this directory.
+            // The detected-star results do not depend on it.
+            nameof(SaveIntermediateFilesPath)
+        };
+
+        /// <summary>
+        /// Builds a deterministic, culture-invariant canonical string of all detection-output-affecting
+        /// parameters, for use as the input to <see cref="StarDetection.StarDetector.ComputeCacheKey"/>. Public
+        /// instance properties are enumerated via reflection and emitted as <c>Name=Value|</c> sorted by name
+        /// (deterministic order), EXCEPT those in <see cref="CacheKeyExcludedProperties"/> (an explicit,
+        /// commented denylist of provably output-neutral fields). Every value is formatted with
+        /// <see cref="CultureInfo.InvariantCulture"/> (enums by name; the <see cref="Region"/> via its
+        /// invariant <c>ToCanonicalString()</c>) so the key is identical across locales.
+        ///
+        /// Design intent: the SAFE failure mode is a spurious cache miss, never stale reuse. Therefore the
+        /// default is to INCLUDE a property; only the denylisted, provably non-output fields are dropped. A
+        /// property whose getter throws or returns an awkward value is captured defensively rather than crashing.
+        /// </summary>
+        public string ToCanonicalCacheString() {
+            var properties = GetType()
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(prop => prop.CanRead && prop.GetIndexParameters().Length == 0)
+                .Where(prop => !CacheKeyExcludedProperties.Contains(prop.Name))
+                .OrderBy(prop => prop.Name, StringComparer.Ordinal);
+
+            var sb = new StringBuilder();
+            foreach (var prop in properties) {
+                sb.Append(prop.Name);
+                sb.Append('=');
+                sb.Append(FormatCacheValue(GetPropertyValueSafe(prop)));
+                sb.Append('|');
+            }
+            return sb.ToString();
+        }
+
+        private object GetPropertyValueSafe(PropertyInfo prop) {
+            try {
+                return prop.GetValue(this);
+            } catch (Exception ex) {
+                // A misbehaving getter must never break the cache key (or the build). Fold the exception type
+                // into the key so two different failures still produce stable, distinguishable strings.
+                return $"<err:{ex.GetType().Name}>";
+            }
+        }
+
+        private static string FormatCacheValue(object value) {
+            switch (value) {
+                case null:
+                    return "null";
+                case StarDetectionRegion region:
+                    return region.ToCanonicalString();
+                case RatioRect rect:
+                    return rect.ToCanonicalString();
+                case Enum e:
+                    // Enum name (not the underlying number) so reordering enum members can't silently collide.
+                    return e.ToString();
+                case bool b:
+                    return b ? "true" : "false";
+                case IFormattable formattable:
+                    // Covers all numerics (double/float/int/long/...) with locale-independent formatting.
+                    return formattable.ToString(null, CultureInfo.InvariantCulture);
+                default:
+                    return Convert.ToString(value, CultureInfo.InvariantCulture) ?? "null";
+            }
         }
     }
 

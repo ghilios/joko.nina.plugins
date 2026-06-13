@@ -55,11 +55,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         /// <summary>
         /// Computes a stable, culture-invariant cache key for a saved star-detection result. The key is the
-        /// SHA-256 (lowercase hex) of a canonical string built from <see cref="StarDetectorParams.ToString()"/>
-        /// (which already includes the full region geometry via <c>Region</c> →
-        /// <c>StarDetectionRegion.ToString()</c> → <c>RatioRect.ToString()</c>) plus the
-        /// <see cref="StarDetectorVersion"/>. Two results are interchangeable for reuse only when this key
-        /// matches: identical detection params (including region) AND identical detector logic version.
+        /// SHA-256 (lowercase hex) of a canonical string built from
+        /// <see cref="StarDetectorParams.ToCanonicalCacheString()"/> (which reflects over every public detection
+        /// param — region geometry included — sorted by name, formatted with
+        /// <see cref="System.Globalization.CultureInfo.InvariantCulture"/>, and excludes only an explicit
+        /// denylist of provably output-neutral fields) plus the <see cref="StarDetectorVersion"/>. Two results
+        /// are interchangeable for reuse only when this key matches: identical detection params (including
+        /// region) AND identical detector logic version.
+        ///
+        /// The key is culture-invariant: identical params yield the identical key under any locale (e.g. de-DE
+        /// vs en-US). Its safe failure mode is a spurious cache miss, never stale reuse — a param toggle that
+        /// affects detection output is guaranteed to change the key (the canonical builder includes a field by
+        /// default and drops only the commented denylist).
         ///
         /// This is the single source of truth for the cache-key computation so the later reuse-side task can
         /// recompute the expected key for the current params/version and compare. <paramref name="p"/> must be
@@ -70,10 +77,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 throw new ArgumentNullException(nameof(p));
             }
 
-            // p.ToString() emits all detection-relevant params (region included) in a fixed order using the
-            // invariant-by-construction numeric formatting from each member's ToString(). Prefix the version so
-            // a version bump alone changes the key even when params are byte-identical.
-            var canonical = $"v{StarDetectorVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{p}";
+            // ToCanonicalCacheString() emits all detection-output-affecting params (region included) in a fixed
+            // (name-sorted) order, every value formatted with InvariantCulture. Prefix the version so a version
+            // bump alone changes the key even when params are byte-identical.
+            var canonical = $"v{StarDetectorVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{p.ToCanonicalCacheString()}";
             var bytes = Encoding.UTF8.GetBytes(canonical);
             using (var sha = System.Security.Cryptography.SHA256.Create()) {
                 var hash = sha.ComputeHash(bytes);

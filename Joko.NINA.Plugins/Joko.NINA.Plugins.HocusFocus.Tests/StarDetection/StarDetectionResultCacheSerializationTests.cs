@@ -211,7 +211,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
             // Recompute SHA-256 over the documented canonical form and confirm it matches, proving the version
             // is part of the hashed input.
-            var canonical = $"v{StarDetector.StarDetectorVersion}|{p}";
+            var canonical = $"v{StarDetector.StarDetectorVersion}|{p.ToCanonicalCacheString()}";
             using var sha = System.Security.Cryptography.SHA256.Create();
             var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(canonical));
             var sb = new System.Text.StringBuilder(hash.Length * 2);
@@ -220,6 +220,113 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             }
 
             Assert.That(key, Is.EqualTo(sb.ToString()));
+        }
+
+        // --- Canonical-key correctness: the 6 output-affecting params previously omitted from ToString() ---
+        // Each must invalidate the cache when toggled away from its default, or a future reuse path would serve
+        // stale results. Defaults (per StarDetectorParams): RejectContaminatedStars=true,
+        // HfrTauPolicy=GateOnly, HotpixelThresholdingEnabled=true, HotpixelThreshold=0.001,
+        // StarMeasurementNoiseReductionEnabled=false, PSFPixelIntegration=false.
+
+        [Test]
+        public void CacheKey_ChangesWhenRejectContaminatedStarsChanges() {
+            var baseline = new StarDetectorParams();
+            var changed = new StarDetectorParams { RejectContaminatedStars = !baseline.RejectContaminatedStars };
+
+            Assert.That(StarDetector.ComputeCacheKey(changed), Is.Not.EqualTo(StarDetector.ComputeCacheKey(baseline)));
+        }
+
+        [Test]
+        public void CacheKey_ChangesWhenHfrTauPolicyChanges() {
+            var baseline = new StarDetectorParams { HfrTauPolicy = TauClipPolicy.GateOnly };
+            var changed = new StarDetectorParams { HfrTauPolicy = TauClipPolicy.SubtractTau };
+
+            Assert.That(StarDetector.ComputeCacheKey(changed), Is.Not.EqualTo(StarDetector.ComputeCacheKey(baseline)));
+        }
+
+        [Test]
+        public void CacheKey_ChangesWhenHotpixelThresholdingEnabledChanges() {
+            var baseline = new StarDetectorParams();
+            var changed = new StarDetectorParams { HotpixelThresholdingEnabled = !baseline.HotpixelThresholdingEnabled };
+
+            Assert.That(StarDetector.ComputeCacheKey(changed), Is.Not.EqualTo(StarDetector.ComputeCacheKey(baseline)));
+        }
+
+        [Test]
+        public void CacheKey_ChangesWhenHotpixelThresholdChanges() {
+            var baseline = new StarDetectorParams();
+            var changed = new StarDetectorParams { HotpixelThreshold = baseline.HotpixelThreshold + 0.01 };
+
+            Assert.That(StarDetector.ComputeCacheKey(changed), Is.Not.EqualTo(StarDetector.ComputeCacheKey(baseline)));
+        }
+
+        [Test]
+        public void CacheKey_ChangesWhenStarMeasurementNoiseReductionEnabledChanges() {
+            var baseline = new StarDetectorParams();
+            var changed = new StarDetectorParams { StarMeasurementNoiseReductionEnabled = !baseline.StarMeasurementNoiseReductionEnabled };
+
+            Assert.That(StarDetector.ComputeCacheKey(changed), Is.Not.EqualTo(StarDetector.ComputeCacheKey(baseline)));
+        }
+
+        [Test]
+        public void CacheKey_ChangesWhenPSFPixelIntegrationChanges() {
+            var baseline = new StarDetectorParams();
+            var changed = new StarDetectorParams { PSFPixelIntegration = !baseline.PSFPixelIntegration };
+
+            Assert.That(StarDetector.ComputeCacheKey(changed), Is.Not.EqualTo(StarDetector.ComputeCacheKey(baseline)));
+        }
+
+        // --- Denylist: perf-/diagnostics-only params must NOT change the key (no output effect ⇒ no miss). ---
+
+        [Test]
+        public void CacheKey_UnchangedWhenMaxStarEvaluationParallelismChanges() {
+            var baseline = new StarDetectorParams();
+            var changed = new StarDetectorParams { MaxStarEvaluationParallelism = baseline.MaxStarEvaluationParallelism + 4 };
+
+            Assert.That(StarDetector.ComputeCacheKey(changed), Is.EqualTo(StarDetector.ComputeCacheKey(baseline)));
+        }
+
+        [Test]
+        public void CacheKey_UnchangedWhenCollectContaminationDiagnosticsChanges() {
+            var baseline = new StarDetectorParams();
+            var changed = new StarDetectorParams { CollectContaminationDiagnostics = !baseline.CollectContaminationDiagnostics };
+
+            Assert.That(StarDetector.ComputeCacheKey(changed), Is.EqualTo(StarDetector.ComputeCacheKey(baseline)));
+        }
+
+        // --- Region geometry: changing it changes the key; identical params ⇒ identical key. ---
+
+        [Test]
+        public void CacheKey_ChangesWhenRegionGeometryChanges() {
+            var a = new StarDetectorParams { Region = new StarDetectionRegion(RatioRect.FromCenterROI(0.5)) };
+            var b = new StarDetectorParams { Region = new StarDetectionRegion(RatioRect.FromCenterROI(0.6)) };
+
+            Assert.That(StarDetector.ComputeCacheKey(b), Is.Not.EqualTo(StarDetector.ComputeCacheKey(a)));
+        }
+
+        // --- Culture invariance: the key for params with fractional doubles must be identical under de-DE
+        // (which formats 0.5 as "0,5") and the invariant culture. ---
+
+        [Test]
+        public void CacheKey_IsCultureInvariant() {
+            // Sensitivity=0.5 is the canary: under de-DE a bare ToString() would render "0,5" and diverge.
+            string MakeKey() => StarDetector.ComputeCacheKey(new StarDetectorParams {
+                Sensitivity = 0.5,
+                HotpixelThreshold = 0.001,
+                PixelScale = 1.25,
+                Region = new StarDetectionRegion(RatioRect.FromCenterROI(0.5))
+            });
+
+            var invariantKey = MakeKey();
+
+            var originalCulture = System.Globalization.CultureInfo.CurrentCulture;
+            try {
+                System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+                var deKey = MakeKey();
+                Assert.That(deKey, Is.EqualTo(invariantKey));
+            } finally {
+                System.Globalization.CultureInfo.CurrentCulture = originalCulture;
+            }
         }
     }
 }
