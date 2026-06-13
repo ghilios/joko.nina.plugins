@@ -1547,6 +1547,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ProgressType = ApplicationStatus.StatusProgressType.ValueOfMaxValue
             });
 
+            // Bounded prefetch: allow several saved-file loads (disk read + decode + PrepareExposure) to be in
+            // flight at once so loads overlap each other and the parallel star detection, instead of the loop
+            // blocking on each load sequentially. The bound is deliberately SMALL (not ProcessorCount): each
+            // decoded frame is multi-MB and must stay resident until all of its region-analysis tasks finish,
+            // so maxPrefetch caps the number of decoded frames held in memory at once. A slot is acquired before
+            // each load is started and released only after that frame's analysis completes and its imageState is
+            // disposed, so acquire<->release are paired and resident decoded frames never exceed maxPrefetch.
+            var maxPrefetch = Math.Max(2, Math.Min(4, Environment.ProcessorCount));
+            var prefetchSemaphore = new SemaphoreSlim(maxPrefetch);
+            // Flat list of every post-task spawned, so the finally can wait for ALL of them (each of which releases
+            // its slot) before disposing the semaphore — even if the loop is left early via cancellation/exception
+            // before a group's combined task is added to focuserPositionTasks. Avoids disposing while a Release is
+            // still in flight.
+            var allPostTasks = new List<Task>();
             try {
                 var framesPerFile = savedFiles
                     .GroupBy(f => f.ImageNumber)
@@ -1564,13 +1578,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     var files = focuserPositionGroup.OrderBy(g => g.FrameNumber).ToList();
                     var allMeasurementTasks = new List<Task>();
                     foreach (var savedFile in files) {
+                        // OnNextImage assigns ImageNumber/ordering and MUST stay sequential and ordered.
                         var imageState = await state.OnNextImage(savedFile.FrameNumber, savedFile.FocuserPosition, false, token);
 
                         var localSavedFile = savedFile;
-                        var loadedImage = await ReloadSavedFile(state, localSavedFile, token);
+
+                        // Acquire a prefetch slot BEFORE starting the load. If WaitAsync throws (e.g. cancellation)
+                        // no slot was acquired, so there is nothing to release and we do not create a post-task.
+                        await prefetchSemaphore.WaitAsync(token);
+
+                        // Start the load without awaiting it inline so loads overlap each other and analysis. The
+                        // returned Task is awaited by the region-analysis tasks below. Any load failure is captured
+                        // in loadTask and surfaces when those tasks await it.
+                        var loadTask = ReloadSavedFile(state, localSavedFile, token);
                         var singleFileAnalysisTasks = new List<Task>();
                         foreach (var regionState in state.FocusRegionStates) {
                             var partialMeasurementTask = Task.Run(async () => {
+                                // Image is read-only during detection and is shared across region tasks, so awaiting
+                                // the same loadTask from each is safe.
+                                var loadedImage = await loadTask;
                                 lock (state.StatesLock) {
                                     var imageProperties = loadedImage.RawImageData.Properties;
                                     state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
@@ -1583,6 +1609,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             singleFileAnalysisTasks.Add(partialMeasurementTask);
                         }
 
+                        // Created unconditionally and immediately after acquiring the slot (no awaitable code in
+                        // between can throw synchronously), so this post-task is the sole, guaranteed owner of the
+                        // slot release. Its finally releases the slot and disposes imageState EXACTLY ONCE on every
+                        // path (success, load/analysis failure, or cancellation), pairing 1:1 with the WaitAsync
+                        // above. The decoded image is held until WhenAll completes, so it is never disposed before
+                        // all region-analysis tasks finish reading it. No token is passed to Task.Run so the finally
+                        // always runs (a token-canceled Task.Run would skip the delegate and leak the slot/imageState).
                         var singleFilePostTask = Task.Run(async () => {
                             try {
                                 await Task.WhenAll(singleFileAnalysisTasks);
@@ -1595,9 +1628,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                                 });
                             } finally {
                                 imageState.Dispose();
+                                prefetchSemaphore.Release();
                             }
-                        }, token);
+                        });
                         allMeasurementTasks.Add(singleFilePostTask);
+                        allPostTasks.Add(singleFilePostTask);
                     }
 
                     var focuserPositionTask = Task.WhenAll(allMeasurementTasks);
@@ -1630,6 +1665,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     SaveFolder = state.SaveFolder
                 };
             } finally {
+                // Wait for every spawned post-task to finish so all slot Releases have completed before disposing
+                // the semaphore. This also covers the early-exit paths (e.g. a WaitAsync/OnNextImage cancellation
+                // mid-loop) where some post-tasks were created but their group was never added to
+                // focuserPositionTasks. Exceptions are swallowed here because the original (already-thrown)
+                // exception must be the one that propagates out of RerunImpl; this await is cleanup only.
+                try {
+                    await Task.WhenAll(allPostTasks);
+                } catch {
+                }
+                prefetchSemaphore.Dispose();
                 await Task.Delay(1000);
                 progress.Report(new ApplicationStatus());
             }
