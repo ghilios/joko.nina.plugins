@@ -482,6 +482,8 @@
     <TextBlock x:Key="SaveIntermediatePath_Tooltip" Text="When Save Intermediate Files is enabled, they are written to this path the next time star detection runs" />
     <TextBlock x:Key="SaveIntermediateFiles_Tooltip" Text="If enabled, every step of star detection emits a debugging file to the intermediate path" />
     <TextBlock x:Key="UseAdvanced_Tooltip" Text="Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless you're an expert" />
+    <TextBlock x:Key="OptimizeStarDetection_Tooltip" Text="Opens the Star Detection Optimization Wizard, which tunes star detection against one or more saved auto-focus runs and (optionally) applies the result as your Simple-Mode settings" />
+    <TextBlock x:Key="UseOptimizedSettings_Tooltip" Text="When enabled, the optimized star-detection settings produced by the optimization wizard drive detection instead of the Noise Level / Pixel Scale / Focus Range presets. Only available in Simple Mode after the wizard has produced and applied a result" />
     <TextBlock x:Key="ModelPSF_Tooltip" Text="Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity" />
     <TextBlock x:Key="PSFFitType_Tooltip" Text="What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight" />
     <TextBlock x:Key="PSFResolution_Tooltip" Text="The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting. Higher resolution may be more accurate, but takes longer to calculate" />
@@ -915,6 +917,32 @@
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
+                <!--  Simple-Mode preset rows, hidden once optimized settings are driving detection.  -->
+                <Style x:Key="ShowOnUseSimpleNotOptimized" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="0" />
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="False" />
+                                <Condition Binding="{Binding StarDetectionOptions.UseOptimizedSettings}" Value="False" />
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Height" Value="Auto" />
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
+                <!--  "Use Optimized Settings" toggle: Simple Mode, and only when the wizard has produced a result.  -->
+                <Style x:Key="ShowOnSimpleHasOptimized" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="0" />
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="False" />
+                                <Condition Binding="{Binding StarDetectionOptions.HasOptimizedSettings}" Value="True" />
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Height" Value="Auto" />
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
                 <Style x:Key="ShowOnUseHotpixelThresholding_Advanced" TargetType="{x:Type RowDefinition}">
                     <Setter Property="Height" Value="0" />
                     <Style.Triggers>
@@ -943,10 +971,10 @@
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition />
-                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
-                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
-                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
-                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnSimpleHasOptimized}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
                 <RowDefinition />
@@ -1078,6 +1106,37 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
+
+            <!--  Simple-Mode toggle: drive detection from the wizard's optimized settings. Shown only in Simple Mode once optimized settings exist (!UseAdvanced && HasOptimizedSettings).  -->
+            <TextBlock
+                Grid.Row="4"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Use Optimized Settings"
+                ToolTip="{StaticResource UseOptimizedSettings_Tooltip}">
+                <TextBlock.Visibility>
+                    <MultiBinding Converter="{StaticResource HF_MultiBooleanToVisibilityCollapsedConverter}">
+                        <Binding Converter="{StaticResource HF_InverseBooleanConverter}" Path="StarDetectionOptions.UseAdvanced" />
+                        <Binding Path="StarDetectionOptions.HasOptimizedSettings" />
+                    </MultiBinding>
+                </TextBlock.Visibility>
+            </TextBlock>
+            <CheckBox
+                Grid.Row="4"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.UseOptimizedSettings}"
+                ToolTip="{StaticResource UseOptimizedSettings_Tooltip}">
+                <CheckBox.Visibility>
+                    <MultiBinding Converter="{StaticResource HF_MultiBooleanToVisibilityCollapsedConverter}">
+                        <Binding Converter="{StaticResource HF_InverseBooleanConverter}" Path="StarDetectionOptions.UseAdvanced" />
+                        <Binding Path="StarDetectionOptions.HasOptimizedSettings" />
+                    </MultiBinding>
+                </CheckBox.Visibility>
+            </CheckBox>
 
             <TextBlock
                 Grid.Row="7"
