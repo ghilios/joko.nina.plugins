@@ -21,6 +21,7 @@
     <Compile Include="..\TestApp\StarReview\StarReviewLabels.cs" Link="StarReview\StarReviewLabels.cs" />
     <Compile Include="..\TestApp\StarReview\StarReviewQueue.cs" Link="StarReview\StarReviewQueue.cs" />
     <Compile Include="..\TestApp\StarReview\StarReviewViewport.cs" Link="StarReview\StarReviewViewport.cs" />
+    <Compile Include="..\TestApp\OptimizationRunDiscovery.cs" Link="StarReview\OptimizationRunDiscovery.cs" />
   </ItemGroup>
 
   <ItemGroup>
