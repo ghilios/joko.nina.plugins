@@ -28,8 +28,8 @@ public class StarDetectionOptimizerTests {
     // Two-axis synthetic landscape. J is maximized when (Sensitivity, StarClippingMultiplier) are at
     // the chosen optimum. We map distance-from-optimum to SigmaFocus so SFocus (and thus J) peaks there.
     // All other metrics are kept star-rich / well-fit so they never hard-fail.
-    private const double OptSensitivity = 10.0;   // interior of [0, 20]
-    private const double OptStarClip = 2.5;        // interior of [0.5, 5]
+    private const double OptSensitivity = 10.0;   // interior of [0, 50]
+    private const double OptStarClip = 2.5;        // interior of [0.25, 10]
 
     private static RunEvaluationMetrics SyntheticRunFor(StarDetectorParams p) {
         // Normalized distance (0 at optimum) over the two optimized axes, each scaled by its span.
@@ -233,8 +233,8 @@ public class StarDetectionOptimizerTests {
 
         Assert.Multiple(() => {
             // Continuous bounds.
-            Assert.That(p.Sensitivity, Is.InRange(0.0, 20.0));
-            Assert.That(p.StarClippingMultiplier, Is.InRange(0.5, 5.0));
+            Assert.That(p.Sensitivity, Is.InRange(0.0, 50.0));
+            Assert.That(p.StarClippingMultiplier, Is.InRange(0.25, 10.0));
             Assert.That(p.NoiseClippingMultiplier, Is.InRange(1.0, 10.0));
             Assert.That(p.PeakResponse, Is.InRange(0.1, 1.0));
             Assert.That(p.MaxDistortion, Is.InRange(0.1, 1.0));

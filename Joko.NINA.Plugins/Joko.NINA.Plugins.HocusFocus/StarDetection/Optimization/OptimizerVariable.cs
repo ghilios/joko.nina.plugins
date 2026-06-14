@@ -102,9 +102,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public static IReadOnlyList<OptimizerVariable> CreateCuratedSet() {
             // --- Heuristic bounds (no hard UI validation range; chosen pragmatically). Edit here to retune. ---
             const double SensitivityLower = 0.0;       // heuristic
-            const double SensitivityUpper = 20.0;      // heuristic
-            const double StarClipLower = 0.5;          // heuristic
-            const double StarClipUpper = 5.0;          // heuristic
+            const double SensitivityUpper = 50.0;      // heuristic; widened 20 -> 50 because rich fields pinned the old 20 ceiling
+            const double StarClipLower = 0.25;         // heuristic; widened 0.5 -> 0.25 (a setup pinned the old 0.5 floor)
+            const double StarClipUpper = 10.0;         // heuristic; widened 5 -> 10 because rich fields pinned the old 5 ceiling
             const double NoiseClipLower = 1.0;         // heuristic
             const double NoiseClipUpper = 10.0;        // heuristic
             const double MinHFRLower = 0.1;            // heuristic

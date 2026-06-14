@@ -175,8 +175,8 @@ public class OptimizerVariableTests {
                 Assert.That(v.InitialStep, Is.EqualTo(step), $"{name} step");
             });
         }
-        Check(nameof(StarDetectorParams.Sensitivity), OptimizerVariableType.Continuous, 0, 20, 1.0);
-        Check(nameof(StarDetectorParams.StarClippingMultiplier), OptimizerVariableType.Continuous, 0.5, 5, 0.5);
+        Check(nameof(StarDetectorParams.Sensitivity), OptimizerVariableType.Continuous, 0, 50, 1.0);
+        Check(nameof(StarDetectorParams.StarClippingMultiplier), OptimizerVariableType.Continuous, 0.25, 10, 0.5);
         Check(nameof(StarDetectorParams.NoiseClippingMultiplier), OptimizerVariableType.Continuous, 1, 10, 0.5);
         Check(nameof(StarDetectorParams.PeakResponse), OptimizerVariableType.Continuous, 0.1, 1.0, 0.05);
         Check(nameof(StarDetectorParams.MaxDistortion), OptimizerVariableType.Continuous, 0.1, 1.0, 0.1);
