@@ -38,6 +38,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     }
 
     /// <summary>
+    /// Loads a saved auto-focus attempt folder into a <see cref="LoadedRun"/> the optimizer can evaluate.
+    /// Extracted so the wizard VM can be unit-tested against a fake loader (the concrete
+    /// <see cref="RunEvaluationLoader"/> is heavily NINA-coupled).
+    /// </summary>
+    public interface IRunEvaluationLoader {
+
+        Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token);
+    }
+
+    /// <summary>
     /// Wizard-side loader: turns a saved auto-focus attempt folder into a <see cref="RunEvaluationData"/> the
     /// optimizer can evaluate. Unlike the pure optimizer (T2) and the image-source-agnostic
     /// <see cref="RunEvaluationData"/> (T3 core), this is intentionally NINA-coupled — it loads exposures via the
@@ -45,7 +55,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// HocusFocus star detector. Its end-to-end path is exercised in T6 against a real AF run folder; the unit
     /// tests cover only construction/argument validation.
     /// </summary>
-    public sealed class RunEvaluationLoader {
+    public sealed class RunEvaluationLoader : IRunEvaluationLoader {
         private readonly IProfileService profileService;
         private readonly IImageDataFactory imageDataFactory;
         private readonly IImagingMediator imagingMediator;
