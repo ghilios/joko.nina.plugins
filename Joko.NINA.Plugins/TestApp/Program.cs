@@ -127,6 +127,13 @@ namespace TestApp {
                 return;
             }
 
+            // Interactive two-pass star-review labeling tool: `TestApp review --runs <dir> ...`. This opens a WPF
+            // window (ShowDialog) and so must run on this STA thread (Main is [STAThread]); it is synchronous.
+            if (args.Length > 0 && args[0].Equals("review", StringComparison.OrdinalIgnoreCase)) {
+                StarReview.StarReviewRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&

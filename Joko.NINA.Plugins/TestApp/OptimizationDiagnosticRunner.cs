@@ -167,8 +167,9 @@ namespace TestApp {
                 $"NoiseClippingMultiplier={F(seed.NoiseClippingMultiplier)}, StructureLayers={seed.StructureLayers}, PixelScale={F(seed.PixelScale)}, " +
                 $"MeasurementAverage={starDetectionOptions.MeasurementAverage}");
 
-            // The fixed AF-detection sigma rejections the wizard loader uses (HocusFocusDetectionParams defaults):
-            // high = 4.0, low = 3.0. These feed the MeanOutliers HFR aggregation only.
+            // The fixed AF-detection sigma rejections the wizard's RunEvaluationLoader uses (the
+            // HocusFocusDetectionParams class defaults, NOT the live AF path): high = 4.0, low = 3.0. These feed
+            // the MeanOutliers HFR aggregation only.
             const double highSigmaOutlierRejection = 4.0;
             const double lowSigmaOutlierRejection = 3.0;
 
@@ -379,13 +380,17 @@ namespace TestApp {
             return positions.Count > 1 ? Math.Abs(positions[0] - positions[1]) : 0;
         }
 
-        // ---- Production-matching HFR aggregation ------------------------------------------------------------
+        // ---- HFR aggregation matching the wizard's RunEvaluationLoader -------------------------------------
 
         /// <summary>
         /// Adapts a <see cref="HocusFocusStarDetectorResult"/> (from <see cref="StarDetector.Detect(Mat, StarDetectorParams, IProgress{NINA.Core.Model.ApplicationStatus}, CancellationToken)"/>)
-        /// into the <see cref="FrameDetectionResult"/> the optimizer consumes, REPLICATING the production HFR
-        /// aggregation in <c>HocusFocusStarDetection.Detect</c> so the harness's per-frame HFR/σ match the live AF
-        /// path exactly. The matched production code:
+        /// into the <see cref="FrameDetectionResult"/> the optimizer consumes, REPLICATING the HFR aggregation in
+        /// <c>HocusFocusStarDetection.Detect</c> AS THE WIZARD'S <see cref="RunEvaluationLoader"/> drives it — i.e.
+        /// with NumberOfAFStars=0 (every accepted star is scored, not the brightest-N) and the sigma rejections at
+        /// the <see cref="HocusFocusDetectionParams"/> class defaults (high=4.0/low=3.0). NOTE this is the wizard's
+        /// loader path, NOT the live AF path: live AF uses high=3.0 when Sensitivity=Normal (HocusFocusStarDetection
+        /// line ~269), so the harness deliberately matches RunEvaluationLoader so its per-frame HFR/σ equal what the
+        /// optimizer scores in the wizard. The matched production code:
         ///   - MeanOutliers: first re-filter the star list to HFR ∈ [median − low·MAD, median + high·MAD]
         ///     (HocusFocusDetection.Detect lines ~389-399, sigmas 4.0/3.0 from HocusFocusDetectionParams), then
         ///     AverageHFR = mean, HFRStdDev = sample std-dev (n-1) (lines ~440-442).
