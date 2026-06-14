@@ -91,9 +91,9 @@ public class StarDetectorParamsTests {
             Assert.That(p.NoiseClippingMultiplier, Is.EqualTo(4.0));
             // F4 recalibration: σ is now measured on the image actually sampled; the σ-multiple knob 10.0→2.0
             // (BrightnessSensitivity) remains the F4 recalibration. StarClippingMultiplier is 2.0 as the uniform
-            // empirical τ level (F3, gate-only) — see plans/sigma-consistency-f3-results.md.
+            // empirical τ level (F3, gate-only) — see docs/sigma-consistency-f3-results.md.
             Assert.That(p.StarClippingMultiplier, Is.EqualTo(2.0));
-            Assert.That(p.HfrTauPolicy, Is.EqualTo(TauClipPolicy.GateOnly), "empirical F3 default — see plans/sigma-consistency-f3-results.md");
+            Assert.That(p.HfrTauPolicy, Is.EqualTo(TauClipPolicy.GateOnly), "empirical F3 default — see docs/sigma-consistency-f3-results.md");
             Assert.That(p.HotpixelFilterRadius, Is.EqualTo(1));
             Assert.That(p.StructureLayers, Is.EqualTo(4));
             Assert.That(p.StructureDilationSize, Is.EqualTo(3));

@@ -1,3 +1,4 @@
+using MathNet.Numerics.Distributions;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
@@ -5,6 +6,12 @@ using System.Collections.Generic;
 namespace NINA.Joko.Plugins.HocusFocus.Tests.Synthetic {
 
     internal static class SyntheticFocusCurveSamples {
+
+        // Noise convention: when a *Points generator is given noiseSigma > 0, it perturbs each Y by a Gaussian
+        // (std = noiseSigma) drawn from a fresh System.Random(seed), so the data is fully deterministic per seed.
+        // Each call owns its RNG, so two calls with the SAME seed yield independent but identically-sequenced noise
+        // — use different seeds if a test needs uncorrelated noise across two curves. noiseSigma = 0 (the default)
+        // is byte-for-byte identical to the legacy noise-free output.
 
         // y = a / b * sqrt((x - x0)^2 + b^2) + y0
         public static double Hyperbola(double x, double x0, double y0, double a, double b) {
@@ -20,11 +27,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Synthetic {
             double xStart,
             double xStep,
             int count,
-            double errorY = 1.0) {
+            double errorY = 1.0,
+            double noiseSigma = 0.0,
+            int seed = 0) {
             var points = new List<ScatterErrorPoint>(count);
+            Normal dist = noiseSigma > 0.0 ? new Normal(0.0, noiseSigma, new System.Random(seed)) : null;
             for (var i = 0; i < count; ++i) {
                 var x = xStart + i * xStep;
-                var y = Hyperbola(x, x0, y0, a, b);
+                var y = Hyperbola(x, x0, y0, a, b) + (dist != null ? dist.Sample() : 0.0);
                 points.Add(new ScatterErrorPoint(x, y, 0, errorY));
             }
             return points;
@@ -52,11 +62,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Synthetic {
             double xStart,
             double xStep,
             int count,
-            double errorY = 1.0) {
+            double errorY = 1.0,
+            double noiseSigma = 0.0,
+            int seed = 0) {
             var points = new List<ScatterErrorPoint>(count);
+            Normal dist = noiseSigma > 0.0 ? new Normal(0.0, noiseSigma, new System.Random(seed)) : null;
             for (var i = 0; i < count; ++i) {
                 var x = xStart + i * xStep;
-                var y = TiltedHyperbola(x, x0, y0, a, b, s);
+                var y = TiltedHyperbola(x, x0, y0, a, b, s) + (dist != null ? dist.Sample() : 0.0);
                 points.Add(new ScatterErrorPoint(x, y, 0, errorY));
             }
             return points;

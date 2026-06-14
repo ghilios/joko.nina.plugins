@@ -153,7 +153,7 @@ namespace TestApp {
 
             // F11 step 6: a single-value override and a sweep for BrightnessSensitivity, applied on top of the
             // built base params (profile-derived or --default-params). The sweep is how the recalibrated knob
-            // value is chosen empirically — see plans/f11-meanflux-sensitivity-recalibration-design.md §3.
+            // value is chosen empirically — see docs/f11-meanflux-sensitivity-recalibration-design.md §3.
             var brightnessOverride = DiagnosticUtil.GetArg(args, "--brightness-sensitivity");
             if (!string.IsNullOrWhiteSpace(brightnessOverride)) {
                 if (!double.TryParse(brightnessOverride, NumberStyles.Float, CultureInfo.InvariantCulture, out var overrideValue)) {

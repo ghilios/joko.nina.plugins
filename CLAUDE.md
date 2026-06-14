@@ -35,11 +35,14 @@ Example: a screw at 0° (straight up from center) — turning it inward tilts th
 
 Camera images may be mirrored horizontally and/or vertically depending on the optical train (e.g., a star diagonal introduces a mirror). **Do not assume that screws numbered clockwise around the physical adapter will appear clockwise around the sensor image.** The screw orientations must be determined from the actual image coordinates after accounting for any mirroring. Plans and features that involve tilt correction must track orientation in image-space, not physical-space.
 
-## Plans Workflow
+## Specs & Plans Workflow
 
-- **Every new plan MUST be written to the `plans/` folder** — never leave a plan only in chat, in another directory, or in a scratch file. This applies to all plans regardless of size or how they were produced (planning mode, brainstorming, ad-hoc requests, etc.).
-- Use a meaningful filename based on the plan goal (e.g., `plans/tilt-adapter-screw-calibration-wizard.md`).
-- **Clear your Claude Code context (`/clear`) before executing a plan** to avoid stale context from the planning session affecting implementation.
+This project separates **design specs** from **implementation plans**, and they live in different folders:
+
+- **Design specs go in the `docs/` folder.** A spec is the what/why/approach produced by brainstorming or design exploration (and its related analyses/results). Use a meaningful filename with a `-design.md` suffix (e.g., `docs/sigma-consistency-design.md`).
+- **Implementation plans go in the `plans/` folder.** A plan is the step-by-step execution of an approved spec. Use a meaningful filename with a `-plan.md` suffix (e.g., `plans/sigma-consistency-plan.md`).
+- **Never leave a spec or plan only in chat, in another directory, or in a scratch file** — write it to the correct folder, regardless of size or how it was produced (planning mode, brainstorming, ad-hoc requests, etc.).
+- **Clear your Claude Code context (`/clear`) before executing a plan** to avoid stale planning context affecting implementation.
 - The user will explicitly say when a plan is ready to execute.
 
 ## Git Workflow

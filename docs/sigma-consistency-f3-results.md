@@ -9,7 +9,7 @@ Noise level σ_n=0.02 was added via `SyntheticDefocusedStarImage.AddGaussianNois
 Image size is 81×81, center at (40, 40). Shapes: bright Gaussian (σ=5, peak=1.0 = 50σ_n), faint Gaussian
 (σ=5, peak=0.16 = 8σ_n), faint donut/annulus (inner=8, outer=14, peak=0.12 = 6σ_n). Policies tested:
 `SubtractTau` (legacy soft-threshold) at 0.4σ, and `GateOnly` (inclusion gate, full flux kept) at 0.4σ,
-1.0σ, and 2.0σ. See `plans/sigma-consistency-design.md` §3 for the design rationale and policy definitions.
+1.0σ, and 2.0σ. See `docs/sigma-consistency-design.md` §3 for the design rationale and policy definitions.
 
 ---
 

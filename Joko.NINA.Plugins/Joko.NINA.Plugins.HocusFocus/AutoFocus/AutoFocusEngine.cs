@@ -99,6 +99,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 AFMethodEnum method,
                 AFCurveFittingEnum fitting,
                 List<ScatterErrorPoint> focusPoints) {
+                // Canonicalize point order (by focuser position) so the fit and its iterative Grubbs outlier
+                // rejection are independent of the order measurements arrive in. During replay the points
+                // complete concurrently, so MeasurementsByFocuserPoint (a Dictionary) enumerates them in
+                // nondeterministic completion order; the alglib fit (residual/Jacobian summation roundoff) and
+                // RejectionTest (first-of-ties MaxBy) are order-sensitive, which would otherwise flip a borderline
+                // outlier between otherwise-identical replays.
+                focusPoints = focusPoints.OrderBy(p => p.X).ToList();
                 // Weighted fitters — ours and NINA core's Trendline/QuadraticFitting, which weight by
                 // 1/ErrorY² — must never see a degenerate σ: fit on regularized copies. Raw points
                 // still feed reports/charts upstream; rejected points recorded from this path carry

@@ -115,6 +115,12 @@ namespace TestApp {
                 return;
             }
 
+            // Headless AF fit + outlier-rejection diagnostic mode: `TestApp af-fit --af-run <dir> ...`
+            if (args.Length > 0 && args[0].Equals("af-fit", StringComparison.OrdinalIgnoreCase)) {
+                await AfFitDiagnosticRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&

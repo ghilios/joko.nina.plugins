@@ -1,6 +1,6 @@
 # Weight-Chain Hygiene (F5a/F5b/F6) — Design
 
-Step 4 of `plans/star-detection-hfr-autofocus-accuracy-analysis.md` (§9 item 4, §10 row 4).
+Step 4 of `docs/star-detection-hfr-autofocus-accuracy-analysis.md` (§9 item 4, §10 row 4).
 Branch: `ghilios/weight-chain-hygiene` → PR to `develop`.
 
 ## Problem
@@ -178,7 +178,7 @@ Harness validation:
 ## Scope
 
 **In**: §§1–4 above; χ² calibration run + resulting threshold/doc decision; roadmap §10 update in
-`plans/star-detection-hfr-autofocus-accuracy-analysis.md` — row 3 → ✅ Done (PR #48, merged),
+`docs/star-detection-hfr-autofocus-accuracy-analysis.md` — row 3 → ✅ Done (PR #48, merged),
 row 4 → 🟡 In progress (this design + plan).
 
 **Out** (deliberately):

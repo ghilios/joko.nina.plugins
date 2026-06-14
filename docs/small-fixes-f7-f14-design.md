@@ -1,7 +1,7 @@
 # Small Fixes (F7–F14 + Weight-Chain Follow-ups) — Design
 
-Step 5 of `plans/star-detection-hfr-autofocus-accuracy-analysis.md` (§8 findings F7–F14, §10 row 5),
-plus the four follow-ups recorded in the Risks/notes section of `plans/weight-chain-hygiene-design.md`
+Step 5 of `docs/star-detection-hfr-autofocus-accuracy-analysis.md` (§8 findings F7–F14, §10 row 5),
+plus the four follow-ups recorded in the Risks/notes section of `docs/weight-chain-hygiene-design.md`
 (SolveHuberIrls failed-solve bug, uncentered-MAD Huber threshold, SensorModel per-star fits not
 regularized, structural IRLS reference-fit change).
 
@@ -144,7 +144,7 @@ the floor see relative-weight changes only if some σ < 0.2·median — the cap 
   `NormalizedBrightness`); the fix alone dropped accepted stars 8.1% on the corpus image.
 - **W4 (deferred)**: new roadmap step 7 — "Structural IRLS robustness: judge Huber residuals
   against an unweighted reference fit so a high-weight displaced point cannot self-mask." Links to
-  the investigation notes in `plans/weight-chain-hygiene-design.md` (§1 implementation finding:
+  the investigation notes in `docs/weight-chain-hygiene-design.md` (§1 implementation finding:
   recovery cliff at capped weight ratio ≥ ~1.25×; fit-level damage saturates regardless of cap).
   Requires FitQualityRunner corpus validation and synthetic-sweep experiments before any change.
 - **Roadmap §10**: row 5 → in progress (this design + plan), with the F7/F8/F14 decisions noted;

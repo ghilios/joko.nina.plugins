@@ -3,7 +3,7 @@
 ## Context & goal
 
 This is **step 1** ("Build the evidence base first") of
-[`plans/star-detection-hfr-autofocus-accuracy-analysis.md`](star-detection-hfr-autofocus-accuracy-analysis.md).
+[`docs/star-detection-hfr-autofocus-accuracy-analysis.md`](star-detection-hfr-autofocus-accuracy-analysis.md).
 That analysis confirmed several HFR/detection biases by *mechanism* (reading the code) but never
 *measured their magnitude*. Before changing any production behavior (findings F1–F4), we want an
 evidence base that turns "mechanism confirmed" into measured numbers.
