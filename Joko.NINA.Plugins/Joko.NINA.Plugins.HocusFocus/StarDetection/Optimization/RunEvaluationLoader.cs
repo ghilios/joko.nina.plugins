@@ -1,0 +1,169 @@
+#region "copyright"
+
+/*
+    Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using NINA.Core.Enum;
+using NINA.Core.Utility;
+using NINA.Equipment.Interfaces.Mediator;
+using NINA.Image.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Utility;
+using NINA.Profile.Interfaces;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Logger = NINA.Core.Utility.Logger;
+
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
+
+    /// <summary>
+    /// A loaded auto-focus run ready for optimization: the <see cref="Data"/> the optimizer evaluates, the
+    /// <see cref="Seed"/> params the search starts from (the AF-base params for the first frame, carrying
+    /// PixelScale + Region + ModelPSF=false), and the run's <see cref="AfOptions"/> (for the current step size).
+    /// </summary>
+    public sealed class LoadedRun {
+        public RunEvaluationData Data { get; set; }
+        public StarDetectorParams Seed { get; set; }
+        public AutoFocusEngineOptions AfOptions { get; set; }
+    }
+
+    /// <summary>
+    /// Wizard-side loader: turns a saved auto-focus attempt folder into a <see cref="RunEvaluationData"/> the
+    /// optimizer can evaluate. Unlike the pure optimizer (T2) and the image-source-agnostic
+    /// <see cref="RunEvaluationData"/> (T3 core), this is intentionally NINA-coupled — it loads exposures via the
+    /// image-data factory + imaging mediator (mirroring <c>InspectorVM.LoadSavedFile</c>) and runs the real
+    /// HocusFocus star detector. Its end-to-end path is exercised in T6 against a real AF run folder; the unit
+    /// tests cover only construction/argument validation.
+    /// </summary>
+    public sealed class RunEvaluationLoader {
+        private readonly IProfileService profileService;
+        private readonly IImageDataFactory imageDataFactory;
+        private readonly IImagingMediator imagingMediator;
+        private readonly IAutoFocusEngine autoFocusEngine;
+        private readonly IHocusFocusStarDetection detection;
+        private readonly IAlglibAPI alglibAPI;
+
+        public RunEvaluationLoader(
+            IProfileService profileService,
+            IImageDataFactory imageDataFactory,
+            IImagingMediator imagingMediator,
+            IAutoFocusEngine autoFocusEngine,
+            IHocusFocusStarDetection detection,
+            IAlglibAPI alglibAPI = null) {
+            this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
+            this.imageDataFactory = imageDataFactory ?? throw new ArgumentNullException(nameof(imageDataFactory));
+            this.imagingMediator = imagingMediator ?? throw new ArgumentNullException(nameof(imagingMediator));
+            this.autoFocusEngine = autoFocusEngine ?? throw new ArgumentNullException(nameof(autoFocusEngine));
+            this.detection = detection ?? throw new ArgumentNullException(nameof(detection));
+            // The plugin singleton is the production source; allow null here only so the dependency is overridable.
+            this.alglibAPI = alglibAPI ?? HocusFocusPlugin.AlglibAPI;
+        }
+
+        /// <summary>
+        /// Loads the saved attempt at <paramref name="attemptFolderPath"/> into a <see cref="LoadedRun"/>:
+        /// every saved exposure is rendered once (detectStars: false), the AF-base detector params for the first
+        /// image become the optimizer seed, and the detection delegate re-runs the HocusFocus detector with each
+        /// candidate params on the already-loaded frames. The fit config is taken from the run's AF options so the
+        /// optimizer's curve fit matches the AF engine's.
+        /// </summary>
+        public async Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) {
+            if (string.IsNullOrEmpty(attemptFolderPath)) {
+                throw new ArgumentException("attemptFolderPath is required", nameof(attemptFolderPath));
+            }
+            region = region ?? StarDetectionRegion.Full;
+
+            var attempt = autoFocusEngine.LoadSavedAutoFocusAttempt(attemptFolderPath);
+            var afOptions = autoFocusEngine.GetOptions(attempt);
+
+            if (attempt.SavedImages == null || attempt.SavedImages.Count == 0) {
+                throw new InvalidOperationException($"No saved images found in {attemptFolderPath}");
+            }
+
+            // Render every saved exposure once (detectStars: false, mirroring InspectorVM.LoadSavedFile).
+            var frames = new List<RunFrame>(attempt.SavedImages.Count);
+            IRenderedImage firstImage = null;
+            foreach (var savedImage in attempt.SavedImages) {
+                token.ThrowIfCancellationRequested();
+                var rendered = await LoadRenderedImageAsync(savedImage, afOptions, token).ConfigureAwait(false);
+                if (firstImage == null) {
+                    firstImage = rendered;
+                }
+                frames.Add(new RunFrame {
+                    FrameId = savedImage.Path,
+                    FocuserPosition = savedImage.FocuserPosition,
+                    Image = rendered
+                });
+            }
+
+            // Seed = AF-base detector params for the first image (PixelScale + Region + ModelPSF=false). This is
+            // the bundle the optimizer starts from and tunes.
+            var seed = detection.GetStarDetectorParams(firstImage, region, isAutoFocus: true);
+
+            // AF detection params: the auto-focus detection contract (sigma rejections + AF flag). NumberOfAFStars
+            // is left at 0 so detection keeps every accepted star — the optimizer scores on the full accepted set,
+            // not the brightest-N subset the live AF picks for centroiding.
+            var hocusParams = new HocusFocusDetectionParams {
+                IsAutoFocus = true,
+                NumberOfAFStars = 0
+            };
+
+            var fitConfig = new RunFitConfig {
+                StepSize = afOptions.AutoFocusStepSize,
+                UseWeights = afOptions.WeightedHyperbolicFitEnabled,
+                MaxOutlierRejections = afOptions.MaxOutlierRejections,
+                RejectionConfidence = afOptions.OutlierRejectionConfidence,
+                PreferredModel = afOptions.HyperbolicFitModel
+            };
+
+            Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect =
+                async (image, candidateParams, ct) => {
+                    var result = await detection.Detect((IRenderedImage)image, hocusParams, candidateParams, null, ct).ConfigureAwait(false);
+                    var centers = result.StarList == null
+                        ? (IReadOnlyList<(double X, double Y)>)Array.Empty<(double X, double Y)>()
+                        : result.StarList.Select(s => ((double)s.Position.X, (double)s.Position.Y)).ToList();
+                    return new FrameDetectionResult {
+                        AverageHFR = result.AverageHFR,
+                        HFRStdDev = result.HFRStdDev,
+                        StarCount = result.DetectedStars,
+                        StarCenters = centers
+                    };
+                };
+
+            var runId = attempt.FolderPath ?? attemptFolderPath;
+            var data = new RunEvaluationData(runId, frames, detect, alglibAPI, fitConfig);
+
+            Logger.Info($"Loaded saved AF run '{runId}' for optimization: {frames.Count} frames, step size {fitConfig.StepSize}");
+            return new LoadedRun {
+                Data = data,
+                Seed = seed,
+                AfOptions = afOptions
+            };
+        }
+
+        private async Task<IRenderedImage> LoadRenderedImageAsync(SavedAutoFocusImage savedImage, AutoFocusEngineOptions afOptions, CancellationToken token) {
+            var imageData = await imageDataFactory.CreateFromFile(
+                savedImage.Path, savedImage.BitDepth, savedImage.IsBayered,
+                profileService.ActiveProfile.CameraSettings.RawConverter, token).ConfigureAwait(false);
+
+            // Auto-stretch unless contrast-detection statistics are in play (mirrors InspectorVM.LoadSavedFile).
+            var autoStretch = true;
+            if (afOptions.AutoFocusMethod == AFMethodEnum.CONTRASTDETECTION
+                && profileService.ActiveProfile.FocuserSettings.ContrastDetectionMethod == ContrastDetectionMethodEnum.Statistics) {
+                autoStretch = false;
+            }
+
+            var prepareParameters = new PrepareImageParameters(autoStretch: autoStretch, detectStars: false);
+            return await imagingMediator.PrepareImage(imageData, prepareParameters, token).ConfigureAwait(false);
+        }
+    }
+}
