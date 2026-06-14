@@ -121,6 +121,12 @@ namespace TestApp {
                 return;
             }
 
+            // Headless star-detection optimizer harness: `TestApp optimize --runs <dir> ...`
+            if (args.Length > 0 && args[0].Equals("optimize", StringComparison.OrdinalIgnoreCase)) {
+                await OptimizationDiagnosticRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&
