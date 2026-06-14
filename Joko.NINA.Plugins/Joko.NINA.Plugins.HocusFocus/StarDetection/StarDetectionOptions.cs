@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Core.Utility;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
@@ -18,6 +19,7 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using Newtonsoft.Json;
+using Logger = NINA.Core.Utility.Logger;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -53,6 +55,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             nameof(Simple_NoiseLevel),
             nameof(Simple_PixelScale),
             nameof(Simple_FocusRange),
+            nameof(UseOptimizedSettings),
         };
 
         private void ConfigureSimpleSettings() {
@@ -60,6 +63,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return;
             }
 
+            if (UseOptimizedSettings && HasOptimizedSettings) {
+                ApplyOptimizedSnapshotToLiveProperties();
+                return;
+            }
+
+            DerivePresetSettings();
+        }
+
+        // Applies the curated optimized snapshot on top of the Simple-mode preset baseline. The non-curated
+        // advanced knobs (PSF, dilation, etc.) keep their Simple-mode preset defaults; the curated knobs win.
+        // Setting these live properties while in Simple Mode does NOT recurse, because the PropertyChanged
+        // handler only re-runs ConfigureSimpleSettings for properties in SimplePropertyNames (which the curated
+        // knobs are not).
+        private void ApplyOptimizedSnapshotToLiveProperties() {
+            DerivePresetSettings();
+            var s = optimizedSettings;
+            if (s == null) {
+                return;
+            }
+            BrightnessSensitivity = s.BrightnessSensitivity;
+            StarClippingMultiplier = s.StarClippingMultiplier;
+            NoiseClippingMultiplier = s.NoiseClippingMultiplier;
+            StarPeakResponse = s.StarPeakResponse;
+            MaxDistortion = s.MaxDistortion;
+            MinHFR = s.MinHFR;
+            StarCenterTolerance = s.StarCenterTolerance;
+            StructureLayers = s.StructureLayers;
+            NoiseReductionRadius = s.NoiseReductionRadius;
+            MinStarBoundingBoxSize = s.MinStarBoundingBoxSize;
+            HotpixelThresholdingEnabled = s.HotpixelThresholdingEnabled;
+            HotpixelThreshold = s.HotpixelThreshold;
+        }
+
+        private void DerivePresetSettings() {
             HotpixelFiltering = Simple_NoiseLevel != NoiseLevelEnum.None;
             // F4: σ-based knobs are honest multiples of the measured image's σ. The old code measured σ on a
             // blurred copy (~4× understated for white noise) on the Low/Typical path only, so the same knob value
@@ -190,6 +227,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             saturationThreshold = optionsAccessor.GetValueDouble(nameof(SaturationThreshold), 0.99d);
             measurementAverage = optionsAccessor.GetValueEnum<MeasurementAverageEnum>(nameof(MeasurementAverage), MeasurementAverageEnum.Median);
             psfPixelIntegration = optionsAccessor.GetValueBoolean(nameof(PSFPixelIntegration), false);
+            useOptimizedSettings = optionsAccessor.GetValueBoolean(nameof(UseOptimizedSettings), false);
+            var optimizedSettingsJson = optionsAccessor.GetValueString(OptimizedSettingsJsonKey, "");
+            optimizedSettings = null;
+            if (!string.IsNullOrEmpty(optimizedSettingsJson)) {
+                try {
+                    optimizedSettings = JsonConvert.DeserializeObject<OptimizedStarDetectionSettings>(optimizedSettingsJson);
+                } catch (Exception ex) {
+                    Logger.Warning($"Discarding corrupt OptimizedSettingsJson: {ex.Message}");
+                }
+            }
             ConfigureSimpleSettings();
         }
 
@@ -234,6 +281,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             SaturationThreshold = 0.99d;
             MeasurementAverage = MeasurementAverageEnum.Median;
             PSFPixelIntegration = false;
+            optimizedSettings = null;
+            optionsAccessor.SetValueString(OptimizedSettingsJsonKey, "");
+            RaisePropertyChanged(nameof(HasOptimizedSettings));
+            UseOptimizedSettings = false;
         }
 
         private bool debugMode;
@@ -776,6 +827,43 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     RaisePropertyChanged();
                 }
             }
+        }
+
+        // Persisted JSON blob holding the optimized star-detection snapshot (Optimization Wizard, T1).
+        private const string OptimizedSettingsJsonKey = "OptimizedSettingsJson";
+
+        private OptimizedStarDetectionSettings optimizedSettings;
+
+        public bool HasOptimizedSettings => optimizedSettings != null;
+
+        private bool useOptimizedSettings;
+
+        public bool UseOptimizedSettings {
+            get => useOptimizedSettings;
+            set {
+                if (useOptimizedSettings != value) {
+                    useOptimizedSettings = value;
+                    optionsAccessor.SetValueBoolean(nameof(UseOptimizedSettings), useOptimizedSettings);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public OptimizedStarDetectionSettings GetOptimizedSettings() {
+            return optimizedSettings?.Clone();
+        }
+
+        public void ApplyOptimizedSettings(OptimizedStarDetectionSettings settings) {
+            if (settings == null) {
+                throw new ArgumentNullException(nameof(settings));
+            }
+            optimizedSettings = settings.Clone();
+            optionsAccessor.SetValueString(OptimizedSettingsJsonKey, JsonConvert.SerializeObject(settings));
+            RaisePropertyChanged(nameof(HasOptimizedSettings));
+            UseAdvanced = false;
+            UseOptimizedSettings = true; // fires ConfigureSimpleSettings via PropertyChanged
+            ConfigureSimpleSettings(); // ensure applied even if UseOptimizedSettings was already true
+            RaiseAllPropertiesChanged(); // refresh UI bindings for all live advanced props
         }
 
     }

@@ -13,6 +13,7 @@
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Converters;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using System.ComponentModel;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
@@ -111,5 +112,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double SaturationThreshold { get; set; }
         MeasurementAverageEnum MeasurementAverage { get; set; }
         bool PSFPixelIntegration { get; set; }
+
+        // Optimized settings snapshot (Star Detection Optimization Wizard)
+        bool HasOptimizedSettings { get; }
+
+        bool UseOptimizedSettings { get; set; }
+
+        OptimizedStarDetectionSettings GetOptimizedSettings();
+
+        void ApplyOptimizedSettings(OptimizedStarDetectionSettings settings);
     }
 }

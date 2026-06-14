@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -391,5 +392,215 @@ public class StarDetectionOptionsTests {
     public void Constructor_ThrowsOnNullAccessor() {
         var profile = Substitute.For<IProfileService>();
         Assert.Throws<ArgumentNullException>(() => new StarDetectionOptions(profile, null));
+    }
+
+    // ---- Optimized settings snapshot + "Use Optimized Settings" toggle (T1) ----
+
+    private static OptimizedStarDetectionSettings MakeSnapshot() {
+        // Distinctive curated values, all within each property's valid range.
+        return new OptimizedStarDetectionSettings {
+            BrightnessSensitivity = 3.3,
+            StarClippingMultiplier = 2.7,
+            NoiseClippingMultiplier = 5.5,
+            StarPeakResponse = 0.66,
+            MaxDistortion = 0.42,
+            MinHFR = 1.1,
+            StarCenterTolerance = 0.45,
+            StructureLayers = 7,
+            NoiseReductionRadius = 6,
+            MinStarBoundingBoxSize = 8,
+            HotpixelThresholdingEnabled = false,
+            HotpixelThreshold = 0.02,
+            CreatedAtUtc = new DateTime(2026, 6, 14, 12, 0, 0, DateTimeKind.Utc),
+            RunCount = 5,
+            BaselineJ = 0.9,
+            FinalJ = 0.4,
+            RecommendedStepSize = 25,
+            RecommendedOffsetSteps = 6,
+            SchemaVersion = 1
+        };
+    }
+
+    private static void AssertLiveMatchesSnapshot(IStarDetectionOptions options, OptimizedStarDetectionSettings s) {
+        Assert.Multiple(() => {
+            Assert.That(options.BrightnessSensitivity, Is.EqualTo(s.BrightnessSensitivity));
+            Assert.That(options.StarClippingMultiplier, Is.EqualTo(s.StarClippingMultiplier));
+            Assert.That(options.NoiseClippingMultiplier, Is.EqualTo(s.NoiseClippingMultiplier));
+            Assert.That(options.StarPeakResponse, Is.EqualTo(s.StarPeakResponse));
+            Assert.That(options.MaxDistortion, Is.EqualTo(s.MaxDistortion));
+            Assert.That(options.MinHFR, Is.EqualTo(s.MinHFR));
+            Assert.That(options.StarCenterTolerance, Is.EqualTo(s.StarCenterTolerance));
+            Assert.That(options.StructureLayers, Is.EqualTo(s.StructureLayers));
+            Assert.That(options.NoiseReductionRadius, Is.EqualTo(s.NoiseReductionRadius));
+            Assert.That(options.MinStarBoundingBoxSize, Is.EqualTo(s.MinStarBoundingBoxSize));
+            Assert.That(options.HotpixelThresholdingEnabled, Is.EqualTo(s.HotpixelThresholdingEnabled));
+            Assert.That(options.HotpixelThreshold, Is.EqualTo(s.HotpixelThreshold));
+        });
+    }
+
+    [Test]
+    public void OptimizedSettings_DefaultsToNoneAndOff() {
+        var (options, _, _) = Build();
+        Assert.Multiple(() => {
+            Assert.That(options.HasOptimizedSettings, Is.False);
+            Assert.That(options.UseOptimizedSettings, Is.False);
+            Assert.That(options.GetOptimizedSettings(), Is.Null);
+        });
+    }
+
+    [Test]
+    public void ApplyOptimizedSettings_TurnsOnAndDrivesLiveProperties() {
+        var (options, _, _) = Build();
+        var snapshot = MakeSnapshot();
+
+        options.ApplyOptimizedSettings(snapshot);
+
+        Assert.Multiple(() => {
+            Assert.That(options.HasOptimizedSettings, Is.True);
+            Assert.That(options.UseOptimizedSettings, Is.True);
+            Assert.That(options.UseAdvanced, Is.False);
+        });
+        AssertLiveMatchesSnapshot(options, snapshot);
+    }
+
+    [Test]
+    public void ApplyOptimizedSettings_NullThrows() {
+        var (options, _, _) = Build();
+        Assert.Throws<ArgumentNullException>(() => options.ApplyOptimizedSettings(null));
+    }
+
+    [Test]
+    public void ApplyOptimizedSettings_ReflectedInBuildStarDetectorParams() {
+        var (options, _, _) = Build();
+        var snapshot = MakeSnapshot();
+        options.ApplyOptimizedSettings(snapshot);
+
+        var p = HocusFocusStarDetection.BuildStarDetectorParams(options);
+
+        Assert.Multiple(() => {
+            Assert.That(p.Sensitivity, Is.EqualTo(snapshot.BrightnessSensitivity));
+            Assert.That(p.StarClippingMultiplier, Is.EqualTo(snapshot.StarClippingMultiplier));
+            Assert.That(p.NoiseClippingMultiplier, Is.EqualTo(snapshot.NoiseClippingMultiplier));
+            Assert.That(p.PeakResponse, Is.EqualTo(snapshot.StarPeakResponse));
+            Assert.That(p.MaxDistortion, Is.EqualTo(snapshot.MaxDistortion));
+            Assert.That(p.MinHFR, Is.EqualTo(snapshot.MinHFR));
+            Assert.That(p.StarCenterTolerance, Is.EqualTo(snapshot.StarCenterTolerance));
+            Assert.That(p.StructureLayers, Is.EqualTo(snapshot.StructureLayers));
+            Assert.That(p.NoiseReductionRadius, Is.EqualTo(snapshot.NoiseReductionRadius));
+            Assert.That(p.MinimumStarBoundingBoxSize, Is.EqualTo(snapshot.MinStarBoundingBoxSize));
+            Assert.That(p.HotpixelThresholdingEnabled, Is.EqualTo(snapshot.HotpixelThresholdingEnabled));
+            Assert.That(p.HotpixelThreshold, Is.EqualTo(snapshot.HotpixelThreshold));
+        });
+    }
+
+    [Test]
+    public void ToggleOptimizedSettingsOff_RestoresPresetDerivedValues() {
+        var (options, _, _) = Build();
+        // Establish the preset-derived baseline for a fresh Typical/Typical/Typical config.
+        var (baseline, _, _) = Build();
+
+        // HotpixelThresholdingEnabled is an input toggle that DerivePresetSettings reads (not re-derives), so
+        // use the default (true) here to keep the NoiseReductionRadius derivation aligned with the baseline.
+        var snapshot = MakeSnapshot();
+        snapshot.HotpixelThresholdingEnabled = true;
+        options.ApplyOptimizedSettings(snapshot);
+        options.UseOptimizedSettings = false;
+
+        Assert.Multiple(() => {
+            Assert.That(options.HasOptimizedSettings, Is.True, "snapshot should still be stored when toggled off");
+            Assert.That(options.BrightnessSensitivity, Is.EqualTo(baseline.BrightnessSensitivity));
+            Assert.That(options.StarClippingMultiplier, Is.EqualTo(baseline.StarClippingMultiplier));
+            Assert.That(options.NoiseClippingMultiplier, Is.EqualTo(baseline.NoiseClippingMultiplier));
+            Assert.That(options.StarPeakResponse, Is.EqualTo(baseline.StarPeakResponse));
+            Assert.That(options.MaxDistortion, Is.EqualTo(baseline.MaxDistortion));
+            Assert.That(options.MinHFR, Is.EqualTo(baseline.MinHFR));
+            Assert.That(options.StarCenterTolerance, Is.EqualTo(baseline.StarCenterTolerance));
+            Assert.That(options.StructureLayers, Is.EqualTo(baseline.StructureLayers));
+            Assert.That(options.NoiseReductionRadius, Is.EqualTo(baseline.NoiseReductionRadius));
+            Assert.That(options.MinStarBoundingBoxSize, Is.EqualTo(baseline.MinStarBoundingBoxSize));
+            Assert.That(options.HotpixelThresholdingEnabled, Is.EqualTo(baseline.HotpixelThresholdingEnabled));
+            Assert.That(options.HotpixelThreshold, Is.EqualTo(baseline.HotpixelThreshold));
+        });
+    }
+
+    [Test]
+    public void OptimizedSettings_PersistAndReloadAcrossNewOptionsInstance() {
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        var snapshot = MakeSnapshot();
+
+        var first = new StarDetectionOptions(profile, store);
+        first.ApplyOptimizedSettings(snapshot);
+
+        // A brand new options object over the SAME persisted store must reload the snapshot + toggle.
+        var reloaded = new StarDetectionOptions(profile, store);
+        Assert.Multiple(() => {
+            Assert.That(reloaded.HasOptimizedSettings, Is.True);
+            Assert.That(reloaded.UseOptimizedSettings, Is.True);
+        });
+        AssertLiveMatchesSnapshot(reloaded, snapshot);
+    }
+
+    [Test]
+    public void ResetDefaults_ClearsOptimizedSettings() {
+        var (options, _, _) = Build();
+        var (baseline, _, _) = Build();
+        options.ApplyOptimizedSettings(MakeSnapshot());
+
+        options.ResetDefaults();
+
+        Assert.Multiple(() => {
+            Assert.That(options.HasOptimizedSettings, Is.False);
+            Assert.That(options.UseOptimizedSettings, Is.False);
+            Assert.That(options.GetOptimizedSettings(), Is.Null);
+            // Live values back to preset-derived defaults.
+            Assert.That(options.BrightnessSensitivity, Is.EqualTo(baseline.BrightnessSensitivity));
+            Assert.That(options.MinHFR, Is.EqualTo(baseline.MinHFR));
+            Assert.That(options.StructureLayers, Is.EqualTo(baseline.StructureLayers));
+        });
+    }
+
+    [Test]
+    public void UseOptimizedSettings_DefaultPersistsFalse() {
+        var (options, store, _) = Build();
+        options.UseAdvanced = true; // avoid simple-mode reconfig recursion noise
+        options.UseOptimizedSettings = true;
+        Assert.That(store.Snapshot[nameof(StarDetectionOptions.UseOptimizedSettings)], Is.True);
+    }
+
+    [Test]
+    public void CorruptOptimizedSettingsJson_IsDiscardedAndDoesNotThrow() {
+        // A malformed persisted JSON blob must not break options loading: InitializeOptions runs in the
+        // constructor (and on every ProfileChanged), so a deserialize failure here would otherwise abort
+        // loading entirely. It should be swallowed (logged) and treated as "no snapshot".
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        store.SetValueString("OptimizedSettingsJson", "{ this is not valid json");
+
+        StarDetectionOptions options = null;
+        Assert.DoesNotThrow(() => options = new StarDetectionOptions(profile, store));
+        Assert.Multiple(() => {
+            Assert.That(options.HasOptimizedSettings, Is.False);
+            Assert.That(options.GetOptimizedSettings(), Is.Null);
+        });
+    }
+
+    [Test]
+    public void GetOptimizedSettings_ReturnsDefensiveCopy() {
+        // Mutating the object returned by GetOptimizedSettings() must not change the stored in-memory snapshot,
+        // so a subsequent fetch returns the original curated values.
+        var (options, _, _) = Build();
+        var snapshot = MakeSnapshot();
+        options.ApplyOptimizedSettings(snapshot);
+
+        var fetched = options.GetOptimizedSettings();
+        fetched.BrightnessSensitivity += 100.0;
+        fetched.StructureLayers += 5;
+
+        var refetched = options.GetOptimizedSettings();
+        Assert.Multiple(() => {
+            Assert.That(refetched.BrightnessSensitivity, Is.EqualTo(snapshot.BrightnessSensitivity));
+            Assert.That(refetched.StructureLayers, Is.EqualTo(snapshot.StructureLayers));
+        });
     }
 }
