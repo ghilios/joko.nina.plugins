@@ -69,6 +69,49 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             Assert.That(rejects, Is.Empty);
         }
 
+        // Determinism regression (replay race): SelectBestModel must be independent of the ORDER in which
+        // measurement points are supplied. During replay points complete concurrently, so the engine can hand
+        // them to the fit in any order; before the input was canonicalized, the order-sensitive alglib fit
+        // (summation roundoff) + Grubbs rejection (first-of-ties MaxBy) could flip a borderline outlier and shift
+        // the fitted minimum between otherwise-identical replays — observed as a sweep point intermittently
+        // rejected and rendered at a neighbor's HFR on the AF replay chart.
+        [Test]
+        public void SelectBestModel_IsIndependentOfPointOrder() {
+            var clean = SyntheticFocusCurveSamples.TiltedHyperbolaPoints(
+                x0: 1000, y0: 2.0, a: 6.0, b: 12.0, s: 0.02, xStart: 760, xStep: 32, count: 15, errorY: 0.04);
+            // A borderline wing perturbation near the rejection threshold — the case most sensitive to fit order.
+            var points = clean.Select((p, i) => i == 14 ? new ScatterErrorPoint(p.X, p.Y + 0.5, 0, p.ErrorY) : p).ToList();
+            var stepSize = InferStep(points);
+
+            HyperbolicFitModel SelectOn(IList<ScatterErrorPoint> pts, out double minX, out double minY, out List<int> rejX) {
+                var model = AlglibHyperbolicFitting.SelectBestModel(
+                    alglibAPI, pts, stepSize, useWeights: true, maxOutlierRejections: 2, rejectionConfidence: 0.95,
+                    out var fit, out var rejects);
+                minX = fit?.Minimum.X ?? double.NaN;
+                minY = fit?.Minimum.Y ?? double.NaN;
+                rejX = rejects.Select(p => (int)Math.Round(p.X)).OrderBy(x => x).ToList();
+                return model;
+            }
+
+            var baseModel = SelectOn(points, out var baseMinX, out var baseMinY, out var baseRej);
+
+            // Several deterministic re-orderings (reverse + rotations) must all yield the identical decision and fit.
+            var permutations = new[] {
+                Enumerable.Reverse(points).ToList(),
+                points.Skip(7).Concat(points.Take(7)).ToList(),
+                points.Skip(3).Concat(points.Take(3)).ToList(),
+            };
+            foreach (var perm in permutations) {
+                var model = SelectOn(perm, out var minX, out var minY, out var rejX);
+                Assert.Multiple(() => {
+                    Assert.That(model, Is.EqualTo(baseModel), "selected model must not depend on point order");
+                    Assert.That(rejX, Is.EqualTo(baseRej), "rejected set must not depend on point order");
+                    Assert.That(minX, Is.EqualTo(baseMinX), "fitted minimum X must not depend on point order");
+                    Assert.That(minY, Is.EqualTo(baseMinY), "fitted minimum Y must not depend on point order");
+                });
+            }
+        }
+
         private static int InferStep(List<ScatterErrorPoint> points) {
             var xs = points.Select(p => p.X).Distinct().OrderBy(x => x).ToList();
             var diffs = new List<double>();

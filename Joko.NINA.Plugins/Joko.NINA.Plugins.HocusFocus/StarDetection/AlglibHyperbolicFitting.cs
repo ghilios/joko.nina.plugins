@@ -307,6 +307,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 int maxOutlierRejections, double rejectionConfidence,
                 out AlglibHyperbolicFitting bestFit, out IReadOnlyList<ScatterErrorPoint> rejectedPoints,
                 int maxDegreeOfParallelism = 0) {
+            // Canonicalize point order (by focuser position) so model selection and consensus outlier rejection are
+            // deterministic regardless of the order measurements arrive in. During replay the points complete
+            // concurrently, so the engine can hand them over in nondeterministic order; each candidate's Grubbs fit
+            // is order-sensitive (alglib LM roundoff + first-of-ties rejection), which would otherwise let a
+            // borderline wing point be rejected on some replays but not others.
+            points = points?.OrderBy(p => p.X).ToList();
             double minX = double.PositiveInfinity, maxX = double.NegativeInfinity;
             if (points != null) {
                 foreach (var p in points) {

@@ -44,11 +44,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         private readonly IAlglibAPI alglibAPI;
 
-        // Allocated in DetectImpl only when StarDetectorParams.CollectContaminationDiagnostics is set. Star
-        // scanning is parallel, so accepted-star diagnostic records are collected thread-safely here and then
-        // materialized into an ordered list before DetectImpl returns. Null in normal (non-diagnostic) runs.
-        private ConcurrentBag<ContaminationDiagnosticRecord> contaminationDiagnosticsBag;
-
         public StarDetector(IAlglibAPI alglibAPI) {
             this.alglibAPI = alglibAPI;
         }
@@ -200,7 +195,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             MaybeSaveIntermediateText(p.ToString(), p, "00-params.txt");
             var metrics = new StarDetectorMetrics();
-            contaminationDiagnosticsBag = p.CollectContaminationDiagnostics ? new ConcurrentBag<ContaminationDiagnosticRecord>() : null;
+            // Local (not an instance field): DetectImpl runs concurrently on a shared StarDetector during replay,
+            // so a per-call bag is required or concurrent detections would clobber each other's diagnostics. Star
+            // scanning is parallel, hence the thread-safe ConcurrentBag. Null in normal (non-diagnostic) runs.
+            var contaminationDiagnosticsBag = p.CollectContaminationDiagnostics ? new ConcurrentBag<ContaminationDiagnosticRecord>() : null;
             using (var stopWatch = MultiStopWatch.Measure()) {
                 var debugData = new DebugData();
 
@@ -364,7 +362,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 // Step 8: Scan structure map for stars
                 progress?.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
-                var stars = ScanStars(srcImage, structureMap, p, measurementImageNoise.Sigma, metrics, token);
+                var stars = ScanStars(srcImage, structureMap, p, measurementImageNoise.Sigma, metrics, contaminationDiagnosticsBag, token);
                 stopWatch.RecordEntry("StarAnalysis");
 
                 // Step 9: Fit PSF models
@@ -408,7 +406,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         }
                     }
                     contaminationDiagnostics = contaminationDiagnostics.OrderBy(r => r.CenterY).ThenBy(r => r.CenterX).ToList();
-                    contaminationDiagnosticsBag = null;
                     Logger.Trace($"Collected {contaminationDiagnostics.Count} contamination diagnostic records ({contaminationDiagnostics.Count(r => r.ContaminationSuspected)} suspected)");
                 }
 
@@ -762,7 +759,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private List<Star> ScanStars(Mat srcImage, Mat structureMap, StarDetectorParams p, double srcImageNoiseSigma, StarDetectorMetrics metrics, CancellationToken ct) {
+        private List<Star> ScanStars(Mat srcImage, Mat structureMap, StarDetectorParams p, double srcImageNoiseSigma, StarDetectorMetrics metrics, ConcurrentBag<ContaminationDiagnosticRecord> diagnosticsBag, CancellationToken ct) {
             // Stage A: sequential flood-fill raster walk. Collects each candidate (bounds + its own point list)
             // and zeroes the candidate's pixels so it is not re-scanned. EvaluateGlobalMetrics and the per-
             // candidate StructureCandidates count run here, single-threaded, on the main metrics.
@@ -770,13 +767,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             // Stage B: evaluate every candidate in parallel. Per-star evaluation is independent (only LOCAL
             // arrays + read-only image reads), so the only shared mutable state is the metrics (handled via
-            // thread-locals merged afterward) and the already-concurrent contaminationDiagnosticsBag.
+            // thread-locals merged afterward) and the (thread-safe, per-DetectImpl) diagnosticsBag.
             var results = new Star[candidates.Count];
             using var localMetrics = new ThreadLocal<StarDetectorMetrics>(() => new StarDetectorMetrics(), trackAllValues: true);
 
             Parallel.For(0, candidates.Count, ParallelExecution.CreateOptions(p.MaxStarEvaluationParallelism, ct), i => {
                 ct.ThrowIfCancellationRequested();
-                results[i] = EvaluateStarCandidate(srcImage, p, candidates[i].Bounds, candidates[i].Points, srcImageNoiseSigma, localMetrics.Value);
+                results[i] = EvaluateStarCandidate(srcImage, p, candidates[i].Bounds, candidates[i].Points, srcImageNoiseSigma, localMetrics.Value, diagnosticsBag);
             });
 
             // Fold each per-thread metrics instance into the main metrics (additive — see Merge), then sort the
@@ -900,7 +897,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return candidates;
         }
 
-        private Star EvaluateStarCandidate(Mat srcImage, StarDetectorParams p, Rect starBounds, List<Point> starPoints, double srcImageNoiseSigma, StarDetectorMetrics metrics) {
+        private Star EvaluateStarCandidate(Mat srcImage, StarDetectorParams p, Rect starBounds, List<Point> starPoints, double srcImageNoiseSigma, StarDetectorMetrics metrics, ConcurrentBag<ContaminationDiagnosticRecord> diagnosticsBag) {
             // Now we have a potential star bounding box as well as the coordinates of every star pixel. If this is a reliable star,
             // we compute its barycenter and include it.
             //
@@ -1000,13 +997,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            if (p.CollectContaminationDiagnostics && starCandidate.ContaminationDiagnostics != null && contaminationDiagnosticsBag != null) {
+            if (p.CollectContaminationDiagnostics && starCandidate.ContaminationDiagnostics != null && diagnosticsBag != null) {
                 var record = starCandidate.ContaminationDiagnostics;
                 record.CenterX = star.Center.X;
                 record.CenterY = star.Center.Y;
                 record.Hfr = star.HFR;
                 record.Background = star.Background;
-                contaminationDiagnosticsBag.Add(record);
+                diagnosticsBag.Add(record);
             }
 
             return star;

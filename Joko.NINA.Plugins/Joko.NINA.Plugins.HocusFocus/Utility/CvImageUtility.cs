@@ -48,7 +48,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
     }
 
     public static class CvImageUtility {
-        private static Random PRNG = new Random();
 
         public static Mat ToOpenCVMat(ushort[] imageArray, int bpp, int width, int height) {
             var data = new Mat(new Size(width, height), MatType.CV_32F);
@@ -139,8 +138,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                         }
                     }
                 } else if (flags.HasFlag(CvImageStatisticsFlags.Median)) {
-                    // Since we're only getting the median, we can use quick select
-                    result.Median = MathUtility.MedianFloat(data, PRNG);
+                    // Since we're only getting the median, we can use quick select. Random.Shared (thread-safe)
+                    // feeds quickselect's pivot choice — pivot selection only affects performance, not the result,
+                    // but a single shared System.Random is not thread-safe and CalculateStatistics runs concurrently
+                    // (parallel star evaluation + concurrent replay detections).
+                    result.Median = MathUtility.MedianFloat(data, Random.Shared);
                 }
             }
 
