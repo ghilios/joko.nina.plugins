@@ -50,8 +50,12 @@ public class RunEvaluationDataCacheTests {
     // A spy split-detector that counts BuildContext vs GateAndMeasure calls and keys the early context on
     // NoiseClippingMultiplier only (a stand-in early param), so a change to a "late" param reuses the context.
     private sealed class SpySplitDetector : RunEvaluationData.ISplitFrameDetector {
-        public int BuildCount;
-        public int GateCount;
+        // Frames are detected concurrently within an evaluation, so these counters are bumped from multiple threads;
+        // use Interlocked so the exact-count assertions stay reliable. (Exposed as plain int fields via the readers.)
+        private int buildCount;
+        private int gateCount;
+        public int BuildCount => Volatile.Read(ref buildCount);
+        public int GateCount => Volatile.Read(ref gateCount);
 
         // The "context" carries the frame's focuser position + the early-key value it was built with.
         private sealed class Ctx : IDisposable {
@@ -65,12 +69,12 @@ public class RunEvaluationDataCacheTests {
             p.NoiseClippingMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         public Task<IDisposable> BuildContextAsync(object frameImage, StarDetectorParams p, CancellationToken token) {
-            BuildCount++;
+            Interlocked.Increment(ref buildCount);
             return Task.FromResult<IDisposable>(new Ctx { Position = (int)frameImage, EarlyValue = p.NoiseClippingMultiplier });
         }
 
         public FrameDetectionResult GateAndMeasure(IDisposable context, StarDetectorParams p) {
-            GateCount++;
+            Interlocked.Increment(ref gateCount);
             var ctx = (Ctx)context;
             // HFR is a clean function of the frame position; star count varies with a LATE param (Sensitivity) so
             // gating actually changes per candidate, while the early context value must be the one it was built with.
@@ -169,14 +173,21 @@ public class RunEvaluationDataCacheTests {
     }
 
     private sealed class DisposalTrackingSplitDetector : RunEvaluationData.ISplitFrameDetector {
+        // Frames within one evaluation are now detected concurrently, so multiple Ctx instances are created (and the
+        // backing accounting list mutated) from different threads at once. The list operations are serialized on the
+        // list itself so the per-context bookkeeping stays correct; this is purely test plumbing and does not change
+        // the assertion semantics (it still tracks created-vs-disposed counts).
         private readonly List<bool> disposed;
         public DisposalTrackingSplitDetector(List<bool> disposed) { this.disposed = disposed; }
 
         private sealed class Ctx : IDisposable {
             private readonly List<bool> sink;
-            public Ctx(List<bool> sink) { this.sink = sink; sink.Add(false); Index = sink.Count - 1; }
+            public Ctx(List<bool> sink) {
+                this.sink = sink;
+                lock (sink) { sink.Add(false); Index = sink.Count - 1; }
+            }
             public int Index;
-            public void Dispose() { sink[Index] = true; }
+            public void Dispose() { lock (sink) { sink[Index] = true; } }
         }
 
         public string ComputeEarlyKey(StarDetectorParams p) =>

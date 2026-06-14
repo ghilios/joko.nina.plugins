@@ -147,6 +147,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // A hyperbola has 4-5 parameters; fewer than this many distinct positions can never determine a fit.
         private const int MinPositionsForFit = 3;
 
+        // Concurrency cap for the per-frame detect/build+gate loop WITHIN one evaluation. Frames are largely
+        // single-threaded in their expensive early stage (wavelet/binarization), so running a few concurrently
+        // fills idle cores. The cap is deliberately SMALL for two reasons:
+        //   (1) Memory — each in-flight frame holds/builds a ~244 MB early context at 61 MP; the cap bounds peak
+        //       footprint to (cap × one source frame-set), not the whole run at once.
+        //   (2) Oversubscription — the LATE/gate stage already runs an internal Parallel.For over candidates on the
+        //       shared scheduler (≈ ProcessorCount threads). Letting many frames into the gate concurrently would
+        //       multiply that against the frame fan-out, so we keep the frame fan-out to a small fraction of cores.
+        // Default: ProcessorCount/4, floored at 2 and never more than the frame count. On an 8-core box this is 2;
+        // on a 16-core box, 4. A fixed-but-modest value that fills idle cores during the single-threaded early
+        // stage without contending hard with the gate phase or blowing the memory budget.
+        private static int DefaultFrameParallelism(int frameCount) =>
+            Math.Max(1, Math.Min(frameCount, Math.Max(2, Environment.ProcessorCount / 4)));
+
+        // Test/override hook: 1 forces the sequential path (used to prove parallel ≡ sequential); a value > 1 caps
+        // the frame fan-out at that value; <= 0 means "use DefaultFrameParallelism". Not persisted; an in-memory knob
+        // only (settable so tests can force cap=1 to prove the parallel path ≡ the sequential path).
+        public int FrameParallelismOverride { get; set; } = 0;
+
+        /// <summary>The effective frame-detection concurrency cap for this run: the override when set (> 0), else
+        /// <see cref="DefaultFrameParallelism"/>. Always in [1, frameCount].</summary>
+        private int EffectiveFrameParallelism =>
+            FrameParallelismOverride > 0
+                ? Math.Max(1, Math.Min(frames.Count, FrameParallelismOverride))
+                : DefaultFrameParallelism(frames.Count);
+
         private readonly IReadOnlyList<RunFrame> frames;
         private readonly Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect;
         private readonly ISplitFrameDetector splitDetector;
@@ -157,8 +183,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // Early-context cache (only used when splitDetector != null). One slot per frame index; each slot holds the
         // context most recently built for that frame plus the early key it was built under. A candidate whose early
         // key matches the slot reuses the context; a mismatch disposes the old context and rebuilds. Bounded to one
-        // context per frame by construction (see class doc). Guarded by cacheLock so a (future) concurrent caller
-        // cannot corrupt it — today the evaluator runs frames sequentially, so contention is nil.
+        // context per frame by construction (see class doc). Guarded by cacheLock.
+        //
+        // Concurrency: WITHIN one evaluation, frames are detected concurrently (capped — see DefaultFrameParallelism),
+        // so multiple DetectFrameAsync calls may run at once — but each touches its OWN slot (keyed by frame index),
+        // never another frame's. The lock serializes the check-and-claim and the post-build publish so that, even for
+        // the same frame, no two callers build the same slot twice and no built context is leaked. Distinct slots are
+        // independent: two frames building concurrently into different slots never contend except briefly on the lock
+        // (held only around the O(1) slot read/write, not the expensive build). Disposal on eviction/Dispose stays
+        // correct: the superseded context captured under the lock is disposed exactly once, by the claiming caller.
         private readonly CachedContext[] contextCache;
         private readonly object cacheLock = new object();
         private bool disposed;
@@ -166,6 +199,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private sealed class CachedContext {
             public string EarlyKey;
             public IDisposable Context;
+
+            // Set while a context for EarlyKey is being built (between claim and publish). A concurrent caller that
+            // wants the SAME (slot, key) awaits this instead of starting a second build, so a slot is never built
+            // twice concurrently and no built context is leaked. In normal operation (one task per frame index per
+            // evaluation, sequential evaluations) this is never contended; it makes same-slot concurrency safe by
+            // construction rather than by assumption.
+            public Task<IDisposable> Building;
         }
 
         public string RunId { get; }
@@ -226,31 +266,195 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return await detect(frameImage, p, token).ConfigureAwait(false);
             }
 
-            var earlyKey = splitDetector.ComputeEarlyKey(p);
-            IDisposable context;
-            IDisposable evicted = null;
-            lock (cacheLock) {
-                var slot = contextCache[frameIndex];
-                if (slot != null && slot.Context != null && slot.EarlyKey == earlyKey) {
-                    context = slot.Context; // reuse
-                } else {
-                    context = null; // must build (below, outside the lock)
-                    evicted = slot?.Context; // dispose the superseded context after building the new one
-                }
-            }
-
-            if (context == null) {
-                // Build outside the lock (BuildContextAsync is the expensive stage). The evaluator runs frames
-                // sequentially today, so there is no risk of two builders racing for the same slot.
-                var built = await splitDetector.BuildContextAsync(frameImage, p, token).ConfigureAwait(false);
-                evicted?.Dispose();
-                lock (cacheLock) {
-                    contextCache[frameIndex] = new CachedContext { EarlyKey = earlyKey, Context = built };
-                }
-                context = built;
-            }
-
+            var context = await GetOrBuildContextAsync(frameIndex, frameImage, p, token).ConfigureAwait(false);
             return splitDetector.GateAndMeasure(context, p);
+        }
+
+        /// <summary>
+        /// Returns the early-detection context for one frame's slot, reusing it when the early key matches and
+        /// (re)building it otherwise. Safe under concurrency: each frame uses its OWN slot (by index) and the lock
+        /// serializes the check/claim/publish so a slot is never built twice concurrently and no built context is
+        /// leaked. The expensive <see cref="ISplitFrameDetector.BuildContextAsync"/> runs OUTSIDE the lock; the lock
+        /// is held only around the O(1) slot inspection and the publish of the build task / built context.
+        /// </summary>
+        private async Task<IDisposable> GetOrBuildContextAsync(int frameIndex, object frameImage, StarDetectorParams p, CancellationToken token) {
+            var earlyKey = splitDetector.ComputeEarlyKey(p);
+
+            // Spin on (claim a build) | (reuse cached) | (await another caller's in-flight build for this key). The
+            // loop only re-iterates when an in-flight build for a DIFFERENT key (or a build we awaited) leaves the
+            // slot not matching ours — which cannot happen within one evaluation (one task per slot), but is handled
+            // for defensiveness so concurrent same-slot callers can never double-build or leak.
+            while (true) {
+                token.ThrowIfCancellationRequested();
+
+                Task<IDisposable> awaitExisting = null;                 // an in-flight build by another caller we should await
+                TaskCompletionSource<IDisposable> ourClaim = null;      // set if WE claimed the slot to build
+                IDisposable evicted = null;                            // a superseded context WE must dispose after building
+
+                lock (cacheLock) {
+                    if (disposed) {
+                        throw new ObjectDisposedException(nameof(RunEvaluationData));
+                    }
+                    var slot = contextCache[frameIndex];
+                    if (slot != null && slot.Context != null && slot.EarlyKey == earlyKey) {
+                        return slot.Context; // reuse the published context
+                    }
+                    if (slot != null && slot.Building != null && slot.EarlyKey == earlyKey) {
+                        awaitExisting = slot.Building; // someone is already building exactly this; await it
+                    } else {
+                        // Claim the slot for OUR build: record the early key + a build task others can await, and
+                        // remember any superseded context so we dispose it after the new one is built.
+                        evicted = slot?.Context;
+                        ourClaim = new TaskCompletionSource<IDisposable>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        contextCache[frameIndex] = new CachedContext { EarlyKey = earlyKey, Context = null, Building = ourClaim.Task };
+                    }
+                }
+
+                if (ourClaim != null) {
+                    // We own the build: run it OUTSIDE the lock and publish the result.
+                    return await RunClaimedBuildAsync(frameIndex, frameImage, p, earlyKey, ourClaim, evicted, token).ConfigureAwait(false);
+                }
+
+                // Await another caller's in-flight build for the same key, then re-check the slot (it should now be
+                // published with our key; if a later eviction changed it we loop and re-claim). Swallow that build's
+                // own exception here — the slot will simply read as un-built and we re-claim on the next iteration.
+                try {
+                    await awaitExisting.ConfigureAwait(false);
+                } catch {
+                    // The owning build failed/cancelled; loop and re-evaluate the slot.
+                }
+            }
+        }
+
+        /// <summary>
+        /// Runs a build we have claimed for <paramref name="frameIndex"/>: builds outside the lock, disposes the
+        /// superseded context, publishes the built context into the slot, and signals waiters via
+        /// <paramref name="tcs"/>. On failure the slot's build marker is cleared so a later caller can retry, and the
+        /// freshly-built context (if any) is disposed so nothing leaks.
+        /// </summary>
+        private async Task<IDisposable> RunClaimedBuildAsync(
+                int frameIndex, object frameImage, StarDetectorParams p, string earlyKey,
+                TaskCompletionSource<IDisposable> tcs, IDisposable evicted, CancellationToken token) {
+            IDisposable built = null;
+            try {
+                built = await splitDetector.BuildContextAsync(frameImage, p, token).ConfigureAwait(false);
+                evicted?.Dispose();
+
+                bool disposeBuilt = false;
+                lock (cacheLock) {
+                    if (disposed) {
+                        // Disposed while we built: don't publish; dispose the orphan after the lock.
+                        disposeBuilt = true;
+                    } else {
+                        contextCache[frameIndex] = new CachedContext { EarlyKey = earlyKey, Context = built, Building = null };
+                    }
+                }
+                if (disposeBuilt) {
+                    built.Dispose();
+                    tcs.TrySetResult(null);
+                    throw new ObjectDisposedException(nameof(RunEvaluationData));
+                }
+
+                tcs.TrySetResult(built);
+                return built;
+            } catch (Exception ex) {
+                // Failed/cancelled build: clear our build marker so the slot can be re-claimed, dispose any orphaned
+                // context, and propagate to both this caller and any waiters.
+                lock (cacheLock) {
+                    var slot = contextCache[frameIndex];
+                    if (slot != null && ReferenceEquals(slot.Building, tcs.Task)) {
+                        contextCache[frameIndex] = null;
+                    }
+                }
+                if (built != null) {
+                    built.Dispose();
+                }
+                tcs.TrySetException(ex);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Detects every frame for one candidate, running up to <see cref="EffectiveFrameParallelism"/> frames
+        /// concurrently and returning their results in a per-INDEX array (result[i] is frame i's detection,
+        /// regardless of completion order). Determinism: results are assigned by frame index, never appended in
+        /// completion order, so the caller sees the identical sequence the old sequential loop produced.
+        /// Cancellation: a linked token source cancels all in-flight frames on request (or when any frame faults);
+        /// the first fault/cancellation is rethrown after all started tasks settle, so no detection is left running.
+        /// </summary>
+        private async Task<FrameDetectionResult[]> DetectAllFramesAsync(StarDetectorParams p, CancellationToken token) {
+            var count = frames.Count;
+            var results = new FrameDetectionResult[count];
+            if (count == 0) {
+                return results;
+            }
+
+            token.ThrowIfCancellationRequested();
+
+            var degree = EffectiveFrameParallelism;
+            if (degree <= 1) {
+                // Forced/derived sequential path: identical ordering and behavior to the original loop. Used by tests
+                // (cap=1) to prove the parallel path produces the same metrics, and on single-frame/single-core runs.
+                for (int i = 0; i < count; i++) {
+                    token.ThrowIfCancellationRequested();
+                    results[i] = await DetectFrameAsync(i, frames[i].Image, p, token).ConfigureAwait(false);
+                }
+                return results;
+            }
+
+            // Bounded fan-out: a SemaphoreSlim caps the number of frames in flight at once; a linked CTS lets us
+            // cancel every in-flight frame the moment one faults or the caller cancels. Each task writes ONLY its own
+            // index, so there is no shared mutable state across tasks beyond the cache (per-slot safe) and the array
+            // (disjoint indices) — no locking needed for the results array.
+            using var throttle = new SemaphoreSlim(degree, degree);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            var linkedToken = linkedCts.Token;
+
+            var tasks = new Task[count];
+            try {
+                for (int i = 0; i < count; i++) {
+                    linkedToken.ThrowIfCancellationRequested();
+                    await throttle.WaitAsync(linkedToken).ConfigureAwait(false);
+
+                    var index = i;
+                    tasks[index] = Task.Run(async () => {
+                        try {
+                            results[index] = await DetectFrameAsync(index, frames[index].Image, p, linkedToken).ConfigureAwait(false);
+                        } catch {
+                            // Cancel siblings so the whole evaluation tears down promptly; the original exception is
+                            // surfaced via Task.WhenAll below.
+                            linkedCts.Cancel();
+                            throw;
+                        } finally {
+                            throttle.Release();
+                        }
+                    }, linkedToken);
+                }
+            } catch (OperationCanceledException) {
+                // The acquire loop was cancelled (caller token or a sibling fault). Make sure every already-started
+                // task settles before we surface, so nothing keeps building after we return.
+                linkedCts.Cancel();
+                await WhenAllSafe(tasks).ConfigureAwait(false);
+                throw;
+            }
+
+            await Task.WhenAll(tasks.Where(t => t != null)).ConfigureAwait(false);
+            return results;
+        }
+
+        /// <summary>Awaits all non-null tasks, swallowing their exceptions (used on the cancellation teardown path so
+        /// the in-flight frames finish before we rethrow the originating cancellation/fault).</summary>
+        private static async Task WhenAllSafe(Task[] tasks) {
+            foreach (var t in tasks) {
+                if (t == null) {
+                    continue;
+                }
+                try {
+                    await t.ConfigureAwait(false);
+                } catch {
+                    // Intentionally ignored — teardown path.
+                }
+            }
         }
 
         /// <summary>
@@ -269,17 +473,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// objective hard-fails gracefully.
         /// </summary>
         public async Task<RunEvaluationResult> EvaluateAndFitAsync(StarDetectorParams p, CancellationToken token) {
-            // 1. Detect every frame in a fixed, deterministic order; collect per-frame results. When a split
-            //    detector is in use this goes through the early-context cache (reused across late-only changes),
-            //    which is a pure-perf optimization — the per-frame results are identical to the delegate path.
+            // 1. Detect every frame, CONCURRENTLY but capped (see EffectiveFrameParallelism), to fill idle cores
+            //    during the largely single-threaded early stage. Determinism is preserved by assembling results into
+            //    a per-index array (assign by frame index, NOT completion order) and then consuming that array in
+            //    strict ascending-index order below — so every downstream value (pooling, fit, J, labels) is byte-
+            //    identical to the old sequential loop regardless of how the frame tasks interleave. When a split
+            //    detector is in use each frame goes through its own early-context cache slot (reused across late-only
+            //    changes); concurrent builds touch distinct slots, so the cache is unaffected by the parallelism.
+            var detections = await DetectAllFramesAsync(p, token).ConfigureAwait(false);
+
             var frameStarCounts = new List<int>(frames.Count);
             var perFrame = new List<(int FocuserPosition, FrameDetectionResult Detection)>(frames.Count);
             for (int i = 0; i < frames.Count; i++) {
-                token.ThrowIfCancellationRequested();
-                var frame = frames[i];
-                var detection = await DetectFrameAsync(i, frame.Image, p, token).ConfigureAwait(false);
+                var detection = detections[i];
                 frameStarCounts.Add(detection.StarCount);
-                perFrame.Add((frame.FocuserPosition, detection));
+                perFrame.Add((frames[i].FocuserPosition, detection));
             }
 
             // 2. Pool frames sharing a focuser position using the SAME semantics as the AF engine's
