@@ -419,6 +419,36 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Like <see cref="ToCanonicalCacheString()"/> but emits ONLY the properties named in
+        /// <paramref name="includedProperties"/> (an explicit ALLOW-list, sorted by name), each formatted with
+        /// <see cref="CultureInfo.InvariantCulture"/>. Used by
+        /// <see cref="StarDetection.StarDetector.ComputeEarlyCacheKey"/> to key a reusable early-stage detection
+        /// context on just the early-affecting params. Because it is an allow-list, a property that is not listed
+        /// is simply absent from the string (its value never contributes), which is exactly what makes a cache
+        /// keyed on this safe to reuse across changes to the omitted (late-only) params.
+        /// </summary>
+        public string ToCanonicalCacheString(ISet<string> includedProperties) {
+            if (includedProperties == null) {
+                throw new ArgumentNullException(nameof(includedProperties));
+            }
+
+            var properties = GetType()
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(prop => prop.CanRead && prop.GetIndexParameters().Length == 0)
+                .Where(prop => includedProperties.Contains(prop.Name))
+                .OrderBy(prop => prop.Name, StringComparer.Ordinal);
+
+            var sb = new StringBuilder();
+            foreach (var prop in properties) {
+                sb.Append(prop.Name);
+                sb.Append('=');
+                sb.Append(FormatCacheValue(GetPropertyValueSafe(prop)));
+                sb.Append('|');
+            }
+            return sb.ToString();
+        }
+
         private object GetPropertyValueSafe(PropertyInfo prop) {
             try {
                 return prop.GetValue(this);
@@ -655,5 +685,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public interface IStarDetector {
 
         Task<HocusFocusStarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token);
+
+        /// <summary>
+        /// EARLY phase: builds the reusable early-stage detection context for an image. Pair with
+        /// <see cref="GateAndMeasure"/>. Used by the optimizer to cache + reuse the expensive early stage across
+        /// candidate evaluations that change only late-stage params. The returned context owns its image; dispose it.
+        /// </summary>
+        Task<StarDetection.StarDetector.DetectionContext> BuildDetectionContext(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token);
+
+        /// <summary>
+        /// LATE phase: gates + measures a context built by <see cref="BuildDetectionContext"/>, producing the same
+        /// result the monolithic <see cref="Detect"/> would for the full param bundle.
+        /// </summary>
+        HocusFocusStarDetectorResult GateAndMeasure(StarDetection.StarDetector.DetectionContext context, StarDetectorParams p, CancellationToken token);
+
+        /// <summary>Early cache key over only the early-affecting params; see
+        /// <see cref="StarDetection.StarDetector.ComputeEarlyCacheKey"/>.</summary>
+        string ComputeEarlyCacheKey(StarDetectorParams p);
     }
 }

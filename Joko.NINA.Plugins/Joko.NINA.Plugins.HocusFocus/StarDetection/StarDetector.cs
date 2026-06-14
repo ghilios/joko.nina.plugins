@@ -87,6 +87,69 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        // The EARLY-stage detection params: everything BuildDetectionContext reads to produce a DetectionContext
+        // (hotpixel filtering, noise reduction, the structure map + wavelet, binarization, candidate flood-fill,
+        // and the early-only metrics). A cached DetectionContext is safe to reuse across GateAndMeasure calls ONLY
+        // when this key matches, so the SAFE failure mode is a spurious recompute, never stale reuse: a param is
+        // included here if it changes the prepared measurement image, the candidate region set, the two noise
+        // sigmas, OR any early metric (HotpixelCount/StructureCandidates/SaturatedPixelCount). When in doubt a
+        // param is INCLUDED (over-keying only costs a recompute). The list is a deliberate ALLOW-list (not a
+        // denylist over all params) precisely so a newly-added late-only param can never silently corrupt reuse —
+        // it would simply be absent here and force a recompute until explicitly classified.
+        //
+        // Notes on a few subtle entries:
+        //  - NoiseClippingMultiplier: sets the K-σ clip AND the binarize threshold ⇒ changes the candidate set.
+        //  - StarMeasurementNoiseReductionEnabled / NoiseReductionRadius / Hotpixel*: drive SrcImagePreparation and
+        //    the structure-map source, and which of the two noise estimates is computed (measurement vs structure).
+        //  - SaturationThreshold: read by EvaluateGlobalMetrics (early) to tally SaturatedPixelCount, so it is early
+        //    even though it is ALSO used by the late saturated-bounds gate (the late use is harmless to over-key).
+        //  - Region: the ROI submat (outer) and the inner-crop clearing both change which candidates are collected.
+        //  - HotpixelFilterRadius: gates the pipeline (only radius 1 supported) and would change filtering if ever
+        //    extended; included for safety.
+        private static readonly HashSet<string> EarlyCacheKeyProperties = new HashSet<string>(StringComparer.Ordinal) {
+            nameof(StarDetectorParams.HotpixelFiltering),
+            nameof(StarDetectorParams.HotpixelThresholdingEnabled),
+            nameof(StarDetectorParams.HotpixelThreshold),
+            nameof(StarDetectorParams.HotpixelFilterRadius),
+            nameof(StarDetectorParams.StarMeasurementNoiseReductionEnabled),
+            nameof(StarDetectorParams.NoiseReductionRadius),
+            nameof(StarDetectorParams.NoiseClippingMultiplier),
+            nameof(StarDetectorParams.StructureLayers),
+            nameof(StarDetectorParams.StructureDilationSize),
+            nameof(StarDetectorParams.StructureDilationCount),
+            nameof(StarDetectorParams.SaturationThreshold),
+            nameof(StarDetectorParams.Region)
+        };
+
+        /// <summary>
+        /// Computes a deterministic, culture-invariant cache key over ONLY the EARLY-stage detection params (plus
+        /// the detector version), for keying a reusable <see cref="DetectionContext"/>. Two parameter bundles that
+        /// produce this same key yield a byte-identical early context (prepared measurement image, candidate
+        /// regions, both noise sigmas, and the early metrics), so a context built under one bundle may be reused by
+        /// <see cref="GateAndMeasure"/> under the other. Built from the same canonical mechanism as
+        /// <see cref="ComputeCacheKey"/> but restricted to <see cref="EarlyCacheKeyProperties"/>. Like
+        /// <see cref="ComputeCacheKey"/>, the safe failure mode is a spurious miss (recompute), never stale reuse.
+        /// </summary>
+        // Instance wrapper so IStarDetector can expose the early-key computation (the canonical logic stays static).
+        string IStarDetector.ComputeEarlyCacheKey(StarDetectorParams p) => ComputeEarlyCacheKey(p);
+
+        public static string ComputeEarlyCacheKey(StarDetectorParams p) {
+            if (p == null) {
+                throw new ArgumentNullException(nameof(p));
+            }
+
+            var canonical = $"early-v{StarDetectorVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)}|{p.ToCanonicalCacheString(EarlyCacheKeyProperties)}";
+            var bytes = Encoding.UTF8.GetBytes(canonical);
+            using (var sha = System.Security.Cryptography.SHA256.Create()) {
+                var hash = sha.ComputeHash(bytes);
+                var sb = new StringBuilder(hash.Length * 2);
+                foreach (var b in hash) {
+                    sb.Append(b.ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
+                }
+                return sb.ToString();
+            }
+        }
+
         private class StarCandidate {
             public Point2d Center;
             public double CenterBrightness;
@@ -151,27 +214,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public async Task<HocusFocusStarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var resourceTracker = new ResourcesTracker();
             try {
-                Mat srcImage;
-                var debayeredImage = image as IDebayeredImage;
-                var hotpixelFilteringApplied = false;
-                long? numHotpixels = null;
-                if (debayeredImage != null && p.HotpixelFiltering && p.HotpixelThresholdingEnabled) {
-                    var rawImageDataCopy = new ushort[debayeredImage.RawImageData.Data.FlatArray.Length];
-                    Buffer.BlockCopy(debayeredImage.RawImageData.Data.FlatArray, 0, rawImageDataCopy, 0, debayeredImage.RawImageData.Data.FlatArray.Length * sizeof(ushort));
-
-                    var props = debayeredImage.RawImageData.Properties;
-                    var rawImageData = new RawImageData(rawImageDataCopy, width: props.Width, height: props.Height);
-
-                    var threshold = (ushort)(p.HotpixelThreshold * (1 << props.BitDepth));
-                    numHotpixels = HotpixelFiltering.CFAHotpixelFilter(rawImageData, debayeredImage.BayerPattern, threshold);
-                    var bitmapSource = ImageUtility.CreateSourceFromArray(new ImageArray(rawImageDataCopy), props, PixelFormats.Gray16);
-                    var debayeredImageData = ImageUtility.Debayer(bitmapSource, pf: System.Drawing.Imaging.PixelFormat.Format16bppGrayScale, saveColorChannels: false, saveLumChannel: true, bayerPattern: debayeredImage.BayerPattern);
-                    hotpixelFilteringApplied = true;
-
-                    srcImage = resourceTracker.T(CvImageUtility.ToOpenCVMat(debayeredImageData.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height));
-                } else {
-                    srcImage = resourceTracker.T(CvImageUtility.ToOpenCVMat(image));
-                }
+                var srcImage = resourceTracker.T(PrepareSrcImageFromRenderedImage(image, p, out var hotpixelFilteringApplied, out var numHotpixels));
                 var result = await DetectImpl(srcImage, resourceTracker, p, hotpixelFilteringApplied, progress, token);
                 if (numHotpixels.HasValue) {
                     result.Metrics.HotpixelCount = numHotpixels.Value;
@@ -188,181 +231,389 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        /// <summary>
+        /// Converts an <see cref="IRenderedImage"/> into the float source Mat the pipeline consumes, applying the
+        /// CFA hotpixel filter + debayer when the image is bayered and hotpixel thresholding is on (otherwise a
+        /// plain <c>ToOpenCVMat</c>). This is the EXACT conversion the monolithic <see cref="Detect(IRenderedImage, StarDetectorParams, IProgress{ApplicationStatus}, CancellationToken)"/>
+        /// used to perform inline; it is extracted so the optimizer's split path produces a byte-identical source
+        /// image. The returned Mat is NOT tracked — the caller owns it.
+        /// </summary>
+        private static Mat PrepareSrcImageFromRenderedImage(IRenderedImage image, StarDetectorParams p, out bool hotpixelFilteringApplied, out long? numHotpixels) {
+            var debayeredImage = image as IDebayeredImage;
+            hotpixelFilteringApplied = false;
+            numHotpixels = null;
+            if (debayeredImage != null && p.HotpixelFiltering && p.HotpixelThresholdingEnabled) {
+                var rawImageDataCopy = new ushort[debayeredImage.RawImageData.Data.FlatArray.Length];
+                Buffer.BlockCopy(debayeredImage.RawImageData.Data.FlatArray, 0, rawImageDataCopy, 0, debayeredImage.RawImageData.Data.FlatArray.Length * sizeof(ushort));
+
+                var props = debayeredImage.RawImageData.Properties;
+                var rawImageData = new RawImageData(rawImageDataCopy, width: props.Width, height: props.Height);
+
+                var threshold = (ushort)(p.HotpixelThreshold * (1 << props.BitDepth));
+                numHotpixels = HotpixelFiltering.CFAHotpixelFilter(rawImageData, debayeredImage.BayerPattern, threshold);
+                var bitmapSource = ImageUtility.CreateSourceFromArray(new ImageArray(rawImageDataCopy), props, PixelFormats.Gray16);
+                var debayeredImageData = ImageUtility.Debayer(bitmapSource, pf: System.Drawing.Imaging.PixelFormat.Format16bppGrayScale, saveColorChannels: false, saveLumChannel: true, bayerPattern: debayeredImage.BayerPattern);
+                hotpixelFilteringApplied = true;
+
+                return CvImageUtility.ToOpenCVMat(debayeredImageData.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
+            } else {
+                return CvImageUtility.ToOpenCVMat(image);
+            }
+        }
+
+        /// <summary>
+        /// EARLY phase for an <see cref="IRenderedImage"/>: performs the same conversion as
+        /// <see cref="Detect(IRenderedImage, StarDetectorParams, IProgress{ApplicationStatus}, CancellationToken)"/>
+        /// then builds the reusable <see cref="DetectionContext"/> (carrying the CFA hotpixel count when the
+        /// debayered-hotpixel path ran). See <see cref="BuildDetectionContext(Mat, StarDetectorParams, IProgress{ApplicationStatus}, CancellationToken)"/>.
+        /// </summary>
+        public async Task<DetectionContext> BuildDetectionContext(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
+                throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
+            }
+            // PrepareSrcImageFromRenderedImage returns a freshly-allocated, untracked Mat that the context will own;
+            // no extra clone needed (unlike the Mat overload, which clones the caller's Mat).
+            var srcImage = PrepareSrcImageFromRenderedImage(image, p, out var hotpixelFilteringApplied, out var numHotpixels);
+            var ctx = await BuildDetectionContextInternal(srcImage, resourceTracker: null, p, hotpixelFilteringApplied, progress, token);
+            ctx.DebayerHotpixelCount = numHotpixels;
+            return ctx;
+        }
+
+        /// <summary>
+        /// A reusable intermediate produced by <see cref="BuildDetectionContext"/> from ONLY the early-stage
+        /// params (see <see cref="EarlyCacheKeyProperties"/>): the prepared, read-only measurement image, the full
+        /// candidate region set from the flood-fill, both noise sigmas, the ROI offset, the early-only metric
+        /// counters, and the debug data. <see cref="GateAndMeasure"/> consumes it to produce the final result and
+        /// may be called repeatedly with different LATE-stage params, reusing the same context.
+        ///
+        /// <para>Ownership: the context owns <see cref="MeasurementImage"/> and disposes it (<see cref="Dispose"/>).
+        /// The late stage only READS the image, so the same context is safe to reuse across late-only param
+        /// changes. Disposing the context releases the (potentially large, 61 MP ≈ 244 MB) source Mat.</para>
+        /// </summary>
+        public sealed class DetectionContext : IDisposable {
+            internal Mat MeasurementImage;                       // prepared source image, read-only for the late stage
+            internal List<StarCandidateRegion> Candidates;      // ALL flood-fill candidates (no late gate applied)
+            internal double StructureNoiseSigma;                 // K-σ on the noise-reduced structure-map source
+            internal double MeasurementNoiseSigma;              // K-σ on the image actually sampled for measurement
+            internal Rect? RoiRect;                              // ROI offset to add back to outputs (null if full frame)
+            internal DebugData DebugData;
+            // Early-only metric counters captured here so GateAndMeasure can seed a fresh metrics with them. These
+            // are produced by the early pipeline (hotpixel filter) and the candidate flood-fill / global scan.
+            internal long HotpixelCount;
+            internal int StructureCandidates;
+            internal long SaturatedPixelCount;
+
+            // Set on the IRenderedImage debayered-hotpixel path: the CFA hotpixel count to stamp onto the final
+            // metrics (mirrors Detect(IRenderedImage), which overwrites Metrics.HotpixelCount with this value). Null
+            // when that path did not run, in which case the structure-pipeline HotpixelCount above is authoritative.
+            internal long? DebayerHotpixelCount;
+
+            public void Dispose() {
+                MeasurementImage?.Dispose();
+                MeasurementImage = null;
+            }
+        }
+
         private async Task<HocusFocusStarDetectorResult> DetectImpl(Mat srcImage, ResourcesTracker resourceTracker, StarDetectorParams p, bool hotpixelFilterAlreadyApplied, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            // The monolithic detect is now exactly: build the early context, then gate + measure. The split is
+            // value-preserving — the early stage performs the identical pixel work it always did and the late stage
+            // reads it the same way — so output is byte-identical to the pre-split pipeline.
+            var ctx = await BuildDetectionContextInternal(srcImage, resourceTracker, p, hotpixelFilterAlreadyApplied, progress, token);
+            // BuildDetectionContextInternal tracks the prepared image in resourceTracker (caller disposes it via
+            // the tracker in Detect), so do NOT also dispose the context here — that would double-free.
+            return await GateAndMeasureInternal(ctx, p, progress, token);
+        }
+
+        /// <summary>
+        /// EARLY phase: runs the expensive, late-param-independent pipeline (hotpixel filtering, noise reduction,
+        /// structure-map + wavelet, binarization, candidate flood-fill, and both noise estimates) and returns a
+        /// reusable <see cref="DetectionContext"/>. The returned context OWNS its measurement image; dispose the
+        /// context (or call <see cref="GateAndMeasure"/> and dispose afterward) to release it. The result depends
+        /// ONLY on the params named in <see cref="EarlyCacheKeyProperties"/> (see <see cref="ComputeEarlyCacheKey"/>),
+        /// so it is safe to cache + reuse across <see cref="GateAndMeasure"/> calls whose early key matches.
+        /// </summary>
+        public async Task<DetectionContext> BuildDetectionContext(Mat srcImage, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
+                throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
+            }
+            // The public split entry points clone the input so the caller's Mat is never mutated and the context's
+            // image is independently owned (matching the harness's clone-before-Detect discipline). The monolithic
+            // DetectImpl path instead lets BuildDetectionContextInternal mutate the tracker-owned srcImage in place,
+            // exactly as before, so behavior on that path is unchanged.
+            var ctx = await BuildDetectionContextInternal(srcImage.Clone(), resourceTracker: null, p, hotpixelFilterAlreadyApplied: false, progress, token);
+            return ctx;
+        }
+
+        /// <summary>
+        /// LATE phase: gates + measures the cached candidate regions in <paramref name="ctx"/> using the late-stage
+        /// params (Sensitivity, StarClippingMultiplier, PeakResponse, MaxDistortion, MinHFR, StarCenterTolerance,
+        /// MinimumStarBoundingBoxSize, BackgroundBoxExpansion, AnalysisSamplingSize, …) and assembles the final
+        /// <see cref="HocusFocusStarDetectorResult"/> — identical to what the monolithic <c>Detect</c> would have
+        /// produced for the full param bundle. Pure over the context (reads the image, never mutates it), so it may
+        /// be called repeatedly on the same context with different late params.
+        /// </summary>
+        public HocusFocusStarDetectorResult GateAndMeasure(DetectionContext ctx, StarDetectorParams p, CancellationToken token) {
+            // The late stage is synchronous except for the optional PSF fit, which is OFF for every cache user
+            // (AF/optimize set ModelPSF=false). When PSF IS on this blocks on the PSF tasks (Task.Run-based, no
+            // captured sync context), which is acceptable for this non-hot, non-cached usage.
+            return GateAndMeasureInternal(ctx, p, progress: null, token).GetAwaiter().GetResult();
+        }
+
+        private async Task<DetectionContext> BuildDetectionContextInternal(Mat srcImage, ResourcesTracker resourceTracker, StarDetectorParams p, bool hotpixelFilterAlreadyApplied, IProgress<ApplicationStatus> progress, CancellationToken token) {
             if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
                 throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
             }
 
-            MaybeSaveIntermediateText(p.ToString(), p, "00-params.txt");
-            var metrics = new StarDetectorMetrics();
-            // Local (not an instance field): DetectImpl runs concurrently on a shared StarDetector during replay,
-            // so a per-call bag is required or concurrent detections would clobber each other's diagnostics. Star
-            // scanning is parallel, hence the thread-safe ConcurrentBag. Null in normal (non-diagnostic) runs.
-            var contaminationDiagnosticsBag = p.CollectContaminationDiagnostics ? new ConcurrentBag<ContaminationDiagnosticRecord>() : null;
-            using (var stopWatch = MultiStopWatch.Measure()) {
-                var debugData = new DebugData();
+            // When a resourceTracker is supplied (the monolithic DetectImpl path) the prepared srcImage and the
+            // scratch Mats are tracked there and freed by the caller. When it is null (the public split path) we
+            // own srcImage directly (handed to the context) and use a local tracker for the transient scratch Mats,
+            // which is disposed before returning so only the context's image survives.
+            var ownsLocalTracker = resourceTracker == null;
+            var scratch = resourceTracker ?? new ResourcesTracker();
 
-                Rect? roiRect = null;
-                if (p.Region.OuterBoundary.Height < 1.0d || p.Region.OuterBoundary.Width < 1.0d) {
-                    roiRect = new Rect(
-                        (int)Math.Floor(srcImage.Cols * p.Region.OuterBoundary.StartX),
-                        (int)Math.Floor(srcImage.Rows * p.Region.OuterBoundary.StartY),
-                        (int)(srcImage.Cols * p.Region.OuterBoundary.Width),
-                        (int)(srcImage.Rows * p.Region.OuterBoundary.Height));
-                    debugData.DetectionROI = roiRect.Value.ToDrawingRectangle();
+            // The Mat destined for the context: it is owned here until the context is successfully constructed, after
+            // which the context owns it. If the early pipeline throws (cancellation, OOM, CollectStarCandidates, …)
+            // before the context exists, this would otherwise be orphaned — it is registered with NEITHER tracker on
+            // the split path, and the ROI-replacement clone is untracked on BOTH paths. So we hold it in a local and
+            // dispose it in the finally when no context was produced.
+            //   - Split path (ownsLocalTracker): we own the incoming srcImage from entry.
+            //   - Monolithic path: the caller owns the incoming srcImage (and tracks it), so we must NOT dispose it
+            //     here — start null and only adopt the ROI-replacement clone we make below.
+            Mat liveOwnedImage = ownsLocalTracker ? srcImage : null;
+            var contextProduced = false;
+            try {
+                MaybeSaveIntermediateText(p.ToString(), p, "00-params.txt");
+                var metrics = new StarDetectorMetrics();
+                using (var stopWatch = MultiStopWatch.Measure()) {
+                    var debugData = new DebugData();
 
-                    var roiImage = srcImage.SubMat(roiRect.Value).Clone();
-                    srcImage.Dispose();
-                    srcImage = roiImage;
-                } else {
-                    debugData.DetectionROI = new System.Drawing.Rectangle(0, 0, srcImage.Width, srcImage.Height);
-                }
-                MaybeSaveIntermediateImage(srcImage, p, "01-source.tif");
+                    Rect? roiRect = null;
+                    if (p.Region.OuterBoundary.Height < 1.0d || p.Region.OuterBoundary.Width < 1.0d) {
+                        roiRect = new Rect(
+                            (int)Math.Floor(srcImage.Cols * p.Region.OuterBoundary.StartX),
+                            (int)Math.Floor(srcImage.Rows * p.Region.OuterBoundary.StartY),
+                            (int)(srcImage.Cols * p.Region.OuterBoundary.Width),
+                            (int)(srcImage.Rows * p.Region.OuterBoundary.Height));
+                        debugData.DetectionROI = roiRect.Value.ToDrawingRectangle();
 
-                if (p.StoreStructureMap) {
-                    debugData.StructureMap = new byte[debugData.DetectionROI.Width * debugData.DetectionROI.Height];
-                }
-
-                stopWatch.RecordEntry("LoadImage");
-
-                // Step 1: Perform initial noise reduction and hotpixel filtering
-                progress?.Report(new ApplicationStatus() { Status = "Noise Reduction" });
-                var hotpixelFilteringApplied = hotpixelFilterAlreadyApplied;
-
-                // Also apply hotpixel filtering if noise reduction will be done to the source image
-                if (p.HotpixelFiltering || (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled)) {
-                    // Apply a median box filter in place to the starting image
-                    if (!hotpixelFilterAlreadyApplied) {
-                        metrics.HotpixelCount = ApplyHotpixelFilter(srcImage, p);
+                        var roiImage = srcImage.SubMat(roiRect.Value).Clone();
+                        srcImage.Dispose();
+                        srcImage = roiImage;
+                        // From here srcImage is a clone this method owns (the original was disposed just above). Adopt
+                        // it as the live owned Mat on BOTH paths so a later early-stage throw disposes the ROI clone
+                        // rather than orphaning it — on the monolithic path the caller's original is already gone.
+                        liveOwnedImage = roiImage;
+                    } else {
+                        debugData.DetectionROI = new System.Drawing.Rectangle(0, 0, srcImage.Width, srcImage.Height);
                     }
-                    hotpixelFilteringApplied = true;
-                }
+                    MaybeSaveIntermediateImage(srcImage, p, "01-source.tif");
 
-                var noiseReductionApplied = false;
-                if (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled) {
-                    CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
-                    noiseReductionApplied = true;
-                }
+                    if (p.StoreStructureMap) {
+                        debugData.StructureMap = new byte[debugData.DetectionROI.Width * debugData.DetectionROI.Height];
+                    }
 
-                MaybeSaveIntermediateImage(srcImage, p, "02-src-image-preparation.tif");
-                stopWatch.RecordEntry("SrcImagePreparation");
+                    stopWatch.RecordEntry("LoadImage");
 
-                // Step 2: Prepare for structure detection by performing optional noise reduction
-                progress?.Report(new ApplicationStatus() { Status = "Preparing for Structure Detection" });
+                    // Step 1: Perform initial noise reduction and hotpixel filtering
+                    progress?.Report(new ApplicationStatus() { Status = "Noise Reduction" });
+                    var hotpixelFilteringApplied = hotpixelFilterAlreadyApplied;
 
-                Mat noiseReducedImage = resourceTracker.NewMat();
-                if (hotpixelFilteringApplied || noiseReductionApplied || p.NoiseReductionRadius <= 0) {
-                    // In this case, we've already applied hotpixel filtering, so no need to do it again. The structure map can start from here
-                    srcImage.CopyTo(noiseReducedImage);
-                } else {
-                    srcImage.CopyTo(noiseReducedImage);
-                    metrics.HotpixelCount = ApplyHotpixelFilter(noiseReducedImage, p);
-                }
+                    // Also apply hotpixel filtering if noise reduction will be done to the source image
+                    if (p.HotpixelFiltering || (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled)) {
+                        // Apply a median box filter in place to the starting image
+                        if (!hotpixelFilterAlreadyApplied) {
+                            metrics.HotpixelCount = ApplyHotpixelFilter(srcImage, p);
+                        }
+                        hotpixelFilteringApplied = true;
+                    }
 
-                // Step 3: If we haven't yet applied noise reduction and it is configured, do so now
-                if (p.NoiseReductionRadius > 0 && !noiseReductionApplied) {
-                    CvImageUtility.ConvolveGaussian(noiseReducedImage, noiseReducedImage, p.NoiseReductionRadius * 2 + 1);
-                }
+                    var noiseReductionApplied = false;
+                    if (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled) {
+                        CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
+                        noiseReductionApplied = true;
+                    }
 
-                Mat structureMap = resourceTracker.NewMat();
-                noiseReducedImage.CopyTo(structureMap);
-                var noiseReducedNoiseEstimateTask = Task.Run(() => {
-                    var result = CvImageUtility.KappaSigmaNoiseEstimate(noiseReducedImage, clippingMultipler: p.NoiseClippingMultiplier);
-                    var ksigmaTraceStructureMap = $"Structure Map K-Sigma Noise Estimate: {result.Sigma}, Background Mean: {result.BackgroundMean}, NumIterations={result.NumIterations}";
-                    Logger.Trace(ksigmaTraceStructureMap);
-                    MaybeSaveIntermediateText(ksigmaTraceStructureMap, p, "02-ksigma-estimate-noise-reduced.txt");
+                    MaybeSaveIntermediateImage(srcImage, p, "02-src-image-preparation.tif");
+                    stopWatch.RecordEntry("SrcImagePreparation");
 
-                    noiseReducedImage.Dispose();
-                    noiseReducedImage = null;
-                    return result;
-                });
+                    // Step 2: Prepare for structure detection by performing optional noise reduction
+                    progress?.Report(new ApplicationStatus() { Status = "Preparing for Structure Detection" });
 
-                // F4 (σ consistency): thresholds applied to the image actually sampled must use that image's σ.
-                // The estimate above is computed on the (possibly blurred) structure-map source; when a noise
-                // reduction radius is set but measurement noise reduction is off, srcImage was never blurred and
-                // its white-noise σ is ~4x larger. Measure it directly on srcImage (rather than applying an
-                // analytic kernel factor) so correlated real-camera noise and hotpixel filtering are accounted
-                // for automatically. srcImage is read-only from here until this task is awaited (before binarization), so the concurrent read is safe.
-                var measurementImageDiffers = p.NoiseReductionRadius > 0 && !noiseReductionApplied;
-                var measurementNoiseEstimateTask = measurementImageDiffers
-                    ? Task.Run(() => {
-                        var result = CvImageUtility.KappaSigmaNoiseEstimate(srcImage, clippingMultipler: p.NoiseClippingMultiplier);
-                        var ksigmaTraceMeasurement = $"Measurement Image K-Sigma Noise Estimate: {result.Sigma}, Background Mean: {result.BackgroundMean}, NumIterations={result.NumIterations}";
-                        Logger.Trace(ksigmaTraceMeasurement);
-                        MaybeSaveIntermediateText(ksigmaTraceMeasurement, p, "02-ksigma-estimate-measurement.txt");
+                    Mat noiseReducedImage = scratch.NewMat();
+                    if (hotpixelFilteringApplied || noiseReductionApplied || p.NoiseReductionRadius <= 0) {
+                        // In this case, we've already applied hotpixel filtering, so no need to do it again. The structure map can start from here
+                        srcImage.CopyTo(noiseReducedImage);
+                    } else {
+                        srcImage.CopyTo(noiseReducedImage);
+                        metrics.HotpixelCount = ApplyHotpixelFilter(noiseReducedImage, p);
+                    }
+
+                    // Step 3: If we haven't yet applied noise reduction and it is configured, do so now
+                    if (p.NoiseReductionRadius > 0 && !noiseReductionApplied) {
+                        CvImageUtility.ConvolveGaussian(noiseReducedImage, noiseReducedImage, p.NoiseReductionRadius * 2 + 1);
+                    }
+
+                    Mat structureMap = scratch.NewMat();
+                    noiseReducedImage.CopyTo(structureMap);
+                    var noiseReducedNoiseEstimateTask = Task.Run(() => {
+                        var result = CvImageUtility.KappaSigmaNoiseEstimate(noiseReducedImage, clippingMultipler: p.NoiseClippingMultiplier);
+                        var ksigmaTraceStructureMap = $"Structure Map K-Sigma Noise Estimate: {result.Sigma}, Background Mean: {result.BackgroundMean}, NumIterations={result.NumIterations}";
+                        Logger.Trace(ksigmaTraceStructureMap);
+                        MaybeSaveIntermediateText(ksigmaTraceStructureMap, p, "02-ksigma-estimate-noise-reduced.txt");
+
+                        noiseReducedImage.Dispose();
+                        noiseReducedImage = null;
                         return result;
-                    })
-                    : null;
+                    });
 
-                MaybeSaveIntermediateImage(structureMap, p, "03-structure-map-start.tif");
-                stopWatch.RecordEntry("StructureMapPreparation");
+                    // F4 (σ consistency): thresholds applied to the image actually sampled must use that image's σ.
+                    // The estimate above is computed on the (possibly blurred) structure-map source; when a noise
+                    // reduction radius is set but measurement noise reduction is off, srcImage was never blurred and
+                    // its white-noise σ is ~4x larger. Measure it directly on srcImage (rather than applying an
+                    // analytic kernel factor) so correlated real-camera noise and hotpixel filtering are accounted
+                    // for automatically. srcImage is read-only from here until this task is awaited (before binarization), so the concurrent read is safe.
+                    var measurementImageDiffers = p.NoiseReductionRadius > 0 && !noiseReductionApplied;
+                    var measurementNoiseEstimateTask = measurementImageDiffers
+                        ? Task.Run(() => {
+                            var result = CvImageUtility.KappaSigmaNoiseEstimate(srcImage, clippingMultipler: p.NoiseClippingMultiplier);
+                            var ksigmaTraceMeasurement = $"Measurement Image K-Sigma Noise Estimate: {result.Sigma}, Background Mean: {result.BackgroundMean}, NumIterations={result.NumIterations}";
+                            Logger.Trace(ksigmaTraceMeasurement);
+                            MaybeSaveIntermediateText(ksigmaTraceMeasurement, p, "02-ksigma-estimate-measurement.txt");
+                            return result;
+                        })
+                        : null;
 
-                // Step 4: Compute b-spline wavelets to exclude large structures such as nebulae. If the pixel scale is very small or need a wide range for focus, you may need to increase the number of layers
-                //         to keep stars from being excluded
-                using (var residualLayer = ComputeResidualAtrousB3SplineDyadicWaveletLayer(structureMap, p.StructureLayers)) {
-                    MaybeSaveIntermediateImage(residualLayer, p, "04-structure-wavelet-residual.tif");
-                    CvImageUtility.SubtractInPlace(structureMap, residualLayer);
-                }
+                    MaybeSaveIntermediateImage(structureMap, p, "03-structure-map-start.tif");
+                    stopWatch.RecordEntry("StructureMapPreparation");
 
-                MaybeSaveIntermediateImage(structureMap, p, "04-structure-wavelet-subtracted.tif");
-                stopWatch.RecordEntry("WaveletCalculation");
-
-                // Step 5: Excluding large structures can cut off the outsides of large stars, or leave holes when far out of focus. Blurring smooths this out well for structure detection
-                CvImageUtility.ConvolveGaussian(structureMap, structureMap, p.StructureLayers * 2 + 1);
-                MaybeSaveIntermediateImage(structureMap, p, "05-structure-wavelet-blurred.tif");
-                stopWatch.RecordEntry("PostWaveletConvolution");
-
-                // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
-                // The difference doesn't seem worth it based on tests done so far
-                var structureMapStats = CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
-                stopWatch.RecordEntry("BinarizationStatistics");
-
-                var noiseReducedImageNoise = await noiseReducedNoiseEstimateTask;
-                var measurementImageNoise = measurementNoiseEstimateTask != null
-                    ? await measurementNoiseEstimateTask
-                    : noiseReducedImageNoise;
-                double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * noiseReducedImageNoise.Sigma;
-                var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}, Clipping Multiplier: {p.NoiseClippingMultiplier}, Noise Sigma: {noiseReducedImageNoise.Sigma}";
-                Logger.Trace(binarizeTrace);
-                MaybeSaveIntermediateText(structureMapStats.ToString() + Environment.NewLine + binarizeTrace, p, "05-structure-map-statistics.txt");
-
-                if (p.StoreStructureMap) {
-                    UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 1);
-                }
-
-                // Step 6: Boost small structures with a dilation box filter
-                if (p.StructureDilationCount > 0) {
-                    using (var dilationStructure = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(p.StructureDilationSize, p.StructureDilationSize))) {
-                        Cv2.MorphologyEx(structureMap, structureMap, MorphTypes.Dilate, dilationStructure, iterations: p.StructureDilationCount, borderType: BorderTypes.Reflect);
+                    // Step 4: Compute b-spline wavelets to exclude large structures such as nebulae. If the pixel scale is very small or need a wide range for focus, you may need to increase the number of layers
+                    //         to keep stars from being excluded
+                    using (var residualLayer = ComputeResidualAtrousB3SplineDyadicWaveletLayer(structureMap, p.StructureLayers)) {
+                        MaybeSaveIntermediateImage(residualLayer, p, "04-structure-wavelet-residual.tif");
+                        CvImageUtility.SubtractInPlace(structureMap, residualLayer);
                     }
-                    stopWatch.RecordEntry("StructureDilation");
-                    MaybeSaveIntermediateImage(structureMap, p, "06-structure-map-dilated.tif");
+
+                    MaybeSaveIntermediateImage(structureMap, p, "04-structure-wavelet-subtracted.tif");
+                    stopWatch.RecordEntry("WaveletCalculation");
+
+                    // Step 5: Excluding large structures can cut off the outsides of large stars, or leave holes when far out of focus. Blurring smooths this out well for structure detection
+                    CvImageUtility.ConvolveGaussian(structureMap, structureMap, p.StructureLayers * 2 + 1);
+                    MaybeSaveIntermediateImage(structureMap, p, "05-structure-wavelet-blurred.tif");
+                    stopWatch.RecordEntry("PostWaveletConvolution");
+
+                    // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
+                    // The difference doesn't seem worth it based on tests done so far
+                    var structureMapStats = CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
+                    stopWatch.RecordEntry("BinarizationStatistics");
+
+                    var noiseReducedImageNoise = await noiseReducedNoiseEstimateTask;
+                    var measurementImageNoise = measurementNoiseEstimateTask != null
+                        ? await measurementNoiseEstimateTask
+                        : noiseReducedImageNoise;
+                    double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * noiseReducedImageNoise.Sigma;
+                    var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}, Clipping Multiplier: {p.NoiseClippingMultiplier}, Noise Sigma: {noiseReducedImageNoise.Sigma}";
+                    Logger.Trace(binarizeTrace);
+                    MaybeSaveIntermediateText(structureMapStats.ToString() + Environment.NewLine + binarizeTrace, p, "05-structure-map-statistics.txt");
+
+                    if (p.StoreStructureMap) {
+                        UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 1);
+                    }
+
+                    // Step 6: Boost small structures with a dilation box filter
+                    if (p.StructureDilationCount > 0) {
+                        using (var dilationStructure = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(p.StructureDilationSize, p.StructureDilationSize))) {
+                            Cv2.MorphologyEx(structureMap, structureMap, MorphTypes.Dilate, dilationStructure, iterations: p.StructureDilationCount, borderType: BorderTypes.Reflect);
+                        }
+                        stopWatch.RecordEntry("StructureDilation");
+                        MaybeSaveIntermediateImage(structureMap, p, "06-structure-map-dilated.tif");
+                    }
+
+                    if (p.StoreStructureMap) {
+                        UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 2);
+                    }
+
+                    progress?.Report(new ApplicationStatus() { Status = "Structure Detection" });
+
+                    // Step 7: Binarize foreground structures based on noise estimates
+                    CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
+                    if (p.Region.InnerCropBoundary != null) {
+                        var innerRoiRect = new Rect(
+                            (int)Math.Floor(srcImage.Cols * p.Region.InnerCropBoundary.StartX),
+                            (int)Math.Floor(srcImage.Rows * p.Region.InnerCropBoundary.StartY),
+                            (int)(srcImage.Cols * p.Region.InnerCropBoundary.Width),
+                            (int)(srcImage.Rows * p.Region.InnerCropBoundary.Height));
+                        structureMap.SubMat(innerRoiRect).SetTo(0.0f);
+                        Logger.Info($"Clearing structure map for inner ROI: {p.Region.InnerCropBoundary}");
+                    }
+
+                    stopWatch.RecordEntry("Binarization");
+                    MaybeSaveIntermediateImage(structureMap, p, "07-structure-binarized.tif");
+
+                    // Step 8: Scan the structure map and collect ALL candidate regions (the late size/shape/border
+                    // gates are NOT applied here — they live in GateAndMeasure, so the candidate set depends only on
+                    // the early params). This tallies the early-only metrics: StructureCandidates (per candidate),
+                    // HotpixelCount (already set above), and SaturatedPixelCount (via EvaluateGlobalMetrics).
+                    progress?.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
+                    var candidates = CollectStarCandidates(srcImage, structureMap, p, metrics, token);
+                    stopWatch.RecordEntry("CollectStarCandidates");
+
+                    // srcImage (the prepared measurement image) is never registered with the tracker — it is the
+                    // method parameter, replaced by a fresh Clone()'d ROI submat when an ROI is in play (the old one
+                    // disposed there). So disposing the local tracker in the finally frees only the scratch Mats
+                    // (structureMap; noiseReducedImage is disposed inside its task) and the context's image survives.
+                    var context = new DetectionContext {
+                        MeasurementImage = srcImage,
+                        Candidates = candidates,
+                        StructureNoiseSigma = noiseReducedImageNoise.Sigma,
+                        MeasurementNoiseSigma = measurementImageNoise.Sigma,
+                        RoiRect = roiRect,
+                        DebugData = debugData,
+                        HotpixelCount = metrics.HotpixelCount,
+                        StructureCandidates = metrics.StructureCandidates,
+                        SaturatedPixelCount = metrics.SaturatedPixelCount
+                    };
+                    // The context now owns srcImage; clear the failure-cleanup flag so the finally does NOT dispose it.
+                    contextProduced = true;
+                    return context;
                 }
-
-                if (p.StoreStructureMap) {
-                    UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 2);
+            } finally {
+                if (ownsLocalTracker) {
+                    // Free the transient scratch Mats (structure map, etc). The prepared srcImage was detached above
+                    // and survives on the returned context.
+                    scratch.Dispose();
                 }
-
-                progress?.Report(new ApplicationStatus() { Status = "Structure Detection" });
-
-                // Step 7: Binarize foreground structures based on noise estimates
-                CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
-                if (p.Region.InnerCropBoundary != null) {
-                    var innerRoiRect = new Rect(
-                        (int)Math.Floor(srcImage.Cols * p.Region.InnerCropBoundary.StartX),
-                        (int)Math.Floor(srcImage.Rows * p.Region.InnerCropBoundary.StartY),
-                        (int)(srcImage.Cols * p.Region.InnerCropBoundary.Width),
-                        (int)(srcImage.Rows * p.Region.InnerCropBoundary.Height));
-                    structureMap.SubMat(innerRoiRect).SetTo(0.0f);
-                    Logger.Info($"Clearing structure map for inner ROI: {p.Region.InnerCropBoundary}");
+                if (!contextProduced) {
+                    // The early pipeline threw before the context was constructed: dispose the in-flight source/ROI
+                    // Mat we own so the ~244 MB allocation is not orphaned. On the monolithic no-ROI path
+                    // liveOwnedImage is null (the caller still owns + disposes its input), so this is a no-op there —
+                    // preserving the established contract that the no-ROI Detect path never disposes the caller's Mat.
+                    liveOwnedImage?.Dispose();
                 }
+            }
+        }
 
-                stopWatch.RecordEntry("Binarization");
-                MaybeSaveIntermediateImage(structureMap, p, "07-structure-binarized.tif");
+        private async Task<HocusFocusStarDetectorResult> GateAndMeasureInternal(DetectionContext ctx, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            var srcImage = ctx.MeasurementImage;
+            var roiRect = ctx.RoiRect;
 
-                // Step 8: Scan structure map for stars
-                progress?.Report(new ApplicationStatus() { Status = "Scan and Analyze Stars" });
-                var stars = ScanStars(srcImage, structureMap, p, measurementImageNoise.Sigma, metrics, contaminationDiagnosticsBag, token);
+            // Seed a fresh metrics with ONLY the early-stage counters carried on the context, then run the late
+            // (gate + measure) stage which fills in every other counter. Starting fresh each call is what makes a
+            // reused context produce the same metrics as a one-shot detect.
+            var metrics = new StarDetectorMetrics {
+                // The debayered-hotpixel path (IRenderedImage) overwrites the structure-pipeline HotpixelCount with
+                // the CFA count, exactly as the monolithic Detect(IRenderedImage) did; otherwise the early
+                // structure-pipeline count is authoritative.
+                HotpixelCount = ctx.DebayerHotpixelCount ?? ctx.HotpixelCount,
+                StructureCandidates = ctx.StructureCandidates,
+                SaturatedPixelCount = ctx.SaturatedPixelCount
+            };
+
+            // Per-call diagnostics bag (thread-safe; the late stage evaluates candidates in parallel). Null in
+            // normal runs (zero overhead).
+            var contaminationDiagnosticsBag = p.CollectContaminationDiagnostics ? new ConcurrentBag<ContaminationDiagnosticRecord>() : null;
+
+            using (var stopWatch = MultiStopWatch.Measure()) {
+                var stars = EvaluateStarCandidates(srcImage, ctx.Candidates, p, ctx.MeasurementNoiseSigma, metrics, contaminationDiagnosticsBag, token);
                 stopWatch.RecordEntry("StarAnalysis");
 
                 // Step 9: Fit PSF models
@@ -372,7 +623,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // overhead is eliminated. The remaining timer is TRACE-only (short-circuits unless TRACE is on).
                     var psfStopwatch = Stopwatch.StartNew();
                     progress?.Report(new ApplicationStatus() { Status = "Modeling PSFs" });
-                    await ModelPSF(srcImage, measurementImageNoise.Sigma, stars, p, metrics, token);
+                    await ModelPSF(srcImage, ctx.MeasurementNoiseSigma, stars, p, metrics, token);
 
                     stopWatch.RecordEntry("ModelPSF");
                     psfStopwatch.Stop();
@@ -414,10 +665,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return new HocusFocusStarDetectorResult() {
                     DetectedStars = stars,
                     Metrics = metrics,
-                    DebugData = debugData,
+                    DebugData = ctx.DebugData,
                     ContaminationDiagnostics = contaminationDiagnostics,
-                    StructureNoiseSigma = noiseReducedImageNoise.Sigma,
-                    MeasurementNoiseSigma = measurementImageNoise.Sigma
+                    StructureNoiseSigma = ctx.StructureNoiseSigma,
+                    MeasurementNoiseSigma = ctx.MeasurementNoiseSigma
                 };
             }
         }
@@ -751,7 +1002,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         // A candidate star collected by the sequential flood-fill (Stage A) and evaluated in parallel (Stage B).
         // Each candidate owns its OWN point list (no sharing/reuse) so the parallel evaluation is data-race free.
-        private readonly struct StarCandidateRegion {
+        internal readonly struct StarCandidateRegion {
             public readonly Rect Bounds;
             public readonly List<Point> Points;
 
@@ -761,15 +1012,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private List<Star> ScanStars(Mat srcImage, Mat structureMap, StarDetectorParams p, double srcImageNoiseSigma, StarDetectorMetrics metrics, ConcurrentBag<ContaminationDiagnosticRecord> diagnosticsBag, CancellationToken ct) {
-            // Stage A: sequential flood-fill raster walk. Collects each candidate (bounds + its own point list)
-            // and zeroes the candidate's pixels so it is not re-scanned. EvaluateGlobalMetrics and the per-
-            // candidate StructureCandidates count run here, single-threaded, on the main metrics.
-            var candidates = CollectStarCandidates(srcImage, structureMap, p, metrics, ct);
-
-            // Stage B: evaluate every candidate in parallel. Per-star evaluation is independent (only LOCAL
-            // arrays + read-only image reads), so the only shared mutable state is the metrics (handled via
-            // thread-locals merged afterward) and the (thread-safe, per-DetectImpl) diagnosticsBag.
+        // Stage B: evaluate every collected candidate in parallel and assemble the accepted stars in deterministic
+        // raster order. This is the LATE phase — it applies all size/shape/border/sensitivity gates and measures
+        // each accepted star. It only READS srcImage + the candidate point lists, so it is safe to run repeatedly
+        // against the same cached DetectionContext with different late params.
+        private List<Star> EvaluateStarCandidates(Mat srcImage, List<StarCandidateRegion> candidates, StarDetectorParams p, double srcImageNoiseSigma, StarDetectorMetrics metrics, ConcurrentBag<ContaminationDiagnosticRecord> diagnosticsBag, CancellationToken ct) {
+            // Per-star evaluation is independent (only LOCAL arrays + read-only image reads), so the only shared
+            // mutable state is the metrics (handled via thread-locals merged afterward) and the (thread-safe,
+            // per-call) diagnosticsBag.
             var results = new Star[candidates.Count];
             using var localMetrics = new ThreadLocal<StarDetectorMetrics>(() => new StarDetectorMetrics(), trackAllValues: true);
 

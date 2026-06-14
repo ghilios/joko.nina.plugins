@@ -35,5 +35,41 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus);
 
         Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token);
+
+        /// <summary>
+        /// EARLY phase of <see cref="Detect(IRenderedImage, HocusFocusDetectionParams, StarDetectorParams, IProgress{ApplicationStatus}, CancellationToken)"/>:
+        /// converts the image + builds the reusable early-stage detection context. Pair with
+        /// <see cref="GateAndMeasure"/>. Lets the optimizer cache the expensive early stage across candidate
+        /// evaluations that change only late-stage params. The returned context owns native resources; dispose it.
+        /// </summary>
+        Task<HocusFocusDetectionContext> BuildDetectionContext(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token);
+
+        /// <summary>
+        /// LATE phase: gates + measures a context built by <see cref="BuildDetectionContext"/> and runs the same
+        /// post-processing (HFR aggregation, etc.) as the monolithic Detect, producing an identical result.
+        /// </summary>
+        StarDetectionResult GateAndMeasure(HocusFocusDetectionContext context, StarDetectorParams detectorParams, CancellationToken token);
+
+        /// <summary>Early cache key over only the early-affecting detection params.</summary>
+        string ComputeEarlyCacheKey(StarDetectorParams detectorParams);
+    }
+
+    /// <summary>
+    /// Opaque, disposable carrier for the early-stage detection of one image: the raw-detector early context plus
+    /// the header data the late stage needs to assemble the final <c>StarDetectionResult</c>. Built by
+    /// <see cref="IHocusFocusStarDetection.BuildDetectionContext"/>, consumed by
+    /// <see cref="IHocusFocusStarDetection.GateAndMeasure"/>, and reused across late-only candidate changes.
+    /// </summary>
+    public sealed class HocusFocusDetectionContext : IDisposable {
+        public StarDetection.StarDetector.DetectionContext DetectorContext { get; set; }
+        public HocusFocusDetectionParams HocusFocusParams { get; set; }
+        public System.Drawing.Size ImageSize { get; set; }
+        public double PixelSize { get; set; }
+        public int FocuserPosition { get; set; }
+
+        public void Dispose() {
+            DetectorContext?.Dispose();
+            DetectorContext = null;
+        }
     }
 }

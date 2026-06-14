@@ -328,8 +328,9 @@ namespace TestApp {
 
         /// <summary>
         /// Loads a discovered run's frames as float Mats once, wires the harness detection delegate, infers the
-        /// fit config, and builds its <see cref="RunEvaluationData"/>. Caller owns disposing the returned run's
-        /// cached Mats (see <see cref="DisposeRuns"/>).
+        /// fit config, and builds its <see cref="RunEvaluationData"/>. Caller owns disposing the returned run via
+        /// <see cref="DisposeRuns"/>, which frees BOTH the <see cref="RunEvaluationData"/>'s cached early-detection
+        /// contexts and the loaded-once frame Mats.
         /// </summary>
         private static async Task<LoadedHarnessRun> PrepareRunAsync(
             RunDetectionContext ctx, OptimizationRunDiscovery.DiscoveredRun d,
@@ -355,20 +356,14 @@ namespace TestApp {
                 PreferredModel = null
             };
 
-            var detector = ctx.Detector;
-            var measurementAverage = ctx.MeasurementAverage;
-            var highSigma = ctx.HighSigmaOutlierRejection;
-            var lowSigma = ctx.LowSigmaOutlierRejection;
-            Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect =
-                async (image, candidateParams, ct) => {
-                    // Detect mutates its input in place, so each detection gets a clone of the cached Mat.
-                    using var clone = ((Mat)image).Clone();
-                    var result = await detector.Detect(clone, candidateParams, null, ct).ConfigureAwait(false);
-                    return ToFrameDetectionResult(result, measurementAverage, highSigma, lowSigma);
-                };
+            // Split detector: caches the expensive early detection per (frame, early key) and reuses it across the
+            // many candidate evaluations that change only late-stage gate params (the ~2× speedup). The
+            // FrameDetectionResult mapping is the SAME ToFrameDetectionResult the legacy delegate used, so results
+            // are unchanged.
+            var splitDetector = new MatSplitFrameDetector(ctx.Detector, ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection);
 
             var labels = labelsByRun.TryGetValue(d.RunId, out var ls) ? ls : null;
-            var data = new RunEvaluationData(d.RunId, frames, detect, ctx.AlglibAPI, fitConfig, labels);
+            var data = new RunEvaluationData(d.RunId, frames, splitDetector, ctx.AlglibAPI, fitConfig, labels);
             Console.WriteLine($"  {d.RunId}: inferred step size {stepSize}" + (labels != null ? $", {labels.Count} labeled position(s)" : ", unlabeled"));
             return new LoadedHarnessRun { Discovered = d, Data = data, StepSize = stepSize, Frames = frames };
         }
@@ -432,8 +427,11 @@ namespace TestApp {
         }
 
         private static void DisposeRuns(List<LoadedHarnessRun> loadedRuns) {
-            // Release the cached frame Mats (each RunFrame.Image is a Mat the harness loaded once).
             foreach (var r in loadedRuns) {
+                // Release the per-frame cached early-detection contexts the RunEvaluationData pinned (each holds a
+                // ~244 MB source Mat at 61 MP); a long --per-run batch accumulates them otherwise. Idempotent.
+                r.Data?.Dispose();
+                // Release the cached frame Mats (each RunFrame.Image is a Mat the harness loaded once).
                 foreach (var rf in r.Frames) {
                     (rf.Image as Mat)?.Dispose();
                 }
@@ -599,6 +597,39 @@ namespace TestApp {
                 StarCount = stars.Count,
                 StarCenters = centers
             };
+        }
+
+        /// <summary>
+        /// Mat-based split detector for the offline harness: caches the expensive early detection per (frame, early
+        /// key) and reuses it across candidate evaluations that change only late-stage gate params. The context is
+        /// a <see cref="StarDetector.DetectionContext"/>; the result mapping is the SAME
+        /// <see cref="ToFrameDetectionResult"/> the legacy delegate used, so results are byte-identical.
+        /// <see cref="StarDetector.BuildDetectionContext(Mat, StarDetectorParams, IProgress{NINA.Core.Model.ApplicationStatus}, CancellationToken)"/>
+        /// clones the frame Mat internally, so the cached frame Mats are never mutated.
+        /// </summary>
+        private sealed class MatSplitFrameDetector : RunEvaluationData.ISplitFrameDetector {
+            private readonly StarDetector detector;
+            private readonly MeasurementAverageEnum measurementAverage;
+            private readonly double highSigma;
+            private readonly double lowSigma;
+
+            public MatSplitFrameDetector(StarDetector detector, MeasurementAverageEnum measurementAverage, double highSigma, double lowSigma) {
+                this.detector = detector;
+                this.measurementAverage = measurementAverage;
+                this.highSigma = highSigma;
+                this.lowSigma = lowSigma;
+            }
+
+            public string ComputeEarlyKey(StarDetectorParams p) => StarDetector.ComputeEarlyCacheKey(p);
+
+            public async Task<IDisposable> BuildContextAsync(object frameImage, StarDetectorParams p, CancellationToken token) {
+                return await detector.BuildDetectionContext((Mat)frameImage, p, null, token).ConfigureAwait(false);
+            }
+
+            public FrameDetectionResult GateAndMeasure(IDisposable context, StarDetectorParams p) {
+                var result = detector.GateAndMeasure((StarDetector.DetectionContext)context, p, CancellationToken.None);
+                return ToFrameDetectionResult(result, measurementAverage, highSigma, lowSigma);
+            }
         }
 
         // ---- Labels ----------------------------------------------------------------------------------------

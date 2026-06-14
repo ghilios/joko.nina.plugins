@@ -135,22 +135,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 PreferredModel = afOptions.HyperbolicFitModel
             };
 
-            Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect =
-                async (image, candidateParams, ct) => {
-                    var result = await detection.Detect((IRenderedImage)image, hocusParams, candidateParams, null, ct).ConfigureAwait(false);
-                    var centers = result.StarList == null
-                        ? (IReadOnlyList<(double X, double Y)>)Array.Empty<(double X, double Y)>()
-                        : result.StarList.Select(s => ((double)s.Position.X, (double)s.Position.Y)).ToList();
-                    return new FrameDetectionResult {
-                        AverageHFR = result.AverageHFR,
-                        HFRStdDev = result.HFRStdDev,
-                        StarCount = result.DetectedStars,
-                        StarCenters = centers
-                    };
-                };
+            // Split detector: caches the expensive early detection per (frame, early key) and reuses it across the
+            // many candidate evaluations that change only late-stage gate params (the ~2× optimizer speedup). The
+            // mapping to FrameDetectionResult is identical to the legacy monolithic delegate, so results are
+            // unchanged — only the early stage is skipped on a late-only move.
+            var splitDetector = new HocusFocusSplitFrameDetector(detection, hocusParams);
 
             var runId = attempt.FolderPath ?? attemptFolderPath;
-            var data = new RunEvaluationData(runId, frames, detect, alglibAPI, fitConfig);
+            var data = new RunEvaluationData(runId, frames, splitDetector, alglibAPI, fitConfig);
 
             Logger.Info($"Loaded saved AF run '{runId}' for optimization: {frames.Count} frames, step size {fitConfig.StepSize}");
             return new LoadedRun {
@@ -174,6 +166,41 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             var prepareParameters = new PrepareImageParameters(autoStretch: autoStretch, detectStars: false);
             return await imagingMediator.PrepareImage(imageData, prepareParameters, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Drives the real HocusFocus detector in two phases so the optimizer can cache the expensive early stage.
+        /// The frame payload is the loaded <see cref="IRenderedImage"/>; the opaque context is a
+        /// <see cref="HocusFocusDetectionContext"/>. The <see cref="FrameDetectionResult"/> mapping is identical to
+        /// the legacy monolithic delegate (HFR, σ, accepted-star count + centers), so results are unchanged.
+        /// </summary>
+        private sealed class HocusFocusSplitFrameDetector : RunEvaluationData.ISplitFrameDetector {
+            private readonly IHocusFocusStarDetection detection;
+            private readonly HocusFocusDetectionParams hocusParams;
+
+            public HocusFocusSplitFrameDetector(IHocusFocusStarDetection detection, HocusFocusDetectionParams hocusParams) {
+                this.detection = detection;
+                this.hocusParams = hocusParams;
+            }
+
+            public string ComputeEarlyKey(StarDetectorParams p) => detection.ComputeEarlyCacheKey(p);
+
+            public async Task<IDisposable> BuildContextAsync(object frameImage, StarDetectorParams p, CancellationToken token) {
+                return await detection.BuildDetectionContext((IRenderedImage)frameImage, hocusParams, p, null, token).ConfigureAwait(false);
+            }
+
+            public FrameDetectionResult GateAndMeasure(IDisposable context, StarDetectorParams p) {
+                var result = detection.GateAndMeasure((HocusFocusDetectionContext)context, p, CancellationToken.None);
+                var centers = result.StarList == null
+                    ? (IReadOnlyList<(double X, double Y)>)Array.Empty<(double X, double Y)>()
+                    : result.StarList.Select(s => ((double)s.Position.X, (double)s.Position.Y)).ToList();
+                return new FrameDetectionResult {
+                    AverageHFR = result.AverageHFR,
+                    HFRStdDev = result.HFRStdDev,
+                    StarCount = result.DetectedStars,
+                    StarCenters = centers
+                };
+            }
         }
     }
 }

@@ -339,10 +339,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             cts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
             var token = cts.Token;
 
+            // Each loaded run owns a disposable RunEvaluationData (the cached early-detection contexts pin the
+            // per-frame source Mats — multiple GB at 61 MP). They are consumed through seed-guard → optimize →
+            // summary, then released in the finally so the Mats are freed on success, cancel, AND error (and never
+            // accumulate across re-runs). The summary is built inside the try (step 4) BEFORE this finally runs, so
+            // nothing the summary needs is disposed early.
+            List<LoadedRun> loadedRuns = null;
             try {
-                // 1. Acquire — load every source into a LoadedRun.
+                // 1. Acquire — load every source into a LoadedRun. AcquireAsync disposes its own partial list on an
+                //    early-out/exception, so a null return has already cleaned up.
                 CurrentStep = WizardStep.Acquire;
-                var loadedRuns = await AcquireAsync(token).ConfigureAwait(true);
+                loadedRuns = await AcquireAsync(token).ConfigureAwait(true);
                 if (loadedRuns == null) {
                     return; // ErrorMessage already set, or cancelled
                 }
@@ -369,6 +376,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 ErrorMessage = $"Optimization failed: {ex.Message}";
                 CurrentStep = WizardStep.SelectSource;
             } finally {
+                // Release the cached source Mats. Safe even when AcquireAsync already disposed a partial list
+                // (RunEvaluationData.Dispose is idempotent); harmless when loadedRuns is null.
+                DisposeLoadedRuns(loadedRuns);
                 IsBusy = false;
                 Interlocked.Exchange(ref running, 0);
             }
@@ -376,33 +386,55 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>Loads each configured source folder into a <see cref="LoadedRun"/>. For Live, runs a fresh AF
         /// attempt first and then loads its saved folder. Sets <see cref="ErrorMessage"/> and returns null on a
-        /// missing/invalid source.</summary>
+        /// missing/invalid source. Each loaded run owns a disposable <see cref="RunEvaluationData"/> (cached source
+        /// Mats); on any early-out (error/cancel) or exception this disposes whatever was loaded so a partial
+        /// acquisition never leaks. On full success the caller (<see cref="StartAsync"/>) owns disposing the list.</summary>
         private async Task<List<LoadedRun>> AcquireAsync(CancellationToken token) {
             var runs = new List<LoadedRun>(RunCount);
-            for (var i = 0; i < RunCount; i++) {
-                token.ThrowIfCancellationRequested();
-                string folder;
-                if (SourceMode == SourceMode.Live) {
-                    folder = await RunLiveAttemptAsync(token).ConfigureAwait(true);
-                    if (string.IsNullOrEmpty(folder)) {
-                        ErrorMessage = "The live auto-focus run did not produce a saved attempt folder.";
-                        CurrentStep = WizardStep.SelectSource;
-                        return null;
+            try {
+                for (var i = 0; i < RunCount; i++) {
+                    token.ThrowIfCancellationRequested();
+                    string folder;
+                    if (SourceMode == SourceMode.Live) {
+                        folder = await RunLiveAttemptAsync(token).ConfigureAwait(true);
+                        if (string.IsNullOrEmpty(folder)) {
+                            ErrorMessage = "The live auto-focus run did not produce a saved attempt folder.";
+                            CurrentStep = WizardStep.SelectSource;
+                            DisposeLoadedRuns(runs);
+                            return null;
+                        }
+                    } else {
+                        folder = i < SourcePaths.Count ? SourcePaths[i] : null;
+                        if (string.IsNullOrEmpty(folder)) {
+                            ErrorMessage = $"Select a saved auto-focus folder for run {i + 1}.";
+                            CurrentStep = WizardStep.SelectSource;
+                            DisposeLoadedRuns(runs);
+                            return null;
+                        }
                     }
-                } else {
-                    folder = i < SourcePaths.Count ? SourcePaths[i] : null;
-                    if (string.IsNullOrEmpty(folder)) {
-                        ErrorMessage = $"Select a saved auto-focus folder for run {i + 1}.";
-                        CurrentStep = WizardStep.SelectSource;
-                        return null;
-                    }
-                }
 
-                Phase = $"Loading run {i + 1} of {RunCount}";
-                var loaded = await loader.LoadSavedRunAsync(folder, region, token).ConfigureAwait(true);
-                runs.Add(loaded);
+                    Phase = $"Loading run {i + 1} of {RunCount}";
+                    var loaded = await loader.LoadSavedRunAsync(folder, region, token).ConfigureAwait(true);
+                    runs.Add(loaded);
+                }
+                return runs;
+            } catch {
+                // Cancellation / loader failure midway: free the runs loaded so far before propagating.
+                DisposeLoadedRuns(runs);
+                throw;
             }
-            return runs;
+        }
+
+        /// <summary>Disposes each loaded run's <see cref="RunEvaluationData"/> (the cached early-detection contexts
+        /// pinning the source Mats). Null-safe and idempotent — <see cref="RunEvaluationData.Dispose"/> guards
+        /// double-dispose, so calling this twice on the same list is harmless.</summary>
+        private static void DisposeLoadedRuns(IReadOnlyList<LoadedRun> runs) {
+            if (runs == null) {
+                return;
+            }
+            foreach (var run in runs) {
+                run?.Data?.Dispose();
+            }
         }
 
         /// <summary>

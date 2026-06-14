@@ -107,35 +107,150 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// <see cref="object"/>) and detection is an injected delegate, so the same evaluator drives the live wizard
     /// (IRenderedImage) and the offline harness (Mat) unchanged.</para>
     ///
-    /// <para>No per-frame detection cache is kept on purpose: the optimizer already memoizes J at the params
-    /// level (one evaluator call per distinct params via <see cref="StarDetector.ComputeCacheKey"/>), so caching
-    /// per frame here would be redundant and would pin many star lists in memory.</para>
+    /// <para>Optionally, an <see cref="ISplitFrameDetector"/> may be supplied instead of a monolithic detect
+    /// delegate. When it is, the evaluator caches the EXPENSIVE early-stage detection result per (frame, early
+    /// cache key) and reuses it across candidate evaluations that change only late-stage gate params (the bulk of
+    /// a compass search), re-running only the cheap gate+measure step. This is the ~2× optimizer speedup; it is a
+    /// pure performance optimization and produces byte-identical per-frame results to the non-cached path. The
+    /// cache is bounded to ONE context per frame (the current early key), since the search moves the incumbent —
+    /// when a frame's early key changes the prior context is disposed before the new one is built; at 61 MP each
+    /// cached context pins ~244 MB, so keeping only one per frame caps the footprint at one frame-set of source
+    /// Mats. The cache lives for this <see cref="RunEvaluationData"/> instance's lifetime (which in the wizard
+    /// spans seed-guard → optimize → summary, all evaluated against the same instance); <see cref="Dispose"/>
+    /// releases all cached contexts and MUST be called by the owner once the instance is no longer needed.</para>
+    ///
+    /// <para>When only a monolithic delegate is supplied (the legacy path), no per-frame detection cache is kept:
+    /// the optimizer already memoizes J at the params level (one evaluator call per distinct params via
+    /// <see cref="StarDetector.ComputeCacheKey"/>), so star-list caching there would be redundant.</para>
     /// </summary>
-    public sealed class RunEvaluationData {
+    public sealed class RunEvaluationData : IDisposable {
+        /// <summary>
+        /// A split-capable detection façade the evaluator can drive in two phases so it can cache the expensive
+        /// early phase. Implemented by the wizard loader (over <c>HocusFocusStarDetection</c>/<c>StarDetector</c>)
+        /// and the offline harness; the frame payload and the context are opaque to the evaluator.
+        /// </summary>
+        public interface ISplitFrameDetector {
+            /// <summary>A deterministic key over ONLY the early-affecting params (see
+            /// <c>StarDetector.ComputeEarlyCacheKey</c>): two params with the same key yield an identical early
+            /// context, so a cached context may be reused.</summary>
+            string ComputeEarlyKey(StarDetectorParams p);
+
+            /// <summary>Runs the expensive early detection stage for one frame and returns an opaque, disposable
+            /// context. The evaluator owns disposing it.</summary>
+            Task<IDisposable> BuildContextAsync(object frameImage, StarDetectorParams p, CancellationToken token);
+
+            /// <summary>Runs the cheap late (gate + measure) stage against a previously-built context. Pure over
+            /// the context (read-only), so it is safe to call repeatedly with different late params.</summary>
+            FrameDetectionResult GateAndMeasure(IDisposable context, StarDetectorParams p);
+        }
+
         // A hyperbola has 4-5 parameters; fewer than this many distinct positions can never determine a fit.
         private const int MinPositionsForFit = 3;
 
         private readonly IReadOnlyList<RunFrame> frames;
         private readonly Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect;
+        private readonly ISplitFrameDetector splitDetector;
         private readonly IAlglibAPI alglibAPI;
         private readonly RunFitConfig fitConfig;
         private readonly IReadOnlyList<FrameLabels> labels;
 
+        // Early-context cache (only used when splitDetector != null). One slot per frame index; each slot holds the
+        // context most recently built for that frame plus the early key it was built under. A candidate whose early
+        // key matches the slot reuses the context; a mismatch disposes the old context and rebuilds. Bounded to one
+        // context per frame by construction (see class doc). Guarded by cacheLock so a (future) concurrent caller
+        // cannot corrupt it — today the evaluator runs frames sequentially, so contention is nil.
+        private readonly CachedContext[] contextCache;
+        private readonly object cacheLock = new object();
+        private bool disposed;
+
+        private sealed class CachedContext {
+            public string EarlyKey;
+            public IDisposable Context;
+        }
+
         public string RunId { get; }
 
+        public RunEvaluationData(
+            string runId,
+            Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect,
+            ISplitFrameDetector splitDetector,
+            IReadOnlyList<RunFrame> frames,
+            IAlglibAPI alglibAPI,
+            RunFitConfig fitConfig,
+            IReadOnlyList<FrameLabels> labels) {
+            RunId = runId;
+            this.frames = frames ?? throw new ArgumentNullException(nameof(frames));
+            this.alglibAPI = alglibAPI ?? throw new ArgumentNullException(nameof(alglibAPI));
+            this.fitConfig = fitConfig;
+            this.labels = labels;
+
+            // Exactly one of (detect, splitDetector) must be supplied.
+            if (detect == null && splitDetector == null) {
+                throw new ArgumentNullException(nameof(detect), "either a detect delegate or a split detector is required");
+            }
+            this.detect = detect;
+            this.splitDetector = splitDetector;
+            this.contextCache = splitDetector != null ? new CachedContext[frames.Count] : null;
+        }
+
+        /// <summary>Legacy constructor: a monolithic detect delegate, no early-context cache.</summary>
         public RunEvaluationData(
             string runId,
             IReadOnlyList<RunFrame> frames,
             Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect,
             IAlglibAPI alglibAPI,
             RunFitConfig fitConfig,
-            IReadOnlyList<FrameLabels> labels = null) {
-            RunId = runId;
-            this.frames = frames ?? throw new ArgumentNullException(nameof(frames));
-            this.detect = detect ?? throw new ArgumentNullException(nameof(detect));
-            this.alglibAPI = alglibAPI ?? throw new ArgumentNullException(nameof(alglibAPI));
-            this.fitConfig = fitConfig;
-            this.labels = labels;
+            IReadOnlyList<FrameLabels> labels = null)
+            : this(runId, detect ?? throw new ArgumentNullException(nameof(detect)), null, frames, alglibAPI, fitConfig, labels) {
+        }
+
+        /// <summary>Split constructor: caches the expensive early detection per (frame, early key) and reuses it
+        /// across late-only candidate changes (the optimizer speedup). Results are identical to the delegate path.</summary>
+        public RunEvaluationData(
+            string runId,
+            IReadOnlyList<RunFrame> frames,
+            ISplitFrameDetector splitDetector,
+            IAlglibAPI alglibAPI,
+            RunFitConfig fitConfig,
+            IReadOnlyList<FrameLabels> labels = null)
+            : this(runId, null, splitDetector ?? throw new ArgumentNullException(nameof(splitDetector)), frames, alglibAPI, fitConfig, labels) {
+        }
+
+        /// <summary>
+        /// Detects one frame, going through the early-context cache when a split detector was supplied. On a
+        /// late-only param change the cached early context is reused; on an early-key change (or first use) the
+        /// prior context is disposed and a new one is built. Falls back to the monolithic delegate otherwise.
+        /// </summary>
+        private async Task<FrameDetectionResult> DetectFrameAsync(int frameIndex, object frameImage, StarDetectorParams p, CancellationToken token) {
+            if (splitDetector == null) {
+                return await detect(frameImage, p, token).ConfigureAwait(false);
+            }
+
+            var earlyKey = splitDetector.ComputeEarlyKey(p);
+            IDisposable context;
+            IDisposable evicted = null;
+            lock (cacheLock) {
+                var slot = contextCache[frameIndex];
+                if (slot != null && slot.Context != null && slot.EarlyKey == earlyKey) {
+                    context = slot.Context; // reuse
+                } else {
+                    context = null; // must build (below, outside the lock)
+                    evicted = slot?.Context; // dispose the superseded context after building the new one
+                }
+            }
+
+            if (context == null) {
+                // Build outside the lock (BuildContextAsync is the expensive stage). The evaluator runs frames
+                // sequentially today, so there is no risk of two builders racing for the same slot.
+                var built = await splitDetector.BuildContextAsync(frameImage, p, token).ConfigureAwait(false);
+                evicted?.Dispose();
+                lock (cacheLock) {
+                    contextCache[frameIndex] = new CachedContext { EarlyKey = earlyKey, Context = built };
+                }
+                context = built;
+            }
+
+            return splitDetector.GateAndMeasure(context, p);
         }
 
         /// <summary>
@@ -154,12 +269,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// objective hard-fails gracefully.
         /// </summary>
         public async Task<RunEvaluationResult> EvaluateAndFitAsync(StarDetectorParams p, CancellationToken token) {
-            // 1. Detect every frame in a fixed, deterministic order; collect per-frame results.
+            // 1. Detect every frame in a fixed, deterministic order; collect per-frame results. When a split
+            //    detector is in use this goes through the early-context cache (reused across late-only changes),
+            //    which is a pure-perf optimization — the per-frame results are identical to the delegate path.
             var frameStarCounts = new List<int>(frames.Count);
             var perFrame = new List<(int FocuserPosition, FrameDetectionResult Detection)>(frames.Count);
-            foreach (var frame in frames) {
+            for (int i = 0; i < frames.Count; i++) {
                 token.ThrowIfCancellationRequested();
-                var detection = await detect(frame.Image, p, token).ConfigureAwait(false);
+                var frame = frames[i];
+                var detection = await DetectFrameAsync(i, frame.Image, p, token).ConfigureAwait(false);
                 frameStarCounts.Add(detection.StarCount);
                 perFrame.Add((frame.FocuserPosition, detection));
             }
@@ -279,6 +397,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// </summary>
         private static double SafeDisplayError(double stdev) {
             return double.IsFinite(stdev) ? Math.Max(0.0, stdev) : 0.0;
+        }
+
+        /// <summary>
+        /// Releases every cached early-detection context (frees the pinned source Mats) held for this instance's
+        /// lifetime. Idempotent. Only the split path holds contexts; the monolithic path keeps none, so Dispose is a
+        /// no-op there.
+        /// </summary>
+        public void Dispose() {
+            lock (cacheLock) {
+                if (disposed) {
+                    return;
+                }
+                disposed = true;
+                if (contextCache != null) {
+                    for (int i = 0; i < contextCache.Length; i++) {
+                        contextCache[i]?.Context?.Dispose();
+                        contextCache[i] = null;
+                    }
+                }
+            }
         }
     }
 }

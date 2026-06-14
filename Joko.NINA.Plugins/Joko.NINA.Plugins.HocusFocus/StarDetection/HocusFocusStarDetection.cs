@@ -352,11 +352,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            var result = BuildResultHeader(image, hocusFocusParams, detectorParams, out var imageSize, out var _);
+            var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
+            if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
+                Notification.ShowInformation("Saved intermediate star detection files");
+                Logger.Info($"Saved intermediate star detection files to {detectorParams.SaveIntermediateFilesPath}");
+            }
+
+            return BuildStarDetectionResult(result, starDetectorResult, hocusFocusParams, detectorParams, imageSize);
+        }
+
+        /// <summary>Builds the pre-populated <see cref="HocusFocusStarDetectionResult"/> header (image geometry,
+        /// pixel size/scale, focuser position, cache key) shared by the monolithic and split detect paths.</summary>
+        private HocusFocusStarDetectionResult BuildResultHeader(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, out Size imageSize, out double pixelSize) {
             var binX = double.IsNaN(image.RawImageData.MetaData.Camera.BinX) ? 1 : image.RawImageData.MetaData.Camera.BinX;
             var metadataPixelSize = double.IsNaN(image.RawImageData.MetaData.Camera.PixelSize) ? 3.76 : image.RawImageData.MetaData.Camera.PixelSize;
-            var pixelSize = metadataPixelSize * Math.Max(binX, 1);
-            var imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
-            var result = new HocusFocusStarDetectionResult() {
+            pixelSize = metadataPixelSize * Math.Max(binX, 1);
+            imageSize = new Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
+            return new HocusFocusStarDetectionResult() {
                 HocusFocusParams = hocusFocusParams,
                 DetectorParams = detectorParams,
                 ImageSize = imageSize,
@@ -368,12 +381,57 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 DetectorVersion = StarDetector.StarDetectorVersion,
                 CacheKey = StarDetector.ComputeCacheKey(detectorParams)
             };
-            var starDetectorResult = await this.starDetector.Detect(image, detectorParams, progress, token);
-            if (!string.IsNullOrEmpty(detectorParams.SaveIntermediateFilesPath)) {
-                Notification.ShowInformation("Saved intermediate star detection files");
-                Logger.Info($"Saved intermediate star detection files to {detectorParams.SaveIntermediateFilesPath}");
-            }
+        }
 
+        public string ComputeEarlyCacheKey(StarDetectorParams detectorParams) => StarDetector.ComputeEarlyCacheKey(detectorParams);
+
+        public async Task<HocusFocusDetectionContext> BuildDetectionContext(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            // EARLY phase: capture the header inputs (focuser position is read NOW, matching the monolithic path
+            // which reads it before detection) + run the expensive early detector stage into a reusable context.
+            BuildResultHeader(image, hocusFocusParams, detectorParams, out var imageSize, out var pixelSize);
+            var detectorContext = await this.starDetector.BuildDetectionContext(image, detectorParams, progress, token).ConfigureAwait(false);
+            return new HocusFocusDetectionContext {
+                DetectorContext = detectorContext,
+                HocusFocusParams = hocusFocusParams,
+                ImageSize = imageSize,
+                PixelSize = pixelSize,
+                FocuserPosition = focuserMediator.GetInfo().Position
+            };
+        }
+
+        public StarDetectionResult GateAndMeasure(HocusFocusDetectionContext context, StarDetectorParams detectorParams, CancellationToken token) {
+            // LATE phase: re-build the header (deterministic from the carried inputs + current detectorParams) so the
+            // late-param-dependent fields (DetectorParams, Region, CacheKey) reflect the candidate being evaluated,
+            // then gate+measure the cached context and run the identical post-processing.
+            var hocusFocusParams = context.HocusFocusParams;
+            var result = new HocusFocusStarDetectionResult() {
+                HocusFocusParams = hocusFocusParams,
+                DetectorParams = detectorParams,
+                ImageSize = context.ImageSize,
+                Region = detectorParams.Region,
+                FocuserPosition = context.FocuserPosition,
+                PixelSize = context.PixelSize,
+                PixelScale = detectorParams.PixelScale,
+                MeasurementAverage = this.starDetectionOptions.MeasurementAverage,
+                DetectorVersion = StarDetector.StarDetectorVersion,
+                CacheKey = StarDetector.ComputeCacheKey(detectorParams)
+            };
+            var starDetectorResult = this.starDetector.GateAndMeasure(context.DetectorContext, detectorParams, token);
+            return BuildStarDetectionResult(result, starDetectorResult, hocusFocusParams, detectorParams, context.ImageSize);
+        }
+
+        /// <summary>
+        /// The post-detection processing (OutsideROI crop, optional outlier rejection, PSF aggregation, AF-star
+        /// selection, HFR aggregation) shared by the monolithic <see cref="Detect(IRenderedImage, HocusFocusDetectionParams, StarDetectorParams, IProgress{ApplicationStatus}, CancellationToken)"/>
+        /// path AND the optimizer's split path (so they cannot drift). <paramref name="result"/> is the
+        /// pre-populated header; <paramref name="starDetectorResult"/> is the raw detector output to fold in.
+        /// </summary>
+        internal StarDetectionResult BuildStarDetectionResult(
+                HocusFocusStarDetectionResult result,
+                HocusFocusStarDetectorResult starDetectorResult,
+                HocusFocusDetectionParams hocusFocusParams,
+                StarDetectorParams detectorParams,
+                Size imageSize) {
             var starList = starDetectorResult.DetectedStars;
 
             if (!detectorParams.Region.IsFull() && detectorParams.Region.InnerCropBoundary != null) {
