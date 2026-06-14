@@ -661,6 +661,63 @@ set's median gradient slope/eccentricity vs sensitivity, from a single run); plu
 flag is false the detector fills no per-sector residual arrays and skips the diagnostic record (the plane fit
 + decision always run, since they are the production background/contamination path).
 
+### Star Detection Optimizer harnesses (`TestApp optimize` / `TestApp review`)
+
+The Star Detection Optimization Wizard ships with two `TestApp` subcommands that drive the **same**
+`StarDetectionOptimizer` the live wizard uses, so the optimizer can be exercised/tuned offline. Both load the
+user's real NINA profile and build the seed via `BuildStarDetectorParams` plus the AF overrides (`ModelPSF=false`,
+`Region=Full`, `SaveIntermediateFilesPath=""`, `PixelScale` from the profile × binning=1 for raw Mats). Both are
+**read-only with respect to the profile/options** (they never call a settings setter or touch the options
+accessor — NINA auto-saves the active profile, so mutating options would silently rewrite the user's settings).
+
+**`TestApp.exe optimize`** — headless driver of the optimizer. Args:
+`--runs <folder>` (required), `--per-run` (flag), `--profile-id <guid>` (default active), `--out <dir>`
+(default `%LOCALAPPDATA%\NINA\Logs\hf-diag\optimize\<timestamp>`), `--max-evals <int>` (override the
+optimizer budget), `--annotate extremes|all` (default `extremes` = min/max-focuser frames only),
+`--labels <dir>`.
+
+- **Run discovery is attempt-anchored** (pure logic in `OptimizationRunDiscovery`): it recursively finds
+  `attempt<NN>` folders (1–4 levels under `--runs`) that contain ≥3 distinct focuser positions, mirroring
+  `RunEvaluationData.MinPositionsForFit = 3`. Single-frame `final`/`initial` validation folders and frameless
+  `attempt` folders are skipped (recorded with a reason, not silently dropped). Back-compat: pointing `--runs`
+  directly at an `attempt01` folder works. Fallback: if no `attempt*` folders exist anywhere, each immediate
+  subfolder with ≥3 positions is a run. Frame filenames match `0_Frame1_BitDepth16_Bayered0_Focuser5000.fits`.
+- **Default = joint** optimization: all discovered runs are optimized together (N=1 reduces to a single run;
+  N>1 is the balanced blend). **Only group runs from the SAME optical setup** — a joint objective across
+  different cameras/scopes is meaningless. **`--per-run`** optimizes each discovered run independently, writing
+  one subfolder per run plus a top-level `aggregate_summary.txt` (one scannable row per run: load OK/failed,
+  hard-floor PASS/FAIL with min star count, seed→best J, σ_focus, recommended step, changed params). Use
+  `--per-run` to verify across a bank of many different setups in one command.
+- Detection deliberately scores the **full accepted-star set** (NumberOfAFStars=0 — no brightest-N trim),
+  matching the wizard's `RunEvaluationLoader` (HFR aggregation at the `HocusFocusDetectionParams` defaults,
+  high=4.0 / low=3.0; this is the loader path, NOT the live AF path). The whole-frame detection also keeps the
+  harness useful for sensor-modeling work.
+- Outputs (in `--out`, or per-run subfolders): `optimize_summary.txt` (seed→optimized `J`, per-run σ_focus /
+  R² / reducedχ², recommended step size, curated params old→new with `*` markers, hard-floor check, per-frame
+  star counts), `optimize_result.csv`, and stretched annotated PNG(s) (accepted = green circle + HFR; rejected
+  color-coded by reason from `StarDetectorMetrics.*Bounds`; **a real star with no marker = missed entirely**);
+  `--per-run` also writes `aggregate_summary.txt`. Verbose TRACE in `%LOCALAPPDATA%\NINA\Logs`.
+
+```bash
+./Joko.NINA.Plugins/TestApp/bin/Debug/net8.0-windows7.0/TestApp.exe \
+  optimize --runs "C:\Users\me\AppData\Local\NINA\AutoFocus" --out "C:\temp\hf-opt" --per-run
+```
+
+**`TestApp.exe review`** — interactive two-pass labeling dev tool (WPF; produces labels only). Args:
+`--runs <folder>` (required), `--labels <dir>` (default `<runs>\labels`; read+written, feeds `optimize --labels`),
+`--params optimized|current` (default `current` = profile-as-configured seed; `optimized` overlays the saved
+optimized snapshot), `--review low|uncertain|all` (default `low` = frames with `< N_review` accepted stars;
+`uncertain` adds the defocused extremes; `all`), `--profile-id <guid>`.
+
+- Detects every queued frame once, shows MTF-stretched frames with accepted/rejected-by-reason overlays (colors
+  match `optimize`'s PNG legend), zoom/pan, and two click modes: **Mark Missed** (false negatives → recall) and
+  **Mark Should-Reject** (false positives → precision). Labels reload incrementally (re-running merges).
+- The label JSON is consumed by `optimize --labels <dir>` to activate the objective's recall/precision term.
+  One file per run (`<runId>.json`, or any `*.json` whose embedded `runId` matches a discovered run); shape:
+  `{ "runId", "radiusPx", "positions": [ { "focuserPosition", "radiusPx"?, "missed": [{x,y}], "shouldReject": [{x,y}] } ] }`.
+- **Loop:** `optimize` (baseline) → `review --labels L` (mark misses / false positives) →
+  `optimize --labels L` (re-optimize with the recall/precision term active).
+
 ---
 
 ## Key File Locations

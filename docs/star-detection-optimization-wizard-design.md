@@ -1,6 +1,6 @@
 # Star Detection Optimization Wizard — Design
 
-**Status:** Approved (ready to implement)
+**Status:** Implemented (branch `ghilios/star-detection-optimization-wizard`)
 **Implementation plan:** `plans/star-detection-optimization-wizard-plan.md`
 
 ## Context
@@ -202,6 +202,15 @@ defocused extremes (`n_min ≥ N_hard`). Outputs: `optimize_summary.txt` (baseli
 `optimize_result.csv`, and a **stretched annotated PNG per frame** (accepted = green + HFR;
 rejected = color-coded by reason from `*Bounds`; **a real star with no marker = missed
 entirely**).
+
+> **As implemented:** run discovery is **attempt-anchored** — it finds `attempt<NN>` folders
+> (recursively, ≤4 deep) with ≥3 distinct focuser positions and skips the single-frame
+> `final`/`initial` validation captures (pure logic in `OptimizationRunDiscovery`). A
+> **`--per-run`** flag optimizes each discovered run independently into its own subfolder plus a
+> top-level `aggregate_summary.txt`, for verifying across many *different* optical setups in one
+> command (the default joint objective only applies within a single setup). Scoring deliberately
+> uses the **full accepted-star set** (NumberOfAFStars=0, no brightest-N trim) — both for
+> objective stability and so the same detection is useful for whole-frame sensor modeling.
 
 ### B. Interactive two-pass `review` (dev tool only)
 
