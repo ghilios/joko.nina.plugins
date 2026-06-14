@@ -366,16 +366,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 stopWatch.RecordEntry("StarAnalysis");
 
                 // Step 9: Fit PSF models
-                var stopwatch = new Stopwatch();
-                stopwatch.Start();
                 if (p.ModelPSF) {
+                    // Time only the PSF step, and only when it actually runs. During optimization/AF (ModelPSF=false,
+                    // the common case) this whole block is skipped, so the per-detection stopwatch + Console.WriteLine
+                    // overhead is eliminated. The remaining timer is TRACE-only (short-circuits unless TRACE is on).
+                    var psfStopwatch = Stopwatch.StartNew();
                     progress?.Report(new ApplicationStatus() { Status = "Modeling PSFs" });
                     await ModelPSF(srcImage, measurementImageNoise.Sigma, stars, p, metrics, token);
 
                     stopWatch.RecordEntry("ModelPSF");
+                    psfStopwatch.Stop();
+                    Logger.Trace($"PSF time: {psfStopwatch.Elapsed}");
                 }
-                stopwatch.Stop();
-                Console.WriteLine($"PSF time: {stopwatch.Elapsed}");
                 MaybeSaveIntermediateStars(stars, p, "09-detected-stars.txt");
 
                 var metricsTrace = $"Star Detection Metrics. Total={metrics.TotalDetected}, Candidates={metrics.StructureCandidates}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooDistorted={metrics.TooDistorted}, Degenerate={metrics.Degenerate}, SaturatedMasked={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, NotCentered={metrics.NotCentered}, TooFlat={metrics.TooFlat}, HFRAnalysisFailed={metrics.HFRAnalysisFailed}";

@@ -111,8 +111,16 @@ namespace TestApp {
             // across incompatible cameras/scopes is meaningless.
             bool perRun = args.Any(a => string.Equals(a, "--per-run", StringComparison.OrdinalIgnoreCase));
 
-            // Verbose logging to the NINA log file for offline inspection.
-            Logger.SetLogLevel(LogLevelEnum.TRACE);
+            // --verbose is a valueless flag that restores TRACE logging for offline inspection. By default the
+            // optimize harness runs at INFO so the detector's thousands of per-detection Logger.Trace stage-timing
+            // lines (LoadImage/SrcImagePreparation/WaveletCalculation/...) short-circuit instead of serializing to
+            // disk every detection — pure wall-clock overhead during a run of thousands of detections. This is a
+            // logging-only change: detection inputs, params, gates, and results are untouched.
+            bool verbose = args.Any(a => string.Equals(a, "--verbose", StringComparison.OrdinalIgnoreCase));
+            Logger.SetLogLevel(verbose ? LogLevelEnum.TRACE : LogLevelEnum.INFO);
+            if (verbose) {
+                Console.WriteLine("Verbose logging enabled (TRACE).");
+            }
 
             // The real ProfileService.ActiveProfile setter writes to Application.Current.Resources, so a
             // (non-running) WPF Application must exist or it NREs (mirrors ContaminationDiagnosticRunner).
@@ -507,7 +515,7 @@ namespace TestApp {
         }
 
         private static void PrintUsage() {
-            Console.Error.WriteLine("Usage: TestApp optimize --runs <folder> [--per-run] [--profile-id <guid>] [--out <dir>] [--max-evals <int>] [--annotate extremes|all] [--labels <dir>]");
+            Console.Error.WriteLine("Usage: TestApp optimize --runs <folder> [--per-run] [--profile-id <guid>] [--out <dir>] [--max-evals <int>] [--annotate extremes|all] [--labels <dir>] [--verbose]");
             Console.Error.WriteLine("  --runs       (required) folder of saved AF runs. Runs are 'attempt*' folders (recursively, <=4 deep) with >=3 focuser positions; or --runs itself.");
             Console.Error.WriteLine("  --per-run    (optional) optimize each discovered run INDEPENDENTLY into its own subfolder + an aggregate_summary.txt (use for a multi-setup bank).");
             Console.Error.WriteLine("  --profile-id (default active) NINA profile id to load (settings + PixelScale).");
@@ -515,6 +523,7 @@ namespace TestApp {
             Console.Error.WriteLine("  --max-evals  (optional) override the optimizer's MaxEvaluations budget.");
             Console.Error.WriteLine("  --annotate   (default extremes) annotate only min/max-focuser frames, or 'all' frames.");
             Console.Error.WriteLine("  --labels     (optional) folder of label JSON files; activates the recall/precision objective term.");
+            Console.Error.WriteLine("  --verbose    (optional) restore TRACE logging (default INFO). Slower: serializes per-detection stage timings to the NINA log.");
         }
 
         // ---- Run / frame discovery -------------------------------------------------------------------------
