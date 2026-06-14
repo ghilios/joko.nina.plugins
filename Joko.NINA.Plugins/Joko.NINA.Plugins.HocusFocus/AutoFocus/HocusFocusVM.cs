@@ -650,6 +650,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 this.SelectedHyperbolicFitModel = firstRegion.Fittings.SelectedHyperbolicFitModel;
             }
 
+            // The graph's rejected-point overlay is filled live, per frame, from each step's winning-model Grubbs
+            // flags (AutoFocusEngine_MeasurementPointCompleted). On a Hybrid run the live model is Tilted, so the
+            // overlay collects Tilted's own outliers — which the model-fair consensus often keeps (a point is removed
+            // only when EVERY model flags it). Re-sync the overlay to the FINAL consensus rejected set so the panel
+            // marks only the points selection actually removed, consistent with the fit just re-synced above.
+            PlotRejectedFocusPoints.Clear();
+            if (firstRegion.RejectedPoints != null) {
+                foreach (var rp in firstRegion.RejectedPoints) {
+                    PlotRejectedFocusPoints.Add(new ScatterPoint(rp.FocuserPosition, rp.Measurement.Measure));
+                }
+            }
+
             RefreshFinalFocusPointError();
             AutoFocusDuration = e.Duration;
         }
