@@ -24,30 +24,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>Hard cap on evaluator invocations (cache misses). The search never exceeds this.</summary>
         public int MaxEvaluations { get; set; } = 400;
 
-        /// <summary>
-        /// MINIMUM number of grid levels per axis in the Phase-A coarse seed (over the 2 highest-impact axes).
-        /// Each axis gets at least this many levels; wide axes get more (up to
-        /// <see cref="CoarseGridMaxLevelsPerAxis"/>) so the grid SPACING stays roughly consistent regardless of
-        /// how wide the curated bounds are — see <see cref="CoarseGridSpacingFactor"/>.
-        /// </summary>
+        /// <summary>Number of grid levels per axis in the Phase-A coarse seed (over the 2 highest-impact axes).</summary>
         public int CoarseGridLevels { get; set; } = 4;
-
-        /// <summary>
-        /// MAXIMUM number of grid levels for any single Phase-A axis. Caps the coarse grid so its total size
-        /// (levelsA × levelsB) stays bounded and Phase B retains budget within <see cref="MaxEvaluations"/>.
-        /// With the defaults (Sensitivity [0,50]/step1 → 9, StarClipping [0.25,10]/step0.5 → 4) the grid is
-        /// 9×4 = 36 evals, well within the 400-eval budget.
-        /// </summary>
-        public int CoarseGridMaxLevelsPerAxis { get; set; } = 9;
-
-        /// <summary>
-        /// Per-axis grid resolution control. The Phase-A level count for an axis is chosen so that adjacent
-        /// grid samples are roughly <c>InitialStep × CoarseGridSpacingFactor</c> apart:
-        /// <c>levels = Clamp(1 + round((Upper − Lower) / (InitialStep × CoarseGridSpacingFactor)),
-        /// CoarseGridLevels, CoarseGridMaxLevelsPerAxis)</c>. A larger factor ⇒ coarser grid (fewer levels);
-        /// a smaller factor ⇒ finer grid. Pure function of the bounds/step, so the search stays deterministic.
-        /// </summary>
-        public double CoarseGridSpacingFactor { get; set; } = 6.0;
 
         /// <summary>
         /// Phase-B stops halving a Continuous variable's step once it drops below InitialStep × this fraction.
@@ -244,34 +222,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             /// <summary>
-            /// Phase A. Grid over the two highest-impact axes (Sensitivity × StarClippingMultiplier). The number
-            /// of evenly-spaced levels is computed PER AXIS (see <see cref="AxisLevels"/>) so the grid SPACING
-            /// stays roughly consistent regardless of how wide each axis's curated bounds are: a wide axis (e.g.
-            /// Sensitivity [0,50]) gets more levels than a narrow one (e.g. StarClipping [0.25,10]), each capped
-            /// at <see cref="OptimizerSettings.CoarseGridMaxLevelsPerAxis"/>. Each axis spans [Lower, Upper]
-            /// inclusively (level 0 → Lower, level n-1 → Upper), so optima AT a bound are still sampled; the win
-            /// is finer interior sampling on wide axes. All other variables are held at the incumbent. The
-            /// iteration order is fixed/deterministic. Keeps the best strictly-improving point.
+            /// Phase A. Grid over the two highest-impact axes (Sensitivity × StarClippingMultiplier) with
+            /// CoarseGridLevels evenly-spaced levels each spanning [Lower, Upper]; all other variables held at
+            /// the incumbent. Deterministic iteration order. Keeps the best strictly-improving point.
             /// </summary>
             public async Task<(double[] theta, double j)> CoarseGrid(double[] bestTheta, double bestJ, double seedJ) {
                 var axisA = IndexOf(nameof(StarDetectorParams.Sensitivity));
                 var axisB = IndexOf(nameof(StarDetectorParams.StarClippingMultiplier));
-                // A missing axis contributes a single "level" (the incumbent value, as before); a present axis
-                // gets a per-axis count scaled by its range so spacing is consistent across axes.
-                var levelsA = axisA >= 0 ? AxisLevels(variables[axisA]) : 1;
-                var levelsB = axisB >= 0 ? AxisLevels(variables[axisB]) : 1;
+                var levels = Math.Max(2, settings.CoarseGridLevels);
 
-                for (var ia = 0; ia < levelsA; ia++) {
-                    for (var ib = 0; ib < levelsB; ib++) {
+                for (var ia = 0; ia < levels; ia++) {
+                    for (var ib = 0; ib < levels; ib++) {
                         if (BudgetExhausted) {
                             return (bestTheta, bestJ);
                         }
                         var candidate = (double[])bestTheta.Clone();
                         if (axisA >= 0) {
-                            candidate[axisA] = variables[axisA].Quantize(GridValue(variables[axisA], ia, levelsA));
+                            candidate[axisA] = variables[axisA].Quantize(GridValue(variables[axisA], ia, levels));
                         }
                         if (axisB >= 0) {
-                            candidate[axisB] = variables[axisB].Quantize(GridValue(variables[axisB], ib, levelsB));
+                            candidate[axisB] = variables[axisB].Quantize(GridValue(variables[axisB], ib, levels));
                         }
                         var j = await EvalJ(candidate).ConfigureAwait(false);
                         if (j > bestJ) {
@@ -284,37 +254,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return (bestTheta, bestJ);
             }
 
-            /// <summary>
-            /// Per-axis Phase-A level count: scales with the axis's range so adjacent grid samples are roughly
-            /// <c>InitialStep × CoarseGridSpacingFactor</c> apart, clamped to
-            /// [<see cref="OptimizerSettings.CoarseGridLevels"/>, <see cref="OptimizerSettings.CoarseGridMaxLevelsPerAxis"/>].
-            /// A non-positive InitialStep (no meaningful spacing) falls back to the minimum. Pure function of the
-            /// variable's bounds/step and the settings — no RNG — so the search remains deterministic.
-            /// </summary>
-            private int AxisLevels(OptimizerVariable v) {
-                var min = Math.Max(2, settings.CoarseGridLevels);
-                var max = Math.Max(min, settings.CoarseGridMaxLevelsPerAxis);
-                if (v.InitialStep <= 0.0 || settings.CoarseGridSpacingFactor <= 0.0) {
-                    return min;
-                }
-                var raw = 1 + (int)Math.Round((v.Upper - v.Lower) / (v.InitialStep * settings.CoarseGridSpacingFactor),
-                    MidpointRounding.AwayFromZero);
-                if (raw < min) {
-                    return min;
-                }
-                if (raw > max) {
-                    return max;
-                }
-                return raw;
-            }
-
             private static double GridValue(OptimizerVariable v, int level, int levels) {
                 // Evenly spaced inclusive of both bounds: level 0 => Lower, level (levels-1) => Upper.
-                // With a single level the axis collapses to its Lower bound (degenerate; not hit in practice
-                // because a present axis always yields >= CoarseGridLevels >= 2 levels).
-                if (levels <= 1) {
-                    return v.Lower;
-                }
                 var t = (double)level / (levels - 1);
                 return v.Lower + t * (v.Upper - v.Lower);
             }
