@@ -12,7 +12,7 @@
 
 using System;
 
-namespace TestApp.StarReview {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
     /// <summary>
     /// Pure zoom/pan viewport math for the review window, factored out of the WPF code so the screen↔image pixel

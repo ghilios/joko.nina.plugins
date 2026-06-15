@@ -16,6 +16,7 @@ using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
@@ -29,6 +30,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Logger = NINA.Core.Utility.Logger;
 using Rect = OpenCvSharp.Rect;
@@ -155,10 +157,14 @@ namespace TestApp.StarReview {
                     using var clone = mat.Clone(); // Detect mutates its input in place.
                     var result = detector.Detect(clone, detectionParams, null, CancellationToken.None).GetAwaiter().GetResult();
                     var accepted = result.DetectedStars ?? new List<Star>();
+                    var framePath = frame.Path;
                     var review = new FrameReview {
                         RunId = d.RunId,
                         FocuserPosition = frame.FocuserPosition,
-                        FramePath = frame.Path,
+                        FramePath = framePath,
+                        // The decoupling seam: load the frame from disk (profile-aware) and run the shared plugin
+                        // MTF stretch off-thread. The VM marshals the resulting frozen BitmapSource back to the UI.
+                        ImageProvider = () => Task.Run(() => BuildStretchedBitmap(framePath, profileService)),
                         // Capture each accepted star's REAL StarBoundingBox so the overlay draws actual-size boxes and
                         // the should-reject click records the actual bounds.
                         Accepted = accepted.Select(s => (s.Center.X, s.Center.Y, s.HFR, s.StarBoundingBox)).ToList(),
@@ -200,7 +206,7 @@ namespace TestApp.StarReview {
             var reviewFrames = queue.Select(q => detections[(q.RunId, q.FocuserPosition)]).ToList();
 
             Console.WriteLine("Opening review window. Mark Missed (false negatives) and Should-Reject (false positives), then Save.");
-            ShowReviewWindowSta(reviewFrames, labelsByRun, labelsDir, profileService);
+            ShowReviewWindowSta(reviewFrames, labelsByRun, labelsDir);
 
             Console.WriteLine($"Labels written to {labelsDir}");
             Console.WriteLine($"Next: TestApp optimize --runs \"{runsDir}\" --labels \"{labelsDir}\"");
@@ -224,8 +230,7 @@ namespace TestApp.StarReview {
         private static void ShowReviewWindowSta(
             List<FrameReview> reviewFrames,
             Dictionary<string, StarReviewRunLabels> labelsByRun,
-            string labelsDir,
-            IProfileService profileService) {
+            string labelsDir) {
             Exception uiError = null;
             var thread = new Thread(() => {
                 try {
@@ -236,10 +241,12 @@ namespace TestApp.StarReview {
                     SynchronizationContext.SetSynchronizationContext(
                         new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
 
-                    var vm = new StarReviewVM(reviewFrames, labelsByRun, labelsDir, profileService);
+                    var vm = new StarReviewVM(reviewFrames, labelsByRun, labelsDir);
                     var window = new StarReviewWindow();
                     window.DataContext = vm;
-                    vm.AttachWindow(window);
+                    // Save-on-close: the plugin VM no longer takes a Window, so the host wires the flush. (The VM
+                    // also saves on navigate + via the Save button; this covers a close without a final navigate.)
+                    window.Closing += (_, __) => vm.SaveAll();
 
                     window.ShowDialog();
 
@@ -440,6 +447,17 @@ namespace TestApp.StarReview {
 
         private static Mat LoadFloatMatSync(string path, IProfileService profileService) {
             return DiagnosticUtil.LoadFloatMat(path, profileService).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// The review tool's image-provider body: load the frame's normalized float Mat from disk (profile-aware)
+        /// and run the shared plugin MTF stretch to a display-ready frozen <see cref="BitmapSource"/>. The plugin
+        /// VM invokes this (off the UI thread) via each frame's <c>ImageProvider</c> seam; the stretch itself lives
+        /// in the plugin (<see cref="StarReviewImaging"/>) so the in-NINA wizard reuses the exact same path.
+        /// </summary>
+        private static BitmapSource BuildStretchedBitmap(string path, IProfileService profileService) {
+            using var srcFloat = LoadFloatMatSync(path, profileService);
+            return StarReviewImaging.BuildStretchedBitmap(srcFloat);
         }
 
         // ---- Run / frame discovery (mirrors T6 OptimizationDiagnosticRunner) -------------------------------

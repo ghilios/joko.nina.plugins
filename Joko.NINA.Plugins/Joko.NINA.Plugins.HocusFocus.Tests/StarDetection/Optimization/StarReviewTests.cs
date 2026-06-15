@@ -16,6 +16,7 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 using NUnit.Framework;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using TestApp.StarReview;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.Optimization;

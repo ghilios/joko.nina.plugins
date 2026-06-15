@@ -11,34 +11,36 @@
 #endregion "copyright"
 
 using NINA.Core.Utility;
-using NINA.Joko.Plugins.HocusFocus.Utility;
-using NINA.Profile.Interfaces;
-using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Logger = NINA.Core.Utility.Logger;
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 using Rect = OpenCvSharp.Rect;
-using Window = System.Windows.Window;
 
-namespace TestApp.StarReview {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
     /// <summary>
     /// The pre-computed detection result + paths for one reviewable frame. Accepted carry the detector's actual
     /// <c>StarBoundingBox</c> (so the overlay draws real-size boxes) + HFR + center; Rejected carries the per-reason
     /// bounding boxes so the reviewer sees what the detector did.
     /// </summary>
-    internal sealed class FrameReview {
+    public sealed class FrameReview {
         public string RunId { get; set; }
         public int FocuserPosition { get; set; }
         public string FramePath { get; set; }
+
+        /// <summary>
+        /// Produces the MTF-stretched background <see cref="BitmapSource"/> for this frame, asynchronously. This is
+        /// the decoupling seam between the host and the VM: TestApp's <c>review</c> tool loads the frame from disk
+        /// (via its profile-aware float-Mat loader) and runs <see cref="StarReviewImaging.BuildStretchedBitmap"/>;
+        /// the in-NINA wizard provides images from already-loaded Mats. The VM never touches disk or a profile.
+        /// </summary>
+        public Func<Task<BitmapSource>> ImageProvider { get; set; }
 
         /// <summary>Accepted stars: the detector's real bounding box + its center (used for click hit-tests, the
         /// should-reject label box, and the overlay) + HFR.</summary>
@@ -90,7 +92,6 @@ namespace TestApp.StarReview {
         private readonly IReadOnlyList<FrameReview> queue;
         private readonly Dictionary<string, StarReviewRunLabels> labelsByRun;
         private readonly string labelsDir;
-        private readonly IProfileService profileService;
 
         // Per-reason overlay colors, matching T6's annotated-PNG legend (RGB here; BGR there).
         private static readonly Dictionary<string, Color> ReasonColors = new(StringComparer.Ordinal) {
@@ -103,17 +104,13 @@ namespace TestApp.StarReview {
             { "Contaminated",   Color.FromRgb(128, 0, 128) },   // purple
         };
 
-        private Window window;
-
-        internal StarReviewVM(
+        public StarReviewVM(
             IReadOnlyList<FrameReview> queue,
             Dictionary<string, StarReviewRunLabels> labelsByRun,
-            string labelsDir,
-            IProfileService profileService) {
+            string labelsDir) {
             this.queue = queue ?? throw new ArgumentNullException(nameof(queue));
             this.labelsByRun = labelsByRun ?? throw new ArgumentNullException(nameof(labelsByRun));
             this.labelsDir = labelsDir ?? throw new ArgumentNullException(nameof(labelsDir));
-            this.profileService = profileService;
 
             Viewport = new StarReviewViewport();
 
@@ -127,13 +124,6 @@ namespace TestApp.StarReview {
 
             CurrentIndex = 0;
             LoadCurrent();
-        }
-
-        internal void AttachWindow(Window w) {
-            window = w;
-            if (window != null) {
-                window.Closing += (_, __) => SaveAll();
-            }
         }
 
         // ---- Navigation / current frame --------------------------------------------------------------------
@@ -298,9 +288,9 @@ namespace TestApp.StarReview {
             var f = Current;
             FrameHeader = $"{f.RunId}  @ focuser {f.FocuserPosition}  |  {f.Accepted.Count} accepted";
 
-            // Build the MTF-stretched background image (off-thread, then marshal to the UI).
+            // Build the MTF-stretched background image (via the host-supplied provider, then marshal to the UI).
             FrameImage = null;
-            _ = LoadImageAsync(f.FramePath);
+            _ = LoadImageAsync(f);
 
             // Overlays in image coords — accepted stars draw the detector's REAL bounding box (top-left + size).
             AcceptedMarkers.Clear();
@@ -327,32 +317,19 @@ namespace TestApp.StarReview {
             PrevCommand.NotifyCanExecuteChanged();
         }
 
-        private async Task LoadImageAsync(string path) {
+        private async Task LoadImageAsync(FrameReview f) {
+            var provider = f.ImageProvider;
+            if (provider == null) {
+                return;
+            }
             try {
-                var bmp = await Task.Run(() => BuildStretchedBitmap(path)).ConfigureAwait(true);
+                var bmp = await provider().ConfigureAwait(true);
                 FrameImage = bmp;
                 RequestFit();
             } catch (Exception ex) {
-                Logger.Error(ex, $"Failed to load/stretch frame {path}");
-                Console.Error.WriteLine($"Failed to load frame {path}: {ex.Message}");
+                Logger.Error(ex, $"Failed to load/stretch frame {f.FramePath}");
+                Console.Error.WriteLine($"Failed to load frame {f.FramePath}: {ex.Message}");
             }
-        }
-
-        private BitmapSource BuildStretchedBitmap(string path) {
-            using var srcFloat = DiagnosticUtil.LoadFloatMat(path, profileService).GetAwaiter().GetResult();
-            using var src16 = new Mat();
-            srcFloat.ConvertTo(src16, MatType.CV_16U, ushort.MaxValue);
-            using var stretched16 = new Mat();
-            try {
-                var stats = CvImageUtility.CalculateStatistics_Histogram(src16);
-                using var lut = CvImageUtility.CreateMTFLookup(stats);
-                CvImageUtility.ApplyLUT(src16, lut, stretched16);
-            } catch (Exception ex) {
-                Logger.Warning($"MTF stretch failed ({ex.Message}); falling back to linear normalization");
-                Cv2.Normalize(src16, stretched16, 0, ushort.MaxValue, NormTypes.MinMax);
-            }
-            var bmp = Program.ToBitmapSource(stretched16, PixelFormats.Gray16);
-            return bmp;
         }
 
         // ---- Labeling (delegates to the pure store) --------------------------------------------------------

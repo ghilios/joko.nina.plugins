@@ -17,7 +17,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 
-namespace TestApp.StarReview {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
     /// <summary>
     /// The on-disk label JSON model, shaped EXACTLY as the T6 optimizer harness

@@ -18,6 +18,7 @@ using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.WPF.Base.Utility.AutoFocus;
 using OpenCvSharp;
@@ -196,15 +197,9 @@ namespace TestApp {
             }
         }
 
-        public static BitmapSource ToBitmapSource(Mat src, PixelFormat pf) {
-            int stride = (src.Width * pf.BitsPerPixel + 7) / 8;
-            double dpi = 96;
-
-            var dataSize = (long)src.DataEnd - (long)src.DataStart;
-            var source = BitmapSource.Create(src.Width, src.Height, dpi, dpi, pf, null, src.DataStart, (int)dataSize, stride);
-            source.Freeze();
-            return source;
-        }
+        // Delegates to the shared plugin helper so the Mat->BitmapSource conversion lives in one place (the same
+        // helper the review UI/wizard use). Kept here for TestApp's existing GUI/annotation path callers.
+        public static BitmapSource ToBitmapSource(Mat src, PixelFormat pf) => StarReviewImaging.ToBitmapSource(src, pf);
 
         public static void ConvertToFloat(Mat src, Mat dst) {
             if (src.Size() != dst.Size() || dst.Type() != MatType.CV_32F) {
