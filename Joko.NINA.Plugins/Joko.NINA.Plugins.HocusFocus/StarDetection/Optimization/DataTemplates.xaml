@@ -228,6 +228,11 @@
                             Content="Apply recommended auto-focus step size"
                             IsChecked="{Binding ApplyRecommendedStepSize}"
                             ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
+
+                        <TextBlock
+                            Margin="0,8,0,0"
+                            Text="Accept to apply these settings (they become your active star-detection settings), or Cancel to discard."
+                            TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
@@ -281,13 +286,22 @@
                 <Button
                     Width="90"
                     Margin="0,0,8,0"
-                    Command="{Binding ApplyCommand}"
-                    Content="Apply"
+                    Command="{Binding AcceptCommand}"
+                    Content="Accept"
                     Visibility="{Binding IsSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                <!--  Summary "Cancel" = discard (close without applying); reuses the close path, no options mutation.  -->
+                <Button
+                    Width="90"
+                    Margin="0,0,8,0"
+                    Command="{Binding CloseCommand}"
+                    Content="Cancel"
+                    Visibility="{Binding IsSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                <!--  Generic Close for non-Summary steps (SelectSource); hidden on Summary where Accept/Cancel decide.  -->
                 <Button
                     Width="90"
                     Command="{Binding CloseCommand}"
-                    Content="Close" />
+                    Content="Close"
+                    Visibility="{Binding IsSelectSource, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             </StackPanel>
         </Grid>
     </DataTemplate>

@@ -206,7 +206,7 @@ public class StarDetectionOptimizerWizardVMTests {
         vm.SourcePaths[0] = @"C:\run1";
         await vm.StartAsync(CancellationToken.None);
 
-        vm.ApplyCommand.Execute(null);
+        vm.AcceptCommand.Execute(null);
 
         var dto = options.ReceivedCalls()
             .Single(c => c.GetMethodInfo().Name == nameof(IStarDetectionOptions.ApplyOptimizedSettings))
@@ -250,7 +250,7 @@ public class StarDetectionOptimizerWizardVMTests {
         await vm.StartAsync(CancellationToken.None);
         vm.ApplyRecommendedStepSize = true;
 
-        vm.ApplyCommand.Execute(null);
+        vm.AcceptCommand.Execute(null);
 
         focuserSettings.Received(1).AutoFocusStepSize = vm.Summary.RecommendedStepSize;
         focuserSettings.Received(1).AutoFocusInitialOffsetSteps = vm.Summary.RecommendedOffsetSteps;
@@ -268,12 +268,59 @@ public class StarDetectionOptimizerWizardVMTests {
         await vm.StartAsync(CancellationToken.None);
         vm.ApplyRecommendedStepSize = false;
 
-        vm.ApplyCommand.Execute(null);
+        vm.AcceptCommand.Execute(null);
 
         focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusStepSize = default;
         focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusInitialOffsetSteps = default;
         // The optimized settings DTO must still be applied even when the step size is declined.
         options.Received(1).ApplyOptimizedSettings(Arg.Any<OptimizedStarDetectionSettings>());
+    }
+
+    [Test]
+    public async Task Accept_AppliesOptimizedSettingsAndRaisesRequestClose() {
+        // Accept is the terminal "apply + select + close" decision: it must call ApplyOptimizedSettings (which
+        // selects the optimized settings) AND dismiss the wizard via RequestClose.
+        var options = Substitute.For<IStarDetectionOptions>();
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        var closeRaised = false;
+        vm.RequestClose += (s, e) => closeRaised = true;
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            options.Received(1).ApplyOptimizedSettings(Arg.Any<OptimizedStarDetectionSettings>());
+            Assert.That(closeRaised, Is.True, "Accept must close the wizard");
+        });
+    }
+
+    [Test]
+    public void Accept_BeforeSummary_CanExecuteIsFalse() {
+        // Until a run has produced a Summary, Accept must be disabled (mirrors the old Apply gating).
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.That(vm.AcceptCommand.CanExecute(null), Is.False);
+    }
+
+    [Test]
+    public async Task Cancel_OnSummary_RaisesRequestCloseWithoutMutatingOptions() {
+        // The Summary "Cancel" (close path) must discard: dismiss the wizard WITHOUT applying — no options
+        // mutation. CloseCommand is the wiring behind the Summary Cancel button.
+        var options = Substitute.For<IStarDetectionOptions>();
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        var closeRaised = false;
+        vm.RequestClose += (s, e) => closeRaised = true;
+
+        vm.CloseCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(closeRaised, Is.True, "Cancel must close the wizard");
+            options.DidNotReceiveWithAnyArgs().ApplyOptimizedSettings(default);
+        });
     }
 
     [Test]

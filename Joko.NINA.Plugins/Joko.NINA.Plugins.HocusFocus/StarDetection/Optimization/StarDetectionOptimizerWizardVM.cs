@@ -141,7 +141,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             BrowseSourceCommand = new RelayCommand<object>(BrowseSource);
             StartCommand = new AsyncRelayCommand(() => StartAsync(CancellationToken.None));
             CancelCommand = new RelayCommand(Cancel);
-            ApplyCommand = new RelayCommand(Apply, () => Summary != null);
+            AcceptCommand = new RelayCommand(Accept, () => Summary != null);
             BackCommand = new RelayCommand(Back, () => CurrentStep == WizardStep.Summary && !IsBusy);
             CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
         }
@@ -290,7 +290,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             private set {
                 summary = value;
                 RaisePropertyChanged();
-                ApplyCommand.NotifyCanExecuteChanged();
+                AcceptCommand.NotifyCanExecuteChanged();
                 BackCommand.NotifyCanExecuteChanged();
             }
         }
@@ -314,7 +314,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public RelayCommand<object> BrowseSourceCommand { get; }
         public AsyncRelayCommand StartCommand { get; }
         public RelayCommand CancelCommand { get; }
-        public RelayCommand ApplyCommand { get; }
+        public RelayCommand AcceptCommand { get; }
         public RelayCommand BackCommand { get; }
         public RelayCommand CloseCommand { get; }
 
@@ -560,11 +560,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private int? GetFocuserMaxStep() => null;
 
         /// <summary>
+        /// The Summary step's terminal "accept" decision: applies the optimized settings (which sets
+        /// <c>UseOptimizedSettings = true</c>, selecting them as the active Simple-Mode source) via <see cref="Apply"/>,
+        /// then closes the wizard. One action = apply + select + close. The sibling Cancel path closes WITHOUT
+        /// applying (it never mutates options).
+        /// </summary>
+        private void Accept() {
+            Apply();
+            RequestClose?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
         /// Applies the result. Builds an <see cref="OptimizedStarDetectionSettings"/> from
         /// <see cref="OptimizationResult.BestParams"/> + run metadata and hands it to
         /// <see cref="IStarDetectionOptions.ApplyOptimizedSettings"/>. When <see cref="ApplyRecommendedStepSize"/>
-        /// is set, also writes the recommended AF step size/offset to the active profile. Only ever called by the
-        /// user clicking Apply — never during the search.
+        /// is set, also writes the recommended AF step size/offset to the active profile. Only ever called via
+        /// <see cref="Accept"/> when the user accepts the summary — never during the search.
         /// </summary>
         private void Apply() {
             if (Result == null || Summary == null) {
