@@ -1,0 +1,1093 @@
+#region "copyright"
+
+/*
+    Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using Newtonsoft.Json;
+using NINA.Core.Enum;
+using NINA.Core.Utility;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.Utility;
+using NINA.Profile;
+using NINA.Profile.Interfaces;
+using OpenCvSharp;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using Logger = NINA.Core.Utility.Logger;
+using Rect = OpenCvSharp.Rect;
+
+namespace TestApp {
+
+    /// <summary>
+    /// Headless dev harness for the Star Detection Optimization wizard's optimizer (T6). Loads one or more saved
+    /// auto-focus runs from disk as float Mats, drives the SAME <see cref="StarDetectionOptimizer"/> the live
+    /// wizard uses (over an injected <see cref="StarDetector.Detect(Mat, StarDetectorParams, IProgress{NINA.Core.Model.ApplicationStatus}, CancellationToken)"/>
+    /// delegate), and writes a summary + CSV + stretched annotated PNGs so the optimizer can be verified offline
+    /// without launching NINA. Mirrors <see cref="ContaminationDiagnosticRunner"/> in structure and conventions.
+    ///
+    /// <para>This is image-source-agnostic by design: the optimizer's <see cref="RunEvaluationData"/> takes an
+    /// opaque image payload and an injected detection delegate, so the offline harness feeds it float Mats while
+    /// the live wizard feeds it <c>IRenderedImage</c>s — the optimizer code is identical in both.</para>
+    /// </summary>
+    internal static class OptimizationDiagnosticRunner {
+
+        // Run discovery (attempt-anchored, >=3-position guard) lives in the pure, unit-testable
+        // OptimizationRunDiscovery helper. Frame matching uses its ImageFileRegex (kept as the single copy).
+
+        public static async Task Run(string[] args) {
+            try {
+                await RunImpl(args);
+            } catch (Exception ex) {
+                Console.Error.WriteLine($"ERROR: {ex.Message}");
+                Console.Error.WriteLine(ex.ToString());
+                Logger.Error(ex, "Optimization diagnostic run failed");
+                Environment.ExitCode = 1;
+            }
+        }
+
+        private static async Task RunImpl(string[] args) {
+            var runsDir = DiagnosticUtil.GetArg(args, "--runs");
+            if (string.IsNullOrWhiteSpace(runsDir)) {
+                PrintUsage();
+                Environment.ExitCode = 2;
+                return;
+            }
+            if (!Directory.Exists(runsDir)) {
+                throw new DirectoryNotFoundException($"--runs folder not found: {runsDir}");
+            }
+
+            var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
+            var outDir = DiagnosticUtil.GetArg(args, "--out");
+            if (string.IsNullOrWhiteSpace(outDir)) {
+                var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                outDir = Path.Combine(localAppData, "NINA", "Logs", "hf-diag", "optimize",
+                    DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+            }
+            Directory.CreateDirectory(outDir);
+
+            int? maxEvals = null;
+            var maxEvalsArg = DiagnosticUtil.GetArg(args, "--max-evals");
+            if (!string.IsNullOrWhiteSpace(maxEvalsArg)) {
+                if (!int.TryParse(maxEvalsArg, NumberStyles.Integer, CultureInfo.InvariantCulture, out var me) || me <= 0) {
+                    throw new ArgumentException($"--max-evals: '{maxEvalsArg}' is not a positive integer");
+                }
+                maxEvals = me;
+            }
+
+            var annotateArg = DiagnosticUtil.GetArg(args, "--annotate");
+            bool annotateAll = false;
+            if (!string.IsNullOrWhiteSpace(annotateArg)) {
+                if (annotateArg.Equals("all", StringComparison.OrdinalIgnoreCase)) {
+                    annotateAll = true;
+                } else if (annotateArg.Equals("extremes", StringComparison.OrdinalIgnoreCase)) {
+                    annotateAll = false;
+                } else {
+                    throw new ArgumentException($"--annotate: '{annotateArg}' must be 'extremes' or 'all'");
+                }
+            }
+
+            var labelsDir = DiagnosticUtil.GetArg(args, "--labels");
+
+            // --per-run is a valueless flag: optimize each discovered run INDEPENDENTLY (one optimization, one
+            // evaluator, one output subfolder, one hard-floor assertion per run) instead of jointly. Use this
+            // when --runs points at a bank of DIFFERENT optical setups, where a joint (N>1 balanced) objective
+            // across incompatible cameras/scopes is meaningless.
+            bool perRun = args.Any(a => string.Equals(a, "--per-run", StringComparison.OrdinalIgnoreCase));
+
+            // --verbose is a valueless flag that restores TRACE logging for offline inspection. By default the
+            // optimize harness runs at INFO so the detector's thousands of per-detection Logger.Trace stage-timing
+            // lines (LoadImage/SrcImagePreparation/WaveletCalculation/...) short-circuit instead of serializing to
+            // disk every detection — pure wall-clock overhead during a run of thousands of detections. This is a
+            // logging-only change: detection inputs, params, gates, and results are untouched.
+            bool verbose = args.Any(a => string.Equals(a, "--verbose", StringComparison.OrdinalIgnoreCase));
+            Logger.SetLogLevel(verbose ? LogLevelEnum.TRACE : LogLevelEnum.INFO);
+            if (verbose) {
+                Console.WriteLine("Verbose logging enabled (TRACE).");
+            }
+
+            // The real ProfileService.ActiveProfile setter writes to Application.Current.Resources, so a
+            // (non-running) WPF Application must exist or it NREs (mirrors ContaminationDiagnosticRunner).
+            if (Application.Current == null) {
+                new Application();
+            }
+
+            Console.WriteLine($"Runs root: {runsDir}");
+            Console.WriteLine($"Output: {outDir}");
+
+            // Load the user's real profile + star detection settings (single source of truth for params + PixelScale).
+            var profileService = new ProfileService();
+            profileService.TryLoad(profileId ?? string.Empty);
+            var activeProfile = profileService.ActiveProfile;
+            if (activeProfile == null) {
+                throw new InvalidOperationException("No active NINA profile could be loaded. Pass --profile-id, or run NINA at least once to create a profile.");
+            }
+            Console.WriteLine($"Profile: {activeProfile.Name} ({activeProfile.Id})");
+            Logger.Info($"Loaded profile {activeProfile.Name} ({activeProfile.Id})");
+
+            var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions));
+            if (guid == null) {
+                throw new InvalidOperationException("Could not resolve the HocusFocus plugin assembly GUID");
+            }
+            var accessor = new PluginOptionsAccessor(profileService, guid.Value);
+            var starDetectionOptions = new StarDetectionOptions(profileService, accessor);
+            var afOptions = new AutoFocusOptions(profileService);
+
+            // PixelScale = arcsec/pixel from the profile (pixel size / focal length) × binning, mirroring
+            // HocusFocusStarDetection.GetStarDetectorParams. Production reads binning from per-frame metadata
+            // (image.RawImageData.MetaData.Camera.BinX, which defaults to 1 when unset); the harness loads raw
+            // float Mats with no NINA metadata, so binning = 1 is used (the same value an unbinned/unset frame
+            // yields in production). PixelScale only feeds PixelScale-dependent detection gates, not the curve fit.
+            const int binning = 1;
+            var pixelScale = MathUtility.ArcsecPerPixel(activeProfile.CameraSettings.PixelSize, activeProfile.TelescopeSettings.FocalLength) * binning;
+            if (double.IsNaN(pixelScale)) {
+                Console.WriteLine("WARNING: PixelScale is NaN (pixel size / focal length not set in the profile). Detection will still run; PixelScale-dependent gates use NaN.");
+                Logger.Warning("PixelScale is NaN; pixel size / focal length not set in the profile");
+            }
+
+            // Seed params = the SAME mapping NINA uses (BuildStarDetectorParams), with the AF overrides
+            // GetStarDetectorParams(..., isAutoFocus:true) applies: ModelPSF=false, no intermediate files, plus
+            // PixelScale and Region=Full. This is exactly the bundle the optimizer starts from and tunes.
+            var seed = HocusFocusStarDetection.BuildStarDetectorParams(starDetectionOptions);
+            seed.PixelScale = pixelScale;
+            seed.Region = StarDetectionRegion.Full;
+            seed.ModelPSF = false;
+            seed.SaveIntermediateFilesPath = string.Empty;
+            // The optimizer scores the full accepted set, so keep contaminated stars only if the profile says to.
+            // Leave RejectContaminatedStars exactly as the profile resolved it (matches production AF).
+
+            Console.WriteLine($"Seed params: Sensitivity={F(seed.Sensitivity)}, StarClippingMultiplier={F(seed.StarClippingMultiplier)}, " +
+                $"NoiseClippingMultiplier={F(seed.NoiseClippingMultiplier)}, StructureLayers={seed.StructureLayers}, PixelScale={F(seed.PixelScale)}, " +
+                $"MeasurementAverage={starDetectionOptions.MeasurementAverage}");
+
+            // The fixed AF-detection sigma rejections the wizard's RunEvaluationLoader uses (the
+            // HocusFocusDetectionParams class defaults, NOT the live AF path): high = 4.0, low = 3.0. These feed
+            // the MeanOutliers HFR aggregation only.
+            const double highSigmaOutlierRejection = 4.0;
+            const double lowSigmaOutlierRejection = 3.0;
+
+            // Discover runs: attempt-anchored recursive search with the >=3-position guard (excludes the
+            // single-frame final/initial validation captures), with back-compat (--runs is itself an attempt
+            // folder) and a fallback (no attempt* folders anywhere). Pure logic lives in OptimizationRunDiscovery.
+            var discovery = OptimizationRunDiscovery.Discover(runsDir);
+            foreach (var d in discovery.Runs) {
+                Console.WriteLine($"  run '{d.RunId}': {d.Frames.Count} frames, {d.DistinctPositions} focuser position(s)");
+                Logger.Info($"Discovered run '{d.RunId}': {d.Frames.Count} frames, {d.DistinctPositions} focuser position(s)");
+            }
+            foreach (var s in discovery.Skipped) {
+                Console.WriteLine($"  skipped '{s.RelativePath}': {s.Reason}");
+                Logger.Info($"Skipped '{s.RelativePath}': {s.Reason}");
+            }
+            Console.WriteLine($"Discovered {discovery.Runs.Count} runs (skipped {discovery.Skipped.Count} folders)");
+            Logger.Info($"Discovered {discovery.Runs.Count} runs (skipped {discovery.Skipped.Count} folders)");
+            if (discovery.Runs.Count == 0) {
+                throw new InvalidOperationException(
+                    $"No usable AF runs (>= {OptimizationRunDiscovery.MinPositionsForFit} focuser positions) were found under {runsDir}. " +
+                    "Expected files like '0_Frame1_BitDepth16_Bayered0_Focuser5000.fits' in an 'attempt*' folder (or directly in --runs).");
+            }
+
+            var labelsByRun = LoadLabels(labelsDir, discovery.Runs);
+
+            var alglibAPI = new AlglibAPI();
+            var detector = new StarDetector(alglibAPI);
+            var ctx = new RunDetectionContext {
+                ProfileService = profileService,
+                AfOptions = afOptions,
+                AlglibAPI = alglibAPI,
+                Detector = detector,
+                MeasurementAverage = starDetectionOptions.MeasurementAverage,
+                HighSigmaOutlierRejection = highSigmaOutlierRejection,
+                LowSigmaOutlierRejection = lowSigmaOutlierRejection,
+                Seed = seed,
+                Variables = OptimizerVariable.CreateCuratedSet(),
+                MaxEvals = maxEvals,
+                LabelsDir = labelsDir,
+                AnnotateAll = annotateAll
+            };
+
+            if (perRun) {
+                await RunPerRun(ctx, runsDir, outDir, discovery.Runs, labelsByRun).ConfigureAwait(false);
+            } else {
+                await RunJoint(ctx, runsDir, outDir, discovery.Runs, labelsByRun).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>Shared, run-independent dependencies + tuning settings threaded through the optimize helpers.</summary>
+        private sealed class RunDetectionContext {
+            public ProfileService ProfileService;
+            public AutoFocusOptions AfOptions;
+            public AlglibAPI AlglibAPI;
+            public StarDetector Detector;
+            public MeasurementAverageEnum MeasurementAverage;
+            public double HighSigmaOutlierRejection;
+            public double LowSigmaOutlierRejection;
+            public StarDetectorParams Seed;
+            public IReadOnlyList<OptimizerVariable> Variables;
+            public int? MaxEvals;
+            public string LabelsDir;
+            public bool AnnotateAll;
+        }
+
+        /// <summary>Outcome of optimizing one set of runs (joint or a single per-run), for the aggregate report.</summary>
+        private sealed class RunSetOutcome {
+            public bool HardFloorPassed;
+            public int WorstFrameCount;
+            public string WorstRunId;
+            public OptimizationResult Result;
+            public List<RunEvaluationResult> PerRunSeed;
+            public List<RunEvaluationResult> PerRunBest;
+            public List<LoadedHarnessRun> LoadedRuns;
+        }
+
+        // ---- Joint mode (default): optimize ALL discovered runs together (N=1 reduces; N>1 is the balanced blend).
+
+        private static async Task RunJoint(
+            RunDetectionContext ctx, string runsDir, string outDir,
+            List<OptimizationRunDiscovery.DiscoveredRun> discovered,
+            Dictionary<string, IReadOnlyList<FrameLabels>> labelsByRun) {
+            var loadedRuns = new List<LoadedHarnessRun>(discovered.Count);
+            try {
+                foreach (var d in discovered) {
+                    loadedRuns.Add(await PrepareRunAsync(ctx, d, labelsByRun).ConfigureAwait(false));
+                }
+
+                Console.WriteLine($"Optimizing JOINTLY over {loadedRuns.Count} run(s) (MaxEvaluations=" +
+                    $"{(ctx.MaxEvals?.ToString(CultureInfo.InvariantCulture) ?? "default")}, {(ctx.LabelsDir != null ? "labeled" : "unlabeled")})...");
+                var outcome = await OptimizeRunSetAsync(ctx, runsDir, outDir, loadedRuns).ConfigureAwait(false);
+                if (!outcome.HardFloorPassed) {
+                    Environment.ExitCode = 3;
+                }
+                Console.WriteLine($"Wrote optimize_summary.txt, optimize_result.csv, and annotated PNG(s) to {outDir}");
+            } finally {
+                DisposeRuns(loadedRuns);
+            }
+        }
+
+        // ---- Per-run mode: optimize each discovered run INDEPENDENTLY, one output subfolder each, plus an
+        //      aggregate_summary.txt at the top level. One bad run is logged and recorded as failed; the batch
+        //      continues.
+
+        private static async Task RunPerRun(
+            RunDetectionContext ctx, string runsDir, string outDir,
+            List<OptimizationRunDiscovery.DiscoveredRun> discovered,
+            Dictionary<string, IReadOnlyList<FrameLabels>> labelsByRun) {
+            var aggregate = new List<AggregateRow>(discovered.Count);
+            bool anyFailure = false;
+            for (int idx = 0; idx < discovered.Count; idx++) {
+                var d = discovered[idx];
+                Console.WriteLine($"[{idx + 1}/{discovered.Count}] optimizing {d.RunId} ...");
+                var subDir = Path.Combine(outDir, OptimizationRunDiscovery.SanitizeForFileName(d.RunId));
+                var loadedRuns = new List<LoadedHarnessRun>(1);
+                try {
+                    loadedRuns.Add(await PrepareRunAsync(ctx, d, labelsByRun).ConfigureAwait(false));
+                    Directory.CreateDirectory(subDir);
+                    var outcome = await OptimizeRunSetAsync(ctx, runsDir, subDir, loadedRuns).ConfigureAwait(false);
+                    if (!outcome.HardFloorPassed) {
+                        anyFailure = true;
+                    }
+                    aggregate.Add(BuildAggregateRow(d.RunId, outcome));
+                    Console.WriteLine($"  -> {d.RunId}: seedJ={F(outcome.Result.SeedJ)} bestJ={F(outcome.Result.BestJ)} " +
+                        $"hard-floor {(outcome.HardFloorPassed ? "PASS" : "FAIL")}; outputs in {subDir}");
+                } catch (Exception ex) {
+                    anyFailure = true;
+                    Console.Error.WriteLine($"  -> {d.RunId}: FAILED to optimize ({ex.Message}); continuing to next run");
+                    Logger.Error(ex, $"Per-run optimization failed for '{d.RunId}'");
+                    aggregate.Add(new AggregateRow {
+                        RunId = d.RunId,
+                        LoadOk = false,
+                        Error = ex.Message
+                    });
+                } finally {
+                    DisposeRuns(loadedRuns);
+                }
+            }
+
+            WriteAggregateSummary(Path.Combine(outDir, "aggregate_summary.txt"), runsDir, ctx, aggregate);
+            Console.WriteLine($"Per-run batch complete: {aggregate.Count(r => r.LoadOk)} optimized, " +
+                $"{aggregate.Count(r => !r.LoadOk)} failed. Wrote aggregate_summary.txt to {outDir}");
+            if (anyFailure) {
+                Environment.ExitCode = 3;
+            }
+        }
+
+        /// <summary>
+        /// Loads a discovered run's frames as float Mats once, wires the harness detection delegate, infers the
+        /// fit config, and builds its <see cref="RunEvaluationData"/>. Caller owns disposing the returned run via
+        /// <see cref="DisposeRuns"/>, which frees BOTH the <see cref="RunEvaluationData"/>'s cached early-detection
+        /// contexts and the loaded-once frame Mats.
+        /// </summary>
+        private static async Task<LoadedHarnessRun> PrepareRunAsync(
+            RunDetectionContext ctx, OptimizationRunDiscovery.DiscoveredRun d,
+            Dictionary<string, IReadOnlyList<FrameLabels>> labelsByRun) {
+            var frames = new List<RunFrame>(d.Frames.Count);
+            foreach (var frame in d.Frames) {
+                // LoadFloatMat returns a fresh Mat each call; the optimizer detect delegate clones before
+                // detection (Detect mutates its input), so the cached Mat here is never mutated.
+                var mat = await DiagnosticUtil.LoadFloatMat(frame.Path, ctx.ProfileService).ConfigureAwait(false);
+                frames.Add(new RunFrame {
+                    FrameId = frame.Path,
+                    FocuserPosition = frame.FocuserPosition,
+                    Image = mat
+                });
+            }
+
+            var stepSize = InferStepSize(d.Frames);
+            var fitConfig = new RunFitConfig {
+                StepSize = stepSize,
+                UseWeights = ctx.AfOptions.WeightedHyperbolicFitEnabled,
+                MaxOutlierRejections = ctx.AfOptions.MaxOutlierRejections,
+                RejectionConfidence = ctx.AfOptions.OutlierRejectionConfidence,
+                PreferredModel = null
+            };
+
+            // Split detector: caches the expensive early detection per (frame, early key) and reuses it across the
+            // many candidate evaluations that change only late-stage gate params (the ~2× speedup). The
+            // FrameDetectionResult mapping is the SAME ToFrameDetectionResult the legacy delegate used, so results
+            // are unchanged.
+            var splitDetector = new MatSplitFrameDetector(ctx.Detector, ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection);
+
+            var labels = labelsByRun.TryGetValue(d.RunId, out var ls) ? ls : null;
+            var data = new RunEvaluationData(d.RunId, frames, splitDetector, ctx.AlglibAPI, fitConfig, labels);
+            Console.WriteLine($"  {d.RunId}: inferred step size {stepSize}" + (labels != null ? $", {labels.Count} labeled position(s)" : ", unlabeled"));
+            return new LoadedHarnessRun { Discovered = d, Data = data, StepSize = stepSize, Frames = frames };
+        }
+
+        /// <summary>
+        /// Optimizes a SET of loaded runs together (1 run = N=1; several = the balanced N>1 blend), evaluates the
+        /// seed + winner against each run, runs the hard-floor assertion, and writes the per-set summary, CSV, and
+        /// annotated PNGs into <paramref name="targetDir"/>. Returns the outcome for the aggregate report.
+        /// </summary>
+        private static async Task<RunSetOutcome> OptimizeRunSetAsync(
+            RunDetectionContext ctx, string runsDir, string targetDir, List<LoadedHarnessRun> loadedRuns) {
+            var settings = new OptimizerSettings();
+            if (ctx.MaxEvals.HasValue) {
+                settings.MaxEvaluations = ctx.MaxEvals.Value;
+            }
+
+            var variables = ctx.Variables;
+            var optimizer = new StarDetectionOptimizer();
+
+            var dataList = loadedRuns.Select(r => r.Data).ToList();
+            var evaluator = RunEvaluationData.CreateEvaluator(dataList);
+
+            var progress = new Progress<OptimizationProgress>(op =>
+                Console.WriteLine($"  [{op.Phase}] evals={op.Evaluations}/{op.MaxEvaluations} bestJ={F(op.BestJ)} seedJ={F(op.SeedJ)}"));
+
+            var result = await optimizer.OptimizeAsync(ctx.Seed, variables, evaluator, settings, progress, CancellationToken.None).ConfigureAwait(false);
+            Console.WriteLine($"Optimization complete: seedJ={F(result.SeedJ)} -> bestJ={F(result.BestJ)} ({(result.ImprovedOverSeed ? "improved" : "no improvement")}), evals={result.Evaluations}");
+
+            var perRunSeed = new List<RunEvaluationResult>(loadedRuns.Count);
+            var perRunBest = new List<RunEvaluationResult>(loadedRuns.Count);
+            foreach (var r in loadedRuns) {
+                perRunSeed.Add(await r.Data.EvaluateAndFitAsync(ctx.Seed, CancellationToken.None).ConfigureAwait(false));
+                perRunBest.Add(await r.Data.EvaluateAndFitAsync(result.BestParams, CancellationToken.None).ConfigureAwait(false));
+            }
+
+            var objectiveConstants = new ObjectiveConstants();
+            var (passed, worstFrameCount, worstRunId) = AssertHardFloor(loadedRuns, perRunBest, objectiveConstants);
+            Console.WriteLine(passed
+                ? $"PASS: every frame has >= {objectiveConstants.NHard} stars under optimized params (min observed = {worstFrameCount})"
+                : $"FAIL: at least one frame has < {objectiveConstants.NHard} stars under optimized params (min observed = {worstFrameCount} in run {worstRunId})");
+
+            // The focuser's max step is unavailable headless, so it is left null — StepSizeRecommender clamps to >= 1.
+            var focuserMaxStep = (int?)null;
+
+            WriteSummary(Path.Combine(targetDir, "optimize_summary.txt"), runsDir, ctx.Seed, result, variables,
+                loadedRuns, perRunSeed, perRunBest, objectiveConstants, focuserMaxStep, ctx.LabelsDir, settings, passed, worstFrameCount, worstRunId);
+            WriteCsv(Path.Combine(targetDir, "optimize_result.csv"), loadedRuns, perRunSeed, perRunBest);
+
+            // Per-run optimized-settings handoff: write the winning snapshot as optimized_settings.json into BOTH
+            // each focus run's own source folder (so `review --runs <same>` auto-discovers it) and the per-run --out
+            // subdir. Uses the SAME params->DTO mapping the wizard's Apply() uses (OptimizedStarDetectionSettings.
+            // FromParams) so the headless and in-app handoffs can never drift. Each run's recommended step is from
+            // its OWN best fit (StepSizeRecommender, exactly as BuildAggregateRow computes it).
+            WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, focuserMaxStep);
+
+            await WriteAnnotatedFrames(targetDir, loadedRuns, result.BestParams, ctx.Detector,
+                ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection, ctx.AnnotateAll).ConfigureAwait(false);
+
+            return new RunSetOutcome {
+                HardFloorPassed = passed,
+                WorstFrameCount = worstFrameCount,
+                WorstRunId = worstRunId,
+                Result = result,
+                PerRunSeed = perRunSeed,
+                PerRunBest = perRunBest,
+                LoadedRuns = loadedRuns
+            };
+        }
+
+        /// <summary>
+        /// Writes <c>optimized_settings.json</c> (the wizard's <see cref="OptimizedStarDetectionSettings"/> snapshot
+        /// serialized with <see cref="JsonConvert"/>) for every loaded run: one copy into the focus run's own source
+        /// folder (the directory holding its sweep frames — so <c>review --runs &lt;same&gt;</c> auto-discovers it)
+        /// and one into the per-run <paramref name="targetDir"/> (the <c>--out</c> subdir). The curated knob values
+        /// are the optimizer's combined winner (<see cref="OptimizationResult.BestParams"/>); the recommended AF step
+        /// is per-run from that run's OWN best fit. A failed write for one run is logged and skipped — it never aborts
+        /// the batch.
+        /// </summary>
+        private static void WriteOptimizedSettings(
+            string targetDir, List<LoadedHarnessRun> loadedRuns, List<RunEvaluationResult> perRunBest,
+            OptimizationResult result, int? focuserMaxStep) {
+            for (int i = 0; i < loadedRuns.Count; i++) {
+                var run = loadedRuns[i];
+                try {
+                    var rec = StepSizeRecommender.Recommend(perRunBest[i].BestFit, run.StepSize, focuserMaxStep);
+                    var dto = OptimizedStarDetectionSettings.FromParams(
+                        result.BestParams, loadedRuns.Count, result.SeedJ, result.BestJ, rec.StepSize, rec.OffsetSteps);
+                    var json = JsonConvert.SerializeObject(dto);
+
+                    // The run's source folder is the directory holding its frames (each run's frames live together).
+                    var firstFramePath = run.Discovered.Frames.FirstOrDefault()?.Path;
+                    var runFolder = string.IsNullOrEmpty(firstFramePath) ? null : Path.GetDirectoryName(firstFramePath);
+                    if (!string.IsNullOrEmpty(runFolder)) {
+                        var runPath = Path.Combine(runFolder, "optimized_settings.json");
+                        File.WriteAllText(runPath, json);
+                        Console.WriteLine($"  wrote optimized_settings.json to {runPath}");
+                    } else {
+                        Console.Error.WriteLine($"  WARNING: could not resolve source folder for run '{run.Discovered.RunId}'; skipped the in-folder optimized_settings.json");
+                    }
+
+                    // A copy in the per-run --out subdir.
+                    var outPath = Path.Combine(targetDir, "optimized_settings.json");
+                    File.WriteAllText(outPath, json);
+                } catch (Exception ex) {
+                    Console.Error.WriteLine($"  WARNING: failed to write optimized_settings.json for run '{run.Discovered.RunId}': {ex.Message}");
+                    Logger.Error(ex, $"Failed to write optimized_settings.json for run '{run.Discovered.RunId}'");
+                }
+            }
+        }
+
+        private static void DisposeRuns(List<LoadedHarnessRun> loadedRuns) {
+            foreach (var r in loadedRuns) {
+                // Release the per-frame cached early-detection contexts the RunEvaluationData pinned (each holds a
+                // ~244 MB source Mat at 61 MP); a long --per-run batch accumulates them otherwise. Idempotent.
+                r.Data?.Dispose();
+                // Release the cached frame Mats (each RunFrame.Image is a Mat the harness loaded once).
+                foreach (var rf in r.Frames) {
+                    (rf.Image as Mat)?.Dispose();
+                }
+            }
+        }
+
+        // ---- Per-run aggregate report ----------------------------------------------------------------------
+
+        /// <summary>One scannable row of the cross-setup aggregate report (the --per-run verification deliverable).</summary>
+        private sealed class AggregateRow {
+            public string RunId;
+            public bool LoadOk = true;              // false => the run failed to load/optimize (Error set)
+            public string Error;                    // populated only when LoadOk == false
+            public bool HardFloorPassed;
+            public int WorstFrameCount;
+            public double SeedJ = double.NaN;
+            public double BestJ = double.NaN;
+            public double SeedSigmaFocus = double.NaN;
+            public double BestSigmaFocus = double.NaN;
+            public int RecommendedStep;
+            public string ChangedParams = string.Empty;
+        }
+
+        /// <summary>Builds an aggregate row from a per-run outcome (exactly one run in the set in --per-run mode).</summary>
+        private static AggregateRow BuildAggregateRow(string runId, RunSetOutcome outcome) {
+            var run = outcome.LoadedRuns[0];
+            var seedM = outcome.PerRunSeed[0].Metrics;
+            var bestM = outcome.PerRunBest[0].Metrics;
+            var rec = StepSizeRecommender.Recommend(outcome.PerRunBest[0].BestFit, run.StepSize, null);
+            var changed = outcome.Result.ChangedVariables;
+            return new AggregateRow {
+                RunId = runId,
+                LoadOk = true,
+                HardFloorPassed = outcome.HardFloorPassed,
+                WorstFrameCount = outcome.WorstFrameCount,
+                SeedJ = outcome.Result.SeedJ,
+                BestJ = outcome.Result.BestJ,
+                SeedSigmaFocus = seedM.SigmaFocus,
+                BestSigmaFocus = bestM.SigmaFocus,
+                RecommendedStep = rec.StepSize,
+                ChangedParams = (changed == null || changed.Count == 0)
+                    ? "(none)"
+                    : string.Join("; ", changed.Select(cv => $"{cv.Name}: {F(cv.SeedValue)}->{F(cv.BestValue)}"))
+            };
+        }
+
+        /// <summary>
+        /// Writes the top-level aggregate_summary.txt for --per-run mode: one row per run, easy to scan across
+        /// setups — RunId, load OK/failed, hard-floor PASS/FAIL (with the min star count), seed J -> best J,
+        /// σ_focus seed -> optimized, recommended step, and which curated params changed.
+        /// </summary>
+        private static void WriteAggregateSummary(string path, string runsDir, RunDetectionContext ctx, List<AggregateRow> rows) {
+            var sb = new StringBuilder();
+            sb.AppendLine("=== Star Detection Optimizer — per-run aggregate ===");
+            sb.AppendLine($"Runs root: {runsDir}");
+            sb.AppendLine($"Mode: --per-run (each run optimized independently)");
+            sb.AppendLine($"Labels: {(string.IsNullOrWhiteSpace(ctx.LabelsDir) ? "(none — unlabeled)" : ctx.LabelsDir)}");
+            sb.AppendLine($"MaxEvaluations: {(ctx.MaxEvals?.ToString(CultureInfo.InvariantCulture) ?? "default")}");
+            sb.AppendLine($"Runs: {rows.Count} ({rows.Count(r => r.LoadOk)} optimized, {rows.Count(r => !r.LoadOk)} failed)");
+            sb.AppendLine();
+
+            foreach (var r in rows) {
+                sb.AppendLine($"--- {r.RunId} ---");
+                if (!r.LoadOk) {
+                    sb.AppendLine($"  load        : FAILED ({r.Error})");
+                    sb.AppendLine();
+                    continue;
+                }
+                sb.AppendLine($"  load        : OK");
+                sb.AppendLine($"  hard-floor  : {(r.HardFloorPassed ? "PASS" : "FAIL")} (min stars = {r.WorstFrameCount})");
+                sb.AppendLine($"  J           : {F(r.SeedJ)} -> {F(r.BestJ)}");
+                sb.AppendLine($"  sigma_focus : {F(r.SeedSigmaFocus)} -> {F(r.BestSigmaFocus)}");
+                sb.AppendLine($"  rec. step   : {r.RecommendedStep}");
+                sb.AppendLine($"  changed     : {r.ChangedParams}");
+                sb.AppendLine();
+            }
+
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        private static void PrintUsage() {
+            Console.Error.WriteLine("Usage: TestApp optimize --runs <folder> [--per-run] [--profile-id <guid>] [--out <dir>] [--max-evals <int>] [--annotate extremes|all] [--labels <dir>] [--verbose]");
+            Console.Error.WriteLine("  --runs       (required) folder of saved AF runs. Runs are 'attempt*' folders (recursively, <=4 deep) with >=3 focuser positions; or --runs itself.");
+            Console.Error.WriteLine("  --per-run    (optional) optimize each discovered run INDEPENDENTLY into its own subfolder + an aggregate_summary.txt (use for a multi-setup bank).");
+            Console.Error.WriteLine("  --profile-id (default active) NINA profile id to load (settings + PixelScale).");
+            Console.Error.WriteLine("  --out        (default %LOCALAPPDATA%\\NINA\\Logs\\hf-diag\\optimize\\<timestamp>) output directory.");
+            Console.Error.WriteLine("  --max-evals  (optional) override the optimizer's MaxEvaluations budget.");
+            Console.Error.WriteLine("  --annotate   (default extremes) annotate only min/max-focuser frames, or 'all' frames.");
+            Console.Error.WriteLine("  --labels     (optional) folder of label JSON files; activates the recall/precision objective term.");
+            Console.Error.WriteLine("  --verbose    (optional) restore TRACE logging (default INFO). Slower: serializes per-detection stage timings to the NINA log.");
+        }
+
+        // ---- Run / frame discovery -------------------------------------------------------------------------
+        // Attempt-anchored discovery (with the >=3-position guard, back-compat, and fallback) lives in the pure,
+        // unit-testable OptimizationRunDiscovery helper. The runner consumes its DiscoveredRun/FrameRef types.
+
+        private sealed class LoadedHarnessRun {
+            public OptimizationRunDiscovery.DiscoveredRun Discovered;
+            public RunEvaluationData Data;
+            public int StepSize;
+            public List<RunFrame> Frames; // the loaded-once frame Mats, retained for disposal
+        }
+
+        /// <summary>
+        /// Infers the AF step size from the frames exactly as <c>AutoFocusEngine.LoadSavedAttemptImpl</c> does:
+        /// the absolute difference of the two smallest DISTINCT focuser positions. 0 when fewer than 2 positions.
+        /// </summary>
+        private static int InferStepSize(List<OptimizationRunDiscovery.FrameRef> frames) {
+            var positions = frames.Select(f => f.FocuserPosition).Distinct().OrderBy(x => x).Take(2).ToList();
+            return positions.Count > 1 ? Math.Abs(positions[0] - positions[1]) : 0;
+        }
+
+        // ---- HFR aggregation matching the wizard's RunEvaluationLoader -------------------------------------
+
+        /// <summary>
+        /// Adapts a <see cref="HocusFocusStarDetectorResult"/> (from <see cref="StarDetector.Detect(Mat, StarDetectorParams, IProgress{NINA.Core.Model.ApplicationStatus}, CancellationToken)"/>)
+        /// into the <see cref="FrameDetectionResult"/> the optimizer consumes, REPLICATING the HFR aggregation in
+        /// <c>HocusFocusStarDetection.Detect</c> AS THE WIZARD'S <see cref="RunEvaluationLoader"/> drives it — i.e.
+        /// with NumberOfAFStars=0 (every accepted star is scored, not the brightest-N) and the sigma rejections at
+        /// the <see cref="HocusFocusDetectionParams"/> class defaults (high=4.0/low=3.0). NOTE this is the wizard's
+        /// loader path, NOT the live AF path: live AF uses high=3.0 when Sensitivity=Normal (HocusFocusStarDetection
+        /// line ~269), so the harness deliberately matches RunEvaluationLoader so its per-frame HFR/σ equal what the
+        /// optimizer scores in the wizard. The matched production code:
+        ///   - MeanOutliers: first re-filter the star list to HFR ∈ [median − low·MAD, median + high·MAD]
+        ///     (HocusFocusDetection.Detect lines ~389-399, sigmas 4.0/3.0 from HocusFocusDetectionParams), then
+        ///     AverageHFR = mean, HFRStdDev = sample std-dev (n-1) (lines ~440-442).
+        ///   - Median (default): AverageHFR = median, HFRStdDev = MAD (lines ~446-448).
+        ///   - Both only computed when the surviving list has &gt; 1 star; otherwise AverageHFR/HFRStdDev stay 0.
+        /// StarCount and StarCenters are taken from the SURVIVING accepted set (post outlier-filter for
+        /// MeanOutliers) to match what production counts and centroids.
+        /// </summary>
+        private static FrameDetectionResult ToFrameDetectionResult(
+            HocusFocusStarDetectorResult result, MeasurementAverageEnum measurementAverage,
+            double highSigmaOutlierRejection, double lowSigmaOutlierRejection) {
+            var stars = result.DetectedStars ?? new List<Star>();
+
+            // Production MeanOutliers re-filters the list before averaging (only when count > 1).
+            if (stars.Count > 1 && measurementAverage == MeasurementAverageEnum.MeanOutliers) {
+                var (median, mad) = stars.Select(s => s.HFR).MedianMAD();
+                var hi = median + highSigmaOutlierRejection * mad;
+                var lo = median - lowSigmaOutlierRejection * mad;
+                stars = stars.Where(s => s.HFR <= hi && s.HFR >= lo).ToList();
+            }
+
+            double averageHfr = 0.0;
+            double hfrStdDev = 0.0;
+            if (stars.Count > 1) {
+                if (measurementAverage == MeasurementAverageEnum.MeanOutliers) {
+                    averageHfr = stars.Average(s => s.HFR);
+                    var variance = stars.Sum(s => (s.HFR - averageHfr) * (s.HFR - averageHfr)) / (stars.Count - 1);
+                    hfrStdDev = Math.Sqrt(variance);
+                } else {
+                    var (hfrMedian, hfrMAD) = stars.Select(s => s.HFR).MedianMAD();
+                    averageHfr = hfrMedian;
+                    hfrStdDev = hfrMAD;
+                }
+            }
+
+            var centers = stars.Select(s => (s.Center.X, s.Center.Y)).ToList();
+            return new FrameDetectionResult {
+                AverageHFR = averageHfr,
+                HFRStdDev = hfrStdDev,
+                StarCount = stars.Count,
+                StarCenters = centers
+            };
+        }
+
+        /// <summary>
+        /// Mat-based split detector for the offline harness: caches the expensive early detection per (frame, early
+        /// key) and reuses it across candidate evaluations that change only late-stage gate params. The context is
+        /// a <see cref="StarDetector.DetectionContext"/>; the result mapping is the SAME
+        /// <see cref="ToFrameDetectionResult"/> the legacy delegate used, so results are byte-identical.
+        /// <see cref="StarDetector.BuildDetectionContext(Mat, StarDetectorParams, IProgress{NINA.Core.Model.ApplicationStatus}, CancellationToken)"/>
+        /// clones the frame Mat internally, so the cached frame Mats are never mutated.
+        /// </summary>
+        private sealed class MatSplitFrameDetector : RunEvaluationData.ISplitFrameDetector {
+            private readonly StarDetector detector;
+            private readonly MeasurementAverageEnum measurementAverage;
+            private readonly double highSigma;
+            private readonly double lowSigma;
+
+            public MatSplitFrameDetector(StarDetector detector, MeasurementAverageEnum measurementAverage, double highSigma, double lowSigma) {
+                this.detector = detector;
+                this.measurementAverage = measurementAverage;
+                this.highSigma = highSigma;
+                this.lowSigma = lowSigma;
+            }
+
+            public string ComputeEarlyKey(StarDetectorParams p) => StarDetector.ComputeEarlyCacheKey(p);
+
+            public async Task<IDisposable> BuildContextAsync(object frameImage, StarDetectorParams p, CancellationToken token) {
+                return await detector.BuildDetectionContext((Mat)frameImage, p, null, token).ConfigureAwait(false);
+            }
+
+            public FrameDetectionResult GateAndMeasure(IDisposable context, StarDetectorParams p) {
+                var result = detector.GateAndMeasure((StarDetector.DetectionContext)context, p, CancellationToken.None);
+                return ToFrameDetectionResult(result, measurementAverage, highSigma, lowSigma);
+            }
+        }
+
+        // ---- Labels ----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Forward-compatible label JSON shape (T7 writes these; T6 reads them). One file per run, named
+        /// "&lt;runId&gt;.json" (the discovered RunId == the run's folder name), or any *.json whose embedded RunId
+        /// matches a discovered run. Each label is a BOX (top-left x,y + w,h); recall/precision are scored by
+        /// box-containment of an accepted center. Older point-only files (x,y, no w/h) still load: a missing w/h
+        /// defaults to a 2·radiusPx box centered on the point. Shape:
+        /// <code>
+        /// {
+        ///   "runId": "attempt01",
+        ///   "radiusPx": 6.0,                       // default radius (legacy point-load box fallback)
+        ///   "positions": [
+        ///     {
+        ///       "focuserPosition": 5000,
+        ///       "radiusPx": 6.0,                    // optional per-position override
+        ///       "missed":          [ { "x": 123.4, "y": 567.8, "w": 12.0, "h": 12.0 }, ... ],  // false negatives to recover (recall)
+        ///       "shouldReject":    [ { "x": 12.0,  "y": 34.0,  "w": 9.0,  "h": 9.0  }, ... ],  // false positives to exclude (precision)
+        ///       "wronglyRejected": [ { "x": 88.0,  "y": 90.0,  "w": 10.0, "h": 8.0  }, ... ]   // detected-but-gated candidates to KEEP (folds into recall)
+        ///     }
+        ///   ]
+        /// }
+        /// </code>
+        /// </summary>
+        private sealed class LabelPoint {
+            [JsonProperty("x")] public double X { get; set; }
+            [JsonProperty("y")] public double Y { get; set; }
+
+            // Nullable so a legacy point-only file (x,y, no w/h) deserializes; back-filled to a 2·radiusPx box below.
+            [JsonProperty("w")] public double? W { get; set; }
+            [JsonProperty("h")] public double? H { get; set; }
+        }
+
+        private sealed class LabelPosition {
+            [JsonProperty("focuserPosition")] public int FocuserPosition { get; set; }
+            [JsonProperty("radiusPx")] public double? RadiusPx { get; set; }
+            [JsonProperty("missed")] public List<LabelPoint> Missed { get; set; }
+            [JsonProperty("shouldReject")] public List<LabelPoint> ShouldReject { get; set; }
+            [JsonProperty("wronglyRejected")] public List<LabelPoint> WronglyRejected { get; set; }
+        }
+
+        private sealed class RunLabelFile {
+            [JsonProperty("runId")] public string RunId { get; set; }
+            [JsonProperty("radiusPx")] public double? RadiusPx { get; set; }
+            [JsonProperty("positions")] public List<LabelPosition> Positions { get; set; }
+        }
+
+        private const double DefaultLabelRadiusPx = 6.0;
+
+        private static Dictionary<string, IReadOnlyList<FrameLabels>> LoadLabels(string labelsDir, List<OptimizationRunDiscovery.DiscoveredRun> runs) {
+            var result = new Dictionary<string, IReadOnlyList<FrameLabels>>(StringComparer.Ordinal);
+            if (string.IsNullOrWhiteSpace(labelsDir)) {
+                return result;
+            }
+            if (!Directory.Exists(labelsDir)) {
+                throw new DirectoryNotFoundException($"--labels folder not found: {labelsDir}");
+            }
+
+            var byRunId = new Dictionary<string, RunLabelFile>(StringComparer.Ordinal);
+            foreach (var file in Directory.GetFiles(labelsDir, "*.json").OrderBy(f => f, StringComparer.Ordinal)) {
+                RunLabelFile parsed;
+                try {
+                    parsed = JsonConvert.DeserializeObject<RunLabelFile>(File.ReadAllText(file));
+                } catch (Exception ex) {
+                    Console.WriteLine($"WARNING: could not parse label file '{file}': {ex.Message}");
+                    Logger.Warning($"Could not parse label file '{file}': {ex.Message}");
+                    continue;
+                }
+                if (parsed == null) {
+                    continue;
+                }
+                // Prefer the embedded runId; fall back to the filename (without extension).
+                var runId = !string.IsNullOrWhiteSpace(parsed.RunId) ? parsed.RunId : Path.GetFileNameWithoutExtension(file);
+                byRunId[runId] = parsed;
+            }
+
+            foreach (var run in runs) {
+                if (!byRunId.TryGetValue(run.RunId, out var lf) || lf.Positions == null) {
+                    continue;
+                }
+                var defaultRadius = lf.RadiusPx ?? DefaultLabelRadiusPx;
+                var frameLabels = new List<FrameLabels>(lf.Positions.Count);
+                foreach (var pos in lf.Positions) {
+                    var radius = pos.RadiusPx ?? defaultRadius;
+                    frameLabels.Add(new FrameLabels {
+                        FocuserPosition = pos.FocuserPosition,
+                        RadiusPx = radius,
+                        Missed = ToBoxes(pos.Missed, radius),
+                        ShouldReject = ToBoxes(pos.ShouldReject, radius),
+                        WronglyRejected = ToBoxes(pos.WronglyRejected, radius)
+                    });
+                }
+                result[run.RunId] = frameLabels;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Maps parsed label JSON points into the objective's <see cref="LabelBox"/> list. A label with explicit w/h
+        /// is taken as-is (top-left x,y + w,h). A legacy point-only label (no w/h) is widened to a 2·radiusPx box
+        /// CENTERED on its (x,y), matching the T7 writer's legacy back-fill so the two tools agree on old files.
+        /// </summary>
+        private static IReadOnlyList<LabelBox> ToBoxes(List<LabelPoint> points, double radiusPx) {
+            if (points == null || points.Count == 0) {
+                return new List<LabelBox>();
+            }
+            var side = Math.Max(1e-9, 2.0 * radiusPx);
+            var boxes = new List<LabelBox>(points.Count);
+            foreach (var p in points) {
+                if (p.W.HasValue && p.H.HasValue) {
+                    boxes.Add(new LabelBox(p.X, p.Y, p.W.Value, p.H.Value));
+                } else {
+                    boxes.Add(new LabelBox(p.X - side / 2.0, p.Y - side / 2.0, side, side));
+                }
+            }
+            return boxes;
+        }
+
+        // ---- Hard-floor assertion --------------------------------------------------------------------------
+
+        private static (bool passed, int worstCount, string worstRunId) AssertHardFloor(
+            List<LoadedHarnessRun> runs, List<RunEvaluationResult> perRunBest, ObjectiveConstants c) {
+            bool passed = true;
+            int worst = int.MaxValue;
+            string worstRunId = null;
+            for (int i = 0; i < runs.Count; i++) {
+                var counts = perRunBest[i].Metrics.FrameStarCounts;
+                if (counts == null || counts.Count == 0) {
+                    continue;
+                }
+                var min = counts.Min();
+                if (min < worst) {
+                    worst = min;
+                    worstRunId = runs[i].Discovered.RunId;
+                }
+                if (min < c.NHard) {
+                    passed = false;
+                }
+            }
+            if (worst == int.MaxValue) {
+                worst = 0;
+            }
+            return (passed, worst, worstRunId);
+        }
+
+        // ---- Output: summary + CSV -------------------------------------------------------------------------
+
+        private static void WriteSummary(
+            string path, string runsDir, StarDetectorParams seed, OptimizationResult result,
+            IReadOnlyList<OptimizerVariable> variables, List<LoadedHarnessRun> runs,
+            List<RunEvaluationResult> perRunSeed, List<RunEvaluationResult> perRunBest,
+            ObjectiveConstants c, int? focuserMaxStep, string labelsDir, OptimizerSettings settings,
+            bool passed, int worstFrameCount, string worstRunId) {
+            var sb = new StringBuilder();
+            sb.AppendLine("=== Star Detection Optimizer — headless harness ===");
+            sb.AppendLine($"Runs root: {runsDir}");
+            sb.AppendLine($"Runs: {runs.Count} ({string.Join(", ", runs.Select(r => r.Discovered.RunId))})");
+            sb.AppendLine($"Labels: {(string.IsNullOrWhiteSpace(labelsDir) ? "(none — unlabeled)" : labelsDir)}");
+            sb.AppendLine($"MaxEvaluations: {settings.MaxEvaluations}; evaluator calls: {result.Evaluations}");
+            sb.AppendLine();
+
+            sb.AppendLine("--- Objective ---");
+            sb.AppendLine($"Seed J : {F(result.SeedJ)}");
+            sb.AppendLine($"Best J : {F(result.BestJ)}  ({(result.ImprovedOverSeed ? "improved over seed" : "no improvement over seed")})");
+            sb.AppendLine();
+
+            sb.AppendLine("--- Per-run σ_focus (seed -> optimized) and recommended step size ---");
+            for (int i = 0; i < runs.Count; i++) {
+                var run = runs[i];
+                var seedM = perRunSeed[i].Metrics;
+                var bestM = perRunBest[i].Metrics;
+                var rec = StepSizeRecommender.Recommend(perRunBest[i].BestFit, run.StepSize, focuserMaxStep);
+                sb.AppendLine($"  {run.Discovered.RunId}:");
+                sb.AppendLine($"    σ_focus       : {F(seedM.SigmaFocus)} -> {F(bestM.SigmaFocus)}");
+                sb.AppendLine($"    R²            : {F(seedM.RSquared)} -> {F(bestM.RSquared)}");
+                sb.AppendLine($"    reducedχ²     : {F(seedM.ReducedChiSquared)} -> {F(bestM.ReducedChiSquared)}");
+                sb.AppendLine($"    current step  : {run.StepSize}");
+                sb.AppendLine($"    recommended   : step {rec.StepSize}, offset {rec.OffsetSteps} per side (half-width {F(rec.HalfWidth)})");
+                if (bestM.Recall.HasValue || bestM.Precision.HasValue) {
+                    sb.AppendLine($"    recall/prec   : {F(bestM.Recall ?? double.NaN)} / {F(bestM.Precision ?? double.NaN)}");
+                }
+            }
+            sb.AppendLine();
+
+            sb.AppendLine("--- Curated params (seed -> optimized) ---");
+            // Map changed variables for quick lookup.
+            var changed = result.ChangedVariables?.ToDictionary(cv => cv.Name, cv => cv) ?? new Dictionary<string, (string, double, double)>();
+            foreach (var v in variables) {
+                var seedVal = v.Read(seed);
+                var bestVal = v.Read(result.BestParams);
+                var marker = changed.ContainsKey(v.Name) ? "  *" : "";
+                sb.AppendLine($"  {v.Name,-30} {F(seedVal),14} -> {F(bestVal),-14}{marker}");
+            }
+            sb.AppendLine("  (* = changed by the optimizer)");
+            sb.AppendLine();
+
+            sb.AppendLine($"--- Hard-floor check (every frame must keep >= {c.NHard} stars) ---");
+            sb.AppendLine(passed
+                ? $"  PASS (min observed = {worstFrameCount})"
+                : $"  FAIL (min observed = {worstFrameCount} in run {worstRunId})");
+            sb.AppendLine();
+
+            sb.AppendLine("--- Per-frame star counts (per run, per focuser position: seed -> optimized) ---");
+            for (int i = 0; i < runs.Count; i++) {
+                var run = runs[i];
+                sb.AppendLine($"  {run.Discovered.RunId}:");
+                // Group frames by focuser position; report seed/optimized counts for each.
+                var byPos = BuildPerPositionCounts(run, perRunSeed[i], perRunBest[i]);
+                sb.AppendLine($"    {"focuser",-10} {"seed",6} {"opt",6}");
+                foreach (var kvp in byPos) {
+                    sb.AppendLine($"    {kvp.Key,-10} {kvp.Value.seed,6} {kvp.Value.opt,6}");
+                }
+            }
+
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        /// <summary>
+        /// Builds a focuser-position -> (seed count, optimized count) map for one run. FrameStarCounts is in the
+        /// SAME order RunEvaluationData iterates its frames (the order they were added), so it aligns 1:1 with the
+        /// run's frame list; multiple frames at one position are summed (matches how the V-curve pools positions).
+        /// </summary>
+        private static SortedDictionary<int, (int seed, int opt)> BuildPerPositionCounts(
+            LoadedHarnessRun run, RunEvaluationResult seedResult, RunEvaluationResult bestResult) {
+            var byPos = new SortedDictionary<int, (int seed, int opt)>();
+            var frames = run.Discovered.Frames;
+            var seedCounts = seedResult.Metrics.FrameStarCounts;
+            var bestCounts = bestResult.Metrics.FrameStarCounts;
+            for (int i = 0; i < frames.Count; i++) {
+                var pos = frames[i].FocuserPosition;
+                var s = (seedCounts != null && i < seedCounts.Count) ? seedCounts[i] : 0;
+                var o = (bestCounts != null && i < bestCounts.Count) ? bestCounts[i] : 0;
+                if (byPos.TryGetValue(pos, out var cur)) {
+                    byPos[pos] = (cur.seed + s, cur.opt + o);
+                } else {
+                    byPos[pos] = (s, o);
+                }
+            }
+            return byPos;
+        }
+
+        private static void WriteCsv(
+            string path, List<LoadedHarnessRun> runs, List<RunEvaluationResult> perRunSeed, List<RunEvaluationResult> perRunBest) {
+            var sb = new StringBuilder();
+            sb.AppendLine("run,focuserPosition,seedStarCount,optimizedStarCount,frameIndex,framePath");
+            for (int i = 0; i < runs.Count; i++) {
+                var run = runs[i];
+                var frames = run.Discovered.Frames;
+                var seedCounts = perRunSeed[i].Metrics.FrameStarCounts;
+                var bestCounts = perRunBest[i].Metrics.FrameStarCounts;
+                for (int j = 0; j < frames.Count; j++) {
+                    var s = (seedCounts != null && j < seedCounts.Count) ? seedCounts[j] : 0;
+                    var o = (bestCounts != null && j < bestCounts.Count) ? bestCounts[j] : 0;
+                    sb.AppendLine(string.Join(",",
+                        Csv(run.Discovered.RunId), frames[j].FocuserPosition, s, o, j, Csv(frames[j].Path)));
+                }
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
+
+        // ---- Output: annotated PNGs ------------------------------------------------------------------------
+
+        /// <summary>
+        /// Color key for rejected candidates (BGR for OpenCV). Accepted stars are GREEN with their HFR; a real
+        /// star with NO marker at all is "missed entirely" — the whole point of drawing every rejection reason.
+        /// </summary>
+        private static readonly Scalar AcceptedColor = new Scalar(0, 255, 0);          // green
+        private static readonly (string Reason, Scalar Color)[] RejectionLegend = {
+            ("TooDistorted",   new Scalar(0, 255, 255)),   // yellow
+            ("Degenerate",     new Scalar(0, 165, 255)),   // orange
+            ("Saturated",      new Scalar(0, 0, 255)),     // red
+            ("LowSensitivity", new Scalar(255, 255, 0)),   // cyan
+            ("NotCentered",    new Scalar(255, 0, 255)),   // magenta
+            ("TooFlat",        new Scalar(255, 0, 0)),     // blue
+            ("Contaminated",   new Scalar(128, 0, 128)),   // purple
+        };
+
+        private static async Task WriteAnnotatedFrames(
+            string outDir, List<LoadedHarnessRun> runs, StarDetectorParams optimizedParams, StarDetector detector,
+            MeasurementAverageEnum measurementAverage, double highSigma, double lowSigma, bool annotateAll) {
+            foreach (var run in runs) {
+                var frames = run.Frames;
+                if (frames.Count == 0) {
+                    continue;
+                }
+                List<RunFrame> toAnnotate;
+                if (annotateAll) {
+                    toAnnotate = frames;
+                } else {
+                    // The two most-defocused extremes = min and max focuser position.
+                    var minPos = frames.OrderBy(f => f.FocuserPosition).First();
+                    var maxPos = frames.OrderByDescending(f => f.FocuserPosition).First();
+                    toAnnotate = ReferenceEquals(minPos, maxPos)
+                        ? new List<RunFrame> { minPos }
+                        : new List<RunFrame> { minPos, maxPos };
+                }
+
+                foreach (var frame in toAnnotate) {
+                    // Reuse the already-loaded float Mat (it is never mutated — detection always clones it). This
+                    // also sidesteps re-loading .xisf/.fits, which would need the profile again.
+                    var srcFloat = (Mat)frame.Image;
+                    using var detectClone = srcFloat.Clone();
+                    var result = await detector.Detect(detectClone, optimizedParams, null, CancellationToken.None).ConfigureAwait(false);
+
+                    var fileName = $"{SanitizeFileName(run.Discovered.RunId)}_Focuser{frame.FocuserPosition}_optimized.png";
+                    var outPath = Path.Combine(outDir, fileName);
+                    WriteAnnotated(outPath, srcFloat, result, measurementAverage, highSigma, lowSigma);
+                    Console.WriteLine($"  annotated {outPath} ({result.DetectedStars.Count} accepted)");
+                }
+            }
+        }
+
+        private static void WriteAnnotated(
+            string path, Mat srcFloat, HocusFocusStarDetectorResult result,
+            MeasurementAverageEnum measurementAverage, double highSigma, double lowSigma) {
+            using var bgr = BuildStretchedBgr(srcFloat);
+
+            // Rejected candidates first (so accepted markers draw on top): one color per reason.
+            var metrics = result.Metrics;
+            DrawRects(bgr, metrics?.TooDistortedBounds, RejectionLegend[0].Color);
+            DrawRects(bgr, metrics?.DegenerateBounds, RejectionLegend[1].Color);
+            DrawRects(bgr, metrics?.SaturatedBounds, RejectionLegend[2].Color);
+            DrawRects(bgr, metrics?.LowSensitivityBounds, RejectionLegend[3].Color);
+            DrawRects(bgr, metrics?.NotCenteredBounds, RejectionLegend[4].Color);
+            DrawRects(bgr, metrics?.TooFlatBounds, RejectionLegend[5].Color);
+            DrawRects(bgr, metrics?.ContaminatedBounds, RejectionLegend[6].Color);
+
+            // Accepted stars: green circle + HFR text. We mirror the production accepted set (post outlier-filter
+            // for MeanOutliers) so the markers match the counts the optimizer scored.
+            var accepted = (result.DetectedStars ?? new List<Star>());
+            if (accepted.Count > 1 && measurementAverage == MeasurementAverageEnum.MeanOutliers) {
+                var (median, mad) = accepted.Select(s => s.HFR).MedianMAD();
+                var hi = median + highSigma * mad;
+                var lo = median - lowSigma * mad;
+                accepted = accepted.Where(s => s.HFR <= hi && s.HFR >= lo).ToList();
+            }
+            foreach (var s in accepted) {
+                var center = new OpenCvSharp.Point((int)Math.Round(s.Center.X), (int)Math.Round(s.Center.Y));
+                Cv2.Circle(bgr, center, 8, AcceptedColor, 1, LineTypes.AntiAlias);
+                Cv2.PutText(bgr, s.HFR.ToString("0.0", CultureInfo.InvariantCulture),
+                    new OpenCvSharp.Point(center.X + 9, center.Y - 9), HersheyFonts.HersheySimplex, 0.35, AcceptedColor, 1, LineTypes.AntiAlias);
+            }
+
+            DrawLegend(bgr, accepted.Count);
+            Cv2.ImWrite(path, bgr);
+        }
+
+        private static void DrawRects(Mat bgr, List<Rect> rects, Scalar color) {
+            if (rects == null) {
+                return;
+            }
+            foreach (var r in rects) {
+                Cv2.Rectangle(bgr, r, color, 1, LineTypes.AntiAlias);
+            }
+        }
+
+        /// <summary>Draws a small color key (top-left) so the rejection reasons are readable on the image itself.</summary>
+        private static void DrawLegend(Mat bgr, int acceptedCount) {
+            int x = 8, y = 18, dy = 16;
+            Cv2.PutText(bgr, $"accepted ({acceptedCount})", new OpenCvSharp.Point(x, y), HersheyFonts.HersheySimplex, 0.4, AcceptedColor, 1, LineTypes.AntiAlias);
+            y += dy;
+            foreach (var (reason, color) in RejectionLegend) {
+                Cv2.PutText(bgr, reason, new OpenCvSharp.Point(x, y), HersheyFonts.HersheySimplex, 0.4, color, 1, LineTypes.AntiAlias);
+                y += dy;
+            }
+        }
+
+        // MTF-stretched BGR background for the annotated image (copied from ContaminationDiagnosticRunner so the
+        // two harnesses stay self-contained and identical in appearance).
+        private static Mat BuildStretchedBgr(Mat srcFloat) {
+            using var src16 = new Mat();
+            srcFloat.ConvertTo(src16, MatType.CV_16U, ushort.MaxValue);
+            using var stretched16 = new Mat();
+            try {
+                var stats = CvImageUtility.CalculateStatistics_Histogram(src16);
+                using var lut = CvImageUtility.CreateMTFLookup(stats);
+                CvImageUtility.ApplyLUT(src16, lut, stretched16);
+            } catch (Exception ex) {
+                Logger.Warning($"MTF stretch failed ({ex.Message}); falling back to linear normalization for the annotated image");
+                Cv2.Normalize(src16, stretched16, 0, ushort.MaxValue, NormTypes.MinMax);
+            }
+            using var stretched8 = new Mat();
+            stretched16.ConvertTo(stretched8, MatType.CV_8U, 1.0 / 256.0);
+            var bgr = new Mat();
+            Cv2.CvtColor(stretched8, bgr, ColorConversionCodes.GRAY2BGR);
+            return bgr;
+        }
+
+        // ---- Small helpers ---------------------------------------------------------------------------------
+
+        // RunIds can be nested paths (e.g. "toml999/attempt01"), so delegate to the helper's slash-aware sanitizer.
+        private static string SanitizeFileName(string name) => OptimizationRunDiscovery.SanitizeForFileName(name);
+
+        private static string Csv(string s) {
+            if (string.IsNullOrEmpty(s)) {
+                return string.Empty;
+            }
+            if (s.Contains(',') || s.Contains('"') || s.Contains('\n')) {
+                return "\"" + s.Replace("\"", "\"\"") + "\"";
+            }
+            return s;
+        }
+
+        private static string F(double v) {
+            if (double.IsNaN(v)) {
+                return "NaN";
+            }
+            return v.ToString("G6", CultureInfo.InvariantCulture);
+        }
+    }
+}

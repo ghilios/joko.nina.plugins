@@ -38,6 +38,16 @@ namespace TestApp {
             return null;
         }
 
+        /// <summary>True when the boolean flag <paramref name="name"/> appears anywhere in <paramref name="args"/>.</summary>
+        public static bool HasFlag(string[] args, string name) {
+            for (int i = 0; i < args.Length; ++i) {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         /// <summary>
         /// Loads an image file as a CV_32F Mat normalized to [0,1]. .tif/.tiff are read directly; .xisf/.fits/.fit
         /// go through NINA's loaders (which need a profile). profileService may be null for .tif-only callers.

@@ -121,6 +121,29 @@ namespace TestApp {
                 return;
             }
 
+            // Headless star-detection optimizer harness: `TestApp optimize --runs <dir> ...`
+            if (args.Length > 0 && args[0].Equals("optimize", StringComparison.OrdinalIgnoreCase)) {
+                await OptimizationDiagnosticRunner.Run(args);
+                return;
+            }
+
+            // Headless label-classification diagnostic: `TestApp diagnose-labels --runs <dir> --labels <dir> ...`.
+            // Classifies each human-labeled review box (missed/shouldReject/wronglyRejected) against a fresh
+            // detection: ACCEPTED / REJECTED:<reason> / NO CANDIDATE (structure gap).
+            if (args.Length > 0 && args[0].Equals("diagnose-labels", StringComparison.OrdinalIgnoreCase)) {
+                DiagnoseLabelsRunner.Run(args);
+                return;
+            }
+
+            // Interactive two-pass star-review labeling tool: `TestApp review --runs <dir> ...`. The runner does its
+            // async loading/detection on this thread, then constructs and shows the WPF window on a dedicated STA
+            // thread it creates internally — so it is correct regardless of this thread's apartment (an async Main
+            // can resume off the [STAThread] main thread after an await, which would otherwise crash window ctor).
+            if (args.Length > 0 && args[0].Equals("review", StringComparison.OrdinalIgnoreCase)) {
+                StarReview.StarReviewRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&

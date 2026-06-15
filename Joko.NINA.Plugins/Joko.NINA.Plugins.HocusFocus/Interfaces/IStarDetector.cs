@@ -294,6 +294,51 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // circle has distortion PI/4 which is about 0.8. Smaller values are more distorted
         public double MaxDistortion { get; set; } = 0.5;
 
+        // Opt-in (default OFF for bit-identical detection). When true, the TooDistorted gate's effective
+        // fill-ratio threshold is relaxed for LARGE candidates (proxy for large defocus): at large defocus a
+        // star becomes a donut/annulus (central-obstruction shadow) → large bbox, low fill-ratio → today's
+        // strict MaxDistortion wrongly rejects it as TooDistorted. The effective threshold is
+        //   MaxDistortion * clamp(DefocusDistortionSizeReference / candidateSize, DefocusDistortionMinFactor, 1.0)
+        // where candidateSize = max(bbox.Width, bbox.Height) (the same d the gate already uses). Candidates at or
+        // below the size reference keep the strict MaxDistortion (factor = 1.0); larger candidates get a more
+        // permissive threshold toward the MinFactor floor. See ComputeEffectiveMaxDistortion. LATE-gate param:
+        // it changes only the late TooDistorted decision, so it is excluded from the early cache key.
+        public bool DefocusAwareDistortion { get; set; } = false;
+
+        // The candidate bbox max-dimension (px) at/below which the strict MaxDistortion threshold applies (the
+        // factor is exactly 1.0). Above it the effective threshold relaxes. Only consulted when
+        // DefocusAwareDistortion is true. Default 30 px tuned on the Panos wide-range AF run (Focuser 44396
+        // donuts): at 30 the most-defocused donuts (≈36–49 px bbox) clear the distortion gate while the closest
+        // in-sweep frame's accepted count stays sane (no junk flood); lowering it toward 20 recovers the last
+        // couple of smaller donuts but inflates moderately-defocused frames.
+        public double DefocusDistortionSizeReference { get; set; } = 30.0;
+
+        // The floor multiplier on MaxDistortion for very large candidates (the most permissive the gate ever
+        // becomes). Only consulted when DefocusAwareDistortion is true. Must be in (0, 1].
+        public double DefocusDistortionMinFactor { get; set; } = 0.25;
+
+        // Opt-in (default OFF for bit-identical detection). Companion to DefocusAwareDistortion. When true, the
+        // NotCentered gate's effective StarCenterTolerance is RELAXED (the centered acceptance sub-box grows) for
+        // LARGE candidates (proxy for large defocus): a defocused donut's hollow ring makes its intensity-weighted
+        // centroid wobble away from the bbox center, so today's strict StarCenterTolerance wrongly rejects it as
+        // NotCentered even after the distortion gate admits it. The effective tolerance is
+        //   StarCenterTolerance * clamp(candidateSize / DefocusDistortionSizeReference, 1.0, DefocusCenteringToleranceFactor)
+        // clamped to <= 1.0 (the max valid tolerance, where the sub-box covers the whole bbox). candidateSize =
+        // max(bbox.Width, bbox.Height) and the SAME DefocusDistortionSizeReference defocus proxy is reused.
+        // Candidates at or below the size reference keep the strict tolerance (factor = 1.0); larger candidates get
+        // a larger (more permissive) tolerance toward DefocusCenteringToleranceFactor. See
+        // ComputeEffectiveStarCenterTolerance. LATE-gate param: it changes only the late NotCentered decision, so
+        // it is excluded from the early cache key.
+        public bool DefocusAwareCentering { get; set; } = false;
+
+        // The max multiplier applied to StarCenterTolerance for very large candidates (the most permissive the
+        // NotCentered gate ever becomes). Only consulted when DefocusAwareCentering is true. Must be >= 1.0
+        // (>1 relaxes; 1.0 is a no-op). The resulting effective tolerance is additionally clamped to <= 1.0 so it
+        // never exceeds the whole bbox. Default 2.0 tuned on the Panos wide-range AF run: doubling the centering
+        // sub-box recovers the ring-unstable donut centroids the distortion gate admits, without ballooning
+        // near-focus accepted/NotCentered counts (near-focus candidates stay <= the size reference, so factor 1.0).
+        public double DefocusCenteringToleranceFactor { get; set; } = 2.0;
+
         // Size (as a ratio) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star
         public double StarCenterTolerance { get; set; } = 0.3;
 
@@ -355,8 +400,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // This is an internal knob — it is not exposed in the options UI and is not persisted.
         public int MaxStarEvaluationParallelism { get; set; } = 0;
 
+        /// <summary>
+        /// Shallow copy of this parameter bundle. Used by the star-detection optimizer (T2) to materialize
+        /// candidate params from a seed without mutating the seed. <see cref="Region"/> is a shared reference,
+        /// which is safe because the optimizer never mutates the region — it only tunes the scalar knobs.
+        /// </summary>
+        public StarDetectorParams Clone() => (StarDetectorParams)this.MemberwiseClone();
+
         public override string ToString() {
-            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}, {nameof(MaxStarEvaluationParallelism)}={MaxStarEvaluationParallelism.ToString()}}}";
+            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(DefocusAwareDistortion)}={DefocusAwareDistortion.ToString()}, {nameof(DefocusDistortionSizeReference)}={DefocusDistortionSizeReference.ToString()}, {nameof(DefocusDistortionMinFactor)}={DefocusDistortionMinFactor.ToString()}, {nameof(DefocusAwareCentering)}={DefocusAwareCentering.ToString()}, {nameof(DefocusCenteringToleranceFactor)}={DefocusCenteringToleranceFactor.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}, {nameof(MaxStarEvaluationParallelism)}={MaxStarEvaluationParallelism.ToString()}}}";
         }
 
         // Properties intentionally EXCLUDED from the detection-result cache key (ToCanonicalCacheString). The
@@ -400,6 +452,36 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(prop => prop.CanRead && prop.GetIndexParameters().Length == 0)
                 .Where(prop => !CacheKeyExcludedProperties.Contains(prop.Name))
+                .OrderBy(prop => prop.Name, StringComparer.Ordinal);
+
+            var sb = new StringBuilder();
+            foreach (var prop in properties) {
+                sb.Append(prop.Name);
+                sb.Append('=');
+                sb.Append(FormatCacheValue(GetPropertyValueSafe(prop)));
+                sb.Append('|');
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Like <see cref="ToCanonicalCacheString()"/> but emits ONLY the properties named in
+        /// <paramref name="includedProperties"/> (an explicit ALLOW-list, sorted by name), each formatted with
+        /// <see cref="CultureInfo.InvariantCulture"/>. Used by
+        /// <see cref="StarDetection.StarDetector.ComputeEarlyCacheKey"/> to key a reusable early-stage detection
+        /// context on just the early-affecting params. Because it is an allow-list, a property that is not listed
+        /// is simply absent from the string (its value never contributes), which is exactly what makes a cache
+        /// keyed on this safe to reuse across changes to the omitted (late-only) params.
+        /// </summary>
+        public string ToCanonicalCacheString(ISet<string> includedProperties) {
+            if (includedProperties == null) {
+                throw new ArgumentNullException(nameof(includedProperties));
+            }
+
+            var properties = GetType()
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(prop => prop.CanRead && prop.GetIndexParameters().Length == 0)
+                .Where(prop => includedProperties.Contains(prop.Name))
                 .OrderBy(prop => prop.Name, StringComparer.Ordinal);
 
             var sb = new StringBuilder();
@@ -648,5 +730,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public interface IStarDetector {
 
         Task<HocusFocusStarDetectorResult> Detect(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token);
+
+        /// <summary>
+        /// EARLY phase: builds the reusable early-stage detection context for an image. Pair with
+        /// <see cref="GateAndMeasure"/>. Used by the optimizer to cache + reuse the expensive early stage across
+        /// candidate evaluations that change only late-stage params. The returned context owns its image; dispose it.
+        /// </summary>
+        Task<StarDetection.StarDetector.DetectionContext> BuildDetectionContext(IRenderedImage image, StarDetectorParams p, IProgress<ApplicationStatus> progress, CancellationToken token);
+
+        /// <summary>
+        /// LATE phase: gates + measures a context built by <see cref="BuildDetectionContext"/>, producing the same
+        /// result the monolithic <see cref="Detect"/> would for the full param bundle.
+        /// </summary>
+        HocusFocusStarDetectorResult GateAndMeasure(StarDetection.StarDetector.DetectionContext context, StarDetectorParams p, CancellationToken token);
+
+        /// <summary>Early cache key over only the early-affecting params; see
+        /// <see cref="StarDetection.StarDetector.ComputeEarlyCacheKey"/>.</summary>
+        string ComputeEarlyCacheKey(StarDetectorParams p);
     }
 }

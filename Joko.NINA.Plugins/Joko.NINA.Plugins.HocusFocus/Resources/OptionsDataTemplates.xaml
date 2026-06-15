@@ -443,6 +443,8 @@
         is measured on the image actually used for star measurement, so this value is an honest multiple of the real noise and means the same thing regardless of noise-reduction settings. The default of 2 works well; if you find a large number of rejections due to low sensitivity, smaller values increase sensitivity</TextBlock>
     <TextBlock x:Key="StarPeakResponse_Tooltip" Text="The ratio of the star median relative to the star peak. It provides a measure of flatness, since median values close to the peak indicate low dispersion. Consider increasing if too many stars are rejected with &quot;Too Flat&quot;" />
     <TextBlock x:Key="MaxDistortion_Tooltip" Text="The ratio of star pixels to the size of a perfect square bounding box. A perfect circule has a distortion of PI/4, which is approximately 0.7. The default value of 0.5 allows for some distortion and measurement error and should work for most cases." />
+    <TextBlock x:Key="DefocusAwareDistortion_Tooltip" Text="When enabled, the Max Distortion gate is relaxed for large candidates (a proxy for large defocus). At large defocus a star becomes a hollow donut (the central-obstruction shadow), giving a big bounding box with a low pixel fill-ratio that the strict Max Distortion would wrongly reject as too distorted. Small candidates (near focus) keep the strict threshold, so junk is still rejected. Off by default; enable it if you collect autofocus frames far from focus and find defocused donut stars being dropped." />
+    <TextBlock x:Key="DefocusAwareCentering_Tooltip" Text="Companion to Defocus-Aware Distortion. When enabled, the Star Center Tolerance gate is relaxed for large candidates (a proxy for large defocus). A defocused donut's hollow ring makes its intensity-weighted center wobble away from the bounding-box center, so the strict centering test would wrongly reject it as not centered even after the distortion gate admits it. Small candidates (near focus) keep the strict tolerance, so junk is still rejected. Off by default; enable it together with Defocus-Aware Distortion if defocused donut stars are still being dropped as not centered." />
     <TextBlock x:Key="StarCenterTolerance_Tooltip" Text="Size (as a percentage) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star" />
     <TextBlock x:Key="StarBackgroundBoxExpansion_Tooltip" Text="The background is estimated by looking in an area around the star bounding box, increased on each side by this number of pixels. The default value of 3 should work for most cases, but you can consider increasing it if stars are very spare, or even decreasing it if the star field is very crowded with stars less than 3 pixels from one another." />
     <TextBlock x:Key="MinStarBoundingBoxSize_Tooltip" Text="The minimum allowed size (length of either side) of a star candidate's bounding box. Increasing this can be helpful at very high focal lengths if too many small structures are detected" />
@@ -482,6 +484,8 @@
     <TextBlock x:Key="SaveIntermediatePath_Tooltip" Text="When Save Intermediate Files is enabled, they are written to this path the next time star detection runs" />
     <TextBlock x:Key="SaveIntermediateFiles_Tooltip" Text="If enabled, every step of star detection emits a debugging file to the intermediate path" />
     <TextBlock x:Key="UseAdvanced_Tooltip" Text="Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless you're an expert" />
+    <TextBlock x:Key="OptimizeStarDetection_Tooltip" Text="Opens the Star Detection Optimization Wizard, which tunes star detection against one or more saved auto-focus runs and (optionally) applies the result as your Simple-Mode settings" />
+    <TextBlock x:Key="UseOptimizedSettings_Tooltip" Text="When enabled, the optimized star-detection settings produced by the optimization wizard drive detection instead of the Noise Level / Pixel Scale / Focus Range presets. Only available in Simple Mode after the wizard has produced and applied a result" />
     <TextBlock x:Key="ModelPSF_Tooltip" Text="Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity" />
     <TextBlock x:Key="PSFFitType_Tooltip" Text="What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight" />
     <TextBlock x:Key="PSFResolution_Tooltip" Text="The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting. Higher resolution may be more accurate, but takes longer to calculate" />
@@ -915,6 +919,32 @@
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
+                <!--  Simple-Mode preset rows, hidden once optimized settings are driving detection.  -->
+                <Style x:Key="ShowOnUseSimpleNotOptimized" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="0" />
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="False" />
+                                <Condition Binding="{Binding StarDetectionOptions.UseOptimizedSettings}" Value="False" />
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Height" Value="Auto" />
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
+                <!--  "Use Optimized Settings" toggle: Simple Mode, and only when the wizard has produced a result.  -->
+                <Style x:Key="ShowOnSimpleHasOptimized" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="0" />
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="False" />
+                                <Condition Binding="{Binding StarDetectionOptions.HasOptimizedSettings}" Value="True" />
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Height" Value="Auto" />
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
                 <Style x:Key="ShowOnUseHotpixelThresholding_Advanced" TargetType="{x:Type RowDefinition}">
                     <Setter Property="Height" Value="0" />
                     <Style.Triggers>
@@ -943,10 +973,10 @@
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition />
-                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
-                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
-                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
-                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnSimpleHasOptimized}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
                 <RowDefinition />
@@ -989,7 +1019,9 @@
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
                 <RowDefinition />
-                <RowDefinition />
+                <!--  41: Defocus-Aware Distortion (advanced-only); 42: Defocus-Aware Centering (advanced-only)  -->
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -1078,6 +1110,37 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
+
+            <!--  Simple-Mode toggle: drive detection from the wizard's optimized settings. Shown only in Simple Mode once optimized settings exist (!UseAdvanced && HasOptimizedSettings).  -->
+            <TextBlock
+                Grid.Row="4"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Use Optimized Settings"
+                ToolTip="{StaticResource UseOptimizedSettings_Tooltip}">
+                <TextBlock.Visibility>
+                    <MultiBinding Converter="{StaticResource HF_MultiBooleanToVisibilityCollapsedConverter}">
+                        <Binding Converter="{StaticResource HF_InverseBooleanConverter}" Path="StarDetectionOptions.UseAdvanced" />
+                        <Binding Path="StarDetectionOptions.HasOptimizedSettings" />
+                    </MultiBinding>
+                </TextBlock.Visibility>
+            </TextBlock>
+            <CheckBox
+                Grid.Row="4"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.UseOptimizedSettings}"
+                ToolTip="{StaticResource UseOptimizedSettings_Tooltip}">
+                <CheckBox.Visibility>
+                    <MultiBinding Converter="{StaticResource HF_MultiBooleanToVisibilityCollapsedConverter}">
+                        <Binding Converter="{StaticResource HF_InverseBooleanConverter}" Path="StarDetectionOptions.UseAdvanced" />
+                        <Binding Path="StarDetectionOptions.HasOptimizedSettings" />
+                    </MultiBinding>
+                </CheckBox.Visibility>
+            </CheckBox>
 
             <TextBlock
                 Grid.Row="7"
@@ -1361,6 +1424,38 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="41"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Defocus-Aware Distortion"
+                ToolTip="{StaticResource DefocusAwareDistortion_Tooltip}" />
+            <CheckBox
+                Grid.Row="41"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.DefocusAwareDistortion}"
+                ToolTip="{StaticResource DefocusAwareDistortion_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="42"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Defocus-Aware Centering"
+                ToolTip="{StaticResource DefocusAwareCentering_Tooltip}" />
+            <CheckBox
+                Grid.Row="42"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.DefocusAwareCentering}"
+                ToolTip="{StaticResource DefocusAwareCentering_Tooltip}" />
 
             <TextBlock
                 Grid.Row="19"

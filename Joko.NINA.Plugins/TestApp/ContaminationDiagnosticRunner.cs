@@ -131,6 +131,42 @@ namespace TestApp {
                 baseParams.ContaminationSensitivity = sensitivityOverride.Value;
             }
 
+            // Opt-in defocus-aware distortion test switch (for the near-focus precision check). Flips the flag ON
+            // and optionally overrides the two tuning knobs; prints accepted + TooDistorted before/after so the
+            // gate's effect on a single frame is visible without labels.
+            if (DiagnosticUtil.HasFlag(args, "--defocus-distortion")) {
+                baseParams.DefocusAwareDistortion = true;
+                var sizeRefArg = DiagnosticUtil.GetArg(args, "--defocus-size-ref");
+                if (!string.IsNullOrWhiteSpace(sizeRefArg) && double.TryParse(sizeRefArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var sizeRef)) {
+                    baseParams.DefocusDistortionSizeReference = sizeRef;
+                }
+                var minFactorArg = DiagnosticUtil.GetArg(args, "--defocus-min-factor");
+                if (!string.IsNullOrWhiteSpace(minFactorArg) && double.TryParse(minFactorArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var minFactor)) {
+                    baseParams.DefocusDistortionMinFactor = minFactor;
+                }
+                Console.WriteLine($"DefocusAwareDistortion=ON (SizeReference={baseParams.DefocusDistortionSizeReference.ToString(CultureInfo.InvariantCulture)} px, MinFactor={baseParams.DefocusDistortionMinFactor.ToString(CultureInfo.InvariantCulture)})");
+            } else {
+                Console.WriteLine("DefocusAwareDistortion=OFF");
+            }
+
+            // Companion defocus-aware CENTERING test switch (relaxes the NotCentered gate for large/defocused
+            // candidates). Shares the size reference with the distortion gate; optional --defocus-center-factor
+            // overrides the max centering-tolerance multiplier.
+            if (DiagnosticUtil.HasFlag(args, "--defocus-centering")) {
+                baseParams.DefocusAwareCentering = true;
+                var sizeRefArg = DiagnosticUtil.GetArg(args, "--defocus-size-ref");
+                if (!string.IsNullOrWhiteSpace(sizeRefArg) && double.TryParse(sizeRefArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var sizeRef)) {
+                    baseParams.DefocusDistortionSizeReference = sizeRef;
+                }
+                var centerFactorArg = DiagnosticUtil.GetArg(args, "--defocus-center-factor");
+                if (!string.IsNullOrWhiteSpace(centerFactorArg) && double.TryParse(centerFactorArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var centerFactor)) {
+                    baseParams.DefocusCenteringToleranceFactor = centerFactor;
+                }
+                Console.WriteLine($"DefocusAwareCentering=ON (SizeReference={baseParams.DefocusDistortionSizeReference.ToString(CultureInfo.InvariantCulture)} px, ToleranceFactor={baseParams.DefocusCenteringToleranceFactor.ToString(CultureInfo.InvariantCulture)})");
+            } else {
+                Console.WriteLine("DefocusAwareCentering=OFF");
+            }
+
             // Load the original image once (CV_32F, normalized [0,1]). Detection mutates its input in place,
             // so each run gets a clone and the original is kept for the annotated background.
             using var srcFloat = await DiagnosticUtil.LoadFloatMat(imagePath, profileService);
@@ -149,6 +185,7 @@ namespace TestApp {
             int total = result.DetectedStars.Count;
             int suspected = result.Metrics.ContaminationSuspected;
             Console.WriteLine($"Detected {total}, {suspected} contamination-suspected ({Percent(suspected, total)})");
+            Console.WriteLine($"PRECISION-CHECK accepted={total}, TooDistorted={result.Metrics.TooDistorted}, NotCentered={result.Metrics.NotCentered}, TooSmall={result.Metrics.TooSmall}");
 
             var shapes = BuildShapeLookup(result, diagnostics);
             WriteCsv(Path.Combine(outDir, "contamination_stars.csv"), diagnostics, shapes);

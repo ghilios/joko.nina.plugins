@@ -61,6 +61,222 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         // -----------------------------------------------------------------------
+        // ComputeEffectiveMaxDistortion (defocus-aware distortion gate) tests
+        // -----------------------------------------------------------------------
+
+        private static StarDetectorParams DistortionParams(bool defocusAware, double maxDistortion = 0.5,
+            double sizeReference = 20.0, double minFactor = 0.25) => new StarDetectorParams {
+            MaxDistortion = maxDistortion,
+            DefocusAwareDistortion = defocusAware,
+            DefocusDistortionSizeReference = sizeReference,
+            DefocusDistortionMinFactor = minFactor,
+        };
+
+        [Test]
+        public void EffectiveMaxDistortion_FlagOff_AlwaysReturnsMaxDistortion_BitIdentical() {
+            // With the flag OFF the gate must be byte-for-byte the legacy gate: MaxDistortion exactly, for every
+            // candidate size, regardless of the (ignored) tuning knobs.
+            var p = DistortionParams(defocusAware: false, maxDistortion: 0.5);
+            Assert.Multiple(() => {
+                foreach (var size in new[] { 1.0, 5.0, 20.0, 50.0, 200.0, 1000.0 }) {
+                    Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, size), Is.EqualTo(0.5),
+                        $"flag OFF must return MaxDistortion verbatim at size {size}");
+                }
+            });
+        }
+
+        [Test]
+        public void EffectiveMaxDistortion_FlagOn_SmallCandidate_StaysStrict() {
+            // Candidates at or below the size reference keep the strict threshold (factor clamped to 1.0).
+            var p = DistortionParams(defocusAware: true, maxDistortion: 0.5, sizeReference: 20.0, minFactor: 0.25);
+            Assert.Multiple(() => {
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 5.0), Is.EqualTo(0.5).Within(1e-12),
+                    "well below the reference ⇒ strict");
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 20.0), Is.EqualTo(0.5).Within(1e-12),
+                    "exactly at the reference ⇒ strict (factor = 1.0)");
+            });
+        }
+
+        [Test]
+        public void EffectiveMaxDistortion_FlagOn_LargeCandidate_RelaxesTowardFloor() {
+            // Larger candidates get a more permissive threshold = MaxDistortion · (sizeReference / candidateSize),
+            // floored at MinFactor · MaxDistortion.
+            var p = DistortionParams(defocusAware: true, maxDistortion: 0.5, sizeReference: 20.0, minFactor: 0.25);
+            Assert.Multiple(() => {
+                // size 40 ⇒ factor 0.5 ⇒ 0.25
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 40.0), Is.EqualTo(0.25).Within(1e-12));
+                // size 25 ⇒ factor 0.8 ⇒ 0.4
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 25.0), Is.EqualTo(0.4).Within(1e-12));
+                // size 1000 ⇒ raw factor 0.02, clamped up to minFactor 0.25 ⇒ 0.125
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 1000.0), Is.EqualTo(0.5 * 0.25).Within(1e-12),
+                    "very large candidates floor at MinFactor · MaxDistortion");
+            });
+        }
+
+        [Test]
+        public void EffectiveMaxDistortion_LargeLowFill_PassesOnButRejectsOff_SmallLowFillRejectsBoth() {
+            // The core behavioral contract the production gate uses (fillRatio < effectiveMaxDistortion ⇒ reject):
+            //  - a LARGE low-fill candidate (donut) passes when ON, rejects when OFF;
+            //  - a SMALL low-fill candidate rejects in BOTH cases (strict at small size).
+            const double maxDistortion = 0.5;
+            var on = DistortionParams(defocusAware: true, maxDistortion: maxDistortion, sizeReference: 20.0, minFactor: 0.25);
+            var off = DistortionParams(defocusAware: false, maxDistortion: maxDistortion);
+
+            // Donut: bbox max-dim 60px, annulus fills ~30% of the bbox² ⇒ fillRatio 0.30.
+            const double largeSize = 60.0;
+            const double largeFillRatio = 0.30;
+            bool LargeRejected(StarDetectorParams pp) => largeFillRatio < StarDetector.ComputeEffectiveMaxDistortion(pp, largeSize);
+
+            // Small junk: bbox max-dim 8px, same low fill ⇒ should stay rejected even with the relaxed gate.
+            const double smallSize = 8.0;
+            const double smallFillRatio = 0.30;
+            bool SmallRejected(StarDetectorParams pp) => smallFillRatio < StarDetector.ComputeEffectiveMaxDistortion(pp, smallSize);
+
+            Assert.Multiple(() => {
+                Assert.That(LargeRejected(off), Is.True, "large low-fill donut is rejected with the flag OFF (legacy)");
+                Assert.That(LargeRejected(on), Is.False, "large low-fill donut survives with the flag ON");
+                Assert.That(SmallRejected(off), Is.True, "small low-fill junk is rejected OFF");
+                Assert.That(SmallRejected(on), Is.True, "small low-fill junk is STILL rejected ON (strict at small size)");
+            });
+        }
+
+        [Test]
+        public void EffectiveMaxDistortion_DegenerateSizes_FallBackToStrict() {
+            var p = DistortionParams(defocusAware: true, maxDistortion: 0.5, sizeReference: 20.0, minFactor: 0.25);
+            Assert.Multiple(() => {
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 0.0), Is.EqualTo(0.5),
+                    "zero candidate size ⇒ strict fallback (no relaxation)");
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, -3.0), Is.EqualTo(0.5),
+                    "negative candidate size ⇒ strict fallback");
+                var pZeroRef = DistortionParams(defocusAware: true, sizeReference: 0.0);
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(pZeroRef, 100.0), Is.EqualTo(0.5),
+                    "zero size reference ⇒ strict fallback");
+            });
+        }
+
+        // -----------------------------------------------------------------------
+        // ComputeEffectiveStarCenterTolerance (defocus-aware NotCentered gate) tests
+        // -----------------------------------------------------------------------
+
+        [Test]
+        public void EffectiveStarCenterTolerance_FlagOff_AlwaysReturnsBaseTolerance_BitIdentical() {
+            // The production gate only calls this helper when DefocusAwareCentering is true; with the flag OFF the
+            // gate uses p.StarCenterTolerance verbatim. To prove the helper itself never tightens/relaxes when its
+            // own preconditions are not met, maxFactor <= 1.0 (which a flag-off path effectively means: no relax)
+            // must return the base tolerance byte-for-byte at every size.
+            Assert.Multiple(() => {
+                foreach (var size in new[] { 1.0, 5.0, 30.0, 60.0, 200.0, 1000.0 }) {
+                    Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, size, sizeReference: 30.0, maxFactor: 1.0),
+                        Is.EqualTo(0.3), $"maxFactor 1.0 (no-op) must return base tolerance verbatim at size {size}");
+                }
+            });
+        }
+
+        [Test]
+        public void EffectiveStarCenterTolerance_SmallCandidate_StaysStrict() {
+            // Candidates at or below the size reference keep the strict tolerance (factor clamped to 1.0).
+            Assert.Multiple(() => {
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, 5.0, sizeReference: 30.0, maxFactor: 2.0),
+                    Is.EqualTo(0.3).Within(1e-12), "well below the reference ⇒ strict");
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, 30.0, sizeReference: 30.0, maxFactor: 2.0),
+                    Is.EqualTo(0.3).Within(1e-12), "exactly at the reference ⇒ strict (factor = 1.0)");
+            });
+        }
+
+        [Test]
+        public void EffectiveStarCenterTolerance_LargeCandidate_RelaxesTowardCeiling() {
+            // Larger candidates get a more permissive (larger) tolerance = base · (candidateSize / sizeReference),
+            // capped at base · maxFactor, then clamped to <= 1.0.
+            Assert.Multiple(() => {
+                // size 45 ⇒ factor 1.5 ⇒ 0.3 * 1.5 = 0.45
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, 45.0, sizeReference: 30.0, maxFactor: 2.0),
+                    Is.EqualTo(0.45).Within(1e-12));
+                // size 60 ⇒ raw factor 2.0 = maxFactor ⇒ 0.3 * 2.0 = 0.6
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, 60.0, sizeReference: 30.0, maxFactor: 2.0),
+                    Is.EqualTo(0.6).Within(1e-12));
+                // size 1000 ⇒ raw factor 33.3, clamped DOWN to maxFactor 2.0 ⇒ 0.6 (the ceiling)
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, 1000.0, sizeReference: 30.0, maxFactor: 2.0),
+                    Is.EqualTo(0.6).Within(1e-12), "very large candidates cap at base · maxFactor");
+            });
+        }
+
+        [Test]
+        public void EffectiveStarCenterTolerance_NeverExceedsOne_ClampedToValidRange() {
+            // The tolerance is a ratio of the bbox; the gate's valid max is 1.0 (sub-box == whole bbox). Even with a
+            // large base tolerance and a large multiplier the effective value must never exceed 1.0.
+            Assert.Multiple(() => {
+                // base 0.8 * factor 2.0 = 1.6 ⇒ clamped to 1.0
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.8, 100.0, sizeReference: 30.0, maxFactor: 2.0),
+                    Is.EqualTo(1.0).Within(1e-12), "1.6 clamped down to the 1.0 ceiling");
+                // base 0.6 * factor 2.0 = 1.2 ⇒ clamped to 1.0
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.6, 60.0, sizeReference: 30.0, maxFactor: 2.0),
+                    Is.EqualTo(1.0).Within(1e-12), "1.2 clamped down to the 1.0 ceiling");
+                // base 0.4 * factor 2.0 = 0.8 ⇒ within range, unchanged
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.4, 60.0, sizeReference: 30.0, maxFactor: 2.0),
+                    Is.EqualTo(0.8).Within(1e-12), "0.8 is in range, not clamped");
+            });
+        }
+
+        [Test]
+        public void EffectiveStarCenterTolerance_DegenerateInputs_FallBackToStrict() {
+            Assert.Multiple(() => {
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, 0.0, sizeReference: 30.0, maxFactor: 2.0),
+                    Is.EqualTo(0.3), "zero candidate size ⇒ strict fallback (no relaxation)");
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, -3.0, sizeReference: 30.0, maxFactor: 2.0),
+                    Is.EqualTo(0.3), "negative candidate size ⇒ strict fallback");
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, 100.0, sizeReference: 0.0, maxFactor: 2.0),
+                    Is.EqualTo(0.3), "zero size reference ⇒ strict fallback");
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, 100.0, sizeReference: 30.0, maxFactor: 1.0),
+                    Is.EqualTo(0.3), "maxFactor 1.0 ⇒ no-op (strict)");
+                Assert.That(StarDetector.ComputeEffectiveStarCenterTolerance(0.3, 100.0, sizeReference: 30.0, maxFactor: 0.5),
+                    Is.EqualTo(0.3), "maxFactor < 1.0 must NOT tighten the gate ⇒ strict fallback");
+            });
+        }
+
+        [Test]
+        public void EffectiveStarCenterTolerance_LargeOffCenter_PassesOnButFailsOff_SmallOffCenterFailsBoth() {
+            // Replicates the production NotCentered decision (StarDetector.IsStarCentered): a centroid passes iff it
+            // lies inside the centered acceptance sub-box of size (tolerance · bbox) about the bbox center. Equivalent
+            // 1-D condition for a coordinate at fractional offset f from the bbox-center (f in [0, 0.5], where 0.5 is
+            // the bbox edge): the candidate is centered iff f <= tolerance / 2.
+            //
+            //  - a LARGE off-center centroid (defocused donut: big bbox, centroid pushed toward the ring) passes when
+            //    the relaxed (ON) tolerance is used, fails under the strict (OFF) tolerance;
+            //  - a SMALL off-center centroid (junk) fails under BOTH (strict at small size, no relaxation).
+            const double baseTolerance = 0.3;     // strict acceptance sub-box half-extent = 0.15 of the bbox
+            const double sizeReference = 30.0;
+            const double maxFactor = 2.0;         // ON ceiling: effective tolerance up to 0.6 (half-extent 0.30)
+
+            // A donut centroid offset by 0.20 of the bbox from center: outside the strict 0.15 band, inside the
+            // relaxed 0.30 band (at the large size the factor hits the 2.0 ceiling ⇒ tolerance 0.6 ⇒ band 0.30).
+            const double largeSize = 60.0;
+            const double centroidOffsetFraction = 0.20;
+            bool LargeCentered(bool defocusAware) {
+                var tol = defocusAware
+                    ? StarDetector.ComputeEffectiveStarCenterTolerance(baseTolerance, largeSize, sizeReference, maxFactor)
+                    : baseTolerance;
+                return centroidOffsetFraction <= tol / 2.0;
+            }
+
+            // Small junk at the SAME fractional offset: at/below the size reference the tolerance never relaxes, so it
+            // stays rejected even with the flag ON.
+            const double smallSize = 8.0;
+            bool SmallCentered(bool defocusAware) {
+                var tol = defocusAware
+                    ? StarDetector.ComputeEffectiveStarCenterTolerance(baseTolerance, smallSize, sizeReference, maxFactor)
+                    : baseTolerance;
+                return centroidOffsetFraction <= tol / 2.0;
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(LargeCentered(defocusAware: false), Is.False, "large off-center donut is NotCentered with the flag OFF (legacy)");
+                Assert.That(LargeCentered(defocusAware: true), Is.True, "large off-center donut is admitted with the flag ON");
+                Assert.That(SmallCentered(defocusAware: false), Is.False, "small off-center junk is NotCentered OFF");
+                Assert.That(SmallCentered(defocusAware: true), Is.False, "small off-center junk is STILL NotCentered ON (strict at small size)");
+            });
+        }
+
+        // -----------------------------------------------------------------------
         // ComputeIterativeCentroid tests
         // -----------------------------------------------------------------------
 

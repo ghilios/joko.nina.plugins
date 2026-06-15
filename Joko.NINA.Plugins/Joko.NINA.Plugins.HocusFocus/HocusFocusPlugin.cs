@@ -14,11 +14,14 @@ using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Properties;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Core.Utility;
+using NINA.Core.Utility.WindowService;
 using NINA.Plugin;
 using NINA.Plugin.Interfaces;
 using NINA.Profile.Interfaces;
 using System.ComponentModel.Composition;
+using System.Windows;
 using System.Windows.Input;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Core.Interfaces;
@@ -27,17 +30,32 @@ using NINA.Image.Interfaces;
 using System.Reflection;
 using System.IO;
 using System;
+using System.Linq;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using System.Threading.Tasks;
 using NINA.WPF.Base.Interfaces.Mediator;
-using NINA.Core.Model;
 using NINA.WPF.Base.Interfaces.ViewModel;
+using NINA.Core.Model;
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 
 namespace NINA.Joko.Plugins.HocusFocus {
 
     [Export(typeof(IPluginManifest))]
     public class HocusFocusPlugin : PluginBase {
+
+        // Collaborators captured for the on-demand Star Detection Optimization Wizard (T5). The wizard is created
+        // lazily when the user clicks "Optimize Star Detection…", well after MEF composition, so these are safe to
+        // reuse for building its RunEvaluationLoader + detector.
+        private readonly IProfileService profileService;
+        private readonly IFocuserMediator focuserMediator;
+        private readonly IImagingMediator imagingMediator;
+        private readonly IImageDataFactory imageDataFactory;
+        private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
+
+        // WindowServiceFactory is not a MEF export (NINA exposes the concrete type with a default ctor only), so it
+        // is instantiated directly here, mirroring RunAberrationInspector.
+        private readonly IWindowServiceFactory windowServiceFactory = new WindowServiceFactory();
 
         [ImportingConstructor]
         public HocusFocusPlugin(
@@ -52,6 +70,11 @@ namespace NINA.Joko.Plugins.HocusFocus {
             IOptionsVM options,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector) {
+            this.profileService = profileService;
+            this.focuserMediator = focuserMediator;
+            this.imagingMediator = imagingMediator;
+            this.imageDataFactory = imageDataFactory;
+            this.starDetectionSelector = starDetectionSelector;
             if (Settings.Default.UpdateSettings) {
                 Settings.Default.Upgrade();
                 Settings.Default.UpdateSettings = false;
@@ -109,6 +132,56 @@ namespace NINA.Joko.Plugins.HocusFocus {
             ResetAutoFocusDefaultsCommand = new RelayCommand(AutoFocusOptions.ResetDefaults);
             ChooseIntermediatePathDiagCommand = new RelayCommand(ChooseIntermediatePathDiag);
             ChooseSavePathDiagCommand = new RelayCommand(ChooseSavePathDiag);
+            OptimizeStarDetectionCommand = new RelayCommand(OptimizeStarDetection);
+        }
+
+        /// <summary>
+        /// Builds the Star Detection Optimization Wizard with its real collaborators and shows it as a modal dialog.
+        /// The window resolves the wizard's content from the keyed DataTemplate (exported as a ResourceDictionary by
+        /// StarDetection/Optimization/DataTemplates.xaml). The VM is disposed when the window closes.
+        /// </summary>
+        private void OptimizeStarDetection() {
+            var autoFocusEngine = AutoFocusEngineFactory.Create();
+
+            // Reuse the MEF-composed HocusFocus detector when present (no new manifest import needed). Fall back to a
+            // fresh instance — the loader's detection path (GetStarDetectorParams + Detect) does not use
+            // ImageStatisticsVM, so a null is safe here.
+            var detection = starDetectionSelector?.Behaviors?.OfType<IHocusFocusStarDetection>().FirstOrDefault()
+                ?? new HocusFocusStarDetection(
+                    null,
+                    profileService,
+                    focuserMediator,
+                    StarDetectionOptions,
+                    AlglibAPI);
+
+            var vm = new StarDetectionOptimizerWizardVM(
+                profileService,
+                imageDataFactory,
+                imagingMediator,
+                autoFocusEngine,
+                detection);
+
+            var windowService = windowServiceFactory.Create();
+
+            // The VM's Close button asks the host to dismiss the dialog.
+            void onRequestClose(object s, EventArgs e) {
+                _ = windowService.Close();
+            }
+
+            // Tear down the VM (cancellation-token source) once the window is dismissed. OnClosed fires whether the
+            // user closes the window or the VM's Close command closes it.
+            EventHandler onClosed = null;
+            onClosed = (s, e) => {
+                windowService.OnClosed -= onClosed;
+                vm.RequestClose -= onRequestClose;
+                vm.Dispose();
+            };
+            windowService.OnClosed += onClosed;
+            vm.RequestClose += onRequestClose;
+
+            // NINA's WindowService marshals window creation onto the application dispatcher internally; this is the
+            // standard way NINA plugins show a modal dialog (the content is resolved from the keyed DataTemplate).
+            windowService.ShowDialog(vm, "Optimize Star Detection", ResizeMode.CanResize, WindowStyle.SingleBorderWindow);
         }
 
         private void ChooseIntermediatePathDiag() {
@@ -173,5 +246,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public ICommand ChooseIntermediatePathDiagCommand { get; private set; }
 
         public ICommand ChooseSavePathDiagCommand { get; private set; }
+
+        public ICommand OptimizeStarDetectionCommand { get; private set; }
     }
 }
