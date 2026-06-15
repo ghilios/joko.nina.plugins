@@ -72,3 +72,47 @@ Early/late split + per-frame early-context cache + bounded parallel per-frame de
 
 Net **~10–13×**. The earlier logging quick-win is result-neutral but gave **no measurable speedup**
 (NINA `Logger` is buffered; detection compute dominates).
+
+## F2 — Precision validation of the defocus-aware gates (follow-up T10)
+
+`TestApp diagnose-labels` on **Panos** (the only setup with ground-truth labels; `attempt01.json` covers two
+labeled frames — a near-focus frame @ focuser **32396** and a heavily-defocused donut frame @ **44396**), with
+the combined defocus gate via `--defocus-distortion --defocus-centering` at `--defocus-size-ref` 30 (the
+production default) and 20. 14 labeled boxes (5 `missed`, 9 `wronglyRejected`).
+
+| Metric | Baseline (gate OFF) | size-ref 30 | size-ref 20 |
+|---|---|---|---|
+| `wronglyRejected` donuts no longer killed by `TooDistorted` | 0 / 9 | **7 / 9** | **9 / 9** |
+| …of those, end-to-end **ACCEPTED** | 0 | **4** | **4** |
+| …distortion-passed but then **`LowSensitivity`** (dim) | 0 | 3 | 5 |
+| `missed` boxes recovered (ACCEPTED) | 0 / 5 | **1 / 5** | **1 / 5** |
+| `missed` still **NO CANDIDATE** (structure gap) | 4 | 4 | 4 |
+| Defocused frame @44396 accepted-star count | **6** | **10** (+4 real donuts) | **10** |
+| **Near-focus frame @32396 accepted-star count** | **283** | **283** | **283** |
+
+### Findings
+
+- **Zero near-focus cost — proven, not just asserted.** The near-focus frame @32396 detects **283 accepted
+  stars identically** with the gate OFF, at sr=30, and at sr=20. The relaxation factor is `clamp(sizeRef/size,
+  minFactor, 1)`, which is exactly **1.0 for any candidate ≤ size-ref**, so small sharp near-focus stars are
+  never relaxed — near-focus detection stays **bit-identical**.
+- **Relaxing distortion does not flood.** On the donut frame the accepted count rises only **6 → 10**, and the
+  4 new accepts are exactly labeled **real** donuts. The remaining distortion-passed donuts are dim and are
+  caught by the **`LowSensitivity`** gate (3 at sr=30, 5 at sr=20) — the other gates backstop, so the
+  distortion relaxation alone admits no junk en masse here.
+- **Lowering size-ref below ~30 doesn't add end-to-end recall.** sr=20 lets all 9 wrongly-rejected donuts
+  clear the distortion gate (vs 7/9 at sr=30), but the extra two then hit `LowSensitivity`, so the end-to-end
+  ACCEPTED set is the **same 4** at sr=20 and sr=30. Below ~30 the limiter shifts from distortion to the
+  **sensitivity** gate, not to more accepted stars. ⇒ **Recommended safe default size-ref = 30 (unchanged).**
+- **4 / 5 `missed` boxes are `NO CANDIDATE`** (no candidate ever forms) at every size-ref — a structure-detection
+  gap that gate relaxation cannot fix (the T13 spike).
+
+### Implication for F3 (the objective precision penalty)
+
+The gate **on its own** is safe: it is size-scaled (no near-focus effect) and the remaining gates backstop dim
+junk, so it does not flood. The residual precision risk is only that the **optimizer**, if the gate is added
+to its curated set, could *couple* the relaxed distortion with a **lowered sensitivity** threshold to chase the
+`LowSensitivity`-rejected donuts — which together could admit junk on defocused frames. A precision /
+false-positive penalty term in `OptimizationObjective` therefore remains a prudent **guardrail before** adding
+the gate (and/or size-ref) to the optimizer's search — milder than the original "floods near-focus" fear, but
+still warranted.
