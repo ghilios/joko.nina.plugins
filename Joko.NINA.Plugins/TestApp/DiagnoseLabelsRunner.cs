@@ -159,9 +159,31 @@ namespace TestApp {
             var firstFramePath = discovered[0].Frames.FirstOrDefault()?.Path;
             var firstRunFolder = string.IsNullOrEmpty(firstFramePath) ? null : Path.GetDirectoryName(firstFramePath);
             var detectionParams = StarReviewRunner.BuildDetectionParams(starDetectionOptions, activeProfile, useOptimized, optResultsDir, firstRunFolder);
+
+            // Opt-in defocus-aware distortion test switch. Flips DefocusAwareDistortion ON on the freshly built
+            // params (least-invasive: does not touch the profile). Optional --defocus-size-ref / --defocus-min-factor
+            // override the two tuning knobs (otherwise the StarDetectorParams class defaults 20.0 px / 0.25 apply).
+            // This lets a single `--params current` baseline run be re-run with the gate ON to measure the delta.
+            if (DiagnosticUtil.HasFlag(args, "--defocus-distortion")) {
+                detectionParams.DefocusAwareDistortion = true;
+                var sizeRefArg = DiagnosticUtil.GetArg(args, "--defocus-size-ref");
+                if (!string.IsNullOrWhiteSpace(sizeRefArg) && double.TryParse(sizeRefArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var sizeRef)) {
+                    detectionParams.DefocusDistortionSizeReference = sizeRef;
+                }
+                var minFactorArg = DiagnosticUtil.GetArg(args, "--defocus-min-factor");
+                if (!string.IsNullOrWhiteSpace(minFactorArg) && double.TryParse(minFactorArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var minFactor)) {
+                    detectionParams.DefocusDistortionMinFactor = minFactor;
+                }
+            }
+
             Line($"Detection params: Sensitivity={detectionParams.Sensitivity.ToString("G6", CultureInfo.InvariantCulture)}, " +
                 $"StructureLayers={detectionParams.StructureLayers}, MaxDistortion={detectionParams.MaxDistortion.ToString("G6", CultureInfo.InvariantCulture)}, " +
                 $"PixelScale={detectionParams.PixelScale.ToString("G6", CultureInfo.InvariantCulture)}, RejectContaminated={detectionParams.RejectContaminatedStars}");
+            Line($"DefocusAwareDistortion={detectionParams.DefocusAwareDistortion}" +
+                (detectionParams.DefocusAwareDistortion
+                    ? $" (SizeReference={detectionParams.DefocusDistortionSizeReference.ToString("G6", CultureInfo.InvariantCulture)} px, " +
+                      $"MinFactor={detectionParams.DefocusDistortionMinFactor.ToString("G6", CultureInfo.InvariantCulture)})"
+                    : ""));
             Line();
 
             var detector = new StarDetector(new AlglibAPI());
@@ -385,6 +407,9 @@ namespace TestApp {
             Console.Error.WriteLine("  --opt-results (optional) folder holding optimized_settings.json (the optimizer's --out subdir).");
             Console.Error.WriteLine("  --profile-id  (default active) NINA profile id to load.");
             Console.Error.WriteLine("  --out         (default a temp dir) where diagnose_labels.txt is written.");
+            Console.Error.WriteLine("  --defocus-distortion        (opt-in test switch) flips DefocusAwareDistortion ON on the built params.");
+            Console.Error.WriteLine("  --defocus-size-ref <px>     (with --defocus-distortion) override the strict-below size reference (default 20).");
+            Console.Error.WriteLine("  --defocus-min-factor <0..1> (with --defocus-distortion) override the floor multiplier on MaxDistortion (default 0.25).");
         }
 
         // ---- Run / frame discovery (mirrors StarReviewRunner / OptimizationDiagnosticRunner) ----------------

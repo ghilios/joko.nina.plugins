@@ -294,6 +294,29 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // circle has distortion PI/4 which is about 0.8. Smaller values are more distorted
         public double MaxDistortion { get; set; } = 0.5;
 
+        // Opt-in (default OFF for bit-identical detection). When true, the TooDistorted gate's effective
+        // fill-ratio threshold is relaxed for LARGE candidates (proxy for large defocus): at large defocus a
+        // star becomes a donut/annulus (central-obstruction shadow) → large bbox, low fill-ratio → today's
+        // strict MaxDistortion wrongly rejects it as TooDistorted. The effective threshold is
+        //   MaxDistortion * clamp(DefocusDistortionSizeReference / candidateSize, DefocusDistortionMinFactor, 1.0)
+        // where candidateSize = max(bbox.Width, bbox.Height) (the same d the gate already uses). Candidates at or
+        // below the size reference keep the strict MaxDistortion (factor = 1.0); larger candidates get a more
+        // permissive threshold toward the MinFactor floor. See ComputeEffectiveMaxDistortion. LATE-gate param:
+        // it changes only the late TooDistorted decision, so it is excluded from the early cache key.
+        public bool DefocusAwareDistortion { get; set; } = false;
+
+        // The candidate bbox max-dimension (px) at/below which the strict MaxDistortion threshold applies (the
+        // factor is exactly 1.0). Above it the effective threshold relaxes. Only consulted when
+        // DefocusAwareDistortion is true. Default 30 px tuned on the Panos wide-range AF run (Focuser 44396
+        // donuts): at 30 the most-defocused donuts (≈36–49 px bbox) clear the distortion gate while the closest
+        // in-sweep frame's accepted count stays sane (no junk flood); lowering it toward 20 recovers the last
+        // couple of smaller donuts but inflates moderately-defocused frames.
+        public double DefocusDistortionSizeReference { get; set; } = 30.0;
+
+        // The floor multiplier on MaxDistortion for very large candidates (the most permissive the gate ever
+        // becomes). Only consulted when DefocusAwareDistortion is true. Must be in (0, 1].
+        public double DefocusDistortionMinFactor { get; set; } = 0.25;
+
         // Size (as a ratio) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star
         public double StarCenterTolerance { get; set; } = 0.3;
 
@@ -363,7 +386,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public StarDetectorParams Clone() => (StarDetectorParams)this.MemberwiseClone();
 
         public override string ToString() {
-            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}, {nameof(MaxStarEvaluationParallelism)}={MaxStarEvaluationParallelism.ToString()}}}";
+            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(DefocusAwareDistortion)}={DefocusAwareDistortion.ToString()}, {nameof(DefocusDistortionSizeReference)}={DefocusDistortionSizeReference.ToString()}, {nameof(DefocusDistortionMinFactor)}={DefocusDistortionMinFactor.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}, {nameof(MaxStarEvaluationParallelism)}={MaxStarEvaluationParallelism.ToString()}}}";
         }
 
         // Properties intentionally EXCLUDED from the detection-result cache key (ToCanonicalCacheString). The

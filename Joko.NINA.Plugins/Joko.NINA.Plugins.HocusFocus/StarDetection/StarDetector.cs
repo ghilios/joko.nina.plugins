@@ -1149,6 +1149,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return candidates;
         }
 
+        /// <summary>
+        /// Computes the effective fill-ratio threshold the TooDistorted gate compares against for a candidate of
+        /// bbox max-dimension <paramref name="candidateSize"/> (= max(bbox.Width, bbox.Height), the same d the
+        /// gate divides by).
+        ///
+        /// When <see cref="StarDetectorParams.DefocusAwareDistortion"/> is FALSE this returns
+        /// <see cref="StarDetectorParams.MaxDistortion"/> verbatim, so the gate is byte-for-byte the legacy gate
+        /// (default-OFF ⇒ bit-identical detection). When TRUE it returns
+        ///   MaxDistortion · clamp(SizeReference / candidateSize, MinFactor, 1.0)
+        /// so candidates at or below the size reference keep the strict threshold (factor 1.0) and larger
+        /// candidates (defocused donuts, large bbox + low fill-ratio) get a more permissive threshold, floored at
+        /// MinFactor · MaxDistortion. Pure + deterministic (no image access) so it is unit-testable in isolation.
+        /// </summary>
+        public static double ComputeEffectiveMaxDistortion(StarDetectorParams p, double candidateSize) {
+            if (!p.DefocusAwareDistortion) {
+                return p.MaxDistortion;
+            }
+
+            // Degenerate sizes can't make the gate permissive; fall back to the strict threshold.
+            if (candidateSize <= 0.0 || p.DefocusDistortionSizeReference <= 0.0) {
+                return p.MaxDistortion;
+            }
+
+            var factor = p.DefocusDistortionSizeReference / candidateSize;
+            // clamp to [MinFactor, 1.0]: ≤ SizeReference ⇒ ≥ 1 ⇒ strict; larger ⇒ relaxes toward the floor.
+            var minFactor = p.DefocusDistortionMinFactor;
+            if (factor > 1.0) {
+                factor = 1.0;
+            } else if (factor < minFactor) {
+                factor = minFactor;
+            }
+            return p.MaxDistortion * factor;
+        }
+
         private Star EvaluateStarCandidate(Mat srcImage, StarDetectorParams p, Rect starBounds, List<Point> starPoints, double srcImageNoiseSigma, StarDetectorMetrics metrics, ConcurrentBag<ContaminationDiagnosticRecord> diagnosticsBag) {
             // Now we have a potential star bounding box as well as the coordinates of every star pixel. If this is a reliable star,
             // we compute its barycenter and include it.
@@ -1173,9 +1207,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return null;
             }
 
-            // Too distorted
+            // Too distorted. The fill-ratio metric is (pixel count) / d², where d is the bbox max dimension; a
+            // perfect disk fills ~PI/4 ≈ 0.79. When DefocusAwareDistortion is off, the effective threshold is
+            // exactly p.MaxDistortion (bit-identical to the legacy gate). When on, it is relaxed for large
+            // candidates so large-defocus donuts (big bbox, low fill-ratio) survive — see
+            // ComputeEffectiveMaxDistortion. The same effective threshold drives both the decision and the
+            // TooDistorted metrics tally.
             double d = Math.Max(starBounds.Width, starBounds.Height);
-            if ((starPoints.Count / d / d) < p.MaxDistortion) {
+            var effectiveMaxDistortion = ComputeEffectiveMaxDistortion(p, d);
+            if ((starPoints.Count / d / d) < effectiveMaxDistortion) {
                 metrics.TooDistortedBounds.Add(starBounds);
                 return null;
             }

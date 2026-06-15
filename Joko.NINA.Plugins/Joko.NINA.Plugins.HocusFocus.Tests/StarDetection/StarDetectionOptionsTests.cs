@@ -59,6 +59,7 @@ public class StarDetectionOptionsTests {
         options.StarCenterTolerance = 0.5;
         options.StarPeakResponse = 0.8;
         options.MaxDistortion = 0.4;
+        options.DefocusAwareDistortion = true;
         options.StarBackgroundBoxExpansion = 4;
         options.MinStarBoundingBoxSize = 6;
         options.MinHFR = 1.0;
@@ -90,6 +91,7 @@ public class StarDetectionOptionsTests {
             Assert.That(store.Snapshot["StarCenterTolerance"], Is.EqualTo(0.5));
             Assert.That(store.Snapshot["StarPeakResponse"], Is.EqualTo(0.8));
             Assert.That(store.Snapshot["MaxDistortion"], Is.EqualTo(0.4));
+            Assert.That(store.Snapshot["DefocusAwareDistortion"], Is.True);
             Assert.That(store.Snapshot["StarBackgroundBoxExpansion"], Is.EqualTo(4));
             Assert.That(store.Snapshot["MinStarBoundingBoxSize"], Is.EqualTo(6));
             Assert.That(store.Snapshot["MinHFR"], Is.EqualTo(1.0));
@@ -325,6 +327,7 @@ public class StarDetectionOptionsTests {
     [TestCase(nameof(StarDetectionOptions.HotpixelFiltering), false)]
     [TestCase(nameof(StarDetectionOptions.HotpixelThresholdingEnabled), false)]
     [TestCase(nameof(StarDetectionOptions.UsePSFAbsoluteDeviation), true)]
+    [TestCase(nameof(StarDetectionOptions.DefocusAwareDistortion), true)]
     public void Setter_RaisesPropertyChanged(string propertyName, object newValue) {
         var (options, _, _) = Build();
         var raised = new List<string>();

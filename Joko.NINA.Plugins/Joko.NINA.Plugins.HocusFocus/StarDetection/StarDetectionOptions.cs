@@ -204,6 +204,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 2.0);
             starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.75);
             maxDistortion = optionsAccessor.GetValueDouble("MaxDistortion", 0.5);
+            defocusAwareDistortion = optionsAccessor.GetValueBoolean("DefocusAwareDistortion", false);
             starCenterTolerance = optionsAccessor.GetValueDouble("StarCenterTolerance", 0.3);
             starBackgroundBoxExpansion = optionsAccessor.GetValueInt32("StarBackgroundBoxExpansion", 3);
             minStarBoundingBoxSize = optionsAccessor.GetValueInt32("MinStarBoundingBoxSize", 5);
@@ -261,6 +262,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             BrightnessSensitivity = 2.0;
             StarPeakResponse = 0.75;
             MaxDistortion = 0.5;
+            DefocusAwareDistortion = false;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
@@ -568,6 +570,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     maxDistortion = value;
                     optionsAccessor.SetValueDouble("MaxDistortion", maxDistortion);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool defocusAwareDistortion;
+
+        // Opt-in, Advanced-only. Default OFF so detection stays bit-identical when disabled. When ON, the
+        // TooDistorted gate relaxes its fill-ratio threshold for LARGE candidates (large-defocus donut stars),
+        // recovering donuts that the strict ratio would reject. The two numeric tuning knobs (size reference and
+        // min factor) are kept as detector params with fixed sensible defaults (not exposed in the UI) to limit
+        // the option surface; only this on/off toggle is a persisted option.
+        public bool DefocusAwareDistortion {
+            get => defocusAwareDistortion;
+            set {
+                if (defocusAwareDistortion != value) {
+                    defocusAwareDistortion = value;
+                    optionsAccessor.SetValueBoolean("DefocusAwareDistortion", defocusAwareDistortion);
                     RaisePropertyChanged();
                 }
             }

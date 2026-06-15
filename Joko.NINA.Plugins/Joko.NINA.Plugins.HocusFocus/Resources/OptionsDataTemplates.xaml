@@ -443,6 +443,7 @@
         is measured on the image actually used for star measurement, so this value is an honest multiple of the real noise and means the same thing regardless of noise-reduction settings. The default of 2 works well; if you find a large number of rejections due to low sensitivity, smaller values increase sensitivity</TextBlock>
     <TextBlock x:Key="StarPeakResponse_Tooltip" Text="The ratio of the star median relative to the star peak. It provides a measure of flatness, since median values close to the peak indicate low dispersion. Consider increasing if too many stars are rejected with &quot;Too Flat&quot;" />
     <TextBlock x:Key="MaxDistortion_Tooltip" Text="The ratio of star pixels to the size of a perfect square bounding box. A perfect circule has a distortion of PI/4, which is approximately 0.7. The default value of 0.5 allows for some distortion and measurement error and should work for most cases." />
+    <TextBlock x:Key="DefocusAwareDistortion_Tooltip" Text="When enabled, the Max Distortion gate is relaxed for large candidates (a proxy for large defocus). At large defocus a star becomes a hollow donut (the central-obstruction shadow), giving a big bounding box with a low pixel fill-ratio that the strict Max Distortion would wrongly reject as too distorted. Small candidates (near focus) keep the strict threshold, so junk is still rejected. Off by default; enable it if you collect autofocus frames far from focus and find defocused donut stars being dropped." />
     <TextBlock x:Key="StarCenterTolerance_Tooltip" Text="Size (as a percentage) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star" />
     <TextBlock x:Key="StarBackgroundBoxExpansion_Tooltip" Text="The background is estimated by looking in an area around the star bounding box, increased on each side by this number of pixels. The default value of 3 should work for most cases, but you can consider increasing it if stars are very spare, or even decreasing it if the star field is very crowded with stars less than 3 pixels from one another." />
     <TextBlock x:Key="MinStarBoundingBoxSize_Tooltip" Text="The minimum allowed size (length of either side) of a star candidate's bounding box. Increasing this can be helpful at very high focal lengths if too many small structures are detected" />
@@ -1420,6 +1421,22 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="22"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Defocus-Aware Distortion"
+                ToolTip="{StaticResource DefocusAwareDistortion_Tooltip}" />
+            <CheckBox
+                Grid.Row="22"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.DefocusAwareDistortion}"
+                ToolTip="{StaticResource DefocusAwareDistortion_Tooltip}" />
 
             <TextBlock
                 Grid.Row="19"

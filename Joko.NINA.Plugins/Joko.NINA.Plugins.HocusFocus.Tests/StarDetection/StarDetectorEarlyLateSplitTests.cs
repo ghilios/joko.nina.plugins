@@ -89,6 +89,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 Mutate(earlyParams, q => q.StarCenterTolerance = 0.15),
                 Mutate(earlyParams, q => q.MinHFR = 2.5),
                 Mutate(earlyParams, q => q.StarClippingMultiplier = 3.0),
+                // Defocus-aware distortion is a late-only gate change: reusing the early context must still match
+                // a fresh full Detect with the flag on.
+                Mutate(earlyParams, q => { q.DefocusAwareDistortion = true; q.DefocusDistortionSizeReference = 15.0; q.DefocusDistortionMinFactor = 0.2; }),
             };
 
             foreach (var lateParams in lateVariants) {
@@ -116,6 +119,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => q.MinHFR = 3.0)), Is.EqualTo(baseKey), "MinHFR is late-only");
                 Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => q.StarCenterTolerance = 0.1)), Is.EqualTo(baseKey), "StarCenterTolerance is late-only");
                 Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => q.MinimumStarBoundingBoxSize = 9)), Is.EqualTo(baseKey), "MinimumStarBoundingBoxSize is late-only");
+                // The defocus-aware distortion knobs are all late-gate (TooDistorted decision only).
+                Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => q.DefocusAwareDistortion = true)), Is.EqualTo(baseKey), "DefocusAwareDistortion is late-only");
+                Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => { q.DefocusAwareDistortion = true; q.DefocusDistortionSizeReference = 50.0; })), Is.EqualTo(baseKey), "DefocusDistortionSizeReference is late-only");
+                Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => { q.DefocusAwareDistortion = true; q.DefocusDistortionMinFactor = 0.1; })), Is.EqualTo(baseKey), "DefocusDistortionMinFactor is late-only");
             });
 
             // EARLY changes MUST change the early key.

@@ -61,6 +61,100 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         // -----------------------------------------------------------------------
+        // ComputeEffectiveMaxDistortion (defocus-aware distortion gate) tests
+        // -----------------------------------------------------------------------
+
+        private static StarDetectorParams DistortionParams(bool defocusAware, double maxDistortion = 0.5,
+            double sizeReference = 20.0, double minFactor = 0.25) => new StarDetectorParams {
+            MaxDistortion = maxDistortion,
+            DefocusAwareDistortion = defocusAware,
+            DefocusDistortionSizeReference = sizeReference,
+            DefocusDistortionMinFactor = minFactor,
+        };
+
+        [Test]
+        public void EffectiveMaxDistortion_FlagOff_AlwaysReturnsMaxDistortion_BitIdentical() {
+            // With the flag OFF the gate must be byte-for-byte the legacy gate: MaxDistortion exactly, for every
+            // candidate size, regardless of the (ignored) tuning knobs.
+            var p = DistortionParams(defocusAware: false, maxDistortion: 0.5);
+            Assert.Multiple(() => {
+                foreach (var size in new[] { 1.0, 5.0, 20.0, 50.0, 200.0, 1000.0 }) {
+                    Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, size), Is.EqualTo(0.5),
+                        $"flag OFF must return MaxDistortion verbatim at size {size}");
+                }
+            });
+        }
+
+        [Test]
+        public void EffectiveMaxDistortion_FlagOn_SmallCandidate_StaysStrict() {
+            // Candidates at or below the size reference keep the strict threshold (factor clamped to 1.0).
+            var p = DistortionParams(defocusAware: true, maxDistortion: 0.5, sizeReference: 20.0, minFactor: 0.25);
+            Assert.Multiple(() => {
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 5.0), Is.EqualTo(0.5).Within(1e-12),
+                    "well below the reference ⇒ strict");
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 20.0), Is.EqualTo(0.5).Within(1e-12),
+                    "exactly at the reference ⇒ strict (factor = 1.0)");
+            });
+        }
+
+        [Test]
+        public void EffectiveMaxDistortion_FlagOn_LargeCandidate_RelaxesTowardFloor() {
+            // Larger candidates get a more permissive threshold = MaxDistortion · (sizeReference / candidateSize),
+            // floored at MinFactor · MaxDistortion.
+            var p = DistortionParams(defocusAware: true, maxDistortion: 0.5, sizeReference: 20.0, minFactor: 0.25);
+            Assert.Multiple(() => {
+                // size 40 ⇒ factor 0.5 ⇒ 0.25
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 40.0), Is.EqualTo(0.25).Within(1e-12));
+                // size 25 ⇒ factor 0.8 ⇒ 0.4
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 25.0), Is.EqualTo(0.4).Within(1e-12));
+                // size 1000 ⇒ raw factor 0.02, clamped up to minFactor 0.25 ⇒ 0.125
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 1000.0), Is.EqualTo(0.5 * 0.25).Within(1e-12),
+                    "very large candidates floor at MinFactor · MaxDistortion");
+            });
+        }
+
+        [Test]
+        public void EffectiveMaxDistortion_LargeLowFill_PassesOnButRejectsOff_SmallLowFillRejectsBoth() {
+            // The core behavioral contract the production gate uses (fillRatio < effectiveMaxDistortion ⇒ reject):
+            //  - a LARGE low-fill candidate (donut) passes when ON, rejects when OFF;
+            //  - a SMALL low-fill candidate rejects in BOTH cases (strict at small size).
+            const double maxDistortion = 0.5;
+            var on = DistortionParams(defocusAware: true, maxDistortion: maxDistortion, sizeReference: 20.0, minFactor: 0.25);
+            var off = DistortionParams(defocusAware: false, maxDistortion: maxDistortion);
+
+            // Donut: bbox max-dim 60px, annulus fills ~30% of the bbox² ⇒ fillRatio 0.30.
+            const double largeSize = 60.0;
+            const double largeFillRatio = 0.30;
+            bool LargeRejected(StarDetectorParams pp) => largeFillRatio < StarDetector.ComputeEffectiveMaxDistortion(pp, largeSize);
+
+            // Small junk: bbox max-dim 8px, same low fill ⇒ should stay rejected even with the relaxed gate.
+            const double smallSize = 8.0;
+            const double smallFillRatio = 0.30;
+            bool SmallRejected(StarDetectorParams pp) => smallFillRatio < StarDetector.ComputeEffectiveMaxDistortion(pp, smallSize);
+
+            Assert.Multiple(() => {
+                Assert.That(LargeRejected(off), Is.True, "large low-fill donut is rejected with the flag OFF (legacy)");
+                Assert.That(LargeRejected(on), Is.False, "large low-fill donut survives with the flag ON");
+                Assert.That(SmallRejected(off), Is.True, "small low-fill junk is rejected OFF");
+                Assert.That(SmallRejected(on), Is.True, "small low-fill junk is STILL rejected ON (strict at small size)");
+            });
+        }
+
+        [Test]
+        public void EffectiveMaxDistortion_DegenerateSizes_FallBackToStrict() {
+            var p = DistortionParams(defocusAware: true, maxDistortion: 0.5, sizeReference: 20.0, minFactor: 0.25);
+            Assert.Multiple(() => {
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, 0.0), Is.EqualTo(0.5),
+                    "zero candidate size ⇒ strict fallback (no relaxation)");
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(p, -3.0), Is.EqualTo(0.5),
+                    "negative candidate size ⇒ strict fallback");
+                var pZeroRef = DistortionParams(defocusAware: true, sizeReference: 0.0);
+                Assert.That(StarDetector.ComputeEffectiveMaxDistortion(pZeroRef, 100.0), Is.EqualTo(0.5),
+                    "zero size reference ⇒ strict fallback");
+            });
+        }
+
+        // -----------------------------------------------------------------------
         // ComputeIterativeCentroid tests
         // -----------------------------------------------------------------------
 
