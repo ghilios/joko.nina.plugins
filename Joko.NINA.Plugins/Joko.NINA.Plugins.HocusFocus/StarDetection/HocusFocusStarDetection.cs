@@ -489,6 +489,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
 
             result.DetectedStars = starList.Count;
+
+            // Re-tally RelaxationAdmittedCount over the FINAL post-filter survivor set (post ROI-crop + post
+            // MeanOutliers), so it shares its denominator with result.DetectedStars / StarCount. StarDetector
+            // tallies it on the pre-filter accepted set; the wizard/loader path (RunEvaluationLoader) reads this
+            // metric but reports StarCount from the post-filter list, so without this re-tally the precision
+            // fraction could mix a pre-filter numerator with a post-filter denominator (and exceed 1.0) and would
+            // disagree with the offline harness, which counts over its post-filter survivors. starList is still a
+            // List<Star> here (the RelaxationAdmitted flag survives; the DetectedStar projection below drops it).
+            // Gate-OFF this is 0 either way, so detection bit-identity is preserved.
+            starDetectorResult.Metrics.RelaxationAdmittedCount = starList.Count(s => s.RelaxationAdmitted);
+
             if (hocusFocusParams.NumberOfAFStars > 0) {
                 if (starList.Count != 0 && (hocusFocusParams.MatchStarPositions == null || hocusFocusParams.MatchStarPositions.Count == 0)) {
                     if (starList.Count > hocusFocusParams.NumberOfAFStars) {

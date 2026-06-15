@@ -37,7 +37,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// it performs no IO and runs no detection.
     /// </summary>
     public sealed class OptimizerVariable {
-        /// <summary>The matching <see cref="StarDetectorParams"/> property name (e.g. "Sensitivity").</summary>
+        /// <summary>
+        /// The matching <see cref="StarDetectorParams"/> property name (e.g. "Sensitivity"), or a synthetic
+        /// alias when one variable drives multiple params (see <see cref="DefocusAwareGatesName"/>).
+        /// </summary>
         public string Name { get; init; }
 
         public OptimizerVariableType Type { get; init; }
