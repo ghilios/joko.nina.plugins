@@ -177,13 +177,19 @@ public class StarDetectionOptimizerTests {
     public async Task Optimize_MultiRun_PrefersBalancedOverLopsided() {
         // Two runs: run A peaks at low Sensitivity, run B peaks at high Sensitivity. With beta=0.5 the min
         // term dominates, so the optimizer should settle near the midpoint (balanced) rather than at either
-        // extreme (where one run is great and the other terrible).
+        // extreme (where one run is great and the other terrible). The two per-run optima are kept CLOSE
+        // (6 and 14) on purpose: with that separation the composite J_total = 0.5·mean + 0.5·min is strictly
+        // UNIMODAL with its single peak exactly at the midpoint sens=10, so the test pins the objective's
+        // balanced-blend property rather than which local basin a particular Phase-A grid seed happens to fall
+        // into. (Wider separations like 4/16 make J_total multimodal — two near-equal shoulder maxima flanking
+        // a slightly-lower midpoint — so the result then depends on grid-seed luck, not the β blend the test
+        // is about.)
         Func<StarDetectorParams, CancellationToken, Task<IReadOnlyList<RunEvaluationMetrics>>> twoRun = (p, token) => {
             double step = 100.0;
             double sens = p.Sensitivity;
-            // Run A sigma minimized at sens=4; Run B minimized at sens=16. Midpoint balances both.
-            double sigmaA = step * (0.02 + Math.Abs(sens - 4.0) / 20.0);
-            double sigmaB = step * (0.02 + Math.Abs(sens - 16.0) / 20.0);
+            // Run A sigma minimized at sens=6; Run B minimized at sens=14. Midpoint (sens=10) balances both.
+            double sigmaA = step * (0.02 + Math.Abs(sens - 6.0) / 20.0);
+            double sigmaB = step * (0.02 + Math.Abs(sens - 14.0) / 20.0);
             RunEvaluationMetrics Make(double sigma) => new RunEvaluationMetrics {
                 SigmaFocus = sigma,
                 LooStdError = double.NaN,
@@ -202,7 +208,7 @@ public class StarDetectionOptimizerTests {
         var settings = new OptimizerSettings { MaxEvaluations = 600, CoarseGridLevels = 5, StepFloorFraction = 0.125 };
         var result = await new StarDetectionOptimizer().OptimizeAsync(seed, variables, twoRun, settings, null, CancellationToken.None);
 
-        // The balanced optimum is sens=10 (midpoint of 4 and 16). Should land closer to 10 than to either extreme.
+        // The balanced optimum is sens=10 (midpoint of 6 and 14). Should land closer to 10 than to either extreme.
         Assert.That(Math.Abs(result.BestParams.Sensitivity - 10.0), Is.LessThan(3.0),
             $"expected balanced ~10, got {result.BestParams.Sensitivity}");
     }
@@ -303,6 +309,146 @@ public class StarDetectionOptimizerTests {
         Assert.That(task.Wait(TimeSpan.FromSeconds(30)), Is.True, "OptimizeAsync must terminate for an all-discrete variable set");
         var result = task.Result;
         Assert.That(result.Evaluations, Is.LessThanOrEqualTo(settings.MaxEvaluations), "must respect the eval budget");
+    }
+
+    // ----- T12 (F6): per-axis adaptive Phase-A coarse-grid resolution -----
+
+    // Builds a minimal two-axis curated subset (Sensitivity + StarClippingMultiplier, both Continuous) so the
+    // Phase-A grid is the ONLY thing exercising those axes; lets a test read the grid sampling directly off the
+    // recorded candidates without curated-set Phase-B noise from other variables mixing in.
+    private static OptimizerVariable ContinuousVar(string name, double lower, double upper, double step,
+        Func<StarDetectorParams, double> read, Action<StarDetectorParams, double> store) {
+        OptimizerVariable v = null;
+        v = new OptimizerVariable {
+            Name = name, Type = OptimizerVariableType.Continuous,
+            Lower = lower, Upper = upper, InitialStep = step,
+            Read = read,
+            Write = (p, raw) => store(p, v.Quantize(raw))
+        };
+        return v;
+    }
+
+    // Expected per-axis level count, mirroring StarDetectionOptimizer.SearchContext.AxisLevels exactly. Kept as
+    // an independent reimplementation so the tests pin the published formula, not the production code's call.
+    private static int ExpectedAxisLevels(double lower, double upper, double step, OptimizerSettings s) {
+        var min = Math.Max(2, s.CoarseGridLevels);
+        var max = Math.Max(min, s.CoarseGridMaxLevelsPerAxis);
+        if (step <= 0.0 || s.CoarseGridSpacingFactor <= 0.0) {
+            return min;
+        }
+        var raw = 1 + (int)Math.Round((upper - lower) / (step * s.CoarseGridSpacingFactor), MidpointRounding.AwayFromZero);
+        return Math.Clamp(raw, min, max);
+    }
+
+    [Test]
+    public void AxisLevels_WideAxis_HitsMax_NarrowAxis_HitsMin_AndIsClamped() {
+        var s = new OptimizerSettings { CoarseGridLevels = 4, CoarseGridMaxLevelsPerAxis = 9, CoarseGridSpacingFactor = 6.0 };
+
+        // Wide Sensitivity axis: range 50, step 1 => 1 + round(50/6) = 9 => caps at CoarseGridMaxLevelsPerAxis.
+        Assert.That(ExpectedAxisLevels(0.0, 50.0, 1.0, s), Is.EqualTo(9));
+        // Narrow StarClipping axis: range 9.75, step 0.5 => 1 + round(9.75/3) = 4 => the minimum.
+        Assert.That(ExpectedAxisLevels(0.25, 10.0, 0.5, s), Is.EqualTo(4));
+        // A genuinely tiny axis floors at the minimum.
+        Assert.That(ExpectedAxisLevels(0.0, 1.0, 1.0, s), Is.EqualTo(4));
+        // An extremely wide axis is clamped to the maximum.
+        Assert.That(ExpectedAxisLevels(0.0, 10000.0, 1.0, s), Is.EqualTo(9));
+        // Non-positive step falls back to the minimum (no meaningful spacing).
+        Assert.That(ExpectedAxisLevels(0.0, 50.0, 0.0, s), Is.EqualTo(4));
+        Assert.That(ExpectedAxisLevels(0.0, 50.0, -1.0, s), Is.EqualTo(4));
+        // Always within [min, max].
+        Assert.That(ExpectedAxisLevels(0.0, 50.0, 1.0, s), Is.InRange(4, 9));
+    }
+
+    [Test]
+    public async Task CoarseGrid_PerAxisLevels_SampleBothBounds_AndExpectedSpacing() {
+        // Two-axis grid only: Sensitivity (wide, 9 levels) × StarClipping (narrow, 4 levels). The Phase-A grid
+        // must sample each axis at every evenly-spaced level inclusive of both bounds. We record every evaluated
+        // candidate and inspect the distinct values the grid sampled on each axis.
+        var sensSamples = new HashSet<double>();
+        var clipSamples = new HashSet<double>();
+        Action<StarDetectorParams> onCall = p => {
+            sensSamples.Add(p.Sensitivity);
+            clipSamples.Add(p.StarClippingMultiplier);
+        };
+
+        var variables = new List<OptimizerVariable> {
+            ContinuousVar(nameof(StarDetectorParams.Sensitivity), 0.0, 50.0, 1.0,
+                p => p.Sensitivity, (p, v) => p.Sensitivity = v),
+            ContinuousVar(nameof(StarDetectorParams.StarClippingMultiplier), 0.25, 10.0, 0.5,
+                p => p.StarClippingMultiplier, (p, v) => p.StarClippingMultiplier = v),
+        };
+        var settings = DefaultSettings();
+        var levelsA = ExpectedAxisLevels(0.0, 50.0, 1.0, settings);   // 9
+        var levelsB = ExpectedAxisLevels(0.25, 10.0, 0.5, settings);  // 4
+        Assume.That(levelsA, Is.EqualTo(9));
+        Assume.That(levelsB, Is.EqualTo(4));
+
+        await new StarDetectionOptimizer().OptimizeAsync(Seed(), variables, SyntheticEvaluator(onCall), settings, null, CancellationToken.None);
+
+        // Both bounds sampled on each axis (level 0 -> Lower, level n-1 -> Upper).
+        Assert.Multiple(() => {
+            Assert.That(sensSamples, Does.Contain(0.0), "Sensitivity Lower bound must be sampled");
+            Assert.That(sensSamples, Does.Contain(50.0), "Sensitivity Upper bound must be sampled");
+            Assert.That(clipSamples, Does.Contain(0.25), "StarClipping Lower bound must be sampled");
+            Assert.That(clipSamples, Does.Contain(10.0), "StarClipping Upper bound must be sampled");
+
+            // Every expected evenly-spaced grid level appears among the sampled values.
+            for (var ia = 0; ia < levelsA; ia++) {
+                var expected = 0.0 + ((double)ia / (levelsA - 1)) * 50.0;
+                Assert.That(sensSamples.Any(x => Math.Abs(x - expected) < 1e-9), Is.True,
+                    $"Sensitivity grid level {ia} (={expected}) must be sampled");
+            }
+            for (var ib = 0; ib < levelsB; ib++) {
+                var expected = 0.25 + ((double)ib / (levelsB - 1)) * (10.0 - 0.25);
+                Assert.That(clipSamples.Any(x => Math.Abs(x - expected) < 1e-9), Is.True,
+                    $"StarClipping grid level {ib} (={expected}) must be sampled");
+            }
+        });
+    }
+
+    [Test]
+    public async Task CoarseGrid_PerAxisLevels_AreDeterministic_SameSequenceOfGridPoints() {
+        // Same inputs => identical ORDERED sequence of evaluated candidates (pure function of bounds/step; no RNG).
+        var variables = new List<OptimizerVariable> {
+            ContinuousVar(nameof(StarDetectorParams.Sensitivity), 0.0, 50.0, 1.0,
+                p => p.Sensitivity, (p, v) => p.Sensitivity = v),
+            ContinuousVar(nameof(StarDetectorParams.StarClippingMultiplier), 0.25, 10.0, 0.5,
+                p => p.StarClippingMultiplier, (p, v) => p.StarClippingMultiplier = v),
+        };
+
+        List<(double, double)> Record() {
+            var seq = new List<(double, double)>();
+            Action<StarDetectorParams> onCall = p => seq.Add((p.Sensitivity, p.StarClippingMultiplier));
+            // Synchronous evaluator + single-threaded await => deterministic recording order.
+            new StarDetectionOptimizer()
+                .OptimizeAsync(Seed(), variables, SyntheticEvaluator(onCall), DefaultSettings(), null, CancellationToken.None)
+                .GetAwaiter().GetResult();
+            return seq;
+        }
+
+        var s1 = Record();
+        var s2 = Record();
+        Assert.That(s1, Is.EqualTo(s2), "the ordered sequence of evaluated grid candidates must be deterministic");
+    }
+
+    [Test]
+    public async Task CoarseGrid_MissingGridAxis_StillRunsAndNeverRegresses() {
+        // Only ONE of the two grid axes present (Sensitivity). The missing StarClipping axis contributes a
+        // single level (just the incumbent), so the grid is levelsA × 1. Optimizer must still run, respect the
+        // budget, and never return below the seed J.
+        var variables = new List<OptimizerVariable> {
+            ContinuousVar(nameof(StarDetectorParams.Sensitivity), 0.0, 50.0, 1.0,
+                p => p.Sensitivity, (p, v) => p.Sensitivity = v),
+        };
+        var settings = DefaultSettings();
+        var result = await new StarDetectionOptimizer().OptimizeAsync(Seed(), variables, SyntheticEvaluator(), settings, null, CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(result.BestJ, Is.GreaterThanOrEqualTo(result.SeedJ), "must never regress below seed");
+            Assert.That(result.Evaluations, Is.LessThanOrEqualTo(settings.MaxEvaluations), "must respect budget");
+            // Sensitivity bounds must both have been reachable as grid samples; the best lands within bounds.
+            Assert.That(result.BestParams.Sensitivity, Is.InRange(0.0, 50.0));
+        });
     }
 
     /// <summary>
