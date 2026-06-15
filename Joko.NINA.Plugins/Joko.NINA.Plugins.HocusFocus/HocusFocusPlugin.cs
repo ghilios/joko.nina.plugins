@@ -181,7 +181,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
             vm.RequestClose += onRequestClose;
 
             // NINA's WindowService marshals window creation onto the application dispatcher internally; this is the
-            // standard way NINA plugins show a modal dialog (the content is resolved from the keyed DataTemplate).
+            // standard way NINA plugins show a modal dialog (the VM is presented in a ContentPresenter and its visual
+            // is resolved by the implicit DataType DataTemplate for StarDetectionOptimizerWizardVM).
             windowService.ShowDialog(vm, "Optimize Star Detection", ResizeMode.CanResize, WindowStyle.SingleBorderWindow);
         }
 

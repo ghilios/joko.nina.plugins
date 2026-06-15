@@ -16,8 +16,8 @@
     <TextBlock x:Key="SDOpt_RunCount_Tooltip" Text="How many saved auto-focus runs to optimize against together. Using two or three runs balances the settings across them and reduces overfitting to a single night's conditions." />
     <TextBlock x:Key="SDOpt_ApplyStepSize_Tooltip" Text="Also write the recommended auto-focus step size and offset steps to the active profile when applying. The step size is sized so a sweep lands several measurement points across the focus-sensitive region of the curve." />
 
-    <!--  The wizard window content. Keyed by the VM's full type name so IWindowServiceFactory resolves it.  -->
-    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.StarDetectionOptimizerWizardVM">
+    <!--  The wizard window content. Implicit DataType template so the WindowService's ContentPresenter resolves it by VM type.  -->
+    <DataTemplate DataType="{x:Type local:StarDetectionOptimizerWizardVM}">
         <Grid Width="640" MinHeight="420" Margin="10">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
