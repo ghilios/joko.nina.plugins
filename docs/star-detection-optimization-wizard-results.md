@@ -169,9 +169,35 @@ muggsie it was marginally worse (σ +4.5%). This **confirms the original "bound-
 intact).
 
 **The real limiter (and the cause of the long 24–38 min optimize runtimes on big sensors):** the compass search
-re-probes the **5 early (wavelet/structure) params** (`StructureLayers`, `NoiseReductionRadius`,
-`MinStarBoundingBoxSize`, hotpixel ×2) on **every sweep**; each early probe is a full per-frame early-context
-rebuild that the per-frame cache (one context per frame) cannot amortize, so it is always a miss. The ~10–13×
-perf win applies only to the **late-only** moves. Future optimizer-efficiency lever (logged, not in this PR):
-stage early vs late axes, or freeze/early-stop early-param probing once refined, so the search doesn't pay the
-full early-rebuild cost on every sweep. See the cache-health investigation note below.
+re-probes the **5 early (wavelet/structure) params** (`NoiseClippingMultiplier`, `StructureLayers`,
+`NoiseReductionRadius`, hotpixel ×2) on **every sweep**; each early probe is a full per-frame early-context
+rebuild that the per-frame cache (one context per frame) cannot amortize. The ~10–13× perf win applies only to
+the **late-only** moves. Quantified below.
+
+## Cache-health investigation (follow-up T12b)
+
+Triggered by the 24–38 min runtimes above being ~25× slower than the documented "CWhite 1m30s". **Verdict:
+inherent, NOT a regression** — the early/late cache and per-frame parallelism both work exactly as designed;
+nothing in the F1–F3 work broke them. Evidence (instrumented muggsie run, 9 frames, 150 evals, 143 s):
+
+- **Parallelism healthy.** `Environment.ProcessorCount = 48` as seen by the TestApp process; per-frame degree =
+  `min(frameCount, max(2, ProcessorCount/4))` = 9 (frame-count-capped). Frames detect concurrently (1350 gate
+  calls = 150 evals × 9 frames), not serialized.
+- **Cache healthy, no regression.** The early key is an allow-list (`StarDetector.cs` `EarlyCacheKeyProperties`,
+  11 props); late moves HIT, early moves MISS. The recently-added `DefocusAware*` / `RelaxationAdmittedCount` /
+  `DefocusAwareGates` are all LATE/informational and correctly **absent** from the early key (`StarDetectorVersion`
+  still 1). The 5 early axes + the 1-context-per-frame cache bound predate this branch.
+- **The cache thrashes.** **46% of detections (621/1350) forced a full early rebuild** at **~1650 ms/frame vs
+  ~53 ms for a late gate (~31×)**; builds were **93.5%** of CPU. Mechanism: the cache holds **one** context per
+  frame, so each early-axis probe both rebuilds for the probe **and evicts the incumbent**, forcing the next
+  late probe to rebuild the incumbent too (~50% miss/sweep). If it amortized as designed (~50 builds vs 621),
+  that's the ~12× = documented headline — which only holds when few early moves are explored.
+- On muggsie, J barely moved (0.9944 → 0.9969) for 1025 s of build CPU — most early-axis re-probing is wasted
+  work on an already-good setup.
+
+**Scoped fix options (ranked; not implemented here):** **(A)** stage Phase B — refine the 8 late axes first with
+the early context pinned (near-100% cache hits), then a bounded early-axis pass → **~5–10×** on big sensors,
+low-moderate risk (trajectory changes; verify quality-neutral). **(B)** bounded multi-context LRU per frame (2–3)
+so an early probe doesn't evict the incumbent → **~2×**, bit-identical results, but ~6.6 GB peak at 61 MP (needs
+a memory guard). **(C)** early-stop early-axis probing after K non-improving sweeps → **~2–4×**, low-moderate risk.
+A captures most of the win with the least memory risk; A+B is best.
