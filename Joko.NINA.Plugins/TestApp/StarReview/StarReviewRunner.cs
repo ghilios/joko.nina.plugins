@@ -286,7 +286,7 @@ namespace TestApp.StarReview {
         /// silently rewrite the user's on-disk settings. So both branches READ from the options and build the
         /// params locally instead.</para>
         /// </summary>
-        private static StarDetectorParams BuildDetectionParams(
+        internal static StarDetectorParams BuildDetectionParams(
             StarDetectionOptions options, IProfile activeProfile, bool useOptimized, string optResultsDir, string runFolder) {
             // "current" = the detector exactly as the profile is currently configured (read-only and honest:
             // whatever UseOptimizedSettings / Simple / Advanced state the profile is already in, we report it
@@ -414,7 +414,7 @@ namespace TestApp.StarReview {
         /// flat list of (reason, rect) tuples, using the SAME reason set as T6's annotated PNG so the colors line
         /// up between the two tools.
         /// </summary>
-        private static List<(string Reason, Rect Bounds)> ExtractRejected(HocusFocusStarDetectorResult result) {
+        internal static List<(string Reason, Rect Bounds)> ExtractRejected(HocusFocusStarDetectorResult result) {
             var list = new List<(string, Rect)>();
             var m = result.Metrics;
             if (m == null) {

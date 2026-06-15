@@ -127,6 +127,14 @@ namespace TestApp {
                 return;
             }
 
+            // Headless label-classification diagnostic: `TestApp diagnose-labels --runs <dir> --labels <dir> ...`.
+            // Classifies each human-labeled review box (missed/shouldReject/wronglyRejected) against a fresh
+            // detection: ACCEPTED / REJECTED:<reason> / NO CANDIDATE (structure gap).
+            if (args.Length > 0 && args[0].Equals("diagnose-labels", StringComparison.OrdinalIgnoreCase)) {
+                DiagnoseLabelsRunner.Run(args);
+                return;
+            }
+
             // Interactive two-pass star-review labeling tool: `TestApp review --runs <dir> ...`. The runner does its
             // async loading/detection on this thread, then constructs and shows the WPF window on a dedicated STA
             // thread it creates internally — so it is correct regardless of this thread's apartment (an async Main
