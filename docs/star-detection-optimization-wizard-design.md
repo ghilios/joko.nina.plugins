@@ -2,6 +2,8 @@
 
 **Status:** Implemented (branch `ghilios/star-detection-optimization-wizard`)
 **Implementation plan:** `plans/star-detection-optimization-wizard-plan.md`
+**Empirical record:** `docs/star-detection-optimization-wizard-results.md`
+**Performance analysis:** `docs/star-detection-optimizer-performance-design.md`
 
 ## Context
 
@@ -232,3 +234,91 @@ star activates the recall term, pressuring the structure axes (`StructureLayers`
 `NoiseReductionRadius`, `NoiseClippingMultiplier`, `MinStarBoundingBoxSize`) to recover it. If
 settings alone can't, the labels prove it's detector-algorithm work (e.g. multi-scale /
 large-structure handling) — the point where the author may ask for help.
+
+---
+
+## Performance (implemented)
+
+The optimizer evaluates the same frames hundreds of times; detection compute (a full-frame
+wavelet + binarization-statistics + gate/measure pass) dominates wall-clock. Two changes shipped
+(full analysis in `docs/star-detection-optimizer-performance-design.md`):
+
+- **Early/late split + per-frame early-context cache.** `StarDetector.DetectImpl` was split into a
+  cacheable **EARLY** phase (`BuildDetectionContext`: hotpixel filter, structure-map prep, à-trous
+  wavelet, binarization, candidate collection — ~78% of a detection, depends only on the 5 early
+  params) and a cheap **LATE** phase (`GateAndMeasure`: per-candidate gate + measure — ~22%, the 7
+  late-only gate params). `RunEvaluationData` caches the early `DetectionContext` per
+  (frame, early-key) and reuses it across candidates that change only late-stage gates — i.e. the
+  bulk of a compass search. The split is value-preserving: detection output is **bit-identical**.
+  The cache is bounded to one context per frame (the current early key), disposed when a frame's
+  early key changes (at 61 MP a context is ~244 MB).
+- **Bounded parallel per-frame detection within an eval.** Frames in one evaluation now detect
+  concurrently (`RunEvaluationData`, degree ≈ `max(2, ProcessorCount/4)`), with results assembled
+  by frame index and pooled by focuser position, so the fit is order-independent and deterministic.
+
+**Both apply to the in-NINA wizard for live AND replay data sources.** Both paths converge on
+`RunEvaluationLoader` → `RunEvaluationData` → `HocusFocusSplitFrameDetector` (the offline harness
+uses an equivalent `MatSplitFrameDetector`); the caching + parallelism live in `RunEvaluationData`,
+so they benefit every source. The interface boundary is `RunEvaluationData.ISplitFrameDetector`
+(`ComputeEarlyKey` / `BuildContextAsync` / `GateAndMeasure`).
+
+Live-AF capture and the inspector keep the **monolithic** `Detect` (they detect each image once, so
+there is nothing for the cache to amortize).
+
+**Measured (`optimize --per-run`, bit-identical detection):** CWhite 61 MP **19m51s → 1m30s = 13.2×**;
+Panos **7m02s → 44s = 9.6×** (at `--max-evals 24`). Net **~10–13×**.
+
+The earlier logging "quick win" (gating the per-detection PSF-time `Console.WriteLine` behind
+`ModelPSF`, defaulting the harness to INFO) is correct and result-neutral but gave **no measurable
+speedup** — NINA's `Logger` is buffered and detection compute swamps it.
+
+## Cross-setup verification
+
+Ran `optimize --per-run` over a **14-run bank (11 distinct setups)**. The Workshop
+`sensitivity_example1/2` and `standard_example2` runs are copies of fmeschia / Linwood / CWhite, so
+identical results across builds also served as a bonus **bit-identity** check.
+
+- **All 14 PASS the hard floor** (every frame ≥ 3 stars, including defocused extremes; lowest
+  observed min = 5).
+- **σ_focus improved on all 14** (≈ 1.2× to 21×).
+- **Seed Sensitivity (1.6) is too sensitive** — the optimizer raised it on 12/14.
+- **Very star-rich fields pinned the curated bounds**, so they were widened: Sensitivity `20 → 50`,
+  StarClipping `[0.5, 5] → [0.25, 10]`. A re-verify showed the widening is roughly **a wash** — the
+  real limiter is the **fixed coarse-grid resolution** over the range, not the bound endpoints
+  (logged as a follow-up).
+
+Full table in `docs/star-detection-optimization-wizard-results.md`.
+
+## Defocus-aware detector gates (opt-in, default OFF)
+
+The interactive label loop (`review` → `diagnose-labels`) diagnosed the user's bloated/donut
+defocused stars: **9/9 flagged misses were rejected by the `MaxDistortion` gate** (`TooDistorted`,
+exact match), and **4/5 dim misses were structure-detection gaps** (`NO CANDIDATE` — never formed a
+candidate). Two opt-in, default-off, size-scaled (size = defocus proxy) gate relaxations were added:
+
+- **`DefocusAwareDistortion`** — for candidates larger than `DefocusDistortionSizeReference`
+  (default **30 px**), relaxes the distortion gate by
+  `MaxDistortion × clamp(sizeRef/size, DefocusDistortionMinFactor (0.25), 1)`.
+- **`DefocusAwareCentering`** — companion; relaxes the centering gate by
+  `StarCenterTolerance × clamp(size/sizeRef, 1, DefocusCenteringToleranceFactor (2.0))`, capped at
+  the max valid tolerance. (Recovering ring-unstable donut centroids whose centers drift.)
+
+At the safe production default (sizeRef=30) these recover **8/9** donuts; at **sizeRef=20** they
+recover **9/9** — with **zero near-focus cost** from the centering gate. Both default **OFF**, which
+returns `MaxDistortion` / `StarCenterTolerance` verbatim, keeping detection **bit-identical**.
+
+---
+
+## Follow-ups
+
+- **Expose `DefocusDistortionSizeReference` as a tunable** (currently param-only / harness switch) to
+  reach 9/9 in the UI.
+- **Add the defocus-aware gates to the optimizer's curated set ONLY after a precision /
+  false-positive penalty is in the objective** — without it the optimizer cranks recall and floods
+  near-focus frames with spurious detections.
+- **Structure-detection improvement for dim missed stars** (the 4/5 `NO CANDIDATE` structure gaps —
+  detector-algorithm work, not a gate tweak).
+- **Coarse-grid-resolution vs bound-range tuning** — the cross-setup re-verify showed bound widening
+  is ~a wash; the limiter is grid resolution over the (now wider) range.
+- (cosmetic) In joint mode, the out-dir `optimized_settings.json` copy reflects the **last** run's
+  recommended step rather than a joint value.

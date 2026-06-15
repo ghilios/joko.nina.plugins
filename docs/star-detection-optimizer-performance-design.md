@@ -1,6 +1,15 @@
 # Star Detection Optimizer — Performance Investigation & Speedup Design
 
-Status: investigation / design (read-only analysis; no code changed).
+Status: **Implemented.** The §3 early/late split + per-frame early-context cache (#4) AND the §4
+bounded parallel per-frame detection (#5) both shipped and were measured: **~10–13× faster,
+detection bit-identical** (CWhite 61 MP 19m51s → 1m30s = 13.2×; Panos 7m02s → 44s = 9.6× at
+`--max-evals 24`). Both apply to the in-NINA wizard for **live AND replay** sources (both converge
+on `RunEvaluationLoader` → `RunEvaluationData` → `HocusFocusSplitFrameDetector`; the offline harness
+uses an equivalent `MatSplitFrameDetector`). The §7 logging quick-win shipped too but is
+**result-neutral with no measurable speedup** (NINA `Logger` is buffered; detection compute
+dominates). The wizard per-eval convert-reuse (#1) remains DEFERRED (see §7). The analysis below is
+retained as the rationale; the "ranked recommendations" reflect what shipped vs. what is left.
+
 Scope: the Star Detection Optimization wizard and its offline harness (`TestApp optimize`).
 Goal: explain where wall-clock time goes and lay out the highest-leverage speedups, separating
 safe "pure performance" wins (must stay bit-identical) from larger refactors.
@@ -60,10 +69,12 @@ completed runs predicts **1626** — the small delta is annotated frames / a par
   (`PrepareImage`, detectStars:false) into `RunFrame.Image` (an `IRenderedImage`). The detect delegate
   (lines 138–150) re-detects the already-rendered frame.
 
-`RunEvaluationData` is documented to deliberately keep **no per-frame detection cache** (class doc,
-RunEvaluationData.cs:100–113): "the optimizer already memoizes J at the params level… caching per frame here
-would be redundant and would pin many star lists in memory." That reasoning is sound for *star-list* caching
-but it conflated star-list reuse with **early-stage image reuse** — see §3, the real opportunity.
+`RunEvaluationData` originally kept **no per-frame detection cache** (the original class doc reasoned: "the
+optimizer already memoizes J at the params level… caching per frame here would be redundant and would pin
+many star lists in memory"). That reasoning was sound for *star-list* caching but conflated star-list reuse
+with **early-stage image reuse** — see §3, the real opportunity. **As shipped**, `RunEvaluationData` now
+caches the **early `DetectionContext`** (not the star list) per (frame, early-key), which is exactly the
+reuse the original note missed; star lists are still not cached.
 
 ### Redundant per-detection allocations / copies
 
@@ -130,20 +141,25 @@ Two important nuances that make the win even larger or require care:
   part of the early-cache key. Note Phase-A's coarse grid sweeps Sensitivity (LATE) × StarClippingMultiplier
   (LATE) — **all 16 Phase-A points share one early result**, a clean 16→1 early-stage win.
 
-### Proposed split
+### Proposed split — **SHIPPED**
 
-Refactor `DetectImpl` into two phases with an intermediate, reusable artifact:
+Refactored `DetectImpl` into two phases with an intermediate, reusable artifact (the names below are
+the ones that shipped):
 
-- `BuildDetectionContext(srcImage, earlyParams) → DetectionContext` = {hotpixel-filtered source Mat,
-  candidate `StarCandidateRegion[]`, measurementNoiseSigma, structureNoiseSigma, ROI offset}. Contains
-  everything produced up to and including `CollectStarCandidates` (Stages 1–8 flood-fill). Pure function of
-  the EARLY params + image.
-- `GateAndMeasure(context, lateParams) → HocusFocusStarDetectorResult` = Stage-B `EvaluateStarCandidate`
-  over the cached regions (the cheap 22%).
+- `StarDetector.BuildDetectionContext(srcImage, earlyParams) → DetectionContext` = {hotpixel-filtered
+  source Mat, candidate regions, measurementNoiseSigma, structureNoiseSigma, ROI offset, early-only
+  metric counters}. Contains everything produced up to and including candidate collection. Pure
+  function of the EARLY params + image.
+- `StarDetector.GateAndMeasure(context, lateParams) → result` = the per-candidate `EvaluateStarCandidate`
+  pass over the cached regions (the cheap 22%).
 
-Then `RunEvaluationData`/the detect delegate caches `DetectionContext` per (frame, early-key). On a
-late-only move the early 78% is skipped. The cache key for the context is the EARLY subset of
-`ToCanonicalCacheString` (or a dedicated early-only canonical string).
+`RunEvaluationData` caches the `DetectionContext` per (frame, early-key) and reuses it across
+candidates that change only late-stage gates; on a late-only move the early 78% is skipped. The early
+key is computed by `ComputeEarlyKey` over the EARLY-only param subset. The boundary is the
+`RunEvaluationData.ISplitFrameDetector` interface (`ComputeEarlyKey` / `BuildContextAsync` /
+`GateAndMeasure`), implemented by `HocusFocusSplitFrameDetector` (wizard) and `MatSplitFrameDetector`
+(harness). Cache is bounded to one context per frame; a frame's prior context is disposed when its
+early key changes.
 
 **Architecture allows it.** Today the boundary is already clean: `CollectStarCandidates` (sequential
 flood-fill, produces independent per-candidate point lists) is followed by a parallel `EvaluateStarCandidate`
@@ -176,12 +192,11 @@ Current concurrency:
   PatternSearch.
 
 Options:
-- **(a) Parallel frame detection within an eval** — frames are independent; detect them concurrently
-  (`Task.WhenAll` over frames, bounded). Caveat: each 61 MP detection already saturates cores via the inner
-  `Parallel.For`, so naive nesting oversubscribes; the win is real only for the *early* (single-threaded)
-  stages or when frames are small. Best combined with §3 (early stage parallelized across frames). Order
-  must be re-sorted before the fit to preserve determinism (the code already pools by position into a
-  `SortedDictionary`, so frame order does not affect the fit result — safe).
+- **(a) Parallel frame detection within an eval — SHIPPED.** Frames are independent; they detect
+  concurrently in `RunEvaluationData` with a bounded degree (≈ `max(2, ProcessorCount/4)`) chosen so
+  the inner per-star `Parallel.For` is not oversubscribed. Results are assembled by frame index and
+  pooled by focuser position (`SortedDictionary`), so the fit is order-independent and deterministic.
+  Combined with §3 the early (single-threaded) stages parallelize across frames.
 - **(b) Parallel candidate evaluation** — Phase-A's 16 grid points are independent; within a Phase-B sweep
   the ±step candidates are independent (the sweep evaluates all, then picks the best). These could be a
   bounded-parallel batch. Caveats: (i) memory at 61 MP (each concurrent detection clones a ~244 MB Mat +
@@ -213,37 +228,52 @@ Options:
 - **Gate the `Console.WriteLine("PSF time")`** behind `ModelPSF`/a debug flag (§2.3). Trivial.
 - **Don't force TRACE during optimize** (§2.4) — or at least not the per-detection traces — in the wizard.
 
-## 6. Ranked recommendations
+## 6. Ranked recommendations (status)
 
 Safe quick wins (pure performance; keep results bit-identical):
 1. **Wizard: pre-convert frames to float Mats once** and use the Mat `Detect` overload (skip per-eval
-   debayer/ToOpenCVMat). High impact in the wizard, low effort, bit-identical when hotpixel params unchanged.
-   (StarDetector.cs:151–189 vs the harness pattern in OptimizationDiagnosticRunner.PrepareRunAsync.)
-2. **Lower the default `MaxEvaluations`** (400 → ~80–120) and/or add a no-improvement early stop. High impact,
-   trivial effort, search-quality tradeoff only. (StarDetectionOptimizer.cs:25.)
-3. **Gate the PSF-time `Console.WriteLine`** and avoid forcing TRACE per-detection in the wizard. Low impact,
-   trivial effort.
+   debayer/ToOpenCVMat). **DEFERRED** — folded into #4 (the convert path keys on the hotpixel params,
+   which the optimizer tunes; only the early/late refactor makes the mono-vs-bayered split safe). See §7.
+2. **Lower the default `MaxEvaluations`** (400 → ~80–120) and/or add a no-improvement early stop. Not
+   shipped on this branch (search-quality tuning, orthogonal to the per-eval cost win). (StarDetectionOptimizer.cs:25.)
+3. **Gate the PSF-time `Console.WriteLine`** and avoid forcing TRACE per-detection in the harness.
+   **SHIPPED** — result-neutral, but **no measurable speedup** (Logger is buffered). See §7.
 
 Larger refactors (bigger impact, must preserve bit-identical results):
-4. **Split `DetectImpl` into BuildDetectionContext (early) + GateAndMeasure (late), cache the early context
-   per (frame, early-key).** Highest structural impact (~2× alone; more with Phase-A reuse). Medium-high
-   effort + careful early/late param partition (encode the §3 table as the cache key; treat the cached Mat as
-   read-only). This is the change the T3 "no per-frame cache" note did not consider.
-5. **Parallelize frame detection within an eval** (bounded), ideally after #4 so the early stage parallelizes
-   across frames without oversubscribing the inner per-star `Parallel.For`. Medium effort; determinism safe
-   (fit pools by position).
-6. **Parallelize independent candidate evaluations** (Phase-A grid, Phase-B sweep) with a thread-safe memo and
-   a memory cap. Medium-high effort; determinism safe on values but needs the concurrent-memo + memory care.
-7. **Search on a downsampled/ROI image, confirm full-frame at the winner.** Medium effort; search-heuristic
-   tradeoff, final params validated full-frame.
+4. **Split `DetectImpl` into BuildDetectionContext (early) + GateAndMeasure (late), cache the early
+   context per (frame, early-key).** **SHIPPED** — `RunEvaluationData` caches the context per
+   (frame, early-key) behind the `ISplitFrameDetector` boundary; detection is bit-identical. This is
+   the change the T3 "no per-frame cache" note did not consider. (Main driver of the measured ~10–13×.)
+5. **Parallelize frame detection within an eval** (bounded). **SHIPPED** — `RunEvaluationData` detects
+   frames concurrently at degree ≈ `max(2, ProcessorCount/4)`, assembling by index and pooling by
+   position; determinism safe.
+6. **Parallelize independent candidate evaluations** (Phase-A grid, Phase-B sweep). Not shipped
+   (would need a concurrent memo + memory cap). Optional future win.
+7. **Search on a downsampled/ROI image, confirm full-frame at the winner.** Not shipped (search
+   heuristic). Optional future win.
 
 Anything touching detection math (the §3 split, parallelism) must be proven result-identical (the existing
-`ComputeCacheKey`/equivalence-signature discipline applies). Items 1–3 and 5–7's framing are pure scheduling/
-IO and do not change detection output; item 4 changes structure but must produce the same stars/values.
+`ComputeCacheKey`/equivalence-signature discipline applies). The shipped #4 changes structure but produces
+the same stars/values (verified bit-identical, incl. the cross-setup copy-run check); #5's framing is pure
+scheduling and does not change detection output.
 
-## 7. Implementation note — quick-wins pass (logging done; wizard convert-reuse DEFERRED)
+## 7. Implementation note — what shipped
 
-Implemented (pure logging/scheduling, bit-identical — no detection input/param/gate/result touched):
+Implemented (the big wins; detection **bit-identical**, measured **~10–13×**):
+- **#4 early/late split + per-frame early-context cache.** `StarDetector.DetectImpl` split into
+  `BuildDetectionContext` (early, ~78%) + `GateAndMeasure` (late, ~22%); `RunEvaluationData` caches the
+  early `DetectionContext` per (frame, early-key) and reuses it across late-only candidate moves, behind
+  the `ISplitFrameDetector` boundary (`HocusFocusSplitFrameDetector` wizard / `MatSplitFrameDetector`
+  harness). Applies to live AND replay (both converge on `RunEvaluationLoader` → `RunEvaluationData` →
+  the split detector). Cache bounded to one context per frame.
+- **#5 bounded parallel per-frame detection within an eval.** `RunEvaluationData` detects frames
+  concurrently at degree ≈ `max(2, ProcessorCount/4)`, assembled by index, pooled by focuser position;
+  fit is order-independent (deterministic).
+- **Measured:** CWhite 61 MP **19m51s → 1m30s = 13.2×**; Panos **7m02s → 44s = 9.6×** (`--max-evals 24`).
+  Verified bit-identical, including the cross-setup copy-run (identical-results) check.
+
+Implemented (pure logging/scheduling, bit-identical — **but no measurable speedup**: NINA `Logger` is
+buffered and detection compute dominates, so this is a correctness/cleanup change, not a perf win):
 - **#3 PSF-time write + per-detection TRACE.** `StarDetector.cs` no longer does a `Console.WriteLine("PSF
   time…")` on every detection: the whole PSF block (incl. the timer) is now inside `if (p.ModelPSF)` and the
   timing line is `Logger.Trace`. During AF/optimize (`ModelPSF=false`, always) that block is skipped entirely.
@@ -252,6 +282,15 @@ Implemented (pure logging/scheduling, bit-identical — no detection input/param
   detection `Logger.Trace` stage-timing lines short-circuit (no disk serialization) on the common path. The
   `contamination` runner is unchanged. The wizard does not call `SetLogLevel`, so it already respects the
   user's configured level — nothing to fix there.
+
+### Related: defocus-aware detector gates (opt-in, default OFF)
+
+Separate from performance, the same branch added two opt-in, default-off, size-scaled gate relaxations
+(`DefocusAwareDistortion`, `DefocusAwareCentering`) that recover bloated/donut defocused stars rejected by
+the `MaxDistortion` / centering gates. Default-OFF returns the gates verbatim, so they keep detection
+**bit-identical** and do not affect any of the perf measurements above. See
+`docs/star-detection-optimization-wizard-design.md` (and the results doc) for the diagnosis and recovery
+rates.
 
 DEFERRED — #1 wizard per-eval IRenderedImage→Mat convert-reuse (needs the §3 refactor, not a quick win):
 The §2.2/§5/§6.1 framing ("bit-identical *when hotpixel params unchanged*") is the catch. The curated

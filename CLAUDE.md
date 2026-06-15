@@ -661,20 +661,33 @@ set's median gradient slope/eccentricity vs sensitivity, from a single run); plu
 flag is false the detector fills no per-sector residual arrays and skips the diagnostic record (the plane fit
 + decision always run, since they are the production background/contamination path).
 
-### Star Detection Optimizer harnesses (`TestApp optimize` / `TestApp review`)
+### Star Detection Optimizer harnesses (`TestApp optimize` / `review` / `diagnose-labels`)
 
-The Star Detection Optimization Wizard ships with two `TestApp` subcommands that drive the **same**
-`StarDetectionOptimizer` the live wizard uses, so the optimizer can be exercised/tuned offline. Both load the
+The Star Detection Optimization Wizard ships with `TestApp` subcommands that drive the **same**
+`StarDetectionOptimizer` the live wizard uses, so the optimizer can be exercised/tuned offline. They load the
 user's real NINA profile and build the seed via `BuildStarDetectorParams` plus the AF overrides (`ModelPSF=false`,
-`Region=Full`, `SaveIntermediateFilesPath=""`, `PixelScale` from the profile × binning=1 for raw Mats). Both are
+`Region=Full`, `SaveIntermediateFilesPath=""`, `PixelScale` from the profile × binning=1 for raw Mats). All are
 **read-only with respect to the profile/options** (they never call a settings setter or touch the options
 accessor — NINA auto-saves the active profile, so mutating options would silently rewrite the user's settings).
+
+> **Perf:** detection is split into a cacheable EARLY context (`BuildDetectionContext`) + a cheap LATE
+> `GateAndMeasure`; `RunEvaluationData` caches the early context per (frame, early-key) and reuses it across
+> late-only candidate moves, plus bounded parallel per-frame detection. **Bit-identical, ~10–13× faster**, and
+> it benefits BOTH the live wizard and replay (both converge on `RunEvaluationLoader` → `RunEvaluationData` →
+> `HocusFocusSplitFrameDetector`). See `docs/star-detection-optimizer-performance-design.md`.
 
 **`TestApp.exe optimize`** — headless driver of the optimizer. Args:
 `--runs <folder>` (required), `--per-run` (flag), `--profile-id <guid>` (default active), `--out <dir>`
 (default `%LOCALAPPDATA%\NINA\Logs\hf-diag\optimize\<timestamp>`), `--max-evals <int>` (override the
-optimizer budget), `--annotate extremes|all` (default `extremes` = min/max-focuser frames only),
-`--labels <dir>`.
+optimizer budget; wizard default 400), `--annotate extremes|all` (default `extremes` = min/max-focuser frames
+only), `--labels <dir>` (label JSON dir; activates the recall/precision objective term), `--verbose` (restore
+TRACE logging; default INFO). Opt-in defocus-gate test switches (flip the gates ON on the built params only —
+do NOT touch the profile): `--defocus-distortion` (relax `MaxDistortion` for large/defocused candidates) and
+`--defocus-centering` (relax the centering gate); tuning overrides `--defocus-size-ref <px>` (strict-below
+size ref, shared by both gates; param default 30), `--defocus-min-factor <0..1>` (MaxDistortion floor; default
+0.25), `--defocus-center-factor <≥1>` (max StarCenterTolerance multiplier; default 2.0). It writes
+`optimized_settings.json` into **each focus run's source folder** (the review handoff) **and** the `--out`
+dir (or each per-run subfolder).
 
 - **Run discovery is attempt-anchored** (pure logic in `OptimizationRunDiscovery`): it recursively finds
   `attempt<NN>` folders (1–4 levels under `--runs`) that contain ≥3 distinct focuser positions, mirroring
@@ -703,20 +716,45 @@ optimizer budget), `--annotate extremes|all` (default `extremes` = min/max-focus
   optimize --runs "C:\Users\me\AppData\Local\NINA\AutoFocus" --out "C:\temp\hf-opt" --per-run
 ```
 
-**`TestApp.exe review`** — interactive two-pass labeling dev tool (WPF; produces labels only). Args:
-`--runs <folder>` (required), `--labels <dir>` (default `<runs>\labels`; read+written, feeds `optimize --labels`),
-`--params optimized|current` (default `current` = profile-as-configured seed; `optimized` overlays the saved
-optimized snapshot), `--review low|uncertain|all` (default `low` = frames with `< N_review` accepted stars;
-`uncertain` adds the defocused extremes; `all`), `--profile-id <guid>`.
+**`TestApp.exe review`** — interactive box-based labeling dev tool (WPF; produces labels only;
+**read-only on the profile**). Args: `--runs <folder>` (required), `--labels <dir>` (default `<runs>\labels`;
+read+written, feeds `optimize --labels`), `--params current|optimized` (default `current`), `--opt-results
+<dir>` (folder holding `optimized_settings.json`), `--review low|uncertain|all` (default `low` = frames with
+`< N_review` accepted stars; `uncertain` adds the defocused extremes; `all`), `--profile-id <guid>`.
 
+- **`--params optimized` load priority:** (1) explicit `--opt-results <dir>/optimized_settings.json`, then (2)
+  auto-discover `<runFolder>/optimized_settings.json` (where `optimize` wrote it), then (3) the profile
+  snapshot `options.GetOptimizedSettings()`, else (4) fall back to `current`.
 - Detects every queued frame once, shows MTF-stretched frames with accepted/rejected-by-reason overlays (colors
-  match `optimize`'s PNG legend), zoom/pan, and two click modes: **Mark Missed** (false negatives → recall) and
-  **Mark Should-Reject** (false positives → precision). Labels reload incrementally (re-running merges).
-- The label JSON is consumed by `optimize --labels <dir>` to activate the objective's recall/precision term.
-  One file per run (`<runId>.json`, or any `*.json` whose embedded `runId` matches a discovered run); shape:
-  `{ "runId", "radiusPx", "positions": [ { "focuserPosition", "radiusPx"?, "missed": [{x,y}], "shouldReject": [{x,y}] } ] }`.
-- **Loop:** `optimize` (baseline) → `review --labels L` (mark misses / false positives) →
-  `optimize --labels L` (re-optimize with the recall/precision term active).
+  match `optimize`'s PNG legend), zoom/pan, and **thick, zoom-invariant** markers. **Three box-based label
+  categories:** **missed** (false negative → recall) = drag a box on a real star with no marker;
+  **should-reject** (false positive → precision) = click an **accepted** box; **wrongly-rejected** (recall) =
+  click a **rejected** box. Labels reload incrementally (re-running merges).
+- The label JSON is consumed by `optimize --labels <dir>` to activate the objective's recall/precision term
+  (recall/precision are scored by **box containment**). One file per run (`<runId>.json`, or any `*.json` whose
+  embedded `runId` matches a discovered run); each labeled box carries a bounding box (legacy point-only files
+  auto-load with a default box).
+
+**`TestApp.exe diagnose-labels`** — classifies each labeled box against a fresh detection of the same frame to
+find **which gate rejects** flagged stars. Per box: **ACCEPTED** (overlaps an accepted star) /
+**REJECTED:<reason>** (overlaps a rejected candidate — reports the gate: TooDistorted, NotCentered, TooFlat,
+LowSensitivity, Saturated, Degenerate, Contaminated) / **NO CANDIDATE** (no candidate formed there = a true
+structure-detection gap, only fixable by detector-algorithm work). Args: `--runs` (required), `--labels`
+(default `<runs>\labels`), `--params current|optimized`, `--opt-results <dir>` (same load priority as
+`review`), `--profile-id`, `--out <dir>` (writes `diagnose_labels.txt`), plus the same opt-in defocus switches
+as `optimize` (`--defocus-distortion` / `--defocus-centering` / `--defocus-size-ref` / `--defocus-min-factor`
+/ `--defocus-center-factor`). Read-only on the profile.
+
+- **Loop:** `optimize` (baseline) → `review --labels L` (drag-box misses / click false positives / click
+  wrongly-rejected) → `optimize --labels L` (re-optimize with the box-containment recall/precision term
+  active). Use `diagnose-labels` to attribute each labeled miss to a specific gate vs. a structure gap.
+
+**Defocus-aware gates (Advanced options).** `StarDetectionOptions.DefocusAwareDistortion` and
+`DefocusAwareCentering` (both **opt-in, default OFF**, Advanced-only with CheckBox + tooltip in
+`OptionsDataTemplates.xaml`) relax the distortion / centering gates for large candidates (large size = defocus
+proxy) to recover bloated/donut defocused stars. Default-OFF returns the gates verbatim, keeping detection
+**bit-identical**. Tuned via the param fields `DefocusDistortionSizeReference` (30 px), `DefocusDistortionMinFactor`
+(0.25), `DefocusCenteringToleranceFactor` (2.0).
 
 ---
 
