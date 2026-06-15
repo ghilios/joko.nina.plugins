@@ -34,6 +34,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>Accepted-star centers (image pixel coords), used only for label recall/precision.</summary>
         public IReadOnlyList<(double X, double Y)> StarCenters { get; set; }
+
+        /// <summary>Number of accepted stars on this frame admitted only by a defocus-RELAXED gate (would have
+        /// failed the strict gate) — i.e. <c>StarDetectorMetrics.RelaxationAdmittedCount</c> for this frame. Zero
+        /// whenever the defocus-aware gates are OFF, so the objective stays bit-identical at the baseline. Feeds the
+        /// optimizer's label-free precision/false-positive penalty.</summary>
+        public int RelaxationAdmittedCount { get; set; }
     }
 
     /// <summary>
@@ -526,10 +532,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var detections = await DetectAllFramesAsync(p, token).ConfigureAwait(false);
 
             var frameStarCounts = new List<int>(frames.Count);
+            var frameRelaxationAdmittedCounts = new List<int>(frames.Count);
+            var frameFocuserPositions = new List<int>(frames.Count);
             var perFrame = new List<(int FocuserPosition, FrameDetectionResult Detection)>(frames.Count);
             for (int i = 0; i < frames.Count; i++) {
                 var detection = detections[i];
                 frameStarCounts.Add(detection.StarCount);
+                // Parallel per-frame lists feeding the objective's label-free precision penalty. Relaxed counts are
+                // 0 across the board unless a defocus-aware gate is on, so the baseline J is unaffected.
+                frameRelaxationAdmittedCounts.Add(detection.RelaxationAdmittedCount);
+                frameFocuserPositions.Add(frames[i].FocuserPosition);
                 perFrame.Add((frames[i].FocuserPosition, detection));
             }
 
@@ -561,7 +573,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 StepSize = fitConfig.StepSize,
                 RSquared = 0.0,
                 ReducedChiSquared = double.NaN,
-                FrameStarCounts = frameStarCounts
+                FrameStarCounts = frameStarCounts,
+                FrameRelaxationAdmittedCounts = frameRelaxationAdmittedCounts,
+                FrameFocuserPositions = frameFocuserPositions,
+                BestFocusPosition = double.NaN
             };
             AlglibHyperbolicFitting bestFit = null;
 
@@ -575,6 +590,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     metrics.SigmaFocus = bestFit.MinimumStdError;
                     metrics.RSquared = bestFit.RSquared;
                     metrics.ReducedChiSquared = bestFit.ReducedChiSquared;
+                    // Fitted curve-minimum focuser position; defines the near-focus window for SDefocusPrecision.
+                    // Left NaN if the fit didn't produce a finite minimum (then SDefocusPrecision falls back to the
+                    // run-level relaxed-fraction signal).
+                    var minX = bestFit.Minimum.X;
+                    metrics.BestFocusPosition = (double.IsNaN(minX) || double.IsInfinity(minX)) ? double.NaN : minX;
 
                     // Only pay for the leave-one-out fallback when the parametric σ is unusable (matches the
                     // objective, which prefers SigmaFocus and only falls back to LooStdError).

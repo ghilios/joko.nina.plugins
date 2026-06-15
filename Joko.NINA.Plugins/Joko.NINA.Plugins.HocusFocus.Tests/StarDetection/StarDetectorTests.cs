@@ -7,6 +7,7 @@ using OpenCvSharp;
 using CvPoint = OpenCvSharp.Point;
 using System.Collections.Generic;
 using System;
+using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
@@ -273,6 +274,93 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 Assert.That(LargeCentered(defocusAware: true), Is.True, "large off-center donut is admitted with the flag ON");
                 Assert.That(SmallCentered(defocusAware: false), Is.False, "small off-center junk is NotCentered OFF");
                 Assert.That(SmallCentered(defocusAware: true), Is.False, "small off-center junk is STILL NotCentered ON (strict at small size)");
+            });
+        }
+
+        // -----------------------------------------------------------------------
+        // RelaxationAdmitted flag + RelaxationAdmittedCount metric (F3) — end-to-end detection
+        // -----------------------------------------------------------------------
+
+        // Params that open every gate EXCEPT the defocus-relaxable distortion/centering gates, so a large hollow
+        // donut is accepted iff the defocus-aware gates (flipped together, as the optimizer's combined
+        // DefocusAwareGates switch does) admit it. A real defocused donut needs BOTH relaxations: its big-but-low-
+        // fill bbox trips the distortion gate, and its ring-destabilized centroid trips the centering gate.
+        // Contamination rejection off (a lone donut on a flat field is clean anyway). ModelPSF off for speed.
+        private static StarDetectorParams DonutDetectParams(bool defocusAware) => new StarDetectorParams {
+            ModelPSF = false,
+            RejectContaminatedStars = false,
+            Sensitivity = 0.1,                 // very faint allowed
+            MinHFR = 0.1,                      // tiny HFR allowed
+            PeakResponse = 0.99,               // flatness gate effectively off (donut median ≪ peak anyway)
+            StarCenterTolerance = 0.3,         // default
+            MinimumStarBoundingBoxSize = 5,
+            MaxDistortion = 0.5,               // default strict threshold
+            DefocusAwareDistortion = defocusAware,
+            DefocusAwareCentering = defocusAware,
+            DefocusDistortionSizeReference = 30.0,
+            DefocusDistortionMinFactor = 0.25,
+            DefocusCenteringToleranceFactor = 2.0,
+        };
+
+        // A single large hollow donut whose annulus fill-ratio sits BELOW the strict MaxDistortion (0.5) but ABOVE
+        // the defocus-relaxed threshold, so it is rejected when the gates are OFF and admitted (and flagged
+        // RelaxationAdmitted) when they are ON. inner 18 / outer 26 ⇒ bbox d ≈ 52, fill ≈ π(26²−18²)/52² ≈ 0.41.
+        private static Mat BuildLargeDonutField() {
+            const int w = 128, h = 128;
+            var mat = SyntheticDefocusedStarImage.CreateAnnulus(
+                w, h, centerX: 64, centerY: 64, innerRadius: 18.0, outerRadius: 26.0,
+                peak: 0.7, background: 0.05, edgeBlurSigma: 0.8);
+            SyntheticDefocusedStarImage.AddGaussianNoise(mat, sigma: 0.005, seed: 4242);
+            return mat;
+        }
+
+        [Test]
+        public async Task RelaxationAdmittedCount_NearFocusSmallStars_ZeroAndCountsIdenticalOnVsOff() {
+            // CRITICAL bit-identity: for a NEAR-FOCUS field of small, well-formed stars the defocus relaxation
+            // never lowers any gate (small candidates stay strict), so turning the gate ON must NOT change the
+            // detected set — the signature is byte-identical — and RelaxationAdmittedCount is 0 in BOTH cases.
+            var off = StarDetectorEquivalence.StandardParams();
+            off.DefocusAwareDistortion = false;
+            off.DefocusAwareCentering = false;
+
+            var on = StarDetectorEquivalence.StandardParams();
+            on.DefocusAwareDistortion = true;
+            on.DefocusAwareCentering = true;
+
+            using var fieldOff = StarDetectorEquivalence.BuildSmallField();
+            using var fieldOn = StarDetectorEquivalence.BuildSmallField();
+            var resultOff = await StarDetectorEquivalence.RunDetect(fieldOff, off);
+            var resultOn = await StarDetectorEquivalence.RunDetect(fieldOn, on);
+
+            Assert.Multiple(() => {
+                Assert.That(StarDetectorEquivalence.Signature(resultOn), Is.EqualTo(StarDetectorEquivalence.Signature(resultOff)),
+                    "small near-focus stars: detection must be byte-identical with the defocus gates ON (the flag is informational)");
+                Assert.That(resultOff.Metrics.RelaxationAdmittedCount, Is.EqualTo(0), "gate OFF ⇒ no relaxation-admitted stars");
+                Assert.That(resultOn.Metrics.RelaxationAdmittedCount, Is.EqualTo(0), "small stars never need relaxation ⇒ still 0 with the gate ON");
+                Assert.That(resultOff.DetectedStars.TrueForAll(s => !s.RelaxationAdmitted), Is.True);
+                Assert.That(resultOn.DetectedStars.TrueForAll(s => !s.RelaxationAdmitted), Is.True);
+            });
+        }
+
+        [Test]
+        public async Task RelaxationAdmitted_LargeDonut_RejectedWhenGateOff_FlaggedAndAcceptedWhenGateOn() {
+            using var fieldOff = BuildLargeDonutField();
+            using var fieldOn = BuildLargeDonutField();
+
+            var resultOff = await StarDetectorEquivalence.RunDetect(fieldOff, DonutDetectParams(defocusAware: false));
+            var resultOn = await StarDetectorEquivalence.RunDetect(fieldOn, DonutDetectParams(defocusAware: true));
+
+            Assert.Multiple(() => {
+                // OFF: the strict distortion gate rejects the hollow donut, and nothing is relaxation-admitted.
+                Assert.That(resultOff.DetectedStars.Count, Is.EqualTo(0), "strict gate (OFF) rejects the large hollow donut");
+                Assert.That(resultOff.Metrics.RelaxationAdmittedCount, Is.EqualTo(0), "gate OFF ⇒ RelaxationAdmittedCount == 0");
+
+                // ON: the relaxed distortion gate admits the donut, and it is flagged + tallied.
+                Assert.That(resultOn.DetectedStars.Count, Is.GreaterThanOrEqualTo(1), "relaxed gate (ON) admits the large donut");
+                Assert.That(resultOn.Metrics.RelaxationAdmittedCount, Is.EqualTo(resultOn.DetectedStars.Count),
+                    "every donut admitted only by relaxation is flagged + counted");
+                Assert.That(resultOn.DetectedStars.TrueForAll(s => s.RelaxationAdmitted), Is.True,
+                    "the admitted donut(s) carry the RelaxationAdmitted flag");
             });
         }
 

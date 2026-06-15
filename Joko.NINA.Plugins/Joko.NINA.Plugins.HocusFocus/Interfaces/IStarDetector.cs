@@ -568,8 +568,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// </summary>
         public bool StarContaminationSuspected { get; set; }
 
+        /// <summary>
+        /// INFORMATIONAL ONLY (never affects an accept/reject decision). Set to true when this accepted star
+        /// passed a defocus-RELAXED gate (distortion and/or centering) but would have FAILED the verbatim STRICT
+        /// gate (<see cref="StarDetectorParams.MaxDistortion"/> / <see cref="StarDetectorParams.StarCenterTolerance"/>).
+        /// When the defocus-aware gates are OFF the effective threshold equals the strict threshold, so this flag
+        /// is never set and detection stays bit-identical. Used by the optimizer to discourage cranking the
+        /// defocus relaxation into junk (near-focus relaxation-admitted stars are large/low-fill blobs).
+        /// </summary>
+        public bool RelaxationAdmitted { get; set; }
+
         public override string ToString() {
-            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(PeakBrightness)}={PeakBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}, {nameof(PSF)}={PSF}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected}}}";
+            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(PeakBrightness)}={PeakBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}, {nameof(PSF)}={PSF}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected}, {nameof(RelaxationAdmitted)}={RelaxationAdmitted}}}";
         }
     }
 
@@ -608,6 +618,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         public int ContaminationSuspected { get => ContaminatedBounds.Count; set => throw new NotSupportedException("Can't set ContaminationSuspected directly"); }
         public List<Rect> ContaminatedBounds { get; private set; } = new List<Rect>();
+
+        /// <summary>
+        /// INFORMATIONAL count of ACCEPTED stars whose <see cref="Star.RelaxationAdmitted"/> flag is set — i.e.
+        /// stars that survived a defocus-RELAXED gate but would have failed the strict gate. Tallied on the main
+        /// thread from the assembled accepted-star list (it never flows through <see cref="Merge"/>, since the
+        /// per-thread metrics instances never touch it). Zero whenever the defocus-aware gates are OFF, so it
+        /// does NOT affect detection bit-identity. The optimizer consumes it as a precision/false-positive signal.
+        /// </summary>
+        public int RelaxationAdmittedCount { get; set; } = 0;
         public int OutsideROI { get; set; } = 0;
         public long SaturatedPixelCount { get; set; } = 0L;
         public long HotpixelCount { get; set; } = 0L;

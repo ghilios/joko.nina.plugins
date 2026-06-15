@@ -663,7 +663,10 @@ namespace TestApp {
                 AverageHFR = averageHfr,
                 HFRStdDev = hfrStdDev,
                 StarCount = stars.Count,
-                StarCenters = centers
+                StarCenters = centers,
+                // Count relaxation-admitted stars from the SURVIVING accepted set (consistent with StarCount). 0
+                // unless a defocus-aware gate is on. Feeds the optimizer's precision penalty.
+                RelaxationAdmittedCount = stars.Count(s => s.RelaxationAdmitted)
             };
         }
 

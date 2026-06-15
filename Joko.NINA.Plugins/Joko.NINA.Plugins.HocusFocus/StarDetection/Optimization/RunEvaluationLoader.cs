@@ -211,7 +211,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     AverageHFR = result.AverageHFR,
                     HFRStdDev = result.HFRStdDev,
                     StarCount = result.DetectedStars,
-                    StarCenters = centers
+                    StarCenters = centers,
+                    // Relaxation-admitted accepted-star count for this frame (0 unless a defocus-aware gate is on),
+                    // surfaced from the detector metrics so the optimizer can apply its precision penalty.
+                    RelaxationAdmittedCount = (result as HocusFocusStarDetectionResult)?.Metrics?.RelaxationAdmittedCount ?? 0
                 };
             }
         }

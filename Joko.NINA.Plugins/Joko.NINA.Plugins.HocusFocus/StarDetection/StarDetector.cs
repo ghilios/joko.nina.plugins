@@ -1036,16 +1036,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             metrics.SortBounds();
 
             // Assemble in index order to preserve today's exact top-left raster ordering of DetectedStars, and
-            // count detections on the main metrics.
+            // count detections on the main metrics. RelaxationAdmittedCount is tallied here (main thread) from the
+            // accepted-star flags rather than through Merge, so it never double-counts; it is 0 whenever the
+            // defocus-aware gates are OFF (no star can be flagged), keeping detection counts bit-identical.
             var stars = new List<Star>(candidates.Count);
             int totalDetected = 0;
+            int relaxationAdmitted = 0;
             for (int i = 0; i < results.Length; ++i) {
                 if (results[i] != null) {
                     stars.Add(results[i]);
                     ++totalDetected;
+                    if (results[i].RelaxationAdmitted) {
+                        ++relaxationAdmitted;
+                    }
                 }
             }
             metrics.TotalDetected = totalDetected;
+            metrics.RelaxationAdmittedCount = relaxationAdmitted;
 
             return stars;
         }
@@ -1234,6 +1241,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // Note: partially-saturated stars (Background + Peak >= SaturationThreshold) are no longer rejected here.
             // Instead, they are passed to PSF fitting which masks saturated pixels during the fit.
 
+            // INFORMATIONAL (never affects accept/reject): set true iff this candidate passes a defocus-RELAXED
+            // gate (distortion and/or centering) that the verbatim STRICT gate would have rejected. Propagated to
+            // the accepted Star.RelaxationAdmitted. When the defocus-aware gates are OFF, effective == strict, so
+            // this can never flip — detection stays bit-identical.
+            bool relaxationAdmitted = false;
+
             // Too small
             if (starBounds.Width < p.MinimumStarBoundingBoxSize || starBounds.Height < p.MinimumStarBoundingBoxSize) {
                 ++metrics.TooSmall;
@@ -1253,10 +1266,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // ComputeEffectiveMaxDistortion. The same effective threshold drives both the decision and the
             // TooDistorted metrics tally.
             double d = Math.Max(starBounds.Width, starBounds.Height);
+            var fillRatio = starPoints.Count / d / d;
             var effectiveMaxDistortion = ComputeEffectiveMaxDistortion(p, d);
-            if ((starPoints.Count / d / d) < effectiveMaxDistortion) {
+            if (fillRatio < effectiveMaxDistortion) {
                 metrics.TooDistortedBounds.Add(starBounds);
                 return null;
+            }
+            // The accept/reject decision above uses the effective threshold ONLY. Separately (informational), note
+            // whether the verbatim STRICT threshold would have rejected this candidate — i.e. it survives only
+            // because the defocus relaxation lowered the bar. ComputeEffectiveMaxDistortion with the gate OFF
+            // returns p.MaxDistortion, so strict == effective ⇒ this never trips when the gate is OFF.
+            if (fillRatio < p.MaxDistortion) {
+                relaxationAdmitted = true;
             }
 
             var starCandidate = ComputeStarParameters(srcImage, starBounds, p, srcImageNoiseSigma, starPoints);
@@ -1277,10 +1298,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return null;
             }
 
-            // Measured center too far away from being the peak
-            if (!IsStarCentered(starCandidate, p)) {
+            // Measured center too far away from being the peak. The accept/reject decision uses the EFFECTIVE
+            // (possibly relaxed) tolerance; we also compute the STRICT result so an accepted-by-relaxation centroid
+            // is flagged. When DefocusAwareCentering is OFF, effective == strict, so centeredStrict == centered.
+            var centered = IsStarCentered(starCandidate, p, out var centeredStrict);
+            if (!centered) {
                 metrics.NotCenteredBounds.Add(starBounds);
                 return null;
+            }
+            if (!centeredStrict) {
+                relaxationAdmitted = true;
             }
 
             // Too flat. Intentionally active during AutoFocus as well — see
@@ -1301,7 +1328,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // "brightest N AF stars" selection (analysis F8); it is left as-is by decision (design §1).
                 MeanBrightness = starCandidate.TotalFlux / starCandidate.PixelCount,
                 StarBoundingBox = starBounds,
-                PeakBrightness = starCandidate.Peak
+                PeakBrightness = starCandidate.Peak,
+                RelaxationAdmitted = relaxationAdmitted
             };
 
             // Measure HFR, and discard if we couldn't calculate it
@@ -1340,23 +1368,44 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return star;
         }
 
-        private static bool IsStarCentered(StarCandidate starCandidate, StarDetectorParams p) {
+        private static bool IsStarCentered(StarCandidate starCandidate, StarDetectorParams p) =>
+            IsStarCentered(starCandidate, p, out _);
+
+        /// <summary>
+        /// Centering gate. Returns whether the candidate centroid lies within the EFFECTIVE (possibly defocus-
+        /// relaxed) acceptance sub-box — the accept/reject decision. Also reports, via
+        /// <paramref name="strictCentered"/>, whether it lies within the STRICT acceptance sub-box (built from the
+        /// verbatim <see cref="StarDetectorParams.StarCenterTolerance"/>). When DefocusAwareCentering is OFF the
+        /// effective tolerance IS the strict tolerance, so the two results are identical (bit-identical detection);
+        /// when ON, a candidate that is centered (effective) but not strictCentered was admitted only by the
+        /// relaxation. The single decision call site (in EvaluateStarCandidate) honors the EFFECTIVE return for the
+        /// NotCentered tally; strictCentered is informational (feeds Star.RelaxationAdmitted).
+        /// </summary>
+        private static bool IsStarCentered(StarCandidate starCandidate, StarDetectorParams p, out bool strictCentered) {
             var box = starCandidate.StarBoundingBox;
-            // When DefocusAwareCentering is off the effective tolerance is exactly p.StarCenterTolerance
-            // (bit-identical to the legacy gate). When on, it is relaxed (the centered acceptance sub-box grows)
-            // for large candidates so large-defocus donuts (whose ring destabilizes the centroid) survive — see
-            // ComputeEffectiveStarCenterTolerance. The same effective tolerance drives both the decision and the
-            // NotCentered metrics/bounds tally (the tally happens at the single call site, which honors the return).
             var effectiveTolerance = p.DefocusAwareCentering
                 ? ComputeEffectiveStarCenterTolerance(p.StarCenterTolerance, Math.Max(box.Width, box.Height), p.DefocusDistortionSizeReference, p.DefocusCenteringToleranceFactor)
                 : p.StarCenterTolerance;
-            var centerThresholdBoxWidth = box.Width * effectiveTolerance;
-            var centerThresholdBoxHeight = box.Height * effectiveTolerance;
+            var centered = CenterWithinTolerance(box, starCandidate.Center, effectiveTolerance);
+            // The strict tolerance is the verbatim StarCenterTolerance — i.e. exactly the value the effective
+            // tolerance equals when the gate is OFF. So with the gate OFF strictCentered == centered always.
+            strictCentered = p.DefocusAwareCentering
+                ? CenterWithinTolerance(box, starCandidate.Center, p.StarCenterTolerance)
+                : centered;
+            return centered;
+        }
+
+        /// <summary>True when <paramref name="center"/> lies within the centered acceptance sub-box of
+        /// <paramref name="box"/> at the given <paramref name="tolerance"/> (a fraction of the bbox extents,
+        /// concentric with the bbox).</summary>
+        private static bool CenterWithinTolerance(Rect box, Point2d center, double tolerance) {
+            var centerThresholdBoxWidth = box.Width * tolerance;
+            var centerThresholdBoxHeight = box.Height * tolerance;
             var minX = box.X + (box.Width - centerThresholdBoxWidth) / 2.0;
             var maxX = minX + centerThresholdBoxWidth;
             var minY = box.Y + (box.Height - centerThresholdBoxHeight) / 2.0;
             var maxY = minY + centerThresholdBoxHeight;
-            return starCandidate.Center.X >= minX && starCandidate.Center.X <= maxX && starCandidate.Center.Y >= minY && starCandidate.Center.Y <= maxY;
+            return center.X >= minX && center.X <= maxX && center.Y >= minY && center.Y <= maxY;
         }
 
         /// <summary>

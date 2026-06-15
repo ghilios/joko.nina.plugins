@@ -137,10 +137,10 @@ public class OptimizerVariableTests {
     // ---- CreateCuratedSet ----
 
     [Test]
-    public void CreateCuratedSet_HasTwelveDistinctVariables() {
+    public void CreateCuratedSet_HasThirteenDistinctVariables() {
         var set = OptimizerVariable.CreateCuratedSet();
-        Assert.That(set.Count, Is.EqualTo(12));
-        Assert.That(set.Select(x => x.Name).Distinct().Count(), Is.EqualTo(12));
+        Assert.That(set.Count, Is.EqualTo(13));
+        Assert.That(set.Select(x => x.Name).Distinct().Count(), Is.EqualTo(13));
     }
 
     [Test]
@@ -159,8 +159,55 @@ public class OptimizerVariableTests {
             nameof(StarDetectorParams.MinimumStarBoundingBoxSize),
             nameof(StarDetectorParams.HotpixelThresholdingEnabled),
             nameof(StarDetectorParams.HotpixelThreshold),
+            // Synthetic combined switch (drives DefocusAwareDistortion + DefocusAwareCentering together).
+            OptimizerVariable.DefocusAwareGatesName,
         };
         Assert.That(set.Select(x => x.Name), Is.EquivalentTo(expected));
+    }
+
+    // ---- DefocusAwareGates combined switch (F3) ----
+
+    [Test]
+    public void CreateCuratedSet_IncludesDefocusAwareGates_AsBoolean() {
+        var v = OptimizerVariable.CreateCuratedSet().Single(x => x.Name == OptimizerVariable.DefocusAwareGatesName);
+        Assert.Multiple(() => {
+            Assert.That(v.Type, Is.EqualTo(OptimizerVariableType.Boolean));
+            Assert.That(v.Lower, Is.EqualTo(0));
+            Assert.That(v.Upper, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void DefocusAwareGates_WritingTrue_SetsBothFlags() {
+        var v = OptimizerVariable.CreateCuratedSet().Single(x => x.Name == OptimizerVariable.DefocusAwareGatesName);
+        var p = new StarDetectorParams { DefocusAwareDistortion = false, DefocusAwareCentering = false };
+        v.Write(p, 1.0);
+        Assert.Multiple(() => {
+            Assert.That(p.DefocusAwareDistortion, Is.True);
+            Assert.That(p.DefocusAwareCentering, Is.True);
+        });
+    }
+
+    [Test]
+    public void DefocusAwareGates_WritingFalse_ClearsBothFlags() {
+        var v = OptimizerVariable.CreateCuratedSet().Single(x => x.Name == OptimizerVariable.DefocusAwareGatesName);
+        var p = new StarDetectorParams { DefocusAwareDistortion = true, DefocusAwareCentering = true };
+        v.Write(p, 0.0);
+        Assert.Multiple(() => {
+            Assert.That(p.DefocusAwareDistortion, Is.False);
+            Assert.That(p.DefocusAwareCentering, Is.False);
+        });
+    }
+
+    [Test]
+    public void DefocusAwareGates_Read_ReflectsTheDistortionFlag() {
+        var v = OptimizerVariable.CreateCuratedSet().Single(x => x.Name == OptimizerVariable.DefocusAwareGatesName);
+        var on = new StarDetectorParams { DefocusAwareDistortion = true, DefocusAwareCentering = true };
+        var off = new StarDetectorParams { DefocusAwareDistortion = false, DefocusAwareCentering = false };
+        Assert.Multiple(() => {
+            Assert.That(v.Read(on), Is.EqualTo(1.0));
+            Assert.That(v.Read(off), Is.EqualTo(0.0));
+        });
     }
 
     [Test]
