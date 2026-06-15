@@ -41,6 +41,11 @@ public class RunEvaluationDataTests {
     private const double HyperbolaB = 8.0;     // focuser-steps-per-unit; larger b => flatter curve
     private const int HyperbolaP0 = 10000;     // best-focus position
 
+    // A small label box CENTERED on (cx,cy) (half-extent 3, matching the prior point-radius intent), so an accepted
+    // star whose center is at (or very near) (cx,cy) lies INSIDE the box (recovered), while a far one does not.
+    private static LabelBox Box(double cx, double cy, double half = 3.0) =>
+        new LabelBox(cx - half, cy - half, 2 * half, 2 * half);
+
     private static double Hfr(int pos) {
         var dx = (pos - HyperbolaP0) / HyperbolaB;
         return Math.Sqrt(HyperbolaA * HyperbolaA + dx * dx);
@@ -174,8 +179,8 @@ public class RunEvaluationDataTests {
         var labels = new List<FrameLabels> {
             new FrameLabels {
                 FocuserPosition = HyperbolaP0,
-                Missed = new List<(double X, double Y)> { (5000.0, 5000.0) },        // nowhere near accepted => recall 0
-                ShouldReject = new List<(double X, double Y)> { (6000.0, 6000.0) },  // nowhere near accepted => precision 1
+                Missed = new List<LabelBox> { Box(5000.0, 5000.0) },        // no accepted center inside => recall 0
+                ShouldReject = new List<LabelBox> { Box(6000.0, 6000.0) },  // no accepted center inside => precision 1
                 RadiusPx = 3.0
             }
         };
@@ -202,11 +207,11 @@ public class RunEvaluationDataTests {
         var labels = new List<FrameLabels> {
             new FrameLabels {
                 FocuserPosition = HyperbolaP0,
-                Missed = new List<(double X, double Y)>(),                                   // no false negatives
-                ShouldReject = new List<(double X, double Y)>(),                             // no false positives
-                WronglyRejected = new List<(double X, double Y)> {
-                    (100.0, 100.0),                                                          // covered by an accepted center => recovered
-                    (9000.0, 9000.0)                                                         // nowhere near accepted => not recovered
+                Missed = new List<LabelBox>(),                                   // no false negatives
+                ShouldReject = new List<LabelBox>(),                            // no false positives
+                WronglyRejected = new List<LabelBox> {
+                    Box(100.0, 100.0),                                          // contains an accepted center => recovered
+                    Box(9000.0, 9000.0)                                         // no accepted center inside => not recovered
                 },
                 RadiusPx = 3.0
             }
@@ -232,11 +237,11 @@ public class RunEvaluationDataTests {
         var labels = new List<FrameLabels> {
             new FrameLabels {
                 FocuserPosition = HyperbolaP0,
-                Missed = new List<(double X, double Y)> { (100.0, 100.0) },          // recovered
-                ShouldReject = new List<(double X, double Y)>(),
-                WronglyRejected = new List<(double X, double Y)> {
-                    (300.0, 300.0),                                                  // recovered
-                    (9000.0, 9000.0)                                                 // not recovered
+                Missed = new List<LabelBox> { Box(100.0, 100.0) },          // recovered
+                ShouldReject = new List<LabelBox>(),
+                WronglyRejected = new List<LabelBox> {
+                    Box(300.0, 300.0),                                      // recovered
+                    Box(9000.0, 9000.0)                                     // not recovered
                 },
                 RadiusPx = 3.0
             }
@@ -256,10 +261,10 @@ public class RunEvaluationDataTests {
         var accepted = new List<(double X, double Y)> { (100.0, 100.0) };
         var detect = HyperbolaDetect(centers: accepted);
 
-        FrameLabels MakeLabel(IReadOnlyList<(double X, double Y)> wrongly) => new FrameLabels {
+        FrameLabels MakeLabel(IReadOnlyList<LabelBox> wrongly) => new FrameLabels {
             FocuserPosition = HyperbolaP0,
-            Missed = new List<(double X, double Y)> { (100.0, 100.0), (9000.0, 9000.0) }, // 1 of 2 recovered => 0.5
-            ShouldReject = new List<(double X, double Y)>(),
+            Missed = new List<LabelBox> { Box(100.0, 100.0), Box(9000.0, 9000.0) }, // 1 of 2 recovered => 0.5
+            ShouldReject = new List<LabelBox>(),
             WronglyRejected = wrongly,
             RadiusPx = 3.0
         };
@@ -267,7 +272,7 @@ public class RunEvaluationDataTests {
         var dataNull = new RunEvaluationData("null", NineFrames(), detect, NewAlglib(), DefaultFitConfig(),
             new List<FrameLabels> { MakeLabel(null) });
         var dataEmpty = new RunEvaluationData("empty", NineFrames(), detect, NewAlglib(), DefaultFitConfig(),
-            new List<FrameLabels> { MakeLabel(new List<(double X, double Y)>()) });
+            new List<FrameLabels> { MakeLabel(new List<LabelBox>()) });
 
         var mNull = await dataNull.EvaluateAsync(new StarDetectorParams(), CancellationToken.None);
         var mEmpty = await dataEmpty.EvaluateAsync(new StarDetectorParams(), CancellationToken.None);

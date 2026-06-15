@@ -70,6 +70,7 @@
                     Background="Transparent"
                     MouseWheel="ViewportCanvas_MouseWheel"
                     MouseLeftButtonDown="ViewportCanvas_MouseLeftButtonDown"
+                    MouseLeftButtonUp="ViewportCanvas_MouseLeftButtonUp"
                     MouseRightButtonDown="ViewportCanvas_MouseRightButtonDown"
                     MouseRightButtonUp="ViewportCanvas_MouseRightButtonUp"
                     MouseMove="ViewportCanvas_MouseMove"
@@ -111,7 +112,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <!-- Accepted stars (green circles). -->
+                <!-- Accepted stars — the detector's REAL bounding box (green). -->
                 <ItemsControl ItemsSource="{Binding AcceptedMarkers}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
@@ -124,14 +125,14 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Ellipse Width="9" Height="9" Margin="-4.5,-4.5,0,0"
-                                     Stroke="#FF00FF00"
-                                     StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                       Stroke="#FF00FF00"
+                                       StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <!-- User: missed (false negatives) — bright cyan crosshair-ish ring. -->
+                <!-- User: missed (false negatives) — cyan box (the user's drag region). -->
                 <ItemsControl ItemsSource="{Binding MissedMarkers}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
@@ -144,14 +145,14 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Ellipse Width="13" Height="13" Margin="-6.5,-6.5,0,0"
-                                     Stroke="#FF00E5FF"
-                                     StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                       Stroke="#FF00E5FF"
+                                       StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <!-- User: should-reject (false positives) — orange X-style ring. -->
+                <!-- User: should-reject (false positives) — orange box (the accepted star's actual bounds). -->
                 <ItemsControl ItemsSource="{Binding ShouldRejectMarkers}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
@@ -164,15 +165,15 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Rectangle Width="13" Height="13" Margin="-6.5,-6.5,0,0"
+                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
                                        Stroke="#FFFF8C00"
                                        StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <!-- User: wrongly-rejected (detected-but-gated, should be KEPT) — bright-green diamond (a rotated
-                     square) so it reads distinctly as "should-have-been-accepted". -->
+                <!-- User: wrongly-rejected (detected-but-gated, should be KEPT) — bright-green box (the rejected
+                     candidate's actual bounds). -->
                 <ItemsControl ItemsSource="{Binding WronglyRejectedMarkers}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
@@ -185,17 +186,21 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Rectangle Width="14" Height="14" Margin="-7,-7,0,0"
+                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
                                        Stroke="#FF39FF14"
-                                       StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                       RenderTransformOrigin="0.5,0.5">
-                                <Rectangle.RenderTransform>
-                                    <RotateTransform Angle="45" />
-                                </Rectangle.RenderTransform>
-                            </Rectangle>
+                                       StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+
+                <!-- Live rubber-band rectangle while dragging a MISSED box (placed/sized in code-behind in image
+                     coords; shares the canvas transform so it tracks the cursor under zoom/pan). -->
+                <Rectangle x:Name="DragRect"
+                           Visibility="Collapsed"
+                           Stroke="#FF00E5FF"
+                           StrokeDashArray="3 2"
+                           StrokeThickness="{Binding LabelStrokeThickness}"
+                           IsHitTestVisible="False" />
             </Canvas>
         </Border>
 
@@ -207,6 +212,6 @@
 
         <!-- Legend / help -->
         <TextBlock Grid.Row="4" Margin="0,4,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
-                   Text="Green = accepted. Boxes = rejected-by-reason (yellow TooDistorted, orange Degenerate, red Saturated, cyan LowSensitivity, magenta NotCentered, blue TooFlat, purple Contaminated). Cyan ring = your MISSED. Orange box = your SHOULD-REJECT. Bright-green diamond = your WRONGLY-REJECTED (folds into recall). Left-click to add/toggle the current pass at that pixel; for Wrongly-Rejected, click INSIDE a rejected box to keep it. Right-drag to pan, wheel to zoom." />
+                   Text="Green box = accepted (real detector bounds). Reason boxes = rejected (yellow TooDistorted, orange Degenerate, red Saturated, cyan LowSensitivity, magenta NotCentered, blue TooFlat, purple Contaminated). Cyan box = your MISSED. Orange box = your SHOULD-REJECT. Bright-green box = your WRONGLY-REJECTED (folds into recall). Missed (1): LEFT-DRAG a box around a missed star (a tiny drag drops a small default box). Should-Reject (2): LEFT-CLICK an accepted green box. Wrongly-Rejected (3): LEFT-CLICK a rejected box to keep it. Click an existing label again to remove it. Right-drag to pan, wheel to zoom." />
     </Grid>
 </Window>

@@ -31,12 +31,14 @@ public class StarReviewTests {
     // ---- Label JSON shape MUST match T6's --labels reader EXACTLY ------------------------------------------
 
     // POCOs carrying the SAME [JsonProperty] names/casing as T6's private loader (OptimizationDiagnosticRunner:
-    // RunLabelFile / LabelPosition / LabelPoint). The round-trip test below deserializes a T7-written file
-    // THROUGH these — if T7 ever drifts from T6's shape, this test fails. This is the contract that keeps
-    // `review` -> `optimize --labels` working.
+    // RunLabelFile / LabelPosition / LabelPoint). Each label is now a BOX (x,y,w,h). The round-trip test below
+    // deserializes a T7-written file THROUGH these — if T7 ever drifts from T6's shape, this test fails. This is the
+    // contract that keeps `review` -> `optimize --labels` working.
     private sealed class T6LabelPoint {
         [JsonProperty("x")] public double X { get; set; }
         [JsonProperty("y")] public double Y { get; set; }
+        [JsonProperty("w")] public double? W { get; set; }
+        [JsonProperty("h")] public double? H { get; set; }
     }
 
     private sealed class T6LabelPosition {
@@ -62,9 +64,9 @@ public class StarReviewTests {
                 new StarReviewPositionLabels {
                     FocuserPosition = 5000,
                     RadiusPx = 6.0,
-                    Missed = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(123.4, 567.8) },
-                    ShouldReject = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(12.0, 34.0) },
-                    WronglyRejected = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(88.0, 90.0) }
+                    Missed = new List<StarReviewLabelBox> { new StarReviewLabelBox(123.4, 567.8, 12.0, 14.0) },
+                    ShouldReject = new List<StarReviewLabelBox> { new StarReviewLabelBox(12.0, 34.0, 9.0, 9.0) },
+                    WronglyRejected = new List<StarReviewLabelBox> { new StarReviewLabelBox(88.0, 90.0, 10.0, 8.0) }
                 }
             }
         };
@@ -84,12 +86,18 @@ public class StarReviewTests {
             Assert.That(p.Missed, Has.Count.EqualTo(1));
             Assert.That(p.Missed[0].X, Is.EqualTo(123.4));
             Assert.That(p.Missed[0].Y, Is.EqualTo(567.8));
+            Assert.That(p.Missed[0].W, Is.EqualTo(12.0));
+            Assert.That(p.Missed[0].H, Is.EqualTo(14.0));
             Assert.That(p.ShouldReject, Has.Count.EqualTo(1));
             Assert.That(p.ShouldReject[0].X, Is.EqualTo(12.0));
             Assert.That(p.ShouldReject[0].Y, Is.EqualTo(34.0));
+            Assert.That(p.ShouldReject[0].W, Is.EqualTo(9.0));
+            Assert.That(p.ShouldReject[0].H, Is.EqualTo(9.0));
             Assert.That(p.WronglyRejected, Has.Count.EqualTo(1));
             Assert.That(p.WronglyRejected[0].X, Is.EqualTo(88.0));
             Assert.That(p.WronglyRejected[0].Y, Is.EqualTo(90.0));
+            Assert.That(p.WronglyRejected[0].W, Is.EqualTo(10.0));
+            Assert.That(p.WronglyRejected[0].H, Is.EqualTo(8.0));
         });
     }
 
@@ -101,9 +109,9 @@ public class StarReviewTests {
             Positions = new List<StarReviewPositionLabels> {
                 new StarReviewPositionLabels {
                     FocuserPosition = 100,
-                    Missed = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(1, 2) },
-                    ShouldReject = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(3, 4) },
-                    WronglyRejected = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(5, 6) }
+                    Missed = new List<StarReviewLabelBox> { new StarReviewLabelBox(1, 2, 3, 4) },
+                    ShouldReject = new List<StarReviewLabelBox> { new StarReviewLabelBox(3, 4, 5, 6) },
+                    WronglyRejected = new List<StarReviewLabelBox> { new StarReviewLabelBox(5, 6, 7, 8) }
                 }
             }
         };
@@ -118,7 +126,41 @@ public class StarReviewTests {
             Assert.That(json, Does.Contain("\"wronglyRejected\""));
             Assert.That(json, Does.Contain("\"x\""));
             Assert.That(json, Does.Contain("\"y\""));
+            Assert.That(json, Does.Contain("\"w\""));
+            Assert.That(json, Does.Contain("\"h\""));
         });
+    }
+
+    [Test]
+    public void Load_LegacyPointOnlyFile_BackfillsDefaultBox() {
+        // An older point-only label file (x,y, no w/h). Loading must widen each point to a 2·radiusPx box centered on
+        // the point (so old files keep working under the new box-containment scoring).
+        var dir = Path.Combine(Path.GetTempPath(), "hf-review-test-" + Guid.NewGuid().ToString("N"));
+        try {
+            Directory.CreateDirectory(dir);
+            var legacyJson =
+                "{ \"runId\": \"legacy\", \"radiusPx\": 5.0, \"positions\": [ " +
+                "{ \"focuserPosition\": 5000, \"missed\": [ { \"x\": 100.0, \"y\": 200.0 } ] } ] }";
+            File.WriteAllText(Path.Combine(dir, "legacy.json"), legacyJson);
+
+            var loaded = StarReviewLabelStore.Load(dir, "legacy", out var err);
+            Assert.That(err, Is.Null);
+            Assert.That(loaded.Positions, Has.Count.EqualTo(1));
+            var b = loaded.Positions[0].Missed[0];
+            Assert.Multiple(() => {
+                Assert.That(b.HasSize, Is.True, "legacy point widened to a real box");
+                Assert.That(b.W.Value, Is.EqualTo(10.0).Within(1e-12), "side = 2*radiusPx");
+                Assert.That(b.H.Value, Is.EqualTo(10.0).Within(1e-12));
+                Assert.That(b.X, Is.EqualTo(95.0).Within(1e-12), "centered on the original point => top-left = x - side/2");
+                Assert.That(b.Y, Is.EqualTo(195.0).Within(1e-12));
+                Assert.That(b.CenterX, Is.EqualTo(100.0).Within(1e-12));
+                Assert.That(b.CenterY, Is.EqualTo(200.0).Within(1e-12));
+            });
+        } finally {
+            if (Directory.Exists(dir)) {
+                Directory.Delete(dir, true);
+            }
+        }
     }
 
     [Test]
@@ -127,7 +169,7 @@ public class StarReviewTests {
         try {
             var labels = new StarReviewRunLabels { RunId = "attempt01", RadiusPx = 6.0 };
             var pos = StarReviewLabelStore.GetOrAddPosition(labels, 5000);
-            StarReviewLabelStore.TogglePoint(pos.Missed, 10, 20);
+            StarReviewLabelStore.ToggleBox(pos.Missed, 10, 20, 8, 8);
             StarReviewLabelStore.Save(dir, labels);
 
             // Re-load (a fresh review session), add more, save, reload — prior labels must persist.
@@ -137,7 +179,7 @@ public class StarReviewTests {
             Assert.That(reloaded.Positions[0].Missed, Has.Count.EqualTo(1));
 
             var pos2 = StarReviewLabelStore.GetOrAddPosition(reloaded, 5000);
-            StarReviewLabelStore.TogglePoint(pos2.ShouldReject, 30, 40);
+            StarReviewLabelStore.ToggleBox(pos2.ShouldReject, 30, 40, 8, 8);
             StarReviewLabelStore.Save(dir, reloaded);
 
             var final = StarReviewLabelStore.Load(dir, "attempt01", out _);
@@ -164,24 +206,35 @@ public class StarReviewTests {
     // ---- Toggle / merge -----------------------------------------------------------------------------------
 
     [Test]
-    public void TogglePoint_AddsThenRemovesNearbyPoint() {
-        var points = new List<StarReviewLabelPoint>();
-        var added = StarReviewLabelStore.TogglePoint(points, 100, 100);
+    public void ToggleBox_AddsThenRemovesNearbyBox() {
+        var boxes = new List<StarReviewLabelBox>();
+        var added = StarReviewLabelStore.ToggleBox(boxes, 100, 100, 8, 8); // center (104,104)
         Assert.That(added, Is.True);
-        Assert.That(points, Has.Count.EqualTo(1));
+        Assert.That(boxes, Has.Count.EqualTo(1));
 
-        // A second click within tolerance removes it (undo).
-        var removed = StarReviewLabelStore.TogglePoint(points, 101, 101);
+        // A second toggle whose CENTER is within tolerance of the existing box's center removes it (undo).
+        var removed = StarReviewLabelStore.ToggleBox(boxes, 101, 101, 8, 8); // center (105,105) ~ within tol of (104,104)
         Assert.That(removed, Is.False);
-        Assert.That(points, Is.Empty);
+        Assert.That(boxes, Is.Empty);
     }
 
     [Test]
-    public void TogglePoint_FarClickAddsSecondPoint() {
-        var points = new List<StarReviewLabelPoint>();
-        StarReviewLabelStore.TogglePoint(points, 100, 100);
-        StarReviewLabelStore.TogglePoint(points, 500, 500);
-        Assert.That(points, Has.Count.EqualTo(2));
+    public void ToggleBox_FarClickAddsSecondBox() {
+        var boxes = new List<StarReviewLabelBox>();
+        StarReviewLabelStore.ToggleBox(boxes, 100, 100, 8, 8);
+        StarReviewLabelStore.ToggleBox(boxes, 500, 500, 8, 8);
+        Assert.That(boxes, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public void SmallestContainingBoxIndex_PrefersTightestBox() {
+        var boxes = new List<StarReviewLabelBox> {
+            new StarReviewLabelBox(0, 0, 100, 100),   // big box covering the click
+            new StarReviewLabelBox(40, 40, 20, 20)    // tight box also covering it (smaller area)
+        };
+        var idx = StarReviewLabelStore.SmallestContainingBoxIndex(boxes, 50, 50);
+        Assert.That(idx, Is.EqualTo(1));
+        Assert.That(StarReviewLabelStore.SmallestContainingBoxIndex(boxes, 5000, 5000), Is.EqualTo(-1));
     }
 
     [Test]
@@ -189,7 +242,7 @@ public class StarReviewTests {
         var labels = new StarReviewRunLabels { RunId = "r" };
         var empty = StarReviewLabelStore.GetOrAddPosition(labels, 100);
         var kept = StarReviewLabelStore.GetOrAddPosition(labels, 200);
-        StarReviewLabelStore.TogglePoint(kept.Missed, 1, 1);
+        StarReviewLabelStore.ToggleBox(kept.Missed, 1, 1, 4, 4);
 
         StarReviewLabelStore.PruneEmptyPositions(labels);
         Assert.That(labels.Positions, Has.Count.EqualTo(1));
@@ -201,7 +254,7 @@ public class StarReviewTests {
         var labels = new StarReviewRunLabels { RunId = "r" };
         var empty = StarReviewLabelStore.GetOrAddPosition(labels, 100);
         var wronglyOnly = StarReviewLabelStore.GetOrAddPosition(labels, 200);
-        StarReviewLabelStore.TogglePoint(wronglyOnly.WronglyRejected, 7, 8);
+        StarReviewLabelStore.ToggleBox(wronglyOnly.WronglyRejected, 7, 8, 4, 4);
 
         StarReviewLabelStore.PruneEmptyPositions(labels);
         Assert.That(labels.Positions, Has.Count.EqualTo(1));
@@ -213,12 +266,12 @@ public class StarReviewTests {
     public void Counts_IncludesWronglyRejected() {
         var labels = new StarReviewRunLabels { RunId = "r" };
         var pos = StarReviewLabelStore.GetOrAddPosition(labels, 5000);
-        StarReviewLabelStore.TogglePoint(pos.Missed, 1, 1);
-        StarReviewLabelStore.TogglePoint(pos.Missed, 50, 50);
-        StarReviewLabelStore.TogglePoint(pos.ShouldReject, 100, 100);
-        StarReviewLabelStore.TogglePoint(pos.WronglyRejected, 200, 200);
-        StarReviewLabelStore.TogglePoint(pos.WronglyRejected, 300, 300);
-        StarReviewLabelStore.TogglePoint(pos.WronglyRejected, 400, 400);
+        StarReviewLabelStore.ToggleBox(pos.Missed, 1, 1, 4, 4);
+        StarReviewLabelStore.ToggleBox(pos.Missed, 50, 50, 4, 4);
+        StarReviewLabelStore.ToggleBox(pos.ShouldReject, 100, 100, 4, 4);
+        StarReviewLabelStore.ToggleBox(pos.WronglyRejected, 200, 200, 4, 4);
+        StarReviewLabelStore.ToggleBox(pos.WronglyRejected, 300, 300, 4, 4);
+        StarReviewLabelStore.ToggleBox(pos.WronglyRejected, 400, 400, 4, 4);
 
         var (missed, shouldReject, wronglyRejected) = StarReviewLabelStore.Counts(labels);
         Assert.Multiple(() => {
@@ -234,15 +287,20 @@ public class StarReviewTests {
         try {
             var labels = new StarReviewRunLabels { RunId = "attempt01", RadiusPx = 6.0 };
             var pos = StarReviewLabelStore.GetOrAddPosition(labels, 5000);
-            StarReviewLabelStore.TogglePoint(pos.WronglyRejected, 88, 90);
+            StarReviewLabelStore.ToggleBox(pos.WronglyRejected, 88, 90, 10, 8);
             StarReviewLabelStore.Save(dir, labels);
 
             var reloaded = StarReviewLabelStore.Load(dir, "attempt01", out var err);
             Assert.That(err, Is.Null);
             Assert.That(reloaded.Positions, Has.Count.EqualTo(1));
             Assert.That(reloaded.Positions[0].WronglyRejected, Has.Count.EqualTo(1));
-            Assert.That(reloaded.Positions[0].WronglyRejected[0].X, Is.EqualTo(88.0));
-            Assert.That(reloaded.Positions[0].WronglyRejected[0].Y, Is.EqualTo(90.0));
+            var b = reloaded.Positions[0].WronglyRejected[0];
+            Assert.Multiple(() => {
+                Assert.That(b.X, Is.EqualTo(88.0));
+                Assert.That(b.Y, Is.EqualTo(90.0));
+                Assert.That(b.W.Value, Is.EqualTo(10.0));
+                Assert.That(b.H.Value, Is.EqualTo(8.0));
+            });
         } finally {
             if (Directory.Exists(dir)) {
                 Directory.Delete(dir, true);

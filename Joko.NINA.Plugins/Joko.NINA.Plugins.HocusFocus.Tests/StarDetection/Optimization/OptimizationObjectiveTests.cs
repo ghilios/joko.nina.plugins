@@ -281,14 +281,19 @@ public class OptimizationObjectiveTests {
         Assert.That(j, Is.EqualTo(0.6).Within(1e-12));
     }
 
-    // ---- ComputeLabelScores ----
+    // ---- ComputeLabelScores (box-containment: point-in-box of accepted centers) ----
+
+    // A small box CENTERED on (cx,cy) with the given half-extent, so the existing point-style test intents
+    // (an accepted center "inside" / "outside" a label region) map cleanly onto boxes.
+    private static LabelBox Box(double cx, double cy, double half = 5.0) =>
+        new LabelBox(cx - half, cy - half, 2 * half, 2 * half);
 
     [Test]
-    public void ComputeLabelScores_RecallOne_WhenMissedPointNearAccepted() {
+    public void ComputeLabelScores_RecallOne_WhenAcceptedCenterInsideMissedBox() {
         var accepted = new[] { (X: 100.0, Y: 100.0) };
-        var labeledMissed = new[] { (X: 102.0, Y: 101.0) }; // within radius 5
-        var shouldReject = Array.Empty<(double X, double Y)>();
-        var (recall, precision) = OptimizationObjective.ComputeLabelScores(accepted, labeledMissed, shouldReject, radiusPx: 5.0);
+        var labeledMissed = new[] { Box(101.0, 101.0) }; // contains the accepted center
+        var shouldReject = Array.Empty<LabelBox>();
+        var (recall, precision) = OptimizationObjective.ComputeLabelScores(accepted, labeledMissed, shouldReject);
         Assert.Multiple(() => {
             Assert.That(recall, Is.EqualTo(1.0).Within(1e-12));
             Assert.That(precision, Is.EqualTo(1.0).Within(1e-12)); // empty shouldReject => 1.0
@@ -296,20 +301,20 @@ public class OptimizationObjectiveTests {
     }
 
     [Test]
-    public void ComputeLabelScores_RecallZero_WhenMissedPointFar() {
+    public void ComputeLabelScores_RecallZero_WhenNoAcceptedCenterInsideMissedBox() {
         var accepted = new[] { (X: 100.0, Y: 100.0) };
-        var labeledMissed = new[] { (X: 200.0, Y: 200.0) }; // outside radius
-        var shouldReject = Array.Empty<(double X, double Y)>();
-        var (recall, _) = OptimizationObjective.ComputeLabelScores(accepted, labeledMissed, shouldReject, radiusPx: 5.0);
+        var labeledMissed = new[] { Box(200.0, 200.0) }; // no accepted center inside
+        var shouldReject = Array.Empty<LabelBox>();
+        var (recall, _) = OptimizationObjective.ComputeLabelScores(accepted, labeledMissed, shouldReject);
         Assert.That(recall, Is.EqualTo(0.0).Within(1e-12));
     }
 
     [Test]
-    public void ComputeLabelScores_PrecisionZero_WhenShouldRejectNearAccepted() {
+    public void ComputeLabelScores_PrecisionZero_WhenAcceptedCenterInsideShouldRejectBox() {
         var accepted = new[] { (X: 50.0, Y: 50.0) };
-        var labeledMissed = Array.Empty<(double X, double Y)>();
-        var shouldReject = new[] { (X: 51.0, Y: 50.0) }; // accepted within radius => NOT correctly excluded
-        var (recall, precision) = OptimizationObjective.ComputeLabelScores(accepted, labeledMissed, shouldReject, radiusPx: 5.0);
+        var labeledMissed = Array.Empty<LabelBox>();
+        var shouldReject = new[] { Box(51.0, 50.0) }; // accepted center inside => NOT correctly excluded
+        var (recall, precision) = OptimizationObjective.ComputeLabelScores(accepted, labeledMissed, shouldReject);
         Assert.Multiple(() => {
             Assert.That(recall, Is.EqualTo(1.0).Within(1e-12)); // empty missed => 1.0
             Assert.That(precision, Is.EqualTo(0.0).Within(1e-12));
@@ -317,11 +322,11 @@ public class OptimizationObjectiveTests {
     }
 
     [Test]
-    public void ComputeLabelScores_PrecisionOne_WhenShouldRejectFarFromAccepted() {
+    public void ComputeLabelScores_PrecisionOne_WhenNoAcceptedCenterInsideShouldRejectBox() {
         var accepted = new[] { (X: 50.0, Y: 50.0) };
-        var labeledMissed = Array.Empty<(double X, double Y)>();
-        var shouldReject = new[] { (X: 500.0, Y: 500.0) }; // correctly excluded
-        var (_, precision) = OptimizationObjective.ComputeLabelScores(accepted, labeledMissed, shouldReject, radiusPx: 5.0);
+        var labeledMissed = Array.Empty<LabelBox>();
+        var shouldReject = new[] { Box(500.0, 500.0) }; // no accepted center inside => correctly excluded
+        var (_, precision) = OptimizationObjective.ComputeLabelScores(accepted, labeledMissed, shouldReject);
         Assert.That(precision, Is.EqualTo(1.0).Within(1e-12));
     }
 
@@ -329,9 +334,8 @@ public class OptimizationObjectiveTests {
     public void ComputeLabelScores_BothEmpty_GiveOnes() {
         var (recall, precision) = OptimizationObjective.ComputeLabelScores(
             Array.Empty<(double X, double Y)>(),
-            Array.Empty<(double X, double Y)>(),
-            Array.Empty<(double X, double Y)>(),
-            radiusPx: 5.0);
+            Array.Empty<LabelBox>(),
+            Array.Empty<LabelBox>());
         Assert.Multiple(() => {
             Assert.That(recall, Is.EqualTo(1.0).Within(1e-12));
             Assert.That(precision, Is.EqualTo(1.0).Within(1e-12));
@@ -341,11 +345,11 @@ public class OptimizationObjectiveTests {
     [Test]
     public void ComputeLabelScores_FractionalRecallAndPrecision() {
         var accepted = new[] { (X: 0.0, Y: 0.0), (X: 100.0, Y: 0.0) };
-        // 2 missed: one near accepted, one far => recall 0.5
-        var labeledMissed = new[] { (X: 1.0, Y: 0.0), (X: 999.0, Y: 999.0) };
-        // 2 should-reject: one near accepted (bad), one far (good) => precision 0.5
-        var shouldReject = new[] { (X: 100.5, Y: 0.0), (X: -999.0, Y: -999.0) };
-        var (recall, precision) = OptimizationObjective.ComputeLabelScores(accepted, labeledMissed, shouldReject, radiusPx: 5.0);
+        // 2 missed boxes: one contains an accepted center, one does not => recall 0.5
+        var labeledMissed = new[] { Box(1.0, 0.0), Box(999.0, 999.0) };
+        // 2 should-reject boxes: one contains an accepted center (bad), one does not (good) => precision 0.5
+        var shouldReject = new[] { Box(100.5, 0.0), Box(-999.0, -999.0) };
+        var (recall, precision) = OptimizationObjective.ComputeLabelScores(accepted, labeledMissed, shouldReject);
         Assert.Multiple(() => {
             Assert.That(recall, Is.EqualTo(0.5).Within(1e-12));
             Assert.That(precision, Is.EqualTo(0.5).Within(1e-12));

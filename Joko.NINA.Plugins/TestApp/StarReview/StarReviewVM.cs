@@ -31,22 +31,36 @@ using Window = System.Windows.Window;
 namespace TestApp.StarReview {
 
     /// <summary>
-    /// The pre-computed detection result + paths for one reviewable frame. AcceptedCenters carry HFR for the
-    /// overlay label; Rejected carries the per-reason bounding boxes so the reviewer sees what the detector did.
+    /// The pre-computed detection result + paths for one reviewable frame. Accepted carry the detector's actual
+    /// <c>StarBoundingBox</c> (so the overlay draws real-size boxes) + HFR + center; Rejected carries the per-reason
+    /// bounding boxes so the reviewer sees what the detector did.
     /// </summary>
     internal sealed class FrameReview {
         public string RunId { get; set; }
         public int FocuserPosition { get; set; }
         public string FramePath { get; set; }
-        public List<(double X, double Y, double HFR)> AcceptedCenters { get; set; } = new();
+
+        /// <summary>Accepted stars: the detector's real bounding box + its center (used for click hit-tests, the
+        /// should-reject label box, and the overlay) + HFR.</summary>
+        public List<(double CX, double CY, double HFR, Rect Bounds)> Accepted { get; set; } = new();
         public List<(string Reason, Rect Bounds)> Rejected { get; set; } = new();
     }
 
-    /// <summary>A drawable accepted-star marker in image-pixel coords.</summary>
+    /// <summary>A drawable accepted-star marker (the detector's real bounding box) in image-pixel coords.</summary>
     public sealed class AcceptedMarker {
         public double X { get; set; }
         public double Y { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
         public double HFR { get; set; }
+    }
+
+    /// <summary>A drawable user-label box in image-pixel coords (top-left X,Y + W,H).</summary>
+    public sealed class LabelBoxMarker {
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
     }
 
     /// <summary>A drawable rejected-candidate box in image-pixel coords, colored by reason.</summary>
@@ -181,9 +195,9 @@ namespace TestApp.StarReview {
         // Markers in IMAGE pixel coords; the view applies the viewport transform to place them.
         public ObservableCollection<AcceptedMarker> AcceptedMarkers { get; } = new();
         public ObservableCollection<RejectedMarker> RejectedMarkers { get; } = new();
-        public ObservableCollection<StarReviewLabelPoint> MissedMarkers { get; } = new();
-        public ObservableCollection<StarReviewLabelPoint> ShouldRejectMarkers { get; } = new();
-        public ObservableCollection<StarReviewLabelPoint> WronglyRejectedMarkers { get; } = new();
+        public ObservableCollection<LabelBoxMarker> MissedMarkers { get; } = new();
+        public ObservableCollection<LabelBoxMarker> ShouldRejectMarkers { get; } = new();
+        public ObservableCollection<LabelBoxMarker> WronglyRejectedMarkers { get; } = new();
 
         private LabelPass pass = LabelPass.Missed;
         public LabelPass Pass {
@@ -206,9 +220,9 @@ namespace TestApp.StarReview {
         public string PassLabel {
             get {
                 switch (Pass) {
-                    case LabelPass.Missed: return "Marking: MISSED (false negatives)";
-                    case LabelPass.ShouldReject: return "Marking: SHOULD-REJECT (false positives)";
-                    case LabelPass.WronglyRejected: return "Marking: WRONGLY-REJECTED (click inside a rejected box to keep it)";
+                    case LabelPass.Missed: return "Marking: MISSED — drag a box around a star the detector missed (false negatives)";
+                    case LabelPass.ShouldReject: return "Marking: SHOULD-REJECT — click an ACCEPTED (green) box to flag it (false positives)";
+                    case LabelPass.WronglyRejected: return "Marking: WRONGLY-REJECTED — click a REJECTED box to keep it (folds into recall)";
                     default: return "Marking";
                 }
             }
@@ -282,16 +296,16 @@ namespace TestApp.StarReview {
 
         private void LoadCurrent() {
             var f = Current;
-            FrameHeader = $"{f.RunId}  @ focuser {f.FocuserPosition}  |  {f.AcceptedCenters.Count} accepted";
+            FrameHeader = $"{f.RunId}  @ focuser {f.FocuserPosition}  |  {f.Accepted.Count} accepted";
 
             // Build the MTF-stretched background image (off-thread, then marshal to the UI).
             FrameImage = null;
             _ = LoadImageAsync(f.FramePath);
 
-            // Overlays in image coords.
+            // Overlays in image coords — accepted stars draw the detector's REAL bounding box (top-left + size).
             AcceptedMarkers.Clear();
-            foreach (var (x, y, hfr) in f.AcceptedCenters) {
-                AcceptedMarkers.Add(new AcceptedMarker { X = x, Y = y, HFR = hfr });
+            foreach (var (_, _, hfr, b) in f.Accepted) {
+                AcceptedMarkers.Add(new AcceptedMarker { X = b.X, Y = b.Y, Width = b.Width, Height = b.Height, HFR = hfr });
             }
             RejectedMarkers.Clear();
             foreach (var (reason, b) in f.Rejected) {
@@ -344,58 +358,93 @@ namespace TestApp.StarReview {
         // ---- Labeling (delegates to the pure store) --------------------------------------------------------
 
         /// <summary>
-        /// Adds-or-removes a label of the current pass at image pixel (imageX, imageY). Called by the view after
-        /// it maps the click through <see cref="StarReviewViewport.ScreenToImage"/>. Toggling near an existing
-        /// point of the same pass removes it.
+        /// MISSED pass: adds (or toggles off) a user-drawn box. The view calls this on mouse-up of a rubber-band
+        /// drag (or a small click). (<paramref name="imageX"/>,<paramref name="imageY"/>) is the top-left and
+        /// (<paramref name="width"/>,<paramref name="height"/>) the size, already normalized to W,H ≥ 0 by the view.
+        /// A degenerate drag (below a few px — effectively a click) is widened to a small default box of side
+        /// 2·RadiusPx centered on the click, so a plain click still drops a usable region. Toggling near an existing
+        /// missed box's center removes it.
         /// </summary>
-        public void ToggleLabelAt(double imageX, double imageY) {
+        public void AddMissedBox(double imageX, double imageY, double width, double height) {
             var run = CurrentRunLabels;
             if (run == null) {
                 return;
             }
+            const double minDragPx = 3.0;
+            if (width < minDragPx || height < minDragPx) {
+                // Effectively a click: drop a small default box centered on the click point.
+                var side = 2.0 * RadiusPx;
+                var cx = imageX + width / 2.0;
+                var cy = imageY + height / 2.0;
+                imageX = cx - side / 2.0;
+                imageY = cy - side / 2.0;
+                width = side;
+                height = side;
+            }
+            var pos = StarReviewLabelStore.GetOrAddPosition(run, Current.FocuserPosition);
+            if (pos.RadiusPx == null) {
+                pos.RadiusPx = RadiusPx;
+            }
+            StarReviewLabelStore.ToggleBox(pos.Missed, imageX, imageY, width, height);
+            RefreshLabelMarkers();
+        }
 
-            // WRONGLY-REJECTED is a CONSTRAINED pass: the user must click INSIDE a displayed rejected-candidate box.
-            // A hit toggles a point at that box's CENTER (not the raw click), so the recorded recall target lands on
-            // the candidate the detector already found. A click outside every rejected box is a no-op.
-            if (Pass == LabelPass.WronglyRejected) {
-                var hit = HitTestRejected(imageX, imageY);
-                if (hit == null) {
-                    return;
-                }
-                var posWr = StarReviewLabelStore.GetOrAddPosition(run, Current.FocuserPosition);
-                if (posWr.RadiusPx == null) {
-                    posWr.RadiusPx = RadiusPx;
-                }
-                StarReviewLabelStore.TogglePoint(posWr.WronglyRejected, hit.Value.cx, hit.Value.cy);
-                RefreshLabelMarkers();
+        /// <summary>
+        /// SHOULD-REJECT / WRONGLY-REJECTED pass: a click that hit-tests the detector's ACCEPTED (should-reject) or
+        /// REJECTED (wrongly-rejected) boxes and toggles THAT star's actual bounding box into the label list. The
+        /// view calls this after mapping the click through <see cref="StarReviewViewport.ScreenToImage"/>. A click
+        /// outside every candidate box is a no-op (the MISSED pass is handled by <see cref="AddMissedBox"/> instead).
+        /// On overlap the smallest-area box wins. Clicking an already-labeled star again removes it.
+        /// </summary>
+        public void ToggleLabelAt(double imageX, double imageY) {
+            var run = CurrentRunLabels;
+            if (run == null || Pass == LabelPass.Missed) {
                 return;
+            }
+
+            // Hit-test the relevant detector boxes (accepted for should-reject, rejected for wrongly-rejected).
+            var hit = Pass == LabelPass.ShouldReject
+                ? HitTestBoxes(Current.Accepted.Select(a => a.Bounds), imageX, imageY)
+                : HitTestBoxes(Current.Rejected.Select(r => r.Bounds), imageX, imageY);
+            if (hit == null) {
+                return; // click outside every candidate box: no-op
             }
 
             var pos = StarReviewLabelStore.GetOrAddPosition(run, Current.FocuserPosition);
             if (pos.RadiusPx == null) {
                 pos.RadiusPx = RadiusPx;
             }
-            var list = Pass == LabelPass.Missed ? pos.Missed : pos.ShouldReject;
-            StarReviewLabelStore.TogglePoint(list, imageX, imageY);
+            var list = Pass == LabelPass.ShouldReject ? pos.ShouldReject : pos.WronglyRejected;
+
+            // Toggle semantics: if a label already covers this star (its center matches the hit box's center within
+            // tolerance), remove it; otherwise record the star's ACTUAL bounding box.
+            var b = hit.Value;
+            var existing = StarReviewLabelStore.NearestBoxIndexWithin(
+                list, b.X + b.Width / 2.0, b.Y + b.Height / 2.0, StarReviewLabelStore.SamePointTolerancePx);
+            if (existing >= 0) {
+                list.RemoveAt(existing);
+            } else {
+                list.Add(new StarReviewLabelBox(b.X, b.Y, b.Width, b.Height));
+            }
             RefreshLabelMarkers();
         }
 
         /// <summary>
-        /// Returns the CENTER of the rejected-candidate box (in image coords) containing the click, or null if the
-        /// click is outside every rejected box. AABB containment; on overlap the smallest-area box wins (so a click
-        /// in a region of nested boxes selects the tightest candidate). Pure geometry over <see cref="FrameReview.Rejected"/>.
+        /// Returns the SMALLEST-area box (in image coords) from <paramref name="boxes"/> that contains the click, or
+        /// null if the click is outside every box. AABB containment; on overlap the smallest-area box wins (so a
+        /// click in a region of nested boxes selects the tightest candidate). Pure geometry.
         /// </summary>
-        private (double cx, double cy)? HitTestRejected(double imageX, double imageY) {
-            (double cx, double cy)? best = null;
+        private static Rect? HitTestBoxes(IEnumerable<Rect> boxes, double imageX, double imageY) {
+            Rect? best = null;
             var bestArea = double.MaxValue;
-            foreach (var (_, b) in Current.Rejected) {
+            foreach (var b in boxes) {
                 if (imageX < b.X || imageY < b.Y || imageX > b.X + b.Width || imageY > b.Y + b.Height) {
                     continue;
                 }
                 var area = (double)b.Width * b.Height;
                 if (area < bestArea) {
                     bestArea = area;
-                    best = (b.X + b.Width / 2.0, b.Y + b.Height / 2.0);
+                    best = b;
                 }
             }
             return best;
@@ -408,18 +457,28 @@ namespace TestApp.StarReview {
             var pos = CurrentPositionLabels;
             if (pos != null) {
                 foreach (var p in pos.Missed) {
-                    MissedMarkers.Add(p);
+                    MissedMarkers.Add(ToBoxMarker(p));
                 }
                 foreach (var p in pos.ShouldReject) {
-                    ShouldRejectMarkers.Add(p);
+                    ShouldRejectMarkers.Add(ToBoxMarker(p));
                 }
                 if (pos.WronglyRejected != null) {
                     foreach (var p in pos.WronglyRejected) {
-                        WronglyRejectedMarkers.Add(p);
+                        WronglyRejectedMarkers.Add(ToBoxMarker(p));
                     }
                 }
             }
             RaisePropertyChanged(nameof(CountsLabel));
+        }
+
+        /// <summary>Maps a stored label box to a drawable marker. A legacy label that somehow still lacks W/H is drawn
+        /// as a small 2·RadiusPx box centered on its (x,y) (Normalize back-fills on load, so this is belt-and-suspenders).</summary>
+        private LabelBoxMarker ToBoxMarker(StarReviewLabelBox b) {
+            if (b.HasSize) {
+                return new LabelBoxMarker { X = b.X, Y = b.Y, Width = b.W.Value, Height = b.H.Value };
+            }
+            var side = 2.0 * RadiusPx;
+            return new LabelBoxMarker { X = b.X - side / 2.0, Y = b.Y - side / 2.0, Width = side, Height = side };
         }
 
         private void PersistRadiusToCurrentPosition() {

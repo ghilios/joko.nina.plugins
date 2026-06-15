@@ -195,24 +195,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         /// <summary>
-        /// Geometric label scores against the accepted-star centers:
-        ///   recall    = fraction of <paramref name="labeledMissed"/> that have SOME accepted center within
-        ///               <paramref name="radiusPx"/> (Euclidean) — i.e. correctly recovered. Empty => 1.0.
-        ///   precision = fraction of <paramref name="labeledShouldReject"/> that have NO accepted center within
-        ///               radius — i.e. correctly excluded. Empty => 1.0.
+        /// Box-containment label scores against the accepted-star centers:
+        ///   recall    = fraction of <paramref name="labeledMissed"/> boxes that CONTAIN at least one accepted
+        ///               center — i.e. correctly recovered. Empty => 1.0.
+        ///   precision = fraction of <paramref name="labeledShouldReject"/> boxes that contain NO accepted center
+        ///               (the flagged accepted star is now excluded) — i.e. correctly rejected. Empty => 1.0.
+        /// Containment is point-in-box: cx ∈ [X, X+W] && cy ∈ [Y, Y+H] (see <see cref="LabelBox.Contains"/>). The
+        /// box defines the region directly, so no radius is needed.
         /// </summary>
         public static (double recall, double precision) ComputeLabelScores(
             IReadOnlyList<(double X, double Y)> acceptedCenters,
-            IReadOnlyList<(double X, double Y)> labeledMissed,
-            IReadOnlyList<(double X, double Y)> labeledShouldReject,
-            double radiusPx) {
-            var r2 = radiusPx * radiusPx;
-
+            IReadOnlyList<LabelBox> labeledMissed,
+            IReadOnlyList<LabelBox> labeledShouldReject) {
             double recall;
             if (labeledMissed == null || labeledMissed.Count == 0) {
                 recall = 1.0; // nothing to recover
             } else {
-                var recovered = labeledMissed.Count(target => HasCenterWithin(acceptedCenters, target, r2));
+                var recovered = labeledMissed.Count(box => ContainsAnyCenter(acceptedCenters, box));
                 recall = (double)recovered / labeledMissed.Count;
             }
 
@@ -220,21 +219,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (labeledShouldReject == null || labeledShouldReject.Count == 0) {
                 precision = 1.0; // nothing that should be rejected
             } else {
-                var correctlyExcluded = labeledShouldReject.Count(target => !HasCenterWithin(acceptedCenters, target, r2));
+                var correctlyExcluded = labeledShouldReject.Count(box => !ContainsAnyCenter(acceptedCenters, box));
                 precision = (double)correctlyExcluded / labeledShouldReject.Count;
             }
 
             return (recall, precision);
         }
 
-        private static bool HasCenterWithin(IReadOnlyList<(double X, double Y)> centers, (double X, double Y) target, double r2) {
+        private static bool ContainsAnyCenter(IReadOnlyList<(double X, double Y)> centers, LabelBox box) {
             if (centers == null) {
                 return false;
             }
             for (var i = 0; i < centers.Count; i++) {
-                var dx = centers[i].X - target.X;
-                var dy = centers[i].Y - target.Y;
-                if (dx * dx + dy * dy <= r2) {
+                if (box.Contains(centers[i].X, centers[i].Y)) {
                     return true;
                 }
             }

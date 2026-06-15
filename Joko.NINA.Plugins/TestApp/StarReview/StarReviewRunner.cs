@@ -159,7 +159,9 @@ namespace TestApp.StarReview {
                         RunId = d.RunId,
                         FocuserPosition = frame.FocuserPosition,
                         FramePath = frame.Path,
-                        AcceptedCenters = accepted.Select(s => (s.Center.X, s.Center.Y, s.HFR)).ToList(),
+                        // Capture each accepted star's REAL StarBoundingBox so the overlay draws actual-size boxes and
+                        // the should-reject click records the actual bounds.
+                        Accepted = accepted.Select(s => (s.Center.X, s.Center.Y, s.HFR, s.StarBoundingBox)).ToList(),
                         Rejected = ExtractRejected(result),
                     };
                     detections[(d.RunId, frame.FocuserPosition)] = review;

@@ -685,18 +685,20 @@ namespace TestApp {
         /// <summary>
         /// Forward-compatible label JSON shape (T7 writes these; T6 reads them). One file per run, named
         /// "&lt;runId&gt;.json" (the discovered RunId == the run's folder name), or any *.json whose embedded RunId
-        /// matches a discovered run. Shape:
+        /// matches a discovered run. Each label is a BOX (top-left x,y + w,h); recall/precision are scored by
+        /// box-containment of an accepted center. Older point-only files (x,y, no w/h) still load: a missing w/h
+        /// defaults to a 2·radiusPx box centered on the point. Shape:
         /// <code>
         /// {
         ///   "runId": "attempt01",
-        ///   "radiusPx": 6.0,                       // default radius for positions that omit one
+        ///   "radiusPx": 6.0,                       // default radius (legacy point-load box fallback)
         ///   "positions": [
         ///     {
         ///       "focuserPosition": 5000,
         ///       "radiusPx": 6.0,                    // optional per-position override
-        ///       "missed":          [ { "x": 123.4, "y": 567.8 }, ... ],   // false negatives to recover (recall)
-        ///       "shouldReject":    [ { "x": 12.0,  "y": 34.0  }, ... ],   // false positives to exclude (precision)
-        ///       "wronglyRejected": [ { "x": 88.0,  "y": 90.0  }, ... ]    // detected-but-gated candidates to KEEP (folds into recall)
+        ///       "missed":          [ { "x": 123.4, "y": 567.8, "w": 12.0, "h": 12.0 }, ... ],  // false negatives to recover (recall)
+        ///       "shouldReject":    [ { "x": 12.0,  "y": 34.0,  "w": 9.0,  "h": 9.0  }, ... ],  // false positives to exclude (precision)
+        ///       "wronglyRejected": [ { "x": 88.0,  "y": 90.0,  "w": 10.0, "h": 8.0  }, ... ]   // detected-but-gated candidates to KEEP (folds into recall)
         ///     }
         ///   ]
         /// }
@@ -705,6 +707,10 @@ namespace TestApp {
         private sealed class LabelPoint {
             [JsonProperty("x")] public double X { get; set; }
             [JsonProperty("y")] public double Y { get; set; }
+
+            // Nullable so a legacy point-only file (x,y, no w/h) deserializes; back-filled to a 2·radiusPx box below.
+            [JsonProperty("w")] public double? W { get; set; }
+            [JsonProperty("h")] public double? H { get; set; }
         }
 
         private sealed class LabelPosition {
@@ -757,17 +763,39 @@ namespace TestApp {
                 var defaultRadius = lf.RadiusPx ?? DefaultLabelRadiusPx;
                 var frameLabels = new List<FrameLabels>(lf.Positions.Count);
                 foreach (var pos in lf.Positions) {
+                    var radius = pos.RadiusPx ?? defaultRadius;
                     frameLabels.Add(new FrameLabels {
                         FocuserPosition = pos.FocuserPosition,
-                        RadiusPx = pos.RadiusPx ?? defaultRadius,
-                        Missed = (pos.Missed ?? new List<LabelPoint>()).Select(p => (p.X, p.Y)).ToList(),
-                        ShouldReject = (pos.ShouldReject ?? new List<LabelPoint>()).Select(p => (p.X, p.Y)).ToList(),
-                        WronglyRejected = (pos.WronglyRejected ?? new List<LabelPoint>()).Select(p => (p.X, p.Y)).ToList()
+                        RadiusPx = radius,
+                        Missed = ToBoxes(pos.Missed, radius),
+                        ShouldReject = ToBoxes(pos.ShouldReject, radius),
+                        WronglyRejected = ToBoxes(pos.WronglyRejected, radius)
                     });
                 }
                 result[run.RunId] = frameLabels;
             }
             return result;
+        }
+
+        /// <summary>
+        /// Maps parsed label JSON points into the objective's <see cref="LabelBox"/> list. A label with explicit w/h
+        /// is taken as-is (top-left x,y + w,h). A legacy point-only label (no w/h) is widened to a 2·radiusPx box
+        /// CENTERED on its (x,y), matching the T7 writer's legacy back-fill so the two tools agree on old files.
+        /// </summary>
+        private static IReadOnlyList<LabelBox> ToBoxes(List<LabelPoint> points, double radiusPx) {
+            if (points == null || points.Count == 0) {
+                return new List<LabelBox>();
+            }
+            var side = Math.Max(1e-9, 2.0 * radiusPx);
+            var boxes = new List<LabelBox>(points.Count);
+            foreach (var p in points) {
+                if (p.W.HasValue && p.H.HasValue) {
+                    boxes.Add(new LabelBox(p.X, p.Y, p.W.Value, p.H.Value));
+                } else {
+                    boxes.Add(new LabelBox(p.X - side / 2.0, p.Y - side / 2.0, side, side));
+                }
+            }
+            return boxes;
         }
 
         // ---- Hard-floor assertion --------------------------------------------------------------------------

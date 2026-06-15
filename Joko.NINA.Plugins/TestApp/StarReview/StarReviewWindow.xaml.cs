@@ -24,6 +24,11 @@ namespace TestApp.StarReview {
         private System.Windows.Point lastPanScreen;
         private bool hasFitOnce;
 
+        // Rubber-band drag state for the MISSED pass (image-space). dragging is set on left-button-down in the Missed
+        // pass; dragStart is the down point and the live DragRect tracks the cursor until button-up finalizes the box.
+        private bool dragging;
+        private System.Windows.Point dragStartImage;
+
         public StarReviewWindow() {
             InitializeComponent();
             DataContextChanged += OnDataContextChanged;
@@ -129,7 +134,52 @@ namespace TestApp.StarReview {
             }
             var screen = ScreenPoint(e);
             var (imgX, imgY) = vm.Viewport.ScreenToImage(screen.X, screen.Y);
-            // Ignore clicks outside the image bounds.
+            // Ignore presses outside the image bounds.
+            if (imgX < 0 || imgY < 0 || imgX > vm.ImageWidth || imgY > vm.ImageHeight) {
+                return;
+            }
+
+            // MISSED pass: begin a rubber-band drag (the box is finalized on button-up). Other passes are click-based
+            // (hit-test an accepted/rejected box on button-up) so the user can see what they are about to label.
+            if (vm.Pass == LabelPass.Missed) {
+                dragging = true;
+                dragStartImage = new System.Windows.Point(imgX, imgY);
+                // Start a zero-size rect anchored at the down point (in image coords; the canvas transform scales it).
+                System.Windows.Controls.Canvas.SetLeft(DragRect, imgX);
+                System.Windows.Controls.Canvas.SetTop(DragRect, imgY);
+                DragRect.Width = 0;
+                DragRect.Height = 0;
+                DragRect.Visibility = Visibility.Visible;
+                ViewportCanvas.CaptureMouse();
+            }
+            e.Handled = true;
+        }
+
+        private void ViewportCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) {
+            var vm = Vm;
+            if (vm == null) {
+                return;
+            }
+            var screen = ScreenPoint(e);
+            var (imgX, imgY) = vm.Viewport.ScreenToImage(screen.X, screen.Y);
+
+            if (dragging) {
+                dragging = false;
+                DragRect.Visibility = Visibility.Collapsed;
+                ViewportCanvas.ReleaseMouseCapture();
+                // Normalize so W,H >= 0 regardless of drag direction. AddMissedBox widens a tiny drag (effectively a
+                // click) to a small default box itself.
+                var x = Math.Min(dragStartImage.X, imgX);
+                var y = Math.Min(dragStartImage.Y, imgY);
+                var w = Math.Abs(imgX - dragStartImage.X);
+                var h = Math.Abs(imgY - dragStartImage.Y);
+                vm.AddMissedBox(x, y, w, h);
+                e.Handled = true;
+                return;
+            }
+
+            // Click-based passes (should-reject / wrongly-rejected): hit-test the detector boxes. Ignore clicks
+            // outside the image bounds.
             if (imgX < 0 || imgY < 0 || imgX > vm.ImageWidth || imgY > vm.ImageHeight) {
                 return;
             }
@@ -151,11 +201,25 @@ namespace TestApp.StarReview {
         }
 
         private void ViewportCanvas_MouseMove(object sender, MouseEventArgs e) {
-            if (!panning) {
-                return;
-            }
             var vm = Vm;
             if (vm == null) {
+                return;
+            }
+
+            // Update the live rubber-band while dragging a MISSED box (image-space; the canvas transform scales it).
+            if (dragging) {
+                var screenNow = ScreenPoint(e);
+                var (imgX, imgY) = vm.Viewport.ScreenToImage(screenNow.X, screenNow.Y);
+                var x = Math.Min(dragStartImage.X, imgX);
+                var y = Math.Min(dragStartImage.Y, imgY);
+                System.Windows.Controls.Canvas.SetLeft(DragRect, x);
+                System.Windows.Controls.Canvas.SetTop(DragRect, y);
+                DragRect.Width = Math.Abs(imgX - dragStartImage.X);
+                DragRect.Height = Math.Abs(imgY - dragStartImage.Y);
+                return;
+            }
+
+            if (!panning) {
                 return;
             }
             var screen = ScreenPoint(e);

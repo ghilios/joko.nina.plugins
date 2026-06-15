@@ -48,23 +48,49 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     }
 
     /// <summary>
+    /// A ground-truth label region in image space: a box (top-left X,Y + W,H). Recall/precision are scored by
+    /// box-containment (an accepted star center lying inside the box), so the box defines the region directly and no
+    /// separate radius is needed. Dependency-light (a plain struct) so the objective stays free of any drawing/UI type.
+    /// </summary>
+    public readonly struct LabelBox {
+        public double X { get; }
+        public double Y { get; }
+        public double W { get; }
+        public double H { get; }
+
+        public LabelBox(double x, double y, double w, double h) {
+            X = x;
+            Y = y;
+            W = w;
+            H = h;
+        }
+
+        /// <summary>True when (cx,cy) lies within this box (inclusive AABB containment).</summary>
+        public bool Contains(double cx, double cy) =>
+            cx >= X && cx <= X + W && cy >= Y && cy <= Y + H;
+    }
+
+    /// <summary>
     /// Optional ground-truth labels for one focuser position, used to score recall/precision. Plumbed now (T3),
-    /// consumed by the labeling workflow (T7); when no labels are supplied the run scores label-agnostically.
+    /// consumed by the labeling workflow (T7); when no labels are supplied the run scores label-agnostically. Each
+    /// label is a BOX; recall/precision use box-containment of accepted-star centers.
     /// </summary>
     public sealed class FrameLabels {
         public int FocuserPosition { get; set; }
 
-        /// <summary>Stars that SHOULD have been detected (recovered when an accepted center lands within radius).</summary>
-        public IReadOnlyList<(double X, double Y)> Missed { get; set; }
+        /// <summary>Stars that SHOULD have been detected (recovered when an accepted center lies inside the box).</summary>
+        public IReadOnlyList<LabelBox> Missed { get; set; }
 
-        /// <summary>Stars that SHOULD have been rejected (correctly excluded when NO accepted center is within radius).</summary>
-        public IReadOnlyList<(double X, double Y)> ShouldReject { get; set; }
+        /// <summary>Stars that SHOULD have been rejected (correctly excluded when NO accepted center lies inside the box).</summary>
+        public IReadOnlyList<LabelBox> ShouldReject { get; set; }
 
         /// <summary>Candidates that WERE detected but a gate rejected, which the user judges should have been KEPT.
         /// These fold into recall (treated identically to <see cref="Missed"/> — both are recall targets the optimizer
-        /// should recover with an accepted star within radius).</summary>
-        public IReadOnlyList<(double X, double Y)> WronglyRejected { get; set; }
+        /// should recover with an accepted star inside the box).</summary>
+        public IReadOnlyList<LabelBox> WronglyRejected { get; set; }
 
+        /// <summary>Legacy default-radius carrier (used only when widening older point-only labels to boxes on load);
+        /// no longer consumed by the box-containment scoring.</summary>
         public double RadiusPx { get; set; }
     }
 
@@ -572,12 +598,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     .SelectMany(f => f.Detection.StarCenters ?? Array.Empty<(double X, double Y)>())
                     .ToList();
                 // Recall targets = explicitly-missed (false negatives) ∪ wrongly-rejected (detected-but-gated stars the
-                // user wants kept). Both want an accepted center within radius, so they share the recall term. The
-                // union is the whole change here; ComputeLabelScores' signature is unchanged. Precision still depends
-                // only on ShouldReject. When neither list has entries the union is empty, so recall stays 1.0 exactly
-                // as before — the unlabeled / missed-only paths are bit-identical.
+                // user wants kept). Both want an accepted center INSIDE the box, so they share the recall term. The
+                // union is folded here; ComputeLabelScores does box-containment. Precision still depends only on
+                // ShouldReject. When neither list has entries the union is empty, so recall stays 1.0 exactly as before
+                // — the unlabeled / missed-only paths are bit-identical.
                 var recallTargets = UnionTargets(label.Missed, label.WronglyRejected);
-                var (recall, precision) = OptimizationObjective.ComputeLabelScores(accepted, recallTargets, label.ShouldReject, label.RadiusPx);
+                var (recall, precision) = OptimizationObjective.ComputeLabelScores(accepted, recallTargets, label.ShouldReject);
                 recallSum += recall;
                 precisionSum += precision;
                 scored++;
@@ -590,12 +616,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         /// <summary>
-        /// Concatenates the two recall-target lists (missed ∪ wrongly-rejected) into a single list. Returns the
+        /// Concatenates the two recall-target box lists (missed ∪ wrongly-rejected) into a single list. Returns the
         /// other list as-is when one is null/empty (so the common missed-only / wrongly-only cases allocate nothing
         /// extra and stay bit-identical to the prior single-list behavior). Returns null only when both are empty.
         /// </summary>
-        private static IReadOnlyList<(double X, double Y)> UnionTargets(
-            IReadOnlyList<(double X, double Y)> a, IReadOnlyList<(double X, double Y)> b) {
+        private static IReadOnlyList<LabelBox> UnionTargets(
+            IReadOnlyList<LabelBox> a, IReadOnlyList<LabelBox> b) {
             var aEmpty = a == null || a.Count == 0;
             var bEmpty = b == null || b.Count == 0;
             if (aEmpty && bEmpty) {
@@ -607,7 +633,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (aEmpty) {
                 return b;
             }
-            var union = new List<(double X, double Y)>(a.Count + b.Count);
+            var union = new List<LabelBox>(a.Count + b.Count);
             union.AddRange(a);
             union.AddRange(b);
             return union;
