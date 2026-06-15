@@ -55,6 +55,11 @@ namespace TestApp.StarReview {
                     vm.Pass = LabelPass.ShouldReject;
                     e.Handled = true;
                     break;
+                case Key.D3:
+                case Key.NumPad3:
+                    vm.Pass = LabelPass.WronglyRejected;
+                    e.Handled = true;
+                    break;
                 case Key.Left:
                     if (vm.PrevCommand.CanExecute(null)) {
                         vm.PrevCommand.Execute(null);
@@ -92,6 +97,9 @@ namespace TestApp.StarReview {
             ContentScale.ScaleY = vm.Viewport.Scale;
             ContentTranslate.X = vm.Viewport.OffsetX;
             ContentTranslate.Y = vm.Viewport.OffsetY;
+            // Markers scale with the canvas transform, so refresh the zoom-inverse stroke thickness after any
+            // viewport change (this covers wheel-zoom, fit, and pan since all route through ApplyViewport).
+            vm.NotifyViewportChanged();
         }
 
         // The canvas RenderTransform maps image space -> screen space, so a mouse position taken relative to the

@@ -571,30 +571,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return;
             }
 
-            var best = Result.BestParams;
-            var dto = new OptimizedStarDetectionSettings {
-                // Curated knobs — note the DTO renames a few (Sensitivity->BrightnessSensitivity etc.).
-                BrightnessSensitivity = best.Sensitivity,
-                StarClippingMultiplier = best.StarClippingMultiplier,
-                NoiseClippingMultiplier = best.NoiseClippingMultiplier,
-                StarPeakResponse = best.PeakResponse,
-                MaxDistortion = best.MaxDistortion,
-                MinHFR = best.MinHFR,
-                StarCenterTolerance = best.StarCenterTolerance,
-                StructureLayers = best.StructureLayers,
-                NoiseReductionRadius = best.NoiseReductionRadius,
-                MinStarBoundingBoxSize = best.MinimumStarBoundingBoxSize,
-                HotpixelThresholdingEnabled = best.HotpixelThresholdingEnabled,
-                HotpixelThreshold = best.HotpixelThreshold,
-
-                // Metadata (DateTime is fine here — this runs in-app, not in the headless harness).
-                CreatedAtUtc = DateTime.UtcNow,
-                RunCount = Summary.RunCount,
-                BaselineJ = Result.SeedJ,
-                FinalJ = Result.BestJ,
-                RecommendedStepSize = Summary.RecommendedStepSize,
-                RecommendedOffsetSteps = Summary.RecommendedOffsetSteps
-            };
+            // Build the snapshot via the shared params->DTO mapping (the single source of truth shared with the
+            // headless harness) so the in-app and offline paths can never drift. CreatedAtUtc is stamped inside.
+            var dto = OptimizedStarDetectionSettings.FromParams(
+                Result.BestParams, Summary.RunCount, Result.SeedJ, Result.BestJ,
+                Summary.RecommendedStepSize, Summary.RecommendedOffsetSteps);
 
             starDetectionOptions.ApplyOptimizedSettings(dto);
             Logger.Info($"Applied optimized star-detection settings (J {Result.SeedJ:F3} -> {Result.BestJ:F3}, {Summary.RunCount} run(s))");

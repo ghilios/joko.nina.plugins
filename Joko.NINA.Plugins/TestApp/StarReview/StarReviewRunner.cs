@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using Newtonsoft.Json;
 using NINA.Core.Enum;
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -87,6 +88,10 @@ namespace TestApp.StarReview {
                 default: throw new ArgumentException($"--params: '{paramsArg}' must be 'current' or 'optimized'");
             }
 
+            // Optional explicit folder holding an optimized_settings.json (the optimizer's --out subdir). When
+            // omitted, --params optimized auto-discovers <runFolder>/optimized_settings.json, then the profile.
+            var optResultsDir = DiagnosticUtil.GetArg(args, "--opt-results");
+
             var mode = StarReviewQueue.ParseMode(DiagnosticUtil.GetArg(args, "--review"));
 
             Logger.SetLogLevel(LogLevelEnum.TRACE);
@@ -117,10 +122,6 @@ namespace TestApp.StarReview {
             var accessor = new PluginOptionsAccessor(profileService, guid.Value);
             var starDetectionOptions = new StarDetectionOptions(profileService, accessor);
 
-            var detectionParams = BuildDetectionParams(starDetectionOptions, activeProfile, useOptimized);
-            Console.WriteLine($"Seed params: Sensitivity={detectionParams.Sensitivity.ToString("G6", CultureInfo.InvariantCulture)}, " +
-                $"StructureLayers={detectionParams.StructureLayers}, PixelScale={detectionParams.PixelScale.ToString("G6", CultureInfo.InvariantCulture)}");
-
             var discovered = DiscoverRuns(runsDir);
             if (discovered.Count == 0) {
                 throw new InvalidOperationException(
@@ -131,6 +132,15 @@ namespace TestApp.StarReview {
             foreach (var d in discovered) {
                 Console.WriteLine($"  {d.RunId}: {d.Frames.Count} frames");
             }
+
+            // The first discovered run's source folder (the directory holding its frames) is where the optimizer
+            // writes optimized_settings.json — used by the --params optimized auto-discovery path.
+            var firstFramePath = discovered[0].Frames.FirstOrDefault()?.Path;
+            var firstRunFolder = string.IsNullOrEmpty(firstFramePath) ? null : Path.GetDirectoryName(firstFramePath);
+
+            var detectionParams = BuildDetectionParams(starDetectionOptions, activeProfile, useOptimized, optResultsDir, firstRunFolder);
+            Console.WriteLine($"Seed params: Sensitivity={detectionParams.Sensitivity.ToString("G6", CultureInfo.InvariantCulture)}, " +
+                $"StructureLayers={detectionParams.StructureLayers}, PixelScale={detectionParams.PixelScale.ToString("G6", CultureInfo.InvariantCulture)}");
 
             // Detect every frame once (off the UI thread — this is still the CLI thread) to get accepted counts +
             // the accepted/rejected overlay, then assemble the review queue. Detection is heavy; doing it up front
@@ -249,12 +259,14 @@ namespace TestApp.StarReview {
         }
 
         private static void PrintUsage() {
-            Console.Error.WriteLine("Usage: TestApp review --runs <folder> [--labels <dir>] [--params current|optimized] [--review low|uncertain|all] [--profile-id <guid>]");
-            Console.Error.WriteLine("  --runs       (required) folder of saved AF runs (same discovery as `optimize`).");
-            Console.Error.WriteLine("  --labels     (default <runs>/labels) where label JSON is read/written; feeds `optimize --labels`.");
-            Console.Error.WriteLine("  --params     (default current) which detector params drive the overlay: 'current' = profile/preset seed, 'optimized' = the saved optimized snapshot.");
-            Console.Error.WriteLine("  --review     (default low) which frames to queue: 'low' (< N_review accepted), 'uncertain' (low + defocused extremes), or 'all'.");
-            Console.Error.WriteLine("  --profile-id (default active) NINA profile id to load.");
+            Console.Error.WriteLine("Usage: TestApp review --runs <folder> [--labels <dir>] [--params current|optimized] [--opt-results <dir>] [--review low|uncertain|all] [--profile-id <guid>]");
+            Console.Error.WriteLine("  --runs        (required) folder of saved AF runs (same discovery as `optimize`).");
+            Console.Error.WriteLine("  --labels      (default <runs>/labels) where label JSON is read/written; feeds `optimize --labels`.");
+            Console.Error.WriteLine("  --params      (default current) which detector params drive the overlay: 'current' = profile/preset seed, 'optimized' = an optimized snapshot.");
+            Console.Error.WriteLine("  --opt-results (optional) folder holding optimized_settings.json (the optimizer's --out subdir). With --params optimized,");
+            Console.Error.WriteLine("                resolution order is: this folder, then <runFolder>/optimized_settings.json, then the profile snapshot, then current.");
+            Console.Error.WriteLine("  --review      (default low) which frames to queue: 'low' (< N_review accepted), 'uncertain' (low + defocused extremes), or 'all'.");
+            Console.Error.WriteLine("  --profile-id  (default active) NINA profile id to load.");
         }
 
         // ---- Params construction (current vs optimized) ----------------------------------------------------
@@ -272,7 +284,8 @@ namespace TestApp.StarReview {
         /// silently rewrite the user's on-disk settings. So both branches READ from the options and build the
         /// params locally instead.</para>
         /// </summary>
-        private static StarDetectorParams BuildDetectionParams(StarDetectionOptions options, IProfile activeProfile, bool useOptimized) {
+        private static StarDetectorParams BuildDetectionParams(
+            StarDetectionOptions options, IProfile activeProfile, bool useOptimized, string optResultsDir, string runFolder) {
             // "current" = the detector exactly as the profile is currently configured (read-only and honest:
             // whatever UseOptimizedSettings / Simple / Advanced state the profile is already in, we report it
             // unchanged rather than toggling anything).
@@ -281,16 +294,86 @@ namespace TestApp.StarReview {
                 return p;
             }
 
-            var snapshot = options.GetOptimizedSettings();
+            // Resolve the optimized snapshot in priority order:
+            //   (a) explicit --opt-results <dir>/optimized_settings.json,
+            //   (b) auto: <runFolder>/optimized_settings.json (the focus run's own folder, where the optimizer wrote it),
+            //   (c) the profile's saved snapshot (options.GetOptimizedSettings()),
+            //   (d) fall back to "current" with a warning.
+            var snapshot = ResolveOptimizedSnapshot(options, optResultsDir, runFolder, out var source);
             if (snapshot == null) {
-                Console.WriteLine("WARNING: --params optimized requested but the profile has no saved optimized snapshot; falling back to current.");
+                Console.WriteLine("WARNING: --params optimized requested but no optimized snapshot was found " +
+                    "(--opt-results, <runFolder>/optimized_settings.json, or the profile); falling back to current.");
                 Logger.Warning("--params optimized requested but no optimized snapshot exists; using current params");
                 return p;
             }
+            Console.WriteLine($"Optimized snapshot source: {source}");
 
-            // Overlay the 12 curated snapshot knobs LOCALLY onto the base params (no ApplyOptimizedSettings, which
-            // would persist through the options accessor). Mapping mirrors HocusFocusStarDetection.BuildStarDetectorParams
-            // (snapshot field names match the matching StarDetectionOptions property names) and T1/T4.
+            OverlaySnapshot(p, snapshot);
+            return p;
+        }
+
+        /// <summary>
+        /// Resolves the optimized snapshot to overlay for --params optimized, in priority order: an explicit
+        /// --opt-results folder, then the focus run's own folder (auto-discovery), then the profile snapshot. Returns
+        /// null when none is found (caller falls back to "current"). File loads are tolerant — a missing/corrupt file
+        /// logs a warning and the resolution continues to the next source. STRICTLY READ-ONLY on the options.
+        /// </summary>
+        private static OptimizedStarDetectionSettings ResolveOptimizedSnapshot(
+            StarDetectionOptions options, string optResultsDir, string runFolder, out string source) {
+            // (a) Explicit --opt-results directory.
+            if (!string.IsNullOrWhiteSpace(optResultsDir)) {
+                var explicitPath = Path.Combine(optResultsDir, "optimized_settings.json");
+                var loaded = TryLoadSnapshot(explicitPath);
+                if (loaded != null) {
+                    source = $"--opt-results ({explicitPath})";
+                    return loaded;
+                }
+                Console.WriteLine($"WARNING: --opt-results given but no usable optimized_settings.json at {explicitPath}; trying other sources.");
+            }
+
+            // (b) Auto-discovery in the focus run's own folder.
+            if (!string.IsNullOrWhiteSpace(runFolder)) {
+                var autoPath = Path.Combine(runFolder, "optimized_settings.json");
+                var loaded = TryLoadSnapshot(autoPath);
+                if (loaded != null) {
+                    source = $"auto ({autoPath})";
+                    return loaded;
+                }
+            }
+
+            // (c) The profile's saved snapshot.
+            var profileSnapshot = options.GetOptimizedSettings();
+            if (profileSnapshot != null) {
+                source = "profile (GetOptimizedSettings)";
+                return profileSnapshot;
+            }
+
+            source = "(none)";
+            return null;
+        }
+
+        /// <summary>Loads an <see cref="OptimizedStarDetectionSettings"/> from a JSON file, or null if it is missing
+        /// or unparseable (a corrupt file logs a warning and is treated as absent).</summary>
+        private static OptimizedStarDetectionSettings TryLoadSnapshot(string path) {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) {
+                return null;
+            }
+            try {
+                return JsonConvert.DeserializeObject<OptimizedStarDetectionSettings>(File.ReadAllText(path));
+            } catch (Exception ex) {
+                Console.WriteLine($"WARNING: could not parse optimized snapshot '{path}': {ex.Message}");
+                Logger.Warning($"Could not parse optimized snapshot '{path}': {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Overlays the 12 curated snapshot knobs onto <paramref name="p"/> LOCALLY (no ApplyOptimizedSettings, which
+        /// would persist through the options accessor). Shared by the file (--opt-results / auto) and profile paths so
+        /// the mapping lives in one place. Mapping mirrors HocusFocusStarDetection.BuildStarDetectorParams (snapshot
+        /// field names match the matching StarDetectionOptions property names) and OptimizedStarDetectionSettings.FromParams.
+        /// </summary>
+        private static void OverlaySnapshot(StarDetectorParams p, OptimizedStarDetectionSettings snapshot) {
             p.Sensitivity = snapshot.BrightnessSensitivity;
             p.StarClippingMultiplier = snapshot.StarClippingMultiplier;
             p.NoiseClippingMultiplier = snapshot.NoiseClippingMultiplier;
@@ -303,7 +386,6 @@ namespace TestApp.StarReview {
             p.MinimumStarBoundingBoxSize = snapshot.MinStarBoundingBoxSize;
             p.HotpixelThresholdingEnabled = snapshot.HotpixelThresholdingEnabled;
             p.HotpixelThreshold = snapshot.HotpixelThreshold;
-            return p;
         }
 
         /// <summary>

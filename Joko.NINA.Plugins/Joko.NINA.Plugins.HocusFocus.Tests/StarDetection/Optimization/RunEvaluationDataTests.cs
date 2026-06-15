@@ -192,6 +192,93 @@ public class RunEvaluationDataTests {
     }
 
     [Test]
+    public async Task EvaluateAsync_WronglyRejected_FoldsIntoRecall() {
+        // Two accepted stars. One WronglyRejected target lands ON an accepted center (recovered) and one does NOT
+        // (not recovered) => recall 0.5. Precision stays a function of ShouldReject only (none => 1.0). This proves
+        // the union of Missed ∪ WronglyRejected drives recall.
+        var accepted = new List<(double X, double Y)> { (100.0, 100.0), (200.0, 200.0) };
+        var detect = HyperbolaDetect(centers: accepted);
+
+        var labels = new List<FrameLabels> {
+            new FrameLabels {
+                FocuserPosition = HyperbolaP0,
+                Missed = new List<(double X, double Y)>(),                                   // no false negatives
+                ShouldReject = new List<(double X, double Y)>(),                             // no false positives
+                WronglyRejected = new List<(double X, double Y)> {
+                    (100.0, 100.0),                                                          // covered by an accepted center => recovered
+                    (9000.0, 9000.0)                                                         // nowhere near accepted => not recovered
+                },
+                RadiusPx = 3.0
+            }
+        };
+
+        var data = new RunEvaluationData("wrongly", NineFrames(), detect, NewAlglib(), DefaultFitConfig(), labels);
+        var metrics = await data.EvaluateAsync(new StarDetectorParams(), CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(metrics.Recall, Is.Not.Null);
+            Assert.That(metrics.Recall.Value, Is.EqualTo(0.5).Within(1e-9), "1 of 2 wrongly-rejected targets recovered => recall 0.5");
+            Assert.That(metrics.Precision, Is.Not.Null);
+            Assert.That(metrics.Precision.Value, Is.EqualTo(1.0).Within(1e-9), "no should-reject targets => precision 1");
+        });
+    }
+
+    [Test]
+    public async Task EvaluateAsync_MissedAndWronglyRejected_UnionDrivesRecall() {
+        // Missed (recovered) ∪ WronglyRejected (one recovered, one not) => 2 of 3 recall targets recovered => 2/3.
+        var accepted = new List<(double X, double Y)> { (100.0, 100.0), (300.0, 300.0) };
+        var detect = HyperbolaDetect(centers: accepted);
+
+        var labels = new List<FrameLabels> {
+            new FrameLabels {
+                FocuserPosition = HyperbolaP0,
+                Missed = new List<(double X, double Y)> { (100.0, 100.0) },          // recovered
+                ShouldReject = new List<(double X, double Y)>(),
+                WronglyRejected = new List<(double X, double Y)> {
+                    (300.0, 300.0),                                                  // recovered
+                    (9000.0, 9000.0)                                                 // not recovered
+                },
+                RadiusPx = 3.0
+            }
+        };
+
+        var data = new RunEvaluationData("union", NineFrames(), detect, NewAlglib(), DefaultFitConfig(), labels);
+        var metrics = await data.EvaluateAsync(new StarDetectorParams(), CancellationToken.None);
+
+        Assert.That(metrics.Recall, Is.Not.Null);
+        Assert.That(metrics.Recall.Value, Is.EqualTo(2.0 / 3.0).Within(1e-9), "2 of 3 (missed ∪ wrongly-rejected) recovered");
+    }
+
+    [Test]
+    public async Task EvaluateAsync_MissedOnly_WronglyRejectedNullOrEmpty_RecallUnchanged() {
+        // Bit-identical-behavior guard: with WronglyRejected null AND with it empty, recall must match the
+        // missed-only result exactly (the union fold must not perturb the prior single-list path).
+        var accepted = new List<(double X, double Y)> { (100.0, 100.0) };
+        var detect = HyperbolaDetect(centers: accepted);
+
+        FrameLabels MakeLabel(IReadOnlyList<(double X, double Y)> wrongly) => new FrameLabels {
+            FocuserPosition = HyperbolaP0,
+            Missed = new List<(double X, double Y)> { (100.0, 100.0), (9000.0, 9000.0) }, // 1 of 2 recovered => 0.5
+            ShouldReject = new List<(double X, double Y)>(),
+            WronglyRejected = wrongly,
+            RadiusPx = 3.0
+        };
+
+        var dataNull = new RunEvaluationData("null", NineFrames(), detect, NewAlglib(), DefaultFitConfig(),
+            new List<FrameLabels> { MakeLabel(null) });
+        var dataEmpty = new RunEvaluationData("empty", NineFrames(), detect, NewAlglib(), DefaultFitConfig(),
+            new List<FrameLabels> { MakeLabel(new List<(double X, double Y)>()) });
+
+        var mNull = await dataNull.EvaluateAsync(new StarDetectorParams(), CancellationToken.None);
+        var mEmpty = await dataEmpty.EvaluateAsync(new StarDetectorParams(), CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(mNull.Recall.Value, Is.EqualTo(0.5).Within(1e-12), "null WronglyRejected => missed-only recall");
+            Assert.That(mEmpty.Recall.Value, Is.EqualTo(0.5).Within(1e-12), "empty WronglyRejected => missed-only recall");
+        });
+    }
+
+    [Test]
     public async Task EvaluateAsync_NoLabels_LeavesRecallPrecisionNull() {
         var data = new RunEvaluationData("nolabels", NineFrames(), HyperbolaDetect(), NewAlglib(), DefaultFitConfig());
         var metrics = await data.EvaluateAsync(new StarDetectorParams(), CancellationToken.None);

@@ -48,6 +48,12 @@
                 Content="Mark Should-Reject (2)"
                 IsChecked="{Binding IsShouldRejectPass, Mode=OneWay}"
                 Command="{Binding MarkShouldRejectCommand}" />
+            <ToggleButton
+                Margin="4,0"
+                Padding="10,4"
+                Content="Mark Wrongly-Rejected (3)"
+                IsChecked="{Binding IsWronglyRejectedPass, Mode=OneWay}"
+                Command="{Binding MarkWronglyRejectedCommand}" />
             <TextBlock Margin="16,0,4,0" Text="Radius px:" />
             <TextBox Width="50" VerticalContentAlignment="Center"
                      Text="{Binding RadiusPx, UpdateSourceTrigger=PropertyChanged, StringFormat=0.#}" />
@@ -95,7 +101,8 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Rectangle Width="{Binding Width}" Height="{Binding Height}" StrokeThickness="0.6">
+                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                       StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
                                 <Rectangle.Stroke>
                                     <SolidColorBrush Color="{Binding Color}" />
                                 </Rectangle.Stroke>
@@ -118,7 +125,8 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Ellipse Width="9" Height="9" Margin="-4.5,-4.5,0,0"
-                                     Stroke="#FF00FF00" StrokeThickness="0.7" />
+                                     Stroke="#FF00FF00"
+                                     StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -137,7 +145,8 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Ellipse Width="13" Height="13" Margin="-6.5,-6.5,0,0"
-                                     Stroke="#FF00E5FF" StrokeThickness="1.2" />
+                                     Stroke="#FF00E5FF"
+                                     StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -156,7 +165,34 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Rectangle Width="13" Height="13" Margin="-6.5,-6.5,0,0"
-                                       Stroke="#FFFF8C00" StrokeThickness="1.2" />
+                                       Stroke="#FFFF8C00"
+                                       StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- User: wrongly-rejected (detected-but-gated, should be KEPT) — bright-green diamond (a rotated
+                     square) so it reads distinctly as "should-have-been-accepted". -->
+                <ItemsControl ItemsSource="{Binding WronglyRejectedMarkers}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="Canvas.Left" Value="{Binding X}" />
+                            <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Rectangle Width="14" Height="14" Margin="-7,-7,0,0"
+                                       Stroke="#FF39FF14"
+                                       StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                       RenderTransformOrigin="0.5,0.5">
+                                <Rectangle.RenderTransform>
+                                    <RotateTransform Angle="45" />
+                                </Rectangle.RenderTransform>
+                            </Rectangle>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -171,6 +207,6 @@
 
         <!-- Legend / help -->
         <TextBlock Grid.Row="4" Margin="0,4,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
-                   Text="Green = accepted. Boxes = rejected-by-reason (yellow TooDistorted, orange Degenerate, red Saturated, cyan LowSensitivity, magenta NotCentered, blue TooFlat, purple Contaminated). Cyan ring = your MISSED. Orange box = your SHOULD-REJECT. Left-click to add/toggle the current pass at that pixel. Right-drag to pan, wheel to zoom." />
+                   Text="Green = accepted. Boxes = rejected-by-reason (yellow TooDistorted, orange Degenerate, red Saturated, cyan LowSensitivity, magenta NotCentered, blue TooFlat, purple Contaminated). Cyan ring = your MISSED. Orange box = your SHOULD-REJECT. Bright-green diamond = your WRONGLY-REJECTED (folds into recall). Left-click to add/toggle the current pass at that pixel; for Wrongly-Rejected, click INSIDE a rejected box to keep it. Right-drag to pan, wheel to zoom." />
     </Grid>
 </Window>

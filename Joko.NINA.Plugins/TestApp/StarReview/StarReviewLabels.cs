@@ -34,8 +34,9 @@ namespace TestApp.StarReview {
     ///     {
     ///       "focuserPosition": 5000,
     ///       "radiusPx": 6.0,                       // optional per-position override
-    ///       "missed":       [ { "x": 123.4, "y": 567.8 } ],  // false negatives to recover (recall)
-    ///       "shouldReject": [ { "x": 12.0,  "y": 34.0  } ]   // false positives to exclude (precision)
+    ///       "missed":          [ { "x": 123.4, "y": 567.8 } ],  // false negatives to recover (recall)
+    ///       "shouldReject":    [ { "x": 12.0,  "y": 34.0  } ],  // false positives to exclude (precision)
+    ///       "wronglyRejected": [ { "x": 88.0,  "y": 90.0  } ]   // detected-but-gated candidates that should be KEPT (folds into recall)
     ///     }
     ///   ]
     /// }
@@ -58,6 +59,10 @@ namespace TestApp.StarReview {
         [JsonProperty("radiusPx")] public double? RadiusPx { get; set; }
         [JsonProperty("missed")] public List<StarReviewLabelPoint> Missed { get; set; } = new List<StarReviewLabelPoint>();
         [JsonProperty("shouldReject")] public List<StarReviewLabelPoint> ShouldReject { get; set; } = new List<StarReviewLabelPoint>();
+
+        /// <summary>Detected-but-gate-rejected candidates the user judges should have been KEPT. Folds into recall
+        /// (union with <see cref="Missed"/>) on the optimizer side — every wrongly-rejected point is a recall target.</summary>
+        [JsonProperty("wronglyRejected")] public List<StarReviewLabelPoint> WronglyRejected { get; set; } = new List<StarReviewLabelPoint>();
     }
 
     public sealed class StarReviewRunLabels {
@@ -208,14 +213,15 @@ namespace TestApp.StarReview {
             return bestIdx;
         }
 
-        /// <summary>Total missed + should-reject counts across all positions, for a quick summary line.</summary>
-        public static (int missed, int shouldReject) Counts(StarReviewRunLabels labels) {
+        /// <summary>Total missed + should-reject + wrongly-rejected counts across all positions, for a summary line.</summary>
+        public static (int missed, int shouldReject, int wronglyRejected) Counts(StarReviewRunLabels labels) {
             if (labels?.Positions == null) {
-                return (0, 0);
+                return (0, 0, 0);
             }
             var missed = labels.Positions.Sum(p => p.Missed?.Count ?? 0);
             var reject = labels.Positions.Sum(p => p.ShouldReject?.Count ?? 0);
-            return (missed, reject);
+            var wronglyRejected = labels.Positions.Sum(p => p.WronglyRejected?.Count ?? 0);
+            return (missed, reject, wronglyRejected);
         }
 
         /// <summary>
@@ -227,7 +233,8 @@ namespace TestApp.StarReview {
                 return;
             }
             labels.Positions.RemoveAll(p => (p.Missed == null || p.Missed.Count == 0)
-                                            && (p.ShouldReject == null || p.ShouldReject.Count == 0));
+                                            && (p.ShouldReject == null || p.ShouldReject.Count == 0)
+                                            && (p.WronglyRejected == null || p.WronglyRejected.Count == 0));
         }
 
         private static StarReviewRunLabels TryParse(string path, out string error) {
@@ -249,6 +256,7 @@ namespace TestApp.StarReview {
             foreach (var p in labels.Positions) {
                 p.Missed ??= new List<StarReviewLabelPoint>();
                 p.ShouldReject ??= new List<StarReviewLabelPoint>();
+                p.WronglyRejected ??= new List<StarReviewLabelPoint>();
             }
             labels.Positions.Sort((a, b) => a.FocuserPosition.CompareTo(b.FocuserPosition));
         }

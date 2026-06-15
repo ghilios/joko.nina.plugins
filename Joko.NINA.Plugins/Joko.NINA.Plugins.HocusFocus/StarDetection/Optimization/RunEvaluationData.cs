@@ -60,6 +60,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>Stars that SHOULD have been rejected (correctly excluded when NO accepted center is within radius).</summary>
         public IReadOnlyList<(double X, double Y)> ShouldReject { get; set; }
 
+        /// <summary>Candidates that WERE detected but a gate rejected, which the user judges should have been KEPT.
+        /// These fold into recall (treated identically to <see cref="Missed"/> — both are recall targets the optimizer
+        /// should recover with an accepted star within radius).</summary>
+        public IReadOnlyList<(double X, double Y)> WronglyRejected { get; set; }
+
         public double RadiusPx { get; set; }
     }
 
@@ -566,7 +571,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     .Where(f => f.FocuserPosition == label.FocuserPosition)
                     .SelectMany(f => f.Detection.StarCenters ?? Array.Empty<(double X, double Y)>())
                     .ToList();
-                var (recall, precision) = OptimizationObjective.ComputeLabelScores(accepted, label.Missed, label.ShouldReject, label.RadiusPx);
+                // Recall targets = explicitly-missed (false negatives) ∪ wrongly-rejected (detected-but-gated stars the
+                // user wants kept). Both want an accepted center within radius, so they share the recall term. The
+                // union is the whole change here; ComputeLabelScores' signature is unchanged. Precision still depends
+                // only on ShouldReject. When neither list has entries the union is empty, so recall stays 1.0 exactly
+                // as before — the unlabeled / missed-only paths are bit-identical.
+                var recallTargets = UnionTargets(label.Missed, label.WronglyRejected);
+                var (recall, precision) = OptimizationObjective.ComputeLabelScores(accepted, recallTargets, label.ShouldReject, label.RadiusPx);
                 recallSum += recall;
                 precisionSum += precision;
                 scored++;
@@ -576,6 +587,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 metrics.Recall = recallSum / scored;
                 metrics.Precision = precisionSum / scored;
             }
+        }
+
+        /// <summary>
+        /// Concatenates the two recall-target lists (missed ∪ wrongly-rejected) into a single list. Returns the
+        /// other list as-is when one is null/empty (so the common missed-only / wrongly-only cases allocate nothing
+        /// extra and stay bit-identical to the prior single-list behavior). Returns null only when both are empty.
+        /// </summary>
+        private static IReadOnlyList<(double X, double Y)> UnionTargets(
+            IReadOnlyList<(double X, double Y)> a, IReadOnlyList<(double X, double Y)> b) {
+            var aEmpty = a == null || a.Count == 0;
+            var bEmpty = b == null || b.Count == 0;
+            if (aEmpty && bEmpty) {
+                return a; // null or empty — ComputeLabelScores treats it as recall = 1.0
+            }
+            if (bEmpty) {
+                return a;
+            }
+            if (aEmpty) {
+                return b;
+            }
+            var union = new List<(double X, double Y)>(a.Count + b.Count);
+            union.AddRange(a);
+            union.AddRange(b);
+            return union;
         }
 
         /// <summary>

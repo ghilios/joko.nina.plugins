@@ -44,6 +44,7 @@ public class StarReviewTests {
         [JsonProperty("radiusPx")] public double? RadiusPx { get; set; }
         [JsonProperty("missed")] public List<T6LabelPoint> Missed { get; set; }
         [JsonProperty("shouldReject")] public List<T6LabelPoint> ShouldReject { get; set; }
+        [JsonProperty("wronglyRejected")] public List<T6LabelPoint> WronglyRejected { get; set; }
     }
 
     private sealed class T6RunLabelFile {
@@ -62,7 +63,8 @@ public class StarReviewTests {
                     FocuserPosition = 5000,
                     RadiusPx = 6.0,
                     Missed = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(123.4, 567.8) },
-                    ShouldReject = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(12.0, 34.0) }
+                    ShouldReject = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(12.0, 34.0) },
+                    WronglyRejected = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(88.0, 90.0) }
                 }
             }
         };
@@ -85,6 +87,9 @@ public class StarReviewTests {
             Assert.That(p.ShouldReject, Has.Count.EqualTo(1));
             Assert.That(p.ShouldReject[0].X, Is.EqualTo(12.0));
             Assert.That(p.ShouldReject[0].Y, Is.EqualTo(34.0));
+            Assert.That(p.WronglyRejected, Has.Count.EqualTo(1));
+            Assert.That(p.WronglyRejected[0].X, Is.EqualTo(88.0));
+            Assert.That(p.WronglyRejected[0].Y, Is.EqualTo(90.0));
         });
     }
 
@@ -97,7 +102,8 @@ public class StarReviewTests {
                 new StarReviewPositionLabels {
                     FocuserPosition = 100,
                     Missed = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(1, 2) },
-                    ShouldReject = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(3, 4) }
+                    ShouldReject = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(3, 4) },
+                    WronglyRejected = new List<StarReviewLabelPoint> { new StarReviewLabelPoint(5, 6) }
                 }
             }
         };
@@ -109,6 +115,7 @@ public class StarReviewTests {
             Assert.That(json, Does.Contain("\"focuserPosition\""));
             Assert.That(json, Does.Contain("\"missed\""));
             Assert.That(json, Does.Contain("\"shouldReject\""));
+            Assert.That(json, Does.Contain("\"wronglyRejected\""));
             Assert.That(json, Does.Contain("\"x\""));
             Assert.That(json, Does.Contain("\"y\""));
         });
@@ -187,6 +194,60 @@ public class StarReviewTests {
         StarReviewLabelStore.PruneEmptyPositions(labels);
         Assert.That(labels.Positions, Has.Count.EqualTo(1));
         Assert.That(labels.Positions[0].FocuserPosition, Is.EqualTo(200));
+    }
+
+    [Test]
+    public void PruneEmptyPositions_KeepsWronglyRejectedOnlyPosition() {
+        var labels = new StarReviewRunLabels { RunId = "r" };
+        var empty = StarReviewLabelStore.GetOrAddPosition(labels, 100);
+        var wronglyOnly = StarReviewLabelStore.GetOrAddPosition(labels, 200);
+        StarReviewLabelStore.TogglePoint(wronglyOnly.WronglyRejected, 7, 8);
+
+        StarReviewLabelStore.PruneEmptyPositions(labels);
+        Assert.That(labels.Positions, Has.Count.EqualTo(1));
+        Assert.That(labels.Positions[0].FocuserPosition, Is.EqualTo(200));
+        Assert.That(labels.Positions[0].WronglyRejected, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void Counts_IncludesWronglyRejected() {
+        var labels = new StarReviewRunLabels { RunId = "r" };
+        var pos = StarReviewLabelStore.GetOrAddPosition(labels, 5000);
+        StarReviewLabelStore.TogglePoint(pos.Missed, 1, 1);
+        StarReviewLabelStore.TogglePoint(pos.Missed, 50, 50);
+        StarReviewLabelStore.TogglePoint(pos.ShouldReject, 100, 100);
+        StarReviewLabelStore.TogglePoint(pos.WronglyRejected, 200, 200);
+        StarReviewLabelStore.TogglePoint(pos.WronglyRejected, 300, 300);
+        StarReviewLabelStore.TogglePoint(pos.WronglyRejected, 400, 400);
+
+        var (missed, shouldReject, wronglyRejected) = StarReviewLabelStore.Counts(labels);
+        Assert.Multiple(() => {
+            Assert.That(missed, Is.EqualTo(2));
+            Assert.That(shouldReject, Is.EqualTo(1));
+            Assert.That(wronglyRejected, Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public void WronglyRejectedRoundTrip_ThroughLabelStore_Persists() {
+        var dir = Path.Combine(Path.GetTempPath(), "hf-review-test-" + Guid.NewGuid().ToString("N"));
+        try {
+            var labels = new StarReviewRunLabels { RunId = "attempt01", RadiusPx = 6.0 };
+            var pos = StarReviewLabelStore.GetOrAddPosition(labels, 5000);
+            StarReviewLabelStore.TogglePoint(pos.WronglyRejected, 88, 90);
+            StarReviewLabelStore.Save(dir, labels);
+
+            var reloaded = StarReviewLabelStore.Load(dir, "attempt01", out var err);
+            Assert.That(err, Is.Null);
+            Assert.That(reloaded.Positions, Has.Count.EqualTo(1));
+            Assert.That(reloaded.Positions[0].WronglyRejected, Has.Count.EqualTo(1));
+            Assert.That(reloaded.Positions[0].WronglyRejected[0].X, Is.EqualTo(88.0));
+            Assert.That(reloaded.Positions[0].WronglyRejected[0].Y, Is.EqualTo(90.0));
+        } finally {
+            if (Directory.Exists(dir)) {
+                Directory.Delete(dir, true);
+            }
+        }
     }
 
     // ---- Review queue -------------------------------------------------------------------------------------

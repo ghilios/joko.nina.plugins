@@ -1,5 +1,6 @@
 using System;
 using Newtonsoft.Json;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NUnit.Framework;
 
@@ -65,6 +66,61 @@ public class OptimizedStarDetectionSettingsTests {
             Assert.That(restored.RecommendedOffsetSteps, Is.EqualTo(original.RecommendedOffsetSteps));
             Assert.That(restored.SchemaVersion, Is.EqualTo(original.SchemaVersion));
         });
+    }
+
+    [Test]
+    public void FromParams_MapsCuratedKnobsAndMetadata() {
+        // Distinct, recognizable values so a mis-wired field (esp. the renamed ones) is caught.
+        var p = new StarDetectorParams {
+            Sensitivity = 3.3,
+            StarClippingMultiplier = 2.7,
+            NoiseClippingMultiplier = 5.5,
+            PeakResponse = 0.66,
+            MaxDistortion = 0.42,
+            MinHFR = 1.1,
+            StarCenterTolerance = 0.45,
+            StructureLayers = 7,
+            NoiseReductionRadius = 6,
+            MinimumStarBoundingBoxSize = 8,
+            HotpixelThresholdingEnabled = false,
+            HotpixelThreshold = 0.02
+        };
+
+        var before = DateTime.UtcNow;
+        var dto = OptimizedStarDetectionSettings.FromParams(p, runCount: 5, baselineJ: 0.9, finalJ: 0.4, recommendedStepSize: 25, recommendedOffsetSteps: 6);
+        var after = DateTime.UtcNow;
+
+        Assert.Multiple(() => {
+            // Curated knobs (note the renames: Sensitivity->BrightnessSensitivity, PeakResponse->StarPeakResponse,
+            // MinimumStarBoundingBoxSize->MinStarBoundingBoxSize).
+            Assert.That(dto.BrightnessSensitivity, Is.EqualTo(3.3));
+            Assert.That(dto.StarClippingMultiplier, Is.EqualTo(2.7));
+            Assert.That(dto.NoiseClippingMultiplier, Is.EqualTo(5.5));
+            Assert.That(dto.StarPeakResponse, Is.EqualTo(0.66));
+            Assert.That(dto.MaxDistortion, Is.EqualTo(0.42));
+            Assert.That(dto.MinHFR, Is.EqualTo(1.1));
+            Assert.That(dto.StarCenterTolerance, Is.EqualTo(0.45));
+            Assert.That(dto.StructureLayers, Is.EqualTo(7));
+            Assert.That(dto.NoiseReductionRadius, Is.EqualTo(6));
+            Assert.That(dto.MinStarBoundingBoxSize, Is.EqualTo(8));
+            Assert.That(dto.HotpixelThresholdingEnabled, Is.False);
+            Assert.That(dto.HotpixelThreshold, Is.EqualTo(0.02));
+
+            // Metadata.
+            Assert.That(dto.RunCount, Is.EqualTo(5));
+            Assert.That(dto.BaselineJ, Is.EqualTo(0.9));
+            Assert.That(dto.FinalJ, Is.EqualTo(0.4));
+            Assert.That(dto.RecommendedStepSize, Is.EqualTo(25));
+            Assert.That(dto.RecommendedOffsetSteps, Is.EqualTo(6));
+            Assert.That(dto.SchemaVersion, Is.EqualTo(1));
+            Assert.That(dto.CreatedAtUtc, Is.InRange(before, after));
+            Assert.That(dto.CreatedAtUtc.Kind, Is.EqualTo(DateTimeKind.Utc));
+        });
+    }
+
+    [Test]
+    public void FromParams_NullParams_Throws() {
+        Assert.Throws<ArgumentNullException>(() => OptimizedStarDetectionSettings.FromParams(null, 1, 0.0, 0.0, 1, 1));
     }
 
     [Test]

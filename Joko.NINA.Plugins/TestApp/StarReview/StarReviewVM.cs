@@ -61,7 +61,8 @@ namespace TestApp.StarReview {
 
     public enum LabelPass {
         Missed,
-        ShouldReject
+        ShouldReject,
+        WronglyRejected
     }
 
     /// <summary>
@@ -107,6 +108,7 @@ namespace TestApp.StarReview {
             SaveCommand = new RelayCommand(SaveAll);
             MarkMissedCommand = new RelayCommand(() => Pass = LabelPass.Missed);
             MarkShouldRejectCommand = new RelayCommand(() => Pass = LabelPass.ShouldReject);
+            MarkWronglyRejectedCommand = new RelayCommand(() => Pass = LabelPass.WronglyRejected);
             FitCommand = new RelayCommand(RequestFit);
 
             CurrentIndex = 0;
@@ -160,11 +162,28 @@ namespace TestApp.StarReview {
 
         public StarReviewViewport Viewport { get; }
 
+        // All markers live inside a canvas whose RenderTransform scales everything (including stroke width). At
+        // fit-to-window zoom (Scale ~0.1-0.3) a hardcoded stroke would scale down to nothing, so bind thickness
+        // INVERSELY to the current scale to keep on-screen stroke width roughly constant. Clamp to MinScale so the
+        // thickness never blows up at extreme zoom-out.
+        public double MarkerStrokeThickness => 1.5 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
+
+        // Slightly heavier for the three user-applied label markers so they read above the detector overlay.
+        public double LabelStrokeThickness => 2.5 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
+
+        /// <summary>Raises the zoom-dependent marker-thickness bindings. The view calls this after any viewport change
+        /// (wheel-zoom, fit, pan) so the stroke widths track the current scale.</summary>
+        public void NotifyViewportChanged() {
+            RaisePropertyChanged(nameof(MarkerStrokeThickness));
+            RaisePropertyChanged(nameof(LabelStrokeThickness));
+        }
+
         // Markers in IMAGE pixel coords; the view applies the viewport transform to place them.
         public ObservableCollection<AcceptedMarker> AcceptedMarkers { get; } = new();
         public ObservableCollection<RejectedMarker> RejectedMarkers { get; } = new();
         public ObservableCollection<StarReviewLabelPoint> MissedMarkers { get; } = new();
         public ObservableCollection<StarReviewLabelPoint> ShouldRejectMarkers { get; } = new();
+        public ObservableCollection<StarReviewLabelPoint> WronglyRejectedMarkers { get; } = new();
 
         private LabelPass pass = LabelPass.Missed;
         public LabelPass Pass {
@@ -175,6 +194,7 @@ namespace TestApp.StarReview {
                     RaisePropertyChanged();
                     RaisePropertyChanged(nameof(IsMissedPass));
                     RaisePropertyChanged(nameof(IsShouldRejectPass));
+                    RaisePropertyChanged(nameof(IsWronglyRejectedPass));
                     RaisePropertyChanged(nameof(PassLabel));
                 }
             }
@@ -182,7 +202,17 @@ namespace TestApp.StarReview {
 
         public bool IsMissedPass => Pass == LabelPass.Missed;
         public bool IsShouldRejectPass => Pass == LabelPass.ShouldReject;
-        public string PassLabel => Pass == LabelPass.Missed ? "Marking: MISSED (false negatives)" : "Marking: SHOULD-REJECT (false positives)";
+        public bool IsWronglyRejectedPass => Pass == LabelPass.WronglyRejected;
+        public string PassLabel {
+            get {
+                switch (Pass) {
+                    case LabelPass.Missed: return "Marking: MISSED (false negatives)";
+                    case LabelPass.ShouldReject: return "Marking: SHOULD-REJECT (false positives)";
+                    case LabelPass.WronglyRejected: return "Marking: WRONGLY-REJECTED (click inside a rejected box to keep it)";
+                    default: return "Marking";
+                }
+            }
+        }
 
         private double radiusPx = StarReviewLabelStore.DefaultRadiusPx;
         public double RadiusPx {
@@ -199,11 +229,13 @@ namespace TestApp.StarReview {
         public string CountsLabel {
             get {
                 var labels = CurrentRunLabels;
-                var (missed, reject) = StarReviewLabelStore.Counts(labels);
+                var (missed, reject, wrongly) = StarReviewLabelStore.Counts(labels);
                 var pos = CurrentPositionLabels;
                 var posMissed = pos?.Missed?.Count ?? 0;
                 var posReject = pos?.ShouldReject?.Count ?? 0;
-                return $"this frame: {posMissed} missed, {posReject} should-reject | run total: {missed} missed, {reject} should-reject";
+                var posWrongly = pos?.WronglyRejected?.Count ?? 0;
+                return $"this frame: {posMissed} missed, {posReject} should-reject, {posWrongly} wrongly-rejected | " +
+                       $"run total: {missed} missed, {reject} should-reject, {wrongly} wrongly-rejected";
             }
         }
 
@@ -212,6 +244,7 @@ namespace TestApp.StarReview {
         public RelayCommand SaveCommand { get; }
         public RelayCommand MarkMissedCommand { get; }
         public RelayCommand MarkShouldRejectCommand { get; }
+        public RelayCommand MarkWronglyRejectedCommand { get; }
         public RelayCommand FitCommand { get; }
 
         /// <summary>Raised when the VM wants the view to re-fit the image (initial load / Fit button).</summary>
@@ -320,6 +353,24 @@ namespace TestApp.StarReview {
             if (run == null) {
                 return;
             }
+
+            // WRONGLY-REJECTED is a CONSTRAINED pass: the user must click INSIDE a displayed rejected-candidate box.
+            // A hit toggles a point at that box's CENTER (not the raw click), so the recorded recall target lands on
+            // the candidate the detector already found. A click outside every rejected box is a no-op.
+            if (Pass == LabelPass.WronglyRejected) {
+                var hit = HitTestRejected(imageX, imageY);
+                if (hit == null) {
+                    return;
+                }
+                var posWr = StarReviewLabelStore.GetOrAddPosition(run, Current.FocuserPosition);
+                if (posWr.RadiusPx == null) {
+                    posWr.RadiusPx = RadiusPx;
+                }
+                StarReviewLabelStore.TogglePoint(posWr.WronglyRejected, hit.Value.cx, hit.Value.cy);
+                RefreshLabelMarkers();
+                return;
+            }
+
             var pos = StarReviewLabelStore.GetOrAddPosition(run, Current.FocuserPosition);
             if (pos.RadiusPx == null) {
                 pos.RadiusPx = RadiusPx;
@@ -329,9 +380,31 @@ namespace TestApp.StarReview {
             RefreshLabelMarkers();
         }
 
+        /// <summary>
+        /// Returns the CENTER of the rejected-candidate box (in image coords) containing the click, or null if the
+        /// click is outside every rejected box. AABB containment; on overlap the smallest-area box wins (so a click
+        /// in a region of nested boxes selects the tightest candidate). Pure geometry over <see cref="FrameReview.Rejected"/>.
+        /// </summary>
+        private (double cx, double cy)? HitTestRejected(double imageX, double imageY) {
+            (double cx, double cy)? best = null;
+            var bestArea = double.MaxValue;
+            foreach (var (_, b) in Current.Rejected) {
+                if (imageX < b.X || imageY < b.Y || imageX > b.X + b.Width || imageY > b.Y + b.Height) {
+                    continue;
+                }
+                var area = (double)b.Width * b.Height;
+                if (area < bestArea) {
+                    bestArea = area;
+                    best = (b.X + b.Width / 2.0, b.Y + b.Height / 2.0);
+                }
+            }
+            return best;
+        }
+
         private void RefreshLabelMarkers() {
             MissedMarkers.Clear();
             ShouldRejectMarkers.Clear();
+            WronglyRejectedMarkers.Clear();
             var pos = CurrentPositionLabels;
             if (pos != null) {
                 foreach (var p in pos.Missed) {
@@ -339,6 +412,11 @@ namespace TestApp.StarReview {
                 }
                 foreach (var p in pos.ShouldReject) {
                     ShouldRejectMarkers.Add(p);
+                }
+                if (pos.WronglyRejected != null) {
+                    foreach (var p in pos.WronglyRejected) {
+                        WronglyRejectedMarkers.Add(p);
+                    }
                 }
             }
             RaisePropertyChanged(nameof(CountsLabel));

@@ -412,6 +412,13 @@ namespace TestApp {
                 loadedRuns, perRunSeed, perRunBest, objectiveConstants, focuserMaxStep, ctx.LabelsDir, settings, passed, worstFrameCount, worstRunId);
             WriteCsv(Path.Combine(targetDir, "optimize_result.csv"), loadedRuns, perRunSeed, perRunBest);
 
+            // Per-run optimized-settings handoff: write the winning snapshot as optimized_settings.json into BOTH
+            // each focus run's own source folder (so `review --runs <same>` auto-discovers it) and the per-run --out
+            // subdir. Uses the SAME params->DTO mapping the wizard's Apply() uses (OptimizedStarDetectionSettings.
+            // FromParams) so the headless and in-app handoffs can never drift. Each run's recommended step is from
+            // its OWN best fit (StepSizeRecommender, exactly as BuildAggregateRow computes it).
+            WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, focuserMaxStep);
+
             await WriteAnnotatedFrames(targetDir, loadedRuns, result.BestParams, ctx.Detector,
                 ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection, ctx.AnnotateAll).ConfigureAwait(false);
 
@@ -424,6 +431,47 @@ namespace TestApp {
                 PerRunBest = perRunBest,
                 LoadedRuns = loadedRuns
             };
+        }
+
+        /// <summary>
+        /// Writes <c>optimized_settings.json</c> (the wizard's <see cref="OptimizedStarDetectionSettings"/> snapshot
+        /// serialized with <see cref="JsonConvert"/>) for every loaded run: one copy into the focus run's own source
+        /// folder (the directory holding its sweep frames — so <c>review --runs &lt;same&gt;</c> auto-discovers it)
+        /// and one into the per-run <paramref name="targetDir"/> (the <c>--out</c> subdir). The curated knob values
+        /// are the optimizer's combined winner (<see cref="OptimizationResult.BestParams"/>); the recommended AF step
+        /// is per-run from that run's OWN best fit. A failed write for one run is logged and skipped — it never aborts
+        /// the batch.
+        /// </summary>
+        private static void WriteOptimizedSettings(
+            string targetDir, List<LoadedHarnessRun> loadedRuns, List<RunEvaluationResult> perRunBest,
+            OptimizationResult result, int? focuserMaxStep) {
+            for (int i = 0; i < loadedRuns.Count; i++) {
+                var run = loadedRuns[i];
+                try {
+                    var rec = StepSizeRecommender.Recommend(perRunBest[i].BestFit, run.StepSize, focuserMaxStep);
+                    var dto = OptimizedStarDetectionSettings.FromParams(
+                        result.BestParams, loadedRuns.Count, result.SeedJ, result.BestJ, rec.StepSize, rec.OffsetSteps);
+                    var json = JsonConvert.SerializeObject(dto);
+
+                    // The run's source folder is the directory holding its frames (each run's frames live together).
+                    var firstFramePath = run.Discovered.Frames.FirstOrDefault()?.Path;
+                    var runFolder = string.IsNullOrEmpty(firstFramePath) ? null : Path.GetDirectoryName(firstFramePath);
+                    if (!string.IsNullOrEmpty(runFolder)) {
+                        var runPath = Path.Combine(runFolder, "optimized_settings.json");
+                        File.WriteAllText(runPath, json);
+                        Console.WriteLine($"  wrote optimized_settings.json to {runPath}");
+                    } else {
+                        Console.Error.WriteLine($"  WARNING: could not resolve source folder for run '{run.Discovered.RunId}'; skipped the in-folder optimized_settings.json");
+                    }
+
+                    // A copy in the per-run --out subdir.
+                    var outPath = Path.Combine(targetDir, "optimized_settings.json");
+                    File.WriteAllText(outPath, json);
+                } catch (Exception ex) {
+                    Console.Error.WriteLine($"  WARNING: failed to write optimized_settings.json for run '{run.Discovered.RunId}': {ex.Message}");
+                    Logger.Error(ex, $"Failed to write optimized_settings.json for run '{run.Discovered.RunId}'");
+                }
+            }
         }
 
         private static void DisposeRuns(List<LoadedHarnessRun> loadedRuns) {
@@ -646,8 +694,9 @@ namespace TestApp {
         ///     {
         ///       "focuserPosition": 5000,
         ///       "radiusPx": 6.0,                    // optional per-position override
-        ///       "missed":       [ { "x": 123.4, "y": 567.8 }, ... ],   // false negatives to recover (recall)
-        ///       "shouldReject": [ { "x": 12.0,  "y": 34.0  }, ... ]    // false positives to exclude (precision)
+        ///       "missed":          [ { "x": 123.4, "y": 567.8 }, ... ],   // false negatives to recover (recall)
+        ///       "shouldReject":    [ { "x": 12.0,  "y": 34.0  }, ... ],   // false positives to exclude (precision)
+        ///       "wronglyRejected": [ { "x": 88.0,  "y": 90.0  }, ... ]    // detected-but-gated candidates to KEEP (folds into recall)
         ///     }
         ///   ]
         /// }
@@ -663,6 +712,7 @@ namespace TestApp {
             [JsonProperty("radiusPx")] public double? RadiusPx { get; set; }
             [JsonProperty("missed")] public List<LabelPoint> Missed { get; set; }
             [JsonProperty("shouldReject")] public List<LabelPoint> ShouldReject { get; set; }
+            [JsonProperty("wronglyRejected")] public List<LabelPoint> WronglyRejected { get; set; }
         }
 
         private sealed class RunLabelFile {
@@ -711,7 +761,8 @@ namespace TestApp {
                         FocuserPosition = pos.FocuserPosition,
                         RadiusPx = pos.RadiusPx ?? defaultRadius,
                         Missed = (pos.Missed ?? new List<LabelPoint>()).Select(p => (p.X, p.Y)).ToList(),
-                        ShouldReject = (pos.ShouldReject ?? new List<LabelPoint>()).Select(p => (p.X, p.Y)).ToList()
+                        ShouldReject = (pos.ShouldReject ?? new List<LabelPoint>()).Select(p => (p.X, p.Y)).ToList(),
+                        WronglyRejected = (pos.WronglyRejected ?? new List<LabelPoint>()).Select(p => (p.X, p.Y)).ToList()
                     });
                 }
                 result[run.RunId] = frameLabels;

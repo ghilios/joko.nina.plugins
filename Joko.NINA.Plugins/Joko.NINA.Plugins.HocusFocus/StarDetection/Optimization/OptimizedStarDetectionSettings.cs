@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using Newtonsoft.Json;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
@@ -53,6 +54,43 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         public OptimizedStarDetectionSettings Clone() {
             return (OptimizedStarDetectionSettings)MemberwiseClone();
+        }
+
+        /// <summary>
+        /// Builds a snapshot DTO from the optimizer's winning <see cref="StarDetectorParams"/> plus the run
+        /// metadata. This is the SINGLE source of truth for the params→DTO mapping (the DTO renames a few knobs:
+        /// Sensitivity→BrightnessSensitivity, PeakResponse→StarPeakResponse, MinimumStarBoundingBoxSize→
+        /// MinStarBoundingBoxSize). Both the in-app wizard (<c>StarDetectionOptimizerWizardVM.Apply</c>) and the
+        /// headless harness (<c>OptimizationDiagnosticRunner</c>) call this so the two paths can never drift.
+        /// <see cref="CreatedAtUtc"/> is stamped with <see cref="DateTime.UtcNow"/> at the call site.
+        /// </summary>
+        public static OptimizedStarDetectionSettings FromParams(
+            StarDetectorParams p, int runCount, double baselineJ, double finalJ, int recommendedStepSize, int recommendedOffsetSteps) {
+            if (p == null) {
+                throw new ArgumentNullException(nameof(p));
+            }
+            return new OptimizedStarDetectionSettings {
+                // Curated knobs — note the DTO renames a few (Sensitivity->BrightnessSensitivity etc.).
+                BrightnessSensitivity = p.Sensitivity,
+                StarClippingMultiplier = p.StarClippingMultiplier,
+                NoiseClippingMultiplier = p.NoiseClippingMultiplier,
+                StarPeakResponse = p.PeakResponse,
+                MaxDistortion = p.MaxDistortion,
+                MinHFR = p.MinHFR,
+                StarCenterTolerance = p.StarCenterTolerance,
+                StructureLayers = p.StructureLayers,
+                NoiseReductionRadius = p.NoiseReductionRadius,
+                MinStarBoundingBoxSize = p.MinimumStarBoundingBoxSize,
+                HotpixelThresholdingEnabled = p.HotpixelThresholdingEnabled,
+                HotpixelThreshold = p.HotpixelThreshold,
+
+                CreatedAtUtc = DateTime.UtcNow,
+                RunCount = runCount,
+                BaselineJ = baselineJ,
+                FinalJ = finalJ,
+                RecommendedStepSize = recommendedStepSize,
+                RecommendedOffsetSteps = recommendedOffsetSteps
+            };
         }
     }
 }
