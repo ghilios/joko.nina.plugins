@@ -241,6 +241,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         public string RunId { get; }
 
+        /// <summary>
+        /// A lightweight, Mat-free description of this run's frames for the interactive review step: each frame's
+        /// disk path (<see cref="RunFrame.FrameId"/>, set to the saved-image path by the loader) + its focuser
+        /// position, tagged with this run's <see cref="RunId"/>. This deliberately exposes ONLY paths/positions
+        /// (never the opaque <see cref="RunFrame.Image"/> Mats), so the wizard can snapshot it and rebuild the
+        /// review by detecting from disk AFTER the source Mats are disposed. Returned in frame (load) order.
+        /// </summary>
+        public IReadOnlyList<Review.FrameReviewDescriptor> GetFrameDescriptors() =>
+            frames
+                .Select(f => new Review.FrameReviewDescriptor(RunId, f.FocuserPosition, f.FrameId))
+                .ToList();
+
         public RunEvaluationData(
             string runId,
             Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect,

@@ -13,6 +13,7 @@
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -112,7 +113,8 @@ public class StarDetectionOptimizerWizardVMTests {
     private static StarDetectionOptimizerWizardVM NewVM(
         IRunEvaluationLoader loader,
         IStarDetectionOptions options = null,
-        IProfileService profileService = null) {
+        IProfileService profileService = null,
+        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null) {
         options ??= Substitute.For<IStarDetectionOptions>();
         profileService ??= Substitute.For<IProfileService>();
         return new StarDetectionOptimizerWizardVM(
@@ -122,7 +124,34 @@ public class StarDetectionOptimizerWizardVMTests {
             autoFocusEngine: Substitute.For<IAutoFocusEngine>(),
             folderPicker: () => @"C:\fake\attempt",
             region: StarDetectionRegion.Full,
-            optimizerSettings: new OptimizerSettings { MaxEvaluations = 200, CoarseGridLevels = 4, StepFloorFraction = 0.125 });
+            optimizerSettings: new OptimizerSettings { MaxEvaluations = 200, CoarseGridLevels = 4, StepFloorFraction = 0.125 },
+            frameReviewBuilder: frameReviewBuilder);
+    }
+
+    // An HONEST fake review builder: it maps EACH supplied descriptor to one FrameReview (so the ReviewVM's queue
+    // count reflects the real per-frame descriptor count flowing through GetFrameDescriptors() — the logic under
+    // test). It records the params it was invoked with so a test can assert the BEST params were used. The reviews
+    // carry no ImageProvider (no real images in a unit test) and no detector boxes — the wizard's wiring, queue
+    // count, navigation, and label persistence are what these tests exercise.
+    private sealed class FakeReviewBuilder {
+        public int Invocations { get; private set; }
+        public StarDetectorParams LastParams { get; private set; }
+        public IReadOnlyList<FrameReviewDescriptor> LastDescriptors { get; private set; }
+
+        public Task<List<FrameReview>> Build(
+            IReadOnlyList<FrameReviewDescriptor> descriptors, StarDetectorParams p, CancellationToken token) {
+            Invocations++;
+            LastParams = p;
+            LastDescriptors = descriptors;
+            var reviews = descriptors
+                .Select(d => new FrameReview {
+                    RunId = d.RunId,
+                    FocuserPosition = d.FocuserPosition,
+                    FramePath = d.FramePath
+                })
+                .ToList();
+            return Task.FromResult(reviews);
+        }
     }
 
     [Test]
@@ -404,6 +433,124 @@ public class StarDetectionOptimizerWizardVMTests {
         // No Start has run yet, so the CTS is still null; Dispose must be null-safe.
         var vm = NewVM(LoaderReturning(GoodRun()));
         Assert.DoesNotThrow(() => vm.Dispose());
+    }
+
+    // ---- Review step (T8) ---------------------------------------------------------------------------------
+
+    [Test]
+    public async Task EnterReview_AfterRun_BuildsReviewVMWithEveryFrame() {
+        // The review must cover ALL loaded frames (NineFrames => 9), using the optimized BEST params, and land on
+        // the Review step. The honest fake builder reflects the descriptors flowing through GetFrameDescriptors().
+        var fake = new FakeReviewBuilder();
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: fake.Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.ReviewCommand.CanExecute(null), Is.True, "Review must be enterable from a completed Summary");
+        await vm.ReviewCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Review));
+            Assert.That(vm.IsReview, Is.True);
+            Assert.That(vm.ReviewVM, Is.Not.Null);
+            Assert.That(vm.ReviewVM.QueueCount, Is.EqualTo(9), "every loaded frame is reviewable");
+            Assert.That(fake.Invocations, Is.EqualTo(1));
+            Assert.That(fake.LastParams, Is.SameAs(vm.Result.BestParams), "the review uses the optimized BEST params");
+            Assert.That(fake.LastDescriptors.Count, Is.EqualTo(9));
+        });
+    }
+
+    [Test]
+    public void EnterReview_BeforeRun_CanExecuteIsFalse() {
+        // Until a run has produced a Summary + descriptors, Review must be disabled (the StarReviewVM requires a
+        // non-empty queue).
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        Assert.That(vm.ReviewCommand.CanExecute(null), Is.False);
+    }
+
+    [Test]
+    public async Task Review_BackToSummary_ReturnsToSummary() {
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Review));
+
+        Assert.That(vm.BackToSummaryCommand.CanExecute(null), Is.True);
+        vm.BackToSummaryCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.IsSummary, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task Accept_AfterReview_StillApplies() {
+        // Accept must apply whether or not the user visited Review, and it is reachable from the Review step too.
+        var options = Substitute.For<IStarDetectionOptions>();
+        var vm = NewVM(LoaderReturning(GoodRun()), options, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+
+        var closeRaised = false;
+        vm.RequestClose += (s, e) => closeRaised = true;
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            options.Received(1).ApplyOptimizedSettings(Arg.Any<OptimizedStarDetectionSettings>());
+            Assert.That(closeRaised, Is.True, "Accept from Review must still close the wizard");
+        });
+    }
+
+    [Test]
+    public async Task Accept_WithoutReview_StillApplies() {
+        // The "skip review and Accept directly from Summary" path must remain intact.
+        var options = Substitute.For<IStarDetectionOptions>();
+        var vm = NewVM(LoaderReturning(GoodRun()), options, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ReviewVM, Is.Null, "Accept without entering Review never builds a ReviewVM");
+            options.Received(1).ApplyOptimizedSettings(Arg.Any<OptimizedStarDetectionSettings>());
+        });
+    }
+
+    [Test]
+    public async Task EnterReview_ThenRerun_ResetsReviewState() {
+        // A fresh run invalidates the prior review (it belonged to the previous result).
+        var vm = NewVM(LoaderReturning(GoodRun(), GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        Assert.That(vm.ReviewVM, Is.Not.Null);
+
+        vm.SourcePaths[0] = @"C:\run2";
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "re-run lands back on Summary");
+            Assert.That(vm.ReviewVM, Is.Null, "the prior ReviewVM is cleared by a fresh run");
+            Assert.That(vm.HasLabels, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Start_WithoutInjectedReviewBuilder_DisablesReview() {
+        // When no builder seam is supplied (e.g. a host that didn't wire one), Review must be disabled rather than
+        // throwing — Accept-directly must still work.
+        var vm = NewVM(LoaderReturning(GoodRun())); // no frameReviewBuilder
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.ReviewCommand.CanExecute(null), Is.False);
+        });
     }
 
     [Test]
