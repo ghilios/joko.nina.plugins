@@ -185,3 +185,30 @@ T13 → **[checkpoint before PR]**.
 Full `dotnet test` green; `TestApp optimize`/`review`/`diagnose-labels` exercised on `D:\Autofocus Bank`; all
 new detector behavior default-OFF ⇒ **bit-identical** when disabled (diff star counts + J vs committed
 baselines for an unchanged setup). PR to `develop`.
+
+---
+
+## Execution status (final — as shipped on `ghilios/star-detection-followups`)
+
+**Shipped + per-task reviewed (spec + quality), full suite 1183/0 green:**
+- T1 (F1+#4), T2 (F5), T3 (#3), T4 (#6 †), T5/T6 (#1/#2), T7 (#9), T8 (#7 †), T9 (#8) — all UI + cosmetic.
+- T10 (F2): defocus gates verified zero near-focus cost + no flooding on Panos; safe default size-ref = 30.
+- T11 (F3): label-free **multiplicative** `SDefocusPrecision` near-focus penalty + `DefocusAwareGates` in the
+  curated set; bit-identical when off; bank-verified (gate stays off where it shouldn't help; labeled Panos
+  improves recall via sensitivity/structure — the gate itself wasn't the marginal best move).
+- **T14 (new):** staged Phase-B search (late axes cache-pinned, then bounded early pass) — **~6.7× faster**
+  (muggsie 3 min → 27 s), quality-neutral, never-regress preserved. Addresses the slow optimize runtimes.
+
+**Investigated → not shipped:**
+- **T12 (F6):** per-axis finer grid prototyped → **a wash** (marginally worse on muggsie; bound-pinned setups
+  unchanged) → **reverted**. Confirmed grid resolution is not the limiter.
+- **T12b (cache-health):** the 24–38 min runtimes are **inherent, not a regression** — the 1-context-per-frame
+  cache thrashes on early-axis re-probing (quantified in the results doc). Fixed by T14.
+
+**Deferred to a follow-up PR/session:**
+- **T13 (F4 + #5):** structure-detection for the 4/5 NO-CANDIDATE dim/donut misses + defocus-driven
+  layer-count research. Pairs with the deferred **2nd-setup interactive labeling** for F2/F3 precision.
+
+**† Needs live-NINA visual confirmation by the user** (cannot run NINA headlessly here): #6 — the wizard
+renders via the `DataType` template (not the FQN string) when launched from the (now imaging-pane-available)
+button; and #7 — the embedded Review step layout + the Review → Re-optimize → Accept loop with real frames.
