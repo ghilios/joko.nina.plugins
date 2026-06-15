@@ -75,17 +75,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public Color Color { get; set; }
     }
 
-    public enum LabelPass {
-        Missed,
-        ShouldReject,
-        WronglyRejected
+    /// <summary>The kind of detector box (if any) found under a click point by <see cref="StarReviewVM.HitTestCandidate(IEnumerable{Rect}, IEnumerable{Rect}, double, double)"/>.</summary>
+    public enum HitCategory {
+        /// <summary>No detector box (accepted or rejected) contains the click.</summary>
+        None,
+
+        /// <summary>The click lands inside a detector ACCEPTED (green) box → a should-reject (false-positive) candidate.</summary>
+        Accepted,
+
+        /// <summary>The click lands inside a detector REJECTED box → a wrongly-rejected (recover-for-recall) candidate.</summary>
+        Rejected
     }
 
     /// <summary>
-    /// ViewModel for the interactive review window. Holds the queue of frames, the per-run labels, the zoom/pan
-    /// viewport, and the current labeling pass. All detection was done up front by <see cref="StarReviewRunner"/>;
-    /// this VM only renders overlays and edits/persists labels. The screen↔image pixel mapping is delegated to
-    /// the unit-tested <see cref="StarReviewViewport"/>; the label add/remove/merge logic to the unit-tested
+    /// ViewModel for the interactive review window. Holds the queue of frames, the per-run labels, and the zoom/pan
+    /// viewport. Labeling is MODE-LESS: the category is inferred from what is clicked — a click on an accepted box
+    /// flags a should-reject, a click on a rejected box flags a wrongly-rejected, and a drag over blank space marks
+    /// a missed star. All detection was done up front by <see cref="StarReviewRunner"/>; this VM only renders
+    /// overlays and edits/persists labels. The screen↔image pixel mapping is delegated to the unit-tested
+    /// <see cref="StarReviewViewport"/>; the label add/remove/merge logic to the unit-tested
     /// <see cref="StarReviewLabelStore"/>.
     /// </summary>
     public class StarReviewVM : BaseINPC {
@@ -117,9 +125,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             NextCommand = new RelayCommand(Next, () => CurrentIndex < queue.Count - 1);
             PrevCommand = new RelayCommand(Prev, () => CurrentIndex > 0);
             SaveCommand = new RelayCommand(SaveAll);
-            MarkMissedCommand = new RelayCommand(() => Pass = LabelPass.Missed);
-            MarkShouldRejectCommand = new RelayCommand(() => Pass = LabelPass.ShouldReject);
-            MarkWronglyRejectedCommand = new RelayCommand(() => Pass = LabelPass.WronglyRejected);
             FitCommand = new RelayCommand(RequestFit);
 
             CurrentIndex = 0;
@@ -189,34 +194,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public ObservableCollection<LabelBoxMarker> ShouldRejectMarkers { get; } = new();
         public ObservableCollection<LabelBoxMarker> WronglyRejectedMarkers { get; } = new();
 
-        private LabelPass pass = LabelPass.Missed;
-        public LabelPass Pass {
-            get => pass;
-            set {
-                if (pass != value) {
-                    pass = value;
-                    RaisePropertyChanged();
-                    RaisePropertyChanged(nameof(IsMissedPass));
-                    RaisePropertyChanged(nameof(IsShouldRejectPass));
-                    RaisePropertyChanged(nameof(IsWronglyRejectedPass));
-                    RaisePropertyChanged(nameof(PassLabel));
-                }
-            }
-        }
-
-        public bool IsMissedPass => Pass == LabelPass.Missed;
-        public bool IsShouldRejectPass => Pass == LabelPass.ShouldReject;
-        public bool IsWronglyRejectedPass => Pass == LabelPass.WronglyRejected;
-        public string PassLabel {
-            get {
-                switch (Pass) {
-                    case LabelPass.Missed: return "Marking: MISSED — drag a box around a star the detector missed (false negatives)";
-                    case LabelPass.ShouldReject: return "Marking: SHOULD-REJECT — click an ACCEPTED (green) box to flag it (false positives)";
-                    case LabelPass.WronglyRejected: return "Marking: WRONGLY-REJECTED — click a REJECTED box to keep it (folds into recall)";
-                    default: return "Marking";
-                }
-            }
-        }
+        /// <summary>Static, mode-less interaction help line shown under the image (no pass selection any more).</summary>
+        public string HelpText =>
+            "Click a green box to flag a false positive · click a rejected box to keep it · drag a box over a missed star · click a label again to remove it";
 
         private double radiusPx = StarReviewLabelStore.DefaultRadiusPx;
         public double RadiusPx {
@@ -246,9 +226,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public RelayCommand NextCommand { get; }
         public RelayCommand PrevCommand { get; }
         public RelayCommand SaveCommand { get; }
-        public RelayCommand MarkMissedCommand { get; }
-        public RelayCommand MarkShouldRejectCommand { get; }
-        public RelayCommand MarkWronglyRejectedCommand { get; }
         public RelayCommand FitCommand { get; }
 
         /// <summary>Raised when the VM wants the view to re-fit the image (initial load / Fit button).</summary>
@@ -367,23 +344,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         }
 
         /// <summary>
-        /// SHOULD-REJECT / WRONGLY-REJECTED pass: a click that hit-tests the detector's ACCEPTED (should-reject) or
-        /// REJECTED (wrongly-rejected) boxes and toggles THAT star's actual bounding box into the label list. The
-        /// view calls this after mapping the click through <see cref="StarReviewViewport.ScreenToImage"/>. A click
-        /// outside every candidate box is a no-op (the MISSED pass is handled by <see cref="AddMissedBox"/> instead).
-        /// On overlap the smallest-area box wins. Clicking an already-labeled star again removes it.
+        /// Mode-less click: hit-tests the click against BOTH the detector's ACCEPTED and REJECTED boxes and toggles
+        /// THAT star's actual bounding box into the inferred label list — an accepted hit toggles a should-reject
+        /// (false positive), a rejected hit toggles a wrongly-rejected (recover for recall). The view calls this on
+        /// mouse-up of a click (no detector box under the press would have routed to the MISSED drag instead, via
+        /// <see cref="AddMissedBox"/>), after mapping the click through <see cref="StarReviewViewport.ScreenToImage"/>.
+        /// A click outside every candidate box is a no-op. On overlap the smallest-area box wins, and the category is
+        /// whichever set owns that tightest box. Clicking an already-labeled star again removes it.
         /// </summary>
         public void ToggleLabelAt(double imageX, double imageY) {
             var run = CurrentRunLabels;
-            if (run == null || Pass == LabelPass.Missed) {
+            if (run == null) {
                 return;
             }
 
-            // Hit-test the relevant detector boxes (accepted for should-reject, rejected for wrongly-rejected).
-            var hit = Pass == LabelPass.ShouldReject
-                ? HitTestBoxes(Current.Accepted.Select(a => a.Bounds), imageX, imageY)
-                : HitTestBoxes(Current.Rejected.Select(r => r.Bounds), imageX, imageY);
-            if (hit == null) {
+            var (category, hit) = HitTestCandidate(
+                Current.Accepted.Select(a => a.Bounds), Current.Rejected.Select(r => r.Bounds), imageX, imageY);
+            if (category == HitCategory.None) {
                 return; // click outside every candidate box: no-op
             }
 
@@ -391,41 +368,71 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             if (pos.RadiusPx == null) {
                 pos.RadiusPx = RadiusPx;
             }
-            var list = Pass == LabelPass.ShouldReject ? pos.ShouldReject : pos.WronglyRejected;
+            var list = category == HitCategory.Accepted ? pos.ShouldReject : pos.WronglyRejected;
 
             // Toggle semantics: if a label already covers this star (its center matches the hit box's center within
             // tolerance), remove it; otherwise record the star's ACTUAL bounding box.
-            var b = hit.Value;
             var existing = StarReviewLabelStore.NearestBoxIndexWithin(
-                list, b.X + b.Width / 2.0, b.Y + b.Height / 2.0, StarReviewLabelStore.SamePointTolerancePx);
+                list, hit.X + hit.Width / 2.0, hit.Y + hit.Height / 2.0, StarReviewLabelStore.SamePointTolerancePx);
             if (existing >= 0) {
                 list.RemoveAt(existing);
             } else {
-                list.Add(new StarReviewLabelBox(b.X, b.Y, b.Width, b.Height));
+                list.Add(new StarReviewLabelBox(hit.X, hit.Y, hit.Width, hit.Height));
             }
             RefreshLabelMarkers();
         }
 
         /// <summary>
-        /// Returns the SMALLEST-area box (in image coords) from <paramref name="boxes"/> that contains the click, or
-        /// null if the click is outside every box. AABB containment; on overlap the smallest-area box wins (so a
-        /// click in a region of nested boxes selects the tightest candidate). Pure geometry.
+        /// Convenience query for the view: is ANY detector box (accepted or rejected) under (<paramref name="imageX"/>,
+        /// <paramref name="imageY"/>)? Drives the click-vs-drag disambiguation on left-button-down — a box under the
+        /// press is a click (toggle a label); blank space starts a missed rubber-band drag.
         /// </summary>
-        private static Rect? HitTestBoxes(IEnumerable<Rect> boxes, double imageX, double imageY) {
-            Rect? best = null;
+        public bool HitTestCandidate(double imageX, double imageY) {
+            var (category, _) = HitTestCandidate(
+                Current.Accepted.Select(a => a.Bounds), Current.Rejected.Select(r => r.Bounds), imageX, imageY);
+            return category != HitCategory.None;
+        }
+
+        /// <summary>
+        /// Pure combined hit-test + categorize: returns the SMALLEST-area detector box (in image coords) from EITHER
+        /// <paramref name="accepted"/> or <paramref name="rejected"/> that contains the click, together with which set
+        /// it came from. AABB containment; on overlap the smallest-area box wins regardless of set, and a tie in area
+        /// resolves to the accepted box (the should-reject/false-positive case). Returns
+        /// (<see cref="HitCategory.None"/>, default) when the click is outside every box. Pure geometry — unit-tested
+        /// directly.
+        /// </summary>
+        public static (HitCategory Category, Rect Box) HitTestCandidate(
+            IEnumerable<Rect> accepted, IEnumerable<Rect> rejected, double imageX, double imageY) {
+            var category = HitCategory.None;
+            Rect best = default;
             var bestArea = double.MaxValue;
-            foreach (var b in boxes) {
-                if (imageX < b.X || imageY < b.Y || imageX > b.X + b.Width || imageY > b.Y + b.Height) {
-                    continue;
-                }
-                var area = (double)b.Width * b.Height;
-                if (area < bestArea) {
-                    bestArea = area;
-                    best = b;
+
+            foreach (var b in accepted ?? Enumerable.Empty<Rect>()) {
+                if (Contains(b, imageX, imageY)) {
+                    var area = (double)b.Width * b.Height;
+                    if (area < bestArea) {
+                        bestArea = area;
+                        best = b;
+                        category = HitCategory.Accepted;
+                    }
                 }
             }
-            return best;
+            foreach (var b in rejected ?? Enumerable.Empty<Rect>()) {
+                if (Contains(b, imageX, imageY)) {
+                    var area = (double)b.Width * b.Height;
+                    // Strictly smaller so an equal-area accepted box (preferred above) wins the tie.
+                    if (area < bestArea) {
+                        bestArea = area;
+                        best = b;
+                        category = HitCategory.Rejected;
+                    }
+                }
+            }
+            return (category, best);
         }
+
+        private static bool Contains(Rect b, double x, double y) =>
+            x >= b.X && y >= b.Y && x <= b.X + b.Width && y <= b.Y + b.Height;
 
         private void RefreshLabelMarkers() {
             MissedMarkers.Clear();

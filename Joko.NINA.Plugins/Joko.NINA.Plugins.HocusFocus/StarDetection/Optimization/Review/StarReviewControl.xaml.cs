@@ -31,8 +31,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         private System.Windows.Point lastPanScreen;
         private bool hasFitOnce;
 
-        // Rubber-band drag state for the MISSED pass (image-space). dragging is set on left-button-down in the Missed
-        // pass; dragStart is the down point and the live DragRect tracks the cursor until button-up finalizes the box.
+        // Left-button interaction state (image-space). pressArmed is set on a valid left-button-down inside the image
+        // and consumed on button-up (so a press that started outside the image, or after the VM went away, is ignored).
+        // dragging is set only when the press lands on BLANK space (begin a MISSED rubber-band); a press on a detector
+        // box leaves dragging false (a click that toggles the inferred label on button-up). dragStart is the down point
+        // and the live DragRect tracks the cursor until button-up finalizes the box.
+        private bool pressArmed;
         private bool dragging;
         private System.Windows.Point dragStartImage;
 
@@ -57,21 +61,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 return;
             }
             switch (e.Key) {
-                case Key.D1:
-                case Key.NumPad1:
-                    vm.Pass = LabelPass.Missed;
-                    e.Handled = true;
-                    break;
-                case Key.D2:
-                case Key.NumPad2:
-                    vm.Pass = LabelPass.ShouldReject;
-                    e.Handled = true;
-                    break;
-                case Key.D3:
-                case Key.NumPad3:
-                    vm.Pass = LabelPass.WronglyRejected;
-                    e.Handled = true;
-                    break;
                 case Key.Left:
                     if (vm.PrevCommand.CanExecute(null)) {
                         vm.PrevCommand.Execute(null);
@@ -146,9 +135,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 return;
             }
 
-            // MISSED pass: begin a rubber-band drag (the box is finalized on button-up). Other passes are click-based
-            // (hit-test an accepted/rejected box on button-up) so the user can see what they are about to label.
-            if (vm.Pass == LabelPass.Missed) {
+            // Mode-less routing: a press over a detector box (accepted or rejected) is a CLICK — on button-up it
+            // toggles the inferred label. A press over BLANK space begins a MISSED rubber-band drag (finalized on
+            // button-up). Disambiguating on the press keeps a click on a star from dropping a stray missed box.
+            pressArmed = true;
+            if (vm.HitTestCandidate(imgX, imgY)) {
+                dragging = false; // click on a detector box: no rubber-band
+            } else {
                 dragging = true;
                 dragStartImage = new System.Windows.Point(imgX, imgY);
                 // Start a zero-size rect anchored at the down point (in image coords; the canvas transform scales it).
@@ -157,8 +150,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 DragRect.Width = 0;
                 DragRect.Height = 0;
                 DragRect.Visibility = Visibility.Visible;
-                ViewportCanvas.CaptureMouse();
             }
+            ViewportCanvas.CaptureMouse();
             e.Handled = true;
         }
 
@@ -167,15 +160,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             if (vm == null) {
                 return;
             }
+            if (!pressArmed) {
+                return; // press started outside the image (or VM swapped mid-gesture): ignore the up.
+            }
+            pressArmed = false;
+            ViewportCanvas.ReleaseMouseCapture();
+
             var screen = ScreenPoint(e);
             var (imgX, imgY) = vm.Viewport.ScreenToImage(screen.X, screen.Y);
 
             if (dragging) {
                 dragging = false;
                 DragRect.Visibility = Visibility.Collapsed;
-                ViewportCanvas.ReleaseMouseCapture();
                 // Normalize so W,H >= 0 regardless of drag direction. AddMissedBox widens a tiny drag (effectively a
-                // click) to a small default box itself.
+                // click on blank space) to a small default box itself.
                 var x = Math.Min(dragStartImage.X, imgX);
                 var y = Math.Min(dragStartImage.Y, imgY);
                 var w = Math.Abs(imgX - dragStartImage.X);
@@ -185,11 +183,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 return;
             }
 
-            // Click-based passes (should-reject / wrongly-rejected): hit-test the detector boxes. Ignore clicks
-            // outside the image bounds.
-            if (imgX < 0 || imgY < 0 || imgX > vm.ImageWidth || imgY > vm.ImageHeight) {
-                return;
-            }
+            // Click on a detector box: toggle the inferred label (accepted -> should-reject, rejected -> wrongly-
+            // rejected). The VM re-runs the combined hit-test against the up-point and no-ops if it landed outside.
             vm.ToggleLabelAt(imgX, imgY);
             e.Handled = true;
         }
