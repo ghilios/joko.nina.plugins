@@ -60,11 +60,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     ///
     /// Strategy:
     ///   Phase A — a coarse grid over the two highest-impact axes (Sensitivity × StarClippingMultiplier).
-    ///   Phase B — a compass/pattern search: from the incumbent, try ±step on every variable, accept the single
-    ///             best strictly-improving move; when a sweep finds none, halve every Continuous step; stop when
-    ///             all Continuous steps fall below their floor (or the eval budget is exhausted).
+    ///   Phase B — a STAGED compass/pattern search. The curated axes are partitioned into LATE (cheap — a move
+    ///             is a per-frame early-context cache hit) and EARLY (expensive — a move rebuilds AND evicts the
+    ///             cached early DetectionContext). It alternates a LATE stage (compass over the late axes only,
+    ///             early params pinned) with a bounded EARLY stage (compass over the 5 early axes), repeating
+    ///             while a round improves; the early stage is permanently skipped once it stops improving. Each
+    ///             stage is itself a compass: from the incumbent, try ±step on every axis in the subset, accept
+    ///             the single best strictly-improving move; when a sweep finds none, halve the subset's Continuous
+    ///             steps; stop when all Continuous steps fall below their floor (or the eval budget is exhausted).
     /// Because the seed is the initial incumbent and only strictly-improving moves are accepted, the result can
-    /// never be worse than the seed.
+    /// never be worse than the seed; staging changes the visit order, not the reachable set.
     /// </summary>
     public sealed class StarDetectionOptimizer {
         private readonly ObjectiveConstants constants;
@@ -150,6 +155,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             private readonly CancellationToken token;
             private readonly Dictionary<string, double> memo = new Dictionary<string, double>(StringComparer.Ordinal);
 
+            // Phase-B staging partition (T14): the curated axes split into EARLY (members of
+            // StarDetector.EarlyCacheKeyProperties — each move both rebuilds AND evicts the per-frame early
+            // DetectionContext, a ~1.65s full detection) and LATE (everything else, including the synthetic
+            // DefocusAwareGates axis — these refine via cache hits when the early params are held fixed).
+            // Membership is sourced ONCE from StarDetector.IsEarlyCacheKeyParameter (no second copy of the list).
+            // Index order within each subset preserves the curated order, so the staged sweep stays deterministic.
+            private readonly int[] earlyIndices;
+            private readonly int[] lateIndices;
+
             public int Evaluations { get; private set; }
 
             public SearchContext(
@@ -167,6 +181,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 this.settings = settings;
                 this.progress = progress;
                 this.token = token;
+
+                var early = new List<int>();
+                var late = new List<int>();
+                for (var i = 0; i < variables.Count; i++) {
+                    if (StarDetector.IsEarlyCacheKeyParameter(variables[i].Name)) {
+                        early.Add(i);
+                    } else {
+                        late.Add(i);
+                    }
+                }
+                earlyIndices = early.ToArray();
+                lateIndices = late.ToArray();
             }
 
             /// <summary>Clones the seed and writes the candidate vector through each variable's Write.</summary>
@@ -261,25 +287,85 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             /// <summary>
-            /// Phase B. Compass/pattern search. Each sweep proposes, for every variable, +step and −step
-            /// (Integer: ±max(1, round(step)); Boolean: flip; Continuous: ±step) in a fixed order, evaluates
-            /// all of them, and takes the single best STRICTLY-improving move (ties => no move). A sweep with no
-            /// improving move halves every Continuous step. Stops when all Continuous steps fall below their
-            /// floor (InitialStep × StepFloorFraction) or the budget is exhausted.
+            /// Phase B (T14 staged). The curated axes are partitioned into LATE (cache-hit-cheap) and EARLY
+            /// (each move forces a ~1.65s early-context rebuild AND evicts the incumbent's cached context). The
+            /// old single loop re-probed all 5 EARLY axes on every sweep — 46% of detections were full rebuilds.
+            /// We instead stage the compass:
+            ///   LATE stage  — run the compass over the LATE axes only, holding the early params fixed (so every
+            ///                 late probe is a per-frame cache hit), halving late Continuous steps to their floor.
+            ///   EARLY stage — one bounded compass over the EARLY axes (also halving to floor), then the next late
+            ///                 stage refines from the rebuilt-once early context via cache hits.
+            ///   OUTER loop  — alternate LATE→EARLY; repeat while a full round improved AND budget remains. The
+            ///                 early stage is permanently skipped (earlyExhausted) once an early stage yields no
+            ///                 improvement, so the EARLY axes are not re-probed indefinitely.
+            /// The search remains deterministic and never-regress: it starts from the incumbent and accepts only
+            /// strictly-improving moves; the staged subsets do not change which points are reachable, only the
+            /// order they are visited. With no early axes the early stage is a no-op (pure late search); with no
+            /// late axes the late stage is a no-op (pure early search) — both degrade to the old behavior.
             /// </summary>
             public async Task<(double[] theta, double j)> PatternSearch(double[] bestTheta, double bestJ, double seedJ) {
-                // Current per-variable step (only Continuous steps shrink).
+                var earlyExhausted = earlyIndices.Length == 0; // no early axes => never run the early stage
+
+                while (!BudgetExhausted) {
+                    var roundStartJ = bestJ;
+
+                    // LATE stage: refine cheaply with the early params pinned (all per-frame cache hits).
+                    (bestTheta, bestJ) = await CompassStage(lateIndices, bestTheta, bestJ, seedJ).ConfigureAwait(false);
+
+                    if (BudgetExhausted) {
+                        break;
+                    }
+
+                    // EARLY stage: one bounded refinement over the 5 early axes (skipped once exhausted).
+                    if (!earlyExhausted) {
+                        var beforeEarlyJ = bestJ;
+                        (bestTheta, bestJ) = await CompassStage(earlyIndices, bestTheta, bestJ, seedJ).ConfigureAwait(false);
+                        if (bestJ <= beforeEarlyJ) {
+                            // The early axes produced nothing new — don't probe them again in later rounds.
+                            earlyExhausted = true;
+                        }
+                    }
+
+                    // Outer loop terminates when a full round (late + early) made no progress, or the budget is
+                    // spent. Once early is exhausted, a round is just the late stage; if late also can't improve
+                    // (roundStartJ unchanged) we stop.
+                    if (bestJ <= roundStartJ) {
+                        break;
+                    }
+                }
+
+                Report("PatternSearch", bestJ, seedJ);
+                return (bestTheta, bestJ);
+            }
+
+            /// <summary>
+            /// One compass/pattern search restricted to the axes in <paramref name="axisIndices"/> (a fixed,
+            /// deterministic subset of the curated variables). Each sweep proposes, for every axis in the subset,
+            /// +step and −step (Integer: ±max(1, round(step)); Boolean: flip; Continuous: ±step) in the subset's
+            /// fixed order, evaluates them, and takes the single best STRICTLY-improving move (ties => no move). A
+            /// sweep with no improving move halves every Continuous step IN THE SUBSET. The stage ends when all
+            /// Continuous steps in the subset fall below their floor (InitialStep × StepFloorFraction) — or, if the
+            /// subset has no Continuous axes, once a sweep finds no improving move — or the budget is exhausted.
+            /// Returns the (possibly improved) incumbent. Steps are local to the stage (a fresh start each call).
+            /// </summary>
+            private async Task<(double[] theta, double j)> CompassStage(int[] axisIndices, double[] bestTheta, double bestJ, double seedJ) {
+                if (axisIndices.Length == 0) {
+                    return (bestTheta, bestJ);
+                }
+
+                // Per-axis step for the subset (only Continuous steps shrink). Reset at the start of each stage.
                 var steps = new double[variables.Count];
-                for (var i = 0; i < variables.Count; i++) {
+                for (var k = 0; k < axisIndices.Length; k++) {
+                    var i = axisIndices[k];
                     steps[i] = variables[i].InitialStep;
                 }
 
-                while (!BudgetExhausted && !ContinuousStepsBelowFloor(steps)) {
-                    // Collect all candidate moves in a fixed deterministic order.
+                while (!BudgetExhausted && !ContinuousStepsBelowFloor(steps, axisIndices)) {
                     double improvedJ = bestJ;
                     double[] improvedTheta = null;
 
-                    for (var i = 0; i < variables.Count; i++) {
+                    for (var k = 0; k < axisIndices.Length; k++) {
+                        var i = axisIndices[k];
                         var v = variables[i];
                         foreach (var direction in Directions) {
                             if (BudgetExhausted) {
@@ -306,11 +392,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         bestJ = improvedJ;
                         Report("PatternSearch", bestJ, seedJ);
                     } else {
-                        // No improving move: refine the Continuous steps and sweep again.
-                        HalveContinuousSteps(steps);
+                        // No improving move: refine the subset's Continuous steps and sweep again.
+                        HalveContinuousSteps(steps, axisIndices);
                     }
                 }
-                Report("PatternSearch", bestJ, seedJ);
                 return (bestTheta, bestJ);
             }
 
@@ -350,9 +435,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return candidate;
             }
 
-            private bool ContinuousStepsBelowFloor(double[] steps) {
+            private bool ContinuousStepsBelowFloor(double[] steps, int[] axisIndices) {
                 var anyContinuous = false;
-                for (var i = 0; i < variables.Count; i++) {
+                for (var k = 0; k < axisIndices.Length; k++) {
+                    var i = axisIndices[k];
                     if (variables[i].Type != OptimizerVariableType.Continuous) {
                         continue;
                     }
@@ -363,11 +449,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     }
                 }
                 if (!anyContinuous) {
-                    // No continuous variables at all: there is nothing to refine, so treat as "below floor" and
-                    // let the no-improving-move logic end the search. This is the critical guard — without it an
-                    // all-Integer/Boolean variable set loops forever once the discrete axes are exhausted, since
-                    // every proposed candidate is then a memo hit, Evaluations never advances, and
-                    // BudgetExhausted never trips.
+                    // No continuous variables in this subset: there is nothing to refine, so treat as "below
+                    // floor" and let the no-improving-move logic end the stage. This is the critical guard —
+                    // without it an all-Integer/Boolean subset loops forever once the discrete axes are
+                    // exhausted, since every proposed candidate is then a memo hit, Evaluations never advances,
+                    // and BudgetExhausted never trips.
                     return true;
                 }
                 // At least one continuous variable exists and we reached here only because every continuous step
@@ -375,8 +461,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return true;
             }
 
-            private void HalveContinuousSteps(double[] steps) {
-                for (var i = 0; i < variables.Count; i++) {
+            private void HalveContinuousSteps(double[] steps, int[] axisIndices) {
+                for (var k = 0; k < axisIndices.Length; k++) {
+                    var i = axisIndices[k];
                     if (variables[i].Type == OptimizerVariableType.Continuous) {
                         steps[i] *= 0.5;
                     }

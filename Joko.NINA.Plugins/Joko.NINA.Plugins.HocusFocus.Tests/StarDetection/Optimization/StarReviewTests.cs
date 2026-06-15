@@ -16,7 +16,10 @@ using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
 using NUnit.Framework;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using TestApp.StarReview;
+using Rect = OpenCvSharp.Rect;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.Optimization;
 
@@ -431,6 +434,132 @@ public class StarReviewTests {
         Assert.Multiple(() => {
             Assert.That(vp.OffsetX, Is.EqualTo(15));
             Assert.That(vp.OffsetY, Is.EqualTo(7));
+        });
+    }
+
+    // ---- Combined hit-test + categorize (mode-less click routing) -----------------------------------------
+    //
+    // The view (StarReviewControl) decides click-vs-drag and the VM infers the label category from the SAME pure
+    // helper StarReviewVM.HitTestCandidate(accepted, rejected, x, y). These tests pin its semantics directly: an
+    // accepted hit categorizes as a should-reject (false positive), a rejected hit as a wrongly-rejected (recall),
+    // overlap resolves to the smallest-area box, a click outside everything is None, and an equal-area tie prefers
+    // the accepted box.
+
+    [Test]
+    public void HitTestCandidate_AcceptedHit_ReturnsAccepted() {
+        var accepted = new[] { new Rect(0, 0, 20, 20) };
+        var rejected = new[] { new Rect(100, 100, 20, 20) };
+        var (cat, box) = StarReviewVM.HitTestCandidate(accepted, rejected, 10, 10);
+        Assert.Multiple(() => {
+            Assert.That(cat, Is.EqualTo(HitCategory.Accepted));
+            Assert.That(box, Is.EqualTo(new Rect(0, 0, 20, 20)));
+        });
+    }
+
+    [Test]
+    public void HitTestCandidate_RejectedHit_ReturnsRejected() {
+        var accepted = new[] { new Rect(0, 0, 20, 20) };
+        var rejected = new[] { new Rect(100, 100, 20, 20) };
+        var (cat, box) = StarReviewVM.HitTestCandidate(accepted, rejected, 110, 110);
+        Assert.Multiple(() => {
+            Assert.That(cat, Is.EqualTo(HitCategory.Rejected));
+            Assert.That(box, Is.EqualTo(new Rect(100, 100, 20, 20)));
+        });
+    }
+
+    [Test]
+    public void HitTestCandidate_ClickOutsideAllBoxes_ReturnsNone() {
+        var accepted = new[] { new Rect(0, 0, 20, 20) };
+        var rejected = new[] { new Rect(100, 100, 20, 20) };
+        var (cat, _) = StarReviewVM.HitTestCandidate(accepted, rejected, 500, 500);
+        Assert.That(cat, Is.EqualTo(HitCategory.None));
+    }
+
+    [Test]
+    public void HitTestCandidate_Overlap_SmallestAreaWinsAcrossSets() {
+        // A big ACCEPTED box and a tight REJECTED box both contain the click. The smaller area wins regardless of
+        // which set it came from, so the category follows the tightest candidate (here: Rejected).
+        var accepted = new[] { new Rect(0, 0, 100, 100) };       // area 10000
+        var rejected = new[] { new Rect(40, 40, 10, 10) };       // area 100, contains (45,45)
+        var (cat, box) = StarReviewVM.HitTestCandidate(accepted, rejected, 45, 45);
+        Assert.Multiple(() => {
+            Assert.That(cat, Is.EqualTo(HitCategory.Rejected));
+            Assert.That(box, Is.EqualTo(new Rect(40, 40, 10, 10)));
+        });
+    }
+
+    [Test]
+    public void HitTestCandidate_Overlap_SmallestAcceptedBeatsBiggerRejected() {
+        var accepted = new[] { new Rect(40, 40, 10, 10) };       // area 100 (tight)
+        var rejected = new[] { new Rect(0, 0, 100, 100) };       // area 10000 (big)
+        var (cat, box) = StarReviewVM.HitTestCandidate(accepted, rejected, 45, 45);
+        Assert.Multiple(() => {
+            Assert.That(cat, Is.EqualTo(HitCategory.Accepted));
+            Assert.That(box, Is.EqualTo(new Rect(40, 40, 10, 10)));
+        });
+    }
+
+    [Test]
+    public void HitTestCandidate_EqualAreaTie_PrefersAccepted() {
+        // Identical boxes (same area) overlapping the click: the accepted set is scanned first and a rejected box
+        // only wins on STRICTLY smaller area, so an equal-area tie resolves to Accepted (the should-reject path).
+        var accepted = new[] { new Rect(0, 0, 20, 20) };
+        var rejected = new[] { new Rect(0, 0, 20, 20) };
+        var (cat, _) = StarReviewVM.HitTestCandidate(accepted, rejected, 10, 10);
+        Assert.That(cat, Is.EqualTo(HitCategory.Accepted));
+    }
+
+    [Test]
+    public void HitTestCandidate_NullCollections_AreNone() {
+        var (cat, _) = StarReviewVM.HitTestCandidate(null, null, 10, 10);
+        Assert.That(cat, Is.EqualTo(HitCategory.None));
+    }
+
+    // ---- Shared FrameReviewBuilder.ExtractRejected (T8) ---------------------------------------------------
+    //
+    // The plugin-side, shared rejected-extraction the wizard AND the TestApp `review`/`diagnose-labels` tools all
+    // consume (single source of truth). Pure: it flattens the per-reason rejection bounds into (reason, rect) pairs
+    // in a FIXED reason order so the overlay colors line up across tools.
+
+    [Test]
+    public void ExtractRejected_NullMetrics_ReturnsEmpty() {
+        Assert.That(FrameReviewBuilder.ExtractRejected(null), Is.Empty);
+        Assert.That(FrameReviewBuilder.ExtractRejected(new HocusFocusStarDetectorResult { Metrics = null }), Is.Empty);
+    }
+
+    [Test]
+    public void ExtractRejected_FlattensEachReasonInOrder() {
+        var metrics = new StarDetectorMetrics();
+        // The bounds lists are mutable (the int counts are derived); add one rect per reason.
+        metrics.TooDistortedBounds.Add(new Rect(1, 1, 10, 10));
+        metrics.DegenerateBounds.Add(new Rect(2, 2, 10, 10));
+        metrics.SaturatedBounds.Add(new Rect(3, 3, 10, 10));
+        metrics.LowSensitivityBounds.Add(new Rect(4, 4, 10, 10));
+        metrics.NotCenteredBounds.Add(new Rect(5, 5, 10, 10));
+        metrics.TooFlatBounds.Add(new Rect(6, 6, 10, 10));
+        metrics.ContaminatedBounds.Add(new Rect(7, 7, 10, 10));
+        var result = new HocusFocusStarDetectorResult { Metrics = metrics };
+
+        var rejected = FrameReviewBuilder.ExtractRejected(result);
+
+        Assert.That(rejected.Select(r => r.Reason),
+            Is.EqualTo(new[] { "TooDistorted", "Degenerate", "Saturated", "LowSensitivity", "NotCentered", "TooFlat", "Contaminated" }).AsCollection);
+        Assert.That(rejected[4].Bounds, Is.EqualTo(new Rect(5, 5, 10, 10)), "NotCentered carries its own rect");
+    }
+
+    [Test]
+    public void ExtractRejected_PreservesMultiplePerReason() {
+        var metrics = new StarDetectorMetrics();
+        metrics.TooDistortedBounds.Add(new Rect(1, 1, 5, 5));
+        metrics.TooDistortedBounds.Add(new Rect(2, 2, 5, 5));
+        metrics.SaturatedBounds.Add(new Rect(9, 9, 5, 5));
+        var result = new HocusFocusStarDetectorResult { Metrics = metrics };
+
+        var rejected = FrameReviewBuilder.ExtractRejected(result);
+        Assert.Multiple(() => {
+            Assert.That(rejected.Count(r => r.Reason == "TooDistorted"), Is.EqualTo(2));
+            Assert.That(rejected.Count(r => r.Reason == "Saturated"), Is.EqualTo(1));
+            Assert.That(rejected, Has.Count.EqualTo(3));
         });
     }
 }

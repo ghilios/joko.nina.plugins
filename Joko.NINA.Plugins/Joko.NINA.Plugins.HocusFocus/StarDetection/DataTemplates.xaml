@@ -42,7 +42,21 @@
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionOptionsVM_Dockable">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
+            <StackPanel Orientation="Vertical">
+                <Button
+                    Margin="5,5,5,10"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Command="{Binding OptimizeStarDetectionCommand}"
+                    ToolTip="{StaticResource OptimizeStarDetection_Tooltip}">
+                    <TextBlock
+                        Margin="10,5,10,5"
+                        Foreground="{StaticResource ButtonForegroundBrush}"
+                        Text="Optimize Star Detection"
+                        TextWrapping="Wrap" />
+                </Button>
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
+            </StackPanel>
         </ScrollViewer>
     </DataTemplate>
 

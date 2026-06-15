@@ -13,6 +13,7 @@
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -106,13 +107,61 @@ public class StarDetectionOptimizerWizardVMTests {
         var queue = new Queue<LoadedRun>(runs);
         loader.LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<CancellationToken>())
             .Returns(_ => Task.FromResult(queue.Count > 0 ? queue.Dequeue() : runs[runs.Length - 1]));
+        // The labels-overload (used by the re-optimize path) delegates to the same source so re-loads keep working.
+        loader.LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(queue.Count > 0 ? queue.Dequeue() : runs[runs.Length - 1]));
         return loader;
+    }
+
+    /// <summary>
+    /// An HONEST recording loader for the re-optimize path: it manufactures a fresh <see cref="LoadedRun"/> on EVERY
+    /// call (the first optimization disposed the prior runs, so re-optimize must re-load), keyed by the folder it was
+    /// asked to load. It records the <see cref="FrameLabels"/> it received per folder so a test can assert the
+    /// converted labels actually flowed into the re-loaded run, and counts the labels-overload invocations. The run
+    /// id is derived from the folder so the wizard's runId→labels match is exercised end-to-end.
+    /// </summary>
+    private sealed class RecordingLoader : IRunEvaluationLoader {
+        private readonly double optSensitivity;
+        private readonly int seedSensitivity;
+        public readonly Dictionary<string, IReadOnlyList<FrameLabels>> LabelsByFolder = new(StringComparer.Ordinal);
+        public int LabelOverloadCalls { get; private set; }
+        public int NoLabelCalls { get; private set; }
+
+        public RecordingLoader(double optSensitivity = 10.0, int seedSensitivity = 2) {
+            this.optSensitivity = optSensitivity;
+            this.seedSensitivity = seedSensitivity;
+        }
+
+        // The wizard sets RunId = attempt.FolderPath; here we mirror that by stamping the run id from the folder, so
+        // the runId→labels match in ReOptimizeWithLabelsAsync resolves by id (not the positional fallback).
+        private static string RunIdFor(string folder) => "run::" + folder;
+
+        private LoadedRun Make(string folder, IReadOnlyList<FrameLabels> labels) {
+            var data = new RunEvaluationData(RunIdFor(folder), NineFrames(), OptimizableDetect(optSensitivity), NewAlglib(), DefaultFitConfig(), labels);
+            return new LoadedRun {
+                Data = data,
+                Seed = new StarDetectorParams { Sensitivity = seedSensitivity, StarClippingMultiplier = 2.0 },
+                AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 }
+            };
+        }
+
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) {
+            NoLabelCalls++;
+            return Task.FromResult(Make(attemptFolderPath, null));
+        }
+
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, CancellationToken token) {
+            LabelOverloadCalls++;
+            LabelsByFolder[attemptFolderPath] = labels;
+            return Task.FromResult(Make(attemptFolderPath, labels));
+        }
     }
 
     private static StarDetectionOptimizerWizardVM NewVM(
         IRunEvaluationLoader loader,
         IStarDetectionOptions options = null,
-        IProfileService profileService = null) {
+        IProfileService profileService = null,
+        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null) {
         options ??= Substitute.For<IStarDetectionOptions>();
         profileService ??= Substitute.For<IProfileService>();
         return new StarDetectionOptimizerWizardVM(
@@ -122,7 +171,50 @@ public class StarDetectionOptimizerWizardVMTests {
             autoFocusEngine: Substitute.For<IAutoFocusEngine>(),
             folderPicker: () => @"C:\fake\attempt",
             region: StarDetectionRegion.Full,
-            optimizerSettings: new OptimizerSettings { MaxEvaluations = 200, CoarseGridLevels = 4, StepFloorFraction = 0.125 });
+            optimizerSettings: new OptimizerSettings { MaxEvaluations = 200, CoarseGridLevels = 4, StepFloorFraction = 0.125 },
+            frameReviewBuilder: frameReviewBuilder);
+    }
+
+    // An HONEST fake review builder: it maps EACH supplied descriptor to one FrameReview (so the ReviewVM's queue
+    // count reflects the real per-frame descriptor count flowing through GetFrameDescriptors() — the logic under
+    // test). It records the params it was invoked with so a test can assert the BEST params were used. The reviews
+    // carry no ImageProvider (no real images in a unit test) and no detector boxes — the wizard's wiring, queue
+    // count, navigation, and label persistence are what these tests exercise.
+    private sealed class FakeReviewBuilder {
+        public int Invocations { get; private set; }
+        public StarDetectorParams LastParams { get; private set; }
+        public IReadOnlyList<FrameReviewDescriptor> LastDescriptors { get; private set; }
+
+        public Task<List<FrameReview>> Build(
+            IReadOnlyList<FrameReviewDescriptor> descriptors, StarDetectorParams p, CancellationToken token) {
+            Invocations++;
+            LastParams = p;
+            LastDescriptors = descriptors;
+            var reviews = descriptors
+                .Select(d => new FrameReview {
+                    RunId = d.RunId,
+                    FocuserPosition = d.FocuserPosition,
+                    FramePath = d.FramePath
+                })
+                .ToList();
+            return Task.FromResult(reviews);
+        }
+    }
+
+    // A run whose frames carry REAL temp-file paths as their FrameId, so the descriptors' FramePath resolves to a
+    // writable folder and DeriveLabelsDir yields "<tempDir>/labels" — used by the on-disk label-persistence test.
+    private static LoadedRun GoodRunWithFramePaths(string framesDir, string id = "good", double optSensitivity = 10.0, int seedSensitivity = 2) {
+        var frames = new List<RunFrame>();
+        for (var i = -4; i <= 4; i++) {
+            var pos = HyperbolaP0 + i * DefaultStepSize;
+            // FrameId == the on-disk frame path; GetFrameDescriptors() forwards it to FrameReviewDescriptor.FramePath.
+            var framePath = System.IO.Path.Combine(framesDir, $"frame_{pos}.fits");
+            frames.Add(new RunFrame { FrameId = framePath, FocuserPosition = pos, Image = pos });
+        }
+        var data = new RunEvaluationData(id, frames, OptimizableDetect(optSensitivity), NewAlglib(), DefaultFitConfig());
+        var seed = new StarDetectorParams { Sensitivity = seedSensitivity, StarClippingMultiplier = 2.0 };
+        var afOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 };
+        return new LoadedRun { Data = data, Seed = seed, AfOptions = afOptions };
     }
 
     [Test]
@@ -206,7 +298,7 @@ public class StarDetectionOptimizerWizardVMTests {
         vm.SourcePaths[0] = @"C:\run1";
         await vm.StartAsync(CancellationToken.None);
 
-        vm.ApplyCommand.Execute(null);
+        vm.AcceptCommand.Execute(null);
 
         var dto = options.ReceivedCalls()
             .Single(c => c.GetMethodInfo().Name == nameof(IStarDetectionOptions.ApplyOptimizedSettings))
@@ -250,7 +342,7 @@ public class StarDetectionOptimizerWizardVMTests {
         await vm.StartAsync(CancellationToken.None);
         vm.ApplyRecommendedStepSize = true;
 
-        vm.ApplyCommand.Execute(null);
+        vm.AcceptCommand.Execute(null);
 
         focuserSettings.Received(1).AutoFocusStepSize = vm.Summary.RecommendedStepSize;
         focuserSettings.Received(1).AutoFocusInitialOffsetSteps = vm.Summary.RecommendedOffsetSteps;
@@ -268,12 +360,59 @@ public class StarDetectionOptimizerWizardVMTests {
         await vm.StartAsync(CancellationToken.None);
         vm.ApplyRecommendedStepSize = false;
 
-        vm.ApplyCommand.Execute(null);
+        vm.AcceptCommand.Execute(null);
 
         focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusStepSize = default;
         focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusInitialOffsetSteps = default;
         // The optimized settings DTO must still be applied even when the step size is declined.
         options.Received(1).ApplyOptimizedSettings(Arg.Any<OptimizedStarDetectionSettings>());
+    }
+
+    [Test]
+    public async Task Accept_AppliesOptimizedSettingsAndRaisesRequestClose() {
+        // Accept is the terminal "apply + select + close" decision: it must call ApplyOptimizedSettings (which
+        // selects the optimized settings) AND dismiss the wizard via RequestClose.
+        var options = Substitute.For<IStarDetectionOptions>();
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        var closeRaised = false;
+        vm.RequestClose += (s, e) => closeRaised = true;
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            options.Received(1).ApplyOptimizedSettings(Arg.Any<OptimizedStarDetectionSettings>());
+            Assert.That(closeRaised, Is.True, "Accept must close the wizard");
+        });
+    }
+
+    [Test]
+    public void Accept_BeforeSummary_CanExecuteIsFalse() {
+        // Until a run has produced a Summary, Accept must be disabled (mirrors the old Apply gating).
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.That(vm.AcceptCommand.CanExecute(null), Is.False);
+    }
+
+    [Test]
+    public async Task Cancel_OnSummary_RaisesRequestCloseWithoutMutatingOptions() {
+        // The Summary "Cancel" (close path) must discard: dismiss the wizard WITHOUT applying — no options
+        // mutation. CloseCommand is the wiring behind the Summary Cancel button.
+        var options = Substitute.For<IStarDetectionOptions>();
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        var closeRaised = false;
+        vm.RequestClose += (s, e) => closeRaised = true;
+
+        vm.CloseCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(closeRaised, Is.True, "Cancel must close the wizard");
+            options.DidNotReceiveWithAnyArgs().ApplyOptimizedSettings(default);
+        });
     }
 
     [Test]
@@ -357,6 +496,261 @@ public class StarDetectionOptimizerWizardVMTests {
         // No Start has run yet, so the CTS is still null; Dispose must be null-safe.
         var vm = NewVM(LoaderReturning(GoodRun()));
         Assert.DoesNotThrow(() => vm.Dispose());
+    }
+
+    // ---- Review step (T8) ---------------------------------------------------------------------------------
+
+    [Test]
+    public async Task EnterReview_AfterRun_BuildsReviewVMWithEveryFrame() {
+        // The review must cover ALL loaded frames (NineFrames => 9), using the optimized BEST params, and land on
+        // the Review step. The honest fake builder reflects the descriptors flowing through GetFrameDescriptors().
+        var fake = new FakeReviewBuilder();
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: fake.Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.ReviewCommand.CanExecute(null), Is.True, "Review must be enterable from a completed Summary");
+        await vm.ReviewCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Review));
+            Assert.That(vm.IsReview, Is.True);
+            Assert.That(vm.ReviewVM, Is.Not.Null);
+            Assert.That(vm.ReviewVM.QueueCount, Is.EqualTo(9), "every loaded frame is reviewable");
+            Assert.That(fake.Invocations, Is.EqualTo(1));
+            Assert.That(fake.LastParams, Is.SameAs(vm.Result.BestParams), "the review uses the optimized BEST params");
+            Assert.That(fake.LastDescriptors.Count, Is.EqualTo(9));
+        });
+    }
+
+    [Test]
+    public void EnterReview_BeforeRun_CanExecuteIsFalse() {
+        // Until a run has produced a Summary + descriptors, Review must be disabled (the StarReviewVM requires a
+        // non-empty queue).
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        Assert.That(vm.ReviewCommand.CanExecute(null), Is.False);
+    }
+
+    [Test]
+    public async Task Review_BackToSummary_ReturnsToSummary() {
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Review));
+
+        Assert.That(vm.BackToSummaryCommand.CanExecute(null), Is.True);
+        vm.BackToSummaryCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.IsSummary, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task Accept_AfterReview_StillApplies() {
+        // Accept must apply whether or not the user visited Review, and it is reachable from the Review step too.
+        var options = Substitute.For<IStarDetectionOptions>();
+        var vm = NewVM(LoaderReturning(GoodRun()), options, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+
+        var closeRaised = false;
+        vm.RequestClose += (s, e) => closeRaised = true;
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            options.Received(1).ApplyOptimizedSettings(Arg.Any<OptimizedStarDetectionSettings>());
+            Assert.That(closeRaised, Is.True, "Accept from Review must still close the wizard");
+        });
+    }
+
+    [Test]
+    public async Task Accept_WithoutReview_StillApplies() {
+        // The "skip review and Accept directly from Summary" path must remain intact.
+        var options = Substitute.For<IStarDetectionOptions>();
+        var vm = NewVM(LoaderReturning(GoodRun()), options, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ReviewVM, Is.Null, "Accept without entering Review never builds a ReviewVM");
+            options.Received(1).ApplyOptimizedSettings(Arg.Any<OptimizedStarDetectionSettings>());
+        });
+    }
+
+    [Test]
+    public async Task EnterReview_ThenRerun_ResetsReviewState() {
+        // A fresh run invalidates the prior review (it belonged to the previous result).
+        var vm = NewVM(LoaderReturning(GoodRun(), GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        Assert.That(vm.ReviewVM, Is.Not.Null);
+
+        vm.SourcePaths[0] = @"C:\run2";
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "re-run lands back on Summary");
+            Assert.That(vm.ReviewVM, Is.Null, "the prior ReviewVM is cleared by a fresh run");
+            Assert.That(vm.HasLabels, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Start_WithoutInjectedReviewBuilder_DisablesReview() {
+        // When no builder seam is supplied (e.g. a host that didn't wire one), Review must be disabled rather than
+        // throwing — Accept-directly must still work.
+        var vm = NewVM(LoaderReturning(GoodRun())); // no frameReviewBuilder
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.ReviewCommand.CanExecute(null), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task EnterReview_WhenBuilderThrows_SetsErrorAndStaysOnSummary() {
+        // If the review build fails, the VM must surface the error, stay on Summary, and NOT construct a ReviewVM —
+        // the user can still Accept or retry. (Matches EnterReviewAsync's catch-all error path.)
+        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> throwingBuilder =
+            (descriptors, p, token) => throw new InvalidOperationException("boom while detecting");
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: throwingBuilder);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.ReviewCommand.CanExecute(null), Is.True, "precondition: Review is enterable");
+
+        await vm.ReviewCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasError, Is.True, "a failed review build must surface an error");
+            Assert.That(vm.ErrorMessage, Is.Not.Null.And.Not.Empty);
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "a failed review build stays on Summary");
+            Assert.That(vm.ReviewVM, Is.Null, "no ReviewVM is built when the review build fails");
+        });
+    }
+
+    [Test]
+    public async Task EnterReview_ApplyLabel_SetsHasLabelsAndPersistsRunFile() {
+        // Enter Review, apply a label (a missed box on the current frame), and assert HasLabels becomes true and the
+        // captured labels are non-empty. Then SaveAll (via Accept's PersistReviewLabels) writes the <runId>.json into
+        // the derived labels dir on disk. Frames carry real temp paths so DeriveLabelsDir resolves to a writable dir.
+        var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-wizard-labels-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(tempRoot);
+        try {
+            var fake = new FakeReviewBuilder();
+            var vm = NewVM(LoaderReturning(GoodRunWithFramePaths(tempRoot, id: "attempt01")), frameReviewBuilder: fake.Build);
+            vm.SourcePaths[0] = tempRoot;
+            await vm.StartAsync(CancellationToken.None);
+            await vm.ReviewCommand.ExecuteAsync(null);
+            Assert.That(vm.ReviewVM, Is.Not.Null, "precondition: review built");
+            Assert.That(vm.HasLabels, Is.False, "no labels applied yet");
+
+            // Apply a missed-box label on the current frame (a drag the user would make over a missed star). A box
+            // well above the click-threshold so it is recorded as-is.
+            vm.ReviewVM.AddMissedBox(100.0, 120.0, 20.0, 20.0);
+
+            Assert.That(vm.HasLabels, Is.True, "applying a label must flip HasLabels true");
+            Assert.That(vm.CapturedLabels, Is.Not.Empty, "the captured per-run labels must hold the applied label");
+
+            // Accept persists labels via PersistReviewLabels -> SaveAll; the derived labels dir is <tempRoot>/labels.
+            vm.AcceptCommand.Execute(null);
+
+            var labelsDir = System.IO.Path.Combine(tempRoot, "labels");
+            var labelFile = System.IO.Path.Combine(labelsDir, "attempt01.json");
+            Assert.That(System.IO.File.Exists(labelFile), Is.True, "Accept must persist the run's <runId>.json to disk");
+            var json = System.IO.File.ReadAllText(labelFile);
+            Assert.That(json, Does.Contain("missed"), "the persisted file must carry the missed label");
+        } finally {
+            try { System.IO.Directory.Delete(tempRoot, recursive: true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    // ---- Re-optimize with labels (T9) -------------------------------------------------------------------
+
+    [Test]
+    public void ReOptimize_BeforeAnyLabels_CanExecuteIsFalse() {
+        // No labels => the re-optimize command is disabled.
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.False);
+    }
+
+    [Test]
+    public async Task ReOptimize_AfterRunWithoutLabels_CanExecuteIsFalse() {
+        // A completed run with NO labels still leaves re-optimize disabled (nothing to feed the objective).
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.False);
+    }
+
+    [Test]
+    public async Task ReOptimize_AfterApplyingLabel_IsEnabled_AndReLoadsRunsWithConvertedLabels() {
+        // Run → Review → apply a missed-box label (HasLabels true) → ReOptimizeCommand enabled. Invoking it re-loads
+        // the run from disk THROUGH THE LABELS OVERLOAD, carrying the converted FrameLabels, and lands on a fresh
+        // Summary. The honest RecordingLoader records the labels it received so we can assert the conversion happened.
+        var loader = new RecordingLoader();
+        var fake = new FakeReviewBuilder();
+        var vm = NewVM(loader, frameReviewBuilder: fake.Build);
+        var folder = @"C:\reopt-run";
+        vm.SourcePaths[0] = folder;
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        Assert.That(vm.ReviewVM, Is.Not.Null, "precondition: review built");
+
+        // Label a missed star on the current frame (a drag the user makes over a missed star).
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        Assert.That(vm.HasLabels, Is.True, "applying a label flips HasLabels true");
+
+        // Back to Summary so the re-optimize affordance is reachable and the command re-evaluates.
+        vm.BackToSummaryCommand.Execute(null);
+        Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.True, "with labels and idle, re-optimize is enabled");
+
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "re-optimize returns to an updated Summary");
+            Assert.That(vm.Summary, Is.Not.Null, "a fresh summary is produced");
+            Assert.That(vm.ErrorMessage, Is.Null.Or.Empty);
+            Assert.That(loader.LabelOverloadCalls, Is.GreaterThanOrEqualTo(1), "the run is re-loaded via the labels overload");
+            // The labels overload received the converted labels for the re-loaded folder.
+            Assert.That(loader.LabelsByFolder.ContainsKey(folder), Is.True);
+            var fl = loader.LabelsByFolder[folder];
+            Assert.That(fl, Is.Not.Null.And.Not.Empty, "the converted FrameLabels flowed into the re-load");
+            // The missed box was applied at one focuser position; that position carries a Missed box.
+            Assert.That(fl.SelectMany(p => p.Missed).Any(), Is.True, "the missed label round-tripped through LabelConverter");
+        });
+    }
+
+    [Test]
+    public async Task ReOptimize_AfterApplyingLabel_RemainsReviewableAgain() {
+        // After a re-optimize the user can enter Review again (the review inputs were re-snapshotted from the
+        // re-loaded runs before they were disposed).
+        var loader = new RecordingLoader();
+        var fake = new FakeReviewBuilder();
+        var vm = NewVM(loader, frameReviewBuilder: fake.Build);
+        vm.SourcePaths[0] = @"C:\reopt-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        Assert.That(vm.ReviewCommand.CanExecute(null), Is.True, "Review must be enterable again after a re-optimize");
+        await vm.ReviewCommand.ExecuteAsync(null);
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Review));
+        Assert.That(vm.ReviewVM, Is.Not.Null);
     }
 
     [Test]

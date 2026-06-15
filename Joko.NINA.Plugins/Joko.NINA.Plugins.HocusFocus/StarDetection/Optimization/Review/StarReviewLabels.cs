@@ -17,7 +17,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 
-namespace TestApp.StarReview {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
     /// <summary>
     /// The on-disk label JSON model, shaped EXACTLY as the T6 optimizer harness
@@ -166,6 +166,12 @@ namespace TestApp.StarReview {
         public static string Save(string labelsDir, StarReviewRunLabels labels) {
             if (labels == null) {
                 throw new ArgumentNullException(nameof(labels));
+            }
+            // No-op when no labels dir could be derived (the wizard passes string.Empty in that case). Mirrors the
+            // guard Load already has — without it Directory.CreateDirectory("") throws ArgumentException and every
+            // Save/Next/Prev would log an error. Returns null to signal nothing was written.
+            if (string.IsNullOrWhiteSpace(labelsDir)) {
+                return null;
             }
             Directory.CreateDirectory(labelsDir);
             Normalize(labels);

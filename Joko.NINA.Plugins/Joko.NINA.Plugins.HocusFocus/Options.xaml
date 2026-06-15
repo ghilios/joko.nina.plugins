@@ -134,7 +134,7 @@
                                     <TextBlock
                                         Margin="10,5,10,5"
                                         Foreground="{StaticResource ButtonForegroundBrush}"
-                                        Text="Optimize Star Detection…"
+                                        Text="Optimize Star Detection"
                                         TextWrapping="Wrap" />
                                 </Button>
                                 <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />

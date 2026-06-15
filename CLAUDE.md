@@ -681,11 +681,10 @@ accessor — NINA auto-saves the active profile, so mutating options would silen
 (default `%LOCALAPPDATA%\NINA\Logs\hf-diag\optimize\<timestamp>`), `--max-evals <int>` (override the
 optimizer budget; wizard default 400), `--annotate extremes|all` (default `extremes` = min/max-focuser frames
 only), `--labels <dir>` (label JSON dir; activates the recall/precision objective term), `--verbose` (restore
-TRACE logging; default INFO). Opt-in defocus-gate test switches (flip the gates ON on the built params only —
-do NOT touch the profile): `--defocus-distortion` (relax `MaxDistortion` for large/defocused candidates) and
-`--defocus-centering` (relax the centering gate); tuning overrides `--defocus-size-ref <px>` (strict-below
-size ref, shared by both gates; param default 30), `--defocus-min-factor <0..1>` (MaxDistortion floor; default
-0.25), `--defocus-center-factor <≥1>` (max StarCenterTolerance multiplier; default 2.0). It writes
+TRACE logging; default INFO). `optimize` has **no** `--defocus-*` switches — the combined `DefocusAwareGates`
+flag is in the optimizer's curated search set (`OptimizerVariable.CreateCuratedSet`), so the optimizer explores
+the relaxation itself (guarded by the objective's `SDefocusPrecision` near-focus penalty); to force the gates
+on for diagnosis, use `diagnose-labels`/`contamination`. It writes
 `optimized_settings.json` into **each focus run's source folder** (the review handoff) **and** the `--out`
 dir (or each per-run subfolder).
 
@@ -741,20 +740,27 @@ find **which gate rejects** flagged stars. Per box: **ACCEPTED** (overlaps an ac
 LowSensitivity, Saturated, Degenerate, Contaminated) / **NO CANDIDATE** (no candidate formed there = a true
 structure-detection gap, only fixable by detector-algorithm work). Args: `--runs` (required), `--labels`
 (default `<runs>\labels`), `--params current|optimized`, `--opt-results <dir>` (same load priority as
-`review`), `--profile-id`, `--out <dir>` (writes `diagnose_labels.txt`), plus the same opt-in defocus switches
-as `optimize` (`--defocus-distortion` / `--defocus-centering` / `--defocus-size-ref` / `--defocus-min-factor`
-/ `--defocus-center-factor`). Read-only on the profile.
+`review`), `--profile-id`, `--out <dir>` (writes `diagnose_labels.txt`), plus opt-in defocus switches
+(`--defocus-distortion` / `--defocus-centering` / `--defocus-size-ref` / `--defocus-min-factor`
+/ `--defocus-center-factor`) that force the gates ON on the built params (`contamination` has the same set).
+Read-only on the profile.
 
 - **Loop:** `optimize` (baseline) → `review --labels L` (drag-box misses / click false positives / click
   wrongly-rejected) → `optimize --labels L` (re-optimize with the box-containment recall/precision term
   active). Use `diagnose-labels` to attribute each labeled miss to a specific gate vs. a structure gap.
 
-**Defocus-aware gates (Advanced options).** `StarDetectionOptions.DefocusAwareDistortion` and
-`DefocusAwareCentering` (both **opt-in, default OFF**, Advanced-only with CheckBox + tooltip in
-`OptionsDataTemplates.xaml`) relax the distortion / centering gates for large candidates (large size = defocus
-proxy) to recover bloated/donut defocused stars. Default-OFF returns the gates verbatim, keeping detection
-**bit-identical**. Tuned via the param fields `DefocusDistortionSizeReference` (30 px), `DefocusDistortionMinFactor`
-(0.25), `DefocusCenteringToleranceFactor` (2.0).
+**Defocus-aware gates (Advanced options).** A single `StarDetectionOptions.DefocusAwareGates` option
+(**opt-in, default OFF**, Advanced-only CheckBox + tooltip in `OptionsDataTemplates.xaml`) drives **both** the
+distortion and centering relaxations together (it maps to the two `StarDetectorParams` fields
+`DefocusAwareDistortion` + `DefocusAwareCentering` in `BuildStarDetectorParams`; TestApp keeps the two as
+separate `--defocus-distortion`/`--defocus-centering` CLI flags). They relax the distortion / centering gates
+for large candidates (large size = defocus proxy) to recover bloated/donut defocused stars. Default-OFF returns
+the gates verbatim, keeping detection **bit-identical**. The three numeric knobs are now Advanced options too
+(UnitTextBox + DoubleRangeRule + tooltip): `DefocusDistortionSizeReference` (30 px), `DefocusDistortionMinFactor`
+(0.25), `DefocusCenteringToleranceFactor` (2.0). The combined gate is also a curated optimizer variable
+(`DefocusAwareGates`), guarded by the objective's `SDefocusPrecision` near-focus precision penalty (multiplicative,
+= 1.0 when no star is relaxation-admitted ⇒ objective bit-identical when off). See
+`docs/star-detection-optimization-wizard-results.md` (F2/F3 + cache-health notes).
 
 ---
 

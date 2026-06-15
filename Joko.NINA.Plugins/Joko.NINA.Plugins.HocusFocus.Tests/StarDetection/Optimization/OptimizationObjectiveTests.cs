@@ -247,6 +247,201 @@ public class OptimizationObjectiveTests {
         Assert.That(j, Is.GreaterThanOrEqualTo(0.0));
     }
 
+    // ---- SDefocusPrecision (F3 label-free precision penalty) ----
+
+    // GoodRun augmented with the per-frame plumbing the near-focus signal needs: a focuser-position axis centered
+    // on bestFocus, and a parallel relaxed-count list. All zeros relaxed by default (the gate-OFF baseline).
+    private static RunEvaluationMetrics RunWithPositions(
+            int frameCount = 9, int starsPerFrame = 40, int stepSize = 100, int bestFocus = 5000,
+            int[] relaxed = null, double sigmaFocus = 0.05) {
+        var positions = new int[frameCount];
+        var counts = new int[frameCount];
+        // Symmetric sweep around bestFocus in steps of stepSize: ..., -1, 0, +1, ... × stepSize.
+        var half = frameCount / 2;
+        for (var i = 0; i < frameCount; i++) {
+            positions[i] = bestFocus + (i - half) * stepSize;
+            counts[i] = starsPerFrame;
+        }
+        return new RunEvaluationMetrics {
+            SigmaFocus = sigmaFocus,
+            LooStdError = double.NaN,
+            StepSize = stepSize,
+            RSquared = 0.99,
+            ReducedChiSquared = 1.0,
+            FrameStarCounts = counts,
+            FrameFocuserPositions = positions,
+            FrameRelaxationAdmittedCounts = relaxed ?? new int[frameCount],
+            BestFocusPosition = bestFocus
+        };
+    }
+
+    [Test]
+    public void SDefocusPrecision_NoData_ReturnsExactlyOne() {
+        var c = C;
+        // null counts (caller didn't populate the F3 plumbing) => no penalty.
+        var m = GoodRun(); // FrameRelaxationAdmittedCounts == null
+        Assert.That(OptimizationObjective.SDefocusPrecision(m, c), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SDefocusPrecision_AllZeroRelaxed_ReturnsExactlyOne() {
+        var c = C;
+        var m = RunWithPositions(); // all-zero relaxed (gate-OFF baseline)
+        Assert.That(OptimizationObjective.SDefocusPrecision(m, c), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SDefocusPrecision_RelaxedOnlyOnDefocusedExtremes_NotPenalized() {
+        var c = C; // NearFocusWindowSteps = 1.5 => window = 150 around bestFocus 5000
+        // 9 frames at 4600..5400 (step 100). Put all relaxation on the FAR extremes (legitimate donut recovery):
+        // indices 0 (4600) and 8 (5400) are well outside ±150 of the minimum.
+        var relaxed = new[] { 30, 0, 0, 0, 0, 0, 0, 0, 30 };
+        var m = RunWithPositions(relaxed: relaxed);
+        Assert.That(OptimizationObjective.SDefocusPrecision(m, c), Is.EqualTo(1.0),
+            "relaxation confined to the defocused extremes is legitimate donut recovery, never penalized");
+    }
+
+    [Test]
+    public void SDefocusPrecision_NearFocusJunk_DropsBelowOne() {
+        var c = C;
+        // Relaxation concentrated on the NEAR-FOCUS frames (within ±150 of bestFocus): indices 3,4,5 → 4900,5000,5100.
+        // A near-focus relaxed star is a large/low-fill junk blob by the gate's size-scaling. nearAccepted=120,
+        // nearRelaxed=60 => frac 0.5; excess over 0.20 threshold = 0.30; penalty = 1 - 0.5*0.30 = 0.85.
+        var relaxed = new[] { 0, 0, 0, 20, 20, 20, 0, 0, 0 };
+        var m = RunWithPositions(relaxed: relaxed);
+        var penalty = OptimizationObjective.SDefocusPrecision(m, c);
+        Assert.Multiple(() => {
+            Assert.That(penalty, Is.LessThan(1.0));
+            Assert.That(penalty, Is.EqualTo(0.85).Within(1e-12));
+        });
+    }
+
+    [Test]
+    public void SDefocusPrecision_NearFocusBelowThreshold_NoPenalty() {
+        var c = C; // threshold 0.20
+        // Small near-focus relaxed fraction (under the threshold): nearAccepted=120, nearRelaxed=12 => frac 0.10.
+        var relaxed = new[] { 0, 0, 0, 4, 4, 4, 0, 0, 0 };
+        var m = RunWithPositions(relaxed: relaxed);
+        Assert.That(OptimizationObjective.SDefocusPrecision(m, c), Is.EqualTo(1.0),
+            "below the precision threshold => no penalty (a couple of borderline admissions are tolerated)");
+    }
+
+    [Test]
+    public void SDefocusPrecision_PenaltyFlooredAtMinFactor() {
+        var c = C; // strength 0.5, floor 0.5
+        // Drive the near-focus relaxed fraction to 1.0 (every near-focus accepted star relaxed): penalty would be
+        // 1 - 0.5*(1.0-0.20) = 0.60, still above the floor; push strength up to confirm the floor clamps.
+        var cHard = new ObjectiveConstants { DefocusPrecisionStrength = 5.0 };
+        var relaxed = new[] { 0, 0, 0, 40, 40, 40, 0, 0, 0 }; // nearRelaxed=120 == nearAccepted=120 => frac 1.0
+        var m = RunWithPositions(relaxed: relaxed);
+        var penalty = OptimizationObjective.SDefocusPrecision(m, cHard);
+        Assert.That(penalty, Is.EqualTo(cHard.DefocusPrecisionMinFactor).Within(1e-12),
+            "the precision term can never drive J below its floor");
+    }
+
+    [Test]
+    public void SDefocusPrecision_Fallback_RunLevelFraction_WhenNoPositions() {
+        var c = C;
+        // No focuser positions / no fitted minimum => fall back to the run-level relaxed fraction.
+        // total accepted = 9*40 = 360, total relaxed = 180 => frac 0.5 => penalty 1 - 0.5*(0.5-0.2) = 0.85.
+        var m = GoodRun(frameCount: 9, starsPerFrame: 40);
+        m.FrameRelaxationAdmittedCounts = Enumerable.Repeat(20, 9).ToList();
+        // FrameFocuserPositions stays null and BestFocusPosition stays NaN => fallback path.
+        var penalty = OptimizationObjective.SDefocusPrecision(m, c);
+        Assert.That(penalty, Is.EqualTo(0.85).Within(1e-12));
+    }
+
+    [Test]
+    public void SDefocusPrecision_Fallback_TooFewFrames_NoPenalty() {
+        var c = C; // MinFramesForPenalty = 3
+        var m = GoodRun(frameCount: 2, starsPerFrame: 40);
+        m.FrameStarCounts = new[] { 40, 40 };
+        m.FrameRelaxationAdmittedCounts = new[] { 40, 40 }; // would be frac 1.0, but too few frames
+        Assert.That(OptimizationObjective.SDefocusPrecision(m, c), Is.EqualTo(1.0));
+    }
+
+    // ---- JRun bit-identity: multiplying by SDefocusPrecision must not change J when relaxed counts are 0 ----
+
+    // The pre-F3 weighted-sum formula, recomputed independently here, so the test pins JRun to the exact value it
+    // produced BEFORE the multiplicative penalty existed (×1.0 leaves it unchanged).
+    private static double LegacyJRun(RunEvaluationMetrics m, ObjectiveConstants c, double? recall, double? precision) {
+        var effRecall = recall ?? m.Recall;
+        var effPrecision = precision ?? m.Precision;
+        if (m.FrameStarCounts != null && m.FrameStarCounts.Count(n => n < c.NHard) > c.MaxFramesBelowHardFloor) {
+            return 0.0;
+        }
+        var sFocus = OptimizationObjective.SFocus(m.SigmaFocus, m.LooStdError, m.StepSize, c);
+        if (double.IsNaN(sFocus)) {
+            return 0.0;
+        }
+        var sStars = OptimizationObjective.SStars(m.FrameStarCounts, c);
+        var sFit = OptimizationObjective.SFit(m.RSquared, m.ReducedChiSquared, c);
+        double j;
+        if (effRecall.HasValue && effPrecision.HasValue) {
+            var sLabel = OptimizationObjective.LabelScore(effRecall.Value, effPrecision.Value);
+            var wSum = c.Wf + c.Ws + c.Wc + c.Wl;
+            j = (c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit + c.Wl * sLabel) / wSum;
+        } else {
+            var wSum = c.Wf + c.Ws + c.Wc;
+            j = (c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit) / wSum;
+        }
+        return OptimizationObjective.Clamp01(j);
+    }
+
+    [Test]
+    public void JRun_BitIdentical_Unlabeled_WhenRelaxedCountsAllZero() {
+        var c = C;
+        var m = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18); // all-zero relaxed
+        var actual = OptimizationObjective.JRun(m, c);
+        var expected = LegacyJRun(m, c, null, null);
+        Assert.That(actual, Is.EqualTo(expected),
+            "with all relaxed counts 0, SDefocusPrecision == 1.0 so J must be byte-identical to the pre-F3 formula");
+    }
+
+    [Test]
+    public void JRun_BitIdentical_Labeled_WhenRelaxedCountsAllZero() {
+        var c = C;
+        var m = RunWithPositions(frameCount: 9, starsPerFrame: 12, sigmaFocus: 0.22); // all-zero relaxed
+        var actual = OptimizationObjective.JRun(m, c, recall: 0.7, precision: 0.6);
+        var expected = LegacyJRun(m, c, 0.7, 0.6);
+        Assert.That(actual, Is.EqualTo(expected),
+            "labeled case is also byte-identical when there is no relaxation");
+    }
+
+    [Test]
+    public void JRun_BitIdentical_WhenNoRelaxationPlumbingAtAll() {
+        var c = C;
+        // GoodRun has null FrameRelaxationAdmittedCounts/positions — the legacy callers' shape. Must be unchanged.
+        var m = GoodRun(sigmaFocus: 0.2, frameCount: 10, starsPerFrame: 25);
+        Assert.That(OptimizationObjective.JRun(m, c), Is.EqualTo(LegacyJRun(m, c, null, null)));
+        Assert.That(OptimizationObjective.JRun(m, c, recall: 0.9, precision: 0.8),
+            Is.EqualTo(LegacyJRun(m, c, 0.9, 0.8)));
+    }
+
+    [Test]
+    public void JRun_NearFocusJunk_LowersJ_BelowTheUnpenalizedValue() {
+        var c = C;
+        var clean = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18); // all-zero relaxed
+        var junk = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18,
+            relaxed: new[] { 0, 0, 0, 20, 20, 20, 0, 0, 0 }); // near-focus junk
+        var jClean = OptimizationObjective.JRun(clean, c);
+        var jJunk = OptimizationObjective.JRun(junk, c);
+        Assert.That(jJunk, Is.LessThan(jClean),
+            "near-focus relaxation junk multiplicatively lowers J");
+    }
+
+    [Test]
+    public void JRun_DefocusedExtremeRelaxation_DoesNotLowerJ() {
+        var c = C;
+        var clean = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18); // all-zero relaxed
+        var donut = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18,
+            relaxed: new[] { 30, 0, 0, 0, 0, 0, 0, 0, 30 }); // legitimate donut recovery on the extremes
+        var jClean = OptimizationObjective.JRun(clean, c);
+        var jDonut = OptimizationObjective.JRun(donut, c);
+        Assert.That(jDonut, Is.EqualTo(jClean),
+            "legitimate donut recovery on the defocused extremes must not be penalized");
+    }
+
     // ---- JTotal ----
 
     [Test]

@@ -93,6 +93,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             "OutsideROI=0\r\n" +
             "SaturatedPixelCount=0\r\n" +
             "HotpixelCount=221643\r\n" +
+            "RelaxationAdmittedCount=0\r\n" +
             "TooDistortedBounds=[]\r\n" +
             "DegenerateBounds=[]\r\n" +
             "SaturatedBounds=[]\r\n" +

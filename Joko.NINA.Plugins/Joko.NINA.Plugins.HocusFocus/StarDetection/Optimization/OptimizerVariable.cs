@@ -37,7 +37,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// it performs no IO and runs no detection.
     /// </summary>
     public sealed class OptimizerVariable {
-        /// <summary>The matching <see cref="StarDetectorParams"/> property name (e.g. "Sensitivity").</summary>
+        /// <summary>
+        /// The matching <see cref="StarDetectorParams"/> property name (e.g. "Sensitivity"), or a synthetic
+        /// alias when one variable drives multiple params (see <see cref="DefocusAwareGatesName"/>).
+        /// </summary>
         public string Name { get; init; }
 
         public OptimizerVariableType Type { get; init; }
@@ -89,7 +92,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         /// <summary>
-        /// The 12 curated tunable variables. Bounds/initial steps follow the validation ranges in
+        /// The 13 curated tunable variables. Bounds/initial steps follow the validation ranges in
         /// StarDetectionOptions.cs where a UI range exists; where a range is open-ended the bound is a
         /// HEURISTIC (pragmatic, easily editable) value — see the named constants below.
         ///
@@ -143,8 +146,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     p => p.HotpixelThresholdingEnabled, (p, b) => p.HotpixelThresholdingEnabled = b),
                 Continuous(nameof(StarDetectorParams.HotpixelThreshold), HotpixelThresholdLower, HotpixelThresholdUpper, 0.001,
                     p => p.HotpixelThreshold, (p, v) => p.HotpixelThreshold = v),
+                // F3: a single combined switch that flips BOTH defocus-aware gates together, so the optimizer can
+                // explore the defocus relaxation (recovering large/donut defocused stars) as one knob. The Name is
+                // a SYNTHETIC alias (not a StarDetectorParams property): Read reports the distortion flag (the two
+                // are written in lockstep), Write sets distortion AND centering to the same value. The seed reads
+                // the current params (both OFF by default), so the baseline is unchanged; the search may flip it on.
+                // Size-reference tuning is intentionally NOT exposed as a variable for now — only this flag.
+                BooleanVar(DefocusAwareGatesName, 1,
+                    p => p.DefocusAwareDistortion,
+                    (p, en) => { p.DefocusAwareDistortion = en; p.DefocusAwareCentering = en; }),
             };
         }
+
+        /// <summary>Synthetic curated-set variable name for the combined defocus-aware-gates switch. It is NOT a
+        /// <see cref="StarDetectorParams"/> property name (the variable drives two properties at once), so it is a
+        /// named constant rather than a <c>nameof</c>.</summary>
+        public const string DefocusAwareGatesName = "DefocusAwareGates";
 
         /// <summary>
         /// Builds a Continuous variable whose Write quantizes the proposal through the variable's OWN

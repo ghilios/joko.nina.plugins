@@ -45,6 +45,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     public interface IRunEvaluationLoader {
 
         Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token);
+
+        /// <summary>
+        /// Loads the saved attempt and threads optional ground-truth <paramref name="labels"/> into the resulting
+        /// <see cref="RunEvaluationData"/> so the optimizer's recall/precision objective term is active. Passing
+        /// <c>null</c> is identical to the no-labels overload. Used by the wizard's re-optimize-with-labels path,
+        /// which re-reads the run from disk (the first pass disposed its in-memory data) and feeds the labels the
+        /// user just made.
+        /// </summary>
+        Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, CancellationToken token);
     }
 
     /// <summary>
@@ -86,7 +95,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// candidate params on the already-loaded frames. The fit config is taken from the run's AF options so the
         /// optimizer's curve fit matches the AF engine's.
         /// </summary>
-        public async Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) {
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) =>
+            LoadSavedRunAsync(attemptFolderPath, region, labels: null, token);
+
+        /// <inheritdoc />
+        public async Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, CancellationToken token) {
             if (string.IsNullOrEmpty(attemptFolderPath)) {
                 throw new ArgumentException("attemptFolderPath is required", nameof(attemptFolderPath));
             }
@@ -142,7 +155,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var splitDetector = new HocusFocusSplitFrameDetector(detection, hocusParams);
 
             var runId = attempt.FolderPath ?? attemptFolderPath;
-            var data = new RunEvaluationData(runId, frames, splitDetector, alglibAPI, fitConfig);
+            var data = new RunEvaluationData(runId, frames, splitDetector, alglibAPI, fitConfig, labels);
 
             Logger.Info($"Loaded saved AF run '{runId}' for optimization: {frames.Count} frames, step size {fitConfig.StepSize}");
             return new LoadedRun {
@@ -198,7 +211,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     AverageHFR = result.AverageHFR,
                     HFRStdDev = result.HFRStdDev,
                     StarCount = result.DetectedStars,
-                    StarCenters = centers
+                    StarCenters = centers,
+                    // Relaxation-admitted accepted-star count for this frame (0 unless a defocus-aware gate is on),
+                    // surfaced from the detector metrics so the optimizer can apply its precision penalty.
+                    RelaxationAdmittedCount = (result as HocusFocusStarDetectionResult)?.Metrics?.RelaxationAdmittedCount ?? 0
                 };
             }
         }

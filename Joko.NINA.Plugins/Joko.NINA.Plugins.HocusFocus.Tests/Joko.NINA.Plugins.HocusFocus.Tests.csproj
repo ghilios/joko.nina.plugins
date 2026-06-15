@@ -14,13 +14,12 @@
     <ProjectReference Include="..\Joko.NINA.Plugins.HocusFocus\Joko.NINA.Plugins.HocusFocus.csproj" />
   </ItemGroup>
 
-  <!-- The TestApp project is a WPF Exe (not referenced as an assembly), so its pure-logic StarReview helpers are
-       linked in directly for unit testing — the same pattern the test project uses for other shared source. Only
-       the IO/JSON/queue/viewport files (no WPF, no plugin coupling) are linked; the WPF window/VM are not. -->
+  <!-- The TestApp project is a WPF Exe (not referenced as an assembly), so its pure-logic helpers are linked in
+       directly for unit testing — the same pattern the test project uses for other shared source. The label store
+       and viewport math now live in the plugin (StarDetection/Optimization/Review) and come in via the plugin
+       ProjectReference above; only the TestApp-resident queue selection + run discovery are linked here. -->
   <ItemGroup>
-    <Compile Include="..\TestApp\StarReview\StarReviewLabels.cs" Link="StarReview\StarReviewLabels.cs" />
     <Compile Include="..\TestApp\StarReview\StarReviewQueue.cs" Link="StarReview\StarReviewQueue.cs" />
-    <Compile Include="..\TestApp\StarReview\StarReviewViewport.cs" Link="StarReview\StarReviewViewport.cs" />
     <Compile Include="..\TestApp\OptimizationRunDiscovery.cs" Link="StarReview\OptimizationRunDiscovery.cs" />
   </ItemGroup>
 

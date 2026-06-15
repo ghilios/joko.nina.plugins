@@ -11,34 +11,36 @@
 #endregion "copyright"
 
 using NINA.Core.Utility;
-using NINA.Joko.Plugins.HocusFocus.Utility;
-using NINA.Profile.Interfaces;
-using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Logger = NINA.Core.Utility.Logger;
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 using Rect = OpenCvSharp.Rect;
-using Window = System.Windows.Window;
 
-namespace TestApp.StarReview {
+namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
     /// <summary>
     /// The pre-computed detection result + paths for one reviewable frame. Accepted carry the detector's actual
     /// <c>StarBoundingBox</c> (so the overlay draws real-size boxes) + HFR + center; Rejected carries the per-reason
     /// bounding boxes so the reviewer sees what the detector did.
     /// </summary>
-    internal sealed class FrameReview {
+    public sealed class FrameReview {
         public string RunId { get; set; }
         public int FocuserPosition { get; set; }
         public string FramePath { get; set; }
+
+        /// <summary>
+        /// Produces the MTF-stretched background <see cref="BitmapSource"/> for this frame, asynchronously. This is
+        /// the decoupling seam between the host and the VM: TestApp's <c>review</c> tool loads the frame from disk
+        /// (via its profile-aware float-Mat loader) and runs <see cref="StarReviewImaging.BuildStretchedBitmap"/>;
+        /// the in-NINA wizard provides images from already-loaded Mats. The VM never touches disk or a profile.
+        /// </summary>
+        public Func<Task<BitmapSource>> ImageProvider { get; set; }
 
         /// <summary>Accepted stars: the detector's real bounding box + its center (used for click hit-tests, the
         /// should-reject label box, and the overlay) + HFR.</summary>
@@ -73,24 +75,31 @@ namespace TestApp.StarReview {
         public Color Color { get; set; }
     }
 
-    public enum LabelPass {
-        Missed,
-        ShouldReject,
-        WronglyRejected
+    /// <summary>The kind of detector box (if any) found under a click point by <see cref="StarReviewVM.HitTestCandidate(IEnumerable{Rect}, IEnumerable{Rect}, double, double)"/>.</summary>
+    public enum HitCategory {
+        /// <summary>No detector box (accepted or rejected) contains the click.</summary>
+        None,
+
+        /// <summary>The click lands inside a detector ACCEPTED (green) box → a should-reject (false-positive) candidate.</summary>
+        Accepted,
+
+        /// <summary>The click lands inside a detector REJECTED box → a wrongly-rejected (recover-for-recall) candidate.</summary>
+        Rejected
     }
 
     /// <summary>
-    /// ViewModel for the interactive review window. Holds the queue of frames, the per-run labels, the zoom/pan
-    /// viewport, and the current labeling pass. All detection was done up front by <see cref="StarReviewRunner"/>;
-    /// this VM only renders overlays and edits/persists labels. The screen↔image pixel mapping is delegated to
-    /// the unit-tested <see cref="StarReviewViewport"/>; the label add/remove/merge logic to the unit-tested
+    /// ViewModel for the interactive review window. Holds the queue of frames, the per-run labels, and the zoom/pan
+    /// viewport. Labeling is MODE-LESS: the category is inferred from what is clicked — a click on an accepted box
+    /// flags a should-reject, a click on a rejected box flags a wrongly-rejected, and a drag over blank space marks
+    /// a missed star. All detection was done up front by <see cref="StarReviewRunner"/>; this VM only renders
+    /// overlays and edits/persists labels. The screen↔image pixel mapping is delegated to the unit-tested
+    /// <see cref="StarReviewViewport"/>; the label add/remove/merge logic to the unit-tested
     /// <see cref="StarReviewLabelStore"/>.
     /// </summary>
     public class StarReviewVM : BaseINPC {
         private readonly IReadOnlyList<FrameReview> queue;
         private readonly Dictionary<string, StarReviewRunLabels> labelsByRun;
         private readonly string labelsDir;
-        private readonly IProfileService profileService;
 
         // Per-reason overlay colors, matching T6's annotated-PNG legend (RGB here; BGR there).
         private static readonly Dictionary<string, Color> ReasonColors = new(StringComparer.Ordinal) {
@@ -103,37 +112,23 @@ namespace TestApp.StarReview {
             { "Contaminated",   Color.FromRgb(128, 0, 128) },   // purple
         };
 
-        private Window window;
-
-        internal StarReviewVM(
+        public StarReviewVM(
             IReadOnlyList<FrameReview> queue,
             Dictionary<string, StarReviewRunLabels> labelsByRun,
-            string labelsDir,
-            IProfileService profileService) {
+            string labelsDir) {
             this.queue = queue ?? throw new ArgumentNullException(nameof(queue));
             this.labelsByRun = labelsByRun ?? throw new ArgumentNullException(nameof(labelsByRun));
             this.labelsDir = labelsDir ?? throw new ArgumentNullException(nameof(labelsDir));
-            this.profileService = profileService;
 
             Viewport = new StarReviewViewport();
 
             NextCommand = new RelayCommand(Next, () => CurrentIndex < queue.Count - 1);
             PrevCommand = new RelayCommand(Prev, () => CurrentIndex > 0);
             SaveCommand = new RelayCommand(SaveAll);
-            MarkMissedCommand = new RelayCommand(() => Pass = LabelPass.Missed);
-            MarkShouldRejectCommand = new RelayCommand(() => Pass = LabelPass.ShouldReject);
-            MarkWronglyRejectedCommand = new RelayCommand(() => Pass = LabelPass.WronglyRejected);
             FitCommand = new RelayCommand(RequestFit);
 
             CurrentIndex = 0;
             LoadCurrent();
-        }
-
-        internal void AttachWindow(Window w) {
-            window = w;
-            if (window != null) {
-                window.Closing += (_, __) => SaveAll();
-            }
         }
 
         // ---- Navigation / current frame --------------------------------------------------------------------
@@ -199,34 +194,9 @@ namespace TestApp.StarReview {
         public ObservableCollection<LabelBoxMarker> ShouldRejectMarkers { get; } = new();
         public ObservableCollection<LabelBoxMarker> WronglyRejectedMarkers { get; } = new();
 
-        private LabelPass pass = LabelPass.Missed;
-        public LabelPass Pass {
-            get => pass;
-            set {
-                if (pass != value) {
-                    pass = value;
-                    RaisePropertyChanged();
-                    RaisePropertyChanged(nameof(IsMissedPass));
-                    RaisePropertyChanged(nameof(IsShouldRejectPass));
-                    RaisePropertyChanged(nameof(IsWronglyRejectedPass));
-                    RaisePropertyChanged(nameof(PassLabel));
-                }
-            }
-        }
-
-        public bool IsMissedPass => Pass == LabelPass.Missed;
-        public bool IsShouldRejectPass => Pass == LabelPass.ShouldReject;
-        public bool IsWronglyRejectedPass => Pass == LabelPass.WronglyRejected;
-        public string PassLabel {
-            get {
-                switch (Pass) {
-                    case LabelPass.Missed: return "Marking: MISSED — drag a box around a star the detector missed (false negatives)";
-                    case LabelPass.ShouldReject: return "Marking: SHOULD-REJECT — click an ACCEPTED (green) box to flag it (false positives)";
-                    case LabelPass.WronglyRejected: return "Marking: WRONGLY-REJECTED — click a REJECTED box to keep it (folds into recall)";
-                    default: return "Marking";
-                }
-            }
-        }
+        /// <summary>Static, mode-less interaction help line shown under the image (no pass selection any more).</summary>
+        public string HelpText =>
+            "Click a green box to flag a false positive · click a rejected box to keep it · drag a box over a missed star · click a label again to remove it";
 
         private double radiusPx = StarReviewLabelStore.DefaultRadiusPx;
         public double RadiusPx {
@@ -256,9 +226,6 @@ namespace TestApp.StarReview {
         public RelayCommand NextCommand { get; }
         public RelayCommand PrevCommand { get; }
         public RelayCommand SaveCommand { get; }
-        public RelayCommand MarkMissedCommand { get; }
-        public RelayCommand MarkShouldRejectCommand { get; }
-        public RelayCommand MarkWronglyRejectedCommand { get; }
         public RelayCommand FitCommand { get; }
 
         /// <summary>Raised when the VM wants the view to re-fit the image (initial load / Fit button).</summary>
@@ -298,9 +265,9 @@ namespace TestApp.StarReview {
             var f = Current;
             FrameHeader = $"{f.RunId}  @ focuser {f.FocuserPosition}  |  {f.Accepted.Count} accepted";
 
-            // Build the MTF-stretched background image (off-thread, then marshal to the UI).
+            // Build the MTF-stretched background image (via the host-supplied provider, then marshal to the UI).
             FrameImage = null;
-            _ = LoadImageAsync(f.FramePath);
+            _ = LoadImageAsync(f);
 
             // Overlays in image coords — accepted stars draw the detector's REAL bounding box (top-left + size).
             AcceptedMarkers.Clear();
@@ -327,32 +294,19 @@ namespace TestApp.StarReview {
             PrevCommand.NotifyCanExecuteChanged();
         }
 
-        private async Task LoadImageAsync(string path) {
+        private async Task LoadImageAsync(FrameReview f) {
+            var provider = f.ImageProvider;
+            if (provider == null) {
+                return;
+            }
             try {
-                var bmp = await Task.Run(() => BuildStretchedBitmap(path)).ConfigureAwait(true);
+                var bmp = await provider().ConfigureAwait(true);
                 FrameImage = bmp;
                 RequestFit();
             } catch (Exception ex) {
-                Logger.Error(ex, $"Failed to load/stretch frame {path}");
-                Console.Error.WriteLine($"Failed to load frame {path}: {ex.Message}");
+                Logger.Error(ex, $"Failed to load/stretch frame {f.FramePath}");
+                Console.Error.WriteLine($"Failed to load frame {f.FramePath}: {ex.Message}");
             }
-        }
-
-        private BitmapSource BuildStretchedBitmap(string path) {
-            using var srcFloat = DiagnosticUtil.LoadFloatMat(path, profileService).GetAwaiter().GetResult();
-            using var src16 = new Mat();
-            srcFloat.ConvertTo(src16, MatType.CV_16U, ushort.MaxValue);
-            using var stretched16 = new Mat();
-            try {
-                var stats = CvImageUtility.CalculateStatistics_Histogram(src16);
-                using var lut = CvImageUtility.CreateMTFLookup(stats);
-                CvImageUtility.ApplyLUT(src16, lut, stretched16);
-            } catch (Exception ex) {
-                Logger.Warning($"MTF stretch failed ({ex.Message}); falling back to linear normalization");
-                Cv2.Normalize(src16, stretched16, 0, ushort.MaxValue, NormTypes.MinMax);
-            }
-            var bmp = Program.ToBitmapSource(stretched16, PixelFormats.Gray16);
-            return bmp;
         }
 
         // ---- Labeling (delegates to the pure store) --------------------------------------------------------
@@ -390,23 +344,23 @@ namespace TestApp.StarReview {
         }
 
         /// <summary>
-        /// SHOULD-REJECT / WRONGLY-REJECTED pass: a click that hit-tests the detector's ACCEPTED (should-reject) or
-        /// REJECTED (wrongly-rejected) boxes and toggles THAT star's actual bounding box into the label list. The
-        /// view calls this after mapping the click through <see cref="StarReviewViewport.ScreenToImage"/>. A click
-        /// outside every candidate box is a no-op (the MISSED pass is handled by <see cref="AddMissedBox"/> instead).
-        /// On overlap the smallest-area box wins. Clicking an already-labeled star again removes it.
+        /// Mode-less click: hit-tests the click against BOTH the detector's ACCEPTED and REJECTED boxes and toggles
+        /// THAT star's actual bounding box into the inferred label list — an accepted hit toggles a should-reject
+        /// (false positive), a rejected hit toggles a wrongly-rejected (recover for recall). The view calls this on
+        /// mouse-up of a click (no detector box under the press would have routed to the MISSED drag instead, via
+        /// <see cref="AddMissedBox"/>), after mapping the click through <see cref="StarReviewViewport.ScreenToImage"/>.
+        /// A click outside every candidate box is a no-op. On overlap the smallest-area box wins, and the category is
+        /// whichever set owns that tightest box. Clicking an already-labeled star again removes it.
         /// </summary>
         public void ToggleLabelAt(double imageX, double imageY) {
             var run = CurrentRunLabels;
-            if (run == null || Pass == LabelPass.Missed) {
+            if (run == null) {
                 return;
             }
 
-            // Hit-test the relevant detector boxes (accepted for should-reject, rejected for wrongly-rejected).
-            var hit = Pass == LabelPass.ShouldReject
-                ? HitTestBoxes(Current.Accepted.Select(a => a.Bounds), imageX, imageY)
-                : HitTestBoxes(Current.Rejected.Select(r => r.Bounds), imageX, imageY);
-            if (hit == null) {
+            var (category, hit) = HitTestCandidate(
+                Current.Accepted.Select(a => a.Bounds), Current.Rejected.Select(r => r.Bounds), imageX, imageY);
+            if (category == HitCategory.None) {
                 return; // click outside every candidate box: no-op
             }
 
@@ -414,41 +368,71 @@ namespace TestApp.StarReview {
             if (pos.RadiusPx == null) {
                 pos.RadiusPx = RadiusPx;
             }
-            var list = Pass == LabelPass.ShouldReject ? pos.ShouldReject : pos.WronglyRejected;
+            var list = category == HitCategory.Accepted ? pos.ShouldReject : pos.WronglyRejected;
 
             // Toggle semantics: if a label already covers this star (its center matches the hit box's center within
             // tolerance), remove it; otherwise record the star's ACTUAL bounding box.
-            var b = hit.Value;
             var existing = StarReviewLabelStore.NearestBoxIndexWithin(
-                list, b.X + b.Width / 2.0, b.Y + b.Height / 2.0, StarReviewLabelStore.SamePointTolerancePx);
+                list, hit.X + hit.Width / 2.0, hit.Y + hit.Height / 2.0, StarReviewLabelStore.SamePointTolerancePx);
             if (existing >= 0) {
                 list.RemoveAt(existing);
             } else {
-                list.Add(new StarReviewLabelBox(b.X, b.Y, b.Width, b.Height));
+                list.Add(new StarReviewLabelBox(hit.X, hit.Y, hit.Width, hit.Height));
             }
             RefreshLabelMarkers();
         }
 
         /// <summary>
-        /// Returns the SMALLEST-area box (in image coords) from <paramref name="boxes"/> that contains the click, or
-        /// null if the click is outside every box. AABB containment; on overlap the smallest-area box wins (so a
-        /// click in a region of nested boxes selects the tightest candidate). Pure geometry.
+        /// Convenience query for the view: is ANY detector box (accepted or rejected) under (<paramref name="imageX"/>,
+        /// <paramref name="imageY"/>)? Drives the click-vs-drag disambiguation on left-button-down — a box under the
+        /// press is a click (toggle a label); blank space starts a missed rubber-band drag.
         /// </summary>
-        private static Rect? HitTestBoxes(IEnumerable<Rect> boxes, double imageX, double imageY) {
-            Rect? best = null;
+        public bool HitTestCandidate(double imageX, double imageY) {
+            var (category, _) = HitTestCandidate(
+                Current.Accepted.Select(a => a.Bounds), Current.Rejected.Select(r => r.Bounds), imageX, imageY);
+            return category != HitCategory.None;
+        }
+
+        /// <summary>
+        /// Pure combined hit-test + categorize: returns the SMALLEST-area detector box (in image coords) from EITHER
+        /// <paramref name="accepted"/> or <paramref name="rejected"/> that contains the click, together with which set
+        /// it came from. AABB containment; on overlap the smallest-area box wins regardless of set, and a tie in area
+        /// resolves to the accepted box (the should-reject/false-positive case). Returns
+        /// (<see cref="HitCategory.None"/>, default) when the click is outside every box. Pure geometry — unit-tested
+        /// directly.
+        /// </summary>
+        public static (HitCategory Category, Rect Box) HitTestCandidate(
+            IEnumerable<Rect> accepted, IEnumerable<Rect> rejected, double imageX, double imageY) {
+            var category = HitCategory.None;
+            Rect best = default;
             var bestArea = double.MaxValue;
-            foreach (var b in boxes) {
-                if (imageX < b.X || imageY < b.Y || imageX > b.X + b.Width || imageY > b.Y + b.Height) {
-                    continue;
-                }
-                var area = (double)b.Width * b.Height;
-                if (area < bestArea) {
-                    bestArea = area;
-                    best = b;
+
+            foreach (var b in accepted ?? Enumerable.Empty<Rect>()) {
+                if (Contains(b, imageX, imageY)) {
+                    var area = (double)b.Width * b.Height;
+                    if (area < bestArea) {
+                        bestArea = area;
+                        best = b;
+                        category = HitCategory.Accepted;
+                    }
                 }
             }
-            return best;
+            foreach (var b in rejected ?? Enumerable.Empty<Rect>()) {
+                if (Contains(b, imageX, imageY)) {
+                    var area = (double)b.Width * b.Height;
+                    // Strictly smaller so an equal-area accepted box (preferred above) wins the tie.
+                    if (area < bestArea) {
+                        bestArea = area;
+                        best = b;
+                        category = HitCategory.Rejected;
+                    }
+                }
+            }
+            return (category, best);
         }
+
+        private static bool Contains(Rect b, double x, double y) =>
+            x >= b.X && y >= b.Y && x <= b.X + b.Width && y <= b.Y + b.Height;
 
         private void RefreshLabelMarkers() {
             MissedMarkers.Clear();
@@ -500,7 +484,9 @@ namespace TestApp.StarReview {
             try {
                 StarReviewLabelStore.PruneEmptyPositions(run);
                 var path = StarReviewLabelStore.Save(labelsDir, run);
-                Logger.Info($"Saved labels for run '{run.RunId}' to {path}");
+                if (path != null) {
+                    Logger.Info($"Saved labels for run '{run.RunId}' to {path}");
+                }
             } catch (Exception ex) {
                 Logger.Error(ex, $"Failed to save labels for run '{run.RunId}'");
                 Console.Error.WriteLine($"Failed to save labels for run '{run.RunId}': {ex.Message}");

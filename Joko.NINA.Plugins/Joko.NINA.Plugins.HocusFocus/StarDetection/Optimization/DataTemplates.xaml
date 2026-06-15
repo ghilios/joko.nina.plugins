@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization"
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
+    xmlns:review="clr-namespace:NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review"
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
     xmlns:s="clr-namespace:System;assembly=mscorlib"
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core">
@@ -15,10 +16,26 @@
     <TextBlock x:Key="SDOpt_SourceMode_Tooltip" Text="Replay optimizes against one or more saved auto-focus runs (recommended). Live triggers a fresh auto-focus that saves its frames, then optimizes against those." />
     <TextBlock x:Key="SDOpt_RunCount_Tooltip" Text="How many saved auto-focus runs to optimize against together. Using two or three runs balances the settings across them and reduces overfitting to a single night's conditions." />
     <TextBlock x:Key="SDOpt_ApplyStepSize_Tooltip" Text="Also write the recommended auto-focus step size and offset steps to the active profile when applying. The step size is sized so a sweep lands several measurement points across the focus-sensitive region of the curve." />
+    <TextBlock x:Key="SDOpt_Review_Tooltip" Text="Optional: review the optimized detector boxes over every loaded frame and label any missed, falsely-accepted, or wrongly-rejected stars. The labels are saved next to the run and can drive a future re-optimization. Reviewing is not required — you can Accept directly." />
+    <TextBlock x:Key="SDOpt_ReOptimize_Tooltip" Text="Re-run the optimization using the labels you just made in Review. Your missed / wrongly-rejected stars steer the optimizer to recover them (recall), and your should-reject stars steer it to exclude them (precision). The runs are re-read from disk and the search re-runs, landing on an updated summary you can review again or accept." />
 
-    <!--  The wizard window content. Keyed by the VM's full type name so IWindowServiceFactory resolves it.  -->
-    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.StarDetectionOptimizerWizardVM">
-        <Grid Width="640" MinHeight="420" Margin="10">
+    <!--  The wizard window content. Implicit DataType template so the WindowService's ContentPresenter resolves it by VM type.  -->
+    <DataTemplate DataType="{x:Type local:StarDetectionOptimizerWizardVM}">
+        <!--  Width/height grow for the Review step (it embeds a full interactive image viewer); the other steps keep
+              the compact wizard footprint.  -->
+        <Grid Margin="10">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Setter Property="Width" Value="640" />
+                    <Setter Property="MinHeight" Value="420" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsReview}" Value="True">
+                            <Setter Property="Width" Value="980" />
+                            <Setter Property="MinHeight" Value="720" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -228,8 +245,47 @@
                             Content="Apply recommended auto-focus step size"
                             IsChecked="{Binding ApplyRecommendedStepSize}"
                             ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
+
+                        <TextBlock
+                            Margin="0,8,0,0"
+                            Text="Optionally review the optimized detector boxes on your frames and label any mistakes, then Accept to apply these settings (they become your active star-detection settings), or Cancel to discard."
+                            TextWrapping="Wrap" />
+
+                        <!--  Re-optimize with feedback: shown only after the user labeled mistakes in Review. Re-reads
+                              the runs from disk and re-runs the optimizer with the labels feeding recall/precision,
+                              then returns here with an updated summary.  -->
+                        <Border
+                            Margin="0,12,0,0"
+                            Padding="8"
+                            Background="{StaticResource ButtonBackgroundBrush}"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Visibility="{Binding HasLabels, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <StackPanel>
+                                <TextBlock
+                                    FontWeight="Bold"
+                                    Text="You labeled stars in Review" />
+                                <TextBlock
+                                    Margin="0,4,0,8"
+                                    Text="Re-run the optimization using the feedback you just made. The optimizer will try to recover the stars you marked as missed or wrongly-rejected and exclude the ones you marked should-reject, then bring you back to an updated summary."
+                                    TextWrapping="Wrap" />
+                                <Button
+                                    Width="220"
+                                    HorizontalAlignment="Left"
+                                    Command="{Binding ReOptimizeCommand}"
+                                    Content="Re-optimize with my feedback"
+                                    ToolTip="{StaticResource SDOpt_ReOptimize_Tooltip}" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
+
+                <!--  Review step: the shared interactive review control over ALL loaded frames at the optimized
+                      params. Fills the body when IsReview; its DataContext is the lazily-built StarReviewVM.  -->
+                <review:StarReviewControl
+                    DataContext="{Binding ReviewVM}"
+                    Visibility="{Binding DataContext.IsReview, RelativeSource={RelativeSource AncestorType=Grid}, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             </Grid>
 
             <!--  Error banner  -->
@@ -253,6 +309,13 @@
                     Command="{Binding BackCommand}"
                     Content="Back"
                     Visibility="{Binding IsSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                <!--  Review → Summary  -->
+                <Button
+                    Width="120"
+                    Margin="0,0,8,0"
+                    Command="{Binding BackToSummaryCommand}"
+                    Content="Back to summary"
+                    Visibility="{Binding IsReview, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <Button
                     Width="90"
                     Margin="0,0,8,0"
@@ -278,16 +341,60 @@
                         </Style>
                     </Button.Style>
                 </Button>
+                <!--  Summary → Review (optional). Hidden once reviewing.  -->
+                <Button
+                    Width="120"
+                    Margin="0,0,8,0"
+                    Command="{Binding ReviewCommand}"
+                    Content="Review frames"
+                    ToolTip="{StaticResource SDOpt_Review_Tooltip}"
+                    Visibility="{Binding IsSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                <!--  Accept = apply + select + close. Reachable from Summary AND Review (skip-review still works).  -->
                 <Button
                     Width="90"
                     Margin="0,0,8,0"
-                    Command="{Binding ApplyCommand}"
-                    Content="Apply"
-                    Visibility="{Binding IsSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                    Command="{Binding AcceptCommand}"
+                    Content="Accept">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSummary}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsReview}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                <!--  Summary/Review "Cancel" = discard (close without applying); reuses the close path, no options mutation.  -->
+                <Button
+                    Width="90"
+                    Margin="0,0,8,0"
+                    Command="{Binding CloseCommand}"
+                    Content="Cancel">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSummary}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsReview}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                <!--  Generic Close for non-Summary steps (SelectSource); hidden on Summary/Review where Accept/Cancel decide.  -->
                 <Button
                     Width="90"
                     Command="{Binding CloseCommand}"
-                    Content="Close" />
+                    Content="Close"
+                    Visibility="{Binding IsSelectSource, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             </StackPanel>
         </Grid>
     </DataTemplate>

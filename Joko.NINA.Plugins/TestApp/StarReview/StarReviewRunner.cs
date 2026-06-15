@@ -16,6 +16,7 @@ using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
@@ -29,6 +30,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Logger = NINA.Core.Utility.Logger;
 using Rect = OpenCvSharp.Rect;
@@ -144,35 +146,31 @@ namespace TestApp.StarReview {
 
             // Detect every frame once (off the UI thread — this is still the CLI thread) to get accepted counts +
             // the accepted/rejected overlay, then assemble the review queue. Detection is heavy; doing it up front
-            // keeps the window responsive and lets the queue selection use real counts.
+            // keeps the window responsive and lets the queue selection use real counts. Detection + the accepted/
+            // rejected extraction + the MTF-stretch image-provider wiring all go through the SHARED plugin
+            // FrameReviewBuilder (single source of truth with the in-NINA wizard); only the disk-load delegate is
+            // supplied here (the profile-aware DiagnosticUtil.LoadFloatMat), keeping the plugin free of any TestApp
+            // dependency.
             var detector = new StarDetector(new AlglibAPI());
+            var descriptors = discovered
+                .SelectMany(d => d.Frames.Select(f => new FrameReviewDescriptor(d.RunId, f.FocuserPosition, f.Path)))
+                .ToList();
+            var reviews = FrameReviewBuilder.BuildAsync(
+                descriptors, detectionParams, detector,
+                framePath => DiagnosticUtil.LoadFloatMat(framePath, profileService),
+                CancellationToken.None).GetAwaiter().GetResult();
+
             var allFrames = new List<StarReviewFrame>();
             var detections = new Dictionary<(string runId, int focuser), FrameReview>();
-
-            foreach (var d in discovered) {
-                foreach (var frame in d.Frames) {
-                    using var mat = LoadFloatMatSync(frame.Path, profileService);
-                    using var clone = mat.Clone(); // Detect mutates its input in place.
-                    var result = detector.Detect(clone, detectionParams, null, CancellationToken.None).GetAwaiter().GetResult();
-                    var accepted = result.DetectedStars ?? new List<Star>();
-                    var review = new FrameReview {
-                        RunId = d.RunId,
-                        FocuserPosition = frame.FocuserPosition,
-                        FramePath = frame.Path,
-                        // Capture each accepted star's REAL StarBoundingBox so the overlay draws actual-size boxes and
-                        // the should-reject click records the actual bounds.
-                        Accepted = accepted.Select(s => (s.Center.X, s.Center.Y, s.HFR, s.StarBoundingBox)).ToList(),
-                        Rejected = ExtractRejected(result),
-                    };
-                    detections[(d.RunId, frame.FocuserPosition)] = review;
-                    allFrames.Add(new StarReviewFrame {
-                        RunId = d.RunId,
-                        FocuserPosition = frame.FocuserPosition,
-                        FramePath = frame.Path,
-                        AcceptedCount = accepted.Count
-                    });
-                    Console.WriteLine($"  {d.RunId} @ {frame.FocuserPosition}: {accepted.Count} accepted");
-                }
+            foreach (var review in reviews) {
+                detections[(review.RunId, review.FocuserPosition)] = review;
+                allFrames.Add(new StarReviewFrame {
+                    RunId = review.RunId,
+                    FocuserPosition = review.FocuserPosition,
+                    FramePath = review.FramePath,
+                    AcceptedCount = review.Accepted.Count
+                });
+                Console.WriteLine($"  {review.RunId} @ {review.FocuserPosition}: {review.Accepted.Count} accepted");
             }
 
             StarReviewQueue.MarkExtremes(allFrames);
@@ -200,7 +198,7 @@ namespace TestApp.StarReview {
             var reviewFrames = queue.Select(q => detections[(q.RunId, q.FocuserPosition)]).ToList();
 
             Console.WriteLine("Opening review window. Mark Missed (false negatives) and Should-Reject (false positives), then Save.");
-            ShowReviewWindowSta(reviewFrames, labelsByRun, labelsDir, profileService);
+            ShowReviewWindowSta(reviewFrames, labelsByRun, labelsDir);
 
             Console.WriteLine($"Labels written to {labelsDir}");
             Console.WriteLine($"Next: TestApp optimize --runs \"{runsDir}\" --labels \"{labelsDir}\"");
@@ -224,8 +222,7 @@ namespace TestApp.StarReview {
         private static void ShowReviewWindowSta(
             List<FrameReview> reviewFrames,
             Dictionary<string, StarReviewRunLabels> labelsByRun,
-            string labelsDir,
-            IProfileService profileService) {
+            string labelsDir) {
             Exception uiError = null;
             var thread = new Thread(() => {
                 try {
@@ -236,10 +233,12 @@ namespace TestApp.StarReview {
                     SynchronizationContext.SetSynchronizationContext(
                         new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
 
-                    var vm = new StarReviewVM(reviewFrames, labelsByRun, labelsDir, profileService);
+                    var vm = new StarReviewVM(reviewFrames, labelsByRun, labelsDir);
                     var window = new StarReviewWindow();
                     window.DataContext = vm;
-                    vm.AttachWindow(window);
+                    // Save-on-close: the plugin VM no longer takes a Window, so the host wires the flush. (The VM
+                    // also saves on navigate + via the Save button; this covers a close without a final navigate.)
+                    window.Closing += (_, __) => vm.SaveAll();
 
                     window.ShowDialog();
 
@@ -410,37 +409,13 @@ namespace TestApp.StarReview {
         // ---- Rejected-candidate overlay extraction ---------------------------------------------------------
 
         /// <summary>
-        /// Flattens the per-reason rejection bounds from <see cref="HocusFocusStarDetectorResult.Metrics"/> into a
-        /// flat list of (reason, rect) tuples, using the SAME reason set as T6's annotated PNG so the colors line
-        /// up between the two tools.
+        /// Flattens the per-reason rejection bounds into a flat list of (reason, rect) tuples. Delegates to the
+        /// SHARED plugin <see cref="FrameReviewBuilder.ExtractRejected"/> so the reason set / colors stay identical
+        /// across the review tools and the in-NINA wizard; kept here as the <c>internal</c> entry point the
+        /// <c>diagnose-labels</c> runner already calls.
         /// </summary>
-        internal static List<(string Reason, Rect Bounds)> ExtractRejected(HocusFocusStarDetectorResult result) {
-            var list = new List<(string, Rect)>();
-            var m = result.Metrics;
-            if (m == null) {
-                return list;
-            }
-            void Add(string reason, List<Rect> rects) {
-                if (rects == null) {
-                    return;
-                }
-                foreach (var r in rects) {
-                    list.Add((reason, r));
-                }
-            }
-            Add("TooDistorted", m.TooDistortedBounds);
-            Add("Degenerate", m.DegenerateBounds);
-            Add("Saturated", m.SaturatedBounds);
-            Add("LowSensitivity", m.LowSensitivityBounds);
-            Add("NotCentered", m.NotCenteredBounds);
-            Add("TooFlat", m.TooFlatBounds);
-            Add("Contaminated", m.ContaminatedBounds);
-            return list;
-        }
-
-        private static Mat LoadFloatMatSync(string path, IProfileService profileService) {
-            return DiagnosticUtil.LoadFloatMat(path, profileService).GetAwaiter().GetResult();
-        }
+        internal static List<(string Reason, Rect Bounds)> ExtractRejected(HocusFocusStarDetectorResult result) =>
+            FrameReviewBuilder.ExtractRejected(result);
 
         // ---- Run / frame discovery (mirrors T6 OptimizationDiagnosticRunner) -------------------------------
 

@@ -297,13 +297,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Sensitivity = options.BrightnessSensitivity,
                 PeakResponse = options.StarPeakResponse,
                 MaxDistortion = options.MaxDistortion,
-                // Opt-in, default OFF. The numeric tuning knobs (DefocusDistortionSizeReference /
-                // DefocusDistortionMinFactor / DefocusCenteringToleranceFactor) are not exposed in the options UI,
-                // so they keep the StarDetectorParams class defaults (30.0 px / 0.25 / 2.0).
-                DefocusAwareDistortion = options.DefocusAwareDistortion,
-                // Companion opt-in, default OFF. Relaxes the NotCentered gate for large (defocused) candidates,
-                // reusing the same DefocusDistortionSizeReference defocus proxy as the distortion gate.
-                DefocusAwareCentering = options.DefocusAwareCentering,
+                // Single opt-in toggle (default OFF) drives BOTH defocus-aware gate relaxations: the distortion
+                // gate (relaxes MaxDistortion for large/defocused candidates) and the centering gate (relaxes the
+                // NotCentered StarCenterTolerance for those same candidates, reusing the shared size reference as
+                // the defocus proxy). The detector still keeps the two flags independent so TestApp's granular
+                // --defocus-distortion / --defocus-centering switches can toggle them separately.
+                DefocusAwareDistortion = options.DefocusAwareGates,
+                DefocusAwareCentering = options.DefocusAwareGates,
+                // Numeric tuning knobs (Advanced options); only take effect while the gates are ON.
+                DefocusDistortionSizeReference = options.DefocusDistortionSizeReference,
+                DefocusDistortionMinFactor = options.DefocusDistortionMinFactor,
+                DefocusCenteringToleranceFactor = options.DefocusCenteringToleranceFactor,
                 StarCenterTolerance = options.StarCenterTolerance,
                 BackgroundBoxExpansion = options.StarBackgroundBoxExpansion,
                 MinimumStarBoundingBoxSize = options.MinStarBoundingBoxSize,
@@ -485,6 +489,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
 
             result.DetectedStars = starList.Count;
+
+            // Re-tally RelaxationAdmittedCount over the FINAL post-filter survivor set (post ROI-crop + post
+            // MeanOutliers), so it shares its denominator with result.DetectedStars / StarCount. StarDetector
+            // tallies it on the pre-filter accepted set; the wizard/loader path (RunEvaluationLoader) reads this
+            // metric but reports StarCount from the post-filter list, so without this re-tally the precision
+            // fraction could mix a pre-filter numerator with a post-filter denominator (and exceed 1.0) and would
+            // disagree with the offline harness, which counts over its post-filter survivors. starList is still a
+            // List<Star> here (the RelaxationAdmitted flag survives; the DetectedStar projection below drops it).
+            // Gate-OFF this is 0 either way, so detection bit-identity is preserved.
+            starDetectorResult.Metrics.RelaxationAdmittedCount = starList.Count(s => s.RelaxationAdmitted);
+
             if (hocusFocusParams.NumberOfAFStars > 0) {
                 if (starList.Count != 0 && (hocusFocusParams.MatchStarPositions == null || hocusFocusParams.MatchStarPositions.Count == 0)) {
                     if (starList.Count > hocusFocusParams.NumberOfAFStars) {

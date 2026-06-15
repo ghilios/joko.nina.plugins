@@ -45,6 +45,39 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int MaxFramesBelowHardFloor { get; set; } = 0; // more than this many bad frames => J_run = 0
 
         public double Beta { get; set; } = 0.5;  // J_total = (1-β)·mean + β·min over runs
+
+        // ── F3: label-free precision / false-positive penalty (SDefocusPrecision) ──────────────────────────
+        // These gate the MULTIPLICATIVE penalty the objective applies for defocus-relaxation that admits junk.
+        // They are deliberately CONSERVATIVE: with the defocus-aware gates OFF (the baseline) every per-frame
+        // relaxed count is 0, so the penalty is exactly 1.0 (J bit-identical); and even with the gates ON the
+        // LEGITIMATE donut recovery seen on the defocused EXTREMES is never penalized (only NEAR-FOCUS relaxation
+        // is, since by the gate's size-scaling a near-focus real star is small and never needs relaxation, so a
+        // near-focus relaxed star is necessarily a large/low-fill junk blob). Tuned empirically on the AF bank.
+
+        // Half-width of the "near focus" window, in units of the AF step size: frames whose focuser position is
+        // within NearFocusWindowSteps · stepSize of the fitted best-focus position count as near-focus. 1.5 steps
+        // keeps the window tight around the minimum (where real stars are smallest/sharpest).
+        public double NearFocusWindowSteps { get; set; } = 1.5;
+
+        // The fraction of near-focus accepted stars that may be relaxation-admitted before the penalty begins to
+        // bite. Chosen generously (0.20) so a couple of borderline near-focus admissions are tolerated and only a
+        // sustained near-focus relaxed fraction (the junk signature) is penalized.
+        public double DefocusPrecisionThreshold { get; set; } = 0.20;
+
+        // Penalty strength: how hard J is scaled down per unit of excess near-focus relaxed fraction above the
+        // threshold. The penalty is 1 − Strength · max(0, relaxedFrac − Threshold), clamped to [MinFactor, 1].
+        // Conservative default (0.5) so even a fully-relaxed near-focus frame can at most halve-ish J, never zero it.
+        public double DefocusPrecisionStrength { get; set; } = 0.5;
+
+        // Floor on the multiplicative penalty so the precision term can never drive J to 0 on its own (the hard
+        // floors / σ checks own the hard-fail path). 0.5 ⇒ at most a 2× reduction from this term alone.
+        public double DefocusPrecisionMinFactor { get; set; } = 0.5;
+
+        // Fallback signal guard (used only when per-frame focuser positions / fitted minimum are unavailable, so
+        // the near-focus window cannot be formed): require at least this many frames AND this many total accepted
+        // stars before the run-level relaxed-fraction fallback may apply any penalty.
+        public int MinFramesForPenalty { get; set; } = 3;
+        public int MinAcceptedForPenalty { get; set; } = 1;
     }
 
     /// <summary>
@@ -60,6 +93,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double RSquared { get; set; }          // fit R^2
         public double ReducedChiSquared { get; set; } // fit reduced χ² (NaN => treated as no penalty)
         public IReadOnlyList<int> FrameStarCounts { get; set; } // accepted star count per frame in the run
+
+        // Per-frame relaxation-admitted accepted-star count (PARALLEL to FrameStarCounts). Each entry is the count
+        // of accepted stars on that frame that survived a defocus-RELAXED gate but would have failed the strict
+        // gate. ALL ZERO whenever the defocus-aware gates are OFF (the baseline), so the label-free precision
+        // penalty (SDefocusPrecision) returns 1.0 and J stays bit-identical. May be null for callers that don't
+        // populate it (treated as "no relaxation data" ⇒ no penalty).
+        public IReadOnlyList<int> FrameRelaxationAdmittedCounts { get; set; }
+
+        // Per-frame focuser position (PARALLEL to FrameStarCounts), needed to identify NEAR-FOCUS frames for the
+        // precision penalty. May be null for callers that don't populate it (then SDefocusPrecision falls back to
+        // the run-level relaxed-fraction signal).
+        public IReadOnlyList<int> FrameFocuserPositions { get; set; }
+
+        // The fitted best-focus (curve-minimum) focuser position, or NaN when no usable fit was produced. Used
+        // with StepSize to define the near-focus window for the precision penalty.
+        public double BestFocusPosition { get; set; } = double.NaN;
 
         // Label scores for this run, supplied by the evaluator only when labels exist; null otherwise. The
         // optimizer passes these straight through to JRun, keeping itself label-agnostic.
@@ -178,7 +227,117 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var wSum = c.Wf + c.Ws + c.Wc;
                 j = (c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit) / wSum;
             }
+
+            // F3: MULTIPLICATIVE label-free precision penalty. NOT an additive Wd weight (that would change the
+            // baseline). SDefocusPrecision returns exactly 1.0 when there is no relaxation data or zero relaxation
+            // across the run (the gate-OFF baseline), so this leaves j — and therefore J — bit-identical. It only
+            // drops below 1 for the near-focus junk signature; legitimate defocused-extreme donut recovery is not
+            // penalized. Composes identically in the labeled and unlabeled cases (applied after the weighted sum).
+            j *= SDefocusPrecision(m, c);
             return Clamp01(j);
+        }
+
+        /// <summary>
+        /// Label-free precision / false-positive penalty in (0, 1], MULTIPLIED into J by <see cref="JRun"/>.
+        /// Returns <b>exactly 1.0</b> (no penalty) when there is no relaxation data (null counts) OR zero
+        /// relaxation-admitted stars across the run — this is the gate-OFF baseline, so J is unchanged and
+        /// bit-identical.
+        ///
+        /// <para>Preferred signal — NEAR-FOCUS relaxation: when per-frame focuser positions and a finite fitted
+        /// best-focus position are available, only relaxation-admitted stars on frames within
+        /// <see cref="ObjectiveConstants.NearFocusWindowSteps"/> · stepSize of the minimum are counted. By the
+        /// defocus gate's size-scaled design, a near-focus REAL star is small and never needs relaxation, so a
+        /// near-focus relaxation-admitted star is necessarily a large/low-fill junk blob. The penalty is a function
+        /// of the near-focus relaxed FRACTION (relaxed / accepted, over the near-focus frames). Legitimate donut
+        /// recovery happens on the DEFOCUSED EXTREMES (far from the minimum) and is intentionally NOT penalized.</para>
+        ///
+        /// <para>Fallback — run-level relaxed fraction: when the near-focus window cannot be formed (no per-frame
+        /// positions, or a non-finite fitted minimum), the penalty falls back to the run-level relaxed fraction
+        /// (total relaxed / total accepted), guarded by <see cref="ObjectiveConstants.MinFramesForPenalty"/> and
+        /// <see cref="ObjectiveConstants.MinAcceptedForPenalty"/> so a thin run can't be spuriously penalized.</para>
+        ///
+        /// <para>Penalty shape (both signals): <c>1 − Strength · max(0, relaxedFrac − Threshold)</c>, clamped to
+        /// [<see cref="ObjectiveConstants.DefocusPrecisionMinFactor"/>, 1]. At or below the threshold the factor is
+        /// exactly 1.0.</para>
+        /// </summary>
+        public static double SDefocusPrecision(RunEvaluationMetrics m, ObjectiveConstants c) {
+            if (m == null) {
+                return 1.0;
+            }
+            var relaxed = m.FrameRelaxationAdmittedCounts;
+            // No relaxation data at all ⇒ no penalty (and the baseline gate-OFF path passes all-zero lists below).
+            if (relaxed == null || relaxed.Count == 0) {
+                return 1.0;
+            }
+
+            // Cheap short-circuit: zero relaxation anywhere ⇒ exactly 1.0 (the gate-OFF baseline). This is the
+            // bit-identity guarantee: when every per-frame relaxed count is 0, J is returned unchanged.
+            long totalRelaxed = 0;
+            for (var i = 0; i < relaxed.Count; i++) {
+                totalRelaxed += relaxed[i];
+            }
+            if (totalRelaxed == 0) {
+                return 1.0;
+            }
+
+            var counts = m.FrameStarCounts;
+            var positions = m.FrameFocuserPositions;
+
+            // ── Preferred: near-focus signal ──────────────────────────────────────────────────────────────
+            var canUseNearFocus =
+                positions != null && counts != null &&
+                positions.Count == relaxed.Count && counts.Count == relaxed.Count &&
+                IsFinite(m.BestFocusPosition) && m.StepSize > 0.0 && c.NearFocusWindowSteps > 0.0;
+
+            if (canUseNearFocus) {
+                var window = c.NearFocusWindowSteps * m.StepSize;
+                long nearRelaxed = 0;
+                long nearAccepted = 0;
+                for (var i = 0; i < relaxed.Count; i++) {
+                    if (Math.Abs(positions[i] - m.BestFocusPosition) <= window) {
+                        nearRelaxed += relaxed[i];
+                        nearAccepted += counts[i];
+                    }
+                }
+                // No accepted stars in the window (or none relaxed near focus = the legitimate-donut case where all
+                // relaxation is on the defocused extremes) ⇒ no penalty.
+                if (nearAccepted <= 0 || nearRelaxed == 0) {
+                    return 1.0;
+                }
+                var nearFrac = (double)nearRelaxed / nearAccepted;
+                return PenaltyFromFraction(nearFrac, c);
+            }
+
+            // ── Fallback: run-level relaxed fraction (documented choice when no positions/fit minimum) ───────
+            long totalAccepted = 0;
+            if (counts != null) {
+                for (var i = 0; i < counts.Count; i++) {
+                    totalAccepted += counts[i];
+                }
+            }
+            if (relaxed.Count < c.MinFramesForPenalty || totalAccepted < c.MinAcceptedForPenalty || totalAccepted <= 0) {
+                return 1.0; // too thin to trust ⇒ no penalty
+            }
+            var frac = (double)totalRelaxed / totalAccepted;
+            return PenaltyFromFraction(frac, c);
+        }
+
+        /// <summary>The shared penalty shape: <c>1 − Strength · max(0, frac − Threshold)</c>, clamped to
+        /// [MinFactor, 1]. Returns exactly 1.0 at or below the threshold.</summary>
+        private static double PenaltyFromFraction(double frac, ObjectiveConstants c) {
+            var excess = frac - c.DefocusPrecisionThreshold;
+            if (excess <= 0.0) {
+                return 1.0;
+            }
+            var penalty = 1.0 - c.DefocusPrecisionStrength * excess;
+            var floor = c.DefocusPrecisionMinFactor;
+            if (penalty < floor) {
+                penalty = floor;
+            }
+            if (penalty > 1.0) {
+                penalty = 1.0;
+            }
+            return penalty;
         }
 
         /// <summary>

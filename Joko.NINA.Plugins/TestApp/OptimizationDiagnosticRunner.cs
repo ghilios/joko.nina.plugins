@@ -412,11 +412,12 @@ namespace TestApp {
                 loadedRuns, perRunSeed, perRunBest, objectiveConstants, focuserMaxStep, ctx.LabelsDir, settings, passed, worstFrameCount, worstRunId);
             WriteCsv(Path.Combine(targetDir, "optimize_result.csv"), loadedRuns, perRunSeed, perRunBest);
 
-            // Per-run optimized-settings handoff: write the winning snapshot as optimized_settings.json into BOTH
-            // each focus run's own source folder (so `review --runs <same>` auto-discovers it) and the per-run --out
-            // subdir. Uses the SAME params->DTO mapping the wizard's Apply() uses (OptimizedStarDetectionSettings.
-            // FromParams) so the headless and in-app handoffs can never drift. Each run's recommended step is from
-            // its OWN best fit (StepSizeRecommender, exactly as BuildAggregateRow computes it).
+            // Optimized-settings handoff: write the winning snapshot as optimized_settings.json into each focus run's
+            // own source folder (so `review --runs <same>` auto-discovers it) plus a single copy in the --out dir.
+            // Uses the SAME params->DTO mapping the wizard's Apply() uses (OptimizedStarDetectionSettings.FromParams)
+            // so the headless and in-app handoffs can never drift. The source-folder copies each carry that run's OWN
+            // recommended step (StepSizeRecommender, exactly as BuildAggregateRow computes it); the single --out copy
+            // uses the representative (first) run's step in joint mode (see WriteOptimizedSettings).
             WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, focuserMaxStep);
 
             await WriteAnnotatedFrames(targetDir, loadedRuns, result.BestParams, ctx.Detector,
@@ -435,16 +436,21 @@ namespace TestApp {
 
         /// <summary>
         /// Writes <c>optimized_settings.json</c> (the wizard's <see cref="OptimizedStarDetectionSettings"/> snapshot
-        /// serialized with <see cref="JsonConvert"/>) for every loaded run: one copy into the focus run's own source
-        /// folder (the directory holding its sweep frames — so <c>review --runs &lt;same&gt;</c> auto-discovers it)
-        /// and one into the per-run <paramref name="targetDir"/> (the <c>--out</c> subdir). The curated knob values
-        /// are the optimizer's combined winner (<see cref="OptimizationResult.BestParams"/>); the recommended AF step
-        /// is per-run from that run's OWN best fit. A failed write for one run is logged and skipped — it never aborts
-        /// the batch.
+        /// serialized with <see cref="JsonConvert"/>): one per-run copy into each focus run's own source folder (the
+        /// directory holding its sweep frames — so <c>review --runs &lt;same&gt;</c> auto-discovers it), carrying THAT
+        /// run's recommended AF step from its OWN best fit; plus a single copy into <paramref name="targetDir"/> (the
+        /// <c>--out</c> dir). The curated knob values are always the optimizer's combined winner
+        /// (<see cref="OptimizationResult.BestParams"/>). In joint mode the <c>--out</c> copy uses the
+        /// REPRESENTATIVE (first) run's recommended step — matching the wizard's <c>BuildSummaryAsync</c>, which uses
+        /// <c>runs[0]</c> for <see cref="StepSizeRecommender"/> — so the surviving <c>--out</c> copy is order-independent
+        /// rather than whatever the last loop iteration happened to write. (In per-run mode <paramref name="targetDir"/>
+        /// is that single run's own subfolder, so "first run" == that run; behavior is unchanged.) A failed write for
+        /// one run is logged and skipped — it never aborts the batch.
         /// </summary>
         private static void WriteOptimizedSettings(
             string targetDir, List<LoadedHarnessRun> loadedRuns, List<RunEvaluationResult> perRunBest,
             OptimizationResult result, int? focuserMaxStep) {
+            // Per-run source-folder copies: each run's frame directory gets the winner snapshot with its OWN step.
             for (int i = 0; i < loadedRuns.Count; i++) {
                 var run = loadedRuns[i];
                 try {
@@ -463,13 +469,27 @@ namespace TestApp {
                     } else {
                         Console.Error.WriteLine($"  WARNING: could not resolve source folder for run '{run.Discovered.RunId}'; skipped the in-folder optimized_settings.json");
                     }
-
-                    // A copy in the per-run --out subdir.
-                    var outPath = Path.Combine(targetDir, "optimized_settings.json");
-                    File.WriteAllText(outPath, json);
                 } catch (Exception ex) {
                     Console.Error.WriteLine($"  WARNING: failed to write optimized_settings.json for run '{run.Discovered.RunId}': {ex.Message}");
                     Logger.Error(ex, $"Failed to write optimized_settings.json for run '{run.Discovered.RunId}'");
+                }
+            }
+
+            // Single --out copy, written ONCE (outside the per-run loop) so it is independent of loop order. In joint
+            // mode (loadedRuns.Count > 1) the recommended step is the representative (first) run's; the per-run
+            // source-folder copies above carry each run's own step.
+            if (loadedRuns.Count > 0) {
+                var representative = loadedRuns[0];
+                try {
+                    var rec = StepSizeRecommender.Recommend(perRunBest[0].BestFit, representative.StepSize, focuserMaxStep);
+                    var dto = OptimizedStarDetectionSettings.FromParams(
+                        result.BestParams, loadedRuns.Count, result.SeedJ, result.BestJ, rec.StepSize, rec.OffsetSteps);
+                    var json = JsonConvert.SerializeObject(dto);
+                    var outPath = Path.Combine(targetDir, "optimized_settings.json");
+                    File.WriteAllText(outPath, json);
+                } catch (Exception ex) {
+                    Console.Error.WriteLine($"  WARNING: failed to write optimized_settings.json to --out dir '{targetDir}': {ex.Message}");
+                    Logger.Error(ex, $"Failed to write --out optimized_settings.json to '{targetDir}'");
                 }
             }
         }
@@ -643,7 +663,10 @@ namespace TestApp {
                 AverageHFR = averageHfr,
                 HFRStdDev = hfrStdDev,
                 StarCount = stars.Count,
-                StarCenters = centers
+                StarCenters = centers,
+                // Count relaxation-admitted stars from the SURVIVING accepted set (consistent with StarCount). 0
+                // unless a defocus-aware gate is on. Feeds the optimizer's precision penalty.
+                RelaxationAdmittedCount = stars.Count(s => s.RelaxationAdmitted)
             };
         }
 
