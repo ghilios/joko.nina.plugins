@@ -133,6 +133,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
             ChooseIntermediatePathDiagCommand = new RelayCommand(ChooseIntermediatePathDiag);
             ChooseSavePathDiagCommand = new RelayCommand(ChooseSavePathDiag);
             OptimizeStarDetectionCommand = new RelayCommand(OptimizeStarDetection);
+            LaunchStarDetectionOptimizer = OptimizeStarDetection;
         }
 
         /// <summary>
@@ -236,6 +237,13 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public static ApplicationDispatcher ApplicationDispatcher { get; private set; }
 
         public static IAlglibAPI AlglibAPI { get; private set; }
+
+        /// <summary>
+        /// Shared launcher for the Star Detection Optimization Wizard. Set by the plugin constructor so other
+        /// ViewModels (e.g. the Imaging-pane StarDetectionOptionsVM) can open the same wizard without re-wiring
+        /// the wizard's dependencies. May be null when no plugin instance has been constructed (e.g. unit tests).
+        /// </summary>
+        public static Action LaunchStarDetectionOptimizer { get; private set; }
 
         public ICommand ResetStarDetectionDefaultsCommand { get; private set; }
 

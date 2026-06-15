@@ -36,6 +36,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             ImageGeometry.Freeze();
 
             ChooseIntermediatePathDiagCommand = new RelayCommand(ChooseIntermediatePathDiag);
+            OptimizeStarDetectionCommand = new RelayCommand(OptimizeStarDetection);
+        }
+
+        private void OptimizeStarDetection(object obj) {
+            // Delegates to the shared launcher set by HocusFocusPlugin. Null-safe so the command is a no-op
+            // when no plugin instance has been constructed (e.g. a unit test constructing this VM directly).
+            HocusFocusPlugin.LaunchStarDetectionOptimizer?.Invoke();
         }
 
         private void ChooseIntermediatePathDiag(object obj) {
@@ -53,5 +60,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public StarDetectionOptions StarDetectionOptions { get; private set; }
 
         public ICommand ChooseIntermediatePathDiagCommand { get; private set; }
+
+        public ICommand OptimizeStarDetectionCommand { get; private set; }
     }
 }
