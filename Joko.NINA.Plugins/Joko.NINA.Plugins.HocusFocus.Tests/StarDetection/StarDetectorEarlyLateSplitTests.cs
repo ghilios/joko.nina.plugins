@@ -92,6 +92,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 // Defocus-aware distortion is a late-only gate change: reusing the early context must still match
                 // a fresh full Detect with the flag on.
                 Mutate(earlyParams, q => { q.DefocusAwareDistortion = true; q.DefocusDistortionSizeReference = 15.0; q.DefocusDistortionMinFactor = 0.2; }),
+                // Defocus-aware centering is likewise a late-only gate change (NotCentered decision only).
+                Mutate(earlyParams, q => { q.DefocusAwareCentering = true; q.DefocusDistortionSizeReference = 15.0; q.DefocusCenteringToleranceFactor = 2.5; }),
             };
 
             foreach (var lateParams in lateVariants) {
@@ -123,6 +125,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => q.DefocusAwareDistortion = true)), Is.EqualTo(baseKey), "DefocusAwareDistortion is late-only");
                 Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => { q.DefocusAwareDistortion = true; q.DefocusDistortionSizeReference = 50.0; })), Is.EqualTo(baseKey), "DefocusDistortionSizeReference is late-only");
                 Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => { q.DefocusAwareDistortion = true; q.DefocusDistortionMinFactor = 0.1; })), Is.EqualTo(baseKey), "DefocusDistortionMinFactor is late-only");
+                // The defocus-aware centering knobs are all late-gate (NotCentered decision only).
+                Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => q.DefocusAwareCentering = true)), Is.EqualTo(baseKey), "DefocusAwareCentering is late-only");
+                Assert.That(StarDetector.ComputeEarlyCacheKey(Mutate(baseP, q => { q.DefocusAwareCentering = true; q.DefocusCenteringToleranceFactor = 3.0; })), Is.EqualTo(baseKey), "DefocusCenteringToleranceFactor is late-only");
             });
 
             // EARLY changes MUST change the early key.

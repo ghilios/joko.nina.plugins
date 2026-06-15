@@ -317,6 +317,28 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // becomes). Only consulted when DefocusAwareDistortion is true. Must be in (0, 1].
         public double DefocusDistortionMinFactor { get; set; } = 0.25;
 
+        // Opt-in (default OFF for bit-identical detection). Companion to DefocusAwareDistortion. When true, the
+        // NotCentered gate's effective StarCenterTolerance is RELAXED (the centered acceptance sub-box grows) for
+        // LARGE candidates (proxy for large defocus): a defocused donut's hollow ring makes its intensity-weighted
+        // centroid wobble away from the bbox center, so today's strict StarCenterTolerance wrongly rejects it as
+        // NotCentered even after the distortion gate admits it. The effective tolerance is
+        //   StarCenterTolerance * clamp(candidateSize / DefocusDistortionSizeReference, 1.0, DefocusCenteringToleranceFactor)
+        // clamped to <= 1.0 (the max valid tolerance, where the sub-box covers the whole bbox). candidateSize =
+        // max(bbox.Width, bbox.Height) and the SAME DefocusDistortionSizeReference defocus proxy is reused.
+        // Candidates at or below the size reference keep the strict tolerance (factor = 1.0); larger candidates get
+        // a larger (more permissive) tolerance toward DefocusCenteringToleranceFactor. See
+        // ComputeEffectiveStarCenterTolerance. LATE-gate param: it changes only the late NotCentered decision, so
+        // it is excluded from the early cache key.
+        public bool DefocusAwareCentering { get; set; } = false;
+
+        // The max multiplier applied to StarCenterTolerance for very large candidates (the most permissive the
+        // NotCentered gate ever becomes). Only consulted when DefocusAwareCentering is true. Must be >= 1.0
+        // (>1 relaxes; 1.0 is a no-op). The resulting effective tolerance is additionally clamped to <= 1.0 so it
+        // never exceeds the whole bbox. Default 2.0 tuned on the Panos wide-range AF run: doubling the centering
+        // sub-box recovers the ring-unstable donut centroids the distortion gate admits, without ballooning
+        // near-focus accepted/NotCentered counts (near-focus candidates stay <= the size reference, so factor 1.0).
+        public double DefocusCenteringToleranceFactor { get; set; } = 2.0;
+
         // Size (as a ratio) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star
         public double StarCenterTolerance { get; set; } = 0.3;
 
@@ -386,7 +408,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public StarDetectorParams Clone() => (StarDetectorParams)this.MemberwiseClone();
 
         public override string ToString() {
-            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(DefocusAwareDistortion)}={DefocusAwareDistortion.ToString()}, {nameof(DefocusDistortionSizeReference)}={DefocusDistortionSizeReference.ToString()}, {nameof(DefocusDistortionMinFactor)}={DefocusDistortionMinFactor.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}, {nameof(MaxStarEvaluationParallelism)}={MaxStarEvaluationParallelism.ToString()}}}";
+            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(DefocusAwareDistortion)}={DefocusAwareDistortion.ToString()}, {nameof(DefocusDistortionSizeReference)}={DefocusDistortionSizeReference.ToString()}, {nameof(DefocusDistortionMinFactor)}={DefocusDistortionMinFactor.ToString()}, {nameof(DefocusAwareCentering)}={DefocusAwareCentering.ToString()}, {nameof(DefocusCenteringToleranceFactor)}={DefocusCenteringToleranceFactor.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}, {nameof(MaxStarEvaluationParallelism)}={MaxStarEvaluationParallelism.ToString()}}}";
         }
 
         // Properties intentionally EXCLUDED from the detection-result cache key (ToCanonicalCacheString). The

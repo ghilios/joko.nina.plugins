@@ -93,6 +93,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double StarPeakResponse { get; set; }
         double MaxDistortion { get; set; }
         bool DefocusAwareDistortion { get; set; }
+        bool DefocusAwareCentering { get; set; }
         double StarCenterTolerance { get; set; }
         int StarBackgroundBoxExpansion { get; set; }
         int MinStarBoundingBoxSize { get; set; }

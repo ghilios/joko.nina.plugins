@@ -176,6 +176,23 @@ namespace TestApp {
                 }
             }
 
+            // Opt-in defocus-aware CENTERING test switch (companion to --defocus-distortion). Flips
+            // DefocusAwareCentering ON on the freshly built params; optional --defocus-center-factor overrides the
+            // max centering-tolerance multiplier (otherwise the StarDetectorParams class default 2.0 applies). The
+            // size reference is SHARED with the distortion gate (DefocusDistortionSizeReference), so --defocus-size-ref
+            // affects both gates. Enable both flags to recover ring-unstable donut centroids the distortion gate admits.
+            if (DiagnosticUtil.HasFlag(args, "--defocus-centering")) {
+                detectionParams.DefocusAwareCentering = true;
+                var sizeRefArg = DiagnosticUtil.GetArg(args, "--defocus-size-ref");
+                if (!string.IsNullOrWhiteSpace(sizeRefArg) && double.TryParse(sizeRefArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var sizeRef)) {
+                    detectionParams.DefocusDistortionSizeReference = sizeRef;
+                }
+                var centerFactorArg = DiagnosticUtil.GetArg(args, "--defocus-center-factor");
+                if (!string.IsNullOrWhiteSpace(centerFactorArg) && double.TryParse(centerFactorArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var centerFactor)) {
+                    detectionParams.DefocusCenteringToleranceFactor = centerFactor;
+                }
+            }
+
             Line($"Detection params: Sensitivity={detectionParams.Sensitivity.ToString("G6", CultureInfo.InvariantCulture)}, " +
                 $"StructureLayers={detectionParams.StructureLayers}, MaxDistortion={detectionParams.MaxDistortion.ToString("G6", CultureInfo.InvariantCulture)}, " +
                 $"PixelScale={detectionParams.PixelScale.ToString("G6", CultureInfo.InvariantCulture)}, RejectContaminated={detectionParams.RejectContaminatedStars}");
@@ -183,6 +200,11 @@ namespace TestApp {
                 (detectionParams.DefocusAwareDistortion
                     ? $" (SizeReference={detectionParams.DefocusDistortionSizeReference.ToString("G6", CultureInfo.InvariantCulture)} px, " +
                       $"MinFactor={detectionParams.DefocusDistortionMinFactor.ToString("G6", CultureInfo.InvariantCulture)})"
+                    : ""));
+            Line($"DefocusAwareCentering={detectionParams.DefocusAwareCentering}" +
+                (detectionParams.DefocusAwareCentering
+                    ? $" (SizeReference={detectionParams.DefocusDistortionSizeReference.ToString("G6", CultureInfo.InvariantCulture)} px, " +
+                      $"ToleranceFactor={detectionParams.DefocusCenteringToleranceFactor.ToString("G6", CultureInfo.InvariantCulture)})"
                     : ""));
             Line();
 
@@ -408,8 +430,10 @@ namespace TestApp {
             Console.Error.WriteLine("  --profile-id  (default active) NINA profile id to load.");
             Console.Error.WriteLine("  --out         (default a temp dir) where diagnose_labels.txt is written.");
             Console.Error.WriteLine("  --defocus-distortion        (opt-in test switch) flips DefocusAwareDistortion ON on the built params.");
-            Console.Error.WriteLine("  --defocus-size-ref <px>     (with --defocus-distortion) override the strict-below size reference (default 20).");
+            Console.Error.WriteLine("  --defocus-centering         (opt-in test switch) flips DefocusAwareCentering ON (relaxes NotCentered for large/defocused candidates).");
+            Console.Error.WriteLine("  --defocus-size-ref <px>     (with either defocus switch) override the strict-below size reference, shared by both gates (default 30).");
             Console.Error.WriteLine("  --defocus-min-factor <0..1> (with --defocus-distortion) override the floor multiplier on MaxDistortion (default 0.25).");
+            Console.Error.WriteLine("  --defocus-center-factor <>=1> (with --defocus-centering) override the max multiplier on StarCenterTolerance (default 2.0).");
         }
 
         // ---- Run / frame discovery (mirrors StarReviewRunner / OptimizationDiagnosticRunner) ----------------

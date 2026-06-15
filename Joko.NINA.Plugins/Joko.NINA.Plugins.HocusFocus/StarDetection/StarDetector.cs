@@ -1183,6 +1183,45 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return p.MaxDistortion * factor;
         }
 
+        /// <summary>
+        /// Companion to <see cref="ComputeEffectiveMaxDistortion"/> for the NotCentered gate. Computes the
+        /// effective StarCenterTolerance the centering check uses for a candidate of bbox max-dimension
+        /// <paramref name="candidateSize"/> (= max(bbox.Width, bbox.Height), the SAME defocus proxy the distortion
+        /// gate uses).
+        ///
+        /// When <see cref="StarDetectorParams.DefocusAwareCentering"/> is FALSE this returns
+        /// <see cref="StarDetectorParams.StarCenterTolerance"/> verbatim, so the gate is byte-for-byte the legacy
+        /// gate (default-OFF ⇒ bit-identical detection). When TRUE it returns
+        ///   StarCenterTolerance · clamp(candidateSize / SizeReference, 1.0, ToleranceFactor)
+        /// (additionally clamped so the effective tolerance never exceeds 1.0, where the centered acceptance
+        /// sub-box covers the whole bbox). Candidates at or below the size reference keep the strict tolerance
+        /// (factor 1.0); larger candidates (defocused donuts, whose hollow ring destabilizes the intensity-weighted
+        /// centroid) get a LARGER tolerance → a bigger centered sub-box → the NotCentered gate is MORE permissive,
+        /// admitting off-center donut centroids. Pure + deterministic (no image access) so it is unit-testable in
+        /// isolation. Mirrors the distortion helper's clamp structure (relaxation direction is inverted because a
+        /// LARGER tolerance is more permissive, whereas a SMALLER distortion threshold is more permissive).
+        /// </summary>
+        public static double ComputeEffectiveStarCenterTolerance(double baseTolerance, double candidateSize, double sizeReference, double maxFactor) {
+            // Degenerate inputs can't make the gate permissive; fall back to the strict tolerance. maxFactor < 1
+            // would TIGHTEN the gate, which this helper must never do, so treat it as the 1.0 no-op.
+            if (candidateSize <= 0.0 || sizeReference <= 0.0 || maxFactor <= 1.0) {
+                return baseTolerance;
+            }
+
+            var factor = candidateSize / sizeReference;
+            // clamp to [1.0, maxFactor]: ≤ SizeReference ⇒ ≤ 1 ⇒ strict; larger ⇒ relaxes toward the ceiling.
+            if (factor < 1.0) {
+                factor = 1.0;
+            } else if (factor > maxFactor) {
+                factor = maxFactor;
+            }
+
+            var effective = baseTolerance * factor;
+            // The tolerance is a ratio of the bbox; 1.0 is the max valid value (sub-box == whole bbox). Never
+            // exceed it (a value > 1.0 would place the acceptance band outside the bbox and is meaningless).
+            return effective > 1.0 ? 1.0 : effective;
+        }
+
         private Star EvaluateStarCandidate(Mat srcImage, StarDetectorParams p, Rect starBounds, List<Point> starPoints, double srcImageNoiseSigma, StarDetectorMetrics metrics, ConcurrentBag<ContaminationDiagnosticRecord> diagnosticsBag) {
             // Now we have a potential star bounding box as well as the coordinates of every star pixel. If this is a reliable star,
             // we compute its barycenter and include it.
@@ -1303,8 +1342,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         private static bool IsStarCentered(StarCandidate starCandidate, StarDetectorParams p) {
             var box = starCandidate.StarBoundingBox;
-            var centerThresholdBoxWidth = box.Width * p.StarCenterTolerance;
-            var centerThresholdBoxHeight = box.Height * p.StarCenterTolerance;
+            // When DefocusAwareCentering is off the effective tolerance is exactly p.StarCenterTolerance
+            // (bit-identical to the legacy gate). When on, it is relaxed (the centered acceptance sub-box grows)
+            // for large candidates so large-defocus donuts (whose ring destabilizes the centroid) survive — see
+            // ComputeEffectiveStarCenterTolerance. The same effective tolerance drives both the decision and the
+            // NotCentered metrics/bounds tally (the tally happens at the single call site, which honors the return).
+            var effectiveTolerance = p.DefocusAwareCentering
+                ? ComputeEffectiveStarCenterTolerance(p.StarCenterTolerance, Math.Max(box.Width, box.Height), p.DefocusDistortionSizeReference, p.DefocusCenteringToleranceFactor)
+                : p.StarCenterTolerance;
+            var centerThresholdBoxWidth = box.Width * effectiveTolerance;
+            var centerThresholdBoxHeight = box.Height * effectiveTolerance;
             var minX = box.X + (box.Width - centerThresholdBoxWidth) / 2.0;
             var maxX = minX + centerThresholdBoxWidth;
             var minY = box.Y + (box.Height - centerThresholdBoxHeight) / 2.0;

@@ -205,6 +205,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.75);
             maxDistortion = optionsAccessor.GetValueDouble("MaxDistortion", 0.5);
             defocusAwareDistortion = optionsAccessor.GetValueBoolean("DefocusAwareDistortion", false);
+            defocusAwareCentering = optionsAccessor.GetValueBoolean("DefocusAwareCentering", false);
             starCenterTolerance = optionsAccessor.GetValueDouble("StarCenterTolerance", 0.3);
             starBackgroundBoxExpansion = optionsAccessor.GetValueInt32("StarBackgroundBoxExpansion", 3);
             minStarBoundingBoxSize = optionsAccessor.GetValueInt32("MinStarBoundingBoxSize", 5);
@@ -263,6 +264,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             StarPeakResponse = 0.75;
             MaxDistortion = 0.5;
             DefocusAwareDistortion = false;
+            DefocusAwareCentering = false;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
@@ -588,6 +590,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (defocusAwareDistortion != value) {
                     defocusAwareDistortion = value;
                     optionsAccessor.SetValueBoolean("DefocusAwareDistortion", defocusAwareDistortion);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool defocusAwareCentering;
+
+        // Opt-in, Advanced-only. Companion to DefocusAwareDistortion. Default OFF so detection stays bit-identical
+        // when disabled. When ON, the NotCentered gate relaxes its StarCenterTolerance (grows the centered
+        // acceptance sub-box) for LARGE candidates (large-defocus donut stars whose hollow ring destabilizes the
+        // centroid), recovering donuts the distortion gate now admits but the strict centering test would reject.
+        // The numeric tuning knob (DefocusCenteringToleranceFactor) and the shared size reference are kept as
+        // detector params with fixed sensible defaults (not exposed in the UI) to limit the option surface; only
+        // this on/off toggle is a persisted option.
+        public bool DefocusAwareCentering {
+            get => defocusAwareCentering;
+            set {
+                if (defocusAwareCentering != value) {
+                    defocusAwareCentering = value;
+                    optionsAccessor.SetValueBoolean("DefocusAwareCentering", defocusAwareCentering);
                     RaisePropertyChanged();
                 }
             }

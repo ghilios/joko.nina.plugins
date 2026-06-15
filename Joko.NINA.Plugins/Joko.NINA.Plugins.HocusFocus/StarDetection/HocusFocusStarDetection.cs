@@ -297,10 +297,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Sensitivity = options.BrightnessSensitivity,
                 PeakResponse = options.StarPeakResponse,
                 MaxDistortion = options.MaxDistortion,
-                // Opt-in, default OFF. The two numeric tuning knobs (DefocusDistortionSizeReference /
-                // DefocusDistortionMinFactor) are not exposed in the options UI, so they keep the
-                // StarDetectorParams class defaults (20.0 px / 0.25).
+                // Opt-in, default OFF. The numeric tuning knobs (DefocusDistortionSizeReference /
+                // DefocusDistortionMinFactor / DefocusCenteringToleranceFactor) are not exposed in the options UI,
+                // so they keep the StarDetectorParams class defaults (30.0 px / 0.25 / 2.0).
                 DefocusAwareDistortion = options.DefocusAwareDistortion,
+                // Companion opt-in, default OFF. Relaxes the NotCentered gate for large (defocused) candidates,
+                // reusing the same DefocusDistortionSizeReference defocus proxy as the distortion gate.
+                DefocusAwareCentering = options.DefocusAwareCentering,
                 StarCenterTolerance = options.StarCenterTolerance,
                 BackgroundBoxExpansion = options.StarBackgroundBoxExpansion,
                 MinimumStarBoundingBoxSize = options.MinStarBoundingBoxSize,

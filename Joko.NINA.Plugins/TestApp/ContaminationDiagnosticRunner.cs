@@ -149,6 +149,24 @@ namespace TestApp {
                 Console.WriteLine("DefocusAwareDistortion=OFF");
             }
 
+            // Companion defocus-aware CENTERING test switch (relaxes the NotCentered gate for large/defocused
+            // candidates). Shares the size reference with the distortion gate; optional --defocus-center-factor
+            // overrides the max centering-tolerance multiplier.
+            if (DiagnosticUtil.HasFlag(args, "--defocus-centering")) {
+                baseParams.DefocusAwareCentering = true;
+                var sizeRefArg = DiagnosticUtil.GetArg(args, "--defocus-size-ref");
+                if (!string.IsNullOrWhiteSpace(sizeRefArg) && double.TryParse(sizeRefArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var sizeRef)) {
+                    baseParams.DefocusDistortionSizeReference = sizeRef;
+                }
+                var centerFactorArg = DiagnosticUtil.GetArg(args, "--defocus-center-factor");
+                if (!string.IsNullOrWhiteSpace(centerFactorArg) && double.TryParse(centerFactorArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var centerFactor)) {
+                    baseParams.DefocusCenteringToleranceFactor = centerFactor;
+                }
+                Console.WriteLine($"DefocusAwareCentering=ON (SizeReference={baseParams.DefocusDistortionSizeReference.ToString(CultureInfo.InvariantCulture)} px, ToleranceFactor={baseParams.DefocusCenteringToleranceFactor.ToString(CultureInfo.InvariantCulture)})");
+            } else {
+                Console.WriteLine("DefocusAwareCentering=OFF");
+            }
+
             // Load the original image once (CV_32F, normalized [0,1]). Detection mutates its input in place,
             // so each run gets a clone and the original is kept for the annotated background.
             using var srcFloat = await DiagnosticUtil.LoadFloatMat(imagePath, profileService);
