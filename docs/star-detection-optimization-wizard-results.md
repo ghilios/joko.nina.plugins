@@ -116,3 +116,36 @@ to its curated set, could *couple* the relaxed distortion with a **lowered sensi
 false-positive penalty term in `OptimizationObjective` therefore remains a prudent **guardrail before** adding
 the gate (and/or size-ref) to the optimizer's search — milder than the original "floods near-focus" fear, but
 still warranted.
+
+## F3 — Optimizer integration of the defocus gate + precision penalty (follow-up T11)
+
+Added the combined `DefocusAwareGates` flag to the optimizer's curated set, guarded by a **multiplicative**
+near-focus precision penalty in `OptimizationObjective` (`j *= SDefocusPrecision`). The penalty is **provably a
+no-op when the gate is off** (returns exactly 1.0 when no star was relaxation-admitted), so per-evaluation `J`
+and detection star counts stay **bit-identical** to the pre-F3 baseline (unit-tested against an independent
+re-implementation of the old formula). The penalty's junk signal is *relaxation-admitted stars near best
+focus* — by the gate's size-scaling, sharp near-focus stars are small and never need relaxation, so a large
+relaxed candidate there is a junk blob; legitimate donut recovery on the defocused extremes is not penalized.
+
+Verified on the bank (`optimize`, gate now in the search):
+
+| Run | Seed J → Best J | σ_focus / recall | `DefocusAwareGates` | Hard floor |
+|---|---|---|---|---|
+| Panos (labeled) | 0.868 → **0.941** | σ 67.8 → **12.6 (5.4×)**, recall 0 → **0.417**, precision **1.0** | 0 → 0 (not selected) | PASS (min 24) |
+| Panos (unlabeled) | 0.960 → 1.000 | — | 0 → 0 | PASS (min 13) |
+| CWhite (no donuts) | 0.989 → 0.998 | — | 0 → 0 | PASS (min 258) |
+
+### Findings
+
+- **No regression, no flooding.** The gate stays **OFF** on the unlabeled and no-donut runs and `J` improved on
+  all three — the gate+penalty never misfire. (Bit-identity is per-evaluation; the optimizer's *trajectory* can
+  differ because the search space grew by one boolean, but it converges to ≥ the pre-F3 best.)
+- **On labeled Panos the optimizer recovers recall via `Sensitivity`↓ + `StructureLayers`↑, not the gate** —
+  a cheaper global path to the donuts (defocused-extreme star counts jumped, e.g. 44396: 6 → 24, with σ_focus
+  5.4× tighter). The defocus gate remains **available and guarded** for cases where that path isn't viable.
+- The unrecovered Panos misses are the **4/5 `NO CANDIDATE` structure gaps** (the T13 spike) — closed by
+  neither the gate nor the sensitivity/structure changes.
+- Penalty constants (`NearFocusWindowSteps`=1.5, `DefocusPrecisionThreshold`=0.20, `DefocusPrecisionStrength`=
+  0.5, `DefocusPrecisionMinFactor`=0.5) are deliberately conservative and were **not triggered** here (the gate
+  wasn't selected, so nothing was relaxation-admitted). They will be exercised further once **should-reject
+  (precision) labels** are added in a follow-up session.
