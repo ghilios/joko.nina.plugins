@@ -204,8 +204,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 2.0);
             starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.75);
             maxDistortion = optionsAccessor.GetValueDouble("MaxDistortion", 0.5);
-            defocusAwareDistortion = optionsAccessor.GetValueBoolean("DefocusAwareDistortion", false);
-            defocusAwareCentering = optionsAccessor.GetValueBoolean("DefocusAwareCentering", false);
+            defocusAwareGates = optionsAccessor.GetValueBoolean("DefocusAwareGates", false);
+            defocusDistortionSizeReference = optionsAccessor.GetValueDouble("DefocusDistortionSizeReference", 30.0);
+            defocusDistortionMinFactor = optionsAccessor.GetValueDouble("DefocusDistortionMinFactor", 0.25);
+            defocusCenteringToleranceFactor = optionsAccessor.GetValueDouble("DefocusCenteringToleranceFactor", 2.0);
             starCenterTolerance = optionsAccessor.GetValueDouble("StarCenterTolerance", 0.3);
             starBackgroundBoxExpansion = optionsAccessor.GetValueInt32("StarBackgroundBoxExpansion", 3);
             minStarBoundingBoxSize = optionsAccessor.GetValueInt32("MinStarBoundingBoxSize", 5);
@@ -263,8 +265,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             BrightnessSensitivity = 2.0;
             StarPeakResponse = 0.75;
             MaxDistortion = 0.5;
-            DefocusAwareDistortion = false;
-            DefocusAwareCentering = false;
+            DefocusAwareGates = false;
+            DefocusDistortionSizeReference = 30.0;
+            DefocusDistortionMinFactor = 0.25;
+            DefocusCenteringToleranceFactor = 2.0;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
@@ -577,39 +581,79 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        private bool defocusAwareDistortion;
+        private bool defocusAwareGates;
 
-        // Opt-in, Advanced-only. Default OFF so detection stays bit-identical when disabled. When ON, the
-        // TooDistorted gate relaxes its fill-ratio threshold for LARGE candidates (large-defocus donut stars),
-        // recovering donuts that the strict ratio would reject. The two numeric tuning knobs (size reference and
-        // min factor) are kept as detector params with fixed sensible defaults (not exposed in the UI) to limit
-        // the option surface; only this on/off toggle is a persisted option.
-        public bool DefocusAwareDistortion {
-            get => defocusAwareDistortion;
+        // Opt-in, Advanced-only. Default OFF so detection stays bit-identical when disabled. A single toggle that
+        // drives BOTH defocus-aware gate relaxations (it maps to StarDetectorParams.DefocusAwareDistortion AND
+        // DefocusAwareCentering in BuildStarDetectorParams). When ON: the TooDistorted gate relaxes its fill-ratio
+        // threshold for LARGE candidates (large-defocus donut stars), recovering donuts the strict ratio would
+        // reject; and the NotCentered gate relaxes its StarCenterTolerance (grows the centered acceptance sub-box)
+        // for those same large candidates whose hollow ring destabilizes the centroid. The three numeric tuning
+        // knobs (DefocusDistortionSizeReference / DefocusDistortionMinFactor / DefocusCenteringToleranceFactor) are
+        // separate Advanced options that only take effect while this toggle is ON.
+        public bool DefocusAwareGates {
+            get => defocusAwareGates;
             set {
-                if (defocusAwareDistortion != value) {
-                    defocusAwareDistortion = value;
-                    optionsAccessor.SetValueBoolean("DefocusAwareDistortion", defocusAwareDistortion);
+                if (defocusAwareGates != value) {
+                    defocusAwareGates = value;
+                    optionsAccessor.SetValueBoolean("DefocusAwareGates", defocusAwareGates);
                     RaisePropertyChanged();
                 }
             }
         }
 
-        private bool defocusAwareCentering;
+        private double defocusDistortionSizeReference;
 
-        // Opt-in, Advanced-only. Companion to DefocusAwareDistortion. Default OFF so detection stays bit-identical
-        // when disabled. When ON, the NotCentered gate relaxes its StarCenterTolerance (grows the centered
-        // acceptance sub-box) for LARGE candidates (large-defocus donut stars whose hollow ring destabilizes the
-        // centroid), recovering donuts the distortion gate now admits but the strict centering test would reject.
-        // The numeric tuning knob (DefocusCenteringToleranceFactor) and the shared size reference are kept as
-        // detector params with fixed sensible defaults (not exposed in the UI) to limit the option surface; only
-        // this on/off toggle is a persisted option.
-        public bool DefocusAwareCentering {
-            get => defocusAwareCentering;
+        // Advanced-only tuning knob for the defocus-aware gates (only consulted while DefocusAwareGates is ON). The
+        // candidate bbox max-dimension (px) at/below which the strict gate thresholds apply; larger candidates get
+        // the relaxed thresholds. Shared by both the distortion and centering relaxations. Must be > 0. Default 30.
+        public double DefocusDistortionSizeReference {
+            get => defocusDistortionSizeReference;
             set {
-                if (defocusAwareCentering != value) {
-                    defocusAwareCentering = value;
-                    optionsAccessor.SetValueBoolean("DefocusAwareCentering", defocusAwareCentering);
+                if (defocusDistortionSizeReference != value) {
+                    if (value < 1.0 || value > 1000.0) {
+                        throw new ArgumentException("DefocusDistortionSizeReference must be within [1, 1000]", "DefocusDistortionSizeReference");
+                    }
+                    defocusDistortionSizeReference = value;
+                    optionsAccessor.SetValueDouble("DefocusDistortionSizeReference", defocusDistortionSizeReference);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double defocusDistortionMinFactor;
+
+        // Advanced-only tuning knob for the defocus-aware gates (only consulted while DefocusAwareGates is ON). The
+        // floor multiplier on MaxDistortion for very large candidates (the most permissive the distortion gate ever
+        // becomes). Must be in (0, 1]. Default 0.25.
+        public double DefocusDistortionMinFactor {
+            get => defocusDistortionMinFactor;
+            set {
+                if (defocusDistortionMinFactor != value) {
+                    if (value < 0.01 || value > 1.0) {
+                        throw new ArgumentException("DefocusDistortionMinFactor must be within [0.01, 1]", "DefocusDistortionMinFactor");
+                    }
+                    defocusDistortionMinFactor = value;
+                    optionsAccessor.SetValueDouble("DefocusDistortionMinFactor", defocusDistortionMinFactor);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double defocusCenteringToleranceFactor;
+
+        // Advanced-only tuning knob for the defocus-aware gates (only consulted while DefocusAwareGates is ON). The
+        // max multiplier applied to StarCenterTolerance for very large candidates (the most permissive the
+        // NotCentered gate ever becomes). Must be >= 1.0 (>1 relaxes; 1.0 is a no-op). Default 2.0.
+        public double DefocusCenteringToleranceFactor {
+            get => defocusCenteringToleranceFactor;
+            set {
+                if (defocusCenteringToleranceFactor != value) {
+                    if (value < 1.0 || value > 10.0) {
+                        throw new ArgumentException("DefocusCenteringToleranceFactor must be within [1, 10]", "DefocusCenteringToleranceFactor");
+                    }
+                    defocusCenteringToleranceFactor = value;
+                    optionsAccessor.SetValueDouble("DefocusCenteringToleranceFactor", defocusCenteringToleranceFactor);
                     RaisePropertyChanged();
                 }
             }
