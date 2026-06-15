@@ -149,3 +149,29 @@ Verified on the bank (`optimize`, gate now in the search):
   0.5, `DefocusPrecisionMinFactor`=0.5) are deliberately conservative and were **not triggered** here (the gate
   wasn't selected, so nothing was relaxation-admitted). They will be exercised further once **should-reject
   (precision) labels** are added in a follow-up session.
+
+## F6 — Coarse-grid resolution vs bound range (follow-up T12): investigated → wash → reverted
+
+Prototyped a per-axis adaptive coarse grid (Phase-A levels scale with each axis's range so the grid spacing is
+consistent regardless of bound width). Verified before/after (fixed 4-level grid vs per-axis adaptive) on the
+bound-pinned setups at 150 evals:
+
+| Setup | frames × size | Sensitivity opt (before → after) | Outcome |
+|---|---|---|---|
+| CWhiteFocus | 9 × 122 MB | 50 → 50 (upper bound) | unchanged (both grids sample the bound) |
+| timmer | 18 × 52 MB | 50 → 50 (upper bound) | unchanged |
+| muggsie | 9 × 23 MB | 16.667 (coarse node) → 18.75 (fine node) | J 0.99685 → 0.99655, σ 10.96 → 11.45 (marginally **worse**) |
+| mccomiskey | 9 × 113 MB | 16.667 (coarse node) → not tested (~24 min/run) | — |
+
+**Finding:** the finer grid shifts *which* node the interior optimum lands on but does **not** improve J/σ — on
+muggsie it was marginally worse (σ +4.5%). This **confirms the original "bound-widening was ≈ a wash"** result:
+**coarse-grid resolution is not the limiter.** Reverted (keeps the optimizer simple and the documented baselines
+intact).
+
+**The real limiter (and the cause of the long 24–38 min optimize runtimes on big sensors):** the compass search
+re-probes the **5 early (wavelet/structure) params** (`StructureLayers`, `NoiseReductionRadius`,
+`MinStarBoundingBoxSize`, hotpixel ×2) on **every sweep**; each early probe is a full per-frame early-context
+rebuild that the per-frame cache (one context per frame) cannot amortize, so it is always a miss. The ~10–13×
+perf win applies only to the **late-only** moves. Future optimizer-efficiency lever (logged, not in this PR):
+stage early vs late axes, or freeze/early-stop early-param probing once refined, so the search doesn't pay the
+full early-rebuild cost on every sweep. See the cache-health investigation note below.
