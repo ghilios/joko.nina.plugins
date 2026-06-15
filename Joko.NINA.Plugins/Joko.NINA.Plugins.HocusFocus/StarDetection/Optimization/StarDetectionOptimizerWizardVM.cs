@@ -115,7 +115,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // so the re-optimize-with-labels path can RE-LOAD from disk after StartAsync's finally disposed the in-memory
         // data. Reset per run like the other review fields.
         private readonly List<string> loadedRunFolders = new List<string>();
+        // The deterministic per-run RunId for each loaded run, captured in load order parallel to loadedRunFolders.
+        // RunEvaluationLoader sets RunId = attempt.FolderPath ?? attemptFolderPath (a pure function of the folder), so
+        // recording it during the first acquire lets re-optimize match labels by id WITHOUT a probe re-load.
+        private readonly List<string> loadedRunIds = new List<string>();
         private IReadOnlyList<string> reoptimizeRunFolders;
+        private IReadOnlyList<string> reoptimizeRunIds;
 
         private CancellationTokenSource cts;
         private int running; // 0 = idle, 1 = a Start is in flight (guards against double-start)
@@ -429,7 +434,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             reviewDescriptors = null;
             reviewLabelsDir = null;
             reoptimizeRunFolders = null;
+            reoptimizeRunIds = null;
             loadedRunFolders.Clear();
+            loadedRunIds.Clear();
             capturedLabels = null;
             RaisePropertyChanged(nameof(HasLabels));
             ReOptimizeCommand.NotifyCanExecuteChanged();
@@ -471,7 +478,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // Snapshot the Mat-free frame descriptors + the labels dir for the optional Review step NOW, while
                 // loadedRuns is still alive — the finally below disposes the in-memory source Mats, so the Review
                 // step must detect from DISK afterward using only these paths/positions.
-                SnapshotReviewInputs(loadedRuns, loadedRunFolders);
+                SnapshotReviewInputs(loadedRuns, loadedRunFolders, loadedRunIds);
 
                 CurrentStep = WizardStep.Summary;
             } catch (OperationCanceledException) {
@@ -525,6 +532,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     // Record the actual folder loaded (in load order) so the re-optimize path can re-read it from disk
                     // after the source Mats are disposed. Snapshotted in SnapshotReviewInputs on full success.
                     loadedRunFolders.Add(folder);
+                    // Also record the deterministic RunId now, so re-optimize can match labels by id without a probe
+                    // re-load (RunEvaluationLoader derives RunId purely from the folder).
+                    loadedRunIds.Add(loaded.Data.RunId);
                 }
                 return runs;
             } catch {
@@ -722,7 +732,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// (<c>&lt;sourceFolder&gt;/labels</c>), matching where <c>optimize --labels</c> /
         /// <c>RunEvaluationData.ApplyLabelScores</c> expect the per-run <c>&lt;runId&gt;.json</c> files.
         /// </summary>
-        private void SnapshotReviewInputs(IReadOnlyList<LoadedRun> runs, IReadOnlyList<string> sourceFolders) {
+        private void SnapshotReviewInputs(IReadOnlyList<LoadedRun> runs, IReadOnlyList<string> sourceFolders, IReadOnlyList<string> sourceRunIds) {
             var descriptors = new List<FrameReviewDescriptor>();
             foreach (var run in runs) {
                 descriptors.AddRange(run.Data.GetFrameDescriptors());
@@ -732,6 +742,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Snapshot the loaded source folders (in load order) so re-optimize can RE-LOAD from disk after the
             // source Mats are disposed in the run's finally. The runs[i] ordering matches sourceFolders[i].
             reoptimizeRunFolders = sourceFolders?.ToList() ?? new List<string>();
+            // Snapshot the per-run RunIds (same load order) so re-optimize matches labels by id without a probe load.
+            reoptimizeRunIds = sourceRunIds?.ToList() ?? new List<string>();
             ReviewCommand.NotifyCanExecuteChanged();
         }
 
@@ -829,10 +841,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// from disk — it cannot reuse the disposed data. The captured per-run labels are converted in-memory via
         /// <see cref="LabelConverter.ToFrameLabels"/> and threaded into the loader so the optimizer scores recall/precision.
         ///
-        /// <para>Matches captured labels to re-loaded runs by the loaded run's <see cref="RunEvaluationData.RunId"/>;
-        /// if a runId does not line up (e.g. the loader assigns a different id), it falls back to POSITIONAL matching
-        /// across the snapshotted folders (loaded in the same order) and logs a warning — never crashing or silently
-        /// dropping labels. Runs with no captured labels load with null labels (label-agnostic scoring, as before).</para>
+        /// <para>Matches captured labels to re-loaded runs by the <see cref="RunEvaluationData.RunId"/> recorded
+        /// during the FIRST acquire pass (it is a deterministic function of the source folder), so each labeled run
+        /// loads exactly ONCE — no probe re-load. If a runId does not line up (e.g. an empty snapshot), it falls back
+        /// to POSITIONAL matching across the snapshotted folders (loaded in the same order) and logs a warning — never
+        /// crashing or silently dropping labels. Runs with no captured labels load with null labels (byte-identical to
+        /// the label-agnostic load: the loader's no-label overload delegates to the labels overload with null).</para>
         /// </summary>
         private async Task ReOptimizeWithLabelsAsync(CancellationToken externalToken) {
             if (!HasLabels || reoptimizeRunFolders == null || reoptimizeRunFolders.Count == 0) {
@@ -868,21 +882,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     Phase = $"Re-loading run {i + 1} of {reoptimizeRunFolders.Count}";
                     var folder = reoptimizeRunFolders[i];
 
-                    // Load once WITHOUT labels so we learn the re-loaded run's actual RunId, then resolve the labels
-                    // for that id (runId match preferred, positional fallback otherwise). Loading is cheap relative to
-                    // the optimization that follows, and this keeps matching robust without assuming runId == folder.
-                    var probe = await loader.LoadSavedRunAsync(folder, region, token).ConfigureAwait(true);
-                    var runLabels = ResolveLabelsForRun(probe?.Data?.RunId, i, labelsByRunId, labelsByFolderIndex);
+                    // The RunId was recorded during the first acquire (it is a deterministic function of the folder),
+                    // so we resolve labels WITHOUT a probe re-load. Resolve the runId for this index (guarding the
+                    // snapshot), match its labels by id (positional fallback otherwise), and load the run exactly ONCE
+                    // through the labels overload — at 61 MP a probe load would re-render the full frame set (GBs).
+                    var runId = i < reoptimizeRunIds.Count ? reoptimizeRunIds[i] : null;
+                    var runLabels = ResolveLabelsForRun(runId, i, labelsByRunId, labelsByFolderIndex);
+                    // Passing null frameLabels is byte-identical to the no-label load (the loader's no-label overload
+                    // delegates to this one with labels: null), so a label-less run is loaded the same as before.
                     var frameLabels = LabelConverter.ToFrameLabels(runLabels);
-                    if (frameLabels == null) {
-                        // No labels for this run — keep the already-loaded (label-agnostic) run; no need to re-load.
-                        reloaded.Add(probe);
-                        continue;
-                    }
-
-                    // Re-load WITH the resolved labels so the run's RunEvaluationData scores recall/precision. Dispose
-                    // the label-agnostic probe first so its source Mats are not leaked.
-                    probe?.Data?.Dispose();
                     var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, token).ConfigureAwait(true);
                     reloaded.Add(loaded);
                 }
@@ -894,8 +902,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
                 // Re-snapshot the review inputs from the RE-LOADED runs (mirroring StartAsync step 4) so the user can
                 // enter Review again before this finally disposes the freshly-loaded source Mats. The same folders we
-                // just re-loaded (in order) become the re-optimize source again, so a second re-optimize works too.
-                SnapshotReviewInputs(reloaded, reoptimizeRunFolders);
+                // just re-loaded (in order) become the re-optimize source again, so a second re-optimize works too;
+                // the RunIds are deterministic from the folders, so the same snapshot carries forward.
+                SnapshotReviewInputs(reloaded, reoptimizeRunFolders, reoptimizeRunIds);
 
                 CurrentStep = WizardStep.Summary;
             } catch (OperationCanceledException) {
