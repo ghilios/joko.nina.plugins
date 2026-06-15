@@ -28,6 +28,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using Logger = NINA.Core.Utility.Logger;
 using Rect = OpenCvSharp.Rect;
 
@@ -181,23 +182,70 @@ namespace TestApp.StarReview {
                 labelsByRun[runId] = labels;
             }
 
-            // Build the per-frame review payloads in queue order, joining each to its detection + run labels.
-            var window = new StarReviewWindow();
-            var vm = new StarReviewVM(
-                queue.Select(q => detections[(q.RunId, q.FocuserPosition)]).ToList(),
-                labelsByRun,
-                labelsDir,
-                profileService);
-            window.DataContext = vm;
-            vm.AttachWindow(window);
+            // Build the per-frame review payloads in queue order, joining each to its detection + run labels. All
+            // of the above (discovery, Mat loads, detection) is plain off-UI work; only the WPF VM + window below
+            // require an STA thread, so they are constructed and shown on a dedicated one (see ShowReviewWindowSta).
+            var reviewFrames = queue.Select(q => detections[(q.RunId, q.FocuserPosition)]).ToList();
 
             Console.WriteLine("Opening review window. Mark Missed (false negatives) and Should-Reject (false positives), then Save.");
-            window.ShowDialog();
+            ShowReviewWindowSta(reviewFrames, labelsByRun, labelsDir, profileService);
 
-            // The VM saves on navigate + on close; do a final flush for safety.
-            vm.SaveAll();
             Console.WriteLine($"Labels written to {labelsDir}");
             Console.WriteLine($"Next: TestApp optimize --runs \"{runsDir}\" --labels \"{labelsDir}\"");
+        }
+
+        /// <summary>
+        /// Constructs the WPF <see cref="StarReviewVM"/> + <see cref="StarReviewWindow"/> and runs the modal dialog
+        /// on a dedicated STA thread, then joins it. This is required because <see cref="RunImpl"/> performs async
+        /// loading/detection (via blocking <c>GetAwaiter().GetResult()</c> calls and an async <c>Main</c>) before
+        /// reaching the UI; after any await the runner is no longer guaranteed to be on the process's [STAThread]
+        /// main thread, and a WPF <see cref="Window"/> can only be created on an STA thread. Creating a fresh STA
+        /// thread here makes window construction correct regardless of the caller's apartment.
+        ///
+        /// <para>Every WPF object (VM, window, the property-changed notifications, and the BitmapSource the VM builds
+        /// off-thread and then marshals back) is created/touched on THIS thread. A
+        /// <see cref="DispatcherSynchronizationContext"/> is installed first so the VM's <c>ConfigureAwait(true)</c>
+        /// image-load continuation posts back onto this thread's dispatcher (pumped by <c>ShowDialog</c>) rather than
+        /// onto an arbitrary thread-pool thread. Any exception is captured and rethrown on the calling thread so the
+        /// runner's catch/logging (and the process exit code) still report failures.</para>
+        /// </summary>
+        private static void ShowReviewWindowSta(
+            List<FrameReview> reviewFrames,
+            Dictionary<string, StarReviewRunLabels> labelsByRun,
+            string labelsDir,
+            IProfileService profileService) {
+            Exception uiError = null;
+            var thread = new Thread(() => {
+                try {
+                    // A WPF Application already exists (created on the runner thread so the profile load could write
+                    // to Application.Current.Resources); only one Application may exist per process, so do NOT make a
+                    // second one. Instead install a dispatcher SynchronizationContext on THIS STA thread so awaited
+                    // continuations (the VM's image-load) resume here and are pumped by ShowDialog.
+                    SynchronizationContext.SetSynchronizationContext(
+                        new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+
+                    var vm = new StarReviewVM(reviewFrames, labelsByRun, labelsDir, profileService);
+                    var window = new StarReviewWindow();
+                    window.DataContext = vm;
+                    vm.AttachWindow(window);
+
+                    window.ShowDialog();
+
+                    // The VM saves on navigate + on close; do a final flush for safety (on this UI thread).
+                    vm.SaveAll();
+                } catch (Exception ex) {
+                    uiError = ex;
+                }
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.IsBackground = false;
+            thread.Start();
+            thread.Join();
+
+            if (uiError != null) {
+                // Surface to RunImpl's caller (Run) so existing error logging + exit code 1 still apply.
+                throw uiError;
+            }
         }
 
         private static void PrintUsage() {

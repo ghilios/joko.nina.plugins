@@ -127,8 +127,10 @@ namespace TestApp {
                 return;
             }
 
-            // Interactive two-pass star-review labeling tool: `TestApp review --runs <dir> ...`. This opens a WPF
-            // window (ShowDialog) and so must run on this STA thread (Main is [STAThread]); it is synchronous.
+            // Interactive two-pass star-review labeling tool: `TestApp review --runs <dir> ...`. The runner does its
+            // async loading/detection on this thread, then constructs and shows the WPF window on a dedicated STA
+            // thread it creates internally — so it is correct regardless of this thread's apartment (an async Main
+            // can resume off the [STAThread] main thread after an await, which would otherwise crash window ctor).
             if (args.Length > 0 && args[0].Equals("review", StringComparison.OrdinalIgnoreCase)) {
                 StarReview.StarReviewRunner.Run(args);
                 return;
