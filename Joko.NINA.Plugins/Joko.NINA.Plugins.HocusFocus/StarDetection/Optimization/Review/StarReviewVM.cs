@@ -484,7 +484,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             try {
                 StarReviewLabelStore.PruneEmptyPositions(run);
                 var path = StarReviewLabelStore.Save(labelsDir, run);
-                Logger.Info($"Saved labels for run '{run.RunId}' to {path}");
+                if (path != null) {
+                    Logger.Info($"Saved labels for run '{run.RunId}' to {path}");
+                }
             } catch (Exception ex) {
                 Logger.Error(ex, $"Failed to save labels for run '{run.RunId}'");
                 Console.Error.WriteLine($"Failed to save labels for run '{run.RunId}': {ex.Message}");

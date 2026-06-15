@@ -154,6 +154,22 @@ public class StarDetectionOptimizerWizardVMTests {
         }
     }
 
+    // A run whose frames carry REAL temp-file paths as their FrameId, so the descriptors' FramePath resolves to a
+    // writable folder and DeriveLabelsDir yields "<tempDir>/labels" — used by the on-disk label-persistence test.
+    private static LoadedRun GoodRunWithFramePaths(string framesDir, string id = "good", double optSensitivity = 10.0, int seedSensitivity = 2) {
+        var frames = new List<RunFrame>();
+        for (var i = -4; i <= 4; i++) {
+            var pos = HyperbolaP0 + i * DefaultStepSize;
+            // FrameId == the on-disk frame path; GetFrameDescriptors() forwards it to FrameReviewDescriptor.FramePath.
+            var framePath = System.IO.Path.Combine(framesDir, $"frame_{pos}.fits");
+            frames.Add(new RunFrame { FrameId = framePath, FocuserPosition = pos, Image = pos });
+        }
+        var data = new RunEvaluationData(id, frames, OptimizableDetect(optSensitivity), NewAlglib(), DefaultFitConfig());
+        var seed = new StarDetectorParams { Sensitivity = seedSensitivity, StarClippingMultiplier = 2.0 };
+        var afOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 };
+        return new LoadedRun { Data = data, Seed = seed, AfOptions = afOptions };
+    }
+
     [Test]
     public void InitialState_IsSelectSource() {
         var vm = NewVM(LoaderReturning(GoodRun()));
@@ -551,6 +567,63 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
             Assert.That(vm.ReviewCommand.CanExecute(null), Is.False);
         });
+    }
+
+    [Test]
+    public async Task EnterReview_WhenBuilderThrows_SetsErrorAndStaysOnSummary() {
+        // If the review build fails, the VM must surface the error, stay on Summary, and NOT construct a ReviewVM —
+        // the user can still Accept or retry. (Matches EnterReviewAsync's catch-all error path.)
+        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> throwingBuilder =
+            (descriptors, p, token) => throw new InvalidOperationException("boom while detecting");
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: throwingBuilder);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.ReviewCommand.CanExecute(null), Is.True, "precondition: Review is enterable");
+
+        await vm.ReviewCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasError, Is.True, "a failed review build must surface an error");
+            Assert.That(vm.ErrorMessage, Is.Not.Null.And.Not.Empty);
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "a failed review build stays on Summary");
+            Assert.That(vm.ReviewVM, Is.Null, "no ReviewVM is built when the review build fails");
+        });
+    }
+
+    [Test]
+    public async Task EnterReview_ApplyLabel_SetsHasLabelsAndPersistsRunFile() {
+        // Enter Review, apply a label (a missed box on the current frame), and assert HasLabels becomes true and the
+        // captured labels are non-empty. Then SaveAll (via Accept's PersistReviewLabels) writes the <runId>.json into
+        // the derived labels dir on disk. Frames carry real temp paths so DeriveLabelsDir resolves to a writable dir.
+        var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-wizard-labels-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(tempRoot);
+        try {
+            var fake = new FakeReviewBuilder();
+            var vm = NewVM(LoaderReturning(GoodRunWithFramePaths(tempRoot, id: "attempt01")), frameReviewBuilder: fake.Build);
+            vm.SourcePaths[0] = tempRoot;
+            await vm.StartAsync(CancellationToken.None);
+            await vm.ReviewCommand.ExecuteAsync(null);
+            Assert.That(vm.ReviewVM, Is.Not.Null, "precondition: review built");
+            Assert.That(vm.HasLabels, Is.False, "no labels applied yet");
+
+            // Apply a missed-box label on the current frame (a drag the user would make over a missed star). A box
+            // well above the click-threshold so it is recorded as-is.
+            vm.ReviewVM.AddMissedBox(100.0, 120.0, 20.0, 20.0);
+
+            Assert.That(vm.HasLabels, Is.True, "applying a label must flip HasLabels true");
+            Assert.That(vm.CapturedLabels, Is.Not.Empty, "the captured per-run labels must hold the applied label");
+
+            // Accept persists labels via PersistReviewLabels -> SaveAll; the derived labels dir is <tempRoot>/labels.
+            vm.AcceptCommand.Execute(null);
+
+            var labelsDir = System.IO.Path.Combine(tempRoot, "labels");
+            var labelFile = System.IO.Path.Combine(labelsDir, "attempt01.json");
+            Assert.That(System.IO.File.Exists(labelFile), Is.True, "Accept must persist the run's <runId>.json to disk");
+            var json = System.IO.File.ReadAllText(labelFile);
+            Assert.That(json, Does.Contain("missed"), "the persisted file must carry the missed label");
+        } finally {
+            try { System.IO.Directory.Delete(tempRoot, recursive: true); } catch { /* best-effort cleanup */ }
+        }
     }
 
     [Test]

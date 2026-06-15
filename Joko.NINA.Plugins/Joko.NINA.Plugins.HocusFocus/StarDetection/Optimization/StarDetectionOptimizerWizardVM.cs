@@ -168,7 +168,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             BrowseSourceCommand = new RelayCommand<object>(BrowseSource);
             StartCommand = new AsyncRelayCommand(() => StartAsync(CancellationToken.None));
             CancelCommand = new RelayCommand(Cancel);
-            AcceptCommand = new RelayCommand(Accept, () => Summary != null);
+            AcceptCommand = new RelayCommand(Accept, () => Summary != null && !IsBusy);
             BackCommand = new RelayCommand(Back, () => CurrentStep == WizardStep.Summary && !IsBusy);
             CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
             ReviewCommand = new AsyncRelayCommand(EnterReviewAsync, CanEnterReview);
@@ -246,6 +246,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     isBusy = value;
                     RaisePropertyChanged();
                     StartCommand.NotifyCanExecuteChanged();
+                    AcceptCommand.NotifyCanExecuteChanged();
                     BackCommand.NotifyCanExecuteChanged();
                     ReviewCommand.NotifyCanExecuteChanged();
                     BackToSummaryCommand.NotifyCanExecuteChanged();
@@ -751,9 +752,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             IsBusy = true;
             Phase = "Detecting frames for review";
             try {
-                // Detect every frame at the optimized params, off the UI thread. The builder seam wraps the shared
-                // FrameReviewBuilder (or a test fake); it already runs detection on the captured task, so we just
-                // await it. The resulting FrameReviews carry frozen overlays + a disk-backed image provider.
+                // Detect every frame at the optimized params, off the UI thread. The production builder seam wraps the
+                // shared FrameReviewBuilder in a Task.Run, so the whole build (disk load + detection) runs on the
+                // threadpool and never stutters the UI thread; we just await the result here. The resulting
+                // FrameReviews carry frozen overlays + a disk-backed image provider.
                 var reviews = await frameReviewBuilder(descriptors, bestParams, cts?.Token ?? CancellationToken.None).ConfigureAwait(true);
                 if (reviews == null || reviews.Count == 0) {
                     ErrorMessage = "No frames could be prepared for review.";
@@ -825,9 +827,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             BuildProductionReviewBuilder(IProfileService profileService, IImageDataFactory imageDataFactory) {
             return (descriptors, p, token) => {
                 var detector = new StarDetector(HocusFocusPlugin.AlglibAPI);
-                return FrameReviewBuilder.BuildAsync(
-                    descriptors, p, detector,
-                    path => LoadFloatMatFromDisk(path, profileService, imageDataFactory),
+                // Hop to the threadpool so the WHOLE build (disk load + detection) runs off the captured UI context.
+                // FrameReviewBuilder.BuildAsync awaits its work, so without this hop its synchronous prologue (and any
+                // continuation that resumes on the UI SynchronizationContext) could stutter the UI thread.
+                return Task.Run(
+                    () => FrameReviewBuilder.BuildAsync(
+                        descriptors, p, detector,
+                        path => LoadFloatMatFromDisk(path, profileService, imageDataFactory),
+                        token),
                     token);
             };
         }
@@ -841,6 +848,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private static async Task<Mat> LoadFloatMatFromDisk(string path, IProfileService profileService, IImageDataFactory imageDataFactory) {
             var ext = Path.GetExtension(path).ToLowerInvariant();
             if (ext == ".tif" || ext == ".tiff") {
+                // Normalize by ushort.MaxValue, matching DiagnosticUtil.LoadFloatMat for 16-bit TIFFs (the real case
+                // — AF/review frames are 16-bit). For non-16-bit TIFFs the scale factor would differ, but those are
+                // not produced by this pipeline.
                 using var src = new Mat(path, ImreadModes.Unchanged);
                 var dst = new Mat();
                 src.ConvertTo(dst, MatType.CV_32F, 1.0 / ushort.MaxValue);

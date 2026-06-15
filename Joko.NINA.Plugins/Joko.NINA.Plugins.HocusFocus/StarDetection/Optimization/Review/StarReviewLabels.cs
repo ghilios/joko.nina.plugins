@@ -167,6 +167,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             if (labels == null) {
                 throw new ArgumentNullException(nameof(labels));
             }
+            // No-op when no labels dir could be derived (the wizard passes string.Empty in that case). Mirrors the
+            // guard Load already has — without it Directory.CreateDirectory("") throws ArgumentException and every
+            // Save/Next/Prev would log an error. Returns null to signal nothing was written.
+            if (string.IsNullOrWhiteSpace(labelsDir)) {
+                return null;
+            }
             Directory.CreateDirectory(labelsDir);
             Normalize(labels);
             var path = Path.Combine(labelsDir, FileNameFor(labels.RunId));
