@@ -133,6 +133,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // Instance wrapper so IStarDetector can expose the early-key computation (the canonical logic stays static).
         string IStarDetector.ComputeEarlyCacheKey(StarDetectorParams p) => ComputeEarlyCacheKey(p);
 
+        /// <summary>
+        /// True when <paramref name="name"/> is an EARLY-stage detection param (a member of
+        /// <see cref="EarlyCacheKeyProperties"/>) — i.e. a param that feeds <c>BuildDetectionContext</c> and is
+        /// therefore folded into <see cref="ComputeEarlyCacheKey"/>. This is the single, public source of truth
+        /// for early-vs-late param classification: callers (e.g. the optimizer's staged search) must consult this
+        /// rather than maintaining a second copy of the early-axis list. Synthetic/non-property names (e.g. the
+        /// optimizer's combined defocus-aware-gates alias) are not members and are correctly reported LATE.
+        /// </summary>
+        public static bool IsEarlyCacheKeyParameter(string name) => name != null && EarlyCacheKeyProperties.Contains(name);
+
         public static string ComputeEarlyCacheKey(StarDetectorParams p) {
             if (p == null) {
                 throw new ArgumentNullException(nameof(p));

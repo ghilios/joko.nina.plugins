@@ -305,6 +305,96 @@ public class StarDetectionOptimizerTests {
         Assert.That(result.Evaluations, Is.LessThanOrEqualTo(settings.MaxEvaluations), "must respect the eval budget");
     }
 
+    // ---- T14: staged Phase-B (late→early) partition + convergence ----------------------------------------
+
+    [Test]
+    public void Partition_EarlyAxes_AreExactlyTheEarlyCacheKeyMembers_AndDefocusGatesIsLate() {
+        // The optimizer partitions curated axes by StarDetector.IsEarlyCacheKeyParameter (single source of
+        // truth). Mirror that classification here and assert (a) the early set is EXACTLY the five expected
+        // early-cache-key axes present in the curated set, and (b) the synthetic DefocusAwareGates is LATE.
+        var variables = OptimizerVariable.CreateCuratedSet();
+
+        var early = variables.Where(v => StarDetector.IsEarlyCacheKeyParameter(v.Name)).Select(v => v.Name).ToList();
+        var late = variables.Where(v => !StarDetector.IsEarlyCacheKeyParameter(v.Name)).Select(v => v.Name).ToList();
+
+        var expectedEarly = new[] {
+            nameof(StarDetectorParams.NoiseClippingMultiplier),
+            nameof(StarDetectorParams.StructureLayers),
+            nameof(StarDetectorParams.NoiseReductionRadius),
+            nameof(StarDetectorParams.HotpixelThresholdingEnabled),
+            nameof(StarDetectorParams.HotpixelThreshold),
+        };
+
+        Assert.Multiple(() => {
+            Assert.That(early, Is.EquivalentTo(expectedEarly), "early axes must equal the EarlyCacheKeyProperties members in the curated set");
+            // DefocusAwareGates is a synthetic alias (drives late gates) — it must be LATE.
+            Assert.That(late, Does.Contain(OptimizerVariable.DefocusAwareGatesName), "DefocusAwareGates must be a LATE axis");
+            Assert.That(early, Does.Not.Contain(OptimizerVariable.DefocusAwareGatesName));
+            // Every curated axis is in exactly one partition.
+            Assert.That(early.Count + late.Count, Is.EqualTo(variables.Count));
+            // IsEarlyCacheKeyParameter is robust to synthetic/unknown/null names.
+            Assert.That(StarDetector.IsEarlyCacheKeyParameter(OptimizerVariable.DefocusAwareGatesName), Is.False);
+            Assert.That(StarDetector.IsEarlyCacheKeyParameter("NotARealParam"), Is.False);
+            Assert.That(StarDetector.IsEarlyCacheKeyParameter(null), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task StagedSearch_NeverRegresses_AndRespectsBudget() {
+        // Tight budget forces early budget exhaustion; the staged loop must still never drop below seed J and
+        // must never exceed MaxEvaluations.
+        var optimizer = new StarDetectionOptimizer();
+        var variables = OptimizerVariable.CreateCuratedSet();
+        var settings = new OptimizerSettings { MaxEvaluations = 25, CoarseGridLevels = 4, StepFloorFraction = 0.125 };
+        var result = await optimizer.OptimizeAsync(Seed(), variables, SyntheticEvaluator(), settings, null, CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(result.BestJ, Is.GreaterThanOrEqualTo(result.SeedJ), "staged search must never regress below seed");
+            Assert.That(result.Evaluations, Is.LessThanOrEqualTo(settings.MaxEvaluations), "staged search must respect the eval budget");
+        });
+    }
+
+    [Test]
+    public async Task StagedSearch_FindsOptimum_OnOneLatePlusOneEarlyAxis() {
+        // A 2-axis objective with ONE late axis (Sensitivity) and ONE early axis (NoiseClippingMultiplier).
+        // J peaks at a known (late*, early*) interior point. The staged search (late stage then early stage,
+        // alternating) must locate it — i.e. staging does not lose the optimum that a single combined loop finds.
+        const double optSens = 12.0;   // late axis optimum, interior of [0, 50]
+        const double optNoise = 4.0;   // early axis optimum, interior of [1, 10]
+
+        Func<StarDetectorParams, CancellationToken, Task<IReadOnlyList<RunEvaluationMetrics>>> twoAxis = (p, token) => {
+            var dSens = (p.Sensitivity - optSens) / 20.0;
+            var dNoise = (p.NoiseClippingMultiplier - optNoise) / 5.0;
+            var dist = Math.Sqrt(dSens * dSens + dNoise * dNoise);
+            var step = 100.0;
+            IReadOnlyList<RunEvaluationMetrics> runs = new[] {
+                new RunEvaluationMetrics {
+                    SigmaFocus = step * (0.02 + 1.0 * dist),
+                    LooStdError = double.NaN,
+                    StepSize = step,
+                    RSquared = 0.99,
+                    ReducedChiSquared = 1.0,
+                    FrameStarCounts = Enumerable.Repeat(50, 10).ToList()
+                }
+            };
+            return Task.FromResult(runs);
+        };
+
+        var seed = new StarDetectorParams { Sensitivity = 2.0, StarClippingMultiplier = 2.5, NoiseClippingMultiplier = 8.0 };
+        var variables = OptimizerVariable.CreateCuratedSet();
+        var settings = new OptimizerSettings { MaxEvaluations = 600, CoarseGridLevels = 4, StepFloorFraction = 0.125 };
+        var result = await new StarDetectionOptimizer().OptimizeAsync(seed, variables, twoAxis, settings, null, CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(result.BestJ, Is.GreaterThan(result.SeedJ), "should improve over seed");
+            // Both axes (one late, one early) must converge near their optima — staging recovers both.
+            Assert.That(Math.Abs(result.BestParams.Sensitivity - optSens), Is.LessThan(1.5),
+                $"late axis (Sensitivity) should approach {optSens}, got {result.BestParams.Sensitivity}");
+            Assert.That(Math.Abs(result.BestParams.NoiseClippingMultiplier - optNoise), Is.LessThan(1.0),
+                $"early axis (NoiseClippingMultiplier) should approach {optNoise}, got {result.BestParams.NoiseClippingMultiplier}");
+        });
+    }
+
     /// <summary>
     /// A synchronous <see cref="IProgress{T}"/> test double: <see cref="Report"/> appends directly to a list
     /// on the calling thread, so reports are captured deterministically (unlike <see cref="Progress{T}"/>,

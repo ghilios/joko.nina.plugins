@@ -92,7 +92,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         /// <summary>
-        /// The 12 curated tunable variables. Bounds/initial steps follow the validation ranges in
+        /// The 13 curated tunable variables. Bounds/initial steps follow the validation ranges in
         /// StarDetectionOptions.cs where a UI range exists; where a range is open-ended the bound is a
         /// HEURISTIC (pragmatic, easily editable) value — see the named constants below.
         ///
