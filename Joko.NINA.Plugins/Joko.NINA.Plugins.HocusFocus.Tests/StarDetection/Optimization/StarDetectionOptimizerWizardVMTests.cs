@@ -107,7 +107,54 @@ public class StarDetectionOptimizerWizardVMTests {
         var queue = new Queue<LoadedRun>(runs);
         loader.LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<CancellationToken>())
             .Returns(_ => Task.FromResult(queue.Count > 0 ? queue.Dequeue() : runs[runs.Length - 1]));
+        // The labels-overload (used by the re-optimize path) delegates to the same source so re-loads keep working.
+        loader.LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(queue.Count > 0 ? queue.Dequeue() : runs[runs.Length - 1]));
         return loader;
+    }
+
+    /// <summary>
+    /// An HONEST recording loader for the re-optimize path: it manufactures a fresh <see cref="LoadedRun"/> on EVERY
+    /// call (the first optimization disposed the prior runs, so re-optimize must re-load), keyed by the folder it was
+    /// asked to load. It records the <see cref="FrameLabels"/> it received per folder so a test can assert the
+    /// converted labels actually flowed into the re-loaded run, and counts the labels-overload invocations. The run
+    /// id is derived from the folder so the wizard's runId→labels match is exercised end-to-end.
+    /// </summary>
+    private sealed class RecordingLoader : IRunEvaluationLoader {
+        private readonly double optSensitivity;
+        private readonly int seedSensitivity;
+        public readonly Dictionary<string, IReadOnlyList<FrameLabels>> LabelsByFolder = new(StringComparer.Ordinal);
+        public int LabelOverloadCalls { get; private set; }
+        public int NoLabelCalls { get; private set; }
+
+        public RecordingLoader(double optSensitivity = 10.0, int seedSensitivity = 2) {
+            this.optSensitivity = optSensitivity;
+            this.seedSensitivity = seedSensitivity;
+        }
+
+        // The wizard sets RunId = attempt.FolderPath; here we mirror that by stamping the run id from the folder, so
+        // the runId→labels match in ReOptimizeWithLabelsAsync resolves by id (not the positional fallback).
+        private static string RunIdFor(string folder) => "run::" + folder;
+
+        private LoadedRun Make(string folder, IReadOnlyList<FrameLabels> labels) {
+            var data = new RunEvaluationData(RunIdFor(folder), NineFrames(), OptimizableDetect(optSensitivity), NewAlglib(), DefaultFitConfig(), labels);
+            return new LoadedRun {
+                Data = data,
+                Seed = new StarDetectorParams { Sensitivity = seedSensitivity, StarClippingMultiplier = 2.0 },
+                AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 }
+            };
+        }
+
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) {
+            NoLabelCalls++;
+            return Task.FromResult(Make(attemptFolderPath, null));
+        }
+
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, CancellationToken token) {
+            LabelOverloadCalls++;
+            LabelsByFolder[attemptFolderPath] = labels;
+            return Task.FromResult(Make(attemptFolderPath, labels));
+        }
     }
 
     private static StarDetectionOptimizerWizardVM NewVM(
@@ -624,6 +671,86 @@ public class StarDetectionOptimizerWizardVMTests {
         } finally {
             try { System.IO.Directory.Delete(tempRoot, recursive: true); } catch { /* best-effort cleanup */ }
         }
+    }
+
+    // ---- Re-optimize with labels (T9) -------------------------------------------------------------------
+
+    [Test]
+    public void ReOptimize_BeforeAnyLabels_CanExecuteIsFalse() {
+        // No labels => the re-optimize command is disabled.
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.False);
+    }
+
+    [Test]
+    public async Task ReOptimize_AfterRunWithoutLabels_CanExecuteIsFalse() {
+        // A completed run with NO labels still leaves re-optimize disabled (nothing to feed the objective).
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.False);
+    }
+
+    [Test]
+    public async Task ReOptimize_AfterApplyingLabel_IsEnabled_AndReLoadsRunsWithConvertedLabels() {
+        // Run → Review → apply a missed-box label (HasLabels true) → ReOptimizeCommand enabled. Invoking it re-loads
+        // the run from disk THROUGH THE LABELS OVERLOAD, carrying the converted FrameLabels, and lands on a fresh
+        // Summary. The honest RecordingLoader records the labels it received so we can assert the conversion happened.
+        var loader = new RecordingLoader();
+        var fake = new FakeReviewBuilder();
+        var vm = NewVM(loader, frameReviewBuilder: fake.Build);
+        var folder = @"C:\reopt-run";
+        vm.SourcePaths[0] = folder;
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        Assert.That(vm.ReviewVM, Is.Not.Null, "precondition: review built");
+
+        // Label a missed star on the current frame (a drag the user makes over a missed star).
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        Assert.That(vm.HasLabels, Is.True, "applying a label flips HasLabels true");
+
+        // Back to Summary so the re-optimize affordance is reachable and the command re-evaluates.
+        vm.BackToSummaryCommand.Execute(null);
+        Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.True, "with labels and idle, re-optimize is enabled");
+
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "re-optimize returns to an updated Summary");
+            Assert.That(vm.Summary, Is.Not.Null, "a fresh summary is produced");
+            Assert.That(vm.ErrorMessage, Is.Null.Or.Empty);
+            Assert.That(loader.LabelOverloadCalls, Is.GreaterThanOrEqualTo(1), "the run is re-loaded via the labels overload");
+            // The labels overload received the converted labels for the re-loaded folder.
+            Assert.That(loader.LabelsByFolder.ContainsKey(folder), Is.True);
+            var fl = loader.LabelsByFolder[folder];
+            Assert.That(fl, Is.Not.Null.And.Not.Empty, "the converted FrameLabels flowed into the re-load");
+            // The missed box was applied at one focuser position; that position carries a Missed box.
+            Assert.That(fl.SelectMany(p => p.Missed).Any(), Is.True, "the missed label round-tripped through LabelConverter");
+        });
+    }
+
+    [Test]
+    public async Task ReOptimize_AfterApplyingLabel_RemainsReviewableAgain() {
+        // After a re-optimize the user can enter Review again (the review inputs were re-snapshotted from the
+        // re-loaded runs before they were disposed).
+        var loader = new RecordingLoader();
+        var fake = new FakeReviewBuilder();
+        var vm = NewVM(loader, frameReviewBuilder: fake.Build);
+        vm.SourcePaths[0] = @"C:\reopt-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        Assert.That(vm.ReviewCommand.CanExecute(null), Is.True, "Review must be enterable again after a re-optimize");
+        await vm.ReviewCommand.ExecuteAsync(null);
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Review));
+        Assert.That(vm.ReviewVM, Is.Not.Null);
     }
 
     [Test]

@@ -110,6 +110,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private IReadOnlyList<FrameReviewDescriptor> reviewDescriptors;
         private string reviewLabelsDir;
 
+        // The actual source folders loaded during the current run, in load order (Replay = the SourcePaths entry,
+        // Live = the saved attempt folder). Captured in AcquireAsync and snapshotted alongside the review descriptors
+        // so the re-optimize-with-labels path can RE-LOAD from disk after StartAsync's finally disposed the in-memory
+        // data. Reset per run like the other review fields.
+        private readonly List<string> loadedRunFolders = new List<string>();
+        private IReadOnlyList<string> reoptimizeRunFolders;
+
         private CancellationTokenSource cts;
         private int running; // 0 = idle, 1 = a Start is in flight (guards against double-start)
         private bool disposed;
@@ -173,6 +180,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
             ReviewCommand = new AsyncRelayCommand(EnterReviewAsync, CanEnterReview);
             BackToSummaryCommand = new RelayCommand(BackToSummary, () => CurrentStep == WizardStep.Review && !IsBusy);
+            ReOptimizeCommand = new AsyncRelayCommand(() => ReOptimizeWithLabelsAsync(CancellationToken.None), () => HasLabels && !IsBusy);
         }
 
         /// <summary>Raised when the user clicks Close so the host window (T5) can dismiss the dialog.</summary>
@@ -250,6 +258,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     BackCommand.NotifyCanExecuteChanged();
                     ReviewCommand.NotifyCanExecuteChanged();
                     BackToSummaryCommand.NotifyCanExecuteChanged();
+                    ReOptimizeCommand.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -395,6 +404,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>Review → Summary: persists labels and returns to the Summary step.</summary>
         public RelayCommand BackToSummaryCommand { get; }
 
+        /// <summary>Summary → re-optimize: re-loads the runs from disk (the first pass disposed the in-memory data),
+        /// feeds the labels the user made into the optimizer's recall/precision objective term, and returns to an
+        /// updated Summary. Enabled only when <see cref="HasLabels"/> is true and the VM is idle.</summary>
+        public AsyncRelayCommand ReOptimizeCommand { get; }
+
         #endregion Commands
 
         /// <summary>
@@ -414,8 +428,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             ReviewVM = null;
             reviewDescriptors = null;
             reviewLabelsDir = null;
+            reoptimizeRunFolders = null;
+            loadedRunFolders.Clear();
             capturedLabels = null;
             RaisePropertyChanged(nameof(HasLabels));
+            ReOptimizeCommand.NotifyCanExecuteChanged();
             IsBusy = true;
 
             cts?.Dispose();
@@ -454,7 +471,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // Snapshot the Mat-free frame descriptors + the labels dir for the optional Review step NOW, while
                 // loadedRuns is still alive — the finally below disposes the in-memory source Mats, so the Review
                 // step must detect from DISK afterward using only these paths/positions.
-                SnapshotReviewInputs(loadedRuns);
+                SnapshotReviewInputs(loadedRuns, loadedRunFolders);
 
                 CurrentStep = WizardStep.Summary;
             } catch (OperationCanceledException) {
@@ -505,6 +522,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     Phase = $"Loading run {i + 1} of {RunCount}";
                     var loaded = await loader.LoadSavedRunAsync(folder, region, token).ConfigureAwait(true);
                     runs.Add(loaded);
+                    // Record the actual folder loaded (in load order) so the re-optimize path can re-read it from disk
+                    // after the source Mats are disposed. Snapshotted in SnapshotReviewInputs on full success.
+                    loadedRunFolders.Add(folder);
                 }
                 return runs;
             } catch {
@@ -702,13 +722,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// (<c>&lt;sourceFolder&gt;/labels</c>), matching where <c>optimize --labels</c> /
         /// <c>RunEvaluationData.ApplyLabelScores</c> expect the per-run <c>&lt;runId&gt;.json</c> files.
         /// </summary>
-        private void SnapshotReviewInputs(IReadOnlyList<LoadedRun> runs) {
+        private void SnapshotReviewInputs(IReadOnlyList<LoadedRun> runs, IReadOnlyList<string> sourceFolders) {
             var descriptors = new List<FrameReviewDescriptor>();
             foreach (var run in runs) {
                 descriptors.AddRange(run.Data.GetFrameDescriptors());
             }
             reviewDescriptors = descriptors;
             reviewLabelsDir = DeriveLabelsDir(descriptors);
+            // Snapshot the loaded source folders (in load order) so re-optimize can RE-LOAD from disk after the
+            // source Mats are disposed in the run's finally. The runs[i] ordering matches sourceFolders[i].
+            reoptimizeRunFolders = sourceFolders?.ToList() ?? new List<string>();
             ReviewCommand.NotifyCanExecuteChanged();
         }
 
@@ -774,6 +797,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
                 capturedLabels = labelsByRun;
                 RaisePropertyChanged(nameof(HasLabels));
+                ReOptimizeCommand.NotifyCanExecuteChanged();
 
                 ReviewVM = new StarReviewVM(reviews, labelsByRun, labelsDir ?? string.Empty);
                 CurrentStep = WizardStep.Review;
@@ -798,6 +822,133 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         /// <summary>
+        /// Summary → re-optimize-with-labels: after the user labeled mistakes in Review, re-run the optimization with
+        /// those labels feeding the recall/precision objective term, then return to an updated Summary (from which the
+        /// user can Review again or Accept). Because the first pass disposed the in-memory <see cref="RunEvaluationData"/>
+        /// (freeing the source Mats) in <see cref="StartAsync"/>'s finally, this RE-LOADS each recorded source folder
+        /// from disk — it cannot reuse the disposed data. The captured per-run labels are converted in-memory via
+        /// <see cref="LabelConverter.ToFrameLabels"/> and threaded into the loader so the optimizer scores recall/precision.
+        ///
+        /// <para>Matches captured labels to re-loaded runs by the loaded run's <see cref="RunEvaluationData.RunId"/>;
+        /// if a runId does not line up (e.g. the loader assigns a different id), it falls back to POSITIONAL matching
+        /// across the snapshotted folders (loaded in the same order) and logs a warning — never crashing or silently
+        /// dropping labels. Runs with no captured labels load with null labels (label-agnostic scoring, as before).</para>
+        /// </summary>
+        private async Task ReOptimizeWithLabelsAsync(CancellationToken externalToken) {
+            if (!HasLabels || reoptimizeRunFolders == null || reoptimizeRunFolders.Count == 0) {
+                return;
+            }
+            if (Interlocked.CompareExchange(ref running, 1, 0) != 0) {
+                return; // a Start/re-optimize is already in flight
+            }
+
+            // Persist whatever labels the user has made so far (the on-disk <runId>.json mirrors the in-memory model
+            // used for scoring) — same flush Accept/BackToSummary do. The in-memory capturedLabels drive the re-run.
+            PersistReviewLabels();
+
+            // Match the captured labels (keyed by runId) to the folders we'll re-load. We re-load in folder order, so
+            // we also keep a positional fallback (folder index → labels) for the case where the re-loaded runId does
+            // not line up with the captured key.
+            var labelsByRunId = capturedLabels ?? new Dictionary<string, StarReviewRunLabels>(StringComparer.Ordinal);
+            var labelsByFolderIndex = BuildPositionalLabelFallback(reoptimizeRunFolders, labelsByRunId);
+
+            ErrorMessage = null;
+            IsBusy = true;
+
+            cts?.Dispose();
+            cts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
+            var token = cts.Token;
+
+            List<LoadedRun> reloaded = null;
+            try {
+                CurrentStep = WizardStep.Optimize;
+                reloaded = new List<LoadedRun>(reoptimizeRunFolders.Count);
+                for (var i = 0; i < reoptimizeRunFolders.Count; i++) {
+                    token.ThrowIfCancellationRequested();
+                    Phase = $"Re-loading run {i + 1} of {reoptimizeRunFolders.Count}";
+                    var folder = reoptimizeRunFolders[i];
+
+                    // Load once WITHOUT labels so we learn the re-loaded run's actual RunId, then resolve the labels
+                    // for that id (runId match preferred, positional fallback otherwise). Loading is cheap relative to
+                    // the optimization that follows, and this keeps matching robust without assuming runId == folder.
+                    var probe = await loader.LoadSavedRunAsync(folder, region, token).ConfigureAwait(true);
+                    var runLabels = ResolveLabelsForRun(probe?.Data?.RunId, i, labelsByRunId, labelsByFolderIndex);
+                    var frameLabels = LabelConverter.ToFrameLabels(runLabels);
+                    if (frameLabels == null) {
+                        // No labels for this run — keep the already-loaded (label-agnostic) run; no need to re-load.
+                        reloaded.Add(probe);
+                        continue;
+                    }
+
+                    // Re-load WITH the resolved labels so the run's RunEvaluationData scores recall/precision. Dispose
+                    // the label-agnostic probe first so its source Mats are not leaked.
+                    probe?.Data?.Dispose();
+                    var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, token).ConfigureAwait(true);
+                    reloaded.Add(loaded);
+                }
+
+                // Re-run the same optimize + summary pipeline over the labeled runs.
+                var optimizeResult = await OptimizeAsync(reloaded, token).ConfigureAwait(true);
+                Result = optimizeResult;
+                Summary = await BuildSummaryAsync(reloaded, optimizeResult, token).ConfigureAwait(true);
+
+                // Re-snapshot the review inputs from the RE-LOADED runs (mirroring StartAsync step 4) so the user can
+                // enter Review again before this finally disposes the freshly-loaded source Mats. The same folders we
+                // just re-loaded (in order) become the re-optimize source again, so a second re-optimize works too.
+                SnapshotReviewInputs(reloaded, reoptimizeRunFolders);
+
+                CurrentStep = WizardStep.Summary;
+            } catch (OperationCanceledException) {
+                Logger.Info("Star detection re-optimization cancelled");
+                CurrentStep = WizardStep.Summary;
+            } catch (Exception ex) {
+                Logger.Error(ex, "Star detection re-optimization failed");
+                ErrorMessage = $"Re-optimization failed: {ex.Message}";
+                CurrentStep = WizardStep.Summary;
+            } finally {
+                DisposeLoadedRuns(reloaded);
+                IsBusy = false;
+                Interlocked.Exchange(ref running, 0);
+            }
+        }
+
+        /// <summary>
+        /// Builds a positional (folder-index → labels) fallback used only when a re-loaded run's id does not match any
+        /// captured-labels key. The folders are re-loaded in the same order the captured labels were produced, so the
+        /// fallback pairs them by index. Captured-label values are taken in their dictionary's enumeration order.
+        /// </summary>
+        private static IReadOnlyList<StarReviewRunLabels> BuildPositionalLabelFallback(
+            IReadOnlyList<string> folders, IReadOnlyDictionary<string, StarReviewRunLabels> labelsByRunId) {
+            var ordered = labelsByRunId.Values.ToList();
+            var result = new StarReviewRunLabels[folders.Count];
+            for (var i = 0; i < folders.Count && i < ordered.Count; i++) {
+                result[i] = ordered[i];
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Resolves the captured labels for a re-loaded run: prefer a runId match; on a miss, fall back to the
+        /// positional entry for this folder index (and log a warning so the mismatch is visible). Returns null when
+        /// no labels apply to this run.
+        /// </summary>
+        private static StarReviewRunLabels ResolveLabelsForRun(
+            string runId, int folderIndex,
+            IReadOnlyDictionary<string, StarReviewRunLabels> labelsByRunId,
+            IReadOnlyList<StarReviewRunLabels> labelsByFolderIndex) {
+            if (!string.IsNullOrEmpty(runId) && labelsByRunId.TryGetValue(runId, out var byId)) {
+                return byId;
+            }
+            var positional = folderIndex < labelsByFolderIndex.Count ? labelsByFolderIndex[folderIndex] : null;
+            if (positional != null) {
+                Logger.Warning(
+                    $"Re-optimize: re-loaded run id '{runId}' did not match a captured-labels key; " +
+                    $"falling back to positional labels for run index {folderIndex} (run id '{positional.RunId}').");
+            }
+            return positional;
+        }
+
+        /// <summary>
         /// Flushes the captured per-run labels to disk under <see cref="reviewLabelsDir"/> as the
         /// <c>&lt;runId&gt;.json</c> files that <c>optimize --labels</c> / <see cref="RunEvaluationData"/> consume.
         /// No-op when the user never reviewed (no labels), when the StarReviewVM hasn't been built, or when no labels
@@ -812,6 +963,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // labels dir it was constructed with). SaveAll also refreshes its in-memory counts.
                 ReviewVM.SaveAll();
                 RaisePropertyChanged(nameof(HasLabels));
+                ReOptimizeCommand.NotifyCanExecuteChanged();
             } catch (Exception ex) {
                 Logger.Error(ex, "Failed to persist review labels");
             }
