@@ -259,7 +259,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         // out to a constant ≈15 px on screen (one FontSize-10 line + a 1 px gap) at any zoom.
         public double HfrLabelOffset => -15.0 * MarkerTextScale;
 
-        private bool showHfr;
+        // Default ON — HFR is the primary signal the labeler uses to judge whether a flagged star has enough
+        // signal to keep, so it should be visible the moment Review opens.
+        private bool showHfr = true;
 
         /// <summary>Toggle: when on, every accepted star (and every labeled wrongly-rejected / missed box) shows its
         /// HFR on the overlay. Bound to a checkbox in the toolbar.</summary>

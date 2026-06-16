@@ -475,11 +475,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             get => summary;
             private set {
                 summary = value;
-                // A fresh summary: if nothing in the AF recommendation actually changed, there is nothing to
-                // apply, so disable + clear the toggle.
-                if (!CanApplyRecommendedStepSize) {
-                    applyRecommendedStepSize = false;
-                }
+                // A fresh summary: default the toggle to match whether there is anything to apply — ON when the AF
+                // recommendation actually differs from the profile (the user opts OUT rather than in), and OFF
+                // (plus disabled via CanApplyRecommendedStepSize) when nothing changed.
+                applyRecommendedStepSize = CanApplyRecommendedStepSize;
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(ApplyRecommendedStepSize));
                 RaisePropertyChanged(nameof(CanApplyRecommendedStepSize));

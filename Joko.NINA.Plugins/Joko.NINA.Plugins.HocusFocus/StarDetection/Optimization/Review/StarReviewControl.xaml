@@ -6,6 +6,85 @@
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <SolidColorBrush x:Key="Fg" Color="White" />
+
+        <!-- NINA's default toggle (StandardCheckBox) hard-codes the OFF label to {StaticResource PrimaryBrush},
+             which is too dark on this panel and CANNOT be overridden from the consumer (StaticResource is baked
+             into NINA's parsed style). So we keep NINA's exact toggle look but re-template it locally, pointing
+             ONLY the OFF text at a light brush; the remaining theme brushes use DynamicResource so the switch
+             still matches the active theme. (Template copied from NINA.WPF.Base Resources/Styles/CheckBox.xaml.) -->
+        <SolidColorBrush x:Key="HF_ToggleOffText" Color="#FFD8DCE0" />
+        <Style x:Key="HF_ReviewToggle" TargetType="{x:Type CheckBox}">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Width" Value="65" />
+            <Setter Property="Height" Value="25" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Border
+                                x:Name="SwitchTrack"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="12.5" />
+                            <Grid>
+                                <TextBlock
+                                    x:Name="OnText"
+                                    Margin="8,0,0,0"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    FontWeight="Bold"
+                                    Foreground="{StaticResource HF_ToggleOffText}"
+                                    Text="ON"
+                                    Visibility="Collapsed" />
+                                <TextBlock
+                                    x:Name="OffText"
+                                    Margin="0,0,8,0"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    Foreground="{StaticResource HF_ToggleOffText}"
+                                    Text="OFF"
+                                    Visibility="Visible" />
+                            </Grid>
+                            <Ellipse
+                                x:Name="SwitchThumb"
+                                Width="21"
+                                Height="21"
+                                Margin="2"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                Fill="{DynamicResource SecondaryBackgroundBrush}"
+                                RenderTransformOrigin="0.5,0.5">
+                                <Ellipse.RenderTransform>
+                                    <TranslateTransform x:Name="ThumbTransform" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}" />
+                                <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
+                                <Setter TargetName="OnText" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="OffText" Property="Visibility" Value="Collapsed" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="False">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="Transparent" />
+                                <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Left" />
+                                <Setter TargetName="OnText" Property="Visibility" Value="Collapsed" />
+                                <Setter TargetName="OffText" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="SwitchTrack" Property="Opacity" Value="0.4" />
+                                <Setter TargetName="SwitchThumb" Property="Opacity" Value="0.4" />
+                                <Setter TargetName="OnText" Property="Opacity" Value="0.4" />
+                                <Setter TargetName="OffText" Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="Button">
             <Setter Property="Margin" Value="4,0" />
             <Setter Property="Padding" Value="10,4" />
@@ -296,19 +375,13 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <!-- HFR display toggle lives under the legend (toolbar space is tight). Keep NINA's toggle look, but
-                 NINA renders the On/Off state text with PrimaryBrush (NOT the inherited Foreground); on this dark
-                 panel the default "Off" label is too dark. Lighten PrimaryBrush — scoped to this checkbox via its
-                 own resource dictionary (DynamicResource lookups resolve here first) — so the state text is legible. -->
+            <!-- HFR display toggle lives under the legend (toolbar space is tight). Uses HF_ReviewToggle — NINA's
+                 toggle look with a legible OFF label (see the style comment in UserControl.Resources). -->
             <Separator Margin="0,10,0,8" />
-            <CheckBox Content="Show HFR" IsChecked="{Binding ShowHfr}" Foreground="{StaticResource Fg}">
-                <CheckBox.Resources>
-                    <SolidColorBrush x:Key="PrimaryBrush" Color="#FFD8DCE0" />
-                    <SolidColorBrush x:Key="ButtonForegroundBrush" Color="#FFD8DCE0" />
-                    <SolidColorBrush x:Key="ButtonForegroundDisabledBrush" Color="#FFA9B0B8" />
-                    <SolidColorBrush x:Key="SecondaryBrush" Color="#FFD8DCE0" />
-                </CheckBox.Resources>
-            </CheckBox>
+            <StackPanel Orientation="Horizontal">
+                <CheckBox Style="{StaticResource HF_ReviewToggle}" IsChecked="{Binding ShowHfr}" VerticalAlignment="Center" />
+                <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="Show HFR" />
+            </StackPanel>
             <TextBlock Margin="0,4,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
                        Text="Label each detected star with its HFR, above the box." />
 
