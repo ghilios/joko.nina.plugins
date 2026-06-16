@@ -106,6 +106,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             if (vm == null || ViewportCanvas.ActualWidth <= 0 || vm.ImageWidth <= 0) {
                 return;
             }
+            // A fitted image always ends with the scrollbars HIDDEN, and their disappearance widens/heightens the
+            // canvas. If we measured now (while still zoomed in, scrollbars visible) the fit would be computed
+            // against the smaller, scrollbar-occupied viewport and the image would land off-center until a second
+            // Fit click. So collapse the scrollbars and force a synchronous layout pass FIRST, then measure the
+            // final (scrollbar-free) viewport. (ApplyViewport's UpdateScrollBars keeps them hidden since the fitted
+            // image is smaller than the viewport, so there is no flip-back.)
+            HScroll.Visibility = Visibility.Collapsed;
+            VScroll.Visibility = Visibility.Collapsed;
+            ViewportCanvas.UpdateLayout();
+            if (ViewportCanvas.ActualWidth <= 0 || ViewportCanvas.ActualHeight <= 0) {
+                return;
+            }
             vm.Viewport.FitTo(ViewportCanvas.ActualWidth, ViewportCanvas.ActualHeight, vm.ImageWidth, vm.ImageHeight);
             ApplyViewport();
         }
