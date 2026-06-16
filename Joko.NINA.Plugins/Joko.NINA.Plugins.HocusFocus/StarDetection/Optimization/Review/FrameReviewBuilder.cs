@@ -67,12 +67,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// <param name="detector">The star detector (constructed by the caller with its AlglibAPI).</param>
         /// <param name="floatMatLoader">Profile-aware (or .tif-direct) loader producing a CV_32F [0,1] Mat for a path.</param>
         /// <param name="token">Cancellation token honored between frames and during detection.</param>
+        /// <param name="progress">Optional determinate per-frame progress (each detected frame), used by the wizard's
+        /// "Detecting frames for review" bar. Null (the default) reports nothing — byte-identical to the old behavior,
+        /// so TestApp and other callers are unaffected.</param>
         public static async Task<List<FrameReview>> BuildAsync(
             IEnumerable<FrameReviewDescriptor> descriptors,
             StarDetectorParams detectorParams,
             StarDetector detector,
             Func<string, Task<Mat>> floatMatLoader,
-            CancellationToken token) {
+            CancellationToken token,
+            IProgress<RunLoadProgress> progress = null) {
             if (descriptors == null) {
                 throw new ArgumentNullException(nameof(descriptors));
             }
@@ -86,10 +90,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 throw new ArgumentNullException(nameof(floatMatLoader));
             }
 
-            var reviews = new List<FrameReview>();
-            foreach (var d in descriptors) {
+            // Materialize so we know the total up-front for determinate progress.
+            var descriptorList = descriptors as IReadOnlyList<FrameReviewDescriptor> ?? descriptors.ToList();
+            var reviews = new List<FrameReview>(descriptorList.Count);
+            for (var i = 0; i < descriptorList.Count; i++) {
                 token.ThrowIfCancellationRequested();
-                reviews.Add(await BuildOneAsync(d, detectorParams, detector, floatMatLoader, token).ConfigureAwait(false));
+                reviews.Add(await BuildOneAsync(descriptorList[i], detectorParams, detector, floatMatLoader, token).ConfigureAwait(false));
+                progress?.Report(new RunLoadProgress(i + 1, descriptorList.Count));
             }
             return reviews;
         }

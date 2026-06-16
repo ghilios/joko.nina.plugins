@@ -90,6 +90,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int CurrentOffsetSteps { get; set; }
         public bool ImprovedOverSeed { get; set; }
 
+        /// <summary>For the feedback variant only: σ(focus) of the optimized-WITHOUT-feedback result, so the
+        /// results header can show how much the feedback round tightened focus relative to the plain optimization.
+        /// Null for the current/optimized summaries.</summary>
+        public double? PriorSigmaFocus { get; set; }
+
+        /// <summary>For the feedback variant only: the optimized-without-feedback objective (J) baseline.</summary>
+        public double? PriorBestJ { get; set; }
+
+        /// <summary>True when this summary carries an optimized-without-feedback baseline to compare against
+        /// (i.e. it is the feedback summary produced after an initial optimization).</summary>
+        public bool HasFeedbackComparison => PriorSigmaFocus.HasValue;
+
         /// <summary>True when the recommended AF step size and/or offset steps differ from the current profile
         /// values — i.e. there is actually something to apply. Drives whether the "apply AF step size" toggle is
         /// enabled and whether the AF rows appear in the changed-parameters list.</summary>
@@ -117,6 +129,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (double.IsFinite(SeedSigmaFocus) && double.IsFinite(BestSigmaFocus)
                     && SeedSigmaFocus > 1e-9 && BestSigmaFocus < SeedSigmaFocus) {
                     var pct = (SeedSigmaFocus - BestSigmaFocus) / SeedSigmaFocus * 100.0;
+                    return $"{baseText}  (~{pct:F0}% tighter)";
+                }
+                return baseText;
+            }
+        }
+
+        /// <summary>Feedback-vs-optimized focus-precision readout for the results header: "{optimized} → {feedback}"
+        /// with a "(~N% tighter)" suffix when the feedback round improved σ over the plain optimization. Empty when
+        /// there is no optimized-without-feedback baseline (so the row is hidden for non-feedback variants).</summary>
+        public string FeedbackVsOptimizedText {
+            get {
+                if (!PriorSigmaFocus.HasValue) {
+                    return string.Empty;
+                }
+                var prior = PriorSigmaFocus.Value;
+                if (double.IsFinite(prior) && double.IsFinite(BestSigmaFocus)
+                    && Math.Abs(prior - BestSigmaFocus) < 0.005) {
+                    return $"{BestSigmaFocus:F2} (unchanged)";
+                }
+                var baseText = $"{prior:F2} → {BestSigmaFocus:F2}";
+                if (double.IsFinite(prior) && double.IsFinite(BestSigmaFocus)
+                    && prior > 1e-9 && BestSigmaFocus < prior) {
+                    var pct = (prior - BestSigmaFocus) / prior * 100.0;
                     return $"{baseText}  (~{pct:F0}% tighter)";
                 }
                 return baseText;
@@ -170,7 +205,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // per-frame FrameReviews the StarReviewVM renders. Production wires FrameReviewBuilder over a real
         // StarDetector + a profile-aware disk loader; the unit tests inject a fake so the step-flow can be exercised
         // without real images.
-        private readonly Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder;
+        private readonly Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, IProgress<RunLoadProgress>, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder;
 
         // Connection probes for the Live source's pre-flight check (Start verifies the camera + focuser are
         // connected before triggering a live auto-focus). Injected as delegates so the VM stays mediator-free and
@@ -249,7 +284,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             Func<string> folderPicker,
             StarDetectionRegion region,
             OptimizerSettings optimizerSettings,
-            Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null,
+            Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, IProgress<RunLoadProgress>, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null,
             Func<bool> isCameraConnected = null,
             Func<bool> isFocuserConnected = null) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
@@ -269,7 +304,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             BrowseSourceCommand = new RelayCommand<object>(BrowseSource);
             StartCommand = new AsyncRelayCommand(() => StartAsync(CancellationToken.None), CanStart);
             CancelCommand = new RelayCommand(Cancel);
-            AcceptCommand = new RelayCommand(Accept, () => Summary != null && !IsBusy);
+            AcceptCommand = new RelayCommand(Accept, CanAccept);
             BackCommand = new RelayCommand(Back, () => CurrentStep == WizardStep.Summary && !IsBusy);
             CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
             ReviewCommand = new AsyncRelayCommand(EnterReviewAsync, CanEnterReview);
@@ -299,9 +334,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     RaisePropertyChanged(nameof(IsOptimize));
                     RaisePropertyChanged(nameof(IsSummary));
                     RaisePropertyChanged(nameof(IsReview));
+                    RaiseStepVisibilityChanged();
                     BackCommand.NotifyCanExecuteChanged();
                     ReviewCommand.NotifyCanExecuteChanged();
                     BackToSummaryCommand.NotifyCanExecuteChanged();
+                    AcceptCommand.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -311,6 +348,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool IsOptimize => CurrentStep == WizardStep.Optimize;
         public bool IsSummary => CurrentStep == WizardStep.Summary;
         public bool IsReview => CurrentStep == WizardStep.Review;
+
+        // Body-panel visibility: exactly one panel shows. While the wizard is busy (loading / analyzing / optimizing
+        // / building the review) the determinate progress panel takes over, so the content panels hide on !IsBusy.
+        public bool ShowSelectSource => IsSelectSource && !IsBusy;
+        public bool ShowProgress => IsBusy;
+        public bool ShowSummary => IsSummary && !IsBusy;
+        public bool ShowReview => IsReview && !IsBusy;
+
+        private void RaiseStepVisibilityChanged() {
+            RaisePropertyChanged(nameof(ShowSelectSource));
+            RaisePropertyChanged(nameof(ShowProgress));
+            RaisePropertyChanged(nameof(ShowSummary));
+            RaisePropertyChanged(nameof(ShowReview));
+        }
 
         private WizardOptimizeMode optimizeMode = WizardOptimizeMode.Optimize;
 
@@ -384,6 +435,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (isBusy != value) {
                     isBusy = value;
                     RaisePropertyChanged();
+                    RaiseStepVisibilityChanged();
                     StartCommand.NotifyCanExecuteChanged();
                     AcceptCommand.NotifyCanExecuteChanged();
                     BackCommand.NotifyCanExecuteChanged();
@@ -413,18 +465,53 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         #region Progress
 
-        private int evaluations;
+        private int progressCurrent;
 
-        public int Evaluations {
-            get => evaluations;
-            private set { evaluations = value; RaisePropertyChanged(); }
+        /// <summary>Determinate progress numerator: items done in the current phase (frames loaded / frames
+        /// analyzed / combinations tried / frames detected for review).</summary>
+        public int ProgressCurrent {
+            get => progressCurrent;
+            private set { progressCurrent = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ProgressCountText)); }
         }
 
-        private int maxEvaluations;
+        private int progressTotal;
 
-        public int MaxEvaluations {
-            get => maxEvaluations;
-            private set { maxEvaluations = value; RaisePropertyChanged(); }
+        /// <summary>Determinate progress denominator: total items in the current phase. 0 = no determinate count
+        /// (an indeterminate phase), which hides the count text.</summary>
+        public int ProgressTotal {
+            get => progressTotal;
+            private set {
+                progressTotal = value;
+                RaisePropertyChanged();
+                RaisePropertyChanged(nameof(ProgressCountText));
+                RaisePropertyChanged(nameof(HasProgressCount));
+                RaisePropertyChanged(nameof(IsProgressIndeterminate));
+            }
+        }
+
+        public bool HasProgressCount => progressTotal > 0;
+
+        /// <summary>True when the current phase has no determinate count yet (e.g. the live AF run, or before the
+        /// frame count is known) — the progress bar shows its marching animation instead of a static empty bar.</summary>
+        public bool IsProgressIndeterminate => progressTotal <= 0;
+
+        /// <summary>The "N / M" count line shown under the progress bar; empty when there is no determinate total.</summary>
+        public string ProgressCountText => progressTotal > 0 ? $"{progressCurrent} / {progressTotal}" : string.Empty;
+
+        private bool isOptimizing;
+
+        /// <summary>True only while the parameter search is running, so the live improvement readout (which is
+        /// meaningless during loading/analysis) is shown only then.</summary>
+        public bool IsOptimizing {
+            get => isOptimizing;
+            private set { isOptimizing = value; RaisePropertyChanged(); }
+        }
+
+        /// <summary>Sets the descriptive phase heading + the determinate count in one shot (raising once each).</summary>
+        private void SetProgress(string phase, int current, int total) {
+            Phase = phase;
+            ProgressCurrent = current;
+            ProgressTotal = total;
         }
 
         private double progressSeedJ;
@@ -462,30 +549,180 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         #region Results
 
-        private OptimizationResult result;
+        // Retained per-variant state. Each variant has its own result + summary + curve so the user can toggle the
+        // chart/summary between them and Accept either the first optimization or the latest feedback round. "Current"
+        // is the seed (shown for comparison, never Accepted). "Optimized" is the first optimization pass and is
+        // PRESERVED across re-optimizes. "Feedback" is the latest re-optimization that used review labels and is
+        // REPLACED each round (so at most three variants ever exist).
+        private OptimizationResult currentResult, optimizedResult, feedbackResult;
+        private OptimizationSummary currentSummary, optimizedSummary, feedbackSummary;
+        private OptimizationCurve currentCurve, optimizedCurve, feedbackCurve;
+        private OptimizationVariant selectedVariant = OptimizationVariant.Current;
 
-        public OptimizationResult Result {
-            get => result;
-            private set { result = value; RaisePropertyChanged(); }
+        private OptimizationResult SelectedResult => selectedVariant switch {
+            OptimizationVariant.Feedback => feedbackResult,
+            OptimizationVariant.Optimized => optimizedResult,
+            _ => currentResult
+        };
+
+        private OptimizationSummary SelectedSummary => selectedVariant switch {
+            OptimizationVariant.Feedback => feedbackSummary,
+            OptimizationVariant.Optimized => optimizedSummary,
+            _ => currentSummary
+        };
+
+        /// <summary>The optimization result for the selected variant. A computed pass-through so existing bindings,
+        /// <see cref="Apply"/>, and tests that read <c>Result</c> follow the variant toggle automatically.</summary>
+        public OptimizationResult Result => SelectedResult;
+
+        /// <summary>The summary for the selected variant (pass-through; drives the changed-params table + header).</summary>
+        public OptimizationSummary Summary => SelectedSummary;
+
+        /// <summary>Which settings variant the results page shows / would Accept. Selecting an available variant
+        /// refreshes the chart, the summary text, and the Accept affordance.</summary>
+        public OptimizationVariant SelectedVariant {
+            get => selectedVariant;
+            set {
+                if (selectedVariant != value && IsVariantAvailable(value)) {
+                    selectedVariant = value;
+                    RaiseSelectedVariantDependents();
+                }
+            }
         }
 
-        private OptimizationSummary summary;
+        /// <summary>The auto-focus curve plotted for the selected variant.</summary>
+        public OptimizationCurve SelectedCurve => selectedVariant switch {
+            OptimizationVariant.Feedback => feedbackCurve,
+            OptimizationVariant.Optimized => optimizedCurve,
+            _ => currentCurve
+        };
 
-        public OptimizationSummary Summary {
-            get => summary;
-            private set {
-                summary = value;
-                // A fresh summary: default the toggle to match whether there is anything to apply — ON when the AF
-                // recommendation actually differs from the profile (the user opts OUT rather than in), and OFF
-                // (plus disabled via CanApplyRecommendedStepSize) when nothing changed.
-                applyRecommendedStepSize = CanApplyRecommendedStepSize;
-                RaisePropertyChanged();
-                RaisePropertyChanged(nameof(ApplyRecommendedStepSize));
-                RaisePropertyChanged(nameof(CanApplyRecommendedStepSize));
-                RaisePropertyChanged(nameof(ChangedParametersDisplay));
-                AcceptCommand.NotifyCanExecuteChanged();
-                BackCommand.NotifyCanExecuteChanged();
+        public bool HasSelectedCurve => SelectedCurve?.HasFit == true;
+        public string SelectedVariantLabel => SelectedCurve?.Label;
+
+        public bool HasCurrent => currentCurve != null;
+        public bool HasOptimized => optimizedResult != null;
+        public bool HasFeedback => feedbackResult != null;
+
+        private bool IsVariantAvailable(OptimizationVariant v) => v switch {
+            OptimizationVariant.Feedback => HasFeedback,
+            OptimizationVariant.Optimized => HasOptimized,
+            _ => HasCurrent
+        };
+
+        /// <summary>The accepted-star-count change per focuser position between the baseline (optimized, or current
+        /// when no optimization pass ran) and the feedback variant. Non-empty ONLY while the feedback variant is
+        /// selected (i.e. when the user is comparing optimized vs optimized-with-feedback). Summed per position so it
+        /// lines up with the curve points.</summary>
+        public IReadOnlyList<FrameStarCountChange> StarCountChanges {
+            get {
+                if (selectedVariant != OptimizationVariant.Feedback) {
+                    return Array.Empty<FrameStarCountChange>();
+                }
+                return BuildStarCountChanges(optimizedCurve ?? currentCurve, feedbackCurve);
             }
+        }
+
+        public bool HasStarCountChanges => StarCountChanges.Count > 0;
+
+        /// <summary>Whether the star-count comparison baseline is the optimized run ("optimized") or — in the
+        /// review-only → feedback path — the current settings ("current"). Drives the section heading.</summary>
+        public string StarCountChangeBaselineLabel => HasOptimized ? "optimized" : "current";
+
+        /// <summary>Shows the "you labeled stars — re-run optimization" prompt: only when the user has labels that
+        /// have not yet been turned into a feedback result. Once a feedback variant exists, the prompt is replaced by
+        /// the star-count comparison (re-optimize stays reachable from the Review page).</summary>
+        public bool ShowReoptimizePrompt => HasLabels && !HasFeedback;
+
+        /// <summary>Whether the feedback panel (the bordered box on the results page) has anything to show: the
+        /// re-run prompt, the star-count comparison, or the label→gate breakdown.</summary>
+        public bool ShowFeedbackPanel => ShowReoptimizePrompt || HasStarCountChanges || HasRecommendation;
+
+        /// <summary>Builds the per-position accepted-star-count change between two variants' representative-run frames
+        /// (positions match because both detect the SAME frames). Returns empty when either side lacks counts.</summary>
+        private static IReadOnlyList<FrameStarCountChange> BuildStarCountChanges(OptimizationCurve baseline, OptimizationCurve feedback) {
+            if (baseline?.FrameStarCounts == null || baseline.FrameFocuserPositions == null
+                || feedback?.FrameStarCounts == null || feedback.FrameFocuserPositions == null) {
+                return Array.Empty<FrameStarCountChange>();
+            }
+            var baseByPos = SumStarCountsByPosition(baseline.FrameFocuserPositions, baseline.FrameStarCounts);
+            var fbByPos = SumStarCountsByPosition(feedback.FrameFocuserPositions, feedback.FrameStarCounts);
+            var result = new List<FrameStarCountChange>();
+            foreach (var pos in baseByPos.Keys.Union(fbByPos.Keys).OrderBy(p => p)) {
+                result.Add(new FrameStarCountChange {
+                    FocuserPosition = pos,
+                    BaselineCount = baseByPos.TryGetValue(pos, out var b) ? b : 0,
+                    FeedbackCount = fbByPos.TryGetValue(pos, out var f) ? f : 0
+                });
+            }
+            return result;
+        }
+
+        private static Dictionary<int, int> SumStarCountsByPosition(IReadOnlyList<int> positions, IReadOnlyList<int> counts) {
+            var d = new Dictionary<int, int>();
+            var n = Math.Min(positions.Count, counts.Count);
+            for (var i = 0; i < n; i++) {
+                d[positions[i]] = (d.TryGetValue(positions[i], out var c) ? c : 0) + counts[i];
+            }
+            return d;
+        }
+
+        // Variant toggle radio-button helpers (mirror IsOptimizeMode/IsUseCurrentMode).
+        public bool IsCurrentVariant {
+            get => selectedVariant == OptimizationVariant.Current;
+            set { if (value) { SelectedVariant = OptimizationVariant.Current; } }
+        }
+
+        public bool IsOptimizedVariant {
+            get => selectedVariant == OptimizationVariant.Optimized;
+            set { if (value) { SelectedVariant = OptimizationVariant.Optimized; } }
+        }
+
+        public bool IsFeedbackVariant {
+            get => selectedVariant == OptimizationVariant.Feedback;
+            set { if (value) { SelectedVariant = OptimizationVariant.Feedback; } }
+        }
+
+        /// <summary>
+        /// Re-raises every property that depends on which variant is selected (and re-derives the AF step-size toggle
+        /// default from the selected summary). Called after the variants are (re)populated and whenever the selection
+        /// changes — it is where the old <c>Summary</c> setter's batch of notifications now lives.
+        /// </summary>
+        private void RaiseSelectedVariantDependents() {
+            // Default the AF step-size toggle to match whether the SELECTED summary actually changes the AF settings
+            // (opt-out when there is something to apply; off + disabled when nothing changed).
+            applyRecommendedStepSize = CanApplyRecommendedStepSize;
+            RaisePropertyChanged(nameof(SelectedVariant));
+            RaisePropertyChanged(nameof(IsCurrentVariant));
+            RaisePropertyChanged(nameof(IsOptimizedVariant));
+            RaisePropertyChanged(nameof(IsFeedbackVariant));
+            RaisePropertyChanged(nameof(Result));
+            RaisePropertyChanged(nameof(Summary));
+            RaisePropertyChanged(nameof(SelectedCurve));
+            RaisePropertyChanged(nameof(HasSelectedCurve));
+            RaisePropertyChanged(nameof(SelectedVariantLabel));
+            RaisePropertyChanged(nameof(HasCurrent));
+            RaisePropertyChanged(nameof(HasOptimized));
+            RaisePropertyChanged(nameof(HasFeedback));
+            RaisePropertyChanged(nameof(ApplyRecommendedStepSize));
+            RaisePropertyChanged(nameof(CanApplyRecommendedStepSize));
+            RaisePropertyChanged(nameof(ChangedParametersDisplay));
+            RaisePropertyChanged(nameof(StarCountChanges));
+            RaisePropertyChanged(nameof(HasStarCountChanges));
+            RaisePropertyChanged(nameof(StarCountChangeBaselineLabel));
+            RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+            RaisePropertyChanged(nameof(ShowFeedbackPanel));
+            AcceptCommand.NotifyCanExecuteChanged();
+            BackCommand.NotifyCanExecuteChanged();
+        }
+
+        /// <summary>Resets all retained variants (called at the top of a fresh Start).</summary>
+        private void ResetVariants() {
+            currentResult = optimizedResult = feedbackResult = null;
+            currentSummary = optimizedSummary = feedbackSummary = null;
+            currentCurve = optimizedCurve = feedbackCurve = null;
+            selectedVariant = OptimizationVariant.Current;
+            RaiseSelectedVariantDependents();
         }
 
         private bool applyRecommendedStepSize;
@@ -677,15 +914,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 Interlocked.Exchange(ref running, 0);
                 return;
             }
-            Summary = null;
-            Result = null;
+            ResetVariants();
             // Clear stale progress so a re-run after a cancel/complete doesn't briefly show the previous run's
             // evaluation count / phase / improvement before the first progress callback overwrites them.
-            Evaluations = 0;
-            MaxEvaluations = 0;
+            SetProgress(null, 0, 0);
             ProgressSeedJ = 0;
             ProgressBestJ = 0;
-            Phase = null;
             // A fresh run invalidates any prior review snapshot/labels (they belonged to the previous result).
             if (ReviewVM != null) {
                 ReviewVM.PropertyChanged -= OnReviewLabelsChanged;
@@ -702,6 +936,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             reviewParams = null;
             Recommendation = null;
             RaisePropertyChanged(nameof(HasLabels));
+            RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+            RaisePropertyChanged(nameof(ShowFeedbackPanel));
             ReOptimizeCommand.NotifyCanExecuteChanged();
             IsBusy = true;
 
@@ -734,8 +970,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // In "Use current settings" mode the optimization pass is skipped entirely: BestParams = the seed
                 // (current settings), so the Summary shows no changes and the user can go straight to Review.
                 OptimizationResult optimizeResult;
+                bool optimized;
                 if (OptimizeMode == WizardOptimizeMode.UseCurrentSettings) {
-                    Phase = "Using current settings (no optimization)";
+                    SetProgress("Using current settings (no optimization)", 0, 0);
                     optimizeResult = new OptimizationResult {
                         BestParams = loadedRuns[0].Seed,
                         SeedJ = 0.0,
@@ -744,14 +981,39 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         ImprovedOverSeed = false,
                         ChangedVariables = new List<(string Name, double SeedValue, double BestValue)>()
                     };
+                    optimized = false;
                 } else {
                     CurrentStep = WizardStep.Optimize;
                     optimizeResult = await OptimizeAsync(loadedRuns, token).ConfigureAwait(true);
+                    optimized = true;
                 }
-                Result = optimizeResult;
 
-                // 4. Summary — re-evaluate seed vs best for σ(focus) and recommend a step size.
-                Summary = await BuildSummaryAsync(loadedRuns, optimizeResult, token).ConfigureAwait(true);
+                // 4. Summary + curves — re-evaluate seed vs best for σ(focus), recommend a step size, and capture the
+                //    AF curves to plot (seed = "Current", best = "Optimized"). Done here while loadedRuns is alive,
+                //    before the finally disposes the source Mats; the captured curves hold only Mat-free POCOs.
+                var built = await BuildSummaryAsync(loadedRuns, optimizeResult, token).ConfigureAwait(true);
+
+                // The Current (seed) variant always exists — for the comparison curve and the baseline summary.
+                currentResult = new OptimizationResult {
+                    BestParams = loadedRuns[0].Seed,
+                    SeedJ = optimizeResult.SeedJ,
+                    BestJ = optimizeResult.SeedJ,
+                    Evaluations = 0,
+                    ImprovedOverSeed = false,
+                    ChangedVariables = new List<(string Name, double SeedValue, double BestValue)>()
+                };
+                currentSummary = BuildCurrentSummary(built.Summary);
+                currentCurve = built.CurrentCurve;
+
+                if (optimized) {
+                    optimizedResult = optimizeResult;
+                    optimizedSummary = built.Summary;
+                    optimizedCurve = built.OptimizedCurve;
+                    selectedVariant = OptimizationVariant.Optimized; // default to showing the improvement
+                } else {
+                    selectedVariant = OptimizationVariant.Current; // review-only: only the current curve exists
+                }
+                RaiseSelectedVariantDependents();
 
                 // Snapshot the Mat-free frame descriptors + the labels dir for the optional Review step NOW, while
                 // loadedRuns is still alive — the finally below disposes the in-memory source Mats, so the Review
@@ -804,8 +1066,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         }
                     }
 
-                    Phase = $"Loading run {i + 1} of {RunCount}";
-                    var loaded = await loader.LoadSavedRunAsync(folder, region, token).ConfigureAwait(true);
+                    var runIndex = i;
+                    SetProgress($"Loading run {runIndex + 1} of {RunCount}", 0, 0);
+                    var loadProgress = new Progress<RunLoadProgress>(rp =>
+                        SetProgress($"Loading frames (run {runIndex + 1} of {RunCount})", rp.Current, rp.Total));
+                    var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, token).ConfigureAwait(true);
                     runs.Add(loaded);
                     // Record the actual folder loaded (in load order) so the re-optimize path can re-read it from disk
                     // after the source Mats are disposed. Snapshotted in SnapshotReviewInputs on full success.
@@ -860,12 +1125,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// </summary>
         private async Task<bool> SeedFitIsUsableAsync(IReadOnlyList<LoadedRun> runs, CancellationToken token) {
             const int MinPositionsForFit = 3;
+            // Evaluate the seed on every run WITH determinate "Analyzing frames" progress. This first pass also builds
+            // each frame's expensive early-detection context (the long initial wait), so reporting it here is what
+            // makes the bar advance instead of sitting on a static count; the optimizer then reuses the warmed contexts.
+            var results = await AnalyzeWithProgressAsync(runs, r => r.Seed, token).ConfigureAwait(true);
             var anyUsable = false;
-            foreach (var run in runs) {
-                token.ThrowIfCancellationRequested();
-                var eval = await run.Data.EvaluateAndFitAsync(run.Seed, token).ConfigureAwait(true);
-                var sigmaFinite = double.IsFinite(eval.Metrics.SigmaFocus);
-                if (sigmaFinite && eval.PooledPointCount >= MinPositionsForFit) {
+            foreach (var eval in results) {
+                if (double.IsFinite(eval.Metrics.SigmaFocus) && eval.PooledPointCount >= MinPositionsForFit) {
                     anyUsable = true;
                     break;
                 }
@@ -882,6 +1148,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return true;
         }
 
+        /// <summary>
+        /// Evaluates <paramref name="paramsSelector"/>'s params on each run while reporting determinate
+        /// "Analyzing frames (run i of N)" progress as each frame's detection completes. Used to surface — and warm —
+        /// the expensive first-evaluation early-context build so the progress bar moves during the long initial wait.
+        /// Returns the per-run results (the seed-guard reads them; the re-optimize warm-up discards them, the call
+        /// having only primed the cache).
+        /// </summary>
+        private async Task<List<RunEvaluationResult>> AnalyzeWithProgressAsync(
+            IReadOnlyList<LoadedRun> runs, Func<LoadedRun, StarDetectorParams> paramsSelector, CancellationToken token) {
+            var results = new List<RunEvaluationResult>(runs.Count);
+            for (var i = 0; i < runs.Count; i++) {
+                token.ThrowIfCancellationRequested();
+                var runIndex = i;
+                var run = runs[i];
+                var label = $"Analyzing frames (run {runIndex + 1} of {runs.Count})";
+                SetProgress(label, 0, run.Data.FrameCount);
+                var frameProgress = new Progress<RunLoadProgress>(rp => SetProgress(label, rp.Current, rp.Total));
+                results.Add(await run.Data.EvaluateAndFitAsync(paramsSelector(run), frameProgress, token).ConfigureAwait(true));
+            }
+            return results;
+        }
+
         /// <summary>Runs the pure optimizer off the UI thread; progress posts back via <see cref="IProgress{T}"/>.
         /// When <paramref name="seedOverride"/>/<paramref name="variablesOverride"/> are supplied (the warm-start
         /// "Optimize with feedback" path), the search starts from the analytic recommendation and explores only the
@@ -893,19 +1181,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet();
             var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList());
 
-            MaxEvaluations = optimizerSettings.MaxEvaluations;
+            ProgressTotal = optimizerSettings.MaxEvaluations;
             var progress = new Progress<OptimizationProgress>(p => {
-                Evaluations = p.Evaluations;
-                MaxEvaluations = p.MaxEvaluations;
+                ProgressCurrent = p.Evaluations;
+                ProgressTotal = p.MaxEvaluations;
                 ProgressBestJ = p.BestJ;
                 ProgressSeedJ = p.SeedJ;
                 Phase = FriendlyPhase(p.Phase);
             });
 
             var optimizer = new StarDetectionOptimizer();
-            return await Task.Run(
-                () => optimizer.OptimizeAsync(seed, variables, evaluator, optimizerSettings, progress, token),
-                token).ConfigureAwait(true);
+            IsOptimizing = true;
+            try {
+                return await Task.Run(
+                    () => optimizer.OptimizeAsync(seed, variables, evaluator, optimizerSettings, progress, token),
+                    token).ConfigureAwait(true);
+            } finally {
+                IsOptimizing = false;
+            }
         }
 
         /// <summary>Maps the optimizer's internal phase identifiers ("Seed"/"CoarseGrid"/"PatternSearch", which
@@ -922,16 +1215,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// best, averaged across runs), and the recommended step size from the representative (first) run's best
         /// fit, clamped to the focuser's max increment when known.
         /// </summary>
-        private async Task<OptimizationSummary> BuildSummaryAsync(IReadOnlyList<LoadedRun> runs, OptimizationResult res, CancellationToken token) {
+        private async Task<(OptimizationSummary Summary, OptimizationCurve CurrentCurve, OptimizationCurve OptimizedCurve)>
+            BuildSummaryAsync(IReadOnlyList<LoadedRun> runs, OptimizationResult res, CancellationToken token) {
             var seed = runs[0].Seed;
             var changed = res.ChangedVariables
                 .Select(c => new ChangedParameterRow { Name = c.Name, SeedValue = c.SeedValue, OptimizedValue = c.BestValue })
                 .ToList();
 
-            // σ(focus) before/after, averaged over the runs (the first run also yields the representative best fit).
+            // σ(focus) before/after, averaged over the runs (the first run also yields the representative best fit
+            // AND the curves we plot — seed = "Current", best = "Optimized"; both carry the scatter points + fit).
             double seedSigmaSum = 0.0, bestSigmaSum = 0.0;
             var seedSigmaCount = 0; var bestSigmaCount = 0;
             AlglibHyperbolicFitting representativeBestFit = null;
+            OptimizationCurve currentCurveLocal = null, optimizedCurveLocal = null;
             for (var i = 0; i < runs.Count; i++) {
                 token.ThrowIfCancellationRequested();
                 var seedEval = await runs[i].Data.EvaluateAndFitAsync(seed, token).ConfigureAwait(true);
@@ -940,6 +1236,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (double.IsFinite(bestEval.Metrics.SigmaFocus)) { bestSigmaSum += bestEval.Metrics.SigmaFocus; bestSigmaCount++; }
                 if (i == 0) {
                     representativeBestFit = bestEval.BestFit;
+                    currentCurveLocal = new OptimizationCurve {
+                        Label = "Current", Points = seedEval.Points, Fit = seedEval.BestFit,
+                        FrameStarCounts = seedEval.Metrics.FrameStarCounts,
+                        FrameFocuserPositions = seedEval.Metrics.FrameFocuserPositions
+                    };
+                    optimizedCurveLocal = new OptimizationCurve {
+                        Label = "Optimized", Points = bestEval.Points, Fit = bestEval.BestFit,
+                        FrameStarCounts = bestEval.Metrics.FrameStarCounts,
+                        FrameFocuserPositions = bestEval.Metrics.FrameFocuserPositions
+                    };
                 }
             }
 
@@ -947,7 +1253,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var currentOffsetSteps = runs[0].AfOptions?.AutoFocusInitialOffsetSteps ?? DefaultCurrentOffsetSteps;
             var recommendation = StepSizeRecommender.Recommend(representativeBestFit, currentStepSize, GetFocuserMaxStep());
 
-            return new OptimizationSummary {
+            var summary = new OptimizationSummary {
                 ChangedParameters = changed,
                 SeedJ = res.SeedJ,
                 BestJ = res.BestJ,
@@ -959,6 +1265,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 CurrentStepSize = currentStepSize,
                 CurrentOffsetSteps = currentOffsetSteps,
                 ImprovedOverSeed = res.ImprovedOverSeed
+            };
+            return (summary, currentCurveLocal, optimizedCurveLocal);
+        }
+
+        /// <summary>
+        /// Builds the "Current" variant's summary from the optimized run's summary: nothing changed, so the
+        /// changed-parameters table is empty, J/σ collapse to the seed baseline, and the AF recommendation equals the
+        /// current profile values (so the apply-step-size toggle is disabled). Used so toggling to "Current" shows a
+        /// truthful "no changes" summary alongside the current curve.
+        /// </summary>
+        private static OptimizationSummary BuildCurrentSummary(OptimizationSummary optimized) {
+            return new OptimizationSummary {
+                ChangedParameters = Array.Empty<ChangedParameterRow>(),
+                SeedJ = optimized.SeedJ,
+                BestJ = optimized.SeedJ,
+                SeedSigmaFocus = optimized.SeedSigmaFocus,
+                BestSigmaFocus = optimized.SeedSigmaFocus,
+                RunCount = optimized.RunCount,
+                RecommendedStepSize = optimized.CurrentStepSize,
+                RecommendedOffsetSteps = optimized.CurrentOffsetSteps,
+                CurrentStepSize = optimized.CurrentStepSize,
+                CurrentOffsetSteps = optimized.CurrentOffsetSteps,
+                ImprovedOverSeed = false
             };
         }
 
@@ -980,9 +1309,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// applying (it never mutates options) — though it still flushes labels, since those are user work product,
         /// not a settings mutation. Reachable from Summary AND Review.
         /// </summary>
+        /// <summary>Accept is enabled only on the finished Summary view, when the VM is idle, and when a non-Current
+        /// variant (something there is actually to apply) is selected. This keeps Accept disabled while the Start /
+        /// SelectSource view or a run-in-progress is showing, and in review-only (Current selected).</summary>
+        private bool CanAccept() =>
+            !IsBusy && IsSummary && selectedVariant != OptimizationVariant.Current
+            && SelectedResult != null && SelectedSummary != null;
+
         private void Accept() {
             PersistReviewLabels();
-            Apply();
+            Apply(SelectedResult, SelectedSummary);
             RequestClose?.Invoke(this, EventArgs.Empty);
         }
 
@@ -993,26 +1329,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// is set, also writes the recommended AF step size/offset to the active profile. Only ever called via
         /// <see cref="Accept"/> when the user accepts the summary — never during the search.
         /// </summary>
-        private void Apply() {
-            if (Result == null || Summary == null) {
+        private void Apply(OptimizationResult result, OptimizationSummary summary) {
+            if (result == null || summary == null) {
                 return;
             }
 
             // Build the snapshot via the shared params->DTO mapping (the single source of truth shared with the
             // headless harness) so the in-app and offline paths can never drift. CreatedAtUtc is stamped inside.
             var dto = OptimizedStarDetectionSettings.FromParams(
-                Result.BestParams, Summary.RunCount, Result.SeedJ, Result.BestJ,
-                Summary.RecommendedStepSize, Summary.RecommendedOffsetSteps);
+                result.BestParams, summary.RunCount, result.SeedJ, result.BestJ,
+                summary.RecommendedStepSize, summary.RecommendedOffsetSteps);
 
             starDetectionOptions.ApplyOptimizedSettings(dto);
-            Logger.Info($"Applied optimized star-detection settings (J {Result.SeedJ:F3} -> {Result.BestJ:F3}, {Summary.RunCount} run(s))");
+            Logger.Info($"Applied optimized star-detection settings (J {result.SeedJ:F3} -> {result.BestJ:F3}, {summary.RunCount} run(s))");
 
             if (ApplyRecommendedStepSize) {
                 var focuserSettings = profileService?.ActiveProfile?.FocuserSettings;
                 if (focuserSettings != null) {
-                    focuserSettings.AutoFocusStepSize = Summary.RecommendedStepSize;
-                    focuserSettings.AutoFocusInitialOffsetSteps = Summary.RecommendedOffsetSteps;
-                    Logger.Info($"Applied recommended AF step size {Summary.RecommendedStepSize}, offset steps {Summary.RecommendedOffsetSteps}");
+                    focuserSettings.AutoFocusStepSize = summary.RecommendedStepSize;
+                    focuserSettings.AutoFocusInitialOffsetSteps = summary.RecommendedOffsetSteps;
+                    Logger.Info($"Applied recommended AF step size {summary.RecommendedStepSize}, offset steps {summary.RecommendedOffsetSteps}");
                 }
             }
         }
@@ -1079,13 +1415,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             ErrorMessage = null;
             IsBusy = true;
-            Phase = "Detecting frames for review";
+            SetProgress("Detecting frames for review", 0, descriptors.Count);
             try {
                 // Detect every frame at the optimized params, off the UI thread. The production builder seam wraps the
                 // shared FrameReviewBuilder in a Task.Run, so the whole build (disk load + detection) runs on the
                 // threadpool and never stutters the UI thread; we just await the result here. The resulting
                 // FrameReviews carry frozen overlays + a disk-backed image provider.
-                var reviews = await frameReviewBuilder(descriptors, bestParams, cts?.Token ?? CancellationToken.None).ConfigureAwait(true);
+                var reviewProgress = new Progress<RunLoadProgress>(rp => SetProgress("Detecting frames for review", rp.Current, rp.Total));
+                var reviews = await frameReviewBuilder(descriptors, bestParams, reviewProgress, cts?.Token ?? CancellationToken.None).ConfigureAwait(true);
                 if (reviews == null || reviews.Count == 0) {
                     ErrorMessage = "No frames could be prepared for review.";
                     return;
@@ -1106,6 +1443,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
                 capturedLabels = labelsByRun;
                 RaisePropertyChanged(nameof(HasLabels));
+                RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+                RaisePropertyChanged(nameof(ShowFeedbackPanel));
                 ReOptimizeCommand.NotifyCanExecuteChanged();
 
                 // Replace any prior review (drop its label-change subscription first to avoid a dangling handler).
@@ -1143,6 +1482,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private void OnReviewLabelsChanged(object sender, PropertyChangedEventArgs e) {
             if (e.PropertyName == nameof(StarReviewVM.CountsLabel)) {
                 RaisePropertyChanged(nameof(HasLabels));
+                RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+                RaisePropertyChanged(nameof(ShowFeedbackPanel));
                 ReOptimizeCommand.NotifyCanExecuteChanged();
             }
         }
@@ -1159,6 +1500,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(HasRecommendation));
                 RaisePropertyChanged(nameof(RecommendationRows));
+                RaisePropertyChanged(nameof(ShowFeedbackPanel));
             }
         }
 
@@ -1244,11 +1586,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             ErrorMessage = null;
             // Clear stale progress so the re-optimize doesn't briefly show the prior run's numbers.
-            Evaluations = 0;
-            MaxEvaluations = 0;
+            SetProgress(null, 0, 0);
             ProgressSeedJ = 0;
             ProgressBestJ = 0;
-            Phase = null;
             IsBusy = true;
 
             cts?.Dispose();
@@ -1261,7 +1601,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 reloaded = new List<LoadedRun>(reoptimizeRunFolders.Count);
                 for (var i = 0; i < reoptimizeRunFolders.Count; i++) {
                     token.ThrowIfCancellationRequested();
-                    Phase = $"Re-loading run {i + 1} of {reoptimizeRunFolders.Count}";
+                    var runIndex = i;
+                    SetProgress($"Re-loading run {runIndex + 1} of {reoptimizeRunFolders.Count}", 0, 0);
                     var folder = reoptimizeRunFolders[i];
 
                     // The RunId was recorded during the first acquire (it is a deterministic function of the folder),
@@ -1273,7 +1614,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     // Passing null frameLabels is byte-identical to the no-label load (the loader's no-label overload
                     // delegates to this one with labels: null), so a label-less run is loaded the same as before.
                     var frameLabels = LabelConverter.ToFrameLabels(runLabels);
-                    var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, token).ConfigureAwait(true);
+                    var loadProgress = new Progress<RunLoadProgress>(rp =>
+                        SetProgress($"Loading frames (run {runIndex + 1} of {reoptimizeRunFolders.Count})", rp.Current, rp.Total));
+                    var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, loadProgress, token).ConfigureAwait(true);
                     reloaded.Add(loaded);
                 }
 
@@ -1292,10 +1635,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         OptimizerVariable.CreateCuratedSet(), reviewParams, feedback.Recommended);
                 }
 
+                // Warm + report the per-frame early contexts for the params the optimizer will start from (re-optimize
+                // skips the seed-guard, so this is the parity warm-up that makes the bar move during the initial build).
+                await AnalyzeWithProgressAsync(reloaded, _ => seedOverride ?? reloaded[0].Seed, token).ConfigureAwait(true);
+
                 // Re-run the optimize + summary pipeline over the labeled runs (warm-started when we have a recommendation).
                 var optimizeResult = await OptimizeAsync(reloaded, token, seedOverride, variablesOverride).ConfigureAwait(true);
-                Result = optimizeResult;
-                Summary = await BuildSummaryAsync(reloaded, optimizeResult, token).ConfigureAwait(true);
+                var built = await BuildSummaryAsync(reloaded, optimizeResult, token).ConfigureAwait(true);
+
+                // Retain as the FEEDBACK variant. This REPLACES any prior feedback and leaves the first Optimized
+                // variant (and Current) untouched, so only the latest feedback persists while the original optimization
+                // stays available to compare/accept. Carry the optimized-without-feedback σ/J baseline so the header
+                // can show how much the feedback round improved over the plain optimization.
+                feedbackResult = optimizeResult;
+                feedbackSummary = built.Summary;
+                feedbackSummary.PriorSigmaFocus = optimizedSummary?.BestSigmaFocus;
+                feedbackSummary.PriorBestJ = optimizedResult?.BestJ;
+                feedbackCurve = built.OptimizedCurve;
+                if (feedbackCurve != null) {
+                    feedbackCurve.Label = "Optimized (with feedback)";
+                }
+                selectedVariant = OptimizationVariant.Feedback;
+                RaiseSelectedVariantDependents();
 
                 // Re-snapshot the review inputs from the RE-LOADED runs (mirroring StartAsync step 4) so the user can
                 // enter Review again before this finally disposes the freshly-loaded source Mats. The same folders we
@@ -1369,6 +1730,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // labels dir it was constructed with). SaveAll also refreshes its in-memory counts.
                 ReviewVM.SaveAll();
                 RaisePropertyChanged(nameof(HasLabels));
+                RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+                RaisePropertyChanged(nameof(ShowFeedbackPanel));
                 ReOptimizeCommand.NotifyCanExecuteChanged();
             } catch (Exception ex) {
                 Logger.Error(ex, "Failed to persist review labels");
@@ -1381,18 +1744,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// normalized float Mat; .tif direct). Mirrors the TestApp <c>review</c> path so detection + overlay
         /// extraction + the MTF-stretch image provider are byte-identical between the offline tool and the wizard.
         /// </summary>
-        private static Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>>
+        private static Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, IProgress<RunLoadProgress>, CancellationToken, Task<List<FrameReview>>>
             BuildProductionReviewBuilder(IProfileService profileService, IImageDataFactory imageDataFactory) {
-            return (descriptors, p, token) => {
+            return (descriptors, p, progress, token) => {
                 var detector = new StarDetector(HocusFocusPlugin.AlglibAPI);
                 // Hop to the threadpool so the WHOLE build (disk load + detection) runs off the captured UI context.
                 // FrameReviewBuilder.BuildAsync awaits its work, so without this hop its synchronous prologue (and any
-                // continuation that resumes on the UI SynchronizationContext) could stutter the UI thread.
+                // continuation that resumes on the UI SynchronizationContext) could stutter the UI thread. Progress
+                // is posted via the IProgress the VM created on the UI context, so per-frame reports marshal back.
                 return Task.Run(
                     () => FrameReviewBuilder.BuildAsync(
                         descriptors, p, detector,
                         path => LoadFloatMatFromDisk(path, profileService, imageDataFactory),
-                        token),
+                        token, progress),
                     token);
             };
         }

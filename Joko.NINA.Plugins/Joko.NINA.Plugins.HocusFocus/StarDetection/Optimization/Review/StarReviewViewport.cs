@@ -30,6 +30,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public double OffsetX { get; private set; }
         public double OffsetY { get; private set; }
 
+        // The wheel-zoom-out floor: the user can't zoom out smaller than the starting fit (below it the image would
+        // shrink inside the viewport and show black on all four edges). Set by FitTo to the fitted scale; until then
+        // it is the absolute MinScale so a viewport used without fitting (e.g. in unit tests) behaves as before.
+        private double zoomOutFloor = MinScale;
+
+        /// <summary>The current zoom-out floor (the starting-fit scale once <see cref="FitTo"/> has run).</summary>
+        public double ZoomOutFloor => zoomOutFloor;
+
         public StarReviewViewport() { }
 
         public StarReviewViewport(double scale, double offsetX, double offsetY) {
@@ -57,12 +65,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 Scale = 1.0;
                 OffsetX = 0;
                 OffsetY = 0;
+                zoomOutFloor = MinScale;
                 return;
             }
             var fit = Math.Min(viewportWidth / imageWidth, viewportHeight / imageHeight);
             Scale = ClampScale(Math.Min(fit, 1.0));
             OffsetX = (viewportWidth - imageWidth * Scale) / 2.0;
             OffsetY = (viewportHeight - imageHeight * Scale) / 2.0;
+            // The fitted scale becomes the zoom-out floor so the user can't zoom out into a 4-edge black border.
+            zoomOutFloor = Scale;
         }
 
         /// <summary>
@@ -72,11 +83,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// </summary>
         public void ZoomAt(double factor, double anchorScreenX, double anchorScreenY) {
             var (imgX, imgY) = ScreenToImage(anchorScreenX, anchorScreenY);
-            var newScale = ClampScale(Scale * factor);
+            // Clamp to the zoom-out floor (the starting fit) so wheel-zoom can't shrink the image below the viewport
+            // fit; the upper bound stays the absolute MaxScale.
+            var newScale = ClampToZoomOutFloor(Scale * factor);
             // Solve for the offset that keeps (imgX, imgY) under the anchor at the new scale.
             OffsetX = anchorScreenX - imgX * newScale;
             OffsetY = anchorScreenY - imgY * newScale;
             Scale = newScale;
+        }
+
+        /// <summary>Clamps a scale to [<see cref="zoomOutFloor"/>, <see cref="MaxScale"/>] (the wheel-zoom range),
+        /// guarding non-finite/non-positive input.</summary>
+        private double ClampToZoomOutFloor(double s) {
+            if (double.IsNaN(s) || s <= 0) {
+                return zoomOutFloor;
+            }
+            if (s < zoomOutFloor) {
+                return zoomOutFloor;
+            }
+            return s > MaxScale ? MaxScale : s;
         }
 
         /// <summary>Pans by a screen-space delta (drag).</summary>

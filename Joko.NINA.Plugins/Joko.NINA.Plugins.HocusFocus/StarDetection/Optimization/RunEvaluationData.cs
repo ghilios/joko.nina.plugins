@@ -131,6 +131,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>The pooled (mean) HFR at each distinct focuser position; for assertions/diagnostics.</summary>
         public IReadOnlyDictionary<int, double> PooledHfrByPosition { get; set; }
 
+        /// <summary>The pooled per-position scatter points the fit was computed from (X = focuser position,
+        /// Y = pooled mean HFR, ErrorY = pooled stdev via <see cref="SafeDisplayError"/>). Mat-free and cheap;
+        /// exposed so the wizard can plot the auto-focus curve without re-detecting. Empty when there were too
+        /// few positions to pool.</summary>
+        public IReadOnlyList<ScatterErrorPoint> Points { get; set; }
+
         public double PooledHfrAt(int focuserPosition) => PooledHfrByPosition[focuserPosition];
     }
 
@@ -261,6 +267,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         public string RunId { get; }
+
+        /// <summary>The number of frames in this run (used by the wizard to set determinate "Analyzing frames"
+        /// progress totals before the first evaluation builds the per-frame early contexts).</summary>
+        public int FrameCount => frames.Count;
 
         /// <summary>
         /// A lightweight, Mat-free description of this run's frames for the interactive review step: each frame's
@@ -448,7 +458,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// Cancellation: a linked token source cancels all in-flight frames on request (or when any frame faults);
         /// the first fault/cancellation is rethrown after all started tasks settle, so no detection is left running.
         /// </summary>
-        private async Task<FrameDetectionResult[]> DetectAllFramesAsync(StarDetectorParams p, CancellationToken token) {
+        private async Task<FrameDetectionResult[]> DetectAllFramesAsync(StarDetectorParams p, IProgress<RunLoadProgress> frameProgress, CancellationToken token) {
             var count = frames.Count;
             var results = new FrameDetectionResult[count];
             if (count == 0) {
@@ -457,6 +467,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             token.ThrowIfCancellationRequested();
 
+            // Determinate progress for the (optional) reporter: count frames as their detection completes. Interlocked
+            // so the parallel path (frames complete out of order) reports a monotonic running count safely.
+            var completed = 0;
+            void ReportFrameDone() {
+                if (frameProgress != null) {
+                    frameProgress.Report(new RunLoadProgress(System.Threading.Interlocked.Increment(ref completed), count));
+                }
+            }
+
             var degree = EffectiveFrameParallelism;
             if (degree <= 1) {
                 // Forced/derived sequential path: identical ordering and behavior to the original loop. Used by tests
@@ -464,6 +483,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 for (int i = 0; i < count; i++) {
                     token.ThrowIfCancellationRequested();
                     results[i] = await DetectFrameAsync(i, frames[i].Image, p, token).ConfigureAwait(false);
+                    ReportFrameDone();
                 }
                 return results;
             }
@@ -486,6 +506,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     tasks[index] = Task.Run(async () => {
                         try {
                             results[index] = await DetectFrameAsync(index, frames[index].Image, p, linkedToken).ConfigureAwait(false);
+                            ReportFrameDone();
                         } catch {
                             // Cancel siblings so the whole evaluation tears down promptly; the original exception is
                             // surfaced via Task.WhenAll below.
@@ -538,7 +559,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// for the step-size recommender). Never throws on a degenerate run — too few points produce NaN σ so the
         /// objective hard-fails gracefully.
         /// </summary>
-        public async Task<RunEvaluationResult> EvaluateAndFitAsync(StarDetectorParams p, CancellationToken token) {
+        public Task<RunEvaluationResult> EvaluateAndFitAsync(StarDetectorParams p, CancellationToken token) =>
+            EvaluateAndFitAsync(p, frameProgress: null, token);
+
+        /// <summary>
+        /// Overload that reports determinate per-frame progress as each frame's detection completes (used by the
+        /// wizard's seed-guard, where the first evaluation builds every frame's expensive early context — the long
+        /// initial wait). <paramref name="frameProgress"/> is OPTIONAL: the optimizer hot path
+        /// (<see cref="EvaluateAsync"/> → the 2-arg overload) passes none, so its evaluation behavior and metrics
+        /// are byte-identical to before.
+        /// </summary>
+        public async Task<RunEvaluationResult> EvaluateAndFitAsync(StarDetectorParams p, IProgress<RunLoadProgress> frameProgress, CancellationToken token) {
             // 1. Detect every frame, CONCURRENTLY but capped (see EffectiveFrameParallelism), to fill idle cores
             //    during the largely single-threaded early stage. Determinism is preserved by assembling results into
             //    a per-index array (assign by frame index, NOT completion order) and then consuming that array in
@@ -546,7 +577,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             //    identical to the old sequential loop regardless of how the frame tasks interleave. When a split
             //    detector is in use each frame goes through its own early-context cache slot (reused across late-only
             //    changes); concurrent builds touch distinct slots, so the cache is unaffected by the parallelism.
-            var detections = await DetectAllFramesAsync(p, token).ConfigureAwait(false);
+            var detections = await DetectAllFramesAsync(p, frameProgress, token).ConfigureAwait(false);
 
             var frameStarCounts = new List<int>(frames.Count);
             var frameRelaxationAdmittedCounts = new List<int>(frames.Count);
@@ -629,7 +660,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 Metrics = metrics,
                 BestFit = bestFit,
                 PooledPointCount = points.Count,
-                PooledHfrByPosition = pooledHfr
+                PooledHfrByPosition = pooledHfr,
+                Points = points
             };
         }
 
