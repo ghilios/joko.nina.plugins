@@ -48,6 +48,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
         // lazily when the user clicks "Optimize Star Detection…", well after MEF composition, so these are safe to
         // reuse for building its RunEvaluationLoader + detector.
         private readonly IProfileService profileService;
+        private readonly ICameraMediator cameraMediator;
         private readonly IFocuserMediator focuserMediator;
         private readonly IImagingMediator imagingMediator;
         private readonly IImageDataFactory imageDataFactory;
@@ -71,6 +72,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector) {
             this.profileService = profileService;
+            this.cameraMediator = cameraMediator;
             this.focuserMediator = focuserMediator;
             this.imagingMediator = imagingMediator;
             this.imageDataFactory = imageDataFactory;
@@ -159,6 +161,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
                 profileService,
                 imageDataFactory,
                 imagingMediator,
+                cameraMediator,
+                focuserMediator,
                 autoFocusEngine,
                 detection);
 

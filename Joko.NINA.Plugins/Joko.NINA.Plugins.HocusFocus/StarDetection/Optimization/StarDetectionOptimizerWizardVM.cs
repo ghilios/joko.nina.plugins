@@ -164,6 +164,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // without real images.
         private readonly Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder;
 
+        // Connection probes for the Live source's pre-flight check (Start verifies the camera + focuser are
+        // connected before triggering a live auto-focus). Injected as delegates so the VM stays mediator-free and
+        // unit-testable; production wires them to the camera/focuser mediators, tests pass a stub. Default to
+        // "connected" when not supplied so the existing tests are unaffected.
+        private readonly Func<bool> isCameraConnected;
+        private readonly Func<bool> isFocuserConnected;
+
         // Snapshotted at the end of a successful run (BEFORE loadedRuns is disposed): the Mat-free per-frame
         // descriptors for every loaded run, the labels dir each run's labels persist to, and the in-memory label
         // models the review edits. These survive disposal so the Review step can detect from disk afterward.
@@ -195,6 +202,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             IProfileService profileService,
             IImageDataFactory imageDataFactory,
             IImagingMediator imagingMediator,
+            ICameraMediator cameraMediator,
+            IFocuserMediator focuserMediator,
             IAutoFocusEngine autoFocusEngine,
             IHocusFocusStarDetection detection)
             : this(
@@ -210,7 +219,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // Production review builder: the SHARED FrameReviewBuilder over a real StarDetector + a profile-aware
                 // disk loader (mirrors the TestApp `review` path; single source of truth). Built lazily so the
                 // detector/loader only allocate when the user actually enters Review.
-                frameReviewBuilder: BuildProductionReviewBuilder(profileService, imageDataFactory)) {
+                frameReviewBuilder: BuildProductionReviewBuilder(profileService, imageDataFactory),
+                // Live pre-flight: probe the camera/focuser mediators for the connection check on Start.
+                isCameraConnected: () => cameraMediator?.GetInfo()?.Connected == true,
+                isFocuserConnected: () => focuserMediator?.GetInfo()?.Connected == true) {
         }
 
         /// <summary>
@@ -224,7 +236,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             Func<string> folderPicker,
             StarDetectionRegion region,
             OptimizerSettings optimizerSettings,
-            Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null) {
+            Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null,
+            Func<bool> isCameraConnected = null,
+            Func<bool> isFocuserConnected = null) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.starDetectionOptions = starDetectionOptions ?? throw new ArgumentNullException(nameof(starDetectionOptions));
             this.loader = loader ?? throw new ArgumentNullException(nameof(loader));
@@ -233,12 +247,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             this.region = region ?? StarDetectionRegion.Full;
             this.optimizerSettings = optimizerSettings ?? new OptimizerSettings();
             this.frameReviewBuilder = frameReviewBuilder;
+            this.isCameraConnected = isCameraConnected ?? (() => true);
+            this.isFocuserConnected = isFocuserConnected ?? (() => true);
 
             sourcePaths = new ObservableCollection<string> { null };
             applyRecommendedStepSize = true;
 
             BrowseSourceCommand = new RelayCommand<object>(BrowseSource);
-            StartCommand = new AsyncRelayCommand(() => StartAsync(CancellationToken.None));
+            StartCommand = new AsyncRelayCommand(() => StartAsync(CancellationToken.None), CanStart);
             CancelCommand = new RelayCommand(Cancel);
             AcceptCommand = new RelayCommand(Accept, () => Summary != null && !IsBusy);
             BackCommand = new RelayCommand(Back, () => CurrentStep == WizardStep.Summary && !IsBusy);
@@ -246,6 +262,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             ReviewCommand = new AsyncRelayCommand(EnterReviewAsync, CanEnterReview);
             BackToSummaryCommand = new RelayCommand(BackToSummary, () => CurrentStep == WizardStep.Review && !IsBusy);
             ReOptimizeCommand = new AsyncRelayCommand(() => ReOptimizeWithLabelsAsync(CancellationToken.None), () => HasLabels && !IsBusy);
+
+            // Start enables/disables as the per-run paths are filled in (Saved Auto-Focus), so re-evaluate its
+            // CanExecute whenever a path is set or the run count changes.
+            sourcePaths.CollectionChanged += (_, __) => StartCommand.NotifyCanExecuteChanged();
         }
 
         /// <summary>Raised when the user clicks Close so the host window (T5) can dismiss the dialog.</summary>
@@ -288,6 +308,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     sourceMode = value;
                     RaisePropertyChanged();
                     RaisePropertyChanged(nameof(IsReplay));
+                    // Live needs no paths (Start enabled); Saved disables Start until paths are filled.
+                    StartCommand.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -536,6 +558,71 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         #endregion Commands
 
         /// <summary>
+        /// CanExecute for Start. Live is always startable (the camera/focuser connection is checked on Start with a
+        /// clear error). Saved Auto-Focus stays disabled until EVERY run has a (non-empty) folder picked — the
+        /// distinctness check happens on Start so the user gets an explanatory error rather than a silently-disabled
+        /// button. Always disabled while a run is in flight.
+        /// </summary>
+        private bool CanStart() {
+            if (IsBusy) {
+                return false;
+            }
+            if (SourceMode == SourceMode.Live) {
+                return true;
+            }
+            for (var i = 0; i < RunCount; i++) {
+                if (string.IsNullOrWhiteSpace(i < SourcePaths.Count ? SourcePaths[i] : null)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Pre-flight source validation run when Start is clicked. Live: the camera AND focuser must be connected.
+        /// Saved Auto-Focus: every run needs a folder (Start is already disabled until then; re-checked here as a
+        /// safety net) and the folders must be DISTINCT (optimizing the same run twice is almost certainly a
+        /// mistake). Sets <see cref="ErrorMessage"/> and returns false on failure.
+        /// </summary>
+        private bool ValidateSourceBeforeStart() {
+            if (SourceMode == SourceMode.Live) {
+                if (!isCameraConnected()) {
+                    ErrorMessage = "Connect a camera before running a live auto-focus optimization.";
+                    return false;
+                }
+                if (!isFocuserConnected()) {
+                    ErrorMessage = "Connect a focuser before running a live auto-focus optimization.";
+                    return false;
+                }
+                return true;
+            }
+
+            var normalized = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < RunCount; i++) {
+                var path = i < SourcePaths.Count ? SourcePaths[i] : null;
+                if (string.IsNullOrWhiteSpace(path)) {
+                    ErrorMessage = $"Select a saved auto-focus folder for run {i + 1}.";
+                    return false;
+                }
+                if (!normalized.Add(NormalizePath(path))) {
+                    ErrorMessage = "Each run must use a different saved auto-focus folder.";
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>Normalizes a folder path for distinctness comparison (full path, trailing separators trimmed);
+        /// falls back to the trimmed input when the path can't be expanded.</summary>
+        private static string NormalizePath(string path) {
+            try {
+                return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            } catch {
+                return path?.Trim() ?? string.Empty;
+            }
+        }
+
+        /// <summary>
         /// Runs the full pipeline: acquire (load each run) → seed guard → optimize → summary. Guards against a
         /// double-start, marshals progress via <see cref="IProgress{T}"/>, and never throws on cancellation —
         /// a cancelled run leaves the VM idle and re-runnable.
@@ -546,6 +633,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             ErrorMessage = null;
+            // Pre-flight validation: Live needs the camera + focuser connected; Saved needs a distinct, non-empty
+            // folder per run. On failure, surface the error and stay on SelectSource without starting a run.
+            if (!ValidateSourceBeforeStart()) {
+                Interlocked.Exchange(ref running, 0);
+                return;
+            }
             Summary = null;
             Result = null;
             // Clear stale progress so a re-run after a cancel/complete doesn't briefly show the previous run's

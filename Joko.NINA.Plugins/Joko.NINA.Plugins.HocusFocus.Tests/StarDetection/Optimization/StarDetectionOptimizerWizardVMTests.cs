@@ -161,7 +161,9 @@ public class StarDetectionOptimizerWizardVMTests {
         IRunEvaluationLoader loader,
         IStarDetectionOptions options = null,
         IProfileService profileService = null,
-        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null) {
+        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null,
+        Func<bool> isCameraConnected = null,
+        Func<bool> isFocuserConnected = null) {
         options ??= Substitute.For<IStarDetectionOptions>();
         profileService ??= Substitute.For<IProfileService>();
         return new StarDetectionOptimizerWizardVM(
@@ -172,7 +174,9 @@ public class StarDetectionOptimizerWizardVMTests {
             folderPicker: () => @"C:\fake\attempt",
             region: StarDetectionRegion.Full,
             optimizerSettings: new OptimizerSettings { MaxEvaluations = 200, CoarseGridLevels = 4, StepFloorFraction = 0.125 },
-            frameReviewBuilder: frameReviewBuilder);
+            frameReviewBuilder: frameReviewBuilder,
+            isCameraConnected: isCameraConnected,
+            isFocuserConnected: isFocuserConnected);
     }
 
     // An HONEST fake review builder: it maps EACH supplied descriptor to one FrameReview (so the ReviewVM's queue
@@ -754,6 +758,70 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     // ---- Source mode + summary UX (starry-hopper PR1) ---------------------------------------------------
+
+    // ---- Start validation (starry-hopper) ---------------------------------------------------------------
+
+    [Test]
+    public void CanStart_SavedMode_DisabledUntilEveryRunHasAPath() {
+        var vm = NewVM(LoaderReturning(GoodRun("a"), GoodRun("b")));
+        vm.RunCount = 2;
+        Assert.That(vm.StartCommand.CanExecute(null), Is.False, "no paths yet");
+        vm.SourcePaths[0] = @"C:\run1";
+        Assert.That(vm.StartCommand.CanExecute(null), Is.False, "only one of two paths set");
+        vm.SourcePaths[1] = @"C:\run2";
+        Assert.That(vm.StartCommand.CanExecute(null), Is.True, "both paths set");
+    }
+
+    [Test]
+    public void CanStart_LiveMode_EnabledEvenWithoutPaths() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = null;
+        vm.SourceMode = SourceMode.Live;
+        Assert.That(vm.StartCommand.CanExecute(null), Is.True, "Live needs no source paths");
+    }
+
+    [Test]
+    public async Task Start_SavedMode_DuplicatePaths_SetsErrorAndDoesNotLoad() {
+        var loader = LoaderReturning(GoodRun("a"), GoodRun("b"));
+        var vm = NewVM(loader);
+        vm.RunCount = 2;
+        vm.SourcePaths[0] = @"C:\same\run";
+        vm.SourcePaths[1] = @"C:\same\run";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Does.Contain("different"));
+            Assert.That(vm.CurrentStep, Is.Not.EqualTo(WizardStep.Summary));
+            loader.DidNotReceiveWithAnyArgs().LoadSavedRunAsync(default, default, default);
+        });
+    }
+
+    [Test]
+    public async Task Start_LiveMode_CameraDisconnected_SetsError() {
+        var vm = NewVM(LoaderReturning(GoodRun()), isCameraConnected: () => false, isFocuserConnected: () => true);
+        vm.SourceMode = SourceMode.Live;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Does.Contain("camera").IgnoreCase);
+            Assert.That(vm.CurrentStep, Is.Not.EqualTo(WizardStep.Summary));
+        });
+    }
+
+    [Test]
+    public async Task Start_LiveMode_FocuserDisconnected_SetsError() {
+        var vm = NewVM(LoaderReturning(GoodRun()), isCameraConnected: () => true, isFocuserConnected: () => false);
+        vm.SourceMode = SourceMode.Live;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Does.Contain("focuser").IgnoreCase);
+            Assert.That(vm.CurrentStep, Is.Not.EqualTo(WizardStep.Summary));
+        });
+    }
 
     [Test]
     public void IsReplay_TracksSourceMode() {
