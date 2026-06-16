@@ -110,6 +110,9 @@ public class StarDetectionOptimizerWizardVMTests {
         // The labels-overload (used by the re-optimize path) delegates to the same source so re-loads keep working.
         loader.LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(), Arg.Any<CancellationToken>())
             .Returns(_ => Task.FromResult(queue.Count > 0 ? queue.Dequeue() : runs[runs.Length - 1]));
+        // The progress-bearing overload is the one the VM actually calls (acquire + re-load); feed it the same queue.
+        loader.LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(), Arg.Any<IProgress<RunLoadProgress>>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(queue.Count > 0 ? queue.Dequeue() : runs[runs.Length - 1]));
         return loader;
     }
 
@@ -145,14 +148,21 @@ public class StarDetectionOptimizerWizardVMTests {
             };
         }
 
-        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) {
-            NoLabelCalls++;
-            return Task.FromResult(Make(attemptFolderPath, null));
-        }
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) =>
+            LoadSavedRunAsync(attemptFolderPath, region, labels: null, progress: null, token);
 
-        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, CancellationToken token) {
-            LabelOverloadCalls++;
-            LabelsByFolder[attemptFolderPath] = labels;
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, CancellationToken token) =>
+            LoadSavedRunAsync(attemptFolderPath, region, labels, progress: null, token);
+
+        // The progress overload is the one the VM calls; it is the single recorder so the existing counters/labels
+        // assertions keep their meaning (labels present => the labels overload; null => the no-label overload).
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, CancellationToken token) {
+            if (labels != null) {
+                LabelOverloadCalls++;
+                LabelsByFolder[attemptFolderPath] = labels;
+            } else {
+                NoLabelCalls++;
+            }
             return Task.FromResult(Make(attemptFolderPath, labels));
         }
     }
@@ -161,7 +171,7 @@ public class StarDetectionOptimizerWizardVMTests {
         IRunEvaluationLoader loader,
         IStarDetectionOptions options = null,
         IProfileService profileService = null,
-        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null,
+        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, IProgress<RunLoadProgress>, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null,
         Func<bool> isCameraConnected = null,
         Func<bool> isFocuserConnected = null) {
         options ??= Substitute.For<IStarDetectionOptions>();
@@ -190,7 +200,7 @@ public class StarDetectionOptimizerWizardVMTests {
         public IReadOnlyList<FrameReviewDescriptor> LastDescriptors { get; private set; }
 
         public Task<List<FrameReview>> Build(
-            IReadOnlyList<FrameReviewDescriptor> descriptors, StarDetectorParams p, CancellationToken token) {
+            IReadOnlyList<FrameReviewDescriptor> descriptors, StarDetectorParams p, IProgress<RunLoadProgress> progress, CancellationToken token) {
             Invocations++;
             LastParams = p;
             LastDescriptors = descriptors;
@@ -452,7 +462,7 @@ public class StarDetectionOptimizerWizardVMTests {
         Assert.Multiple(() => {
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
             Assert.That(vm.Summary.RunCount, Is.EqualTo(2));
-            loader.Received(2).LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<CancellationToken>());
+            loader.Received(2).LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(), Arg.Any<IProgress<RunLoadProgress>>(), Arg.Any<CancellationToken>());
         });
     }
 
@@ -574,12 +584,17 @@ public class StarDetectionOptimizerWizardVMTests {
 
     [Test]
     public async Task Accept_AfterReview_StillApplies() {
-        // Accept must apply whether or not the user visited Review, and it is reachable from the Review step too.
+        // Accept must apply whether or not the user visited Review. Accept is NOT offered on the Review step itself
+        // (CanExecute is false there) — the user returns to the results page first, then Accepts.
         var options = Substitute.For<IStarDetectionOptions>();
         var vm = NewVM(LoaderReturning(GoodRun()), options, frameReviewBuilder: new FakeReviewBuilder().Build);
         vm.SourcePaths[0] = @"C:\run1";
         await vm.StartAsync(CancellationToken.None);
         await vm.ReviewCommand.ExecuteAsync(null);
+
+        Assert.That(vm.AcceptCommand.CanExecute(null), Is.False, "Accept must be disabled on the Review (labeling) step");
+
+        vm.BackToSummaryCommand.Execute(null);
 
         var closeRaised = false;
         vm.RequestClose += (s, e) => closeRaised = true;
@@ -588,7 +603,7 @@ public class StarDetectionOptimizerWizardVMTests {
 
         Assert.Multiple(() => {
             options.Received(1).ApplyOptimizedSettings(Arg.Any<OptimizedStarDetectionSettings>());
-            Assert.That(closeRaised, Is.True, "Accept from Review must still close the wizard");
+            Assert.That(closeRaised, Is.True, "Accept from the results page must close the wizard");
         });
     }
 
@@ -644,8 +659,8 @@ public class StarDetectionOptimizerWizardVMTests {
     public async Task EnterReview_WhenBuilderThrows_SetsErrorAndStaysOnSummary() {
         // If the review build fails, the VM must surface the error, stay on Summary, and NOT construct a ReviewVM —
         // the user can still Accept or retry. (Matches EnterReviewAsync's catch-all error path.)
-        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, CancellationToken, Task<List<FrameReview>>> throwingBuilder =
-            (descriptors, p, token) => throw new InvalidOperationException("boom while detecting");
+        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, IProgress<RunLoadProgress>, CancellationToken, Task<List<FrameReview>>> throwingBuilder =
+            (descriptors, p, progress, token) => throw new InvalidOperationException("boom while detecting");
         var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: throwingBuilder);
         vm.SourcePaths[0] = @"C:\run1";
         await vm.StartAsync(CancellationToken.None);
@@ -894,6 +909,157 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.ErrorMessage, Is.Not.Null.And.Not.Empty);
             Assert.That(vm.CurrentStep, Is.Not.EqualTo(WizardStep.Summary));
             loader.DidNotReceiveWithAnyArgs().LoadSavedRunAsync(default, default, default);
+        });
+    }
+
+    // ---- Variant model + curve display (curve toggle) ---------------------------------------------------
+
+    [Test]
+    public async Task Start_Optimized_RetainsCurrentAndOptimizedVariants_DefaultsToOptimized() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasCurrent, Is.True);
+            Assert.That(vm.HasOptimized, Is.True);
+            Assert.That(vm.HasFeedback, Is.False, "no feedback until a re-optimize");
+            Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Optimized), "default shows the improvement");
+            Assert.That(vm.HasSelectedCurve, Is.True);
+            Assert.That(vm.SelectedCurve.Points.Count, Is.EqualTo(9), "a curve point per pooled focuser position");
+            Assert.That(vm.SelectedCurve.Fit, Is.Not.Null, "the optimized curve carries a fit");
+            Assert.That(vm.AcceptCommand.CanExecute(null), Is.True, "the optimized variant is acceptable");
+        });
+    }
+
+    [Test]
+    public async Task SelectingCurrentVariant_SwitchesCurveAndSummary_AndDisablesAccept() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.Summary.ChangedParameters.Count, Is.GreaterThan(0), "precondition: optimized changed parameters");
+
+        vm.SelectedVariant = OptimizationVariant.Current;
+
+        Assert.Multiple(() => {
+            Assert.That(vm.SelectedCurve.Label, Is.EqualTo("Current"));
+            Assert.That(vm.Summary.ChangedParameters, Is.Empty, "the current variant has no changes");
+            Assert.That(vm.AcceptCommand.CanExecute(null), Is.False, "Current is the baseline and cannot be accepted");
+        });
+    }
+
+    [Test]
+    public async Task Start_UseCurrentSettings_HasOnlyCurrentVariant_AcceptDisabled() {
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        vm.OptimizeMode = WizardOptimizeMode.UseCurrentSettings;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasCurrent, Is.True);
+            Assert.That(vm.HasOptimized, Is.False, "review-only produces no optimized variant");
+            Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Current));
+            Assert.That(vm.HasSelectedCurve, Is.True, "the current curve is still plotted");
+            Assert.That(vm.AcceptCommand.CanExecute(null), Is.False, "nothing changed to accept in review-only");
+            Assert.That(vm.ReviewCommand.CanExecute(null), Is.True, "review-only still allows labeling → feedback");
+        });
+    }
+
+    [Test]
+    public async Task ReOptimize_PreservesOptimizedVariant_AndReplacesFeedback() {
+        // Requirement: the FIRST optimized variant is preserved across re-optimizes; only the LATEST feedback persists.
+        var loader = new RecordingLoader();
+        var vm = NewVM(loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\reopt-run";
+        await vm.StartAsync(CancellationToken.None);
+
+        vm.SelectedVariant = OptimizationVariant.Optimized;
+        var optimizedRef = vm.Result;
+        Assert.That(optimizedRef, Is.Not.Null);
+
+        // First feedback round.
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Feedback), "the newest result is shown");
+            Assert.That(vm.HasOptimized, Is.True);
+            Assert.That(vm.HasFeedback, Is.True);
+        });
+        vm.SelectedVariant = OptimizationVariant.Optimized;
+        Assert.That(vm.Result, Is.SameAs(optimizedRef), "the first optimized variant is preserved");
+        vm.SelectedVariant = OptimizationVariant.Feedback;
+        var feedbackRef1 = vm.Result;
+
+        // Second feedback round.
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(160.0, 185.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        vm.SelectedVariant = OptimizationVariant.Optimized;
+        Assert.That(vm.Result, Is.SameAs(optimizedRef), "optimized still preserved after a second re-optimize");
+        vm.SelectedVariant = OptimizationVariant.Feedback;
+        Assert.That(vm.Result, Is.Not.SameAs(feedbackRef1), "only the latest feedback is retained");
+    }
+
+    [Test]
+    public async Task Accept_FeedbackVariantSelected_AppliesFeedbackResult() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var vm = NewVM(new RecordingLoader(), options, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\reopt-run";
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+        Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Feedback));
+
+        var feedbackBest = vm.Result.BestParams; // Feedback selected
+        vm.AcceptCommand.Execute(null);
+
+        var dto = options.ReceivedCalls()
+            .Single(c => c.GetMethodInfo().Name == nameof(IStarDetectionOptions.ApplyOptimizedSettings))
+            .GetArguments()[0] as OptimizedStarDetectionSettings;
+        Assert.That(dto, Is.Not.Null);
+        Assert.That(dto.BrightnessSensitivity, Is.EqualTo(feedbackBest.Sensitivity).Within(1e-9),
+            "Accept applies the SELECTED (feedback) variant's BestParams");
+    }
+
+    [Test]
+    public async Task ReOptimize_FeedbackSummary_CarriesOptimizedBaselineComparison() {
+        var vm = NewVM(new RecordingLoader(), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\reopt-run";
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Feedback));
+        Assert.Multiple(() => {
+            Assert.That(vm.Summary.HasFeedbackComparison, Is.True, "the feedback summary compares against the optimized baseline");
+            Assert.That(vm.Summary.PriorSigmaFocus, Is.Not.Null);
+            Assert.That(vm.Summary.FeedbackVsOptimizedText, Is.Not.Empty);
+        });
+    }
+
+    [Test]
+    public void FeedbackVsOptimizedText_ReportsTighterPercentVsOptimizedBaseline() {
+        var s = new OptimizationSummary { BestSigmaFocus = 1.80, PriorSigmaFocus = 2.00 };
+        Assert.Multiple(() => {
+            Assert.That(s.HasFeedbackComparison, Is.True);
+            Assert.That(s.FeedbackVsOptimizedText, Does.Contain("2.00").And.Contains("1.80").And.Contains("tighter"));
+        });
+
+        var noPrior = new OptimizationSummary { BestSigmaFocus = 1.80 };
+        Assert.Multiple(() => {
+            Assert.That(noPrior.HasFeedbackComparison, Is.False);
+            Assert.That(noPrior.FeedbackVsOptimizedText, Is.Empty);
         });
     }
 }

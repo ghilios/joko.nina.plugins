@@ -54,6 +54,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// user just made.
         /// </summary>
         Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, CancellationToken token);
+
+        /// <summary>
+        /// As the labels overload, but reports determinate per-frame loading progress (each rendered exposure) via
+        /// <paramref name="progress"/> so the wizard's progress bar advances during the long initial disk-render
+        /// phase instead of sitting idle. The other overloads delegate here with <c>progress: null</c>; passing
+        /// <c>null</c> progress is identical to them.
+        /// </summary>
+        Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, CancellationToken token);
     }
 
     /// <summary>
@@ -96,10 +104,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// optimizer's curve fit matches the AF engine's.
         /// </summary>
         public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) =>
-            LoadSavedRunAsync(attemptFolderPath, region, labels: null, token);
+            LoadSavedRunAsync(attemptFolderPath, region, labels: null, progress: null, token);
 
         /// <inheritdoc />
-        public async Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, CancellationToken token) {
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, CancellationToken token) =>
+            LoadSavedRunAsync(attemptFolderPath, region, labels, progress: null, token);
+
+        /// <inheritdoc />
+        public async Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, CancellationToken token) {
             if (string.IsNullOrEmpty(attemptFolderPath)) {
                 throw new ArgumentException("attemptFolderPath is required", nameof(attemptFolderPath));
             }
@@ -112,9 +124,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 throw new InvalidOperationException($"No saved images found in {attemptFolderPath}");
             }
 
-            // Render every saved exposure once (detectStars: false, mirroring InspectorVM.LoadSavedFile).
+            // Render every saved exposure once (detectStars: false, mirroring InspectorVM.LoadSavedFile). Report
+            // determinate per-frame progress so the wizard's bar advances during this long disk-render phase.
             var frames = new List<RunFrame>(attempt.SavedImages.Count);
             IRenderedImage firstImage = null;
+            var totalImages = attempt.SavedImages.Count;
+            var loadedCount = 0;
             foreach (var savedImage in attempt.SavedImages) {
                 token.ThrowIfCancellationRequested();
                 var rendered = await LoadRenderedImageAsync(savedImage, afOptions, token).ConfigureAwait(false);
@@ -126,6 +141,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     FocuserPosition = savedImage.FocuserPosition,
                     Image = rendered
                 });
+                progress?.Report(new RunLoadProgress(++loadedCount, totalImages));
             }
 
             // Seed = AF-base detector params for the first image (PixelScale + Region + ModelPSF=false). This is

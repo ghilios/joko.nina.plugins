@@ -348,4 +348,57 @@ public class RunEvaluationDataTests {
                 Is.LessThan(Math.Abs(seed.Sensitivity - optSensitivity)), "Sensitivity should approach the star-count optimum");
         });
     }
+
+    [Test]
+    public async Task EvaluateAndFitAsync_ExposesPooledScatterPoints_WithHfrAndErrorBars() {
+        // The wizard plots the curve from these points; one per distinct focuser position, Y = pooled HFR, ErrorY =
+        // the (display-safe) per-frame stdev. Surfaced from the same pooling that feeds the fit (zero extra cost).
+        const double stdev = 0.07;
+        var data = new RunEvaluationData("curve", NineFrames(), HyperbolaDetect(hfrStdDev: stdev), NewAlglib(), DefaultFitConfig());
+
+        var result = await data.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+
+        Assert.That(result.Points, Is.Not.Null);
+        Assert.That(result.Points.Count, Is.EqualTo(9), "one scatter point per distinct focuser position");
+        var ordered = result.Points.OrderBy(p => p.X).ToList();
+        Assert.Multiple(() => {
+            Assert.That(ordered[0].X, Is.EqualTo(HyperbolaP0 - 400).Within(1e-9));
+            Assert.That(ordered.Select(p => p.Y), Is.EqualTo(ordered.Select(p => Hfr((int)p.X))).Within(1e-9).AsCollection,
+                "each point's Y is the pooled HFR for its position");
+            Assert.That(ordered.All(p => Math.Abs(p.ErrorY - stdev) < 1e-9), Is.True, "ErrorY carries the per-position stdev");
+        });
+    }
+
+    [Test]
+    public async Task EvaluateAndFitAsync_FrameProgress_ReportsEveryFrame_AndMetricsAreIdentical() {
+        // The optional per-frame progress (used by the seed-guard) must report once per frame, AND the metrics must be
+        // byte-identical to the no-progress overload (proving the optimizer hot path, which passes no progress, is
+        // unaffected). Force the sequential path so the report order is deterministic.
+        var data = new RunEvaluationData("clean", NineFrames(), HyperbolaDetect(), NewAlglib(), DefaultFitConfig()) {
+            FrameParallelismOverride = 1
+        };
+        var p = new StarDetectorParams();
+
+        var reports = new List<RunLoadProgress>();
+        var progress = new ImmediateProgress<RunLoadProgress>(reports.Add);
+        var withProgress = await data.EvaluateAndFitAsync(p, progress, CancellationToken.None);
+        var withoutProgress = await data.EvaluateAndFitAsync(p, CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(reports.Count, Is.EqualTo(9), "one progress report per frame");
+            Assert.That(reports[^1].Current, Is.EqualTo(9));
+            Assert.That(reports[^1].Total, Is.EqualTo(9));
+            Assert.That(withProgress.Metrics.SigmaFocus, Is.EqualTo(withoutProgress.Metrics.SigmaFocus).Within(1e-12),
+                "progress must not change the computed metrics");
+            Assert.That(withProgress.Metrics.RSquared, Is.EqualTo(withoutProgress.Metrics.RSquared).Within(1e-12));
+            Assert.That(withProgress.PooledPointCount, Is.EqualTo(withoutProgress.PooledPointCount));
+        });
+    }
+
+    // Synchronous IProgress so reports are captured on the calling thread (no SynchronizationContext marshaling).
+    private sealed class ImmediateProgress<T> : IProgress<T> {
+        private readonly Action<T> onReport;
+        public ImmediateProgress(Action<T> onReport) => this.onReport = onReport;
+        public void Report(T value) => onReport(value);
+    }
 }
