@@ -24,6 +24,7 @@ using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -46,9 +47,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         Review
     }
 
-    /// <summary>Where the run frames come from: an already-saved AF attempt (Replay) or a fresh live AF run.</summary>
+    /// <summary>Where the run frames come from: an already-saved AF attempt (Replay) or a fresh live AF run.
+    /// The <see cref="DescriptionAttribute"/> text is what the wizard ComboBox shows (via the enum-description
+    /// converter) — plain language, not the raw enum names.</summary>
     public enum SourceMode {
+        [Description("Saved Auto-Focus")]
         Replay,
+
+        [Description("Live Auto-Focus")]
         Live
     }
 
@@ -73,7 +79,55 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int RecommendedStepSize { get; set; }
         public int RecommendedOffsetSteps { get; set; }
         public int CurrentStepSize { get; set; }
+        public int CurrentOffsetSteps { get; set; }
         public bool ImprovedOverSeed { get; set; }
+
+        /// <summary>True when the recommended AF step size and/or offset steps differ from the current profile
+        /// values — i.e. there is actually something to apply. Drives whether the "apply AF step size" toggle is
+        /// enabled and whether the AF rows appear in the changed-parameters list.</summary>
+        public bool StepSizeOrOffsetChanged =>
+            RecommendedStepSize != CurrentStepSize || RecommendedOffsetSteps != CurrentOffsetSteps;
+
+        /// <summary>Plain-language step-size readout: "{current} → {recommended}" when changed, else
+        /// "{recommended} (unchanged)".</summary>
+        public string StepSizeText => FormatRecommendation(CurrentStepSize, RecommendedStepSize);
+
+        /// <summary>Plain-language offset-steps readout (same before→after / "(unchanged)" convention).</summary>
+        public string OffsetStepsText => FormatRecommendation(CurrentOffsetSteps, RecommendedOffsetSteps);
+
+        /// <summary>Focus-precision readout: "{seed} → {best}" with a "(~N% tighter)" suffix when σ improved
+        /// (σ is the focus-curve sigma — lower is tighter/better).</summary>
+        public string SigmaText {
+            get {
+                var baseText = $"{SeedSigmaFocus:F2} → {BestSigmaFocus:F2}";
+                if (double.IsFinite(SeedSigmaFocus) && double.IsFinite(BestSigmaFocus)
+                    && SeedSigmaFocus > 1e-9 && BestSigmaFocus < SeedSigmaFocus) {
+                    var pct = (SeedSigmaFocus - BestSigmaFocus) / SeedSigmaFocus * 100.0;
+                    return $"{baseText}  (~{pct:F0}% tighter)";
+                }
+                return baseText;
+            }
+        }
+
+        /// <summary>How much the objective improved over the seed, as a non-negative percentage (the objective
+        /// is a score where higher is better, and best never regresses below the seed).</summary>
+        public double ImprovementPercent => PercentBetter(SeedJ, BestJ);
+
+        /// <summary>"{current} → {recommended}" when the two differ, else "{recommended} (unchanged)". Pure
+        /// formatter — unit-tested.</summary>
+        public static string FormatRecommendation(int current, int recommended) =>
+            current == recommended ? $"{recommended} (unchanged)" : $"{current} → {recommended}";
+
+        /// <summary>Percent improvement of <paramref name="improved"/> over <paramref name="baseline"/> for a
+        /// higher-is-better score, clamped at 0 and guarded against non-finite / near-zero baselines. Pure —
+        /// unit-tested.</summary>
+        public static double PercentBetter(double baseline, double improved) {
+            if (!double.IsFinite(baseline) || !double.IsFinite(improved) || Math.Abs(baseline) < 1e-12) {
+                return 0.0;
+            }
+            var pct = (improved - baseline) / Math.Abs(baseline) * 100.0;
+            return pct > 0.0 ? pct : 0.0;
+        }
     }
 
     /// <summary>
@@ -227,9 +281,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (sourceMode != value) {
                     sourceMode = value;
                     RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(IsReplay));
                 }
             }
         }
+
+        /// <summary>True for the "Saved Auto-Focus" (replay) source. The Number-of-runs input and the per-run
+        /// folder pickers are only meaningful here, so the wizard binds their visibility to this.</summary>
+        public bool IsReplay => SourceMode == SourceMode.Replay;
 
         private int runCount = 1;
 
@@ -305,14 +364,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         public double ProgressSeedJ {
             get => progressSeedJ;
-            private set { progressSeedJ = value; RaisePropertyChanged(); }
+            private set { progressSeedJ = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ProgressImprovementText)); }
         }
 
         private double progressBestJ;
 
         public double ProgressBestJ {
             get => progressBestJ;
-            private set { progressBestJ = value; RaisePropertyChanged(); }
+            private set { progressBestJ = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ProgressImprovementText)); }
+        }
+
+        /// <summary>Live, plain-language improvement readout shown during the search (no jargon "J"): how much
+        /// better the best result found so far is than the user's current settings. Computed from the objective
+        /// score but never labeled as such.</summary>
+        public string ProgressImprovementText {
+            get {
+                var pct = OptimizationSummary.PercentBetter(progressSeedJ, progressBestJ);
+                return pct > 0.0 ? $"Detection improved ~{pct:F0}% so far" : "Searching for a better fit…";
+            }
         }
 
         private string phase;
@@ -339,7 +408,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             get => summary;
             private set {
                 summary = value;
+                // A fresh summary: if nothing in the AF recommendation actually changed, there is nothing to
+                // apply, so disable + clear the toggle.
+                if (!CanApplyRecommendedStepSize) {
+                    applyRecommendedStepSize = false;
+                }
                 RaisePropertyChanged();
+                RaisePropertyChanged(nameof(ApplyRecommendedStepSize));
+                RaisePropertyChanged(nameof(CanApplyRecommendedStepSize));
+                RaisePropertyChanged(nameof(ChangedParametersDisplay));
                 AcceptCommand.NotifyCanExecuteChanged();
                 BackCommand.NotifyCanExecuteChanged();
             }
@@ -353,7 +430,43 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (applyRecommendedStepSize != value) {
                     applyRecommendedStepSize = value;
                     RaisePropertyChanged();
+                    // The AF rows in the changed-parameters list appear only while this is on.
+                    RaisePropertyChanged(nameof(ChangedParametersDisplay));
                 }
+            }
+        }
+
+        /// <summary>Whether the "apply recommended AF step size" toggle is meaningful — true only when the
+        /// recommended step size and/or offset steps actually differ from the current profile values. The
+        /// checkbox binds its IsEnabled here so an unchanged recommendation can't be "applied".</summary>
+        public bool CanApplyRecommendedStepSize => Summary?.StepSizeOrOffsetChanged ?? false;
+
+        /// <summary>The changed-parameters rows shown on the summary: the optimized detector params, plus — only
+        /// when <see cref="ApplyRecommendedStepSize"/> is on — the AF step size / offset-steps rows so the user
+        /// sees the AF settings that Accept will also write. Recomputed when the toggle or the summary changes.</summary>
+        public IReadOnlyList<ChangedParameterRow> ChangedParametersDisplay {
+            get {
+                if (Summary?.ChangedParameters == null) {
+                    return Array.Empty<ChangedParameterRow>();
+                }
+                var rows = new List<ChangedParameterRow>(Summary.ChangedParameters);
+                if (ApplyRecommendedStepSize && CanApplyRecommendedStepSize) {
+                    if (Summary.RecommendedStepSize != Summary.CurrentStepSize) {
+                        rows.Add(new ChangedParameterRow {
+                            Name = "Auto-focus step size",
+                            SeedValue = Summary.CurrentStepSize,
+                            OptimizedValue = Summary.RecommendedStepSize
+                        });
+                    }
+                    if (Summary.RecommendedOffsetSteps != Summary.CurrentOffsetSteps) {
+                        rows.Add(new ChangedParameterRow {
+                            Name = "Auto-focus offset steps",
+                            SeedValue = Summary.CurrentOffsetSteps,
+                            OptimizedValue = Summary.RecommendedOffsetSteps
+                        });
+                    }
+                }
+                return rows;
             }
         }
 
@@ -430,6 +543,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             Summary = null;
             Result = null;
             // A fresh run invalidates any prior review snapshot/labels (they belonged to the previous result).
+            if (ReviewVM != null) {
+                ReviewVM.PropertyChanged -= OnReviewLabelsChanged;
+            }
             ReviewVM = null;
             reviewDescriptors = null;
             reviewLabelsDir = null;
@@ -617,7 +733,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 MaxEvaluations = p.MaxEvaluations;
                 ProgressBestJ = p.BestJ;
                 ProgressSeedJ = p.SeedJ;
-                Phase = p.Phase;
+                Phase = FriendlyPhase(p.Phase);
             });
 
             var optimizer = new StarDetectionOptimizer();
@@ -625,6 +741,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 () => optimizer.OptimizeAsync(seed, variables, evaluator, optimizerSettings, progress, token),
                 token).ConfigureAwait(true);
         }
+
+        /// <summary>Maps the optimizer's internal phase identifiers ("Seed"/"CoarseGrid"/"PatternSearch", which
+        /// stay as-is in logs and tests) to plain language for the progress display.</summary>
+        private static string FriendlyPhase(string phase) => phase switch {
+            "Seed" => "Checking your current settings",
+            "CoarseGrid" => "Searching settings (coarse pass)",
+            "PatternSearch" => "Refining settings",
+            _ => phase
+        };
 
         /// <summary>
         /// Builds the summary: the changed-parameters table, before/after J + σ(focus) (re-evaluated at seed and
@@ -653,6 +778,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             var currentStepSize = runs[0].AfOptions?.AutoFocusStepSize ?? DefaultCurrentStepSize;
+            var currentOffsetSteps = runs[0].AfOptions?.AutoFocusInitialOffsetSteps ?? DefaultCurrentOffsetSteps;
             var recommendation = StepSizeRecommender.Recommend(representativeBestFit, currentStepSize, GetFocuserMaxStep());
 
             return new OptimizationSummary {
@@ -665,11 +791,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RecommendedStepSize = recommendation.StepSize,
                 RecommendedOffsetSteps = recommendation.OffsetSteps,
                 CurrentStepSize = currentStepSize,
+                CurrentOffsetSteps = currentOffsetSteps,
                 ImprovedOverSeed = res.ImprovedOverSeed
             };
         }
 
         private const int DefaultCurrentStepSize = 10;
+        private const int DefaultCurrentOffsetSteps = 4;
 
         /// <summary>
         /// The focuser's max single-move increment, when available, to clamp the recommendation. No reliable
@@ -811,7 +939,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RaisePropertyChanged(nameof(HasLabels));
                 ReOptimizeCommand.NotifyCanExecuteChanged();
 
+                // Replace any prior review (drop its label-change subscription first to avoid a dangling handler).
+                if (ReviewVM != null) {
+                    ReviewVM.PropertyChanged -= OnReviewLabelsChanged;
+                }
                 ReviewVM = new StarReviewVM(reviews, labelsByRun, labelsDir ?? string.Empty);
+                // Surface label edits live: the "Optimize with feedback" button enables as soon as the user labels
+                // anything (the StarReviewVM raises CountsLabel on every add/remove).
+                ReviewVM.PropertyChanged += OnReviewLabelsChanged;
                 CurrentStep = WizardStep.Review;
             } catch (OperationCanceledException) {
                 Logger.Info("Star detection review build cancelled");
@@ -823,14 +958,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
-        /// <summary>Review → Summary: persists labels and returns to the Summary step (Accept/Cancel remain the
-        /// terminal decisions and are reachable from either step).</summary>
+        /// <summary>Review → Summary: returns to the Summary step WITHOUT writing labels to disk — labels are
+        /// kept in-memory (<see cref="capturedLabels"/>) and only flushed to disk when the user Accepts or
+        /// re-optimizes (their work product is preserved either way). Accept/Cancel remain the terminal
+        /// decisions, reachable from the Summary step.</summary>
         private void BackToSummary() {
             if (CurrentStep != WizardStep.Review || IsBusy) {
                 return;
             }
-            PersistReviewLabels();
             CurrentStep = WizardStep.Summary;
+        }
+
+        /// <summary>Re-raises the label-dependent UI state when the in-progress review's labels change, so the
+        /// "Optimize with feedback" affordance enables/disables live as the user labels.</summary>
+        private void OnReviewLabelsChanged(object sender, PropertyChangedEventArgs e) {
+            if (e.PropertyName == nameof(StarReviewVM.CountsLabel)) {
+                RaisePropertyChanged(nameof(HasLabels));
+                ReOptimizeCommand.NotifyCanExecuteChanged();
+            }
         }
 
         /// <summary>

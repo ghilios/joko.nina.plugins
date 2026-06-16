@@ -753,6 +753,46 @@ public class StarDetectionOptimizerWizardVMTests {
         Assert.That(vm.ReviewVM, Is.Not.Null);
     }
 
+    // ---- Source mode + summary UX (starry-hopper PR1) ---------------------------------------------------
+
+    [Test]
+    public void IsReplay_TracksSourceMode() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.That(vm.IsReplay, Is.True, "default source is Saved Auto-Focus (Replay)");
+        vm.SourceMode = SourceMode.Live;
+        Assert.That(vm.IsReplay, Is.False, "Live mode hides the runs/browse inputs");
+        vm.SourceMode = SourceMode.Replay;
+        Assert.That(vm.IsReplay, Is.True);
+    }
+
+    [Test]
+    public async Task CanApplyRecommendedStepSize_MatchesSummaryChange() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CanApplyRecommendedStepSize, Is.EqualTo(vm.Summary.StepSizeOrOffsetChanged));
+    }
+
+    [Test]
+    public async Task ChangedParametersDisplay_IncludesAfRows_OnlyWhenToggleOnAndChanged() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        var s = vm.Summary;
+        var baseCount = s.ChangedParameters.Count;
+        var afRows = (s.RecommendedStepSize != s.CurrentStepSize ? 1 : 0)
+                   + (s.RecommendedOffsetSteps != s.CurrentOffsetSteps ? 1 : 0);
+
+        vm.ApplyRecommendedStepSize = false;
+        Assert.That(vm.ChangedParametersDisplay.Count, Is.EqualTo(baseCount), "AF rows hidden when the toggle is off");
+
+        vm.ApplyRecommendedStepSize = true;
+        var expected = vm.CanApplyRecommendedStepSize ? baseCount + afRows : baseCount;
+        Assert.That(vm.ChangedParametersDisplay.Count, Is.EqualTo(expected),
+            "AF rows appear only when the toggle is on AND the recommendation actually changed");
+    }
+
     [Test]
     public async Task Start_MissingSourcePath_SetsErrorAndDoesNotLoad() {
         var loader = LoaderReturning(GoodRun());

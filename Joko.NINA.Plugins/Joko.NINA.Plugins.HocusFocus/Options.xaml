@@ -124,7 +124,9 @@
                                 <RowDefinition />
                                 <RowDefinition />
                             </Grid.RowDefinitions>
-                            <StackPanel Grid.Column="0" Orientation="Vertical">
+                            <!--  HorizontalAlignment=Left so the panel hugs the options content; the button then
+                                  centers OVER the options block rather than over the whole window.  -->
+                            <StackPanel Grid.Column="0" HorizontalAlignment="Left" Orientation="Vertical">
                                 <Button
                                     Margin="5,5,5,10"
                                     HorizontalAlignment="Center"

@@ -913,6 +913,20 @@
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
+                <!--  Defocus tuning knobs: advanced-mode AND the Defocus-Aware Gates toggle must both be on (the
+                      knobs are meaningless when the gates are off).  -->
+                <Style x:Key="ShowOnUseAdvancedAndDefocusGates" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="0" />
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="True" />
+                                <Condition Binding="{Binding StarDetectionOptions.DefocusAwareGates}" Value="True" />
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Height" Value="Auto" />
+                        </MultiDataTrigger>
+                    </Style.Triggers>
+                </Style>
                 <Style x:Key="ShowOnUseSimple" TargetType="{x:Type RowDefinition}">
                     <Setter Property="Height" Value="0" />
                     <Style.Triggers>
@@ -1021,11 +1035,12 @@
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
                 <RowDefinition />
-                <!--  41: Defocus-Aware Gates toggle (advanced-only); 42-44: its three numeric tuning knobs (advanced-only)  -->
+                <!--  41: Defocus-Aware Gates toggle (advanced-only); 42-44: its three numeric tuning knobs
+                      (advanced-only AND only when the gates toggle is on).  -->
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"

@@ -38,7 +38,6 @@
             <Button Content="Fit" Command="{Binding FitCommand}" Margin="16,0,4,0" />
             <Button Content="◀ Prev" Command="{Binding PrevCommand}" />
             <Button Content="Next ▶" Command="{Binding NextCommand}" />
-            <Button Content="Save" Command="{Binding SaveCommand}" Margin="16,0,4,0" />
         </WrapPanel>
 
         <!-- Image + overlays. The Image and all marker layers share one transform (zoom/pan) so markers stay

@@ -166,6 +166,64 @@ public class StarReviewTests {
         }
     }
 
+    // ---- Cleaner label filenames (starry-hopper item 16) ------------------------------------------------
+
+    [Test]
+    public void FileNameFor_PathLikeRunId_UsesLastTwoSegments() {
+        Assert.Multiple(() => {
+            Assert.That(StarReviewLabelStore.FileNameFor(@"E:\WorkshopData\Data\autofocus\sensitivity_example1\attempt01"),
+                Is.EqualTo("sensitivity_example1_attempt01.json"));
+            Assert.That(StarReviewLabelStore.FileNameFor("/home/me/run5/attempt02"),
+                Is.EqualTo("run5_attempt02.json"));
+        });
+    }
+
+    [Test]
+    public void FileNameFor_SingleSegment_IsUnchanged() {
+        // Back-compat: a bare runId (as the unit tests and the offline discovery use) keeps its simple name.
+        Assert.That(StarReviewLabelStore.FileNameFor("attempt01"), Is.EqualTo("attempt01.json"));
+    }
+
+    [Test]
+    public void FileNameFor_EmptyOrInvalid_FallsBackAndSanitizes() {
+        Assert.Multiple(() => {
+            Assert.That(StarReviewLabelStore.FileNameFor(null), Is.EqualTo("run.json"));
+            Assert.That(StarReviewLabelStore.FileNameFor("   "), Is.EqualTo("run.json"));
+            // Invalid filename characters in the derived stem are sanitized away (ordinal char scan — Does.Contain
+            // is culture-aware and mis-handles control chars).
+            var name = StarReviewLabelStore.FileNameFor(@"C:\a:b\c*d");
+            Assert.That(name, Does.EndWith(".json"));
+            Assert.That(name.IndexOfAny(Path.GetInvalidFileNameChars()), Is.LessThan(0),
+                "no invalid filename characters survive sanitization");
+        });
+    }
+
+    [Test]
+    public void SaveThenLoad_PathLikeRunId_RoundTripsViaCleanFilename() {
+        var dir = Path.Combine(Path.GetTempPath(), "hf-review-test-" + Guid.NewGuid().ToString("N"));
+        try {
+            var runId = @"E:\WorkshopData\sensitivity_example1\attempt01";
+            var labels = new StarReviewRunLabels { RunId = runId, RadiusPx = 6.0 };
+            var pos = StarReviewLabelStore.GetOrAddPosition(labels, 5000);
+            StarReviewLabelStore.ToggleBox(pos.Missed, 10, 20, 8, 8);
+
+            var savedPath = StarReviewLabelStore.Save(dir, labels);
+            Assert.That(Path.GetFileName(savedPath), Is.EqualTo("sensitivity_example1_attempt01.json"),
+                "the on-disk file uses the clean run-derived name");
+
+            var reloaded = StarReviewLabelStore.Load(dir, runId, out var err);
+            Assert.Multiple(() => {
+                Assert.That(err, Is.Null);
+                Assert.That(reloaded.Positions, Has.Count.EqualTo(1), "the clean filename round-trips through Load");
+                Assert.That(reloaded.Positions[0].Missed, Has.Count.EqualTo(1));
+            });
+        } finally {
+            if (Directory.Exists(dir)) {
+                Directory.Delete(dir, true);
+            }
+        }
+    }
+
     [Test]
     public void SaveThenLoad_MergesIncrementally() {
         var dir = Path.Combine(Path.GetTempPath(), "hf-review-test-" + Guid.NewGuid().ToString("N"));
