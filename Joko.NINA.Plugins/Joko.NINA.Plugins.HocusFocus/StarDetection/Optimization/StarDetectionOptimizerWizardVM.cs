@@ -99,6 +99,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// (σ is the focus-curve sigma — lower is tighter/better).</summary>
         public string SigmaText {
             get {
+                // "2.20 (unchanged)" when σ is effectively the same before/after (compared at the F2 precision
+                // shown), else "{seed} → {best}" with a "(~N% tighter)" suffix when it improved.
+                if (double.IsFinite(SeedSigmaFocus) && double.IsFinite(BestSigmaFocus)
+                    && Math.Abs(SeedSigmaFocus - BestSigmaFocus) < 0.005) {
+                    return $"{BestSigmaFocus:F2} (unchanged)";
+                }
                 var baseText = $"{SeedSigmaFocus:F2} → {BestSigmaFocus:F2}";
                 if (double.IsFinite(SeedSigmaFocus) && double.IsFinite(BestSigmaFocus)
                     && SeedSigmaFocus > 1e-9 && BestSigmaFocus < SeedSigmaFocus) {
@@ -542,6 +548,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             ErrorMessage = null;
             Summary = null;
             Result = null;
+            // Clear stale progress so a re-run after a cancel/complete doesn't briefly show the previous run's
+            // evaluation count / phase / improvement before the first progress callback overwrites them.
+            Evaluations = 0;
+            MaxEvaluations = 0;
+            ProgressSeedJ = 0;
+            ProgressBestJ = 0;
+            Phase = null;
             // A fresh run invalidates any prior review snapshot/labels (they belonged to the previous result).
             if (ReviewVM != null) {
                 ReviewVM.PropertyChanged -= OnReviewLabelsChanged;
@@ -1012,6 +1025,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var labelsByFolderIndex = BuildPositionalLabelFallback(reoptimizeRunFolders, labelsByRunId);
 
             ErrorMessage = null;
+            // Clear stale progress so the re-optimize doesn't briefly show the prior run's numbers.
+            Evaluations = 0;
+            MaxEvaluations = 0;
+            ProgressSeedJ = 0;
+            ProgressBestJ = 0;
+            Phase = null;
             IsBusy = true;
 
             cts?.Dispose();

@@ -58,10 +58,20 @@ public class OptimizationSummaryTests {
     }
 
     [Test]
-    public void SigmaText_NoTighterSuffix_WhenNotImprovedOrNonFinite() {
+    public void SigmaText_Unchanged_SaysUnchanged() {
+        // σ effectively the same before/after (at the F2 precision shown) reads "2.20 (unchanged)", not "2.20 → 2.20".
         Assert.Multiple(() => {
-            Assert.That(new OptimizationSummary { SeedSigmaFocus = 1.0, BestSigmaFocus = 1.0 }.SigmaText, Is.EqualTo("1.00 → 1.00"));
-            Assert.That(new OptimizationSummary { SeedSigmaFocus = double.NaN, BestSigmaFocus = 1.0 }.SigmaText, Does.Not.Contain("tighter"));
+            Assert.That(new OptimizationSummary { SeedSigmaFocus = 2.20, BestSigmaFocus = 2.20 }.SigmaText, Is.EqualTo("2.20 (unchanged)"));
+            Assert.That(new OptimizationSummary { SeedSigmaFocus = 2.201, BestSigmaFocus = 2.203 }.SigmaText, Is.EqualTo("2.20 (unchanged)"));
+        });
+    }
+
+    [Test]
+    public void SigmaText_NonFinite_FallsBackToBaseText_NoTighterOrUnchanged() {
+        var s = new OptimizationSummary { SeedSigmaFocus = double.NaN, BestSigmaFocus = 1.0 }.SigmaText;
+        Assert.Multiple(() => {
+            Assert.That(s, Does.Not.Contain("tighter"));
+            Assert.That(s, Does.Not.Contain("unchanged"));
         });
     }
 

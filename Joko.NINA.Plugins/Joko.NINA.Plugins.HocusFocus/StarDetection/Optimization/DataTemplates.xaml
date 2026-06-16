@@ -181,20 +181,28 @@
                             <TextBlock Margin="0,0,8,0" Text="Focus precision (σ, lower is better):" />
                             <TextBlock FontWeight="SemiBold" Text="{Binding Summary.SigmaText, Mode=OneWay}" />
                         </StackPanel>
-                        <UniformGrid Columns="2" Margin="0,0,0,8">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Width="160" Text="Runs optimized" />
-                                <TextBlock Text="{Binding Summary.RunCount, Mode=OneWay}" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Width="160" Text="Recommended step size" />
-                                <TextBlock Text="{Binding Summary.StepSizeText, Mode=OneWay}" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Width="160" Text="Recommended offset steps" />
-                                <TextBlock Text="{Binding Summary.OffsetStepsText, Mode=OneWay}" />
-                            </StackPanel>
-                        </UniformGrid>
+                        <StackPanel Margin="0,0,0,8" Orientation="Horizontal">
+                            <TextBlock Width="200" Text="Runs optimized" />
+                            <TextBlock Text="{Binding Summary.RunCount, Mode=OneWay}" />
+                        </StackPanel>
+
+                        <!--  Auto-focus block: the recommended step size / offset steps PLUS the toggle that applies
+                              them on Accept, grouped so the toggle's purpose is obvious.  -->
+                        <TextBlock Margin="0,4,0,2" FontWeight="Bold" Text="Auto-focus settings" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Width="200" Text="Recommended step size" />
+                            <TextBlock Text="{Binding Summary.StepSizeText, Mode=OneWay}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Width="200" Text="Recommended offset steps" />
+                            <TextBlock Text="{Binding Summary.OffsetStepsText, Mode=OneWay}" />
+                        </StackPanel>
+                        <CheckBox
+                            Margin="0,6,0,8"
+                            Content="Apply these auto-focus settings to my profile when I click Accept"
+                            IsChecked="{Binding ApplyRecommendedStepSize}"
+                            IsEnabled="{Binding CanApplyRecommendedStepSize}"
+                            ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
 
                         <!--  Changed parameters table  -->
                         <TextBlock
@@ -223,13 +231,6 @@
                                     Header="Optimized" />
                             </DataGrid.Columns>
                         </DataGrid>
-
-                        <CheckBox
-                            Margin="0,8,0,0"
-                            Content="Also update auto-focus step size &amp; offset steps on Accept"
-                            IsChecked="{Binding ApplyRecommendedStepSize}"
-                            IsEnabled="{Binding CanApplyRecommendedStepSize}"
-                            ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
 
                         <TextBlock
                             Margin="0,8,0,0"
@@ -322,7 +323,9 @@
                     Command="{Binding CancelCommand}"
                     Content="Cancel">
                     <Button.Style>
-                        <Style TargetType="Button">
+                        <!--  BasedOn the theme's implicit Button style so Cancel matches the other footer buttons'
+                              font/look (a style without BasedOn would drop the NINA default style).  -->
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                             <Setter Property="Visibility" Value="Collapsed" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsAcquire}" Value="True">
@@ -358,7 +361,9 @@
                     Command="{Binding CloseCommand}"
                     Content="Cancel">
                     <Button.Style>
-                        <Style TargetType="Button">
+                        <!--  BasedOn the theme's implicit Button style so Cancel matches the other footer buttons'
+                              font/look (a style without BasedOn would drop the NINA default style).  -->
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                             <Setter Property="Visibility" Value="Collapsed" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsSummary}" Value="True">

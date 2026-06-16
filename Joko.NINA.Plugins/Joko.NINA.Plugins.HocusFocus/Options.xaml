@@ -124,48 +124,22 @@
                                 <RowDefinition />
                                 <RowDefinition />
                             </Grid.RowDefinitions>
-                            <!--  IsSharedSizeScope so the button rows below can share the options grid's label/value
-                                  column widths and center over exactly that area (not the wider padded grid).  -->
-                            <StackPanel Grid.Column="0" Grid.IsSharedSizeScope="True" HorizontalAlignment="Left" Orientation="Vertical">
-                                <!--  Optimize button centered over the label (col0) + value (col1) area.  -->
-                                <Grid Margin="5,5,5,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
-                                        <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol1" />
-                                    </Grid.ColumnDefinitions>
-                                    <Button
-                                        Grid.Column="0"
-                                        Grid.ColumnSpan="2"
-                                        HorizontalAlignment="Center"
-                                        VerticalAlignment="Center"
-                                        Command="{Binding OptimizeStarDetectionCommand}"
-                                        ToolTip="{StaticResource OptimizeStarDetection_Tooltip}">
-                                        <TextBlock
-                                            Margin="10,5,10,5"
-                                            Foreground="{StaticResource ButtonForegroundBrush}"
-                                            Text="Optimize Star Detection"
-                                            TextWrapping="Wrap" />
-                                    </Button>
-                                </Grid>
+                            <!--  The "Optimize Star Detection" button now lives INSIDE the options ContentControl
+                                  (HocusFocus_StarDetection_Options) so it centers over the settings' label/value
+                                  columns. Only "Reset Defaults" stays host-side (the dock VM has no reset command).  -->
+                            <StackPanel Grid.Column="0" HorizontalAlignment="Left" Orientation="Vertical">
                                 <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
-                                <Grid Margin="5">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
-                                        <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol1" />
-                                    </Grid.ColumnDefinitions>
-                                    <Button
-                                        Grid.Column="0"
-                                        Grid.ColumnSpan="2"
-                                        HorizontalAlignment="Center"
-                                        VerticalAlignment="Center"
-                                        Command="{Binding ResetStarDetectionDefaultsCommand}">
-                                        <TextBlock
-                                            Margin="10,5,10,5"
-                                            Foreground="{StaticResource ButtonForegroundBrush}"
-                                            Text="Reset Defaults"
-                                            TextWrapping="Wrap" />
-                                    </Button>
-                                </Grid>
+                                <Button
+                                    Margin="5"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Command="{Binding ResetStarDetectionDefaultsCommand}">
+                                    <TextBlock
+                                        Margin="10,5,10,5"
+                                        Foreground="{StaticResource ButtonForegroundBrush}"
+                                        Text="Reset Defaults"
+                                        TextWrapping="Wrap" />
+                                </Button>
                             </StackPanel>
                         </Grid>
                     </TabItem.Content>

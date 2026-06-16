@@ -42,30 +42,9 @@
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionOptionsVM_Dockable">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <!--  IsSharedSizeScope + Left so the Optimize button centers over the options' label/value columns
-                  (shared-size groups) rather than over the whole dock or the wider padded grid.  -->
-            <StackPanel Grid.IsSharedSizeScope="True" HorizontalAlignment="Left" Orientation="Vertical">
-                <Grid Margin="5,5,5,10">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
-                        <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol1" />
-                    </Grid.ColumnDefinitions>
-                    <Button
-                        Grid.Column="0"
-                        Grid.ColumnSpan="2"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Command="{Binding OptimizeStarDetectionCommand}"
-                        ToolTip="{StaticResource OptimizeStarDetection_Tooltip}">
-                        <TextBlock
-                            Margin="10,5,10,5"
-                            Foreground="{StaticResource ButtonForegroundBrush}"
-                            Text="Optimize Star Detection"
-                            TextWrapping="Wrap" />
-                    </Button>
-                </Grid>
-                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
-            </StackPanel>
+            <!--  The "Optimize Star Detection" button now lives inside the options ContentControl
+                  (HocusFocus_StarDetection_Options), centered over the settings' label/value columns.  -->
+            <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
         </ScrollViewer>
     </DataTemplate>
 

@@ -899,6 +899,31 @@
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">
+        <!--  IsSharedSizeScope so the Optimize button can share the options grid's label (col0) + value (col1)
+              column widths and center over EXACTLY that area. The button lives in the SAME template as the grid
+              (not in the host outside the ContentControl), so the shared-size groups reliably link — centering a
+              host-side button across the ContentControl boundary did not work.  -->
+        <StackPanel Grid.IsSharedSizeScope="True">
+            <!--  Optimize Star Detection — centered over the label+value columns (excludes the Advanced browse col).  -->
+            <Grid Margin="5,5,5,10" HorizontalAlignment="Left">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol1" />
+                </Grid.ColumnDefinitions>
+                <Button
+                    Grid.Column="0"
+                    Grid.ColumnSpan="2"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Command="{Binding OptimizeStarDetectionCommand}"
+                    ToolTip="{StaticResource OptimizeStarDetection_Tooltip}">
+                    <TextBlock
+                        Margin="10,5,10,5"
+                        Foreground="{StaticResource ButtonForegroundBrush}"
+                        Text="Optimize Star Detection"
+                        TextWrapping="Wrap" />
+                </Button>
+            </Grid>
         <Grid
             Margin="5"
             VerticalAlignment="Top"
@@ -2001,6 +2026,7 @@
                 IsChecked="{Binding StarDetectionOptions.SaveIntermediateImages}"
                 ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
         </Grid>
+        </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarAnnotator_Options">
         <Grid Margin="5" VerticalAlignment="Top">
