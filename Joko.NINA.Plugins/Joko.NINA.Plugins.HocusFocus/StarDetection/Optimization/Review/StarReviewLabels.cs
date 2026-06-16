@@ -182,7 +182,37 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                     return parsed;
                 }
             }
+
+            // 3. Trailing-segment fallback (G3): the wizard writes the embedded runId as the ABSOLUTE run path, but
+            //    offline discovery keys a run by its relative path / leaf folder (e.g. "attempt01"). Match when the
+            //    last path segment agrees, so wizard-saved labels load against a path-relocated copy of the run
+            //    without manual renaming. Exact / embedded matches above always take priority.
+            var runLeaf = LastSegment(runId);
+            if (!string.IsNullOrEmpty(runLeaf)) {
+                foreach (var file in Directory.GetFiles(labelsDir, "*.json").OrderBy(f => f, StringComparer.Ordinal)) {
+                    var parsed = TryParse(file, out _);
+                    if (parsed == null) {
+                        continue;
+                    }
+                    var embedded = !string.IsNullOrWhiteSpace(parsed.RunId) ? parsed.RunId : Path.GetFileNameWithoutExtension(file);
+                    if (string.Equals(LastSegment(embedded), runLeaf, StringComparison.OrdinalIgnoreCase)) {
+                        parsed.RunId = runId;
+                        Normalize(parsed);
+                        return parsed;
+                    }
+                }
+            }
             return fresh;
+        }
+
+        /// <summary>Last non-empty path segment of <paramref name="id"/>, splitting on both separators (the wizard
+        /// embeds Windows absolute paths; offline runIds are forward-slashed relative paths).</summary>
+        public static string LastSegment(string id) {
+            if (string.IsNullOrWhiteSpace(id)) {
+                return null;
+            }
+            var segments = id.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+            return segments.Length > 0 ? segments[segments.Length - 1] : null;
         }
 
         /// <summary>Saves <paramref name="labels"/> to "&lt;runId&gt;.json" in <paramref name="labelsDir"/>

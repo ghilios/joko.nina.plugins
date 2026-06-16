@@ -136,6 +136,14 @@ namespace TestApp {
                 return;
             }
 
+            // Headless label-driven gate RECOMMENDER: `TestApp recommend --runs <dir> --labels <dir> ...`. Runs the
+            // analyzer + recommender the in-wizard "Optimize with feedback" uses, printing the per-gate breakdown
+            // and the recommended threshold changes (precision-bounded) without launching NINA.
+            if (args.Length > 0 && args[0].Equals("recommend", StringComparison.OrdinalIgnoreCase)) {
+                RecommendRunner.Run(args);
+                return;
+            }
+
             // Interactive two-pass star-review labeling tool: `TestApp review --runs <dir> ...`. The runner does its
             // async loading/detection on this thread, then constructs and shows the WPF window on a dedicated STA
             // thread it creates internally — so it is correct regardless of this thread's apartment (an async Main

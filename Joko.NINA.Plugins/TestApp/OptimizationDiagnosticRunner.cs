@@ -17,6 +17,7 @@ using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
@@ -780,7 +781,16 @@ namespace TestApp {
             }
 
             foreach (var run in runs) {
-                if (!byRunId.TryGetValue(run.RunId, out var lf) || lf.Positions == null) {
+                if (!byRunId.TryGetValue(run.RunId, out var lf)) {
+                    // G3 trailing-segment fallback: wizard label files embed the ABSOLUTE run path as runId, while
+                    // discovery keys a run by its relative/leaf path — match on the last path segment so wizard
+                    // labels load against a path-relocated copy of the run.
+                    var leaf = StarReviewLabelStore.LastSegment(run.RunId);
+                    if (!string.IsNullOrEmpty(leaf)) {
+                        lf = byRunId.FirstOrDefault(kv => string.Equals(StarReviewLabelStore.LastSegment(kv.Key), leaf, StringComparison.OrdinalIgnoreCase)).Value;
+                    }
+                }
+                if (lf?.Positions == null) {
                     continue;
                 }
                 var defaultRadius = lf.RadiusPx ?? DefaultLabelRadiusPx;

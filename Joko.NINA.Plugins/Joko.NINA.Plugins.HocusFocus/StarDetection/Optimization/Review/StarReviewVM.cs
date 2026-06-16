@@ -46,6 +46,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// should-reject label box, and the overlay) + HFR.</summary>
         public List<(double CX, double CY, double HFR, Rect Bounds)> Accepted { get; set; } = new();
         public List<(string Reason, Rect Bounds)> Rejected { get; set; } = new();
+
+        /// <summary>Rich per-rejected-candidate records (gate + measured value) for the "Optimize with feedback"
+        /// analyzer. Populated by the production builder; may be empty for hosts that don't enable diagnostics.</summary>
+        public List<Interfaces.RejectedCandidateRecord> RejectedCandidates { get; set; } = new();
     }
 
     /// <summary>A drawable accepted-star marker (the detector's real bounding box) in image-pixel coords.</summary>

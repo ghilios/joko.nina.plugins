@@ -323,6 +323,8 @@ public class StarDetectionOptimizerTests {
             nameof(StarDetectorParams.NoiseReductionRadius),
             nameof(StarDetectorParams.HotpixelThresholdingEnabled),
             nameof(StarDetectorParams.HotpixelThreshold),
+            // Synthetic defocus-aware-structure knob — named for the EARLY cache-key property it drives.
+            OptimizerVariable.DefocusAwareStructureName,
         };
 
         Assert.Multiple(() => {

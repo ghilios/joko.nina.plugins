@@ -294,6 +294,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 ContaminationSensitivity = options.ContaminationSensitivity,
                 RejectContaminatedStars = options.RejectContaminatedStars,
                 StructureLayers = options.StructureLayers,
+                DefocusAwareStructure = options.DefocusAwareStructure,
+                StructureLayerBoost = options.StructureLayerBoost,
                 Sensitivity = options.BrightnessSensitivity,
                 PeakResponse = options.StarPeakResponse,
                 MaxDistortion = options.MaxDistortion,

@@ -89,6 +89,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double ContaminationSensitivity { get; set; }
         bool RejectContaminatedStars { get; set; }
         int StructureLayers { get; set; }
+        bool DefocusAwareStructure { get; set; }
+        int StructureLayerBoost { get; set; }
         double BrightnessSensitivity { get; set; }
         double StarPeakResponse { get; set; }
         double MaxDistortion { get; set; }

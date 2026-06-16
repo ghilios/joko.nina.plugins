@@ -100,10 +100,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             StarDetector detector,
             Func<string, Task<Mat>> floatMatLoader,
             CancellationToken token) {
+            // Collect the rich per-rejected-candidate records so the in-wizard "Optimize with feedback" analyzer can
+            // attribute each labeled star to the gate that killed it. The flag is a bit-identical side channel
+            // (excluded from the cache key), so the accepted/rejected overlays are unchanged. Clone so the caller's
+            // params are not mutated.
+            var diagParams = detectorParams.Clone();
+            diagParams.CollectRejectedCandidateDiagnostics = true;
+
             HocusFocusStarDetectorResult result;
             using (var mat = await floatMatLoader(d.FramePath).ConfigureAwait(false))
             using (var clone = mat.Clone()) { // Detect mutates its input in place.
-                result = await detector.Detect(clone, detectorParams, null, token).ConfigureAwait(false);
+                result = await detector.Detect(clone, diagParams, null, token).ConfigureAwait(false);
             }
 
             var accepted = result.DetectedStars ?? new List<Star>();
@@ -122,6 +129,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 // should-reject click records the actual bounds.
                 Accepted = accepted.Select(s => (s.Center.X, s.Center.Y, s.HFR, s.StarBoundingBox)).ToList(),
                 Rejected = ExtractRejected(result),
+                RejectedCandidates = result.RejectedCandidates ?? new List<RejectedCandidateRecord>(),
             };
         }
 

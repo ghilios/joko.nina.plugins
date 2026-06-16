@@ -155,6 +155,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 BooleanVar(DefocusAwareGatesName, 1,
                     p => p.DefocusAwareDistortion,
                     (p, en) => { p.DefocusAwareDistortion = en; p.DefocusAwareCentering = en; }),
+                // Defocus-aware STRUCTURE detection as a single integer knob (EARLY): 0 ⇒ OFF (bit-identical
+                // baseline), >0 ⇒ enable DefocusAwareStructure with that many extra wavelet layers, recovering
+                // large/donut defocused stars that never form a candidate. The seed reads the effective boost (0
+                // when the flag is off), so the baseline J is unchanged; the search may raise it.
+                StructureBoostVar(),
             };
         }
 
@@ -162,6 +167,78 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="StarDetectorParams"/> property name (the variable drives two properties at once), so it is a
         /// named constant rather than a <c>nameof</c>.</summary>
         public const string DefocusAwareGatesName = "DefocusAwareGates";
+
+        /// <summary>Synthetic curated-set variable name for the defocus-aware-structure integer knob. Matches the
+        /// EARLY cache-key property <c>DefocusAwareStructure</c> so the optimizer stages it as an early axis, but
+        /// the variable's Write drives BOTH <see cref="StarDetectorParams.DefocusAwareStructure"/> and
+        /// <see cref="StarDetectorParams.StructureLayerBoost"/>.</summary>
+        public const string DefocusAwareStructureName = nameof(StarDetectorParams.DefocusAwareStructure);
+
+        /// <summary>
+        /// Builds a WARM-START variable set from the curated set and a recommendation (before → after params): for
+        /// each curated axis the recommender MOVED, a copy with a tight band ([recommended ± bandSteps·step] clamped
+        /// to the original bounds) so the optimizer refines near the analytic point without wandering; axes the
+        /// recommender did NOT move are OMITTED (pinned by omission — the warm-start SEED carries their value),
+        /// EXCEPT the defocus-aware toggles (<see cref="DefocusAwareGatesName"/> / <see cref="DefocusAwareStructureName"/>),
+        /// which are always kept live at full range so the optimizer can enable them if needed (guarded by the
+        /// objective's near-focus precision penalty). The caller passes <paramref name="after"/> as the optimizer seed.
+        /// </summary>
+        public static IReadOnlyList<OptimizerVariable> CreateWarmStartSet(
+            IReadOnlyList<OptimizerVariable> baseSet, StarDetectorParams before, StarDetectorParams after, int bandSteps = 3) {
+            var result = new List<OptimizerVariable>();
+            foreach (var v in baseSet) {
+                var beforeVal = v.Read(before);
+                var afterVal = v.Read(after);
+                var moved = Math.Abs(beforeVal - afterVal) > 1e-9;
+                var isDefocusToggle = v.Name == DefocusAwareGatesName || v.Name == DefocusAwareStructureName;
+                if (moved) {
+                    var half = bandSteps * v.InitialStep;
+                    var lo = Math.Max(v.Lower, afterVal - half);
+                    var hi = Math.Min(v.Upper, afterVal + half);
+                    if (hi <= lo) {
+                        hi = Math.Min(v.Upper, lo + Math.Max(v.InitialStep, 1e-9));
+                    }
+                    result.Add(WithBounds(v, lo, hi));
+                } else if (isDefocusToggle) {
+                    result.Add(v); // always explorable, full range
+                }
+                // else: omit — the seed (after) carries the unchanged value.
+            }
+            return result;
+        }
+
+        /// <summary>Copies <paramref name="baseVar"/> with new [<paramref name="lower"/>, <paramref name="upper"/>]
+        /// bounds. The new Write re-quantizes through the NEW bounds (so the optimizer cannot escape the band),
+        /// then delegates to the original Write (a no-op clamp + the real store, since the new band ⊂ original).</summary>
+        private static OptimizerVariable WithBounds(OptimizerVariable baseVar, double lower, double upper) {
+            OptimizerVariable v = null;
+            v = new OptimizerVariable {
+                Name = baseVar.Name,
+                Type = baseVar.Type,
+                Lower = lower, Upper = upper, InitialStep = baseVar.InitialStep,
+                Read = baseVar.Read,
+                Write = (p, raw) => baseVar.Write(p, v.Quantize(raw))
+            };
+            return v;
+        }
+
+        /// <summary>Builds the synthetic defocus-aware-structure variable: an Integer boost in [0, 4] that drives
+        /// the flag (boost &gt; 0) and the layer count together. 0 reproduces the bit-identical baseline.</summary>
+        private static OptimizerVariable StructureBoostVar() {
+            OptimizerVariable v = null;
+            v = new OptimizerVariable {
+                Name = DefocusAwareStructureName,
+                Type = OptimizerVariableType.Integer,
+                Lower = 0, Upper = 4, InitialStep = 1,
+                Read = p => p.DefocusAwareStructure ? p.StructureLayerBoost : 0,
+                Write = (p, raw) => {
+                    var boost = (int)v.Quantize(raw);
+                    p.StructureLayerBoost = boost;
+                    p.DefocusAwareStructure = boost > 0;
+                }
+            };
+            return v;
+        }
 
         /// <summary>
         /// Builds a Continuous variable whose Write quantizes the proposal through the variable's OWN
