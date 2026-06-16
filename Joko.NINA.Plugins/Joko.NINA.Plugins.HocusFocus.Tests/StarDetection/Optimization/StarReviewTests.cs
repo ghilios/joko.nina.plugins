@@ -620,4 +620,24 @@ public class StarReviewTests {
             Assert.That(rejected, Has.Count.EqualTo(3));
         });
     }
+
+    // ---- Legend (starry-hopper item 13) -----------------------------------------------------------------
+
+    [Test]
+    public void LegendEntries_CoverAcceptedRejectedAndUserLabels_WithPlainCaptions() {
+        var queue = new List<FrameReview> { new FrameReview { RunId = "r", FocuserPosition = 1000 } };
+        var vm = new StarReviewVM(queue, new Dictionary<string, StarReviewRunLabels>(StringComparer.Ordinal), string.Empty);
+
+        var legend = vm.LegendEntries;
+        Assert.Multiple(() => {
+            // 1 accepted + 7 rejection reasons + 3 user-label types.
+            Assert.That(legend, Has.Count.EqualTo(11));
+            Assert.That(legend.Count(e => e.Dashed), Is.EqualTo(3), "the three user-label types are dashed");
+            Assert.That(legend.Any(e => e.Caption == "Accepted star" && !e.Dashed), Is.True);
+            Assert.That(legend.All(e => e.Brush != null), Is.True);
+            // Plain-language captions — raw gate enum names must not leak through.
+            Assert.That(legend.Any(e => e.Caption.Contains("TooDistorted")), Is.False);
+            Assert.That(legend.Any(e => e.Caption == "Rejected: Too distorted"), Is.True);
+        });
+    }
 }
