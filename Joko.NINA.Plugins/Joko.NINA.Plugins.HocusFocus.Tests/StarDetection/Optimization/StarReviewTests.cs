@@ -495,6 +495,48 @@ public class StarReviewTests {
         });
     }
 
+    // ---- Bounded pan (starry-hopper item 11) ------------------------------------------------------------
+
+    [Test]
+    public void ClampToBounds_LargerThanViewport_KeepsImageCoveringViewport() {
+        // image 200x200 at scale 1 => content 200 > viewport 100 => offset must stay in [-100, 0].
+        var vp = new StarReviewViewport(1.0, 0, 0);
+        vp.PanBy(500, 500); // over-pan toward positive
+        vp.ClampToBounds(100, 100, 200, 200);
+        Assert.Multiple(() => {
+            Assert.That(vp.OffsetX, Is.EqualTo(0).Within(1e-9));
+            Assert.That(vp.OffsetY, Is.EqualTo(0).Within(1e-9));
+        });
+
+        vp.PanBy(-1000, -1000); // over-pan toward negative
+        vp.ClampToBounds(100, 100, 200, 200);
+        Assert.Multiple(() => {
+            Assert.That(vp.OffsetX, Is.EqualTo(-100).Within(1e-9));
+            Assert.That(vp.OffsetY, Is.EqualTo(-100).Within(1e-9));
+        });
+    }
+
+    [Test]
+    public void ClampToBounds_SmallerThanViewport_CentersAxis() {
+        // content 100 < viewport 200 => the axis is centered at (200-100)/2 = 50, regardless of prior offset.
+        var vp = new StarReviewViewport(1.0, 999, -999);
+        vp.ClampToBounds(200, 200, 100, 100);
+        Assert.Multiple(() => {
+            Assert.That(vp.OffsetX, Is.EqualTo(50).Within(1e-9));
+            Assert.That(vp.OffsetY, Is.EqualTo(50).Within(1e-9));
+        });
+    }
+
+    [Test]
+    public void ClampToBounds_NonPositiveDims_NoOp() {
+        var vp = new StarReviewViewport(1.0, 33, 44);
+        vp.ClampToBounds(0, 0, 100, 100);
+        Assert.Multiple(() => {
+            Assert.That(vp.OffsetX, Is.EqualTo(33).Within(1e-9));
+            Assert.That(vp.OffsetY, Is.EqualTo(44).Within(1e-9));
+        });
+    }
+
     // ---- Combined hit-test + categorize (mode-less click routing) -----------------------------------------
     //
     // The view (StarReviewControl) decides click-vs-drag and the VM infers the label category from the SAME pure
@@ -638,6 +680,99 @@ public class StarReviewTests {
             // Plain-language captions — raw gate enum names must not leak through.
             Assert.That(legend.Any(e => e.Caption.Contains("TooDistorted")), Is.False);
             Assert.That(legend.Any(e => e.Caption == "Rejected: Too distorted"), Is.True);
+        });
+    }
+
+    // ---- Undo/redo + right-click delete (starry-hopper items 9/17) --------------------------------------
+
+    private static FrameReview FrameWithBoxes(string runId = "r", int pos = 1000) {
+        var f = new FrameReview { RunId = runId, FocuserPosition = pos };
+        f.Accepted.Add((110, 110, 2.0, new Rect(100, 100, 20, 20))); // accepted box
+        f.Rejected.Add(("TooDistorted", new Rect(300, 300, 20, 20))); // rejected box
+        return f;
+    }
+
+    private static StarReviewVM ReviewVM(out Dictionary<string, StarReviewRunLabels> labels, params FrameReview[] frames) {
+        labels = new Dictionary<string, StarReviewRunLabels>(StringComparer.Ordinal);
+        foreach (var rid in frames.Select(f => f.RunId).Distinct(StringComparer.Ordinal)) {
+            labels[rid] = new StarReviewRunLabels { RunId = rid, RadiusPx = 6.0 };
+        }
+        return new StarReviewVM(frames, labels, string.Empty);
+    }
+
+    private static (int missed, int reject, int wrongly) Counts(Dictionary<string, StarReviewRunLabels> labels, string runId, int pos) {
+        var p = labels[runId].Positions.FirstOrDefault(x => x.FocuserPosition == pos);
+        return (p?.Missed?.Count ?? 0, p?.ShouldReject?.Count ?? 0, p?.WronglyRejected?.Count ?? 0);
+    }
+
+    [Test]
+    public void Undo_Redo_MissedBox() {
+        var vm = ReviewVM(out var labels, FrameWithBoxes());
+        vm.AddMissedBox(500, 500, 20, 20);
+        Assert.That(Counts(labels, "r", 1000).missed, Is.EqualTo(1));
+
+        Assert.That(vm.UndoCommand.CanExecute(null), Is.True);
+        vm.UndoCommand.Execute(null);
+        Assert.That(Counts(labels, "r", 1000).missed, Is.EqualTo(0), "undo removes the added missed box");
+
+        Assert.That(vm.RedoCommand.CanExecute(null), Is.True);
+        vm.RedoCommand.Execute(null);
+        Assert.That(Counts(labels, "r", 1000).missed, Is.EqualTo(1), "redo re-adds it");
+    }
+
+    [Test]
+    public void Undo_RestoresToggledLabel() {
+        var vm = ReviewVM(out var labels, FrameWithBoxes());
+        vm.ToggleLabelAt(110, 110); // inside the accepted box => should-reject
+        Assert.That(Counts(labels, "r", 1000).reject, Is.EqualTo(1));
+        vm.UndoCommand.Execute(null);
+        Assert.That(Counts(labels, "r", 1000).reject, Is.EqualTo(0), "undo removes the should-reject label");
+    }
+
+    [Test]
+    public void RemoveLabelAt_DeletesLabel_AndUndoRestoresIt() {
+        var vm = ReviewVM(out var labels, FrameWithBoxes());
+        vm.AddMissedBox(500, 500, 20, 20); // center (510,510)
+        Assert.That(Counts(labels, "r", 1000).missed, Is.EqualTo(1));
+
+        var removed = vm.RemoveLabelAt(510, 510);
+        Assert.That(removed, Is.True);
+        Assert.That(Counts(labels, "r", 1000).missed, Is.EqualTo(0), "right-click removed the label");
+
+        vm.UndoCommand.Execute(null);
+        Assert.That(Counts(labels, "r", 1000).missed, Is.EqualTo(1), "undo restores a right-click deletion");
+    }
+
+    [Test]
+    public void RemoveLabelAt_OutsideEveryLabel_IsNoOp() {
+        var vm = ReviewVM(out _, FrameWithBoxes());
+        vm.AddMissedBox(500, 500, 20, 20);
+        Assert.That(vm.RemoveLabelAt(10, 10), Is.False);
+    }
+
+    [Test]
+    public void NewEdit_ClearsRedoStack() {
+        var vm = ReviewVM(out _, FrameWithBoxes());
+        vm.AddMissedBox(500, 500, 20, 20);
+        vm.UndoCommand.Execute(null);
+        Assert.That(vm.RedoCommand.CanExecute(null), Is.True, "precondition: a redo is available");
+
+        vm.AddMissedBox(600, 600, 20, 20); // a fresh edit forks history
+        Assert.That(vm.RedoCommand.CanExecute(null), Is.False, "a new edit clears the redo stack");
+    }
+
+    [Test]
+    public void Undo_NavigatesToTheEditedFrame() {
+        var vm = ReviewVM(out var labels, FrameWithBoxes("r", 1000), FrameWithBoxes("r", 2000));
+        // Label on frame 0, move to frame 1, then undo — it must jump back to frame 0 so the change is visible.
+        vm.AddMissedBox(500, 500, 20, 20);
+        vm.NextCommand.Execute(null);
+        Assert.That(vm.CurrentIndex, Is.EqualTo(1));
+
+        vm.UndoCommand.Execute(null);
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentIndex, Is.EqualTo(0), "undo navigates back to the edited frame");
+            Assert.That(Counts(labels, "r", 1000).missed, Is.EqualTo(0));
         });
     }
 }

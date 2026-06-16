@@ -27,9 +27,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         private StarReviewVM Vm => DataContext as StarReviewVM;
 
+        // Minimum drag (image px for left, screen px for right) below which a press+release counts as a click, not a
+        // drag — so a blank left-click creates no missed box and a right-click deletes a label instead of panning.
+        private const double MinDragPx = 3.0;
+
         private bool panning;
         private System.Windows.Point lastPanScreen;
         private bool hasFitOnce;
+
+        // Right-button: distinguish a right-CLICK (delete the label under the cursor) from a right-DRAG (pan).
+        // rightMoved flips true once the pointer moves past MinDragPx while the right button is held.
+        private bool rightMoved;
+        private System.Windows.Point rightDownScreen;
 
         // Left-button interaction state (image-space). pressArmed is set on a valid left-button-down inside the image
         // and consumed on button-up (so a press that started outside the image, or after the VM went away, is ignored).
@@ -77,6 +86,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                     OnFitRequested(this, EventArgs.Empty);
                     e.Handled = true;
                     break;
+                case Key.Z:
+                    if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && vm.UndoCommand.CanExecute(null)) {
+                        vm.UndoCommand.Execute(null);
+                        e.Handled = true;
+                    }
+                    break;
+                case Key.Y:
+                    if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && vm.RedoCommand.CanExecute(null)) {
+                        vm.RedoCommand.Execute(null);
+                        e.Handled = true;
+                    }
+                    break;
             }
         }
 
@@ -94,13 +115,69 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             if (vm == null) {
                 return;
             }
+            // Keep the image within the viewport (bounded pan; centered when smaller than the viewport).
+            vm.Viewport.ClampToBounds(ViewportCanvas.ActualWidth, ViewportCanvas.ActualHeight, vm.ImageWidth, vm.ImageHeight);
             ContentScale.ScaleX = vm.Viewport.Scale;
             ContentScale.ScaleY = vm.Viewport.Scale;
             ContentTranslate.X = vm.Viewport.OffsetX;
             ContentTranslate.Y = vm.Viewport.OffsetY;
+            UpdateScrollBars();
             // Markers scale with the canvas transform, so refresh the zoom-inverse stroke thickness after any
             // viewport change (this covers wheel-zoom, fit, and pan since all route through ApplyViewport).
             vm.NotifyViewportChanged();
+        }
+
+        private bool suppressScrollEvents;
+
+        /// <summary>Reflects the current viewport into the two scrollbars (shown only when the scaled image exceeds
+        /// the viewport on that axis). Scroll position on each axis is -Offset; the scrollable extent is
+        /// image·Scale - viewport.</summary>
+        private void UpdateScrollBars() {
+            var vm = Vm;
+            if (vm == null) {
+                return;
+            }
+            suppressScrollEvents = true;
+            try {
+                UpdateScrollBar(HScroll, ViewportCanvas.ActualWidth, vm.ImageWidth * vm.Viewport.Scale, -vm.Viewport.OffsetX);
+                UpdateScrollBar(VScroll, ViewportCanvas.ActualHeight, vm.ImageHeight * vm.Viewport.Scale, -vm.Viewport.OffsetY);
+            } finally {
+                suppressScrollEvents = false;
+            }
+        }
+
+        private static void UpdateScrollBar(System.Windows.Controls.Primitives.ScrollBar bar, double viewport, double content, double scrollPos) {
+            var scrollable = content - viewport;
+            if (scrollable > 0.5 && viewport > 0) {
+                bar.Visibility = Visibility.Visible;
+                bar.Minimum = 0;
+                bar.Maximum = scrollable;
+                bar.ViewportSize = viewport; // proportional thumb
+                bar.LargeChange = viewport * 0.9;
+                bar.SmallChange = Math.Max(1.0, viewport * 0.1);
+                bar.Value = Math.Min(Math.Max(scrollPos, 0.0), scrollable);
+            } else {
+                bar.Visibility = Visibility.Collapsed;
+                bar.Value = 0;
+            }
+        }
+
+        private void HScroll_Scroll(object sender, System.Windows.Controls.Primitives.ScrollEventArgs e) {
+            var vm = Vm;
+            if (vm == null || suppressScrollEvents) {
+                return;
+            }
+            vm.Viewport.Set(vm.Viewport.Scale, -e.NewValue, vm.Viewport.OffsetY);
+            ApplyViewport();
+        }
+
+        private void VScroll_Scroll(object sender, System.Windows.Controls.Primitives.ScrollEventArgs e) {
+            var vm = Vm;
+            if (vm == null || suppressScrollEvents) {
+                return;
+            }
+            vm.Viewport.Set(vm.Viewport.Scale, vm.Viewport.OffsetX, -e.NewValue);
+            ApplyViewport();
         }
 
         // The canvas RenderTransform maps image space -> screen space, so a mouse position taken relative to the
@@ -172,13 +249,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             if (dragging) {
                 dragging = false;
                 DragRect.Visibility = Visibility.Collapsed;
-                // Normalize so W,H >= 0 regardless of drag direction. AddMissedBox widens a tiny drag (effectively a
-                // click on blank space) to a small default box itself.
+                // Normalize so W,H >= 0 regardless of drag direction.
                 var x = Math.Min(dragStartImage.X, imgX);
                 var y = Math.Min(dragStartImage.Y, imgY);
                 var w = Math.Abs(imgX - dragStartImage.X);
                 var h = Math.Abs(imgY - dragStartImage.Y);
-                vm.AddMissedBox(x, y, w, h);
+                // A plain click on blank space (a negligible drag) must NOT create a box — only a real drag does.
+                if (w >= MinDragPx && h >= MinDragPx) {
+                    vm.AddMissedBox(x, y, w, h);
+                }
                 e.Handled = true;
                 return;
             }
@@ -191,7 +270,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         private void ViewportCanvas_MouseRightButtonDown(object sender, MouseButtonEventArgs e) {
             panning = true;
-            lastPanScreen = ScreenPoint(e);
+            rightMoved = false;
+            rightDownScreen = ScreenPoint(e);
+            lastPanScreen = rightDownScreen;
             ViewportCanvas.CaptureMouse();
             e.Handled = true;
         }
@@ -200,6 +281,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             panning = false;
             ViewportCanvas.ReleaseMouseCapture();
             e.Handled = true;
+
+            // A right-CLICK (no meaningful drag) deletes the label under the cursor; a right-DRAG was a pan.
+            if (rightMoved) {
+                return;
+            }
+            var vm = Vm;
+            if (vm == null) {
+                return;
+            }
+            var screen = ScreenPoint(e);
+            var (imgX, imgY) = vm.Viewport.ScreenToImage(screen.X, screen.Y);
+            if (imgX < 0 || imgY < 0 || imgX > vm.ImageWidth || imgY > vm.ImageHeight) {
+                return;
+            }
+            vm.RemoveLabelAt(imgX, imgY);
         }
 
         private void ViewportCanvas_MouseMove(object sender, MouseEventArgs e) {
@@ -225,6 +321,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 return;
             }
             var screen = ScreenPoint(e);
+            // Once the right-button pointer travels past the threshold it's a pan, not a click-to-delete.
+            if (!rightMoved &&
+                (Math.Abs(screen.X - rightDownScreen.X) > MinDragPx || Math.Abs(screen.Y - rightDownScreen.Y) > MinDragPx)) {
+                rightMoved = true;
+            }
             var dx = screen.X - lastPanScreen.X;
             var dy = screen.Y - lastPanScreen.Y;
             lastPanScreen = screen;

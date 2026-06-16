@@ -85,6 +85,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             OffsetY += dyScreen;
         }
 
+        /// <summary>
+        /// Clamps the offsets so the (scaled) image can't be dragged past the viewport edges: when the scaled
+        /// image is larger than the viewport on an axis, the offset is kept within [viewport - content, 0] so the
+        /// image always covers the viewport; when it is smaller, that axis is centered. Idempotent — safe to call
+        /// after every Pan/Zoom/Fit. Pure (no UI) so it is unit-tested. The current scrollable extent on each axis
+        /// is <c>max(0, image·Scale - viewport)</c>; the scroll position is <c>-Offset</c>.
+        /// </summary>
+        public void ClampToBounds(double viewportWidth, double viewportHeight, double imageWidth, double imageHeight) {
+            if (viewportWidth <= 0 || viewportHeight <= 0 || imageWidth <= 0 || imageHeight <= 0) {
+                return;
+            }
+            OffsetX = ClampAxis(OffsetX, viewportWidth, imageWidth * Scale);
+            OffsetY = ClampAxis(OffsetY, viewportHeight, imageHeight * Scale);
+        }
+
+        private static double ClampAxis(double offset, double viewport, double content) {
+            if (content <= viewport) {
+                // Scaled image smaller than the viewport on this axis: center it.
+                return (viewport - content) / 2.0;
+            }
+            // Larger than the viewport: keep it covering the viewport (offset in [viewport - content, 0]).
+            var min = viewport - content; // negative
+            const double max = 0.0;
+            return Math.Min(max, Math.Max(min, offset));
+        }
+
         public void Set(double scale, double offsetX, double offsetY) {
             Scale = ClampScale(scale);
             OffsetX = offsetX;

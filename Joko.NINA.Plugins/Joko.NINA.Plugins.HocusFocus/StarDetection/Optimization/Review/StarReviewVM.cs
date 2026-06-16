@@ -171,6 +171,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             PrevCommand = new RelayCommand(Prev, () => CurrentIndex > 0);
             SaveCommand = new RelayCommand(SaveAll);
             FitCommand = new RelayCommand(RequestFit);
+            UndoCommand = new RelayCommand(Undo, () => undoStack.Count > 0);
+            RedoCommand = new RelayCommand(Redo, () => redoStack.Count > 0);
 
             CurrentIndex = 0;
             LoadCurrent();
@@ -262,19 +264,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// legend panel to the right).</summary>
         public string HelpText =>
             "Left-drag over a missed star to mark it. Click an accepted box to flag a false positive, or a " +
-            "rejected box to keep it. Click a label again to remove it. Wheel to zoom, right-drag to pan.";
-
-        private double radiusPx = StarReviewLabelStore.DefaultRadiusPx;
-        public double RadiusPx {
-            get => radiusPx;
-            set {
-                if (Math.Abs(radiusPx - value) > 1e-9 && value > 0) {
-                    radiusPx = value;
-                    RaisePropertyChanged();
-                    PersistRadiusToCurrentPosition();
-                }
-            }
-        }
+            "rejected box to keep it. Right-click a label (or click it again) to remove it. Ctrl+Z / Ctrl+Y to " +
+            "undo / redo. Wheel to zoom, right-drag to pan.";
 
         public string CountsLabel {
             get {
@@ -293,6 +284,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public RelayCommand PrevCommand { get; }
         public RelayCommand SaveCommand { get; }
         public RelayCommand FitCommand { get; }
+        public RelayCommand UndoCommand { get; }
+        public RelayCommand RedoCommand { get; }
 
         /// <summary>Raised when the VM wants the view to re-fit the image (initial load / Fit button).</summary>
         public event EventHandler FitRequested;
@@ -309,9 +302,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             }
         }
 
+        // Navigation no longer writes to disk: labels live in-memory (labelsByRun) and are flushed only by SaveAll
+        // (the wizard's Accept/Re-optimize, or the TestApp host's save-on-close), so a Cancel discards them.
         private void Next() {
             if (CurrentIndex < queue.Count - 1) {
-                SaveCurrentRun();
                 CurrentIndex++;
                 LoadCurrent();
             }
@@ -319,7 +313,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         private void Prev() {
             if (CurrentIndex > 0) {
-                SaveCurrentRun();
                 CurrentIndex--;
                 LoadCurrent();
             }
@@ -348,12 +341,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 });
             }
 
-            // The radius shown defaults to the run default unless this position already overrode it.
-            var run = CurrentRunLabels;
-            var pos = CurrentPositionLabels;
-            radiusPx = pos?.RadiusPx ?? run?.RadiusPx ?? StarReviewLabelStore.DefaultRadiusPx;
-            RaisePropertyChanged(nameof(RadiusPx));
-
             RefreshLabelMarkers();
 
             NextCommand.NotifyCanExecuteChanged();
@@ -378,34 +365,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         // ---- Labeling (delegates to the pure store) --------------------------------------------------------
 
         /// <summary>
-        /// MISSED pass: adds (or toggles off) a user-drawn box. The view calls this on mouse-up of a rubber-band
-        /// drag (or a small click). (<paramref name="imageX"/>,<paramref name="imageY"/>) is the top-left and
-        /// (<paramref name="width"/>,<paramref name="height"/>) the size, already normalized to W,H ≥ 0 by the view.
-        /// A degenerate drag (below a few px — effectively a click) is widened to a small default box of side
-        /// 2·RadiusPx centered on the click, so a plain click still drops a usable region. Toggling near an existing
-        /// missed box's center removes it.
+        /// MISSED pass: adds a user-drawn box over a missed star (or toggles one off if the drag lands on an
+        /// existing missed box's center). The view calls this on mouse-up of a rubber-band drag with the box
+        /// already normalized to W,H ≥ 0; the view does NOT call it for a plain click on blank space (no
+        /// click-to-create — that drops stray boxes). Recorded as an undoable edit.
         /// </summary>
         public void AddMissedBox(double imageX, double imageY, double width, double height) {
             var run = CurrentRunLabels;
             if (run == null) {
                 return;
             }
-            const double minDragPx = 3.0;
-            if (width < minDragPx || height < minDragPx) {
-                // Effectively a click: drop a small default box centered on the click point.
-                var side = 2.0 * RadiusPx;
-                var cx = imageX + width / 2.0;
-                var cy = imageY + height / 2.0;
-                imageX = cx - side / 2.0;
-                imageY = cy - side / 2.0;
-                width = side;
-                height = side;
-            }
             var pos = StarReviewLabelStore.GetOrAddPosition(run, Current.FocuserPosition);
-            if (pos.RadiusPx == null) {
-                pos.RadiusPx = RadiusPx;
+            var cx = imageX + width / 2.0;
+            var cy = imageY + height / 2.0;
+            var idx = StarReviewLabelStore.NearestBoxIndexWithin(pos.Missed, cx, cy, StarReviewLabelStore.SamePointTolerancePx);
+            if (idx >= 0) {
+                var removed = pos.Missed[idx];
+                pos.Missed.RemoveAt(idx);
+                RecordEdit(run.RunId, Current.FocuserPosition, LabelKind.Missed, removed, wasAdd: false);
+            } else {
+                var box = new StarReviewLabelBox(imageX, imageY, width, height);
+                pos.Missed.Add(box);
+                RecordEdit(run.RunId, Current.FocuserPosition, LabelKind.Missed, box, wasAdd: true);
             }
-            StarReviewLabelStore.ToggleBox(pos.Missed, imageX, imageY, width, height);
             RefreshLabelMarkers();
         }
 
@@ -431,21 +413,68 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             }
 
             var pos = StarReviewLabelStore.GetOrAddPosition(run, Current.FocuserPosition);
-            if (pos.RadiusPx == null) {
-                pos.RadiusPx = RadiusPx;
-            }
+            var kind = category == HitCategory.Accepted ? LabelKind.ShouldReject : LabelKind.WronglyRejected;
             var list = category == HitCategory.Accepted ? pos.ShouldReject : pos.WronglyRejected;
 
             // Toggle semantics: if a label already covers this star (its center matches the hit box's center within
-            // tolerance), remove it; otherwise record the star's ACTUAL bounding box.
+            // tolerance), remove it; otherwise record the star's ACTUAL bounding box. Either way it's an undoable edit.
             var existing = StarReviewLabelStore.NearestBoxIndexWithin(
                 list, hit.X + hit.Width / 2.0, hit.Y + hit.Height / 2.0, StarReviewLabelStore.SamePointTolerancePx);
             if (existing >= 0) {
+                var removed = list[existing];
                 list.RemoveAt(existing);
+                RecordEdit(run.RunId, Current.FocuserPosition, kind, removed, wasAdd: false);
             } else {
-                list.Add(new StarReviewLabelBox(hit.X, hit.Y, hit.Width, hit.Height));
+                var box = new StarReviewLabelBox(hit.X, hit.Y, hit.Width, hit.Height);
+                list.Add(box);
+                RecordEdit(run.RunId, Current.FocuserPosition, kind, box, wasAdd: true);
             }
             RefreshLabelMarkers();
+        }
+
+        /// <summary>
+        /// Right-click delete: removes the smallest USER-LABEL box (missed / should-reject / wrongly-rejected)
+        /// containing (<paramref name="imageX"/>,<paramref name="imageY"/>), across all three lists. Returns true
+        /// if a label was removed (recorded as an undoable edit), false when the click was outside every label.
+        /// The view calls this on a right-CLICK (a right-drag pans instead).
+        /// </summary>
+        public bool RemoveLabelAt(double imageX, double imageY) {
+            var run = CurrentRunLabels;
+            var pos = CurrentPositionLabels;
+            if (run == null || pos == null) {
+                return false;
+            }
+
+            LabelKind bestKind = default;
+            List<StarReviewLabelBox> bestList = null;
+            var bestIdx = -1;
+            var bestArea = double.MaxValue;
+            foreach (var (kind, list) in new[] {
+                         (LabelKind.Missed, pos.Missed),
+                         (LabelKind.ShouldReject, pos.ShouldReject),
+                         (LabelKind.WronglyRejected, pos.WronglyRejected) }) {
+                var idx = StarReviewLabelStore.SmallestContainingBoxIndex(list, imageX, imageY);
+                if (idx < 0) {
+                    continue;
+                }
+                var b = list[idx];
+                var area = (b.W ?? 0.0) * (b.H ?? 0.0);
+                if (area < bestArea) {
+                    bestArea = area;
+                    bestKind = kind;
+                    bestList = list;
+                    bestIdx = idx;
+                }
+            }
+
+            if (bestList == null) {
+                return false;
+            }
+            var removed = bestList[bestIdx];
+            bestList.RemoveAt(bestIdx);
+            RecordEdit(run.RunId, pos.FocuserPosition, bestKind, removed, wasAdd: false);
+            RefreshLabelMarkers();
+            return true;
         }
 
         /// <summary>
@@ -522,44 +551,112 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         }
 
         /// <summary>Maps a stored label box to a drawable marker. A legacy label that somehow still lacks W/H is drawn
-        /// as a small 2·RadiusPx box centered on its (x,y) (Normalize back-fills on load, so this is belt-and-suspenders).</summary>
-        private LabelBoxMarker ToBoxMarker(StarReviewLabelBox b) {
+        /// as a small default box centered on its (x,y) (Normalize back-fills on load, so this is belt-and-suspenders).</summary>
+        private static LabelBoxMarker ToBoxMarker(StarReviewLabelBox b) {
             if (b.HasSize) {
                 return new LabelBoxMarker { X = b.X, Y = b.Y, Width = b.W.Value, Height = b.H.Value };
             }
-            var side = 2.0 * RadiusPx;
+            var side = 2.0 * StarReviewLabelStore.DefaultRadiusPx;
             return new LabelBoxMarker { X = b.X - side / 2.0, Y = b.Y - side / 2.0, Width = side, Height = side };
         }
 
-        private void PersistRadiusToCurrentPosition() {
-            var run = CurrentRunLabels;
-            if (run == null) {
+        // ---- Undo / redo -----------------------------------------------------------------------------------
+
+        private enum LabelKind { Missed, ShouldReject, WronglyRejected }
+
+        /// <summary>One undoable label edit: the box that was added or removed, in a specific run/position/list.</summary>
+        private sealed class LabelEdit {
+            public string RunId;
+            public int FocuserPosition;
+            public LabelKind Kind;
+            public StarReviewLabelBox Box;
+            public bool WasAdd; // true: the edit ADDED Box (undo removes it); false: it REMOVED Box (undo re-adds).
+        }
+
+        private readonly Stack<LabelEdit> undoStack = new();
+        private readonly Stack<LabelEdit> redoStack = new();
+
+        /// <summary>Records a label mutation for undo and clears the redo stack (a new edit forks the history).</summary>
+        private void RecordEdit(string runId, int focuserPosition, LabelKind kind, StarReviewLabelBox box, bool wasAdd) {
+            undoStack.Push(new LabelEdit { RunId = runId, FocuserPosition = focuserPosition, Kind = kind, Box = box, WasAdd = wasAdd });
+            redoStack.Clear();
+            RaiseUndoRedo();
+        }
+
+        private void Undo() {
+            if (undoStack.Count == 0) {
                 return;
             }
-            var pos = StarReviewLabelStore.GetOrAddPosition(run, Current.FocuserPosition);
-            pos.RadiusPx = RadiusPx;
+            var edit = undoStack.Pop();
+            ApplyEdit(edit, forward: false);
+            redoStack.Push(edit);
+            NavigateTo(edit.RunId, edit.FocuserPosition);
+            RefreshLabelMarkers();
+            RaiseUndoRedo();
+        }
+
+        private void Redo() {
+            if (redoStack.Count == 0) {
+                return;
+            }
+            var edit = redoStack.Pop();
+            ApplyEdit(edit, forward: true);
+            undoStack.Push(edit);
+            NavigateTo(edit.RunId, edit.FocuserPosition);
+            RefreshLabelMarkers();
+            RaiseUndoRedo();
+        }
+
+        /// <summary>Applies an edit in the forward (redo / original) or inverse (undo) direction to the in-memory
+        /// label model. Add/remove are matched by box-center tolerance so a re-applied add doesn't duplicate.</summary>
+        private void ApplyEdit(LabelEdit e, bool forward) {
+            if (!labelsByRun.TryGetValue(e.RunId, out var run) || run == null) {
+                return;
+            }
+            var pos = StarReviewLabelStore.GetOrAddPosition(run, e.FocuserPosition);
+            var list = ListFor(pos, e.Kind);
+            var doAdd = e.WasAdd ? forward : !forward;
+            if (doAdd) {
+                if (StarReviewLabelStore.NearestBoxIndexWithin(list, e.Box.CenterX, e.Box.CenterY, StarReviewLabelStore.SamePointTolerancePx) < 0) {
+                    list.Add(e.Box);
+                }
+            } else {
+                var idx = StarReviewLabelStore.NearestBoxIndexWithin(list, e.Box.CenterX, e.Box.CenterY, StarReviewLabelStore.SamePointTolerancePx);
+                if (idx >= 0) {
+                    list.RemoveAt(idx);
+                }
+            }
+        }
+
+        private static List<StarReviewLabelBox> ListFor(StarReviewPositionLabels pos, LabelKind kind) => kind switch {
+            LabelKind.Missed => pos.Missed,
+            LabelKind.ShouldReject => pos.ShouldReject,
+            _ => pos.WronglyRejected
+        };
+
+        /// <summary>Moves the current frame to the one matching (runId, focuserPosition) so an undone/redone edit is
+        /// visible. No-op if it is already current or not in the queue.</summary>
+        private void NavigateTo(string runId, int focuserPosition) {
+            if (Current.RunId == runId && Current.FocuserPosition == focuserPosition) {
+                return;
+            }
+            for (var i = 0; i < queue.Count; i++) {
+                if (queue[i].RunId == runId && queue[i].FocuserPosition == focuserPosition) {
+                    CurrentIndex = i;
+                    LoadCurrent();
+                    return;
+                }
+            }
+        }
+
+        private void RaiseUndoRedo() {
+            UndoCommand.NotifyCanExecuteChanged();
+            RedoCommand.NotifyCanExecuteChanged();
         }
 
         // ---- Persistence -----------------------------------------------------------------------------------
 
-        private void SaveCurrentRun() {
-            var run = CurrentRunLabels;
-            if (run == null) {
-                return;
-            }
-            try {
-                StarReviewLabelStore.PruneEmptyPositions(run);
-                var path = StarReviewLabelStore.Save(labelsDir, run);
-                if (path != null) {
-                    Logger.Info($"Saved labels for run '{run.RunId}' to {path}");
-                }
-            } catch (Exception ex) {
-                Logger.Error(ex, $"Failed to save labels for run '{run.RunId}'");
-                Console.Error.WriteLine($"Failed to save labels for run '{run.RunId}': {ex.Message}");
-            }
-        }
-
-        /// <summary>Saves every run's labels (save-on-close / Save button / final flush from the runner).</summary>
+        /// <summary>Saves every run's labels (save-on-close / final flush from the wizard or the TestApp host).</summary>
         public void SaveAll() {
             foreach (var run in labelsByRun.Values) {
                 try {

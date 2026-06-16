@@ -33,19 +33,29 @@
             <TextBlock DockPanel.Dock="Right" Text="{Binding PositionLabel}" />
         </DockPanel>
 
-        <!-- Toolbar: navigation (labeling is mode-less — the category is inferred from what is clicked). -->
+        <!-- Toolbar: navigation + undo/redo (labeling is mode-less — the category is inferred from what is clicked). -->
         <WrapPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,6">
-            <TextBlock Margin="0,0,4,0" Text="Radius px:" />
-            <TextBox Width="50" VerticalContentAlignment="Center"
-                     Text="{Binding RadiusPx, UpdateSourceTrigger=PropertyChanged, StringFormat=0.#}" />
-            <Button Content="Fit" Command="{Binding FitCommand}" Margin="16,0,4,0" />
+            <Button Content="Fit" Command="{Binding FitCommand}" Margin="0,0,4,0" />
             <Button Content="◀ Prev" Command="{Binding PrevCommand}" />
             <Button Content="Next ▶" Command="{Binding NextCommand}" />
+            <Button Content="Undo" Command="{Binding UndoCommand}" Margin="16,0,4,0" />
+            <Button Content="Redo" Command="{Binding RedoCommand}" />
         </WrapPanel>
+
+        <!-- Image + scrollbars: the image Border sits at (0,0); scrollbars appear only when zoomed beyond fit. -->
+        <Grid Grid.Row="2" Grid.Column="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
         <!-- Image + overlays. The Image and all marker layers share one transform (zoom/pan) so markers stay
              pinned to image pixels. Mouse events are handled in code-behind against the viewport. -->
-        <Border Grid.Row="2" Grid.Column="0" ClipToBounds="True" Background="Black" BorderBrush="#FF3F4958" BorderThickness="1">
+        <Border Grid.Row="0" Grid.Column="0" ClipToBounds="True" Background="Black" BorderBrush="#FF3F4958" BorderThickness="1">
             <Canvas x:Name="ViewportCanvas"
                     Background="Transparent"
                     MouseWheel="ViewportCanvas_MouseWheel"
@@ -186,6 +196,13 @@
                            IsHitTestVisible="False" />
             </Canvas>
         </Border>
+
+            <!-- Scrollbars: driven from code-behind (UpdateScrollBars); the Scroll handlers map value -> viewport offset. -->
+            <ScrollBar x:Name="VScroll" Grid.Row="0" Grid.Column="1" Orientation="Vertical"
+                       Visibility="Collapsed" Scroll="VScroll_Scroll" />
+            <ScrollBar x:Name="HScroll" Grid.Row="1" Grid.Column="0" Orientation="Horizontal"
+                       Visibility="Collapsed" Scroll="HScroll_Scroll" />
+        </Grid>
 
         <!-- Concise, wrapping interaction instructions (the color key now lives in the legend panel at right) + counts. -->
         <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,6,0,0">
