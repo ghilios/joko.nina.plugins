@@ -15,7 +15,7 @@
     <!--  Tooltips  -->
     <TextBlock x:Key="SDOpt_SourceMode_Tooltip" Text="Replay optimizes against one or more saved auto-focus runs (recommended). Live triggers a fresh auto-focus that saves its frames, then optimizes against those." />
     <TextBlock x:Key="SDOpt_RunCount_Tooltip" Text="How many saved auto-focus runs to optimize against together. Using two or three runs balances the settings across them and reduces overfitting to a single night's conditions." />
-    <TextBlock x:Key="SDOpt_ApplyStepSize_Tooltip" Text="Also write the recommended auto-focus step size and offset steps to the active profile when applying. The step size is sized so a sweep lands several measurement points across the focus-sensitive region of the curve." />
+    <TextBlock x:Key="SDOpt_ApplyStepSize_Tooltip" Text="When checked, clicking Accept also writes the recommended auto-focus step size and offset steps to the active profile (they appear in the Changed parameters list above). The step size is sized so a sweep lands several measurement points across the focus-sensitive region of the curve. Disabled when the recommendation already matches your current settings (nothing to apply)." />
     <TextBlock x:Key="SDOpt_Review_Tooltip" Text="Optional: review the optimized detector boxes over every loaded frame and label any missed, falsely-accepted, or wrongly-rejected stars. The labels are saved next to the run and can drive a future re-optimization. Reviewing is not required — you can Accept directly." />
     <TextBlock x:Key="SDOpt_ReOptimize_Tooltip" Text="Re-run the optimization using the labels you just made in Review. Your missed / wrongly-rejected stars steer the optimizer to recover them (recall), and your should-reject stars steer it to exclude them (precision). The runs are re-read from disk and the search re-runs, landing on an updated summary you can review again or accept." />
 
@@ -79,7 +79,8 @@
                         </ComboBox>
                     </StackPanel>
 
-                    <StackPanel Margin="0,4" Orientation="Horizontal">
+                    <StackPanel Margin="0,4" Orientation="Horizontal"
+                                Visibility="{Binding IsReplay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                         <TextBlock
                             Width="90"
                             VerticalAlignment="Center"
@@ -102,11 +103,12 @@
                         </ninactrl:UnitTextBox>
                     </StackPanel>
 
-                    <!--  One folder picker per run (Replay). AlternationCount surfaces the per-row index as the picker's CommandParameter.  -->
+                    <!--  One folder picker per run (Saved Auto-Focus only). AlternationCount surfaces the per-row index as the picker's CommandParameter.  -->
                     <ItemsControl
                         Margin="0,8,0,0"
                         AlternationCount="100"
-                        ItemsSource="{Binding SourcePaths}">
+                        ItemsSource="{Binding SourcePaths}"
+                        Visibility="{Binding IsReplay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Margin="0,2" Orientation="Horizontal">
@@ -154,17 +156,15 @@
                         Minimum="0"
                         Value="{Binding Evaluations, Mode=OneWay}" />
                     <TextBlock Margin="0,4,0,0" HorizontalAlignment="Center">
-                        <Run Text="Evaluations:" />
+                        <Run Text="Combinations tried:" />
                         <Run Text="{Binding Evaluations, Mode=OneWay}" />
                         <Run Text="/" />
                         <Run Text="{Binding MaxEvaluations, Mode=OneWay}" />
                     </TextBlock>
-                    <TextBlock Margin="0,2,0,0" HorizontalAlignment="Center">
-                        <Run Text="Seed J:" />
-                        <Run Text="{Binding ProgressSeedJ, Mode=OneWay, StringFormat=F3}" />
-                        <Run Text="    Best J:" />
-                        <Run Text="{Binding ProgressBestJ, Mode=OneWay, StringFormat=F3}" />
-                    </TextBlock>
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        HorizontalAlignment="Center"
+                        Text="{Binding ProgressImprovementText}" />
                 </StackPanel>
 
                 <!--  Step 4: Summary  -->
@@ -175,42 +175,44 @@
                             FontWeight="Bold"
                             Text="Optimization complete" />
 
-                        <!--  Before / after  -->
-                        <UniformGrid Columns="2" Margin="0,0,0,8">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Width="160" Text="Objective (J): seed → best" />
-                                <TextBlock>
-                                    <Run Text="{Binding Summary.SeedJ, Mode=OneWay, StringFormat=F3}" />
-                                    <Run Text="→" />
-                                    <Run Text="{Binding Summary.BestJ, Mode=OneWay, StringFormat=F3}" />
-                                </TextBlock>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Width="160" Text="σ(focus): seed → best" />
-                                <TextBlock>
-                                    <Run Text="{Binding Summary.SeedSigmaFocus, Mode=OneWay, StringFormat=F2}" />
-                                    <Run Text="→" />
-                                    <Run Text="{Binding Summary.BestSigmaFocus, Mode=OneWay, StringFormat=F2}" />
-                                </TextBlock>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Width="160" Text="Runs optimized" />
-                                <TextBlock Text="{Binding Summary.RunCount, Mode=OneWay}" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Width="160" Text="Recommended step size" />
-                                <TextBlock>
-                                    <Run Text="{Binding Summary.RecommendedStepSize, Mode=OneWay}" />
-                                    <Run Text="(was" />
-                                    <Run Text="{Binding Summary.CurrentStepSize, Mode=OneWay}" />
-                                    <Run Text=")" />
-                                </TextBlock>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Width="160" Text="Recommended offset steps" />
-                                <TextBlock Text="{Binding Summary.RecommendedOffsetSteps, Mode=OneWay}" />
-                            </StackPanel>
-                        </UniformGrid>
+                        <!--  Before / after — plain language, no jargon "J" (the abstract objective stays in logs).
+                              Every row is "[label Width=200][value]" with uniform spacing so the values line up in a
+                              column and the row gaps match across the whole summary.  -->
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <TextBlock Width="200" Text="Focus precision (σ, lower is better)" />
+                            <TextBlock Text="{Binding Summary.SigmaText, Mode=OneWay}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <TextBlock Width="200" Text="Runs optimized" />
+                            <TextBlock Text="{Binding Summary.RunCount, Mode=OneWay}" />
+                        </StackPanel>
+
+                        <!--  Auto-focus block: the recommended step size / offset steps PLUS the toggle that applies
+                              them on Accept, grouped so the toggle's purpose is obvious.  -->
+                        <TextBlock Margin="0,8,0,2" FontWeight="Bold" Text="Auto-focus settings" />
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <TextBlock Width="200" Text="Recommended step size" />
+                            <TextBlock Text="{Binding Summary.StepSizeText, Mode=OneWay}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                            <TextBlock Width="200" Text="Recommended offset steps" />
+                            <TextBlock Text="{Binding Summary.OffsetStepsText, Mode=OneWay}" />
+                        </StackPanel>
+                        <!--  Separate TextBlock label (NINA's CheckBox style doesn't render Content as a visible
+                              label — every other checkbox in the plugin uses this label-beside-box pattern).  -->
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+                            <CheckBox
+                                VerticalAlignment="Center"
+                                IsChecked="{Binding ApplyRecommendedStepSize}"
+                                IsEnabled="{Binding CanApplyRecommendedStepSize}"
+                                ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
+                            <TextBlock
+                                Margin="6,0,0,0"
+                                VerticalAlignment="Center"
+                                IsEnabled="{Binding CanApplyRecommendedStepSize}"
+                                Text="Apply these auto-focus settings to my profile when I click Accept"
+                                ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
+                        </StackPanel>
 
                         <!--  Changed parameters table  -->
                         <TextBlock
@@ -222,7 +224,7 @@
                             CanUserAddRows="False"
                             HeadersVisibility="Column"
                             IsReadOnly="True"
-                            ItemsSource="{Binding Summary.ChangedParameters}"
+                            ItemsSource="{Binding ChangedParametersDisplay}"
                             MaxHeight="180">
                             <DataGrid.Columns>
                                 <DataGridTextColumn
@@ -239,12 +241,6 @@
                                     Header="Optimized" />
                             </DataGrid.Columns>
                         </DataGrid>
-
-                        <CheckBox
-                            Margin="0,8,0,0"
-                            Content="Apply recommended auto-focus step size"
-                            IsChecked="{Binding ApplyRecommendedStepSize}"
-                            ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
 
                         <TextBlock
                             Margin="0,8,0,0"
@@ -274,7 +270,7 @@
                                     Width="220"
                                     HorizontalAlignment="Left"
                                     Command="{Binding ReOptimizeCommand}"
-                                    Content="Re-optimize with my feedback"
+                                    Content="Optimize with feedback"
                                     ToolTip="{StaticResource SDOpt_ReOptimize_Tooltip}" />
                             </StackPanel>
                         </Border>
@@ -316,6 +312,15 @@
                     Command="{Binding BackToSummaryCommand}"
                     Content="Back to summary"
                     Visibility="{Binding IsReview, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                <!--  Review → re-optimize with the labels just made (enabled once anything is labeled). Accept is
+                      intentionally NOT offered here: finalize from the Summary step.  -->
+                <Button
+                    Width="180"
+                    Margin="0,0,8,0"
+                    Command="{Binding ReOptimizeCommand}"
+                    Content="Optimize with feedback"
+                    ToolTip="{StaticResource SDOpt_ReOptimize_Tooltip}"
+                    Visibility="{Binding IsReview, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <Button
                     Width="90"
                     Margin="0,0,8,0"
@@ -328,7 +333,9 @@
                     Command="{Binding CancelCommand}"
                     Content="Cancel">
                     <Button.Style>
-                        <Style TargetType="Button">
+                        <!--  BasedOn the theme's implicit Button style so Cancel matches the other footer buttons'
+                              font/look (a style without BasedOn would drop the NINA default style).  -->
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                             <Setter Property="Visibility" Value="Collapsed" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsAcquire}" Value="True">
@@ -349,26 +356,14 @@
                     Content="Review frames"
                     ToolTip="{StaticResource SDOpt_Review_Tooltip}"
                     Visibility="{Binding IsSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
-                <!--  Accept = apply + select + close. Reachable from Summary AND Review (skip-review still works).  -->
+                <!--  Accept = apply + select + close. Offered on Summary only — the Review step finalizes by going
+                      Back to summary (or Optimize with feedback) first.  -->
                 <Button
                     Width="90"
                     Margin="0,0,8,0"
                     Command="{Binding AcceptCommand}"
-                    Content="Accept">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Visibility" Value="Collapsed" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsSummary}" Value="True">
-                                    <Setter Property="Visibility" Value="Visible" />
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding IsReview}" Value="True">
-                                    <Setter Property="Visibility" Value="Visible" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
+                    Content="Accept"
+                    Visibility="{Binding IsSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <!--  Summary/Review "Cancel" = discard (close without applying); reuses the close path, no options mutation.  -->
                 <Button
                     Width="90"
@@ -376,7 +371,9 @@
                     Command="{Binding CloseCommand}"
                     Content="Cancel">
                     <Button.Style>
-                        <Style TargetType="Button">
+                        <!--  BasedOn the theme's implicit Button style so Cancel matches the other footer buttons'
+                              font/look (a style without BasedOn would drop the NINA default style).  -->
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                             <Setter Property="Visibility" Value="Collapsed" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsSummary}" Value="True">

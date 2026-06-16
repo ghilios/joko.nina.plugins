@@ -124,19 +124,10 @@
                                 <RowDefinition />
                                 <RowDefinition />
                             </Grid.RowDefinitions>
-                            <StackPanel Grid.Column="0" Orientation="Vertical">
-                                <Button
-                                    Margin="5,5,5,10"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Command="{Binding OptimizeStarDetectionCommand}"
-                                    ToolTip="{StaticResource OptimizeStarDetection_Tooltip}">
-                                    <TextBlock
-                                        Margin="10,5,10,5"
-                                        Foreground="{StaticResource ButtonForegroundBrush}"
-                                        Text="Optimize Star Detection"
-                                        TextWrapping="Wrap" />
-                                </Button>
+                            <!--  The "Optimize Star Detection" button now lives INSIDE the options ContentControl
+                                  (HocusFocus_StarDetection_Options) so it centers over the settings' label/value
+                                  columns. Only "Reset Defaults" stays host-side (the dock VM has no reset command).  -->
+                            <StackPanel Grid.Column="0" HorizontalAlignment="Left" Orientation="Vertical">
                                 <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
                                 <Button
                                     Margin="5"

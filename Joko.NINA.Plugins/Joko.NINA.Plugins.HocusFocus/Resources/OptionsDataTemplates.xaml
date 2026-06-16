@@ -899,6 +899,31 @@
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">
+        <!--  IsSharedSizeScope so the Optimize button can share the options grid's label (col0) + value (col1)
+              column widths and center over EXACTLY that area. The button lives in the SAME template as the grid
+              (not in the host outside the ContentControl), so the shared-size groups reliably link — centering a
+              host-side button across the ContentControl boundary did not work.  -->
+        <StackPanel Grid.IsSharedSizeScope="True">
+            <!--  Optimize Star Detection — centered over the label+value columns (excludes the Advanced browse col).  -->
+            <Grid Margin="5,5,5,10" HorizontalAlignment="Left">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol1" />
+                </Grid.ColumnDefinitions>
+                <Button
+                    Grid.Column="0"
+                    Grid.ColumnSpan="2"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Command="{Binding OptimizeStarDetectionCommand}"
+                    ToolTip="{StaticResource OptimizeStarDetection_Tooltip}">
+                    <TextBlock
+                        Margin="10,5,10,5"
+                        Foreground="{StaticResource ButtonForegroundBrush}"
+                        Text="Optimize Star Detection"
+                        TextWrapping="Wrap" />
+                </Button>
+            </Grid>
         <Grid
             Margin="5"
             VerticalAlignment="Top"
@@ -911,6 +936,20 @@
                         <DataTrigger Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="True">
                             <Setter Property="Height" Value="Auto" />
                         </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+                <!--  Defocus tuning knobs: advanced-mode AND the Defocus-Aware Gates toggle must both be on (the
+                      knobs are meaningless when the gates are off).  -->
+                <Style x:Key="ShowOnUseAdvancedAndDefocusGates" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="0" />
+                    <Style.Triggers>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="True" />
+                                <Condition Binding="{Binding StarDetectionOptions.DefocusAwareGates}" Value="True" />
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Height" Value="Auto" />
+                        </MultiDataTrigger>
                     </Style.Triggers>
                 </Style>
                 <Style x:Key="ShowOnUseSimple" TargetType="{x:Type RowDefinition}">
@@ -968,17 +1007,23 @@
                     </Style.Triggers>
                 </Style>
             </Grid.Resources>
+            <!--  col0 (labels) + col1 (values) carry shared-size groups so the "Optimize Star Detection" /
+                  "Reset Defaults" buttons (hosted outside this grid) can center over exactly the label+value
+                  area — NOT the wider grid, whose col2 (Advanced path browse) and Advanced rows pad the width.  -->
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
+                <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol1" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition />
-                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
-                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
-                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <!--  Row 1: "Use Optimized Settings" toggle (Simple + HasOptimized) — placed ABOVE the
+                      Noise Level / Pixel Scale / Focus Range presets it replaces. Rows 2-4: those presets,
+                      shown only when NOT using the optimized settings.  -->
                 <RowDefinition Style="{StaticResource ShowOnSimpleHasOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
                 <RowDefinition />
@@ -1021,11 +1066,12 @@
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
                 <RowDefinition />
-                <!--  41: Defocus-Aware Gates toggle (advanced-only); 42-44: its three numeric tuning knobs (advanced-only)  -->
+                <!--  41: Defocus-Aware Gates toggle (advanced-only); 42-44: its three numeric tuning knobs
+                      (advanced-only AND only when the gates toggle is on).  -->
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -1044,14 +1090,14 @@
                 ToolTip="{StaticResource UseAdvanced_Tooltip}" />
 
             <TextBlock
-                Grid.Row="1"
+                Grid.Row="2"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Noise Level"
                 ToolTip="{StaticResource SimpleNoiseLevel_Tooltip}" />
             <ComboBox
                 Name="PART_NoiseLevelEnumList"
-                Grid.Row="1"
+                Grid.Row="2"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1068,14 +1114,14 @@
             </ComboBox>
 
             <TextBlock
-                Grid.Row="2"
+                Grid.Row="3"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Pixel Scale"
                 ToolTip="{StaticResource SimplePixelScale_Tooltip}" />
             <ComboBox
                 Name="PART_PixelScaleEnumList"
-                Grid.Row="2"
+                Grid.Row="3"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1092,14 +1138,14 @@
             </ComboBox>
 
             <TextBlock
-                Grid.Row="3"
+                Grid.Row="4"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Focus Range"
                 ToolTip="{StaticResource SimpleFocusRange_Tooltip}" />
             <ComboBox
                 Name="PART_FocusRangeEnumList"
-                Grid.Row="3"
+                Grid.Row="4"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1115,9 +1161,9 @@
                 </ComboBox.ItemTemplate>
             </ComboBox>
 
-            <!--  Simple-Mode toggle: drive detection from the wizard's optimized settings. Shown only in Simple Mode once optimized settings exist (!UseAdvanced && HasOptimizedSettings).  -->
+            <!--  Simple-Mode toggle: drive detection from the wizard's optimized settings. Shown only in Simple Mode once optimized settings exist (!UseAdvanced && HasOptimizedSettings). Placed ABOVE the presets it replaces.  -->
             <TextBlock
-                Grid.Row="4"
+                Grid.Row="1"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Use Optimized Settings"
@@ -1130,7 +1176,7 @@
                 </TextBlock.Visibility>
             </TextBlock>
             <CheckBox
-                Grid.Row="4"
+                Grid.Row="1"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1980,6 +2026,7 @@
                 IsChecked="{Binding StarDetectionOptions.SaveIntermediateImages}"
                 ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
         </Grid>
+        </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarAnnotator_Options">
         <Grid Margin="5" VerticalAlignment="Top">

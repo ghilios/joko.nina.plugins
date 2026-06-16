@@ -114,7 +114,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             NullValueHandling = NullValueHandling.Ignore
         };
 
-        public static string FileNameFor(string runId) => SanitizeFileName(runId) + ".json";
+        public static string FileNameFor(string runId) => CleanRunFileStem(runId) + ".json";
+
+        /// <summary>
+        /// Derives a clean, human-readable, collision-resistant file stem from a <paramref name="runId"/> that is
+        /// typically an absolute run-folder path: the last one or two path segments joined with '_' (e.g.
+        /// "sensitivity_example1_attempt01"), sanitized of invalid filename characters. Falls back to the whole
+        /// sanitized id, then to "run". The embedded <c>runId</c> inside the file remains authoritative for
+        /// matching (both the plugin's <see cref="Load"/> embedded-scan and the offline harness match on it), so
+        /// this is purely cosmetic — old sanitized-absolute-path files still load via the embedded scan.
+        /// </summary>
+        public static string CleanRunFileStem(string runId) {
+            if (string.IsNullOrWhiteSpace(runId)) {
+                return "run";
+            }
+            var segments = runId.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+            string stem;
+            if (segments.Length >= 2) {
+                stem = segments[segments.Length - 2] + "_" + segments[segments.Length - 1];
+            } else if (segments.Length == 1) {
+                stem = segments[0];
+            } else {
+                stem = runId;
+            }
+            return SanitizeFileName(stem);
+        }
 
         /// <summary>
         /// Loads the label file for <paramref name="runId"/> from <paramref name="labelsDir"/> if it exists,
