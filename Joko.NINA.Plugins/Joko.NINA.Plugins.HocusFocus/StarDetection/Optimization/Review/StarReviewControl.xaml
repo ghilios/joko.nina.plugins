@@ -199,7 +199,12 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Grid>
+                                <!-- Pin the box to the Grid's top-left. Without this, the Rectangle's default
+                                     Stretch alignment (resolved to Center for a fixed-size child) lets the wider
+                                     HFR TextBlock sibling enlarge the Grid and push the box off its true
+                                     (StarBoundingBox.X, StarBoundingBox.Y) origin. -->
                                 <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
                                            Stroke="{Binding DataContext.AcceptedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                            StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                                 <!-- HFR label: anchored at the box top-left, kept a constant on-screen size by the
@@ -223,6 +228,45 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <!-- Accepted-star measured centroid (the detector's flux-weighted Center) — a small green crosshair
+                     drawn ON TOP of the box so the marker tracks the actual star even when the structure bounding
+                     box above is larger than / off-center from the bright core. Placed at the centroid in image
+                     coords; kept a constant on-screen size by the inverse-zoom MarkerTextScale (like the HFR text).
+                     The Canvas root lets the crosshair's geometry origin (0,0) render exactly at the container
+                     point — a Canvas does not offset its children by their geometry bounds. -->
+                <ItemsControl ItemsSource="{Binding CentroidMarkers}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="Canvas.Left" Value="{Binding X}" />
+                            <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Canvas>
+                                <Path Stroke="{Binding DataContext.AcceptedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                      StrokeThickness="1.5" IsHitTestVisible="False">
+                                    <Path.Data>
+                                        <GeometryGroup>
+                                            <LineGeometry StartPoint="-5,0" EndPoint="5,0" />
+                                            <LineGeometry StartPoint="0,-5" EndPoint="0,5" />
+                                        </GeometryGroup>
+                                    </Path.Data>
+                                    <!-- Inverse-zoom scale about the geometry origin (0,0) keeps the crosshair a
+                                         constant ~10 px on screen and centered on the measured Center. -->
+                                    <Path.RenderTransform>
+                                        <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                    </Path.RenderTransform>
+                                </Path>
+                            </Canvas>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
                 <!-- User: missed (false negatives) — cyan box (the user's drag region). -->
                 <ItemsControl ItemsSource="{Binding MissedMarkers}">
                     <ItemsControl.ItemsPanel>
@@ -238,6 +282,7 @@
                         <DataTemplate>
                             <Grid>
                                 <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
                                            Stroke="{Binding DataContext.MissedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                            StrokeDashArray="3 2"
                                            StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
@@ -299,6 +344,7 @@
                         <DataTemplate>
                             <Grid>
                                 <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
                                            Stroke="{Binding DataContext.WronglyRejectedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                            StrokeDashArray="3 2"
                                            StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />

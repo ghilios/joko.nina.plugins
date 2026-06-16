@@ -64,6 +64,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public string HfrText { get; set; }
     }
 
+    /// <summary>The detector's measured star position (the flux-weighted <c>Center</c>) for an accepted star, in
+    /// image-pixel coords. Drawn as a small crosshair ON TOP of the green box so the marker tracks the actual star
+    /// even when the structure bounding box (drawn verbatim from <c>StarBoundingBox</c>) is larger than, or
+    /// off-center from, the bright core — which is what makes some boxes look "off" from their star.</summary>
+    public sealed class CentroidMarker {
+        public double X { get; set; }
+        public double Y { get; set; }
+    }
+
     /// <summary>A drawable user-label box in image-pixel coords (top-left X,Y + W,H).</summary>
     public sealed class LabelBoxMarker {
         public double X { get; set; }
@@ -283,6 +292,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         // Markers in IMAGE pixel coords; the view applies the viewport transform to place them.
         public ObservableCollection<AcceptedMarker> AcceptedMarkers { get; } = new();
+
+        // Dev/diagnostic switch — intentionally NOT a UI toggle, to keep the labeler uncluttered. When true, each
+        // accepted star also gets a small crosshair drawn at the detector's measured Center (populated into the
+        // CentroidMarkers collection below and rendered by the centroid ItemsControl in StarReviewControl.xaml).
+        // Hidden by default; flip to true in code to surface the crosshairs — handy when diagnosing box-vs-centroid
+        // placement, since the structure bounding box and the flux-weighted centroid are computed independently and
+        // can legitimately differ for asymmetric stars.
+        private static readonly bool ShowCentroidMarkers = false;
+
+        /// <summary>Per-accepted-star measured-centroid markers (the detector's <c>Center</c>), in image-pixel
+        /// coords. Drawn as a small crosshair on top of the green box so the marker reflects where the detector
+        /// actually measured the star, independent of the structure bounding box the box layer draws. Populated only
+        /// when <see cref="ShowCentroidMarkers"/> is enabled (off by default).</summary>
+        public ObservableCollection<CentroidMarker> CentroidMarkers { get; } = new();
         public ObservableCollection<RejectedMarker> RejectedMarkers { get; } = new();
         public ObservableCollection<LabelBoxMarker> MissedMarkers { get; } = new();
         public ObservableCollection<LabelBoxMarker> ShouldRejectMarkers { get; } = new();
@@ -379,9 +402,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             _ = LoadImageAsync(f, fitView);
 
             // Overlays in image coords — accepted stars draw the detector's REAL bounding box (top-left + size).
+            // The measured-Center crosshair is a dev-only overlay, hidden by default (see ShowCentroidMarkers).
             AcceptedMarkers.Clear();
-            foreach (var (_, _, hfr, b) in f.Accepted) {
+            CentroidMarkers.Clear();
+            foreach (var (cx, cy, hfr, b) in f.Accepted) {
                 AcceptedMarkers.Add(new AcceptedMarker { X = b.X, Y = b.Y, Width = b.Width, Height = b.Height, HFR = hfr, HfrText = FormatHfr(hfr) });
+                if (ShowCentroidMarkers) {
+                    CentroidMarkers.Add(new CentroidMarker { X = cx, Y = cy });
+                }
             }
             RejectedMarkers.Clear();
             foreach (var (reason, b) in f.Rejected) {
