@@ -212,7 +212,10 @@
                                     </Style>
                                 </Rectangle.Style>
                             </Rectangle>
-                            <TextBlock Width="190" VerticalAlignment="Center" Text="{Binding Caption}" TextWrapping="Wrap" />
+                            <!-- Explicit Foreground: the control's implicit white-TextBlock style does not reach
+                                 TextBlocks generated inside this ItemTemplate, so they'd render dark-on-dark. -->
+                            <TextBlock Width="190" VerticalAlignment="Center" Foreground="{StaticResource Fg}"
+                                       Text="{Binding Caption}" TextWrapping="Wrap" />
                         </StackPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
