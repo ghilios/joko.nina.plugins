@@ -115,6 +115,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             nameof(StarDetectorParams.NoiseReductionRadius),
             nameof(StarDetectorParams.NoiseClippingMultiplier),
             nameof(StarDetectorParams.StructureLayers),
+            nameof(StarDetectorParams.DefocusAwareStructure),
+            nameof(StarDetectorParams.StructureLayerBoost),
             nameof(StarDetectorParams.StructureDilationSize),
             nameof(StarDetectorParams.StructureDilationCount),
             nameof(StarDetectorParams.SaturationThreshold),
@@ -498,7 +500,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                     // Step 4: Compute b-spline wavelets to exclude large structures such as nebulae. If the pixel scale is very small or need a wide range for focus, you may need to increase the number of layers
                     //         to keep stars from being excluded
-                    using (var residualLayer = ComputeResidualAtrousB3SplineDyadicWaveletLayer(structureMap, p.StructureLayers)) {
+                    // Defocus-aware structure (opt-in): use a COARSER residual (more layers) so large/donut defocused
+                    // stars survive the subtraction. When OFF, effectiveStructureLayers == p.StructureLayers exactly,
+                    // so candidate formation is bit-identical.
+                    var effectiveStructureLayers = p.DefocusAwareStructure
+                        ? Math.Max(1, p.StructureLayers + p.StructureLayerBoost)
+                        : p.StructureLayers;
+                    using (var residualLayer = ComputeResidualAtrousB3SplineDyadicWaveletLayer(structureMap, effectiveStructureLayers)) {
                         MaybeSaveIntermediateImage(residualLayer, p, "04-structure-wavelet-residual.tif");
                         CvImageUtility.SubtractInPlace(structureMap, residualLayer);
                     }
@@ -618,12 +626,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 SaturatedPixelCount = ctx.SaturatedPixelCount
             };
 
-            // Per-call diagnostics bag (thread-safe; the late stage evaluates candidates in parallel). Null in
+            // Per-call diagnostics bags (thread-safe; the late stage evaluates candidates in parallel). Null in
             // normal runs (zero overhead).
             var contaminationDiagnosticsBag = p.CollectContaminationDiagnostics ? new ConcurrentBag<ContaminationDiagnosticRecord>() : null;
+            var rejectedCandidatesBag = p.CollectRejectedCandidateDiagnostics ? new ConcurrentBag<RejectedCandidateRecord>() : null;
 
             using (var stopWatch = MultiStopWatch.Measure()) {
-                var stars = EvaluateStarCandidates(srcImage, ctx.Candidates, p, ctx.MeasurementNoiseSigma, metrics, contaminationDiagnosticsBag, token);
+                var stars = EvaluateStarCandidates(srcImage, ctx.Candidates, p, ctx.MeasurementNoiseSigma, metrics, contaminationDiagnosticsBag, rejectedCandidatesBag, token);
                 stopWatch.RecordEntry("StarAnalysis");
 
                 // Step 9: Fit PSF models
@@ -672,11 +681,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     Logger.Trace($"Collected {contaminationDiagnostics.Count} contamination diagnostic records ({contaminationDiagnostics.Count(r => r.ContaminationSuspected)} suspected)");
                 }
 
+                // Materialize the (parallel-collected) rejected-candidate diagnostics with the same ROI offset and
+                // deterministic (Y, X) ordering as the metrics *Bounds lists, so the recommender sees a stable set.
+                List<RejectedCandidateRecord> rejectedCandidates = null;
+                if (rejectedCandidatesBag != null) {
+                    rejectedCandidates = rejectedCandidatesBag.ToList();
+                    if (roiRect.HasValue) {
+                        foreach (var rec in rejectedCandidates) {
+                            rec.Bounds = new Rect(rec.Bounds.Location + new Point(roiRect.Value.Left, roiRect.Value.Top), rec.Bounds.Size);
+                            rec.CenterX += roiRect.Value.Left;
+                            rec.CenterY += roiRect.Value.Top;
+                        }
+                    }
+                    rejectedCandidates = rejectedCandidates.OrderBy(r => r.Bounds.Y).ThenBy(r => r.Bounds.X).ToList();
+                    Logger.Trace($"Collected {rejectedCandidates.Count} rejected-candidate diagnostic records");
+                }
+
                 return new HocusFocusStarDetectorResult() {
                     DetectedStars = stars,
                     Metrics = metrics,
                     DebugData = ctx.DebugData,
                     ContaminationDiagnostics = contaminationDiagnostics,
+                    RejectedCandidates = rejectedCandidates,
                     StructureNoiseSigma = ctx.StructureNoiseSigma,
                     MeasurementNoiseSigma = ctx.MeasurementNoiseSigma
                 };
@@ -1026,16 +1052,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // raster order. This is the LATE phase — it applies all size/shape/border/sensitivity gates and measures
         // each accepted star. It only READS srcImage + the candidate point lists, so it is safe to run repeatedly
         // against the same cached DetectionContext with different late params.
-        private List<Star> EvaluateStarCandidates(Mat srcImage, List<StarCandidateRegion> candidates, StarDetectorParams p, double srcImageNoiseSigma, StarDetectorMetrics metrics, ConcurrentBag<ContaminationDiagnosticRecord> diagnosticsBag, CancellationToken ct) {
+        private List<Star> EvaluateStarCandidates(Mat srcImage, List<StarCandidateRegion> candidates, StarDetectorParams p, double srcImageNoiseSigma, StarDetectorMetrics metrics, ConcurrentBag<ContaminationDiagnosticRecord> diagnosticsBag, ConcurrentBag<RejectedCandidateRecord> rejectedBag, CancellationToken ct) {
             // Per-star evaluation is independent (only LOCAL arrays + read-only image reads), so the only shared
             // mutable state is the metrics (handled via thread-locals merged afterward) and the (thread-safe,
-            // per-call) diagnosticsBag.
+            // per-call) diagnosticsBag / rejectedBag.
             var results = new Star[candidates.Count];
             using var localMetrics = new ThreadLocal<StarDetectorMetrics>(() => new StarDetectorMetrics(), trackAllValues: true);
 
             Parallel.For(0, candidates.Count, ParallelExecution.CreateOptions(p.MaxStarEvaluationParallelism, ct), i => {
                 ct.ThrowIfCancellationRequested();
-                results[i] = EvaluateStarCandidate(srcImage, p, candidates[i].Bounds, candidates[i].Points, srcImageNoiseSigma, localMetrics.Value, diagnosticsBag);
+                results[i] = EvaluateStarCandidate(srcImage, p, candidates[i].Bounds, candidates[i].Points, srcImageNoiseSigma, localMetrics.Value, diagnosticsBag, rejectedBag);
             });
 
             // Fold each per-thread metrics instance into the main metrics (additive — see Merge), then sort the
@@ -1239,7 +1265,43 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return effective > 1.0 ? 1.0 : effective;
         }
 
-        private Star EvaluateStarCandidate(Mat srcImage, StarDetectorParams p, Rect starBounds, List<Point> starPoints, double srcImageNoiseSigma, StarDetectorMetrics metrics, ConcurrentBag<ContaminationDiagnosticRecord> diagnosticsBag) {
+        // Emits a RejectedCandidateRecord into the (thread-safe) bag, guarded by the caller's null check. centerX/Y
+        // are pre-ROI image coords (the ROI offset is applied once during materialization in GateAndMeasureInternal,
+        // mirroring the metrics *Bounds lists). measured/threshold are NaN for the non-scalar gates; hfr is NaN when
+        // the candidate was rejected before HFR could be measured.
+        private static void RecordRejection(ConcurrentBag<RejectedCandidateRecord> bag, Rect bounds, string gate, double measured, double threshold, double centerX, double centerY, double hfr = double.NaN) {
+            bag.Add(new RejectedCandidateRecord {
+                Bounds = bounds,
+                Gate = gate,
+                MeasuredValue = measured,
+                ThresholdValue = threshold,
+                CandidateSize = Math.Max(bounds.Width, bounds.Height),
+                CenterX = centerX,
+                CenterY = centerY,
+                Hfr = hfr
+            });
+        }
+
+        // Measures the HFR of a candidate that a gate rejected BEFORE the normal MeasureStar step (LowSensitivity/
+        // NotCentered/TooFlat), so the review's HFR display can show it. Mirrors the accept-path Star construction +
+        // MeasureStar; returns NaN if the measurement fails. Called only on the diagnostics path (rejectedBag != null).
+        private double TryMeasureRejectedHfr(Mat srcImage, StarCandidate starCandidate, Rect starBounds, StarDetectorParams p, double srcImageNoiseSigma) {
+            try {
+                var probe = new Star() {
+                    Center = starCandidate.Center,
+                    Background = starCandidate.Background,
+                    BackgroundPlane = starCandidate.BackgroundPlane,
+                    MeanBrightness = starCandidate.PixelCount > 0 ? starCandidate.TotalFlux / starCandidate.PixelCount : 0.0,
+                    StarBoundingBox = starBounds,
+                    PeakBrightness = starCandidate.Peak
+                };
+                return MeasureStar(srcImage, probe, p, srcImageNoiseSigma) ? probe.HFR : double.NaN;
+            } catch {
+                return double.NaN;
+            }
+        }
+
+        private Star EvaluateStarCandidate(Mat srcImage, StarDetectorParams p, Rect starBounds, List<Point> starPoints, double srcImageNoiseSigma, StarDetectorMetrics metrics, ConcurrentBag<ContaminationDiagnosticRecord> diagnosticsBag, ConcurrentBag<RejectedCandidateRecord> rejectedBag) {
             // Now we have a potential star bounding box as well as the coordinates of every star pixel. If this is a reliable star,
             // we compute its barycenter and include it.
             //
@@ -1257,15 +1319,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // this can never flip — detection stays bit-identical.
             bool relaxationAdmitted = false;
 
+            // Pre-measurement candidate center (bbox center); refined to the measured centroid once available.
+            var bboxCenterX = starBounds.X + starBounds.Width / 2.0;
+            var bboxCenterY = starBounds.Y + starBounds.Height / 2.0;
+
             // Too small
             if (starBounds.Width < p.MinimumStarBoundingBoxSize || starBounds.Height < p.MinimumStarBoundingBoxSize) {
                 ++metrics.TooSmall;
+                if (rejectedBag != null) {
+                    RecordRejection(rejectedBag, starBounds, RejectionGate.TooSmall, Math.Min(starBounds.Width, starBounds.Height), p.MinimumStarBoundingBoxSize, bboxCenterX, bboxCenterY);
+                }
                 return null;
             }
 
             // Touching the border
             if (starBounds.X == 0 || starBounds.Y == 0 || starBounds.Right == srcImage.Width || starBounds.Bottom == srcImage.Height) {
                 ++metrics.OnBorder;
+                if (rejectedBag != null) {
+                    RecordRejection(rejectedBag, starBounds, RejectionGate.OnBorder, double.NaN, double.NaN, bboxCenterX, bboxCenterY);
+                }
                 return null;
             }
 
@@ -1280,6 +1352,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var effectiveMaxDistortion = ComputeEffectiveMaxDistortion(p, d);
             if (fillRatio < effectiveMaxDistortion) {
                 metrics.TooDistortedBounds.Add(starBounds);
+                if (rejectedBag != null) {
+                    RecordRejection(rejectedBag, starBounds, RejectionGate.TooDistorted, fillRatio, effectiveMaxDistortion, bboxCenterX, bboxCenterY);
+                }
                 return null;
             }
             // The accept/reject decision above uses the effective threshold ONLY. Separately (informational), note
@@ -1293,6 +1368,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var starCandidate = ComputeStarParameters(srcImage, starBounds, p, srcImageNoiseSigma, starPoints);
             if (starCandidate == null) {
                 metrics.DegenerateBounds.Add(starBounds);
+                if (rejectedBag != null) {
+                    RecordRejection(rejectedBag, starBounds, RejectionGate.Degenerate, double.NaN, double.NaN, bboxCenterX, bboxCenterY);
+                }
                 return null;
             }
 
@@ -1305,6 +1383,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var sensitivity = starCandidate.NormalizedBrightness / srcImageNoiseSigma;
             if (sensitivity <= p.Sensitivity) {
                 metrics.LowSensitivityBounds.Add(starBounds);
+                if (rejectedBag != null) {
+                    RecordRejection(rejectedBag, starBounds, RejectionGate.LowSensitivity, sensitivity, p.Sensitivity, starCandidate.Center.X, starCandidate.Center.Y,
+                        TryMeasureRejectedHfr(srcImage, starCandidate, starBounds, p, srcImageNoiseSigma));
+                }
                 return null;
             }
 
@@ -1314,6 +1396,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var centered = IsStarCentered(starCandidate, p, out var centeredStrict);
             if (!centered) {
                 metrics.NotCenteredBounds.Add(starBounds);
+                if (rejectedBag != null) {
+                    // Normalized centroid offset: max over axes of |centroid - bbox center| / (bbox half-extent).
+                    // The gate accepts iff this is <= the effective tolerance, so it inverts monotonically in
+                    // StarCenterTolerance (raise the tolerance to >= the offset to recover the star).
+                    var ncBox = starCandidate.StarBoundingBox;
+                    var ncEffTol = p.DefocusAwareCentering
+                        ? ComputeEffectiveStarCenterTolerance(p.StarCenterTolerance, Math.Max(ncBox.Width, ncBox.Height), p.DefocusDistortionSizeReference, p.DefocusCenteringToleranceFactor)
+                        : p.StarCenterTolerance;
+                    var ncOffX = ncBox.Width > 0 ? Math.Abs(starCandidate.Center.X - (ncBox.X + ncBox.Width / 2.0)) / (ncBox.Width / 2.0) : 0.0;
+                    var ncOffY = ncBox.Height > 0 ? Math.Abs(starCandidate.Center.Y - (ncBox.Y + ncBox.Height / 2.0)) / (ncBox.Height / 2.0) : 0.0;
+                    RecordRejection(rejectedBag, starBounds, RejectionGate.NotCentered, Math.Max(ncOffX, ncOffY), ncEffTol, starCandidate.Center.X, starCandidate.Center.Y,
+                        TryMeasureRejectedHfr(srcImage, starCandidate, starBounds, p, srcImageNoiseSigma));
+                }
                 return null;
             }
             if (!centeredStrict) {
@@ -1324,6 +1419,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // HocusFocusStarDetection.GetStarDetectorParams (accuracy analysis F1).
             if (starCandidate.StarMedian >= (p.PeakResponse * starCandidate.Peak)) {
                 metrics.TooFlatBounds.Add(starBounds);
+                if (rejectedBag != null) {
+                    var flatRatio = starCandidate.Peak != 0.0 ? starCandidate.StarMedian / starCandidate.Peak : double.NaN;
+                    RecordRejection(rejectedBag, starBounds, RejectionGate.TooFlat, flatRatio, p.PeakResponse, starCandidate.Center.X, starCandidate.Center.Y,
+                        TryMeasureRejectedHfr(srcImage, starCandidate, starBounds, p, srcImageNoiseSigma));
+                }
                 return null;
             }
 
@@ -1345,12 +1445,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // Measure HFR, and discard if we couldn't calculate it
             if (!MeasureStar(srcImage, star, p, srcImageNoiseSigma)) {
                 ++metrics.HFRAnalysisFailed;
+                if (rejectedBag != null) {
+                    RecordRejection(rejectedBag, starBounds, RejectionGate.HFRAnalysisFailed, double.NaN, double.NaN, star.Center.X, star.Center.Y);
+                }
                 return null;
             }
 
             // HFR below minimum threshold
             if (star.HFR <= p.MinHFR) {
                 ++metrics.TooLowHFR;
+                if (rejectedBag != null) {
+                    RecordRejection(rejectedBag, starBounds, RejectionGate.TooLowHFR, star.HFR, p.MinHFR, star.Center.X, star.Center.Y, star.HFR);
+                }
                 return null;
             }
 
@@ -1362,6 +1468,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // Quality gate: reject contaminated stars so HFR/PSF statistics stay clean of one-sided
                 // contaminants. Disabled (flag-only) when RejectContaminatedStars is off (e.g. diagnostics).
                 if (p.RejectContaminatedStars) {
+                    if (rejectedBag != null) {
+                        RecordRejection(rejectedBag, starBounds, RejectionGate.Contaminated, double.NaN, p.ContaminationSensitivity, star.Center.X, star.Center.Y, star.HFR);
+                    }
                     return null;
                 }
             }

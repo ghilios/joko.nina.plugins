@@ -161,6 +161,11 @@ namespace TestApp {
             var firstRunFolder = string.IsNullOrEmpty(firstFramePath) ? null : Path.GetDirectoryName(firstFramePath);
             var detectionParams = StarReviewRunner.BuildDetectionParams(starDetectionOptions, activeProfile, useOptimized, optResultsDir, firstRunFolder);
 
+            // Enable the per-rejected-candidate diagnostics so the gate that killed each labeled star — INCLUDING
+            // the counter-only gates (TooLowHFR/TooSmall/HFRAnalysisFailed) that have no metrics *Bounds list and
+            // therefore used to mis-classify as NO CANDIDATE — is attributable from result.RejectedCandidates.
+            detectionParams.CollectRejectedCandidateDiagnostics = true;
+
             // Opt-in defocus-aware distortion test switch. Flips DefocusAwareDistortion ON on the freshly built
             // params (least-invasive: does not touch the profile). Optional --defocus-size-ref / --defocus-min-factor
             // override the two tuning knobs (otherwise the StarDetectorParams class defaults 20.0 px / 0.25 apply).
@@ -254,24 +259,26 @@ namespace TestApp {
                         continue;
                     }
 
-                    // Fresh detection of this frame (Detect mutates its input; clone the loaded Mat).
+                    // Fresh detection of this frame (Detect mutates its input; clone the loaded Mat). Uses the rich
+                    // per-rejected-candidate records (gate + measured value), so the counter-only gates are attributed.
                     List<Star> accepted;
-                    List<(string Reason, Rect Bounds)> rejected;
+                    IReadOnlyList<RejectedCandidateRecord> rejectedRecords;
                     using (var mat = DiagnosticUtil.LoadFloatMat(framePath, profileService).GetAwaiter().GetResult())
                     using (var clone = mat.Clone()) {
                         var result = detector.Detect(clone, detectionParams, null, CancellationToken.None).GetAwaiter().GetResult();
                         accepted = result.DetectedStars ?? new List<Star>();
-                        rejected = StarReviewRunner.ExtractRejected(result);
+                        rejectedRecords = result.RejectedCandidates ?? new List<RejectedCandidateRecord>();
                     }
+                    var acceptedBounds = accepted.Select(s => s.StarBoundingBox).ToList();
 
                     Line($"=== run '{d.RunId}' @ focuser {pos.FocuserPosition} ({Path.GetFileName(framePath)}) ===");
-                    Line($"    detection: {accepted.Count} accepted, {rejected.Count} rejected candidate(s)");
+                    Line($"    detection: {accepted.Count} accepted, {rejectedRecords.Count} rejected candidate(s)");
                     Line($"    {"category",-16} {"box(x,y,w,h)",-28} {"result",-26} matched candidate");
 
                     void Classify(string category, List<StarReviewLabelBox> boxes) {
                         foreach (var box in boxes) {
                             totalBoxes++;
-                            var (result, matchDesc) = ClassifyBox(box, accepted, rejected);
+                            var (result, matchDesc) = ClassifyLabelBox(box, acceptedBounds, rejectedRecords);
                             Tally(category, result);
                             Line($"    {category,-16} {FormatBox(box),-28} {result,-26} {matchDesc}");
                         }
@@ -318,99 +325,38 @@ namespace TestApp {
         }
 
         /// <summary>
-        /// Classifies one label box by BEST overlap. Computes IoU + overlap-area against every accepted star box
-        /// and every rejected-candidate box; the best (highest-overlap) candidate across BOTH pools wins, provided
-        /// a real overlap exists (IoU &gt; 0, i.e. the rectangles intersect). Accepted wins ties at equal IoU (so
-        /// a box straddling an accepted and a rejected candidate is reported as ACCEPTED, the detector's actual
-        /// behavior). With no real overlap in either pool the box is a NO CANDIDATE structure gap.
+        /// Classifies one label box via the shared <see cref="BoxMatcher"/> (so this harness, the in-wizard
+        /// analyzer, and the recommender agree by construction), then formats the human-readable result line. The
+        /// rejected pool is the rich per-candidate records, so the gate AND the measured value it failed are
+        /// reported, and the counter-only gates (TooLowHFR/TooSmall/HFRAnalysisFailed) are no longer mis-reported
+        /// as NO CANDIDATE.
         /// </summary>
-        private static (string result, string matchDesc) ClassifyBox(
-            StarReviewLabelBox box, List<Star> accepted, List<(string Reason, Rect Bounds)> rejected) {
-            var labelRect = ToRectD(box);
-
-            // Best accepted overlap.
-            double bestAcceptedIoU = 0.0;
-            Rect bestAcceptedRect = default;
-            bool haveAccepted = false;
-            foreach (var s in accepted) {
-                var iou = IoU(labelRect, s.StarBoundingBox);
-                if (iou > bestAcceptedIoU) {
-                    bestAcceptedIoU = iou;
-                    bestAcceptedRect = s.StarBoundingBox;
-                    haveAccepted = true;
-                }
+        private static (string result, string matchDesc) ClassifyLabelBox(
+            StarReviewLabelBox box, IReadOnlyList<Rect> acceptedBounds, IReadOnlyList<RejectedCandidateRecord> rejected) {
+            var m = BoxMatcher.Classify(ToRectD(box), acceptedBounds, rejected);
+            switch (m.Kind) {
+                case BoxClassification.Accepted: {
+                        var tieNote = m.Rejected != null && m.RejectedIoU > 0.0
+                            ? $" [also overlaps REJECTED:{m.Gate} IoU={m.RejectedIoU:F3}]" : "";
+                        return (ResultAccepted, $"accepted box {FormatRect(m.AcceptedBounds)} IoU={m.AcceptedIoU:F3}{tieNote}");
+                    }
+                case BoxClassification.Rejected: {
+                        var measured = double.IsNaN(m.Rejected.MeasuredValue)
+                            ? ""
+                            : $" measured={m.Rejected.MeasuredValue.ToString("G4", CultureInfo.InvariantCulture)} thr={m.Rejected.ThresholdValue.ToString("G4", CultureInfo.InvariantCulture)}";
+                        var acceptedNote = m.AcceptedIoU > 0.0 ? $" [also overlaps ACCEPTED IoU={m.AcceptedIoU:F3}]" : "";
+                        var ambiguity = m.RejectedTieCount > 1 ? $" [AMBIGUOUS: {m.RejectedTieCount} reasons tie at IoU={m.RejectedIoU:F3}]" : "";
+                        return ($"REJECTED:{m.Gate}", $"rejected box {FormatRect(m.Rejected.Bounds)} IoU={m.RejectedIoU:F3}{measured}{acceptedNote}{ambiguity}");
+                    }
+                default:
+                    return (ResultNoCandidate, "(no accepted star, no rejected candidate)");
             }
-
-            // Best rejected overlap (track the reason too).
-            double bestRejectedIoU = 0.0;
-            Rect bestRejectedRect = default;
-            string bestRejectedReason = null;
-            int rejectedTieCount = 0;
-            foreach (var (reason, bounds) in rejected) {
-                var iou = IoU(labelRect, bounds);
-                if (iou <= 0.0) {
-                    continue;
-                }
-                if (iou > bestRejectedIoU) {
-                    bestRejectedIoU = iou;
-                    bestRejectedRect = bounds;
-                    bestRejectedReason = reason;
-                    rejectedTieCount = 1;
-                } else if (Math.Abs(iou - bestRejectedIoU) < 1e-9 && !string.Equals(reason, bestRejectedReason, StringComparison.Ordinal)) {
-                    // A different-reason candidate ties the best — note the ambiguity.
-                    rejectedTieCount++;
-                }
-            }
-
-            bool acceptedReal = haveAccepted && bestAcceptedIoU > 0.0;
-            bool rejectedReal = bestRejectedReason != null && bestRejectedIoU > 0.0;
-
-            if (!acceptedReal && !rejectedReal) {
-                return (ResultNoCandidate, "(no accepted star, no rejected candidate)");
-            }
-
-            // Accepted wins ties (>= rejected IoU). It reflects the detector's actual outcome at that location.
-            if (acceptedReal && bestAcceptedIoU >= bestRejectedIoU) {
-                var tieNote = rejectedReal ? $" [also overlaps REJECTED:{bestRejectedReason} IoU={bestRejectedIoU:F3}]" : "";
-                return (ResultAccepted, $"accepted box {FormatRect(bestAcceptedRect)} IoU={bestAcceptedIoU:F3}{tieNote}");
-            }
-
-            var ambiguity = rejectedTieCount > 1 ? $" [AMBIGUOUS: {rejectedTieCount} reasons tie at IoU={bestRejectedIoU:F3}]" : "";
-            var acceptedNote = acceptedReal ? $" [also overlaps ACCEPTED IoU={bestAcceptedIoU:F3}]" : "";
-            return ($"REJECTED:{bestRejectedReason}", $"rejected box {FormatRect(bestRejectedRect)} IoU={bestRejectedIoU:F3}{acceptedNote}{ambiguity}");
         }
 
         // ---- Geometry helpers ------------------------------------------------------------------------------
-
-        private readonly struct RectD {
-            public readonly double X, Y, W, H;
-
-            public RectD(double x, double y, double w, double h) {
-                X = x; Y = y; W = w; H = h;
-            }
-
-            public double Area => Math.Max(0.0, W) * Math.Max(0.0, H);
-        }
+        // RectD + IoU + the BEST-overlap classification now live in the shared plugin BoxMatcher.
 
         private static RectD ToRectD(StarReviewLabelBox b) => new RectD(b.X, b.Y, b.W ?? 0.0, b.H ?? 0.0);
-
-        /// <summary>Intersection-over-union between a label box (double) and a detector Rect (int). Zero when they
-        /// do not intersect or either has zero area.</summary>
-        private static double IoU(RectD a, Rect b) {
-            var bd = new RectD(b.X, b.Y, b.Width, b.Height);
-            var ix = Math.Max(a.X, bd.X);
-            var iy = Math.Max(a.Y, bd.Y);
-            var ix2 = Math.Min(a.X + a.W, bd.X + bd.W);
-            var iy2 = Math.Min(a.Y + a.H, bd.Y + bd.H);
-            var iw = ix2 - ix;
-            var ih = iy2 - iy;
-            if (iw <= 0.0 || ih <= 0.0) {
-                return 0.0;
-            }
-            var inter = iw * ih;
-            var union = a.Area + bd.Area - inter;
-            return union <= 0.0 ? 0.0 : inter / union;
-        }
 
         private static string FormatBox(StarReviewLabelBox b) =>
             $"({b.X.ToString("F0", CultureInfo.InvariantCulture)},{b.Y.ToString("F0", CultureInfo.InvariantCulture)}," +
@@ -422,7 +368,7 @@ namespace TestApp {
             Console.Error.WriteLine("Usage: TestApp diagnose-labels --runs <folder> --labels <dir> [--params current|optimized] [--opt-results <dir>] [--profile-id <guid>] [--out <dir>]");
             Console.Error.WriteLine("  Classifies each human-labeled review box against a fresh detection of the same frame:");
             Console.Error.WriteLine("    ACCEPTED          - overlaps an accepted star's bounding box");
-            Console.Error.WriteLine("    REJECTED:<reason> - overlaps a rejected candidate (TooDistorted/Degenerate/Saturated/LowSensitivity/NotCentered/TooFlat/Contaminated)");
+            Console.Error.WriteLine("    REJECTED:<reason> - overlaps a rejected candidate (TooSmall/OnBorder/TooDistorted/Degenerate/LowSensitivity/NotCentered/TooFlat/HFRAnalysisFailed/TooLowHFR/Contaminated), with the measured value vs threshold");
             Console.Error.WriteLine("    NO CANDIDATE      - overlaps neither (a structure-detection gap; only fixable by detector-algorithm work)");
             Console.Error.WriteLine("  --runs        (required) folder of saved AF runs (same discovery as `review`/`optimize`).");
             Console.Error.WriteLine("  --labels      (default <runs>/labels) folder of label JSON files written by `review`.");

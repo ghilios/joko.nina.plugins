@@ -47,6 +47,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         Review
     }
 
+    /// <summary>What the Start button does: run the optimization pass (default), or skip it and jump straight to a
+    /// Summary built from the CURRENT settings so the user can validate (and label against) today's detection without
+    /// an optimization run. Either way the Review → "Optimize with feedback" loop stays available.</summary>
+    public enum WizardOptimizeMode {
+        Optimize,
+        UseCurrentSettings
+    }
+
     /// <summary>Where the run frames come from: an already-saved AF attempt (Replay) or a fresh live AF run.
     /// The <see cref="DescriptionAttribute"/> text is what the wizard ComboBox shows (via the enum-description
     /// converter) — plain language, not the raw enum names.</summary>
@@ -177,6 +185,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private IReadOnlyList<FrameReviewDescriptor> reviewDescriptors;
         private string reviewLabelsDir;
 
+        // The frames detected for the LAST Review build + the params they were detected at. The "Optimize with
+        // feedback" analyzer reuses these (plus the live capturedLabels) to attribute labels to gates — no re-detect.
+        private IReadOnlyList<FrameReview> reviewFrames;
+        private StarDetectorParams reviewParams;
+
         // The actual source folders loaded during the current run, in load order (Replay = the SourcePaths entry,
         // Live = the saved attempt folder). Captured in AcquireAsync and snapshotted alongside the review descriptors
         // so the re-optimize-with-labels path can RE-LOAD from disk after StartAsync's finally disposed the in-memory
@@ -298,6 +311,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool IsOptimize => CurrentStep == WizardStep.Optimize;
         public bool IsSummary => CurrentStep == WizardStep.Summary;
         public bool IsReview => CurrentStep == WizardStep.Review;
+
+        private WizardOptimizeMode optimizeMode = WizardOptimizeMode.Optimize;
+
+        /// <summary>Optimize (run the search) vs. Use current settings (skip optimization, go straight to a Summary
+        /// built from today's params). Bound by two radio buttons on the SelectSource step.</summary>
+        public WizardOptimizeMode OptimizeMode {
+            get => optimizeMode;
+            set {
+                if (optimizeMode != value) {
+                    optimizeMode = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(IsOptimizeMode));
+                    RaisePropertyChanged(nameof(IsUseCurrentMode));
+                }
+            }
+        }
+
+        public bool IsOptimizeMode {
+            get => OptimizeMode == WizardOptimizeMode.Optimize;
+            set { if (value) { OptimizeMode = WizardOptimizeMode.Optimize; } }
+        }
+
+        public bool IsUseCurrentMode {
+            get => OptimizeMode == WizardOptimizeMode.UseCurrentSettings;
+            set { if (value) { OptimizeMode = WizardOptimizeMode.UseCurrentSettings; } }
+        }
 
         private SourceMode sourceMode = SourceMode.Replay;
 
@@ -436,11 +475,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             get => summary;
             private set {
                 summary = value;
-                // A fresh summary: if nothing in the AF recommendation actually changed, there is nothing to
-                // apply, so disable + clear the toggle.
-                if (!CanApplyRecommendedStepSize) {
-                    applyRecommendedStepSize = false;
-                }
+                // A fresh summary: default the toggle to match whether there is anything to apply — ON when the AF
+                // recommendation actually differs from the profile (the user opts OUT rather than in), and OFF
+                // (plus disabled via CanApplyRecommendedStepSize) when nothing changed.
+                applyRecommendedStepSize = CanApplyRecommendedStepSize;
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(ApplyRecommendedStepSize));
                 RaisePropertyChanged(nameof(CanApplyRecommendedStepSize));
@@ -660,6 +698,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             loadedRunFolders.Clear();
             loadedRunIds.Clear();
             capturedLabels = null;
+            reviewFrames = null;
+            reviewParams = null;
+            Recommendation = null;
             RaisePropertyChanged(nameof(HasLabels));
             ReOptimizeCommand.NotifyCanExecuteChanged();
             IsBusy = true;
@@ -690,8 +731,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
                 // 3. Optimize — off the UI thread, progress marshaled back. OptimizeAsync always returns a
                 // non-null result; it signals cancellation by throwing OperationCanceledException (caught below).
-                CurrentStep = WizardStep.Optimize;
-                var optimizeResult = await OptimizeAsync(loadedRuns, token).ConfigureAwait(true);
+                // In "Use current settings" mode the optimization pass is skipped entirely: BestParams = the seed
+                // (current settings), so the Summary shows no changes and the user can go straight to Review.
+                OptimizationResult optimizeResult;
+                if (OptimizeMode == WizardOptimizeMode.UseCurrentSettings) {
+                    Phase = "Using current settings (no optimization)";
+                    optimizeResult = new OptimizationResult {
+                        BestParams = loadedRuns[0].Seed,
+                        SeedJ = 0.0,
+                        BestJ = 0.0,
+                        Evaluations = 0,
+                        ImprovedOverSeed = false,
+                        ChangedVariables = new List<(string Name, double SeedValue, double BestValue)>()
+                    };
+                } else {
+                    CurrentStep = WizardStep.Optimize;
+                    optimizeResult = await OptimizeAsync(loadedRuns, token).ConfigureAwait(true);
+                }
                 Result = optimizeResult;
 
                 // 4. Summary — re-evaluate seed vs best for σ(focus) and recommend a step size.
@@ -826,11 +882,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return true;
         }
 
-        /// <summary>Runs the pure optimizer off the UI thread; progress posts back via <see cref="IProgress{T}"/>.</summary>
-        private async Task<OptimizationResult> OptimizeAsync(IReadOnlyList<LoadedRun> runs, CancellationToken token) {
-            // All runs share the same camera/optics, so the search starts from the first run's seed.
-            var seed = runs[0].Seed;
-            var variables = OptimizerVariable.CreateCuratedSet();
+        /// <summary>Runs the pure optimizer off the UI thread; progress posts back via <see cref="IProgress{T}"/>.
+        /// When <paramref name="seedOverride"/>/<paramref name="variablesOverride"/> are supplied (the warm-start
+        /// "Optimize with feedback" path), the search starts from the analytic recommendation and explores only the
+        /// narrowed/curated axes it produced; otherwise it uses the first run's seed and the full curated set.</summary>
+        private async Task<OptimizationResult> OptimizeAsync(IReadOnlyList<LoadedRun> runs, CancellationToken token,
+            StarDetectorParams seedOverride = null, IReadOnlyList<OptimizerVariable> variablesOverride = null) {
+            // All runs share the same camera/optics, so the search starts from the first run's seed (or the override).
+            var seed = seedOverride ?? runs[0].Seed;
+            var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet();
             var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList());
 
             MaxEvaluations = optimizerSettings.MaxEvaluations;
@@ -1030,6 +1090,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     ErrorMessage = "No frames could be prepared for review.";
                     return;
                 }
+                // Keep the detected frames + the params they were detected at for the feedback analyzer.
+                reviewFrames = reviews;
+                reviewParams = bestParams;
 
                 // Load any existing labels for each involved run so a re-review merges/extends prior work, exactly as
                 // the TestApp `review` tool does. Kept in-memory on the VM (capturedLabels) for the re-optimize seam.
@@ -1082,6 +1145,68 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RaisePropertyChanged(nameof(HasLabels));
                 ReOptimizeCommand.NotifyCanExecuteChanged();
             }
+        }
+
+        private GateRecommendation recommendation;
+
+        /// <summary>The transparent label→gate analysis produced by the last "Optimize with feedback": which gate
+        /// rejected each labeled star, and the recommended threshold changes (precision-bounded). Bound by the
+        /// Summary's feedback breakdown. Null until the user runs feedback.</summary>
+        public GateRecommendation Recommendation {
+            get => recommendation;
+            private set {
+                recommendation = value;
+                RaisePropertyChanged();
+                RaisePropertyChanged(nameof(HasRecommendation));
+                RaisePropertyChanged(nameof(RecommendationRows));
+            }
+        }
+
+        public bool HasRecommendation => recommendation != null && recommendation.Rows.Count > 0;
+
+        public IReadOnlyList<RecommendationRow> RecommendationRows => recommendation?.Rows ?? new List<RecommendationRow>();
+
+        /// <summary>
+        /// Builds the direct label→gate analysis from the LAST review's detected frames (which carry the rich
+        /// rejected-candidate records) and the live captured labels, then runs the recommender. Returns null when no
+        /// review/labels are available (the caller then falls back to the plain label objective). No re-detection —
+        /// it reuses what the Review step already computed at the reviewed params.
+        /// </summary>
+        private GateRecommendation ComputeFeedbackRecommendation() {
+            if (reviewFrames == null || reviewParams == null || capturedLabels == null) {
+                return null;
+            }
+
+            RectD ToRectD(StarReviewLabelBox b) => new RectD(b.X, b.Y, b.W ?? 0.0, b.H ?? 0.0);
+
+            var frames = new List<FrameDetectionForAnalysis>(reviewFrames.Count);
+            foreach (var fr in reviewFrames) {
+                StarReviewPositionLabels pos = null;
+                if (fr.RunId != null && capturedLabels.TryGetValue(fr.RunId, out var runLabels)) {
+                    pos = runLabels?.Positions?.FirstOrDefault(p => p.FocuserPosition == fr.FocuserPosition);
+                }
+                var recall = new List<RectD>();
+                var shouldReject = new List<RectD>();
+                if (pos != null) {
+                    foreach (var b in (pos.Missed ?? new List<StarReviewLabelBox>()).Concat(pos.WronglyRejected ?? new List<StarReviewLabelBox>())) {
+                        recall.Add(ToRectD(b));
+                    }
+                    foreach (var b in pos.ShouldReject ?? new List<StarReviewLabelBox>()) {
+                        shouldReject.Add(ToRectD(b));
+                    }
+                }
+                frames.Add(new FrameDetectionForAnalysis {
+                    FocuserPosition = fr.FocuserPosition,
+                    AcceptedBounds = fr.Accepted.Select(a => a.Bounds).ToList(),
+                    AcceptedCenters = fr.Accepted.Select(a => (a.CX, a.CY)).ToList(),
+                    Rejected = fr.RejectedCandidates ?? new List<RejectedCandidateRecord>(),
+                    RecallBoxes = recall,
+                    ShouldRejectBoxes = shouldReject
+                });
+            }
+
+            var analysis = LabelGateAnalyzer.Analyze(frames);
+            return GateRecommender.Recommend(analysis, reviewParams, new RecommenderConfig());
         }
 
         /// <summary>
@@ -1152,8 +1277,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     reloaded.Add(loaded);
                 }
 
-                // Re-run the same optimize + summary pipeline over the labeled runs.
-                var optimizeResult = await OptimizeAsync(reloaded, token).ConfigureAwait(true);
+                // Direct label→gate analysis (the transparent step): attribute each labeled star to the gate that
+                // killed it and recommend precision-bounded threshold changes. Then WARM-START the optimizer from
+                // that recommendation (seed + narrowed/curated axes) so it balances the analytic point against
+                // focus-curve quality. If no review/labels are available, recommendation is null and the optimizer
+                // runs as before (the plain label objective term still applies).
+                var feedback = ComputeFeedbackRecommendation();
+                Recommendation = feedback;
+                StarDetectorParams seedOverride = null;
+                IReadOnlyList<OptimizerVariable> variablesOverride = null;
+                if (feedback != null) {
+                    seedOverride = feedback.Recommended;
+                    variablesOverride = OptimizerVariable.CreateWarmStartSet(
+                        OptimizerVariable.CreateCuratedSet(), reviewParams, feedback.Recommended);
+                }
+
+                // Re-run the optimize + summary pipeline over the labeled runs (warm-started when we have a recommendation).
+                var optimizeResult = await OptimizeAsync(reloaded, token, seedOverride, variablesOverride).ConfigureAwait(true);
                 Result = optimizeResult;
                 Summary = await BuildSummaryAsync(reloaded, optimizeResult, token).ConfigureAwait(true);
 

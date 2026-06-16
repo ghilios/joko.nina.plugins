@@ -137,10 +137,10 @@ public class OptimizerVariableTests {
     // ---- CreateCuratedSet ----
 
     [Test]
-    public void CreateCuratedSet_HasThirteenDistinctVariables() {
+    public void CreateCuratedSet_HasFourteenDistinctVariables() {
         var set = OptimizerVariable.CreateCuratedSet();
-        Assert.That(set.Count, Is.EqualTo(13));
-        Assert.That(set.Select(x => x.Name).Distinct().Count(), Is.EqualTo(13));
+        Assert.That(set.Count, Is.EqualTo(14));
+        Assert.That(set.Select(x => x.Name).Distinct().Count(), Is.EqualTo(14));
     }
 
     [Test]
@@ -161,6 +161,8 @@ public class OptimizerVariableTests {
             nameof(StarDetectorParams.HotpixelThreshold),
             // Synthetic combined switch (drives DefocusAwareDistortion + DefocusAwareCentering together).
             OptimizerVariable.DefocusAwareGatesName,
+            // Synthetic integer knob (drives DefocusAwareStructure + StructureLayerBoost together).
+            OptimizerVariable.DefocusAwareStructureName,
         };
         Assert.That(set.Select(x => x.Name), Is.EquivalentTo(expected));
     }
@@ -247,5 +249,53 @@ public class OptimizerVariableTests {
             var read = v.Read(p);
             Assert.That(read, Is.EqualTo(v.Quantize(mid)).Within(1e-9), $"{v.Name} round-trip");
         }
+    }
+
+    // ---- Warm-start set (Phase 4) ------------------------------------------------------------------------
+
+    [Test]
+    public void WarmStartSet_MovedAxis_GetsNarrowBandAroundRecommended() {
+        var before = new StarDetectorParams { Sensitivity = 16.0 };
+        var after = new StarDetectorParams { Sensitivity = 3.5 };
+        var ws = OptimizerVariable.CreateWarmStartSet(OptimizerVariable.CreateCuratedSet(), before, after);
+
+        var sens = ws.SingleOrDefault(v => v.Name == nameof(StarDetectorParams.Sensitivity));
+        Assert.That(sens, Is.Not.Null, "a moved axis must be present in the warm-start set");
+        Assert.Multiple(() => {
+            // Sensitivity step is 1.0; default bandSteps = 3 ⇒ [3.5-3, 3.5+3] = [0.5, 6.5], clamped to [0,50].
+            Assert.That(sens.Lower, Is.EqualTo(0.5).Within(1e-9));
+            Assert.That(sens.Upper, Is.EqualTo(6.5).Within(1e-9));
+            // The new Write re-quantizes through the band so the optimizer cannot escape it.
+            var p = new StarDetectorParams();
+            sens.Write(p, 100.0);
+            Assert.That(p.Sensitivity, Is.EqualTo(6.5).Within(1e-9));
+        });
+    }
+
+    [Test]
+    public void WarmStartSet_UnmovedNonDefocusAxis_IsOmitted() {
+        var before = new StarDetectorParams { Sensitivity = 16.0, MaxDistortion = 0.5 };
+        var after = new StarDetectorParams { Sensitivity = 3.5, MaxDistortion = 0.5 }; // MaxDistortion unchanged
+        var ws = OptimizerVariable.CreateWarmStartSet(OptimizerVariable.CreateCuratedSet(), before, after);
+        Assert.That(ws.Any(v => v.Name == nameof(StarDetectorParams.MaxDistortion)), Is.False,
+            "an unmoved, non-defocus axis is pinned by omission (the seed carries its value)");
+    }
+
+    [Test]
+    public void WarmStartSet_DefocusToggles_AlwaysLiveAtFullRange() {
+        // Nothing moved — but the defocus-aware toggles must still be explorable.
+        var before = new StarDetectorParams();
+        var after = new StarDetectorParams();
+        var ws = OptimizerVariable.CreateWarmStartSet(OptimizerVariable.CreateCuratedSet(), before, after);
+
+        var gates = ws.SingleOrDefault(v => v.Name == OptimizerVariable.DefocusAwareGatesName);
+        var structure = ws.SingleOrDefault(v => v.Name == OptimizerVariable.DefocusAwareStructureName);
+        Assert.Multiple(() => {
+            Assert.That(gates, Is.Not.Null, "DefocusAwareGates must always stay live");
+            Assert.That(structure, Is.Not.Null, "DefocusAwareStructure must always stay live");
+            Assert.That(gates.Lower, Is.EqualTo(0));
+            Assert.That(gates.Upper, Is.EqualTo(1));
+            Assert.That(structure.Upper, Is.EqualTo(4), "structure boost keeps its full [0,4] range");
+        });
     }
 }

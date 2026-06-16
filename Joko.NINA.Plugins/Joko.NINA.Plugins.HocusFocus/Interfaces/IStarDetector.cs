@@ -267,12 +267,32 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // production NINA runs incur zero extra allocations or math. Excluded from ToString().
         public bool CollectContaminationDiagnostics { get; set; } = false;
 
+        // Diagnostics opt-in. When true, the detector records a RejectedCandidateRecord for every candidate that a
+        // late gate rejects — the gate name PLUS the scalar it compared against its threshold (sensitivity ratio,
+        // fill-ratio, HFR, etc.) — into HocusFocusStarDetectorResult.RejectedCandidates. This is what the
+        // label-driven gate recommender inverts ("how far must threshold X move to recover these labeled stars").
+        // Off by default ⇒ the bag is null and not one allocation/branch-with-work runs on the production path, so
+        // detection stays bit-identical. Excluded from the cache key (output-neutral side channel).
+        public bool CollectRejectedCandidateDiagnostics { get; set; } = false;
+
         // Half size of a median box filter, used for hotpixel removal if HotpixelFiltering is enabled. Only 1 is supported for now, since OpenCV has native support for
         // a median box filter but not a general circular one
         public int HotpixelFilterRadius { get; set; } = 1;
 
         // Number of wavelet layers for structure detection
         public int StructureLayers { get; set; } = 4;
+
+        // Defocus-aware structure detection (opt-in, default OFF). When true, the à-trous wavelet residual that is
+        // subtracted to remove large-scale structure is computed at StructureLayers + StructureLayerBoost layers,
+        // so the residual is COARSER and large/donut (heavily defocused) stars survive the subtraction and form
+        // candidates instead of being erased. The post-wavelet blur stays keyed to StructureLayers. When OFF the
+        // effective layer count is exactly StructureLayers, so candidate formation is bit-identical. EARLY param
+        // (changes candidate formation): listed in StarDetector.EarlyCacheKeyProperties.
+        public bool DefocusAwareStructure { get; set; } = false;
+
+        // Extra wavelet layers added to StructureLayers for the residual-subtraction step when
+        // DefocusAwareStructure is on. 0 ⇒ no change even if the flag is on. Ignored entirely when the flag is OFF.
+        public int StructureLayerBoost { get; set; } = 0;
 
         // Size of the circle used to dilate the structure map
         public int StructureDilationSize { get; set; } = 3;
@@ -424,6 +444,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
             // HocusFocusStarDetectorResult.ContaminationDiagnostics list; the production contamination decision
             // and every detected-star value are unaffected (already excluded from ToString() for the same reason).
             nameof(CollectContaminationDiagnostics),
+
+            // Diagnostics only: when true the detector fills the side-channel
+            // HocusFocusStarDetectorResult.RejectedCandidates list. The accept/reject decision and every
+            // detected-star value are unaffected — the records are emitted at the same gate sites that already
+            // run, after the reject decision is made — so this is output-neutral.
+            nameof(CollectRejectedCandidateDiagnostics),
 
             // Debug/intermediate-output only: stashes the structure map into DebugData for inspection. Does not
             // change which stars are detected or any measured value.
@@ -728,6 +754,49 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int ResidualTrippingSector { get; set; } = -1;          // first sector that tripped, else -1
     }
 
+    /// <summary>
+    /// Canonical gate names used by <see cref="RejectedCandidateRecord.Gate"/>. Centralized so the detector, the
+    /// label analyzer, and the recommender all agree on the spelling (these strings are matched, not enum-typed,
+    /// because they also flow through the human-readable diagnostics text and the review overlay legend).
+    /// </summary>
+    public static class RejectionGate {
+        public const string TooSmall = "TooSmall";
+        public const string OnBorder = "OnBorder";
+        public const string TooDistorted = "TooDistorted";
+        public const string Degenerate = "Degenerate";
+        public const string LowSensitivity = "LowSensitivity";
+        public const string NotCentered = "NotCentered";
+        public const string TooFlat = "TooFlat";
+        public const string HFRAnalysisFailed = "HFRAnalysisFailed";
+        public const string TooLowHFR = "TooLowHFR";
+        public const string Contaminated = "Contaminated";
+    }
+
+    /// <summary>
+    /// Per-rejected-candidate diagnostics, captured only when
+    /// <see cref="StarDetectorParams.CollectRejectedCandidateDiagnostics"/> is enabled. One record is produced for
+    /// EVERY candidate a late gate rejects (unlike the metrics <c>*Bounds</c> lists, which only exist for seven of
+    /// the gates), so the label-driven recommender can attribute a labeled "wrongly-rejected" star to the exact
+    /// gate that killed it and invert that gate's threshold. <see cref="MeasuredValue"/> is the scalar the gate
+    /// compared against <see cref="ThresholdValue"/>; both are <see cref="double.NaN"/> for the non-scalar gates
+    /// (OnBorder/Degenerate/HFRAnalysisFailed), which can only be flagged, not threshold-recovered.
+    /// </summary>
+    public sealed class RejectedCandidateRecord {
+        public Rect Bounds { get; set; }                       // candidate bbox (ROI offset applied, like *Bounds)
+        public string Gate { get; set; }                       // one of RejectionGate.*
+        public double MeasuredValue { get; set; } = double.NaN; // the per-candidate scalar the gate compared
+        public double ThresholdValue { get; set; } = double.NaN;// the effective threshold it compared against
+        public double CandidateSize { get; set; }              // max(W,H) — the defocus/size proxy
+        public double CenterX { get; set; }                    // candidate centroid or bbox center (ROI applied)
+        public double CenterY { get; set; }
+
+        // Half-flux radius of the rejected candidate, when measurable (NaN for candidates rejected before a
+        // centroid/parameters exist — TooSmall/OnBorder/TooDistorted/Degenerate/HFRAnalysisFailed). For the gates
+        // that reject AFTER ComputeStarParameters (LowSensitivity/NotCentered/TooFlat) the detector measures HFR
+        // on-demand (diagnostics path only); for TooLowHFR/Contaminated the already-measured HFR is carried.
+        public double Hfr { get; set; } = double.NaN;
+    }
+
     public class HocusFocusStarDetectorResult {
         public List<Star> DetectedStars { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
@@ -744,6 +813,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         // Populated only when StarDetectorParams.CollectContaminationDiagnostics is true; otherwise null.
         public List<ContaminationDiagnosticRecord> ContaminationDiagnostics { get; set; } = null;
+
+        // Populated only when StarDetectorParams.CollectRejectedCandidateDiagnostics is true; otherwise null.
+        // One entry per rejected candidate (ROI offset applied, sorted by (Y, X) for determinism).
+        public List<RejectedCandidateRecord> RejectedCandidates { get; set; } = null;
     }
 
     public interface IStarDetector {

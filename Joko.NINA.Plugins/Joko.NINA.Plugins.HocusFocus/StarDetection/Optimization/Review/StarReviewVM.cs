@@ -46,6 +46,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// should-reject label box, and the overlay) + HFR.</summary>
         public List<(double CX, double CY, double HFR, Rect Bounds)> Accepted { get; set; } = new();
         public List<(string Reason, Rect Bounds)> Rejected { get; set; } = new();
+
+        /// <summary>Rich per-rejected-candidate records (gate + measured value) for the "Optimize with feedback"
+        /// analyzer. Populated by the production builder; may be empty for hosts that don't enable diagnostics.</summary>
+        public List<Interfaces.RejectedCandidateRecord> RejectedCandidates { get; set; } = new();
     }
 
     /// <summary>A drawable accepted-star marker (the detector's real bounding box) in image-pixel coords.</summary>
@@ -55,6 +59,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public double Width { get; set; }
         public double Height { get; set; }
         public double HFR { get; set; }
+
+        /// <summary>Preformatted HFR for the optional on-overlay HFR label ("2.34", or "—" when unavailable).</summary>
+        public string HfrText { get; set; }
     }
 
     /// <summary>A drawable user-label box in image-pixel coords (top-left X,Y + W,H).</summary>
@@ -63,7 +70,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public double Y { get; set; }
         public double Width { get; set; }
         public double Height { get; set; }
+
+        /// <summary>Preformatted HFR for the optional on-overlay HFR label ("2.34", or "—" when unavailable).</summary>
+        public string HfrText { get; set; }
     }
+
+    /// <summary>Which part of a drawn (missed) box is under the cursor: an edge or corner (resize), the interior
+    /// (move), or nothing. Drives both the move/resize gesture and the cursor shown while hovering.</summary>
+    public enum BoxHandle { None, Inside, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight }
 
     /// <summary>A drawable rejected-candidate box in image-pixel coords, colored by reason.</summary>
     public sealed class RejectedMarker {
@@ -175,7 +189,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             RedoCommand = new RelayCommand(Redo, () => redoStack.Count > 0);
 
             CurrentIndex = 0;
-            LoadCurrent();
+            LoadCurrent(fitView: true);
         }
 
         // ---- Navigation / current frame --------------------------------------------------------------------
@@ -195,6 +209,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public int QueueCount => queue.Count;
 
         public string PositionLabel => $"{CurrentIndex + 1} / {queue.Count}";
+
+        private string cursorPositionText;
+
+        /// <summary>The image (sensor) pixel coordinates under the mouse cursor, shown in the header so a region can
+        /// be described precisely. Null/empty when the cursor is off the image. Updated by the control on mouse move.</summary>
+        public string CursorPositionText {
+            get => cursorPositionText;
+            set { if (cursorPositionText != value) { cursorPositionText = value; RaisePropertyChanged(); } }
+        }
 
         private string frameHeader;
         public string FrameHeader {
@@ -227,12 +250,36 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         // Slightly heavier for the three user-applied label markers so they read above the detector overlay.
         public double LabelStrokeThickness => 2.5 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
 
-        /// <summary>Raises the zoom-dependent marker-thickness bindings. The view calls this after any viewport change
-        /// (wheel-zoom, fit, pan) so the stroke widths track the current scale.</summary>
+        // Inverse-zoom scale for the on-overlay HFR text so it stays a roughly constant on-screen size (the text
+        // lives inside the zoomed canvas, like the markers). Clamped to MinScale so it can't blow up when zoomed out.
+        public double MarkerTextScale => 1.0 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
+
+        // Vertical translate (image-space, applied AFTER the inverse-zoom scale) that lifts the HFR label up by one
+        // text-height so it sits just ABOVE the detection box with no overlap. -15·MarkerTextScale image-units works
+        // out to a constant ≈15 px on screen (one FontSize-10 line + a 1 px gap) at any zoom.
+        public double HfrLabelOffset => -15.0 * MarkerTextScale;
+
+        // Default ON — HFR is the primary signal the labeler uses to judge whether a flagged star has enough
+        // signal to keep, so it should be visible the moment Review opens.
+        private bool showHfr = true;
+
+        /// <summary>Toggle: when on, every accepted star (and every labeled wrongly-rejected / missed box) shows its
+        /// HFR on the overlay. Bound to a checkbox in the toolbar.</summary>
+        public bool ShowHfr {
+            get => showHfr;
+            set { if (showHfr != value) { showHfr = value; RaisePropertyChanged(); } }
+        }
+
+        /// <summary>Raises the zoom-dependent marker-thickness/text bindings. The view calls this after any viewport
+        /// change (wheel-zoom, fit, pan) so the stroke widths + HFR text size track the current scale.</summary>
         public void NotifyViewportChanged() {
             RaisePropertyChanged(nameof(MarkerStrokeThickness));
             RaisePropertyChanged(nameof(LabelStrokeThickness));
+            RaisePropertyChanged(nameof(MarkerTextScale));
+            RaisePropertyChanged(nameof(HfrLabelOffset));
         }
+
+        private static string FormatHfr(double hfr) => double.IsNaN(hfr) || hfr <= 0.0 ? "—" : hfr.ToString("F2");
 
         // Markers in IMAGE pixel coords; the view applies the viewport transform to place them.
         public ObservableCollection<AcceptedMarker> AcceptedMarkers { get; } = new();
@@ -264,8 +311,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// legend panel to the right).</summary>
         public string HelpText =>
             "Left-drag over a missed star to mark it. Click an accepted box to flag a false positive, or a " +
-            "rejected box to keep it. Right-click a label (or click it again) to remove it. Ctrl+Z / Ctrl+Y to " +
-            "undo / redo. Wheel to zoom, right-drag to pan.";
+            "rejected box to keep it. Drag inside a box you drew to move it, or its edges/corners to resize. " +
+            "Right-click a label (or click it again) to remove it. Ctrl+Z / Ctrl+Y to undo / redo. Wheel to zoom, " +
+            "right-drag to pan.";
 
         public string CountsLabel {
             get {
@@ -307,31 +355,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         private void Next() {
             if (CurrentIndex < queue.Count - 1) {
                 CurrentIndex++;
-                LoadCurrent();
+                // Keep the current zoom/pan when stepping frames so the same region of interest stays in view as
+                // the user rotates through the sweep (all frames in a run share the same dimensions).
+                LoadCurrent(fitView: false);
             }
         }
 
         private void Prev() {
             if (CurrentIndex > 0) {
                 CurrentIndex--;
-                LoadCurrent();
+                LoadCurrent(fitView: false);
             }
         }
 
         private void RequestFit() => FitRequested?.Invoke(this, EventArgs.Empty);
 
-        private void LoadCurrent() {
+        private void LoadCurrent(bool fitView) {
             var f = Current;
             FrameHeader = $"{f.RunId}  @ focuser {f.FocuserPosition}  |  {f.Accepted.Count} accepted";
 
             // Build the MTF-stretched background image (via the host-supplied provider, then marshal to the UI).
             FrameImage = null;
-            _ = LoadImageAsync(f);
+            _ = LoadImageAsync(f, fitView);
 
             // Overlays in image coords — accepted stars draw the detector's REAL bounding box (top-left + size).
             AcceptedMarkers.Clear();
             foreach (var (_, _, hfr, b) in f.Accepted) {
-                AcceptedMarkers.Add(new AcceptedMarker { X = b.X, Y = b.Y, Width = b.Width, Height = b.Height, HFR = hfr });
+                AcceptedMarkers.Add(new AcceptedMarker { X = b.X, Y = b.Y, Width = b.Width, Height = b.Height, HFR = hfr, HfrText = FormatHfr(hfr) });
             }
             RejectedMarkers.Clear();
             foreach (var (reason, b) in f.Rejected) {
@@ -347,7 +397,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             PrevCommand.NotifyCanExecuteChanged();
         }
 
-        private async Task LoadImageAsync(FrameReview f) {
+        private async Task LoadImageAsync(FrameReview f, bool fitView) {
             var provider = f.ImageProvider;
             if (provider == null) {
                 return;
@@ -355,7 +405,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             try {
                 var bmp = await provider().ConfigureAwait(true);
                 FrameImage = bmp;
-                RequestFit();
+                // Only re-fit on the initial load / Fit button; navigating frames preserves the current viewport.
+                if (fitView) {
+                    RequestFit();
+                }
             } catch (Exception ex) {
                 Logger.Error(ex, $"Failed to load/stretch frame {f.FramePath}");
                 Console.Error.WriteLine($"Failed to load frame {f.FramePath}: {ex.Message}");
@@ -389,6 +442,124 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 RecordEdit(run.RunId, Current.FocuserPosition, LabelKind.Missed, box, wasAdd: true);
             }
             RefreshLabelMarkers();
+        }
+
+        // ---- Move / resize of drawn (missed) boxes ---------------------------------------------------------
+
+        // In-progress edit state (valid between BeginMissedBoxEdit and EndMissedBoxEdit).
+        private int editBoxIndex = -1;
+        private BoxHandle editHandle = BoxHandle.None;
+        private StarReviewLabelBox editBox;
+        private double editStartX, editStartY, editStartW, editStartH; // geometry at grab (undo baseline + move base)
+        private double editGrabX, editGrabY;                            // cursor image point at grab (move delta base)
+
+        /// <summary>True while a move/resize gesture is active (the view routes mouse events to UpdateMissedBoxEdit).</summary>
+        public bool IsEditingBox => editBoxIndex >= 0;
+
+        /// <summary>Finds the drawn (missed) box under (<paramref name="px"/>,<paramref name="py"/>): its index and the
+        /// handle (edge/corner = resize, interior = move) within <paramref name="edgePx"/> image pixels of an edge.
+        /// Smallest box wins on overlap. Returns (-1, None) when no missed box is under the point. Pure query — drives
+        /// both the gesture routing and the hover cursor.</summary>
+        public (int Index, BoxHandle Handle) HitTestMissedBox(double px, double py, double edgePx) {
+            var pos = CurrentPositionLabels;
+            if (pos?.Missed == null || pos.Missed.Count == 0) {
+                return (-1, BoxHandle.None);
+            }
+            var bestIdx = -1;
+            var bestHandle = BoxHandle.None;
+            var bestArea = double.MaxValue;
+            for (var i = 0; i < pos.Missed.Count; i++) {
+                var b = pos.Missed[i];
+                double x = b.X, y = b.Y, w = b.W ?? 0.0, h = b.H ?? 0.0;
+                if (px < x - edgePx || px > x + w + edgePx || py < y - edgePx || py > y + h + edgePx) {
+                    continue;
+                }
+                bool nearL = Math.Abs(px - x) <= edgePx, nearR = Math.Abs(px - (x + w)) <= edgePx;
+                bool nearT = Math.Abs(py - y) <= edgePx, nearB = Math.Abs(py - (y + h)) <= edgePx;
+                BoxHandle handle =
+                    nearL && nearT ? BoxHandle.TopLeft :
+                    nearR && nearT ? BoxHandle.TopRight :
+                    nearL && nearB ? BoxHandle.BottomLeft :
+                    nearR && nearB ? BoxHandle.BottomRight :
+                    nearL ? BoxHandle.Left :
+                    nearR ? BoxHandle.Right :
+                    nearT ? BoxHandle.Top :
+                    nearB ? BoxHandle.Bottom :
+                    BoxHandle.Inside;
+                var area = w * h;
+                if (area < bestArea) {
+                    bestArea = area;
+                    bestIdx = i;
+                    bestHandle = handle;
+                }
+            }
+            return (bestIdx, bestHandle);
+        }
+
+        /// <summary>Begins a move (Inside) or resize (edge/corner) of the missed box at <paramref name="index"/>,
+        /// anchored at the cursor image point. Captures the starting geometry for the live update and the undo.</summary>
+        public void BeginMissedBoxEdit(int index, BoxHandle handle, double grabX, double grabY) {
+            var pos = CurrentPositionLabels;
+            if (pos?.Missed == null || index < 0 || index >= pos.Missed.Count || handle == BoxHandle.None) {
+                editBoxIndex = -1;
+                return;
+            }
+            editBoxIndex = index;
+            editHandle = handle;
+            editBox = pos.Missed[index];
+            editStartX = editBox.X;
+            editStartY = editBox.Y;
+            editStartW = editBox.W ?? 0.0;
+            editStartH = editBox.H ?? 0.0;
+            editGrabX = grabX;
+            editGrabY = grabY;
+        }
+
+        /// <summary>Live-updates the in-progress move/resize to the current cursor image point and refreshes the
+        /// overlay. No-op when no edit is active.</summary>
+        public void UpdateMissedBoxEdit(double cursorX, double cursorY) {
+            if (editBoxIndex < 0 || editBox == null) {
+                return;
+            }
+            double x1 = editStartX, y1 = editStartY, x2 = editStartX + editStartW, y2 = editStartY + editStartH;
+            if (editHandle == BoxHandle.Inside) {
+                var dx = cursorX - editGrabX;
+                var dy = cursorY - editGrabY;
+                x1 += dx; x2 += dx; y1 += dy; y2 += dy;
+            } else {
+                if (editHandle is BoxHandle.Left or BoxHandle.TopLeft or BoxHandle.BottomLeft) x1 = cursorX;
+                if (editHandle is BoxHandle.Right or BoxHandle.TopRight or BoxHandle.BottomRight) x2 = cursorX;
+                if (editHandle is BoxHandle.Top or BoxHandle.TopLeft or BoxHandle.TopRight) y1 = cursorY;
+                if (editHandle is BoxHandle.Bottom or BoxHandle.BottomLeft or BoxHandle.BottomRight) y2 = cursorY;
+            }
+            editBox.X = Math.Min(x1, x2);
+            editBox.Y = Math.Min(y1, y2);
+            editBox.W = Math.Abs(x2 - x1);
+            editBox.H = Math.Abs(y2 - y1);
+            RefreshLabelMarkers();
+        }
+
+        /// <summary>Finishes the in-progress move/resize: records it as one undoable edit when the geometry actually
+        /// changed (a press that didn't move is dropped), then clears the edit state.</summary>
+        public void EndMissedBoxEdit() {
+            if (editBoxIndex < 0 || editBox == null) {
+                editBoxIndex = -1;
+                return;
+            }
+            var changed = Math.Abs(editBox.X - editStartX) > 1e-6 || Math.Abs(editBox.Y - editStartY) > 1e-6
+                || Math.Abs((editBox.W ?? 0.0) - editStartW) > 1e-6 || Math.Abs((editBox.H ?? 0.0) - editStartH) > 1e-6;
+            if (changed) {
+                undoStack.Push(new LabelEdit {
+                    RunId = Current.RunId, FocuserPosition = Current.FocuserPosition, Kind = LabelKind.Missed,
+                    Box = editBox, IsModify = true,
+                    OldX = editStartX, OldY = editStartY, OldW = editStartW, OldH = editStartH,
+                    NewX = editBox.X, NewY = editBox.Y, NewW = editBox.W ?? 0.0, NewH = editBox.H ?? 0.0
+                });
+                redoStack.Clear();
+                RaiseUndoRedo();
+            }
+            editBoxIndex = -1;
+            editBox = null;
         }
 
         /// <summary>
@@ -535,42 +706,72 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             WronglyRejectedMarkers.Clear();
             var pos = CurrentPositionLabels;
             if (pos != null) {
+                // Missed boxes were drawn where the detector found no candidate, so there is no measured HFR to show.
                 foreach (var p in pos.Missed) {
-                    MissedMarkers.Add(ToBoxMarker(p));
+                    MissedMarkers.Add(ToBoxMarker(p, "—"));
                 }
                 foreach (var p in pos.ShouldReject) {
-                    ShouldRejectMarkers.Add(ToBoxMarker(p));
+                    ShouldRejectMarkers.Add(ToBoxMarker(p, null));
                 }
                 if (pos.WronglyRejected != null) {
+                    // A wrongly-rejected label is the bbox of a rejected candidate; show that candidate's HFR.
                     foreach (var p in pos.WronglyRejected) {
-                        WronglyRejectedMarkers.Add(ToBoxMarker(p));
+                        WronglyRejectedMarkers.Add(ToBoxMarker(p, HfrTextForRejectedLabel(p)));
                     }
                 }
             }
             RaisePropertyChanged(nameof(CountsLabel));
         }
 
-        /// <summary>Maps a stored label box to a drawable marker. A legacy label that somehow still lacks W/H is drawn
-        /// as a small default box centered on its (x,y) (Normalize back-fills on load, so this is belt-and-suspenders).</summary>
-        private static LabelBoxMarker ToBoxMarker(StarReviewLabelBox b) {
+        /// <summary>HFR text for a wrongly-rejected label: the HFR of the best-overlapping rejected candidate of the
+        /// current frame (measured in the diagnostics detection pass), or "—" when none overlaps / HFR unavailable.</summary>
+        private string HfrTextForRejectedLabel(StarReviewLabelBox b) {
+            var records = Current.RejectedCandidates;
+            if (records == null || records.Count == 0) {
+                return "—";
+            }
+            var labelRect = new RectD(b.X, b.Y, b.W ?? 0.0, b.H ?? 0.0);
+            double bestIoU = 0.0;
+            double bestHfr = double.NaN;
+            foreach (var r in records) {
+                var iou = BoxMatcher.IoU(labelRect, r.Bounds);
+                if (iou > bestIoU) {
+                    bestIoU = iou;
+                    bestHfr = r.Hfr;
+                }
+            }
+            return bestIoU > 0.0 ? FormatHfr(bestHfr) : "—";
+        }
+
+        /// <summary>Maps a stored label box to a drawable marker (optionally carrying preformatted HFR text). A legacy
+        /// label that somehow still lacks W/H is drawn as a small default box centered on its (x,y) (Normalize
+        /// back-fills on load, so this is belt-and-suspenders).</summary>
+        private static LabelBoxMarker ToBoxMarker(StarReviewLabelBox b, string hfrText) {
             if (b.HasSize) {
-                return new LabelBoxMarker { X = b.X, Y = b.Y, Width = b.W.Value, Height = b.H.Value };
+                return new LabelBoxMarker { X = b.X, Y = b.Y, Width = b.W.Value, Height = b.H.Value, HfrText = hfrText };
             }
             var side = 2.0 * StarReviewLabelStore.DefaultRadiusPx;
-            return new LabelBoxMarker { X = b.X - side / 2.0, Y = b.Y - side / 2.0, Width = side, Height = side };
+            return new LabelBoxMarker { X = b.X - side / 2.0, Y = b.Y - side / 2.0, Width = side, Height = side, HfrText = hfrText };
         }
 
         // ---- Undo / redo -----------------------------------------------------------------------------------
 
         private enum LabelKind { Missed, ShouldReject, WronglyRejected }
 
-        /// <summary>One undoable label edit: the box that was added or removed, in a specific run/position/list.</summary>
+        /// <summary>One undoable label edit: a box added/removed, OR (when <see cref="IsModify"/>) a box moved/resized
+        /// in a specific run/position/list.</summary>
         private sealed class LabelEdit {
             public string RunId;
             public int FocuserPosition;
             public LabelKind Kind;
             public StarReviewLabelBox Box;
             public bool WasAdd; // true: the edit ADDED Box (undo removes it); false: it REMOVED Box (undo re-adds).
+
+            // Move/resize: when true, the edit changed Box's geometry (the Box stays in the list). Undo restores the
+            // Old* geometry, redo restores the New*.
+            public bool IsModify;
+            public double OldX, OldY, OldW, OldH;
+            public double NewX, NewY, NewW, NewH;
         }
 
         private readonly Stack<LabelEdit> undoStack = new();
@@ -615,6 +816,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             }
             var pos = StarReviewLabelStore.GetOrAddPosition(run, e.FocuserPosition);
             var list = ListFor(pos, e.Kind);
+
+            if (e.IsModify) {
+                // The Box reference persists in the list across a move/resize; set its geometry to the target. If the
+                // reference is somehow gone, match by the box's CURRENT (pre-this-step) center.
+                var box = list.Contains(e.Box) ? e.Box : null;
+                if (box == null) {
+                    var (curCx, curCy) = forward
+                        ? (e.OldX + e.OldW / 2.0, e.OldY + e.OldH / 2.0)
+                        : (e.NewX + e.NewW / 2.0, e.NewY + e.NewH / 2.0);
+                    var hit = StarReviewLabelStore.NearestBoxIndexWithin(list, curCx, curCy, StarReviewLabelStore.SamePointTolerancePx);
+                    box = hit >= 0 ? list[hit] : null;
+                }
+                if (box != null) {
+                    box.X = forward ? e.NewX : e.OldX;
+                    box.Y = forward ? e.NewY : e.OldY;
+                    box.W = forward ? e.NewW : e.OldW;
+                    box.H = forward ? e.NewH : e.OldH;
+                }
+                return;
+            }
+
             var doAdd = e.WasAdd ? forward : !forward;
             if (doAdd) {
                 if (StarReviewLabelStore.NearestBoxIndexWithin(list, e.Box.CenterX, e.Box.CenterY, StarReviewLabelStore.SamePointTolerancePx) < 0) {
@@ -643,7 +865,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             for (var i = 0; i < queue.Count; i++) {
                 if (queue[i].RunId == runId && queue[i].FocuserPosition == focuserPosition) {
                     CurrentIndex = i;
-                    LoadCurrent();
+                    // Preserve the viewport when jumping to show an undone/redone edit (consistent with Next/Prev).
+                    LoadCurrent(fitView: false);
                     return;
                 }
             }

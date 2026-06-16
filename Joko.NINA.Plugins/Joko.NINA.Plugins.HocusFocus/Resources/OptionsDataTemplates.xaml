@@ -447,6 +447,8 @@
     <TextBlock x:Key="DefocusDistortionSizeReference_Tooltip" Text="Tuning knob for the Defocus-Aware Gates (only used while they are enabled). The candidate bounding-box size (in pixels, the larger of width/height) at or below which the strict gate thresholds still apply; larger candidates get the relaxed thresholds. Shared by both the distortion and centering relaxations. Lower it to relax smaller stars; raise it to keep more of the strict behavior. Default 30." />
     <TextBlock x:Key="DefocusDistortionMinFactor_Tooltip" Text="Tuning knob for the Defocus-Aware Gates (only used while they are enabled). The floor multiplier applied to Max Distortion for very large (very defocused) candidates — the most permissive the distortion gate ever becomes. Must be greater than 0 and at most 1. Smaller values accept more heavily-distorted donuts. Default 0.25." />
     <TextBlock x:Key="DefocusCenteringToleranceFactor_Tooltip" Text="Tuning knob for the Defocus-Aware Gates (only used while they are enabled). The maximum multiplier applied to Star Center Tolerance for very large (very defocused) candidates — the most permissive the centering gate ever becomes. Must be at least 1 (1 is a no-op; larger values relax centering further). Default 2." />
+    <TextBlock x:Key="DefocusAwareStructure_Tooltip" Text="When enabled, large/donut (heavily defocused) stars are kept during structure detection so they form candidates instead of being erased. The wavelet step that removes large-scale background structure (nebulae, gradients) can also erase a big out-of-focus donut entirely, so it never even becomes a candidate to evaluate. This option makes that removal coarser (by Structure Layer Boost extra layers) so large stars survive. Off by default (detection is unchanged); enable it together with a Structure Layer Boost above 0 if heavily-defocused stars are missing entirely (not just rejected). EARLY-stage setting." />
+    <TextBlock x:Key="StructureLayerBoost_Tooltip" Text="Only used while Defocus-Aware Structure is enabled. The number of extra wavelet layers added when removing large-scale structure, making the removal coarser so larger defocused donuts survive and form candidates. 0 means no change (identical to the feature being off). Raise it (1–6) if very out-of-focus stars never appear; raising it too far can let nebulosity/background structure leak in as false candidates. Default 0." />
     <TextBlock x:Key="StarCenterTolerance_Tooltip" Text="Size (as a percentage) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star" />
     <TextBlock x:Key="StarBackgroundBoxExpansion_Tooltip" Text="The background is estimated by looking in an area around the star bounding box, increased on each side by this number of pixels. The default value of 3 should work for most cases, but you can consider increasing it if stars are very spare, or even decreasing it if the star field is very crowded with stars less than 3 pixels from one another." />
     <TextBlock x:Key="MinStarBoundingBoxSize_Tooltip" Text="The minimum allowed size (length of either side) of a star candidate's bounding box. Increasing this can be helpful at very high focal lengths if too many small structures are detected" />
@@ -1072,6 +1074,9 @@
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
+                <!--  45: Defocus-Aware Structure toggle (advanced-only); 46: its layer-boost knob (advanced-only).  -->
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -1567,6 +1572,49 @@
                         <rules:DoubleRangeRule>
                             <rules:DoubleRangeRule.ValidRange>
                                 <rules:DoubleRangeChecker Maximum="10.0" Minimum="1.0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="45"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Defocus-Aware Structure"
+                ToolTip="{StaticResource DefocusAwareStructure_Tooltip}" />
+            <CheckBox
+                Grid.Row="45"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.DefocusAwareStructure}"
+                ToolTip="{StaticResource DefocusAwareStructure_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="46"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Structure Layer Boost"
+                ToolTip="{StaticResource StructureLayerBoost_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="46"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ToolTip="{StaticResource StructureLayerBoost_Tooltip}">
+                <Binding
+                    Path="StarDetectionOptions.StructureLayerBoost"
+                    UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="6" Minimum="0" />
                             </rules:DoubleRangeRule.ValidRange>
                         </rules:DoubleRangeRule>
                     </Binding.ValidationRules>

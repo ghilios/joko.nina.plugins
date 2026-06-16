@@ -246,6 +246,26 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
+    public async Task Start_UseCurrentSettings_SkipsOptimization_AndReviewIsEnterable() {
+        // The "Use current settings" toggle must skip the optimization pass entirely: Result.BestParams are the
+        // seed (Sensitivity unchanged at 2, not driven toward the optimizable 10), zero evaluations, and the user
+        // can still go to Review to validate/label today's detection.
+        var vm = NewVM(LoaderReturning(GoodRun()), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\run1";
+        vm.OptimizeMode = WizardOptimizeMode.UseCurrentSettings;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.Result, Is.Not.Null);
+            Assert.That(vm.Result.Evaluations, Is.EqualTo(0), "no optimization pass ran");
+            Assert.That(vm.Result.BestParams.Sensitivity, Is.EqualTo(2.0), "BestParams are the current/seed settings");
+            Assert.That(vm.ReviewCommand.CanExecute(null), Is.True, "Review must be reachable to validate current settings");
+        });
+    }
+
+    [Test]
     public async Task Start_DegenerateSeed_SetsErrorAndDoesNotAdvanceToSummary() {
         var vm = NewVM(LoaderReturning(DegenerateRun()));
         vm.SourcePaths[0] = @"C:\bad";

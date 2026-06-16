@@ -201,6 +201,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             contaminationSensitivity = optionsAccessor.GetValueDouble("ContaminationSensitivity", 5.0);
             rejectContaminatedStars = optionsAccessor.GetValueBoolean("RejectContaminatedStars", true);
             structureLayers = optionsAccessor.GetValueInt32("StructureLayers", 4);
+            defocusAwareStructure = optionsAccessor.GetValueBoolean("DefocusAwareStructure", false);
+            structureLayerBoost = optionsAccessor.GetValueInt32("StructureLayerBoost", 0);
             brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 2.0);
             starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.75);
             maxDistortion = optionsAccessor.GetValueDouble("MaxDistortion", 0.5);
@@ -262,6 +264,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             ContaminationSensitivity = 5.0;
             RejectContaminatedStars = true;
             StructureLayers = 4;
+            DefocusAwareStructure = false;
+            StructureLayerBoost = 0;
             BrightnessSensitivity = 2.0;
             StarPeakResponse = 0.75;
             MaxDistortion = 0.5;
@@ -654,6 +658,41 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     defocusCenteringToleranceFactor = value;
                     optionsAccessor.SetValueDouble("DefocusCenteringToleranceFactor", defocusCenteringToleranceFactor);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool defocusAwareStructure;
+
+        // Defocus-aware structure detection (opt-in, default OFF). When ON, the wavelet residual that removes
+        // large-scale structure is computed at StructureLayers + StructureLayerBoost layers so large/donut
+        // (heavily defocused) stars survive and form candidates. Default-OFF ⇒ candidate formation bit-identical.
+        public bool DefocusAwareStructure {
+            get => defocusAwareStructure;
+            set {
+                if (defocusAwareStructure != value) {
+                    defocusAwareStructure = value;
+                    optionsAccessor.SetValueBoolean("DefocusAwareStructure", defocusAwareStructure);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int structureLayerBoost;
+
+        // Advanced-only knob (only consulted while DefocusAwareStructure is ON): extra wavelet layers added to
+        // StructureLayers for the residual-subtraction step. Higher ⇒ coarser residual ⇒ larger donuts survive.
+        // Must be within [0, 6]. Default 0.
+        public int StructureLayerBoost {
+            get => structureLayerBoost;
+            set {
+                if (structureLayerBoost != value) {
+                    if (value < 0 || value > 6) {
+                        throw new ArgumentException("StructureLayerBoost must be within [0, 6]", "StructureLayerBoost");
+                    }
+                    structureLayerBoost = value;
+                    optionsAccessor.SetValueInt32("StructureLayerBoost", structureLayerBoost);
                     RaisePropertyChanged();
                 }
             }

@@ -4,7 +4,87 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Background="#FF1E2125">
     <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <SolidColorBrush x:Key="Fg" Color="White" />
+
+        <!-- NINA's default toggle (StandardCheckBox) hard-codes the OFF label to {StaticResource PrimaryBrush},
+             which is too dark on this panel and CANNOT be overridden from the consumer (StaticResource is baked
+             into NINA's parsed style). So we keep NINA's exact toggle look but re-template it locally, pointing
+             ONLY the OFF text at a light brush; the remaining theme brushes use DynamicResource so the switch
+             still matches the active theme. (Template copied from NINA.WPF.Base Resources/Styles/CheckBox.xaml.) -->
+        <SolidColorBrush x:Key="HF_ToggleOffText" Color="#FFD8DCE0" />
+        <Style x:Key="HF_ReviewToggle" TargetType="{x:Type CheckBox}">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Width" Value="65" />
+            <Setter Property="Height" Value="25" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Border
+                                x:Name="SwitchTrack"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="12.5" />
+                            <Grid>
+                                <TextBlock
+                                    x:Name="OnText"
+                                    Margin="8,0,0,0"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    FontWeight="Bold"
+                                    Foreground="{StaticResource HF_ToggleOffText}"
+                                    Text="ON"
+                                    Visibility="Collapsed" />
+                                <TextBlock
+                                    x:Name="OffText"
+                                    Margin="0,0,8,0"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    Foreground="{StaticResource HF_ToggleOffText}"
+                                    Text="OFF"
+                                    Visibility="Visible" />
+                            </Grid>
+                            <Ellipse
+                                x:Name="SwitchThumb"
+                                Width="21"
+                                Height="21"
+                                Margin="2"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                Fill="{DynamicResource SecondaryBackgroundBrush}"
+                                RenderTransformOrigin="0.5,0.5">
+                                <Ellipse.RenderTransform>
+                                    <TranslateTransform x:Name="ThumbTransform" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}" />
+                                <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
+                                <Setter TargetName="OnText" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="OffText" Property="Visibility" Value="Collapsed" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="False">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="Transparent" />
+                                <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Left" />
+                                <Setter TargetName="OnText" Property="Visibility" Value="Collapsed" />
+                                <Setter TargetName="OffText" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="SwitchTrack" Property="Opacity" Value="0.4" />
+                                <Setter TargetName="SwitchThumb" Property="Opacity" Value="0.4" />
+                                <Setter TargetName="OnText" Property="Opacity" Value="0.4" />
+                                <Setter TargetName="OffText" Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="Button">
             <Setter Property="Margin" Value="4,0" />
             <Setter Property="Padding" Value="10,4" />
@@ -31,6 +111,8 @@
         <DockPanel Grid.Row="0" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
             <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Text="{Binding FrameHeader}" />
             <TextBlock DockPanel.Dock="Right" Text="{Binding PositionLabel}" />
+            <!-- Sensor (image-pixel) coordinates under the cursor, for describing a region precisely. -->
+            <TextBlock DockPanel.Dock="Right" Margin="0,0,16,0" MinWidth="120" Foreground="#FFB0B6BD" Text="{Binding CursorPositionText}" />
         </DockPanel>
 
         <!-- Toolbar: navigation + undo/redo (labeling is mode-less — the category is inferred from what is clicked). -->
@@ -64,6 +146,7 @@
                     MouseRightButtonDown="ViewportCanvas_MouseRightButtonDown"
                     MouseRightButtonUp="ViewportCanvas_MouseRightButtonUp"
                     MouseMove="ViewportCanvas_MouseMove"
+                    MouseLeave="ViewportCanvas_MouseLeave"
                     SizeChanged="ViewportCanvas_SizeChanged">
                 <Canvas.RenderTransform>
                     <TransformGroup>
@@ -115,9 +198,27 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
-                                       Stroke="{Binding DataContext.AcceptedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                       StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                            <Grid>
+                                <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                           Stroke="{Binding DataContext.AcceptedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                           StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                <!-- HFR label: anchored at the box top-left, kept a constant on-screen size by the
+                                     inverse-zoom ScaleTransform, then lifted up one text-height so it sits just ABOVE
+                                     the box with no overlap. -->
+                                <TextBlock Text="{Binding HfrText}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="10" Foreground="White" Background="#B0000000" Padding="2,0"
+                                           IsHitTestVisible="False" RenderTransformOrigin="0,0"
+                                           Visibility="{Binding DataContext.ShowHfr, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock.RenderTransform>
+                                        <TransformGroup>
+                                            <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                            <TranslateTransform Y="{Binding DataContext.HfrLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                        </TransformGroup>
+                                    </TextBlock.RenderTransform>
+                                </TextBlock>
+                            </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -135,10 +236,28 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
-                                       Stroke="{Binding DataContext.MissedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                       StrokeDashArray="3 2"
-                                       StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                            <Grid>
+                                <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                           Stroke="{Binding DataContext.MissedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                           StrokeDashArray="3 2"
+                                           StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                <!-- HFR label: anchored at the box top-left, kept a constant on-screen size by the
+                                     inverse-zoom ScaleTransform, then lifted up one text-height so it sits just ABOVE
+                                     the box with no overlap. -->
+                                <TextBlock Text="{Binding HfrText}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="10" Foreground="White" Background="#B0000000" Padding="2,0"
+                                           IsHitTestVisible="False" RenderTransformOrigin="0,0"
+                                           Visibility="{Binding DataContext.ShowHfr, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock.RenderTransform>
+                                        <TransformGroup>
+                                            <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                            <TranslateTransform Y="{Binding DataContext.HfrLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                        </TransformGroup>
+                                    </TextBlock.RenderTransform>
+                                </TextBlock>
+                            </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -178,10 +297,28 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
-                                       Stroke="{Binding DataContext.WronglyRejectedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                       StrokeDashArray="3 2"
-                                       StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                            <Grid>
+                                <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                           Stroke="{Binding DataContext.WronglyRejectedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                           StrokeDashArray="3 2"
+                                           StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                <!-- HFR label: anchored at the box top-left, kept a constant on-screen size by the
+                                     inverse-zoom ScaleTransform, then lifted up one text-height so it sits just ABOVE
+                                     the box with no overlap. -->
+                                <TextBlock Text="{Binding HfrText}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="10" Foreground="White" Background="#B0000000" Padding="2,0"
+                                           IsHitTestVisible="False" RenderTransformOrigin="0,0"
+                                           Visibility="{Binding DataContext.ShowHfr, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock.RenderTransform>
+                                        <TransformGroup>
+                                            <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                            <TranslateTransform Y="{Binding DataContext.HfrLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                        </TransformGroup>
+                                    </TextBlock.RenderTransform>
+                                </TextBlock>
+                            </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -237,6 +374,28 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <!-- HFR display toggle lives under the legend (toolbar space is tight). Uses HF_ReviewToggle — NINA's
+                 toggle look with a legible OFF label (see the style comment in UserControl.Resources). -->
+            <Separator Margin="0,10,0,8" />
+            <StackPanel Orientation="Horizontal">
+                <CheckBox Style="{StaticResource HF_ReviewToggle}" IsChecked="{Binding ShowHfr}" VerticalAlignment="Center" />
+                <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="Show HFR" />
+            </StackPanel>
+            <TextBlock Margin="0,4,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="Label each detected star with its HFR, above the box." />
+
+            <!-- Divider between the HFR section and the labeling guidance. -->
+            <Separator Margin="0,12,0,0" />
+            <TextBlock FontWeight="Bold" Margin="0,8,0,3" Text="How to label" />
+            <TextBlock Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="• Flag rejected stars sparingly — fewer is better." />
+            <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="• Zoom into different regions and step through every frame; focus on stars accepted near focus but rejected far from it." />
+            <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="• If a flagged star has no HFR, unflag it — not enough signal." />
+            <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="• Prefer flagging rejected stars. If large, defocused stars aren't detected at all, draw a box around them." />
         </StackPanel>
     </Grid>
 </UserControl>
