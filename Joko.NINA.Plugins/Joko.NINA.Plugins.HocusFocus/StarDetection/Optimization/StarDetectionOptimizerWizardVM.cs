@@ -610,6 +610,63 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             _ => HasCurrent
         };
 
+        /// <summary>The accepted-star-count change per focuser position between the baseline (optimized, or current
+        /// when no optimization pass ran) and the feedback variant. Non-empty ONLY while the feedback variant is
+        /// selected (i.e. when the user is comparing optimized vs optimized-with-feedback). Summed per position so it
+        /// lines up with the curve points.</summary>
+        public IReadOnlyList<FrameStarCountChange> StarCountChanges {
+            get {
+                if (selectedVariant != OptimizationVariant.Feedback) {
+                    return Array.Empty<FrameStarCountChange>();
+                }
+                return BuildStarCountChanges(optimizedCurve ?? currentCurve, feedbackCurve);
+            }
+        }
+
+        public bool HasStarCountChanges => StarCountChanges.Count > 0;
+
+        /// <summary>Whether the star-count comparison baseline is the optimized run ("optimized") or — in the
+        /// review-only → feedback path — the current settings ("current"). Drives the section heading.</summary>
+        public string StarCountChangeBaselineLabel => HasOptimized ? "optimized" : "current";
+
+        /// <summary>Shows the "you labeled stars — re-run optimization" prompt: only when the user has labels that
+        /// have not yet been turned into a feedback result. Once a feedback variant exists, the prompt is replaced by
+        /// the star-count comparison (re-optimize stays reachable from the Review page).</summary>
+        public bool ShowReoptimizePrompt => HasLabels && !HasFeedback;
+
+        /// <summary>Whether the feedback panel (the bordered box on the results page) has anything to show: the
+        /// re-run prompt, the star-count comparison, or the label→gate breakdown.</summary>
+        public bool ShowFeedbackPanel => ShowReoptimizePrompt || HasStarCountChanges || HasRecommendation;
+
+        /// <summary>Builds the per-position accepted-star-count change between two variants' representative-run frames
+        /// (positions match because both detect the SAME frames). Returns empty when either side lacks counts.</summary>
+        private static IReadOnlyList<FrameStarCountChange> BuildStarCountChanges(OptimizationCurve baseline, OptimizationCurve feedback) {
+            if (baseline?.FrameStarCounts == null || baseline.FrameFocuserPositions == null
+                || feedback?.FrameStarCounts == null || feedback.FrameFocuserPositions == null) {
+                return Array.Empty<FrameStarCountChange>();
+            }
+            var baseByPos = SumStarCountsByPosition(baseline.FrameFocuserPositions, baseline.FrameStarCounts);
+            var fbByPos = SumStarCountsByPosition(feedback.FrameFocuserPositions, feedback.FrameStarCounts);
+            var result = new List<FrameStarCountChange>();
+            foreach (var pos in baseByPos.Keys.Union(fbByPos.Keys).OrderBy(p => p)) {
+                result.Add(new FrameStarCountChange {
+                    FocuserPosition = pos,
+                    BaselineCount = baseByPos.TryGetValue(pos, out var b) ? b : 0,
+                    FeedbackCount = fbByPos.TryGetValue(pos, out var f) ? f : 0
+                });
+            }
+            return result;
+        }
+
+        private static Dictionary<int, int> SumStarCountsByPosition(IReadOnlyList<int> positions, IReadOnlyList<int> counts) {
+            var d = new Dictionary<int, int>();
+            var n = Math.Min(positions.Count, counts.Count);
+            for (var i = 0; i < n; i++) {
+                d[positions[i]] = (d.TryGetValue(positions[i], out var c) ? c : 0) + counts[i];
+            }
+            return d;
+        }
+
         // Variant toggle radio-button helpers (mirror IsOptimizeMode/IsUseCurrentMode).
         public bool IsCurrentVariant {
             get => selectedVariant == OptimizationVariant.Current;
@@ -650,6 +707,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(ApplyRecommendedStepSize));
             RaisePropertyChanged(nameof(CanApplyRecommendedStepSize));
             RaisePropertyChanged(nameof(ChangedParametersDisplay));
+            RaisePropertyChanged(nameof(StarCountChanges));
+            RaisePropertyChanged(nameof(HasStarCountChanges));
+            RaisePropertyChanged(nameof(StarCountChangeBaselineLabel));
+            RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+            RaisePropertyChanged(nameof(ShowFeedbackPanel));
             AcceptCommand.NotifyCanExecuteChanged();
             BackCommand.NotifyCanExecuteChanged();
         }
@@ -874,6 +936,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             reviewParams = null;
             Recommendation = null;
             RaisePropertyChanged(nameof(HasLabels));
+            RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+            RaisePropertyChanged(nameof(ShowFeedbackPanel));
             ReOptimizeCommand.NotifyCanExecuteChanged();
             IsBusy = true;
 
@@ -1172,8 +1236,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (double.IsFinite(bestEval.Metrics.SigmaFocus)) { bestSigmaSum += bestEval.Metrics.SigmaFocus; bestSigmaCount++; }
                 if (i == 0) {
                     representativeBestFit = bestEval.BestFit;
-                    currentCurveLocal = new OptimizationCurve { Label = "Current", Points = seedEval.Points, Fit = seedEval.BestFit };
-                    optimizedCurveLocal = new OptimizationCurve { Label = "Optimized", Points = bestEval.Points, Fit = bestEval.BestFit };
+                    currentCurveLocal = new OptimizationCurve {
+                        Label = "Current", Points = seedEval.Points, Fit = seedEval.BestFit,
+                        FrameStarCounts = seedEval.Metrics.FrameStarCounts,
+                        FrameFocuserPositions = seedEval.Metrics.FrameFocuserPositions
+                    };
+                    optimizedCurveLocal = new OptimizationCurve {
+                        Label = "Optimized", Points = bestEval.Points, Fit = bestEval.BestFit,
+                        FrameStarCounts = bestEval.Metrics.FrameStarCounts,
+                        FrameFocuserPositions = bestEval.Metrics.FrameFocuserPositions
+                    };
                 }
             }
 
@@ -1371,6 +1443,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
                 capturedLabels = labelsByRun;
                 RaisePropertyChanged(nameof(HasLabels));
+                RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+                RaisePropertyChanged(nameof(ShowFeedbackPanel));
                 ReOptimizeCommand.NotifyCanExecuteChanged();
 
                 // Replace any prior review (drop its label-change subscription first to avoid a dangling handler).
@@ -1408,6 +1482,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private void OnReviewLabelsChanged(object sender, PropertyChangedEventArgs e) {
             if (e.PropertyName == nameof(StarReviewVM.CountsLabel)) {
                 RaisePropertyChanged(nameof(HasLabels));
+                RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+                RaisePropertyChanged(nameof(ShowFeedbackPanel));
                 ReOptimizeCommand.NotifyCanExecuteChanged();
             }
         }
@@ -1424,6 +1500,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(HasRecommendation));
                 RaisePropertyChanged(nameof(RecommendationRows));
+                RaisePropertyChanged(nameof(ShowFeedbackPanel));
             }
         }
 
@@ -1653,6 +1730,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // labels dir it was constructed with). SaveAll also refreshes its in-memory counts.
                 ReviewVM.SaveAll();
                 RaisePropertyChanged(nameof(HasLabels));
+                RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+                RaisePropertyChanged(nameof(ShowFeedbackPanel));
                 ReOptimizeCommand.NotifyCanExecuteChanged();
             } catch (Exception ex) {
                 Logger.Error(ex, "Failed to persist review labels");

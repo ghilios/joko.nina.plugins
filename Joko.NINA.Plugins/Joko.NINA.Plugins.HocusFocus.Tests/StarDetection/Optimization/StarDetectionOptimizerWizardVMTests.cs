@@ -1062,4 +1062,40 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(noPrior.FeedbackVsOptimizedText, Is.Empty);
         });
     }
+
+    [Test]
+    public async Task StarCountChanges_PresentForFeedbackVariant_AndReoptimizePromptReplaced() {
+        var vm = NewVM(new RecordingLoader(), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\reopt-run";
+        await vm.StartAsync(CancellationToken.None);
+
+        // Just optimized (Optimized selected): no feedback comparison, no labels → no re-run prompt.
+        Assert.Multiple(() => {
+            Assert.That(vm.StarCountChanges, Is.Empty);
+            Assert.That(vm.HasStarCountChanges, Is.False);
+            Assert.That(vm.ShowReoptimizePrompt, Is.False, "no labels yet");
+        });
+
+        // Label, return to summary: the re-run prompt appears (labeled, but no feedback run yet).
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+        Assert.That(vm.ShowReoptimizePrompt, Is.True, "labeled but not re-optimized → prompt to re-run");
+
+        // Re-optimize: now on the feedback variant — the prompt is replaced by the star-count comparison.
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Feedback));
+            Assert.That(vm.ShowReoptimizePrompt, Is.False, "after a feedback run the prompt is gone");
+            Assert.That(vm.HasStarCountChanges, Is.True);
+            Assert.That(vm.StarCountChanges.Count, Is.EqualTo(9), "one cell per distinct focuser position");
+            Assert.That(vm.StarCountChanges.All(c => c.Delta == c.FeedbackCount - c.BaselineCount), Is.True);
+            Assert.That(vm.StarCountChangeBaselineLabel, Is.EqualTo("optimized"));
+        });
+
+        // Toggling away from Feedback hides the comparison.
+        vm.SelectedVariant = OptimizationVariant.Optimized;
+        Assert.That(vm.HasStarCountChanges, Is.False, "the comparison only shows on the feedback variant");
+    }
 }

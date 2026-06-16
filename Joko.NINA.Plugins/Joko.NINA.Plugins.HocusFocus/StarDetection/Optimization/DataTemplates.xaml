@@ -361,21 +361,64 @@
                             BorderBrush="{StaticResource BorderBrush}"
                             BorderThickness="1"
                             CornerRadius="3"
-                            Visibility="{Binding HasLabels, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            Visibility="{Binding ShowFeedbackPanel, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                             <StackPanel>
-                                <TextBlock
-                                    FontWeight="Bold"
-                                    Text="You labeled stars in Review" />
-                                <TextBlock
-                                    Margin="0,4,0,8"
-                                    Text="Re-run the optimization using the feedback you just made. The optimizer will try to recover the stars you marked as missed or wrongly-rejected and exclude the ones you marked should-reject, then bring you back to an updated summary."
-                                    TextWrapping="Wrap" />
-                                <Button
-                                    Width="220"
-                                    HorizontalAlignment="Left"
-                                    Command="{Binding ReOptimizeCommand}"
-                                    Content="Optimize with feedback"
-                                    ToolTip="{StaticResource SDOpt_ReOptimize_Tooltip}" />
+                                <!--  Before a feedback run exists: prompt to re-run with the labels just made. Once a
+                                      feedback result exists this is replaced by the star-count comparison below
+                                      (re-optimize stays reachable from the Review page footer).  -->
+                                <StackPanel Visibility="{Binding ShowReoptimizePrompt, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                    <TextBlock
+                                        FontWeight="Bold"
+                                        Text="You labeled stars in Review" />
+                                    <TextBlock
+                                        Margin="0,4,0,8"
+                                        Text="Re-run the optimization using the feedback you just made. The optimizer will try to recover the stars you marked as missed or wrongly-rejected and exclude the ones you marked should-reject, then bring you back to an updated summary."
+                                        TextWrapping="Wrap" />
+                                    <Button
+                                        Width="220"
+                                        HorizontalAlignment="Left"
+                                        Command="{Binding ReOptimizeCommand}"
+                                        Content="Optimize with feedback"
+                                        ToolTip="{StaticResource SDOpt_ReOptimize_Tooltip}" />
+                                </StackPanel>
+
+                                <!--  When viewing the feedback variant: the accepted-star-count change per frame
+                                      (baseline → with feedback), as a wrapping horizontal list of per-position cells.  -->
+                                <StackPanel Visibility="{Binding HasStarCountChanges, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                    <TextBlock Margin="0,0,0,4" FontWeight="Bold">
+                                        <Run Text="Star count change per frame (" /><Run Text="{Binding StarCountChangeBaselineLabel, Mode=OneWay}" /><Run Text=" → with feedback)" />
+                                    </TextBlock>
+                                    <ItemsControl ItemsSource="{Binding StarCountChanges}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel Orientation="Horizontal" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border
+                                                    Margin="0,0,6,6"
+                                                    Padding="6,3"
+                                                    BorderBrush="{StaticResource BorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="3">
+                                                    <StackPanel>
+                                                        <TextBlock
+                                                            HorizontalAlignment="Center"
+                                                            FontSize="10"
+                                                            Foreground="{StaticResource SecondaryBrush}"
+                                                            Text="{Binding FocuserPosition}" />
+                                                        <TextBlock HorizontalAlignment="Center" Text="{Binding CountsText}" />
+                                                        <TextBlock
+                                                            HorizontalAlignment="Center"
+                                                            FontWeight="Bold"
+                                                            Text="{Binding DeltaText}" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
 
                                 <!--  Transparent label→gate breakdown produced by the last feedback run. Each row's
                                       ToString() renders "Param old → new  recovers N/M Gate, admits ~K unlabeled".  -->

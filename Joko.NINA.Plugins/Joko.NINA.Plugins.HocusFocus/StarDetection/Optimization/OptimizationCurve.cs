@@ -43,6 +43,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public IReadOnlyList<ScatterErrorPoint> Points { get; set; }
         public AlglibHyperbolicFitting Fit { get; set; }
 
+        /// <summary>Accepted star count per frame for this variant's params (parallel to
+        /// <see cref="FrameFocuserPositions"/>), from the representative run's evaluation. Used to show the
+        /// per-frame star-count change between the optimized and feedback variants.</summary>
+        public IReadOnlyList<int> FrameStarCounts { get; set; }
+
+        /// <summary>Focuser position per frame, parallel to <see cref="FrameStarCounts"/>.</summary>
+        public IReadOnlyList<int> FrameFocuserPositions { get; set; }
+
         /// <summary>The fitted curve function (focuser position → HFR) for the chart's FunctionAnnotation.</summary>
         public Func<double, double> Fitting => Fit?.Fitting;
 
@@ -56,6 +64,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>True when there is a real fit and at least one scatter point to plot.</summary>
         public bool HasFit => Fit != null && Points != null && Points.Count > 0;
+    }
+
+    /// <summary>
+    /// One frame's accepted-star-count change between a baseline variant (optimized, or current when there was no
+    /// optimization pass) and the feedback-optimized variant, at a given focuser position. Shown as a compact
+    /// horizontal list when the user is comparing the feedback variant.
+    /// </summary>
+    public sealed class FrameStarCountChange {
+        public int FocuserPosition { get; set; }
+        public int BaselineCount { get; set; }
+        public int FeedbackCount { get; set; }
+
+        /// <summary>Feedback minus baseline (positive = more stars accepted with feedback).</summary>
+        public int Delta => FeedbackCount - BaselineCount;
+
+        /// <summary>"{baseline}→{feedback}" accepted-star counts.</summary>
+        public string CountsText => $"{BaselineCount}→{FeedbackCount}";
+
+        /// <summary>Signed delta, e.g. "+3" / "-2" / "0".</summary>
+        public string DeltaText => Delta > 0 ? $"+{Delta}" : Delta.ToString();
     }
 
     /// <summary>
