@@ -58,6 +58,16 @@ namespace NINA.Joko.Plugins.HocusFocus {
         // is instantiated directly here, mirroring RunAberrationInspector.
         private readonly IWindowServiceFactory windowServiceFactory = new WindowServiceFactory();
 
+        static HocusFocusPlugin() {
+            // NINA does not ship ScottPlot, so the plugin's bundled ScottPlot(.WPF) DLLs live only in the plugin
+            // folder — which is not on the default assembly probing path. WPF/BAML loads a view's xmlns assemblies on
+            // demand, and without this resolver that load fails (FileNotFoundException -> XamlParseException), so views
+            // with ScottPlot charts (e.g. the Star Detection Optimization Wizard) fail to render — the window just
+            // flashes. Registering here (static ctor: runs the moment the plugin type is first touched at MEF
+            // discovery, before any view is shown) makes those bundled-dependency loads resolve from the plugin folder.
+            BundledAssemblyResolver.Register(Path.GetDirectoryName(Assembly.GetAssembly(typeof(HocusFocusPlugin))?.Location));
+        }
+
         [ImportingConstructor]
         public HocusFocusPlugin(
             IProfileService profileService,

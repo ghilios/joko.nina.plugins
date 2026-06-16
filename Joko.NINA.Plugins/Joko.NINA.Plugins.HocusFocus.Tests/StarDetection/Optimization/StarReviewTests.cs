@@ -369,6 +369,99 @@ public class StarReviewTests {
         }
     }
 
+    // ---- Accepted-star overlay: centroid crosshair hidden by default; the box stays the detector's bounds -----
+
+    [Test]
+    public void AcceptedOverlay_CentroidCrosshairsHiddenByDefault_BoxStillRendered() {
+        // The centroid crosshair is a dev-only overlay (ShowCentroidMarkers, off by default) so the labeler isn't
+        // cluttered. With it off, no centroid markers are populated, while the accepted box is still drawn at the
+        // detector's StarBoundingBox (top-left + size).
+        var box = new Rect(100, 100, 20, 20);
+        var review = new FrameReview {
+            RunId = "run1",
+            FocuserPosition = 5000,
+            FramePath = "frame.fits",
+            ImageProvider = null, // no UI/image needed: markers populate synchronously in the ctor's LoadCurrent
+            Accepted = new List<(double, double, double, Rect)> { (103.0, 117.0, 2.34, box) },
+        };
+        var labelsByRun = new Dictionary<string, StarReviewRunLabels> {
+            { "run1", new StarReviewRunLabels { RunId = "run1" } }
+        };
+
+        var vm = new StarReviewVM(new[] { review }, labelsByRun, labelsDir: string.Empty);
+
+        Assert.Multiple(() => {
+            // Crosshair overlay hidden by default → no centroid markers.
+            Assert.That(vm.CentroidMarkers, Is.Empty);
+            // The accepted box is still the detector's StarBoundingBox (top-left + size), not recentered.
+            Assert.That(vm.AcceptedMarkers, Has.Count.EqualTo(1));
+            Assert.That(vm.AcceptedMarkers[0].X, Is.EqualTo(box.X));
+            Assert.That(vm.AcceptedMarkers[0].Y, Is.EqualTo(box.Y));
+            Assert.That(vm.AcceptedMarkers[0].Width, Is.EqualTo(box.Width));
+            Assert.That(vm.AcceptedMarkers[0].Height, Is.EqualTo(box.Height));
+        });
+    }
+
+    // The reported "box is off" bug: the green ACCEPTED box renders OFFSET from its star. The box Rectangle lives
+    // in a Grid alongside the (wider) HFR TextBlock; with no explicit alignment the Rectangle defaults to Stretch,
+    // which WPF resolves to CENTER for a fixed-size child — so when the HFR label is larger than a small box, the
+    // Rectangle is displaced from the box's true top-left. Detection is fine (the accepted-star centering gate
+    // guarantees Center is inside StarBoundingBox); this is purely a XAML layout bug. With no image loaded the
+    // viewport stays Scale=1/Offset=0 (identity overlay transform), so the rendered Rectangle top-left, in
+    // ViewportCanvas coords, must equal the box's image coords.
+    [Test]
+    [Apartment(System.Threading.ApartmentState.STA)]
+    public void AcceptedBox_RendersAtBoundingBoxOrigin_NotDisplacedByHfrLabel() {
+        var box = new Rect(100, 100, 10, 10); // small box, smaller than the "3.56" HFR label's layout size
+        var review = new FrameReview {
+            RunId = "run1", FocuserPosition = 5000, FramePath = "f.fits",
+            ImageProvider = null, // no image: viewport stays identity (Scale=1, Offset=0)
+            Accepted = new List<(double, double, double, Rect)> { (104.0, 108.0, 3.56, box) },
+        };
+        var labelsByRun = new Dictionary<string, StarReviewRunLabels> { { "run1", new StarReviewRunLabels { RunId = "run1" } } };
+        var vm = new StarReviewVM(new[] { review }, labelsByRun, string.Empty);
+
+        var control = new StarReviewControl { DataContext = vm };
+        control.Measure(new System.Windows.Size(1000, 800));
+        control.Arrange(new System.Windows.Rect(0, 0, 1000, 800));
+        control.UpdateLayout();
+
+        var viewportCanvas = VisualDescendants<System.Windows.Controls.Canvas>(control)
+            .FirstOrDefault(c => c.Name == "ViewportCanvas");
+        Assert.That(viewportCanvas, Is.Not.Null, "ViewportCanvas not found in the visual tree");
+
+        // The only 10x10 Rectangle is the accepted box (rejected/should-reject/missed lists are empty; legend
+        // swatches are 20x12; the rubber-band DragRect is collapsed/zero-size).
+        var rect = VisualDescendants<System.Windows.Shapes.Rectangle>(viewportCanvas)
+            .FirstOrDefault(r => Math.Abs(r.Width - box.Width) < 0.01 && Math.Abs(r.Height - box.Height) < 0.01);
+        Assert.That(rect, Is.Not.Null, "accepted box Rectangle not realized in the overlay");
+
+        var topLeft = rect.TransformToAncestor(viewportCanvas).Transform(new System.Windows.Point(0, 0));
+        Assert.Multiple(() => {
+            Assert.That(topLeft.X, Is.EqualTo(box.X).Within(0.5),
+                "accepted box X displaced from StarBoundingBox.X by the HFR-label Grid layout");
+            Assert.That(topLeft.Y, Is.EqualTo(box.Y).Within(0.5),
+                "accepted box Y displaced from StarBoundingBox.Y by the HFR-label Grid layout");
+        });
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(System.Windows.DependencyObject root)
+        where T : System.Windows.DependencyObject {
+        if (root == null) {
+            yield break;
+        }
+        var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++) {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match) {
+                yield return match;
+            }
+            foreach (var d in VisualDescendants<T>(child)) {
+                yield return d;
+            }
+        }
+    }
+
     // ---- Review queue -------------------------------------------------------------------------------------
 
     private static List<StarReviewFrame> Frames(params (string run, int pos, int accepted)[] specs) {
