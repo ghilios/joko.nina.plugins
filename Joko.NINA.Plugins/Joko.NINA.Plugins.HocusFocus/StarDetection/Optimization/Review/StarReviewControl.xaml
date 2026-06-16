@@ -442,6 +442,13 @@
                        Text="• If a flagged star has no HFR, unflag it — not enough signal." />
             <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
                        Text="• Prefer flagging rejected stars. If large, defocused stars aren't detected at all, draw a box around them." />
+
+            <!-- Trade-off note: relaxing the gates via labels recovers more (often defocused) stars, raising the
+                 detected count, but it degrades the detection the auto-focus curve depends on. -->
+            <Separator Margin="0,12,0,0" />
+            <TextBlock FontWeight="Bold" Margin="0,8,0,3" Text="What this changes" />
+            <TextBlock Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="Labeling stars and re-optimizing recovers more stars — especially large, defocused ones — so detected star counts go up. But it relaxes the detection gates, which makes the auto-focus curve noisier and worsens focus precision. Use this to get more stars for aberration inspection, not to improve auto-focus." />
         </StackPanel>
     </Grid>
 </UserControl>

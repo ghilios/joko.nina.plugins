@@ -286,10 +286,6 @@
                             <TextBlock Width="200" Text="vs optimized (no feedback)" />
                             <TextBlock Text="{Binding Summary.FeedbackVsOptimizedText, Mode=OneWay}" />
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                            <TextBlock Width="200" Text="Runs optimized" />
-                            <TextBlock Text="{Binding Summary.RunCount, Mode=OneWay}" />
-                        </StackPanel>
 
                         <!--  Auto-focus block: the recommended step size / offset steps PLUS the toggle that applies
                               them on Accept, grouped so the toggle's purpose is obvious.  -->
