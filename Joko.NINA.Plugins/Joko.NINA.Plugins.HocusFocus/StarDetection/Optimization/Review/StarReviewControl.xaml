@@ -435,11 +435,11 @@
             <Separator Margin="0,12,0,0" />
             <TextBlock FontWeight="Bold" Margin="0,8,0,3" Text="How to label" />
             <TextBlock Foreground="#FFB0B6BD" TextWrapping="Wrap"
-                       Text="• Flag rejected stars sparingly — fewer is better." />
+                       Text="• Flag rejected stars sparingly. Fewer is better." />
             <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
                        Text="• Zoom into different regions and step through every frame; focus on stars accepted near focus but rejected far from it." />
             <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
-                       Text="• If a flagged star has no HFR, unflag it — not enough signal." />
+                       Text="• If a flagged star has no HFR, unflag it. There isn't enough signal to measure." />
             <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
                        Text="• Prefer flagging rejected stars. If large, defocused stars aren't detected at all, draw a box around them." />
 
@@ -448,7 +448,7 @@
             <Separator Margin="0,12,0,0" />
             <TextBlock FontWeight="Bold" Margin="0,8,0,3" Text="What this changes" />
             <TextBlock Foreground="#FFB0B6BD" TextWrapping="Wrap"
-                       Text="Labeling stars and re-optimizing recovers more stars — especially large, defocused ones — so detected star counts go up. But it relaxes the detection gates, which makes the auto-focus curve noisier and worsens focus precision. Use this to get more stars for aberration inspection, not to improve auto-focus." />
+                       Text="Labeling stars and re-optimizing recovers more stars, especially large defocused ones, so detected star counts go up. The cost is looser detection gates, so the auto-focus curve gets noisier and focus precision drops. This is useful for aberration inspection, where more stars help. It will not improve auto-focus." />
         </StackPanel>
     </Grid>
 </UserControl>

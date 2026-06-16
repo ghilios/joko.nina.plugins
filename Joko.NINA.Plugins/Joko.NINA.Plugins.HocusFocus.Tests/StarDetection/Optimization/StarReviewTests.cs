@@ -579,6 +579,23 @@ public class StarReviewTests {
     }
 
     [Test]
+    public void Viewport_WheelZoomOut_StopsAtStartingFit() {
+        var vp = new StarReviewViewport();
+        // 1000x500 image into 800x800: fit = 0.8, which becomes the zoom-out floor.
+        vp.FitTo(800, 800, 1000, 500);
+        Assert.That(vp.ZoomOutFloor, Is.EqualTo(0.8).Within(1e-9));
+
+        // Wheel zoom-out far past the fit must clamp AT the fit (so the image never shrinks inside the viewport,
+        // which would show black on all four edges).
+        vp.ZoomAt(0.001, 400, 400);
+        Assert.That(vp.Scale, Is.EqualTo(0.8).Within(1e-9), "zoom-out is clamped to the starting fit");
+
+        // Zooming back in still works normally.
+        vp.ZoomAt(10.0, 400, 400);
+        Assert.That(vp.Scale, Is.EqualTo(8.0).Within(1e-9));
+    }
+
+    [Test]
     public void PanBy_TranslatesOffset() {
         var vp = new StarReviewViewport(1.0, 10, 10);
         vp.PanBy(5, -3);
