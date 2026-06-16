@@ -982,17 +982,23 @@
                     </Style.Triggers>
                 </Style>
             </Grid.Resources>
+            <!--  col0 (labels) + col1 (values) carry shared-size groups so the "Optimize Star Detection" /
+                  "Reset Defaults" buttons (hosted outside this grid) can center over exactly the label+value
+                  area — NOT the wider grid, whose col2 (Advanced path browse) and Advanced rows pad the width.  -->
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
+                <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol1" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition />
-                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
-                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
-                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <!--  Row 1: "Use Optimized Settings" toggle (Simple + HasOptimized) — placed ABOVE the
+                      Noise Level / Pixel Scale / Focus Range presets it replaces. Rows 2-4: those presets,
+                      shown only when NOT using the optimized settings.  -->
                 <RowDefinition Style="{StaticResource ShowOnSimpleHasOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
                 <RowDefinition />
@@ -1059,14 +1065,14 @@
                 ToolTip="{StaticResource UseAdvanced_Tooltip}" />
 
             <TextBlock
-                Grid.Row="1"
+                Grid.Row="2"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Noise Level"
                 ToolTip="{StaticResource SimpleNoiseLevel_Tooltip}" />
             <ComboBox
                 Name="PART_NoiseLevelEnumList"
-                Grid.Row="1"
+                Grid.Row="2"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1083,14 +1089,14 @@
             </ComboBox>
 
             <TextBlock
-                Grid.Row="2"
+                Grid.Row="3"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Pixel Scale"
                 ToolTip="{StaticResource SimplePixelScale_Tooltip}" />
             <ComboBox
                 Name="PART_PixelScaleEnumList"
-                Grid.Row="2"
+                Grid.Row="3"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1107,14 +1113,14 @@
             </ComboBox>
 
             <TextBlock
-                Grid.Row="3"
+                Grid.Row="4"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Focus Range"
                 ToolTip="{StaticResource SimpleFocusRange_Tooltip}" />
             <ComboBox
                 Name="PART_FocusRangeEnumList"
-                Grid.Row="3"
+                Grid.Row="4"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1130,9 +1136,9 @@
                 </ComboBox.ItemTemplate>
             </ComboBox>
 
-            <!--  Simple-Mode toggle: drive detection from the wizard's optimized settings. Shown only in Simple Mode once optimized settings exist (!UseAdvanced && HasOptimizedSettings).  -->
+            <!--  Simple-Mode toggle: drive detection from the wizard's optimized settings. Shown only in Simple Mode once optimized settings exist (!UseAdvanced && HasOptimizedSettings). Placed ABOVE the presets it replaces.  -->
             <TextBlock
-                Grid.Row="4"
+                Grid.Row="1"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Use Optimized Settings"
@@ -1145,7 +1151,7 @@
                 </TextBlock.Visibility>
             </TextBlock>
             <CheckBox
-                Grid.Row="4"
+                Grid.Row="1"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
