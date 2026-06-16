@@ -16,22 +16,25 @@
     </UserControl.Resources>
 
     <Grid Margin="10">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,6">
+        <DockPanel Grid.Row="0" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
             <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Text="{Binding FrameHeader}" />
             <TextBlock DockPanel.Dock="Right" Text="{Binding PositionLabel}" />
         </DockPanel>
 
-        <!-- Toolbar: radius, navigation, save (labeling is mode-less — the category is inferred from what is clicked). -->
-        <WrapPanel Grid.Row="1" Margin="0,0,0,6">
+        <!-- Toolbar: navigation (labeling is mode-less — the category is inferred from what is clicked). -->
+        <WrapPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,6">
             <TextBlock Margin="0,0,4,0" Text="Radius px:" />
             <TextBox Width="50" VerticalContentAlignment="Center"
                      Text="{Binding RadiusPx, UpdateSourceTrigger=PropertyChanged, StringFormat=0.#}" />
@@ -42,7 +45,7 @@
 
         <!-- Image + overlays. The Image and all marker layers share one transform (zoom/pan) so markers stay
              pinned to image pixels. Mouse events are handled in code-behind against the viewport. -->
-        <Border Grid.Row="2" ClipToBounds="True" Background="Black" BorderBrush="#FF3F4958" BorderThickness="1">
+        <Border Grid.Row="2" Grid.Column="0" ClipToBounds="True" Background="Black" BorderBrush="#FF3F4958" BorderThickness="1">
             <Canvas x:Name="ViewportCanvas"
                     Background="Transparent"
                     MouseWheel="ViewportCanvas_MouseWheel"
@@ -103,7 +106,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Rectangle Width="{Binding Width}" Height="{Binding Height}"
-                                       Stroke="#FF00FF00"
+                                       Stroke="{Binding DataContext.AcceptedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                        StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -123,7 +126,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Rectangle Width="{Binding Width}" Height="{Binding Height}"
-                                       Stroke="#FF00E5FF"
+                                       Stroke="{Binding DataContext.MissedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                        StrokeDashArray="3 2"
                                        StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                         </DataTemplate>
@@ -144,7 +147,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Rectangle Width="{Binding Width}" Height="{Binding Height}"
-                                       Stroke="#FFFF8C00"
+                                       Stroke="{Binding DataContext.ShouldRejectBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                        StrokeDashArray="3 2"
                                        StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                         </DataTemplate>
@@ -166,7 +169,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Rectangle Width="{Binding Width}" Height="{Binding Height}"
-                                       Stroke="#FF39FF14"
+                                       Stroke="{Binding DataContext.WronglyRejectedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                        StrokeDashArray="3 2"
                                        StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                         </DataTemplate>
@@ -177,21 +180,46 @@
                      coords; shares the canvas transform so it tracks the cursor under zoom/pan). -->
                 <Rectangle x:Name="DragRect"
                            Visibility="Collapsed"
-                           Stroke="#FF00E5FF"
+                           Stroke="{Binding MissedBrush}"
                            StrokeDashArray="3 2"
                            StrokeThickness="{Binding LabelStrokeThickness}"
                            IsHitTestVisible="False" />
             </Canvas>
         </Border>
 
-        <!-- Mode-less interaction help + counts -->
-        <DockPanel Grid.Row="3" LastChildFill="False" Margin="0,6,0,0">
-            <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Text="{Binding HelpText}" />
-            <TextBlock DockPanel.Dock="Right" Text="{Binding CountsLabel}" />
-        </DockPanel>
+        <!-- Concise, wrapping interaction instructions (the color key now lives in the legend panel at right) + counts. -->
+        <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,6,0,0">
+            <TextBlock Foreground="#FFB0B6BD" Text="{Binding HelpText}" TextWrapping="Wrap" />
+            <TextBlock Margin="0,4,0,0" Foreground="#FFB0B6BD" Text="{Binding CountsLabel}" />
+        </StackPanel>
 
-        <!-- Legend / help -->
-        <TextBlock Grid.Row="4" Margin="0,4,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
-                   Text="SOLID detector boxes: green = accepted (real detector bounds); reason boxes = rejected (yellow TooDistorted, orange Degenerate, red Saturated, cyan LowSensitivity, magenta NotCentered, blue TooFlat, purple Contaminated). DASHED user labels: cyan = MISSED, orange = SHOULD-REJECT, bright-green = WRONGLY-REJECTED (folds into recall). Mode-less: LEFT-CLICK an accepted green box to flag a false positive; LEFT-CLICK a rejected box to keep it; LEFT-DRAG a box over blank space to mark a missed star (a tiny drag drops a small default box). Click an existing label again to remove it. Right-drag to pan, wheel to zoom." />
+        <!-- Color legend (right column), generated from the VM's single color source so it tracks the overlays. -->
+        <StackPanel Grid.Row="0" Grid.RowSpan="4" Grid.Column="1" Width="230" Margin="12,0,0,0">
+            <TextBlock FontWeight="Bold" Margin="0,0,0,6" Text="Legend" />
+            <ItemsControl ItemsSource="{Binding LegendEntries}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <Rectangle Width="20" Height="12" Margin="0,0,8,0" VerticalAlignment="Center"
+                                       Fill="Transparent" Stroke="{Binding Brush}" StrokeThickness="2">
+                                <Rectangle.Style>
+                                    <Style TargetType="Rectangle">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Dashed}" Value="True">
+                                                <Setter Property="StrokeDashArray" Value="3 2" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Rectangle.Style>
+                            </Rectangle>
+                            <!-- Explicit Foreground: the control's implicit white-TextBlock style does not reach
+                                 TextBlocks generated inside this ItemTemplate, so they'd render dark-on-dark. -->
+                            <TextBlock Width="190" VerticalAlignment="Center" Foreground="{StaticResource Fg}"
+                                       Text="{Binding Caption}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
     </Grid>
 </UserControl>

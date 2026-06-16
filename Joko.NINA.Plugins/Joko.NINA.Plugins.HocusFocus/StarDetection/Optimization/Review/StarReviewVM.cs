@@ -75,6 +75,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public Color Color { get; set; }
     }
 
+    /// <summary>One row of the on-screen color legend: a swatch brush, a plain-language caption, and whether the
+    /// swatch is drawn dashed (user labels) or solid (detector boxes).</summary>
+    public sealed class StarReviewLegendEntry {
+        public Brush Brush { get; set; }
+        public string Caption { get; set; }
+        public bool Dashed { get; set; }
+    }
+
     /// <summary>The kind of detector box (if any) found under a click point by <see cref="StarReviewVM.HitTestCandidate(IEnumerable{Rect}, IEnumerable{Rect}, double, double)"/>.</summary>
     public enum HitCategory {
         /// <summary>No detector box (accepted or rejected) contains the click.</summary>
@@ -112,6 +120,42 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             { "Contaminated",   Color.FromRgb(128, 0, 128) },   // purple
         };
 
+        // Plain-language captions for the rejection reasons, shown in the legend instead of the raw enum names.
+        private static readonly Dictionary<string, string> ReasonCaptions = new(StringComparer.Ordinal) {
+            { "TooDistorted",   "Too distorted" },
+            { "Degenerate",     "Degenerate shape" },
+            { "Saturated",      "Saturated" },
+            { "LowSensitivity", "Below sensitivity" },
+            { "NotCentered",    "Off-center" },
+            { "TooFlat",        "Too flat" },
+            { "Contaminated",   "Contaminated" },
+        };
+
+        // Fixed marker colors (the detector ACCEPTED box + the three user-label boxes). Centralized here so the
+        // overlays AND the legend draw from one source and can't drift. Frozen brushes are safe to share/bind.
+        private static readonly Color AcceptedColor = Color.FromRgb(0x00, 0xFF, 0x00);        // green
+        private static readonly Color MissedColor = Color.FromRgb(0x00, 0xE5, 0xFF);          // cyan
+        private static readonly Color ShouldRejectColor = Color.FromRgb(0xFF, 0x8C, 0x00);    // orange
+        private static readonly Color WronglyRejectedColor = Color.FromRgb(0x39, 0xFF, 0x14); // bright green
+
+        /// <summary>Detector ACCEPTED-box stroke (green). Bound by the accepted-marker overlay and the legend.</summary>
+        public Brush AcceptedBrush { get; } = FrozenBrush(AcceptedColor);
+
+        /// <summary>User "missed" label stroke (cyan, dashed).</summary>
+        public Brush MissedBrush { get; } = FrozenBrush(MissedColor);
+
+        /// <summary>User "should-reject" label stroke (orange, dashed).</summary>
+        public Brush ShouldRejectBrush { get; } = FrozenBrush(ShouldRejectColor);
+
+        /// <summary>User "wrongly-rejected / keep" label stroke (bright green, dashed).</summary>
+        public Brush WronglyRejectedBrush { get; } = FrozenBrush(WronglyRejectedColor);
+
+        private static SolidColorBrush FrozenBrush(Color c) {
+            var b = new SolidColorBrush(c);
+            b.Freeze();
+            return b;
+        }
+
         public StarReviewVM(
             IReadOnlyList<FrameReview> queue,
             Dictionary<string, StarReviewRunLabels> labelsByRun,
@@ -121,6 +165,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             this.labelsDir = labelsDir ?? throw new ArgumentNullException(nameof(labelsDir));
 
             Viewport = new StarReviewViewport();
+            LegendEntries = BuildLegend();
 
             NextCommand = new RelayCommand(Next, () => CurrentIndex < queue.Count - 1);
             PrevCommand = new RelayCommand(Prev, () => CurrentIndex > 0);
@@ -194,9 +239,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public ObservableCollection<LabelBoxMarker> ShouldRejectMarkers { get; } = new();
         public ObservableCollection<LabelBoxMarker> WronglyRejectedMarkers { get; } = new();
 
-        /// <summary>Static, mode-less interaction help line shown under the image (no pass selection any more).</summary>
+        /// <summary>The on-screen color legend (swatch + plain-language caption), built once. Detector boxes are
+        /// drawn solid, the three user-label types dashed — matching the overlays. Generated from the same color
+        /// source as the markers so the two can't drift.</summary>
+        public IReadOnlyList<StarReviewLegendEntry> LegendEntries { get; }
+
+        private IReadOnlyList<StarReviewLegendEntry> BuildLegend() {
+            var entries = new List<StarReviewLegendEntry> {
+                new() { Brush = AcceptedBrush, Caption = "Accepted star", Dashed = false }
+            };
+            foreach (var kv in ReasonColors) {
+                var caption = ReasonCaptions.TryGetValue(kv.Key, out var c) ? c : kv.Key;
+                entries.Add(new StarReviewLegendEntry { Brush = FrozenBrush(kv.Value), Caption = "Rejected: " + caption, Dashed = false });
+            }
+            entries.Add(new StarReviewLegendEntry { Brush = MissedBrush, Caption = "Missed (you marked)", Dashed = true });
+            entries.Add(new StarReviewLegendEntry { Brush = ShouldRejectBrush, Caption = "Should reject (you marked)", Dashed = true });
+            entries.Add(new StarReviewLegendEntry { Brush = WronglyRejectedBrush, Caption = "Keep / wrongly rejected (you marked)", Dashed = true });
+            return entries;
+        }
+
+        /// <summary>Concise, wrapping interaction help shown under the image (the color key now lives in the
+        /// legend panel to the right).</summary>
         public string HelpText =>
-            "Click a green box to flag a false positive · click a rejected box to keep it · drag a box over a missed star · click a label again to remove it";
+            "Left-drag over a missed star to mark it. Click an accepted box to flag a false positive, or a " +
+            "rejected box to keep it. Click a label again to remove it. Wheel to zoom, right-drag to pan.";
 
         private double radiusPx = StarReviewLabelStore.DefaultRadiusPx;
         public double RadiusPx {

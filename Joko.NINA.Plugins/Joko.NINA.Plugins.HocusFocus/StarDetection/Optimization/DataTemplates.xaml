@@ -30,7 +30,7 @@
                     <Setter Property="MinHeight" Value="420" />
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding IsReview}" Value="True">
-                            <Setter Property="Width" Value="980" />
+                            <Setter Property="Width" Value="1120" />
                             <Setter Property="MinHeight" Value="720" />
                         </DataTrigger>
                     </Style.Triggers>
