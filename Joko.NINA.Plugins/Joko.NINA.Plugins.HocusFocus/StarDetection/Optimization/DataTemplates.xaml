@@ -334,7 +334,7 @@
                                 <DataGridTextColumn
                                     Width="*"
                                     Binding="{Binding SeedValue, StringFormat=F3}"
-                                    Header="Seed" />
+                                    Header="Current" />
                                 <DataGridTextColumn
                                     Width="*"
                                     Binding="{Binding OptimizedValue, StringFormat=F3}"
