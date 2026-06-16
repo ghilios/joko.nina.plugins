@@ -201,3 +201,75 @@ low-moderate risk (trajectory changes; verify quality-neutral). **(B)** bounded 
 so an early probe doesn't evict the incumbent → **~2×**, bit-identical results, but ~6.6 GB peak at 61 MP (needs
 a memory guard). **(C)** early-stop early-axis probing after K non-improving sweeps → **~2–4×**, low-moderate risk.
 A captures most of the win with the least memory risk; A+B is best.
+
+> **Update (T14 — implemented):** option **(A)** shipped in commit `a765c9a` as the staged Phase-B compass
+> search (LATE axes refined first with the early context pinned, then a bounded EARLY stage). The headline ~6.7×
+> matches the projected ~5–10×. See `docs/star-detection-optimizer-performance-design.md` for the design write-up.
+
+## G2 — Structure-boost validation (`DefocusAwareStructure` / `StructureLayerBoost`, follow-up T13)
+
+The defocus-aware **structure** relaxation (the EARLY-stage candidate-formation knob, distinct from the two LATE
+`DefocusAwareGates`) shipped in PR #61 but had **never been A/B-tested on data** — F2/F3 had recorded the 4/5
+missed Panos boxes as an undifferentiated "`NO CANDIDATE` structure gap." This closes that out. The
+`DefocusAwareStructure` flag computes the large-structure wavelet residual at `StructureLayers + StructureLayerBoost`
+**extra** layers (coarser removal), so a heavily-defocused donut survives the subtraction and forms a candidate
+instead of being erased. Tested via two new **`diagnose-labels`** switches (`--defocus-structure` / `--structure-boost`,
+plus a diagnostic `--structure-layers` override) on **Panos** `attempt01` (labeled near-focus frame @ **32396** and
+donut frame @ **44396**). The profile (`AA1600MM`) has since drifted to *post-optimization* settings
+(`Sensitivity`=15.67, `StructureLayers`=5 — the F3 path), so the baseline `StructureLayers` is pinned to the factory
+**4** (where the gap is open) to isolate the mechanism.
+
+| Config (SL=4 baseline + flag) | near-focus @32396 acc/rej | donut @44396 acc/rej | missed `NO CANDIDATE` |
+|---|---|---|---|
+| baseline (flag OFF) | 182 / 778 | 0 / 240 | **4** / 5 |
+| `DefocusAwareStructure` ON, **boost 0** (control) | 182 / 778 | 0 / 240 | 4 / 5 |
+| `DefocusAwareStructure` ON, **boost 1** (eff. 5) | 202 / 803 | 0 / 333 | **2** / 5 |
+| `DefocusAwareStructure` ON, **boost 2** (eff. 6) | 197 / 821 | 1 / 435 | 2 / 5 |
+| `DefocusAwareStructure` ON, **boost 3** (eff. 7) | 204 / 811 | 1 / 450 | 2 / 5 |
+| (cross-check) `StructureLayers`=5 global, flag OFF | 204 / 679 | 0 / 259 | 2 / 5 |
+
+### Findings
+
+- **Bit-identical OFF — proven, not just asserted.** `DefocusAwareStructure=ON` with **boost 0** is *byte-identical*
+  to the flag OFF (182/778, 0/240, same 4 `NO CANDIDATE`): `Math.Max(1, StructureLayers + 0) == StructureLayers`, so
+  the wavelet depth is unchanged. Default-OFF detection is unaffected.
+- **The mechanism works — it recovers the structure-gap *donuts*.** boost 1 drops `NO CANDIDATE` from **4 → 2**: the
+  two recovered boxes are exactly the **large donuts** at @44396 (label boxes **47×50** and **47×43** px) — they go
+  from forming no candidate to forming one. The two *unrecoverable* boxes are the faint **near-focus** stars at @32396
+  (12×12 px): a **sensitivity floor**, not a structure erasure — coarser large-structure removal can't and shouldn't
+  resurrect them. (So the F2/F3 "4/5 structure gap" was really **2 structure-recoverable donuts + 2 faint-star floor**.)
+- **Recovery is necessary but not sufficient for end-to-end recall.** The recovered donut forms only a **thin ring
+  fragment** (measured 3–4 px vs the `TooSmall` threshold 6), so it is admitted as a candidate but then re-rejected
+  (`TooSmall`), and the donut-frame ACCEPTED count stays 0–1. Structure boost is **complementary** to the gates: it
+  moves a star from "no candidate at all" into the gate pipeline, where `DefocusAwareGates` (+ a lower `TooSmall`/
+  `Sensitivity`) would have to finish the job. On its own it adds no accepted stars on Panos.
+- **boost 1 is the sweet spot; higher adds churn, not recall.** boost 2/3 recover **no additional** donuts (still 2
+  `NO CANDIDATE`) while inflating the donut-frame candidate pool (333 → 435 → 450) and perturbing the near-focus
+  frame more — i.e. more work, more junk to backstop, no extra real stars.
+- **Near-focus cost is modest, not a flood.** Turning the flag on is a *global* depth change (not per-star), so
+  near-focus is **not** bit-identical when ON: @32396 accepted moves 182 → 202 (+11%) and rejected 778 → 803. That
+  is a real but contained change (the other gates backstop the extra candidates), nowhere near a flood. This is why
+  the flag is correctly **opt-in / default-OFF**.
+- **Relation to the optimizer's global path.** Raising `StructureLayers` to 5 *globally* (the F3 optimizer path, now
+  baked into the profile) reaches the same `2/5 NO CANDIDATE` for the donut frame, because the residual is computed at
+  5 layers either way; the only difference is the post-wavelet blur radius (boost keeps it at the nominal 4 ⇒ a few
+  more small candidates: 803 vs 679 near-focus rejected). So `StructureLayerBoost` is **not** a more-targeted relaxation
+  than `StructureLayers↑` — both are global — it just decouples the residual depth from the blur radius.
+
+**Recommendation.** Keep **default-OFF** (correct as shipped). For users whose heavily-defocused frames *lose donut
+stars entirely* (not merely reject them), `DefocusAwareStructure` + `StructureLayerBoost`=**1** is the effective
+setting — it reopens the structure gap for large donuts — but it should be paired with `DefocusAwareGates` and a
+modestly lower `TooSmall`/`Sensitivity` to carry the recovered fragments through to ACCEPTED; boost > 1 is not worth
+it. The remaining faint near-focus `NO CANDIDATE` misses are a sensitivity floor, outside this feature's reach. The
+new `diagnose-labels --defocus-structure/--structure-boost/--structure-layers` switches make this re-runnable on any
+labeled setup.
+
+### Still open (G1 — precision penalty, deferred)
+
+The `SDefocusPrecision` near-focus precision penalty (F3) and its constants remain **exercised only by unit tests** —
+no `should-reject` (false-positive) labels exist yet, on Panos or any setup, so the penalty has never *bitten* on real
+data and its constants (`NearFocusWindowSteps`=1.5, `DefocusPrecisionThreshold`=0.20, `DefocusPrecisionStrength`=0.5,
+`DefocusPrecisionMinFactor`=0.5) are untuned-against-data. Closing this needs a near-focus-heavy setup labeled with
+`should-reject` boxes (click an **accepted** star in `TestApp review` or the in-wizard review); then
+`optimize --labels` should show the labeled loop improves recall *without* tanking precision and the penalty bites
+when relaxation admits near-focus junk. Deferred to a future session pending those labels.

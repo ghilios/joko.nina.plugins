@@ -390,8 +390,19 @@ namespace TestApp {
             var progress = new Progress<OptimizationProgress>(op =>
                 Console.WriteLine($"  [{op.Phase}] evals={op.Evaluations}/{op.MaxEvaluations} bestJ={F(op.BestJ)} seedJ={F(op.SeedJ)}"));
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var result = await optimizer.OptimizeAsync(ctx.Seed, variables, evaluator, settings, progress, CancellationToken.None).ConfigureAwait(false);
+            sw.Stop();
             Console.WriteLine($"Optimization complete: seedJ={F(result.SeedJ)} -> bestJ={F(result.BestJ)} ({(result.ImprovedOverSeed ? "improved" : "no improvement")}), evals={result.Evaluations}");
+
+            // Cache-health + wall-clock readout (the early-context build:reuse ratio is the direct measure of how much
+            // per-frame early work the staged search / context cache avoids; see the performance-design doc).
+            var builds = dataList.Sum(d => d.ContextBuilds);
+            var reuses = dataList.Sum(d => d.ContextReuses);
+            var totalDetections = builds + reuses;
+            var reusePct = totalDetections > 0 ? 100.0 * reuses / totalDetections : 0.0;
+            Console.WriteLine($"Optimize phase: {sw.Elapsed.TotalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} s wall, " +
+                $"early-context builds={builds}, reuses={reuses} ({reusePct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}% reuse of {totalDetections} frame detections)");
 
             var perRunSeed = new List<RunEvaluationResult>(loadedRuns.Count);
             var perRunBest = new List<RunEvaluationResult>(loadedRuns.Count);

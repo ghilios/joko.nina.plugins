@@ -10,6 +10,15 @@ uses an equivalent `MatSplitFrameDetector`). The §7 logging quick-win shipped t
 dominates). The wizard per-eval convert-reuse (#1) remains DEFERRED (see §7). The analysis below is
 retained as the rationale; the "ranked recommendations" reflect what shipped vs. what is left.
 
+> **Important caveat — the 10–13× is conditional on the search staying late-only (see §8).** The single-context
+> per-frame cache holds **one** early context per frame, so an *early-axis* compass probe both rebuilds for the
+> probe **and evicts the incumbent**. With the original single-loop Phase B re-probing all 5 early axes every sweep,
+> ~46% of detections were forced full rebuilds on big sensors and runtime ballooned to ~25× the headline. **This was
+> fixed (T14, commit `a765c9a`) by staging Phase B late→early** so late refinement runs entirely on cache hits and
+> early axes are probed in one bounded, latched stage — restoring near-100% cache reuse (measured 99.3% on muggsie,
+> 150 evals). §8 documents the diagnosis, the fix, and why the further-headroom options (multi-context LRU / early-axis
+> early-stop) are now largely moot.
+
 Scope: the Star Detection Optimization wizard and its offline harness (`TestApp optimize`).
 Goal: explain where wall-clock time goes and lay out the highest-leverage speedups, separating
 safe "pure performance" wins (must stay bit-identical) from larger refactors.
@@ -308,3 +317,76 @@ already has to make the cached source Mat read-only and key it on the EARLY para
 params). Per the "bit-identical safety beats the speedup" rule, this is left to that refactor. The harness
 (`OptimizationDiagnosticRunner.PrepareRunAsync`) already pre-converts each frame to a float Mat once and clones
 per eval, so it pays no per-eval conversion cost regardless.
+
+## 8. Cache-thrashing caveat, the staged Phase-B fix (T14), and what headroom remains (G5)
+
+The §3/§7 single-context-per-frame cache delivers the headline 10–13× **only while the compass search stays on
+late-only moves**. Each EARLY-axis probe (one of the 5 wavelet/structure params) both rebuilds the per-frame
+context for the probe **and evicts the incumbent's context**, so with the original un-staged Phase B — which
+re-probed all 5 early axes on *every* sweep — ~46% of detections on a big sensor were forced full early rebuilds
+(~1.65 s/frame vs ~53 ms for a late gate), ballooning runtime to ~25× the headline. (Full diagnosis: the results
+doc, *Cache-health investigation (T12b)*.)
+
+### The fix that shipped — T14 staged Phase B (option A)
+
+`StarDetectionOptimizer.PatternSearch` now **stages** the compass (commit `a765c9a`). The curated axes are
+partitioned — via the single source of truth `StarDetector.IsEarlyCacheKeyParameter` — into LATE (cache-hit-cheap)
+and EARLY (rebuild+evict). Each round refines the LATE axes to their step floor *first*, with the early params
+pinned (so every late probe is a per-frame cache hit), then runs **one** bounded EARLY stage; the early stage is
+**latched off** (`earlyExhausted`) once it stops paying off, so the 5 early axes are not re-probed indefinitely.
+The search stays deterministic and never-regress (staging changes visit order, not the reachable set).
+
+**Measured (this session, instrumented — `RunEvaluationData.ContextBuilds`/`ContextReuses`, `--max-evals 150`):**
+
+| Run | early-context builds | reuses | reuse % | wall |
+|---|---|---|---|---|
+| muggsie (9 frames, already-good seed) | **9** (= 1/frame, the floor) | 1341 | **99.3%** | 17.9 s |
+| toml999 (9 frames, already-good) | **9** | 1341 | 99.3% | 40.1 s |
+| Panos (9 frames, *labeled*, seed J=0 ⇒ heavy early-axis recall search) | 343 | 707 | 67.3% | 324 s |
+
+So on a normal/unlabeled run T14 drives builds to the **irreducible minimum** (one per frame for the seed) — the
+pre-T14 46%-rebuild thrash is gone. Builds only reappear when the objective genuinely *needs* early-axis search
+(the labeled Panos recall-recovery case explores `StructureLayers`/`NoiseClipping`), and even there 2/3 of
+detections are cache hits.
+
+### Why options B and C are now largely moot
+
+The T12b note ranked three scoped fixes. **A (staged Phase B) shipped and captured the win.** The other two were
+*alternatives* to A, and stacking them on top now buys little:
+
+- **(B) bounded multi-context LRU per frame** — would only save the *re-build of the incumbent's* early context on
+  an early→late transition. At 99.3% reuse there is nothing to save on normal runs; on Panos it could reclaim a
+  fraction of the 343 builds (most of which are genuinely-new early keys the search must build regardless), at the
+  cost of the ~6.6 GB-at-61 MP memory-budget machinery. Poor value post-T14.
+- **(C) early-stop early-axis probing** — T14's `earlyExhausted` latch already *is* an early-axis early-stop
+  (it trips when an early stage yields zero gain).
+
+### A convergence early-stop was investigated and rejected (G5)
+
+Post-T14 the residual wall-clock is **not** cache thrash; it is the search spending its eval budget where the
+per-move gains have gone small. The natural next lever is a *convergence early-stop* — stop (or latch the early
+axes off) once a round/stage improves J by ≤ some tolerance, generalizing `earlyExhausted` from "zero gain" to
+"≤ tolerance gain". It was prototyped (opt-in, default 0 ⇒ bit-identical) and **measured against the bank, where it
+produced no benefit at any tested tolerance, so it was not shipped.** The reason is structural: on these runs the
+optimizer **never converges before the eval budget** — it keeps finding strictly-improving (if marginal) moves, so
+no round or early-stage gain ever falls to ≤ tolerance before the cap. Two illustrative measurements:
+
+| Run | `--max-evals` | tol = 0 | tol = 0.001 | tol = 0.005 |
+|---|---|---|---|---|
+| Panos (labeled, heavy early search) | 150 | 315 s / 343 builds / J 0.928964 | 311 s / 343 builds (identical) | 315 s / 343 builds (identical) |
+| muggsie (wizard-default budget) | 400 | 129 s / 522 builds / J 0.998677 | 127 s / 522 builds (identical) | — (≤ 0.0001 also identical) |
+
+(An *early prototype* that instead trimmed the cheap LATE halving tail actively **back-fired** — breaking the late
+stage hands control to the EXPENSIVE early stage more often, ballooning muggsie to 113 s / 585 builds — confirming
+the late tail is cache-cheap and must not be trimmed.) **Conclusion: T14 already captured the optimizer-perf win;
+the only further lever that *would* cut wall-clock is lowering the eval budget (§5/§6.2) — e.g. muggsie is 129 s at
+400 evals vs 17.9 s at 150 evals for a J cost of only 0.0023 — but that is a search-quality default decision, left
+to the user, not a bit-identical perf change.**
+
+### What G5 *did* ship — cache instrumentation
+
+`RunEvaluationData` now exposes `ContextBuilds` / `ContextReuses` (Interlocked counters over the early-context
+cache), and the `optimize` runner prints a per-run readout: `Optimize phase: … s wall, early-context builds=…,
+reuses=… (… % reuse of … frame detections)`. This is what made the analysis above measurable and is a permanent
+**cache-health regression guard** — if a future change reintroduces early-context thrash, the reuse % drops
+visibly (a healthy normal run is ~99% reuse; the pre-T14 thrash was ~54%).

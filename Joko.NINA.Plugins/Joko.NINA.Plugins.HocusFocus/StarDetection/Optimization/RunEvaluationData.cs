@@ -233,6 +233,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private readonly object cacheLock = new object();
         private bool disposed;
 
+        // Cache instrumentation (split path only). ContextBuilds = expensive early-stage rebuilds actually run;
+        // ContextReuses = late-only moves served from a cached context (the cheap path). The build:reuse ratio is the
+        // direct measure of early-context cache health — it quantifies how much of the per-frame early cost the
+        // staged search (T14) / context cache avoids. Updated with Interlocked so the concurrent per-frame loop is safe.
+        private long contextBuilds;
+        private long contextReuses;
+
+        /// <summary>Number of expensive early-stage <see cref="ISplitFrameDetector.BuildContextAsync"/> calls that
+        /// actually ran (cache misses). Zero on the legacy monolithic path.</summary>
+        public long ContextBuilds => System.Threading.Interlocked.Read(ref contextBuilds);
+
+        /// <summary>Number of frame detections served by reusing an already-built early context (cache hits) — the
+        /// cheap late-only path. Zero on the legacy monolithic path.</summary>
+        public long ContextReuses => System.Threading.Interlocked.Read(ref contextReuses);
+
         private sealed class CachedContext {
             public string EarlyKey;
             public IDisposable Context;
@@ -346,6 +361,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     }
                     var slot = contextCache[frameIndex];
                     if (slot != null && slot.Context != null && slot.EarlyKey == earlyKey) {
+                        System.Threading.Interlocked.Increment(ref contextReuses);
                         return slot.Context; // reuse the published context
                     }
                     if (slot != null && slot.Building != null && slot.EarlyKey == earlyKey) {
@@ -387,6 +403,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             IDisposable built = null;
             try {
                 built = await splitDetector.BuildContextAsync(frameImage, p, token).ConfigureAwait(false);
+                System.Threading.Interlocked.Increment(ref contextBuilds);
                 evicted?.Dispose();
 
                 bool disposeBuilt = false;

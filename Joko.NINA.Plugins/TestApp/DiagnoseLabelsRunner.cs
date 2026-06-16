@@ -199,6 +199,31 @@ namespace TestApp {
                 }
             }
 
+            // Opt-in defocus-aware STRUCTURE test switch (the EARLY-stage candidate-formation relaxation, distinct
+            // from the two LATE gates above). Flips DefocusAwareStructure ON and sets StructureLayerBoost so the
+            // wavelet residual that removes large-scale structure is computed at StructureLayers + boost EXTRA
+            // layers (coarser), letting large/donut defocused stars survive and form candidates instead of being
+            // erased entirely (the NO-CANDIDATE structure gap). --structure-boost defaults to 2 when the flag is
+            // present (0 ⇒ no change even with the flag on, useful as an explicit bit-identical control).
+            if (DiagnosticUtil.HasFlag(args, "--defocus-structure")) {
+                detectionParams.DefocusAwareStructure = true;
+                var boost = 2;
+                var boostArg = DiagnosticUtil.GetArg(args, "--structure-boost");
+                if (!string.IsNullOrWhiteSpace(boostArg) && int.TryParse(boostArg, NumberStyles.Integer, CultureInfo.InvariantCulture, out var b) && b >= 0) {
+                    boost = b;
+                }
+                detectionParams.StructureLayerBoost = boost;
+            }
+
+            // Optional StructureLayers override (diagnostic only): pins the nominal StructureLayers independent of
+            // the profile so the structure-boost mechanism can be A/B-tested against a controlled baseline (e.g.
+            // the factory default 4 where the donuts are NO-CANDIDATE) rather than against a drifted/optimized
+            // profile. Read-only on the profile, like the defocus switches.
+            var structureLayersArg = DiagnosticUtil.GetArg(args, "--structure-layers");
+            if (!string.IsNullOrWhiteSpace(structureLayersArg) && int.TryParse(structureLayersArg, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sl) && sl >= 1) {
+                detectionParams.StructureLayers = sl;
+            }
+
             Line($"Detection params: Sensitivity={detectionParams.Sensitivity.ToString("G6", CultureInfo.InvariantCulture)}, " +
                 $"StructureLayers={detectionParams.StructureLayers}, MaxDistortion={detectionParams.MaxDistortion.ToString("G6", CultureInfo.InvariantCulture)}, " +
                 $"PixelScale={detectionParams.PixelScale.ToString("G6", CultureInfo.InvariantCulture)}, RejectContaminated={detectionParams.RejectContaminatedStars}");
@@ -212,6 +237,8 @@ namespace TestApp {
                     ? $" (SizeReference={detectionParams.DefocusDistortionSizeReference.ToString("G6", CultureInfo.InvariantCulture)} px, " +
                       $"ToleranceFactor={detectionParams.DefocusCenteringToleranceFactor.ToString("G6", CultureInfo.InvariantCulture)})"
                     : ""));
+            Line($"DefocusAwareStructure={detectionParams.DefocusAwareStructure}" +
+                (detectionParams.DefocusAwareStructure ? $" (StructureLayerBoost={detectionParams.StructureLayerBoost}, effective layers={detectionParams.StructureLayers + detectionParams.StructureLayerBoost})" : ""));
             Line();
 
             var detector = new StarDetector(new AlglibAPI());
@@ -381,6 +408,9 @@ namespace TestApp {
             Console.Error.WriteLine("  --defocus-size-ref <px>     (with either defocus switch) override the strict-below size reference, shared by both gates (default 30).");
             Console.Error.WriteLine("  --defocus-min-factor <0..1> (with --defocus-distortion) override the floor multiplier on MaxDistortion (default 0.25).");
             Console.Error.WriteLine("  --defocus-center-factor <>=1> (with --defocus-centering) override the max multiplier on StarCenterTolerance (default 2.0).");
+            Console.Error.WriteLine("  --defocus-structure         (opt-in test switch) flips DefocusAwareStructure ON (EARLY-stage: coarser large-structure removal so donut/defocused stars form candidates).");
+            Console.Error.WriteLine("  --structure-boost <0..6>    (with --defocus-structure) extra wavelet layers for large-structure removal (default 2; 0 ⇒ bit-identical control).");
+            Console.Error.WriteLine("  --structure-layers <n>      (diagnostic) override nominal StructureLayers (e.g. 4 for the factory baseline), independent of the profile.");
         }
 
         // ---- Run / frame discovery (mirrors StarReviewRunner / OptimizationDiagnosticRunner) ----------------
