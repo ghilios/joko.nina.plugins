@@ -75,6 +75,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public string HfrText { get; set; }
     }
 
+    /// <summary>Which part of a drawn (missed) box is under the cursor: an edge or corner (resize), the interior
+    /// (move), or nothing. Drives both the move/resize gesture and the cursor shown while hovering.</summary>
+    public enum BoxHandle { None, Inside, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight }
+
     /// <summary>A drawable rejected-candidate box in image-pixel coords, colored by reason.</summary>
     public sealed class RejectedMarker {
         public double X { get; set; }
@@ -206,6 +210,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         public string PositionLabel => $"{CurrentIndex + 1} / {queue.Count}";
 
+        private string cursorPositionText;
+
+        /// <summary>The image (sensor) pixel coordinates under the mouse cursor, shown in the header so a region can
+        /// be described precisely. Null/empty when the cursor is off the image. Updated by the control on mouse move.</summary>
+        public string CursorPositionText {
+            get => cursorPositionText;
+            set { if (cursorPositionText != value) { cursorPositionText = value; RaisePropertyChanged(); } }
+        }
+
         private string frameHeader;
         public string FrameHeader {
             get => frameHeader;
@@ -296,8 +309,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// legend panel to the right).</summary>
         public string HelpText =>
             "Left-drag over a missed star to mark it. Click an accepted box to flag a false positive, or a " +
-            "rejected box to keep it. Right-click a label (or click it again) to remove it. Ctrl+Z / Ctrl+Y to " +
-            "undo / redo. Wheel to zoom, right-drag to pan.";
+            "rejected box to keep it. Drag inside a box you drew to move it, or its edges/corners to resize. " +
+            "Right-click a label (or click it again) to remove it. Ctrl+Z / Ctrl+Y to undo / redo. Wheel to zoom, " +
+            "right-drag to pan.";
 
         public string CountsLabel {
             get {
@@ -426,6 +440,124 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 RecordEdit(run.RunId, Current.FocuserPosition, LabelKind.Missed, box, wasAdd: true);
             }
             RefreshLabelMarkers();
+        }
+
+        // ---- Move / resize of drawn (missed) boxes ---------------------------------------------------------
+
+        // In-progress edit state (valid between BeginMissedBoxEdit and EndMissedBoxEdit).
+        private int editBoxIndex = -1;
+        private BoxHandle editHandle = BoxHandle.None;
+        private StarReviewLabelBox editBox;
+        private double editStartX, editStartY, editStartW, editStartH; // geometry at grab (undo baseline + move base)
+        private double editGrabX, editGrabY;                            // cursor image point at grab (move delta base)
+
+        /// <summary>True while a move/resize gesture is active (the view routes mouse events to UpdateMissedBoxEdit).</summary>
+        public bool IsEditingBox => editBoxIndex >= 0;
+
+        /// <summary>Finds the drawn (missed) box under (<paramref name="px"/>,<paramref name="py"/>): its index and the
+        /// handle (edge/corner = resize, interior = move) within <paramref name="edgePx"/> image pixels of an edge.
+        /// Smallest box wins on overlap. Returns (-1, None) when no missed box is under the point. Pure query — drives
+        /// both the gesture routing and the hover cursor.</summary>
+        public (int Index, BoxHandle Handle) HitTestMissedBox(double px, double py, double edgePx) {
+            var pos = CurrentPositionLabels;
+            if (pos?.Missed == null || pos.Missed.Count == 0) {
+                return (-1, BoxHandle.None);
+            }
+            var bestIdx = -1;
+            var bestHandle = BoxHandle.None;
+            var bestArea = double.MaxValue;
+            for (var i = 0; i < pos.Missed.Count; i++) {
+                var b = pos.Missed[i];
+                double x = b.X, y = b.Y, w = b.W ?? 0.0, h = b.H ?? 0.0;
+                if (px < x - edgePx || px > x + w + edgePx || py < y - edgePx || py > y + h + edgePx) {
+                    continue;
+                }
+                bool nearL = Math.Abs(px - x) <= edgePx, nearR = Math.Abs(px - (x + w)) <= edgePx;
+                bool nearT = Math.Abs(py - y) <= edgePx, nearB = Math.Abs(py - (y + h)) <= edgePx;
+                BoxHandle handle =
+                    nearL && nearT ? BoxHandle.TopLeft :
+                    nearR && nearT ? BoxHandle.TopRight :
+                    nearL && nearB ? BoxHandle.BottomLeft :
+                    nearR && nearB ? BoxHandle.BottomRight :
+                    nearL ? BoxHandle.Left :
+                    nearR ? BoxHandle.Right :
+                    nearT ? BoxHandle.Top :
+                    nearB ? BoxHandle.Bottom :
+                    BoxHandle.Inside;
+                var area = w * h;
+                if (area < bestArea) {
+                    bestArea = area;
+                    bestIdx = i;
+                    bestHandle = handle;
+                }
+            }
+            return (bestIdx, bestHandle);
+        }
+
+        /// <summary>Begins a move (Inside) or resize (edge/corner) of the missed box at <paramref name="index"/>,
+        /// anchored at the cursor image point. Captures the starting geometry for the live update and the undo.</summary>
+        public void BeginMissedBoxEdit(int index, BoxHandle handle, double grabX, double grabY) {
+            var pos = CurrentPositionLabels;
+            if (pos?.Missed == null || index < 0 || index >= pos.Missed.Count || handle == BoxHandle.None) {
+                editBoxIndex = -1;
+                return;
+            }
+            editBoxIndex = index;
+            editHandle = handle;
+            editBox = pos.Missed[index];
+            editStartX = editBox.X;
+            editStartY = editBox.Y;
+            editStartW = editBox.W ?? 0.0;
+            editStartH = editBox.H ?? 0.0;
+            editGrabX = grabX;
+            editGrabY = grabY;
+        }
+
+        /// <summary>Live-updates the in-progress move/resize to the current cursor image point and refreshes the
+        /// overlay. No-op when no edit is active.</summary>
+        public void UpdateMissedBoxEdit(double cursorX, double cursorY) {
+            if (editBoxIndex < 0 || editBox == null) {
+                return;
+            }
+            double x1 = editStartX, y1 = editStartY, x2 = editStartX + editStartW, y2 = editStartY + editStartH;
+            if (editHandle == BoxHandle.Inside) {
+                var dx = cursorX - editGrabX;
+                var dy = cursorY - editGrabY;
+                x1 += dx; x2 += dx; y1 += dy; y2 += dy;
+            } else {
+                if (editHandle is BoxHandle.Left or BoxHandle.TopLeft or BoxHandle.BottomLeft) x1 = cursorX;
+                if (editHandle is BoxHandle.Right or BoxHandle.TopRight or BoxHandle.BottomRight) x2 = cursorX;
+                if (editHandle is BoxHandle.Top or BoxHandle.TopLeft or BoxHandle.TopRight) y1 = cursorY;
+                if (editHandle is BoxHandle.Bottom or BoxHandle.BottomLeft or BoxHandle.BottomRight) y2 = cursorY;
+            }
+            editBox.X = Math.Min(x1, x2);
+            editBox.Y = Math.Min(y1, y2);
+            editBox.W = Math.Abs(x2 - x1);
+            editBox.H = Math.Abs(y2 - y1);
+            RefreshLabelMarkers();
+        }
+
+        /// <summary>Finishes the in-progress move/resize: records it as one undoable edit when the geometry actually
+        /// changed (a press that didn't move is dropped), then clears the edit state.</summary>
+        public void EndMissedBoxEdit() {
+            if (editBoxIndex < 0 || editBox == null) {
+                editBoxIndex = -1;
+                return;
+            }
+            var changed = Math.Abs(editBox.X - editStartX) > 1e-6 || Math.Abs(editBox.Y - editStartY) > 1e-6
+                || Math.Abs((editBox.W ?? 0.0) - editStartW) > 1e-6 || Math.Abs((editBox.H ?? 0.0) - editStartH) > 1e-6;
+            if (changed) {
+                undoStack.Push(new LabelEdit {
+                    RunId = Current.RunId, FocuserPosition = Current.FocuserPosition, Kind = LabelKind.Missed,
+                    Box = editBox, IsModify = true,
+                    OldX = editStartX, OldY = editStartY, OldW = editStartW, OldH = editStartH,
+                    NewX = editBox.X, NewY = editBox.Y, NewW = editBox.W ?? 0.0, NewH = editBox.H ?? 0.0
+                });
+                redoStack.Clear();
+                RaiseUndoRedo();
+            }
+            editBoxIndex = -1;
+            editBox = null;
         }
 
         /// <summary>
@@ -624,13 +756,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         private enum LabelKind { Missed, ShouldReject, WronglyRejected }
 
-        /// <summary>One undoable label edit: the box that was added or removed, in a specific run/position/list.</summary>
+        /// <summary>One undoable label edit: a box added/removed, OR (when <see cref="IsModify"/>) a box moved/resized
+        /// in a specific run/position/list.</summary>
         private sealed class LabelEdit {
             public string RunId;
             public int FocuserPosition;
             public LabelKind Kind;
             public StarReviewLabelBox Box;
             public bool WasAdd; // true: the edit ADDED Box (undo removes it); false: it REMOVED Box (undo re-adds).
+
+            // Move/resize: when true, the edit changed Box's geometry (the Box stays in the list). Undo restores the
+            // Old* geometry, redo restores the New*.
+            public bool IsModify;
+            public double OldX, OldY, OldW, OldH;
+            public double NewX, NewY, NewW, NewH;
         }
 
         private readonly Stack<LabelEdit> undoStack = new();
@@ -675,6 +814,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             }
             var pos = StarReviewLabelStore.GetOrAddPosition(run, e.FocuserPosition);
             var list = ListFor(pos, e.Kind);
+
+            if (e.IsModify) {
+                // The Box reference persists in the list across a move/resize; set its geometry to the target. If the
+                // reference is somehow gone, match by the box's CURRENT (pre-this-step) center.
+                var box = list.Contains(e.Box) ? e.Box : null;
+                if (box == null) {
+                    var (curCx, curCy) = forward
+                        ? (e.OldX + e.OldW / 2.0, e.OldY + e.OldH / 2.0)
+                        : (e.NewX + e.NewW / 2.0, e.NewY + e.NewH / 2.0);
+                    var hit = StarReviewLabelStore.NearestBoxIndexWithin(list, curCx, curCy, StarReviewLabelStore.SamePointTolerancePx);
+                    box = hit >= 0 ? list[hit] : null;
+                }
+                if (box != null) {
+                    box.X = forward ? e.NewX : e.OldX;
+                    box.Y = forward ? e.NewY : e.OldY;
+                    box.W = forward ? e.NewW : e.OldW;
+                    box.H = forward ? e.NewH : e.OldH;
+                }
+                return;
+            }
+
             var doAdd = e.WasAdd ? forward : !forward;
             if (doAdd) {
                 if (StarReviewLabelStore.NearestBoxIndexWithin(list, e.Box.CenterX, e.Box.CenterY, StarReviewLabelStore.SamePointTolerancePx) < 0) {

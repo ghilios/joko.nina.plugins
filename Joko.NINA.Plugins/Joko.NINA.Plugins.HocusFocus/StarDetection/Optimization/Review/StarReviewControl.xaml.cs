@@ -49,6 +49,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         private bool dragging;
         private System.Windows.Point dragStartImage;
 
+        // Drawn-box (missed) move/resize: editingBox is set while a grabbed box is being moved/resized. EdgeHandlePx
+        // is the on-screen grab margin around an edge/corner (converted to image pixels via the current zoom).
+        private bool editingBox;
+        private const double EdgeHandlePx = 7.0;
+
+        private static Cursor CursorForHandle(BoxHandle handle) => handle switch {
+            BoxHandle.Inside => Cursors.SizeAll,
+            BoxHandle.Left or BoxHandle.Right => Cursors.SizeWE,
+            BoxHandle.Top or BoxHandle.Bottom => Cursors.SizeNS,
+            BoxHandle.TopLeft or BoxHandle.BottomRight => Cursors.SizeNWSE,
+            BoxHandle.TopRight or BoxHandle.BottomLeft => Cursors.SizeNESW,
+            _ => Cursors.Arrow
+        };
+
+        // Image-pixel grab margin at the current zoom (so the handles are a constant on-screen size).
+        private double EdgeHandleImagePx => EdgeHandlePx / Math.Max(StarReviewViewport.MinScale, Vm?.Viewport.Scale ?? 1.0);
+
         public StarReviewControl() {
             InitializeComponent();
             DataContextChanged += OnDataContextChanged;
@@ -224,6 +241,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 return;
             }
 
+            // Editing a DRAWN (missed) box takes priority over labeling: a press on an edge/corner resizes it, a
+            // press inside moves it. Only when the press misses every drawn box do we fall through to labeling.
+            var (editIdx, editHandle) = vm.HitTestMissedBox(imgX, imgY, EdgeHandleImagePx);
+            if (editIdx >= 0 && editHandle != BoxHandle.None) {
+                editingBox = true;
+                vm.BeginMissedBoxEdit(editIdx, editHandle, imgX, imgY);
+                ViewportCanvas.CaptureMouse();
+                e.Handled = true;
+                return;
+            }
+
             // Mode-less routing: a press over a detector box (accepted or rejected) is a CLICK — on button-up it
             // toggles the inferred label. A press over BLANK space begins a MISSED rubber-band drag (finalized on
             // button-up). Disambiguating on the press keeps a click on a star from dropping a stray missed box.
@@ -247,6 +275,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         private void ViewportCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) {
             var vm = Vm;
             if (vm == null) {
+                return;
+            }
+            // Finish an in-progress drawn-box move/resize (commits one undoable edit if the geometry changed).
+            if (editingBox) {
+                editingBox = false;
+                ViewportCanvas.ReleaseMouseCapture();
+                vm.EndMissedBoxEdit();
+                e.Handled = true;
                 return;
             }
             if (!pressArmed) {
@@ -316,6 +352,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 return;
             }
 
+            // Sensor-coordinate readout: show the image pixel under the cursor (cleared when off the image), so a
+            // region can be described precisely. Runs on every move, independent of the drag/pan gestures below.
+            var cursor = ScreenPoint(e);
+            var (cursorX, cursorY) = vm.Viewport.ScreenToImage(cursor.X, cursor.Y);
+            vm.CursorPositionText = (cursorX >= 0 && cursorY >= 0 && cursorX <= vm.ImageWidth && cursorY <= vm.ImageHeight)
+                ? $"x: {cursorX:F0}, y: {cursorY:F0}"
+                : null;
+
+            // An active move/resize of a drawn box owns the gesture.
+            if (editingBox) {
+                vm.UpdateMissedBoxEdit(cursorX, cursorY);
+                return;
+            }
+
             // Update the live rubber-band while dragging a MISSED box (image-space; the canvas transform scales it).
             if (dragging) {
                 var screenNow = ScreenPoint(e);
@@ -330,6 +380,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             }
 
             if (!panning) {
+                // Hover feedback: over a drawn (missed) box show the move cursor inside and resize cursors on the
+                // edges/corners; otherwise the default arrow.
+                var (hoverIdx, hoverHandle) = vm.HitTestMissedBox(cursorX, cursorY, EdgeHandleImagePx);
+                ViewportCanvas.Cursor = hoverIdx >= 0 ? CursorForHandle(hoverHandle) : null;
                 return;
             }
             var screen = ScreenPoint(e);
@@ -343,6 +397,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             lastPanScreen = screen;
             vm.Viewport.PanBy(dx, dy);
             ApplyViewport();
+        }
+
+        private void ViewportCanvas_MouseLeave(object sender, MouseEventArgs e) {
+            if (Vm != null) {
+                Vm.CursorPositionText = null;
+            }
         }
 
         private void ViewportCanvas_SizeChanged(object sender, SizeChangedEventArgs e) {

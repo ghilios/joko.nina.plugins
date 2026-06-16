@@ -32,6 +32,8 @@
         <DockPanel Grid.Row="0" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
             <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Text="{Binding FrameHeader}" />
             <TextBlock DockPanel.Dock="Right" Text="{Binding PositionLabel}" />
+            <!-- Sensor (image-pixel) coordinates under the cursor, for describing a region precisely. -->
+            <TextBlock DockPanel.Dock="Right" Margin="0,0,16,0" MinWidth="120" Foreground="#FFB0B6BD" Text="{Binding CursorPositionText}" />
         </DockPanel>
 
         <!-- Toolbar: navigation + undo/redo (labeling is mode-less — the category is inferred from what is clicked). -->
@@ -65,6 +67,7 @@
                     MouseRightButtonDown="ViewportCanvas_MouseRightButtonDown"
                     MouseRightButtonUp="ViewportCanvas_MouseRightButtonUp"
                     MouseMove="ViewportCanvas_MouseMove"
+                    MouseLeave="ViewportCanvas_MouseLeave"
                     SizeChanged="ViewportCanvas_SizeChanged">
                 <Canvas.RenderTransform>
                     <TransformGroup>
@@ -293,11 +296,33 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <!-- HFR display toggle lives under the legend (toolbar space is tight). -->
+            <!-- HFR display toggle lives under the legend (toolbar space is tight). Keep NINA's toggle look, but
+                 NINA renders the On/Off state text with PrimaryBrush (NOT the inherited Foreground); on this dark
+                 panel the default "Off" label is too dark. Lighten PrimaryBrush — scoped to this checkbox via its
+                 own resource dictionary (DynamicResource lookups resolve here first) — so the state text is legible. -->
             <Separator Margin="0,10,0,8" />
-            <CheckBox Content="Show HFR" IsChecked="{Binding ShowHfr}" Foreground="{StaticResource Fg}" />
+            <CheckBox Content="Show HFR" IsChecked="{Binding ShowHfr}" Foreground="{StaticResource Fg}">
+                <CheckBox.Resources>
+                    <SolidColorBrush x:Key="PrimaryBrush" Color="#FFD8DCE0" />
+                    <SolidColorBrush x:Key="ButtonForegroundBrush" Color="#FFD8DCE0" />
+                    <SolidColorBrush x:Key="ButtonForegroundDisabledBrush" Color="#FFA9B0B8" />
+                    <SolidColorBrush x:Key="SecondaryBrush" Color="#FFD8DCE0" />
+                </CheckBox.Resources>
+            </CheckBox>
             <TextBlock Margin="0,4,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
                        Text="Label each detected star with its HFR, above the box." />
+
+            <!-- Divider between the HFR section and the labeling guidance. -->
+            <Separator Margin="0,12,0,0" />
+            <TextBlock FontWeight="Bold" Margin="0,8,0,3" Text="How to label" />
+            <TextBlock Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="• Flag rejected stars sparingly — fewer is better." />
+            <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="• Zoom into different regions and step through every frame; focus on stars accepted near focus but rejected far from it." />
+            <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="• If a flagged star has no HFR, unflag it — not enough signal." />
+            <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="• Prefer flagging rejected stars. If large, defocused stars aren't detected at all, draw a box around them." />
         </StackPanel>
     </Grid>
 </UserControl>

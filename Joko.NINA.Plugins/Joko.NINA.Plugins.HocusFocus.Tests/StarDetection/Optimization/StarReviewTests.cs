@@ -705,6 +705,64 @@ public class StarReviewTests {
         return (p?.Missed?.Count ?? 0, p?.ShouldReject?.Count ?? 0, p?.WronglyRejected?.Count ?? 0);
     }
 
+    // ---- Move/resize of drawn (missed) boxes ----------------------------------------------------------
+
+    [Test]
+    public void HitTestMissedBox_DetectsInsideEdgesAndCorners() {
+        var vm = ReviewVM(out _, FrameWithBoxes());
+        vm.AddMissedBox(200, 200, 40, 40); // box edges at x=200/240, y=200/240
+        Assert.Multiple(() => {
+            Assert.That(vm.HitTestMissedBox(220, 220, 5).Handle, Is.EqualTo(BoxHandle.Inside));
+            Assert.That(vm.HitTestMissedBox(200, 220, 5).Handle, Is.EqualTo(BoxHandle.Left));
+            Assert.That(vm.HitTestMissedBox(220, 240, 5).Handle, Is.EqualTo(BoxHandle.Bottom));
+            Assert.That(vm.HitTestMissedBox(200, 200, 5).Handle, Is.EqualTo(BoxHandle.TopLeft));
+            Assert.That(vm.HitTestMissedBox(240, 240, 5).Handle, Is.EqualTo(BoxHandle.BottomRight));
+            Assert.That(vm.HitTestMissedBox(100, 100, 5).Index, Is.EqualTo(-1), "a point far from every box misses");
+        });
+    }
+
+    [Test]
+    public void MissedBoxEdit_Move_ShiftsBox_AndIsUndoable() {
+        var vm = ReviewVM(out var labels, FrameWithBoxes());
+        vm.AddMissedBox(200, 200, 40, 40);
+        var (idx, handle) = vm.HitTestMissedBox(220, 220, 5); // Inside → move
+        vm.BeginMissedBoxEdit(idx, handle, 220, 220);
+        vm.UpdateMissedBoxEdit(230, 215); // drag +10, -5
+        vm.EndMissedBoxEdit();
+        var b = labels["r"].Positions[0].Missed[0];
+        Assert.Multiple(() => {
+            Assert.That(b.X, Is.EqualTo(210));
+            Assert.That(b.Y, Is.EqualTo(195));
+            Assert.That(b.W, Is.EqualTo(40));
+            Assert.That(b.H, Is.EqualTo(40));
+        });
+
+        vm.UndoCommand.Execute(null);
+        var u = labels["r"].Positions[0].Missed[0];
+        Assert.Multiple(() => {
+            Assert.That(u.X, Is.EqualTo(200), "undo restores the original position");
+            Assert.That(u.Y, Is.EqualTo(200));
+        });
+    }
+
+    [Test]
+    public void MissedBoxEdit_ResizeBottomRight_KeepsTopLeftFixed() {
+        var vm = ReviewVM(out var labels, FrameWithBoxes());
+        vm.AddMissedBox(200, 200, 40, 40);
+        var (idx, handle) = vm.HitTestMissedBox(240, 240, 5);
+        Assert.That(handle, Is.EqualTo(BoxHandle.BottomRight));
+        vm.BeginMissedBoxEdit(idx, handle, 240, 240);
+        vm.UpdateMissedBoxEdit(260, 250); // drag the BR corner out
+        vm.EndMissedBoxEdit();
+        var b = labels["r"].Positions[0].Missed[0];
+        Assert.Multiple(() => {
+            Assert.That(b.X, Is.EqualTo(200), "the opposite (top-left) corner stays put");
+            Assert.That(b.Y, Is.EqualTo(200));
+            Assert.That(b.W, Is.EqualTo(60));
+            Assert.That(b.H, Is.EqualTo(50));
+        });
+    }
+
     [Test]
     public void Undo_Redo_MissedBox() {
         var vm = ReviewVM(out var labels, FrameWithBoxes());
