@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Background="#FF1E2125">
     <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <SolidColorBrush x:Key="Fg" Color="White" />
         <Style TargetType="Button">
             <Setter Property="Margin" Value="4,0" />
@@ -115,9 +116,27 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
-                                       Stroke="{Binding DataContext.AcceptedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                       StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                            <Grid>
+                                <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                           Stroke="{Binding DataContext.AcceptedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                           StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                <!-- HFR label: anchored at the box top-left, kept a constant on-screen size by the
+                                     inverse-zoom ScaleTransform, then lifted up one text-height so it sits just ABOVE
+                                     the box with no overlap. -->
+                                <TextBlock Text="{Binding HfrText}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="10" Foreground="White" Background="#B0000000" Padding="2,0"
+                                           IsHitTestVisible="False" RenderTransformOrigin="0,0"
+                                           Visibility="{Binding DataContext.ShowHfr, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock.RenderTransform>
+                                        <TransformGroup>
+                                            <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                            <TranslateTransform Y="{Binding DataContext.HfrLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                        </TransformGroup>
+                                    </TextBlock.RenderTransform>
+                                </TextBlock>
+                            </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -135,10 +154,28 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
-                                       Stroke="{Binding DataContext.MissedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                       StrokeDashArray="3 2"
-                                       StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                            <Grid>
+                                <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                           Stroke="{Binding DataContext.MissedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                           StrokeDashArray="3 2"
+                                           StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                <!-- HFR label: anchored at the box top-left, kept a constant on-screen size by the
+                                     inverse-zoom ScaleTransform, then lifted up one text-height so it sits just ABOVE
+                                     the box with no overlap. -->
+                                <TextBlock Text="{Binding HfrText}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="10" Foreground="White" Background="#B0000000" Padding="2,0"
+                                           IsHitTestVisible="False" RenderTransformOrigin="0,0"
+                                           Visibility="{Binding DataContext.ShowHfr, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock.RenderTransform>
+                                        <TransformGroup>
+                                            <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                            <TranslateTransform Y="{Binding DataContext.HfrLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                        </TransformGroup>
+                                    </TextBlock.RenderTransform>
+                                </TextBlock>
+                            </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -178,10 +215,28 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Rectangle Width="{Binding Width}" Height="{Binding Height}"
-                                       Stroke="{Binding DataContext.WronglyRejectedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                       StrokeDashArray="3 2"
-                                       StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                            <Grid>
+                                <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                           Stroke="{Binding DataContext.WronglyRejectedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                           StrokeDashArray="3 2"
+                                           StrokeThickness="{Binding DataContext.LabelStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                <!-- HFR label: anchored at the box top-left, kept a constant on-screen size by the
+                                     inverse-zoom ScaleTransform, then lifted up one text-height so it sits just ABOVE
+                                     the box with no overlap. -->
+                                <TextBlock Text="{Binding HfrText}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="10" Foreground="White" Background="#B0000000" Padding="2,0"
+                                           IsHitTestVisible="False" RenderTransformOrigin="0,0"
+                                           Visibility="{Binding DataContext.ShowHfr, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock.RenderTransform>
+                                        <TransformGroup>
+                                            <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                            <TranslateTransform Y="{Binding DataContext.HfrLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                        </TransformGroup>
+                                    </TextBlock.RenderTransform>
+                                </TextBlock>
+                            </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -237,6 +292,12 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <!-- HFR display toggle lives under the legend (toolbar space is tight). -->
+            <Separator Margin="0,10,0,8" />
+            <CheckBox Content="Show HFR" IsChecked="{Binding ShowHfr}" Foreground="{StaticResource Fg}" />
+            <TextBlock Margin="0,4,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                       Text="Label each accepted star — and any star you marked as wrongly-rejected — with its measured half-flux radius (HFR), drawn just above the box. Missed boxes show — (no detected star there to measure)." />
         </StackPanel>
     </Grid>
 </UserControl>

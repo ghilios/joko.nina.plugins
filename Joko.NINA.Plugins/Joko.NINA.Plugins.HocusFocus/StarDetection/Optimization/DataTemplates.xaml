@@ -101,31 +101,8 @@
                             ToolTip="{StaticResource SDOpt_OptimizeMode_Tooltip}" />
                     </StackPanel>
 
-                    <StackPanel Margin="0,4" Orientation="Horizontal"
-                                Visibility="{Binding IsReplay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                        <TextBlock
-                            Width="90"
-                            VerticalAlignment="Center"
-                            Text="Number of runs" />
-                        <ninactrl:UnitTextBox
-                            Width="60"
-                            VerticalContentAlignment="Center"
-                            ToolTip="{StaticResource SDOpt_RunCount_Tooltip}">
-                            <ninactrl:UnitTextBox.Text>
-                                <Binding Path="RunCount" UpdateSourceTrigger="PropertyChanged">
-                                    <Binding.ValidationRules>
-                                        <rules:IntRangeRule>
-                                            <rules:IntRangeRule.ValidRange>
-                                                <rules:IntRangeChecker Maximum="5" Minimum="1" />
-                                            </rules:IntRangeRule.ValidRange>
-                                        </rules:IntRangeRule>
-                                    </Binding.ValidationRules>
-                                </Binding>
-                            </ninactrl:UnitTextBox.Text>
-                        </ninactrl:UnitTextBox>
-                    </StackPanel>
-
-                    <!--  One folder picker per run (Saved Auto-Focus only). AlternationCount surfaces the per-row index as the picker's CommandParameter.  -->
+                    <!--  Single saved-run folder picker (Saved Auto-Focus only). Optimizing against one run at a time
+                          keeps the recommendation interpretable; the multi-run selector was removed.  -->
                     <ItemsControl
                         Margin="0,8,0,0"
                         AlternationCount="100"

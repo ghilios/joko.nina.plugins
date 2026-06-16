@@ -89,6 +89,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         [Test]
+        public async Task Diagnostics_MeasuresHfr_ForRejectedCandidates() {
+            // Reject every (real, bright) candidate via an extreme Sensitivity. Because these are rejected AFTER
+            // ComputeStarParameters, the detector measures their HFR on-demand for the review's HFR display — so the
+            // LowSensitivity records must carry a finite, positive HFR (not the NaN of pre-parameter gates).
+            var p = StarDetectorEquivalence.StandardParams();
+            p.CollectRejectedCandidateDiagnostics = true;
+            p.Sensitivity = 1000.0;
+
+            using var field = StarDetectorEquivalence.BuildSmallField();
+            var result = await StarDetectorEquivalence.RunDetect(field, p);
+
+            var lowSens = result.RejectedCandidates.Where(r => r.Gate == RejectionGate.LowSensitivity).ToList();
+            Assert.That(lowSens, Is.Not.Empty);
+            Assert.That(lowSens.Count(r => !double.IsNaN(r.Hfr) && r.Hfr > 0.0), Is.GreaterThan(0),
+                "rejected candidates with a centroid must get an on-demand HFR measurement for the review display");
+        }
+
+        [Test]
         public async Task Diagnostics_InvertsLowSensitivity() {
             // Crank the sensitivity threshold so every otherwise-valid bright candidate fails the LowSensitivity
             // gate. Each such record must carry the candidate's measured sensitivity ON the reject side of the

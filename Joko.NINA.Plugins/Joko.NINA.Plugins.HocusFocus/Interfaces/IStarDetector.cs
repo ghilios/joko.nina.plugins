@@ -789,6 +789,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double CandidateSize { get; set; }              // max(W,H) — the defocus/size proxy
         public double CenterX { get; set; }                    // candidate centroid or bbox center (ROI applied)
         public double CenterY { get; set; }
+
+        // Half-flux radius of the rejected candidate, when measurable (NaN for candidates rejected before a
+        // centroid/parameters exist — TooSmall/OnBorder/TooDistorted/Degenerate/HFRAnalysisFailed). For the gates
+        // that reject AFTER ComputeStarParameters (LowSensitivity/NotCentered/TooFlat) the detector measures HFR
+        // on-demand (diagnostics path only); for TooLowHFR/Contaminated the already-measured HFR is carried.
+        public double Hfr { get; set; } = double.NaN;
     }
 
     public class HocusFocusStarDetectorResult {

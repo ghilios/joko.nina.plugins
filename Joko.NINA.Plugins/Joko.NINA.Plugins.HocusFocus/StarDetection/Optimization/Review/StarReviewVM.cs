@@ -59,6 +59,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public double Width { get; set; }
         public double Height { get; set; }
         public double HFR { get; set; }
+
+        /// <summary>Preformatted HFR for the optional on-overlay HFR label ("2.34", or "—" when unavailable).</summary>
+        public string HfrText { get; set; }
     }
 
     /// <summary>A drawable user-label box in image-pixel coords (top-left X,Y + W,H).</summary>
@@ -67,6 +70,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public double Y { get; set; }
         public double Width { get; set; }
         public double Height { get; set; }
+
+        /// <summary>Preformatted HFR for the optional on-overlay HFR label ("2.34", or "—" when unavailable).</summary>
+        public string HfrText { get; set; }
     }
 
     /// <summary>A drawable rejected-candidate box in image-pixel coords, colored by reason.</summary>
@@ -179,7 +185,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             RedoCommand = new RelayCommand(Redo, () => redoStack.Count > 0);
 
             CurrentIndex = 0;
-            LoadCurrent();
+            LoadCurrent(fitView: true);
         }
 
         // ---- Navigation / current frame --------------------------------------------------------------------
@@ -231,12 +237,34 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         // Slightly heavier for the three user-applied label markers so they read above the detector overlay.
         public double LabelStrokeThickness => 2.5 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
 
-        /// <summary>Raises the zoom-dependent marker-thickness bindings. The view calls this after any viewport change
-        /// (wheel-zoom, fit, pan) so the stroke widths track the current scale.</summary>
+        // Inverse-zoom scale for the on-overlay HFR text so it stays a roughly constant on-screen size (the text
+        // lives inside the zoomed canvas, like the markers). Clamped to MinScale so it can't blow up when zoomed out.
+        public double MarkerTextScale => 1.0 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
+
+        // Vertical translate (image-space, applied AFTER the inverse-zoom scale) that lifts the HFR label up by one
+        // text-height so it sits just ABOVE the detection box with no overlap. -15·MarkerTextScale image-units works
+        // out to a constant ≈15 px on screen (one FontSize-10 line + a 1 px gap) at any zoom.
+        public double HfrLabelOffset => -15.0 * MarkerTextScale;
+
+        private bool showHfr;
+
+        /// <summary>Toggle: when on, every accepted star (and every labeled wrongly-rejected / missed box) shows its
+        /// HFR on the overlay. Bound to a checkbox in the toolbar.</summary>
+        public bool ShowHfr {
+            get => showHfr;
+            set { if (showHfr != value) { showHfr = value; RaisePropertyChanged(); } }
+        }
+
+        /// <summary>Raises the zoom-dependent marker-thickness/text bindings. The view calls this after any viewport
+        /// change (wheel-zoom, fit, pan) so the stroke widths + HFR text size track the current scale.</summary>
         public void NotifyViewportChanged() {
             RaisePropertyChanged(nameof(MarkerStrokeThickness));
             RaisePropertyChanged(nameof(LabelStrokeThickness));
+            RaisePropertyChanged(nameof(MarkerTextScale));
+            RaisePropertyChanged(nameof(HfrLabelOffset));
         }
+
+        private static string FormatHfr(double hfr) => double.IsNaN(hfr) || hfr <= 0.0 ? "—" : hfr.ToString("F2");
 
         // Markers in IMAGE pixel coords; the view applies the viewport transform to place them.
         public ObservableCollection<AcceptedMarker> AcceptedMarkers { get; } = new();
@@ -311,31 +339,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         private void Next() {
             if (CurrentIndex < queue.Count - 1) {
                 CurrentIndex++;
-                LoadCurrent();
+                // Keep the current zoom/pan when stepping frames so the same region of interest stays in view as
+                // the user rotates through the sweep (all frames in a run share the same dimensions).
+                LoadCurrent(fitView: false);
             }
         }
 
         private void Prev() {
             if (CurrentIndex > 0) {
                 CurrentIndex--;
-                LoadCurrent();
+                LoadCurrent(fitView: false);
             }
         }
 
         private void RequestFit() => FitRequested?.Invoke(this, EventArgs.Empty);
 
-        private void LoadCurrent() {
+        private void LoadCurrent(bool fitView) {
             var f = Current;
             FrameHeader = $"{f.RunId}  @ focuser {f.FocuserPosition}  |  {f.Accepted.Count} accepted";
 
             // Build the MTF-stretched background image (via the host-supplied provider, then marshal to the UI).
             FrameImage = null;
-            _ = LoadImageAsync(f);
+            _ = LoadImageAsync(f, fitView);
 
             // Overlays in image coords — accepted stars draw the detector's REAL bounding box (top-left + size).
             AcceptedMarkers.Clear();
             foreach (var (_, _, hfr, b) in f.Accepted) {
-                AcceptedMarkers.Add(new AcceptedMarker { X = b.X, Y = b.Y, Width = b.Width, Height = b.Height, HFR = hfr });
+                AcceptedMarkers.Add(new AcceptedMarker { X = b.X, Y = b.Y, Width = b.Width, Height = b.Height, HFR = hfr, HfrText = FormatHfr(hfr) });
             }
             RejectedMarkers.Clear();
             foreach (var (reason, b) in f.Rejected) {
@@ -351,7 +381,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             PrevCommand.NotifyCanExecuteChanged();
         }
 
-        private async Task LoadImageAsync(FrameReview f) {
+        private async Task LoadImageAsync(FrameReview f, bool fitView) {
             var provider = f.ImageProvider;
             if (provider == null) {
                 return;
@@ -359,7 +389,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             try {
                 var bmp = await provider().ConfigureAwait(true);
                 FrameImage = bmp;
-                RequestFit();
+                // Only re-fit on the initial load / Fit button; navigating frames preserves the current viewport.
+                if (fitView) {
+                    RequestFit();
+                }
             } catch (Exception ex) {
                 Logger.Error(ex, $"Failed to load/stretch frame {f.FramePath}");
                 Console.Error.WriteLine($"Failed to load frame {f.FramePath}: {ex.Message}");
@@ -539,29 +572,52 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             WronglyRejectedMarkers.Clear();
             var pos = CurrentPositionLabels;
             if (pos != null) {
+                // Missed boxes were drawn where the detector found no candidate, so there is no measured HFR to show.
                 foreach (var p in pos.Missed) {
-                    MissedMarkers.Add(ToBoxMarker(p));
+                    MissedMarkers.Add(ToBoxMarker(p, "—"));
                 }
                 foreach (var p in pos.ShouldReject) {
-                    ShouldRejectMarkers.Add(ToBoxMarker(p));
+                    ShouldRejectMarkers.Add(ToBoxMarker(p, null));
                 }
                 if (pos.WronglyRejected != null) {
+                    // A wrongly-rejected label is the bbox of a rejected candidate; show that candidate's HFR.
                     foreach (var p in pos.WronglyRejected) {
-                        WronglyRejectedMarkers.Add(ToBoxMarker(p));
+                        WronglyRejectedMarkers.Add(ToBoxMarker(p, HfrTextForRejectedLabel(p)));
                     }
                 }
             }
             RaisePropertyChanged(nameof(CountsLabel));
         }
 
-        /// <summary>Maps a stored label box to a drawable marker. A legacy label that somehow still lacks W/H is drawn
-        /// as a small default box centered on its (x,y) (Normalize back-fills on load, so this is belt-and-suspenders).</summary>
-        private static LabelBoxMarker ToBoxMarker(StarReviewLabelBox b) {
+        /// <summary>HFR text for a wrongly-rejected label: the HFR of the best-overlapping rejected candidate of the
+        /// current frame (measured in the diagnostics detection pass), or "—" when none overlaps / HFR unavailable.</summary>
+        private string HfrTextForRejectedLabel(StarReviewLabelBox b) {
+            var records = Current.RejectedCandidates;
+            if (records == null || records.Count == 0) {
+                return "—";
+            }
+            var labelRect = new RectD(b.X, b.Y, b.W ?? 0.0, b.H ?? 0.0);
+            double bestIoU = 0.0;
+            double bestHfr = double.NaN;
+            foreach (var r in records) {
+                var iou = BoxMatcher.IoU(labelRect, r.Bounds);
+                if (iou > bestIoU) {
+                    bestIoU = iou;
+                    bestHfr = r.Hfr;
+                }
+            }
+            return bestIoU > 0.0 ? FormatHfr(bestHfr) : "—";
+        }
+
+        /// <summary>Maps a stored label box to a drawable marker (optionally carrying preformatted HFR text). A legacy
+        /// label that somehow still lacks W/H is drawn as a small default box centered on its (x,y) (Normalize
+        /// back-fills on load, so this is belt-and-suspenders).</summary>
+        private static LabelBoxMarker ToBoxMarker(StarReviewLabelBox b, string hfrText) {
             if (b.HasSize) {
-                return new LabelBoxMarker { X = b.X, Y = b.Y, Width = b.W.Value, Height = b.H.Value };
+                return new LabelBoxMarker { X = b.X, Y = b.Y, Width = b.W.Value, Height = b.H.Value, HfrText = hfrText };
             }
             var side = 2.0 * StarReviewLabelStore.DefaultRadiusPx;
-            return new LabelBoxMarker { X = b.X - side / 2.0, Y = b.Y - side / 2.0, Width = side, Height = side };
+            return new LabelBoxMarker { X = b.X - side / 2.0, Y = b.Y - side / 2.0, Width = side, Height = side, HfrText = hfrText };
         }
 
         // ---- Undo / redo -----------------------------------------------------------------------------------
@@ -647,7 +703,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             for (var i = 0; i < queue.Count; i++) {
                 if (queue[i].RunId == runId && queue[i].FocuserPosition == focuserPosition) {
                     CurrentIndex = i;
-                    LoadCurrent();
+                    // Preserve the viewport when jumping to show an undone/redone edit (consistent with Next/Prev).
+                    LoadCurrent(fitView: false);
                     return;
                 }
             }
