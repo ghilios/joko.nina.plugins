@@ -35,7 +35,7 @@ near-universal and need little per-rig tuning:
 > sensor or exposure.
 
 And some settings are genuinely **empirical or a matter of preference** — best left to the wizard or to you:
-the Defocus-Aware Gates and their tuning knobs, Measurement Average, the PSF-fitting options, and Minimum HFR.
+the Defocus-Aware Gates and their tuning knobs, Measurement Averaging, the PSF-fitting options, and Minimum HFR.
 
 ## Worked example: the hot-pixel threshold
 

@@ -51,7 +51,7 @@ A plain 3×3 median replaces *every* pixel with its neighborhood median — effe
     Leave this **on** in almost all cases — it removes hot pixels without softening real stars, which protects HFR and PSF fit quality. Turning it **off** reverts to an unconditional median that blurs everything; Simple mode compensates for that blur by widening the noise-reduction radius, but in Advanced mode you would be giving up sharpness for no benefit.
 
 !!! note
-    When thresholding is **off**, the plain median acts as a blur. Simple mode accounts for this by adding 1 to the noise-reduction radius whenever filtering is on without thresholding, so the two paths behave consistently.
+    When thresholding is **on**, the filter only replaces outlier pixels and does not blur, so Simple mode adds 1 to the noise-reduction radius (whenever hot-pixel filtering is on with thresholding enabled — the default) to compensate; with thresholding off, the plain median already blurs, so no extra radius is added.
 
 ---
 

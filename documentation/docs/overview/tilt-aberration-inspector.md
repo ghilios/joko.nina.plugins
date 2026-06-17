@@ -162,7 +162,8 @@ from the option definitions; descriptions quote the in-app tooltips where one ex
 | **Step Size** | -1 (auto) | -1 or &gt;0 | "How many focuser steps in between each data point … Uses the value set for AutoFocus if blank." |
 | **Frames Per Point** | -1 (auto) | -1 or &ge;1 | "How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank." |
 | **Timeout (s)** | -1 (auto) | -1 or &gt;0 | "How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank." |
-| **Simple Exposure (s)** | -1 (auto) | -1 or &gt;0 | "How long of an exposure to take for analysis. Defaults to the Auto Focus exposure duration if not set." |
+| **Simple Exposure (s)** | -1 (auto) | -1 or &gt;0 | "How long of an exposure to take for analysis. Defaults to the Auto Focus exposure duration if not set." Sets the exposure for the single-frame Simple Analysis. |
+| **Detailed Analysis Exposure (s)** | -1 (auto) | -1 or &gt;0 | Per-frame exposure for a Detailed Analysis sweep; defaults to the AutoFocus exposure duration when blank. Unlike Simple Exposure (the single-frame Simple Analysis), this sets the per-frame exposure for the multi-frame Detailed Analysis sweep. |
 | **Looping Exposure Analysis** | off | on/off | "If enabled, repeatedly take and analyze exposures." |
 | **Save Images on Reruns** | off | on/off | Save registered/alignment images when reanalyzing saved runs. |
 | **Save Alignment Images** | off | on/off | Also save the pre-alignment star-detection images. |

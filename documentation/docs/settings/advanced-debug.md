@@ -10,26 +10,27 @@ used when tuning detection.
 
 | Setting | Default | Range / Values | Effect |
 |---|---|---|---|
-| Use Advanced | Off | On / Off | Stops deriving knobs from presets; exposes every advanced control for manual editing |
+| Advanced Mode | Off | On / Off | Stops deriving knobs from presets; exposes every advanced control for manual editing |
 | Noise Level (Simple) | Typical | None / Low / Typical / High | Sets blur radius, measurement-noise reduction, and sensitivity scaling |
 | Pixel Scale (Simple) | Typical | Wide Field / Typical / Long Focal Length | Shifts wavelet layers, min bounding-box size, and sub-pixel sampling |
 | Focus Range (Simple) | Typical | Typical / Wide Range | Adds a wavelet layer + raises sensitivity for far-from-focus donuts |
 | Use Optimized Settings | Off | On / Off | Drives detection from the wizard's saved snapshot instead of the presets |
-| Measurement Average | Median | Median / Mean + Outlier Detection | How per-frame HFR is aggregated across the detected stars |
-| Use Auto Focus Crop | On | On / Off | Applies the AF inner/outer crop to *non*-focusing exposures |
+| Measurement Averaging | Median | Median / Mean + Outlier Detection | How per-frame HFR is aggregated across the detected stars |
+| Use AutoFocus Crop | On | On / Off | Applies the AF inner/outer crop to *non*-focusing exposures |
 | Debug Mode | Off | On / Off | Saves extra debug data (e.g. structure maps) for tuning |
-| Save Intermediate Files | Off | On / Off | Writes a file for every detection step (not persisted across restarts) |
-| Save Intermediate Path | `%temp%\HocusFocusIntermediate` | folder path | Where intermediate files are written |
+| Save Intermediate | Off | On / Off | Writes a file for every detection step (not persisted across restarts) |
+| Intermediate Path | `%temp%\HocusFocusIntermediate` | folder path | Where intermediate files are written |
 
 !!! note "Simple Mode vs. Advanced Mode"
 
-    With **Use Advanced** off (the default), the four advanced groups are computed for you every time a
+    With **Advanced Mode** off (the default), the four advanced groups are computed for you every time a
     Simple preset changes — you never edit individual knobs. The settings on the rest of this section's
-    pages only become directly editable once you turn **Use Advanced** on.
+    pages only become directly editable once you turn **Advanced Mode** on.
 
-## Use Advanced
+## Advanced Mode
 
-Master switch between Simple Mode (preset-driven) and Advanced Mode (manual control of every knob).
+**Advanced Mode** (property `UseAdvanced`) is the master switch between Simple Mode (preset-driven) and
+Advanced Mode (manual control of every knob).
 
 > Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless
 > you're an expert
@@ -37,13 +38,13 @@ Master switch between Simple Mode (preset-driven) and Advanced Mode (manual cont
 - **Default:** Off
 - **Range:** On / Off
 
-When Advanced is **off**, changing any of the Simple presets re-derives the full advanced parameter set, so
-hand edits would be overwritten. When you turn Advanced **on**, that derivation stops and the current values
-become a starting point you can tune freely.
+When Advanced Mode is **off**, changing any of the Simple presets re-derives the full advanced parameter set,
+so hand edits would be overwritten. When you turn Advanced Mode **on**, that derivation stops and the current
+values become a starting point you can tune freely.
 
 !!! tip "When this helps"
 
-    Leave Advanced off and use the presets unless you have a specific reason to override a single knob —
+    Leave Advanced Mode off and use the presets unless you have a specific reason to override a single knob —
     the presets already cover noisy sensors, focal length, and wide focus sweeps. Turn it on only when you
     are deliberately tuning detection against your own data and understand what each knob does.
 
@@ -68,9 +69,12 @@ How each value maps:
 | Noise Level | Hotpixel filtering | Noise-reduction radius | Measurement noise reduction | Sensitivity scale |
 |---|---|---|---|---|
 | None | Off | 0 | Off | ×1.0 |
-| Low | On | 3 | Off | ×0.2 |
-| Typical | On | 3 | Off | ×0.2 |
-| High | On | 5 | On | ×1.0 |
+| Low | On | 4 | Off | ×0.2 |
+| Typical | On | 4 | Off | ×0.2 |
+| High | On | 6 | On | ×1.0 |
+
+(Noise-reduction radius: base radius 3/5; +1 is added whenever Hotpixel Thresholding is enabled (the
+default), so the applied radius is 4/6 — None stays 0 because filtering is off.)
 
 The *sensitivity scale* compensates for how the noise σ is measured per preset, so that the same effective
 threshold is preserved across presets. It feeds into the derived **Brightness Sensitivity** described below.
@@ -165,7 +169,7 @@ off reverts to the pure preset derivation.
     result drive live detection while you stay in Simple Mode. See the
     [optimization overview](../optimization/index.md) for how the snapshot is produced.
 
-## Measurement Average
+## Measurement Averaging
 
 Controls how a single representative HFR (and its spread) is computed for a frame from all of its detected
 stars.
@@ -195,7 +199,7 @@ or each star's own measured HFR.
     only if you specifically want a mean-based aggregate with an explicit, MAD-based outlier cut (e.g. when
     comparing against tooling that reports a mean). On sparse fields the mean can be noisier than the median.
 
-## Use Auto Focus Crop
+## Use AutoFocus Crop
 
 Applies the autofocus inner/outer crop region to regular (non-focusing) exposures.
 
@@ -206,8 +210,9 @@ Applies the autofocus inner/outer crop region to regular (non-focusing) exposure
 - **Range:** On / Off
 
 When this is **off** and the current exposure is **not** a NINA stock auto-focus run, the region-of-interest
-crop is disabled and stars are detected across the whole frame. During actual autofocus the crop still
-applies regardless of this setting.
+crop is disabled and stars are detected across the whole frame. During a NINA *stock* auto-focus run the crop
+still applies regardless of this setting; for a HocusFocus AF run the toggle takes effect the same as for
+normal exposures.
 
 !!! tip "When this helps"
 
@@ -230,7 +235,7 @@ Saves additional in-memory debug data during detection.
     Debug Mode exists for diagnosing detection, not for routine imaging. As the tooltip says, keep it off
     unless you are actively tuning and want to inspect structure maps.
 
-## Save Intermediate Files
+## Save Intermediate
 
 Writes a file for each step of the detection pipeline so you can inspect exactly what the detector saw.
 
@@ -242,11 +247,11 @@ Writes a file for each step of the detection pipeline so you can inspect exactly
 This option is **not persisted** — it always starts off when the plugin loads, so a forgotten toggle never
 keeps spamming files across sessions. Use it for a focused debugging run and turn it back off.
 
-## Save Intermediate Path
+## Intermediate Path
 
 The folder the intermediate debugging files are written to.
 
-> When Save Intermediate Files is enabled, they are written to this path the next time star detection runs
+> When Save Intermediate is enabled, they are written to this path the next time star detection runs
 
 - **Default:** a `HocusFocusIntermediate` folder under the application temp directory
 - **Range:** any writable folder path
@@ -256,9 +261,9 @@ If the configured path is empty or does not exist, Hocus Focus falls back to (an
 
 !!! example "Inspecting a detection run"
 
-    1. Turn **Use Advanced** on and (optionally) **Debug Mode** on.
-    2. Set **Save Intermediate Path** to an empty folder you can find easily.
-    3. Turn **Save Intermediate Files** on and trigger one detection (or autofocus) run.
+    1. Turn **Advanced Mode** on and (optionally) **Debug Mode** on.
+    2. Set **Intermediate Path** to an empty folder you can find easily.
+    3. Turn **Save Intermediate** on and trigger one detection (or autofocus) run.
     4. Open the folder and step through the per-stage files to see where stars are gained or lost, then turn
        the toggle back off.
 

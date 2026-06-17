@@ -6,7 +6,7 @@ These settings live under the **Advanced** star-detection options. They do not a
 
 ## What PSF modeling does
 
-Star detection first finds candidates, measures each star's centroid and **HFR**, and applies the acceptance gates. If PSF modeling is enabled, every accepted star then gets an analytic profile fit on top of that. The fit is solved per star, optionally across parallel batches, and is accepted only if its goodness of fit (R²) clears a threshold. A star whose PSF fit fails the threshold keeps its HFR but reports no FWHM/eccentricity (and increments the `PsfFitFailed` metric).
+Star detection first finds candidates, measures each star's centroid and **HFR**, and applies the acceptance gates. If PSF modeling is enabled, every accepted star then gets an analytic profile fit on top of that. The fit is solved per star, optionally across parallel batches, and is accepted only if its goodness of fit (R²) clears a threshold. A star whose PSF fit fails the threshold keeps its HFR but reports no FWHM/eccentricity (and increments the `PSFFitFailed` metric).
 
 !!! note "HFR is always measured; FWHM is not"
     HFR (Half-Flux Radius) is the flux-weighted mean radius over a circular aperture — an empirical flux sum that the detector always computes for every accepted star, independent of PSF modeling. See [Half-Flux Radius](#half-flux-radius-hfr) below. FWHM and eccentricity come *only* from the PSF fit, so they are blank when `ModelPSF` is off or when the fit is rejected by the R² gate.
@@ -15,8 +15,8 @@ Star detection first finds candidates, measures each star's centroid and **HFR**
 
 | Setting | Default | Range | Effect |
 |---|---|---|---|
-| Model PSF | On | On / Off | Master switch for fitting PSFs; required for FWHM and eccentricity |
-| PSF Fit Type | Moffat 4.0 | Gaussian, Moffat 4.0 / 2.5 / 1.5, Moffat (β fittable) | Which analytic profile is fit to each star |
+| Fit PSF | On | On / Off | Master switch for fitting PSFs; required for FWHM and eccentricity |
+| PSF Type | Moffat 4.0 | Gaussian, Moffat 4.0 / 2.5 / 1.5, Moffat (β fittable) | Which analytic profile is fit to each star |
 | PSF Resolution | 10 | integer > 0 (pixels) | Sampling-grid width across the star box; accuracy vs. speed |
 | PSF Fit Threshold | 0.9 | (0, 1] (R²) | Minimum R² for a fit to be accepted |
 | PSF Pixel Integration | Off | On / Off | Integrate the model over each pixel instead of point-sampling |
@@ -28,9 +28,9 @@ Star detection first finds candidates, measures each star's centroid and **HFR**
 
 ---
 
-## Model PSF
+## Fit PSF
 
-Master switch that turns PSF fitting on or off for detected stars.
+**Fit PSF** (property `ModelPSF`) — master switch that turns PSF fitting on or off for detected stars.
 
 > Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity
 
@@ -44,9 +44,9 @@ When this is on, each accepted star is fit and the results populate the star's F
 !!! tip "When this helps"
     Leave it **on** for aberration inspection, tilt analysis, eccentricity maps, and any workflow that reads FWHM/eccentricity. Turn it **off** only when you need the lightest, fastest detection and care solely about star counts and HFR. (Auto-focus runs already disable PSF modeling internally for speed, so this switch primarily affects detection-driven analysis panels.)
 
-## PSF Fit Type
+## PSF Type
 
-Selects which analytic profile is fit to each star.
+**PSF Type** (property `PSFFitType`) — selects which analytic profile is fit to each star.
 
 > What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight
 
@@ -87,7 +87,7 @@ The R² goodness-of-fit gate that decides whether a PSF fit is trustworthy.
 
 **Default:** 0.9 (R²) &nbsp;·&nbsp; **Range:** (0, 1] — the field validates `0 ≤ value ≤ 1.0`; the backing property rejects values outside the open-low, closed-high interval \((0, 1]\)
 
-After a star is fit, its coefficient of determination \( R^2 \) is compared against this threshold. A fit with \( R^2 \ge \) threshold is kept; otherwise the fit is discarded (the star keeps its HFR but reports no FWHM/eccentricity, and the `PsfFitFailed` count increases). \( R^2 = 1 \) is a perfect fit; lower values mean the model explains less of the star's pixel variance.
+After a star is fit, its coefficient of determination \( R^2 \) is compared against this threshold. A fit with \( R^2 \ge \) threshold is kept; otherwise the fit is discarded (the star keeps its HFR but reports no FWHM/eccentricity, and the `PSFFitFailed` count increases). \( R^2 = 1 \) is a perfect fit; lower values mean the model explains less of the star's pixel variance.
 
 !!! tip "When this helps"
     Keep **0.9** for clean, well-fit metrics. **Lower** it (e.g. toward 0.8) if too many real stars are getting no FWHM because their fits fall just short — common for noisy frames or unusual profiles. **Raise** it toward 1.0 to admit only near-perfect fits when you want the cleanest possible shape statistics and can afford fewer measured stars.

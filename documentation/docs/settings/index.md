@@ -8,7 +8,7 @@ This page is the entry point to the settings reference. It explains the two ways
 
 Open NINA's options, go to the **Plugins** tab, and select **Hocus Focus**. The star-detection settings live under the star-detection options area. Two top-level switches decide which controls you see:
 
-- **Use Advanced** — exposes the full set of fine-grained parameters. Tooltip:
+- **Advanced Mode** — exposes the full set of fine-grained parameters. Tooltip:
 
     > Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless you're an expert
 
@@ -22,7 +22,7 @@ Open NINA's options, go to the **Plugins** tab, and select **Hocus Focus**. The 
 
 ## Simple mode vs Advanced mode
 
-Most users should stay in **Simple mode** (Use Advanced off). In Simple mode you do not edit the low-level parameters directly. Instead, three plain-language presets are translated into a full parameter set every time you change one of them, the active profile changes, or you toggle the relevant switches. The translation lives in `DerivePresetSettings`, and it sets *all* the advanced knobs for you — so the advanced controls become outputs of the presets rather than independent inputs.
+Most users should stay in **Simple mode** (Advanced Mode off). In Simple mode you do not edit the low-level parameters directly. Instead, three plain-language presets are translated into a full parameter set every time you change one of them, the active profile changes, or you toggle the relevant switches. The translation lives in `DerivePresetSettings`, and it sets *all* the advanced knobs for you — so the advanced controls become outputs of the presets rather than independent inputs.
 
 The three Simple-mode presets are:
 
@@ -57,6 +57,50 @@ Internally, this preset chooses the noise-reduction radius, whether measurement-
 ### How the optimized snapshot interacts with the presets
 
 When **Use Optimized Settings** is on and a wizard result exists, Simple mode first derives the preset baseline, then overlays the curated subset of parameters from the saved snapshot (sensitivity, clipping multipliers, peak response, distortion, min HFR, center tolerance, structure layers, noise-reduction radius, minimum bounding box, and the hotpixel knobs). Non-curated advanced knobs keep their preset defaults; the curated ones win. See [Labels, Recall & Precision](../optimization/labels-recall-precision.md) for how those values are chosen.
+
+## Reading the results: the Star Detection Results panel
+
+Throughout these pages you are told to "watch the metrics panel." That panel is the **Star Detection
+Results** readout that Hocus Focus shows after a detection (and in the autofocus report). It is the feedback
+signal for every adjustment below. It reports:
+
+- **Structure candidates** — bright structures evaluated as potential stars before any gate.
+- **Total detected** — stars accepted after all gates.
+- a **per-reason rejection count** for each gate: **Too Small**, **On Border**, **Too Distorted**, **Not
+  Centered**, **Too Flat**, **Low Sensitivity**, **Saturated** (kept, not rejected — pixels masked during
+  PSF fitting), **Degenerate**, and **Contaminated**.
+
+When you change a setting, re-run detection and watch the count for the gate you are tuning — that number,
+not a subjective look at the image, tells you whether the change helped.
+
+## Tuning workflow (Advanced mode)
+
+Advanced tuning is a short, repeatable loop, not a one-shot. Change **one** knob at a time and confirm the
+effect in the [Star Detection Results panel](#reading-the-results-the-star-detection-results-panel) before
+moving on:
+
+1. Run star detection on a representative frame and open the Star Detection Results panel.
+2. Identify the dominant problem: either real stars **missing entirely** (no marker at all) or stars
+   **rejected with a reason** (a high per-reason count).
+3. Route to the right page:
+    - **Missing entirely** — the candidate was never formed: tune [Structure & Detection](structure-detection.md)
+      (and [Preprocessing](preprocessing.md) / [Hot Pixels](hotpixel-saturation.md)).
+    - **Rejected with a reason** — the candidate formed but a gate dropped it: go to
+      [Acceptance Gates](acceptance-gates.md) (or [Contamination](contamination.md)) for that reason.
+4. Change one setting in the direction that page recommends.
+5. Re-detect and re-read the same count. Keep the change if the target count improved without hurting the
+   others; otherwise revert and try the next candidate.
+
+| Symptom in Star Detection Results | Page | Knob |
+|---|---|---|
+| Real stars with no marker at all | Structure & Detection | Structure Layers, Noise Clipping Multiplier, Dilation |
+| High **Too Small** | Acceptance Gates | Min Star Bounding Box Size |
+| High **Too Distorted** / **Not Centered** | Acceptance Gates | Max Distortion / Star Center Tolerance (or Defocus-Aware Gates if defocused) |
+| High **Too Flat** | Acceptance Gates | Star Peak Response |
+| High **Low Sensitivity** | Acceptance Gates | Brightness Sensitivity |
+| High **Degenerate** | Preprocessing | Star Clipping Multiplier |
+| High **Contaminated** | Contamination | Contamination Sensitivity / Reject Contaminated Stars |
+| Hot pixels detected as stars | Hot Pixels & Saturation | Hotpixel Filtering / Hotpixel Threshold |
 
 ## The detection pipeline at a glance
 

@@ -20,7 +20,7 @@ By default the annotator draws *every* detected star. If you turn **Show All Sta
 
 ## Display options
 
-These controls govern the always-on overlay drawn for accepted stars.
+These controls govern the always-on overlay drawn for accepted stars. ("Property" is NINA's term for the per-star label / annotation type.)
 
 | Setting | Default | Range / values | What it does |
 |---|---|---|---|
@@ -30,10 +30,10 @@ These controls govern the always-on overlay drawn for accepted stars.
 | Show Star Bounds | On | on / off | *"Whether to draw the bounding box or ellipse around the star"*. |
 | Star Bounds Type | Box | Box, Ellipse, PSF | *"The type of boundary surrounding the star. Star detection internally uses a box, but an ellipse can be more aesthetically pleasing"*. |
 | Star Bounds Color | Red, 50% | ARGB color | *"The color of the bounding box or ellipse around the star"*. |
-| Show Annotation Type | HFR | None, HFR, FWHM, FWHM X, FWHM Y, FWHM Pixels, Eccentricity, PSF Rotation, Background, PSF Background, PSF Peak, Moffat Beta | *"What type of annotation to show for each star"*. Picks the text label drawn beside each star. |
-| Annotation Color | Yellow | ARGB color | *"The color of the annotation text next to the star"*. |
-| Annotation Font | Arial | system font | Font family used for the text labels. |
-| Annotation Font Size | 18 pt | > 0 | Point size of the text labels. |
+| Show Property | HFR | None, HFR, FWHM, FWHM X, FWHM Y, FWHM Pixels, Eccentricity, PSF Rotation, Background, PSF Background, PSF Peak, Moffat Beta | *"What type of annotation to show for each star"*. Picks the text label drawn beside each star. |
+| Property Color | Yellow | ARGB color | *"The color of the annotation text next to the star"*. |
+| Property Font | Arial | system font | Font family used for the text labels. The point size is set with an inline pt box under **Property Font** (no separate label). |
+| (font size, inline) | 18 pt | > 0 | Point size of the text labels, set via the inline pt box under **Property Font**. |
 | Show ROI | On | on / off | *"Whether to show the region of interest"*. |
 | ROI Color | Yellow | ARGB color | *"The color of the region of interest boxes"*. |
 | Show Star Center | On | on / off | *"Whether to show the a reticule on each star center"*. |
@@ -74,20 +74,20 @@ This is where annotation earns its keep. The detector records, per frame, the bo
 
 | Toggle | Default color | What it reveals |
 |---|---|---|
-| Show Too Distorted | Green, 50% | *"Whether to show the failed stars that were too distorted"* — candidates whose box-fill / aspect ratio failed the distortion gate. |
+| Show Distorted | Green, 50% | *"Whether to show the failed stars that were too distorted"* — candidates whose box-fill / aspect ratio failed the distortion gate. (The gate/reason is "Too Distorted", but the toggle is **Show Distorted**.) |
 | Show Degenerate | Green, 50% | *"Whether to show the failed degenerate stars"* — too few pixels or too little contrast to fit. |
-| Show Saturated | Green, 50% | *"Whether to show the partially-saturated stars that were processed with masked pixels"*. |
+| Show Saturated | Green, 50% | *"Whether to show the partially-saturated stars that were processed with masked pixels"*. Grouped here with rejection diagnostics, but saturated stars are **kept** (measured with their saturated pixels masked during PSF fitting), not rejected. |
 | Show Low Sensitivity | Green, 50% | *"Whether to show the failed low sensitivity stars"* — signal too weak relative to background and noise. |
 | Show Not Centered | Green, 50% | *"Whether to show the failed not centered stars"* — centroid fell outside the centering tolerance. |
 | Show Too Flat | Green, 50% | *"Whether to show the failed too flat stars"* — peak too close to the local background. |
 | Show Contaminated | Magenta, 50% | Marks stars flagged by the contamination test (neighbor, gradient, or hot column). |
 
-Each toggle has a companion color setting (Too Distorted Color, Degenerate Color, and so on); the six rejection-gate colors all share the tooltip *"The color of the failed star bounding box"*.
+Each toggle has a companion color setting (Distorted Box Color, Degenerate Box Color, Saturated Box Color, Low Sensitivity Box Color, Not Centered Box Color, Too Flat Box Color, Contaminated Box Color); the six rejection-gate colors all share the tooltip *"The color of the failed star bounding box"*.
 
-**Contaminated** is special. Its tooltip explains: *"Whether to mark stars flagged as possibly contaminated by a neighbor, background gradient, or hot column. The marker is shown whether or not 'Reject Contaminated Stars' is enabled, so you can see which stars were flagged even when they are excluded from measurements"*. In other words the magenta box appears even for stars the detector already removed from the measured set, so you can tell which measurements a nearby star or gradient may have affected. The marker is drawn as the star's bounding box, in **Contaminated Color** (magenta, half-transparent by default).
+**Contaminated** is special. Its tooltip explains: *"Whether to mark stars flagged as possibly contaminated by a neighbor, background gradient, or hot column. The marker is shown whether or not 'Reject Contaminated Stars' is enabled, so you can see which stars were flagged even when they are excluded from measurements"*. In other words the magenta box appears even for stars the detector already removed from the measured set, so you can tell which measurements a nearby star or gradient may have affected. The marker is drawn as the star's bounding box, in **Contaminated Box Color** (magenta, half-transparent by default).
 
 !!! tip "When this helps"
-    Turn on **Show Degenerate**, **Show Too Distorted**, and **Show Low Sensitivity** together to see which stars are being dropped and why. If real stars are vanishing into one rejection color, that gate is too aggressive for your optics — adjust the matching acceptance gate. If a marker sits on noise, the gate is doing its job.
+    Turn on **Show Degenerate**, **Show Distorted**, and **Show Low Sensitivity** together to see which stars are being dropped and why. If real stars are vanishing into one rejection color, that gate is too aggressive for your optics — adjust the matching acceptance gate. If a marker sits on noise, the gate is doing its job.
 
 ## Structure map overlay (debug)
 
@@ -110,7 +110,7 @@ The mask pixels are blended onto the image in **Structure Map Color** (*"The col
     Cap labels (**Show All Stars** off, **Maximum Stars** ≈ 200), then enable the rejection toggles one or two at a time with distinct colors. Walk the gates until the accepted set looks right for your focal ratio and seeing.
 
 !!! example "Checking focus quality across the field"
-    Set **Show Annotation Type** to FWHM or Eccentricity (PSF modeling required) and watch for consistent, low values near best focus. The star-center reticule makes off-center or trailed stars at the defocus extremes easy to spot.
+    Set **Show Property** to FWHM or Eccentricity (PSF modeling required) and watch for consistent, low values near best focus. The star-center reticule makes off-center or trailed stars at the defocus extremes easy to spot.
 
 !!! example "Mapping the PSF across the sensor"
     Combine **Star Bounds Type = PSF** with the Eccentricity or PSF Rotation label to overlay the actual fitted ellipse shape and orientation everywhere in the frame. Systematic stretch toward the corners points to tilt, coma, or curvature — the kind of thing the Tilt & Aberration Inspector quantifies.

@@ -65,10 +65,10 @@ All tooltips below are quoted verbatim from the plugin UI.
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|
-| **Max Concurrent** | 0 | ≥ 0 | "The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." |
-| **AutoFocus Timeout (s)** | 600 | > 0 | "How long an Auto Focus operation can take before we cancel it and move on." |
+| **Max Concurrency** | 0 | ≥ 0 | "The maximum number of auto focus images that can be processed at the same time. This is useful if processing time is much longer than exposure time and your system has limited memory or cores. 0 represents no limit." |
+| **AutoFocus Timeout** | 600 | > 0 | "How long an Auto Focus operation can take before we cancel it and move on." |
 | **Validate HFR Improvement** | On | — | "If enabled, takes an extra exposure before and after to ensure HFR improved. This check may be done in addition to the R² validation configured in NINA's Auto Focus options." |
-| **HFR Improvement Threshold** | 0.15 | — | "How much wiggle room when validating HFR improvements. The default value of 15% means that the Auto Focus fails if the initial HFR is 15% or more better than the final HFR" |
+| **HFR Improvement Tolerance** (backing property `HFRImprovementThreshold`) | 0.15 | — | "How much wiggle room when validating HFR improvements. The default value of 15% means that the Auto Focus fails if the initial HFR is 15% or more better than the final HFR" |
 | **Hyperbolic Fit Model** | Hybrid | Symmetric / Tilted / Smooth Blend / Uneven Blend / Hybrid | "Which hyperbolic model is fit to the focus curve. Hybrid (Best Fit) is the recommended default: the curve is rendered live with the Tilted Hyperbola, then at run completion every model is refit and the one with the least expected error for the best-focus position is kept — so each run self-selects its most trustworthy fit. The fixed choices: Symmetric is the classic 4-parameter hyperbola; the others are asymmetric (different slope on either side of focus, common because out-of-focus HFR behaves differently than in-focus): Tilted Hyperbola is a single smooth curve with a linear skew, Smooth Blend smoothly blends two hyperbolas, and Uneven Blend is the original blended fit." |
 | **Weighted Hyperbolic Fit** | On | — | "Weights each point in the hyperbolic fit based on measurement error. σ values are regularized before fitting: a degenerate near-zero σ (e.g. from a frame with very few detected stars) is floored at 20% of the sweep's median σ, and an unknown σ gets the median, so no single point can dominate the fit through a degenerate error estimate." |
 | **Fit Rejection Criterion** | R² | R² / Reduced χ² | "Which goodness-of-fit metric decides whether an auto-focus run is rejected. R² (default) keeps the existing behavior, rejecting when the fit's R² falls below NINA's R² threshold (Focuser settings). Reduced χ² instead rejects when the hyperbolic fit's reduced χ² exceeds the threshold below — a scatter-units goodness-of-fit bound for a focus curve, but it is only valid when 'Weighted Hyperbolic Fit' is enabled (it relies on per-point measurement σ). Quadratic and trendline fits always use R² regardless of this setting." |
@@ -82,7 +82,7 @@ All tooltips below are quoted verbatim from the plugin UI.
 
 !!! tip "When these help"
     - Leave **Weighted Hyperbolic Fit** and **Hybrid** on — they are the defaults that let each run pick its most reliable model and discount noisy points; only the reduced-\(\chi^2\) gate depends on the weighting being enabled.
-    - Raise **Max Concurrent** away from 0 (i.e. cap it) only if frame processing is starving memory or CPU on a slow machine; otherwise leave it unlimited.
+    - Raise **Max Concurrency** away from 0 (i.e. cap it) only if frame processing is starving memory or CPU on a slow machine; otherwise leave it unlimited.
     - Switch **Fit Rejection Criterion** to Reduced \(\chi^2\) only with weighted fits on, and treat the threshold as a loose sanity bound rather than a strict test.
     - Set a non-zero **Focuser Offset** only for a measured, repeatable focus bias in your train — it is an advanced-only fixed nudge applied after the calculated position.
 
