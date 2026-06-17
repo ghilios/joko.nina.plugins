@@ -35,6 +35,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.Optimization;
 [TestFixture]
 public class StarDetectionOptimizerWizardVMTests {
 
+    // Regression guard for the defocus-recovery toggle → objective wiring. A pre-release build once shipped with
+    // this disconnected, so enabling "Recover defocused / donut stars" silently ran the BASELINE objective (which
+    // is rewarded for culling faint extreme-defocus donuts to tighten the curve) instead of the extreme-recall
+    // regime. The toggle MUST drive ObjectiveConstants.EnableExtremeRecall; OFF must stay bit-identical to baseline.
+    [Test]
+    public void BuildOptimizerObjective_TogglesExtremeRecallWithDefocusRecovery() {
+        var on = StarDetectionOptimizerWizardVM.BuildOptimizerObjective(defocusRecovery: true);
+        var off = StarDetectionOptimizerWizardVM.BuildOptimizerObjective(defocusRecovery: false);
+        Assert.Multiple(() => {
+            Assert.That(on.EnableExtremeRecall, Is.True, "Defocus recovery ON must enable the extreme-recall term");
+            Assert.That(off.EnableExtremeRecall, Is.False, "Defocus recovery OFF must keep the baseline objective");
+            // OFF must equal a default ObjectiveConstants (bit-identical baseline): only the flag may differ.
+            Assert.That(off.We, Is.EqualTo(new ObjectiveConstants().We));
+            Assert.That(off.ExtremeTarget, Is.EqualTo(new ObjectiveConstants().ExtremeTarget));
+        });
+    }
+
     private static AlglibAPI NewAlglib() => new AlglibAPI();
 
     // A clean symmetric hyperbola hfr(pos) = sqrt(a^2 + ((pos - p0)/b)^2), as in RunEvaluationDataTests.

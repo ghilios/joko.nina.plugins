@@ -215,3 +215,24 @@ larger-HFR stars) is fundamentally in tension with curve tightness — every don
 to baseline on all 16 runs** (σ_focus + bestJ match to <5e-4) ⇒ **zero fit regression** unless the user opts in. The
 earlier 16/16 "differs" was entirely because the active test profile already had `DefocusAwareGates: true` +
 `UseOptimizedSettings` + a donut snapshot (i.e. already in the opt-in state). 1283 tests pass.
+
+### 7. Post-merge follow-up — "a recovery run looked unchanged" (stale WIP build + regression guard)
+
+A live-wizard run on the mufti AF folder, **with the Defocus Recovery toggle on**, came back looking like baseline —
+donuts still missed at the sweep extremes. Root-caused by reproducing the *exact* path with `TestApp optimize`:
+
+- **The two regimes are qualitatively opposite, both scoring J≈0.985.** Baseline (extreme-recall OFF) drives
+  σ_focus 12.4→**0.005** with `DefocusAwareGates 0→0` and extremes **8→7 / 10→11** (it is *rewarded* for culling
+  faint donuts to tighten the curve). Recovery (`--defocus-recovery`) drives `DefocusAwareGates 0→1`, σ_focus 12.4→4.6
+  and extremes **8→73 / 10→46**. So a "donuts-missed" result is the *baseline* regime — i.e. recovery did not engage.
+- **Why it didn't engage:** the wizard run executed **~3.5 min before the finalized commit** (`703c67e`, 18:29:55)
+  on a pre-release plugin build (loaded DLL predated the commit) in which the toggle→objective wiring was not yet
+  connected. The committed code wires `DefocusRecovery` into **both** `CreateCuratedSet(...)` *and*
+  `EnableExtremeRecall`; rebuilding from HEAD and re-running reproduces the recovery regime. The seed itself was
+  identical in both paths (same profile, gates-off; per-frame seed counts 8/59/406/680/335/42/10 matched exactly), so
+  this was **not** a seed-basin/coordinate-descent issue — the optimizer flips the gates on from a gates-off seed
+  unaided (proven by the TestApp `--defocus-recovery` run).
+- **Regression guard added:** the optimizer-objective selection is extracted to a testable static
+  `StarDetectionOptimizerWizardVM.BuildOptimizerObjective(bool defocusRecovery)` (bit-identical: OFF == default
+  `ObjectiveConstants`), locked by a unit test asserting the toggle drives `EnableExtremeRecall`. This closes the gap
+  that let a disconnected build ship unnoticed (there was no test on the toggle→objective wiring).

@@ -1208,8 +1208,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             // Opt-in only: enable the extreme-frame donut-recall objective term when the user selected defocus
             // recovery. Default == baseline objective (no fit-vs-stars trade).
-            var optimizer = new StarDetectionOptimizer(
-                DefocusRecovery ? new ObjectiveConstants { EnableExtremeRecall = true } : null);
+            var optimizer = new StarDetectionOptimizer(BuildOptimizerObjective(DefocusRecovery));
             IsOptimizing = true;
             try {
                 return await Task.Run(
@@ -1219,6 +1218,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 IsOptimizing = false;
             }
         }
+
+        /// <summary>
+        /// Selects the objective constants for the search from the defocus-recovery toggle: ON also turns on the
+        /// extreme-frame donut-recall term (<see cref="ObjectiveConstants.EnableExtremeRecall"/>), which — paired
+        /// with the recovery curated variables from <see cref="OptimizerVariable.CreateCuratedSet"/> — is what makes
+        /// the optimizer recover defocused/donut stars at the sweep extremes instead of culling them for a cleaner
+        /// curve; OFF is the baseline objective (bit-identical, since every field but the flag is already its
+        /// default). Extracted as a testable static so the toggle→objective wiring is locked by a unit test: a
+        /// pre-release build once shipped with this disconnected, so a recovery run silently ran the baseline regime.
+        /// </summary>
+        internal static ObjectiveConstants BuildOptimizerObjective(bool defocusRecovery) =>
+            new ObjectiveConstants { EnableExtremeRecall = defocusRecovery };
 
         /// <summary>Maps the optimizer's internal phase identifiers ("Seed"/"CoarseGrid"/"PatternSearch", which
         /// stay as-is in logs and tests) to plain language for the progress display.</summary>
