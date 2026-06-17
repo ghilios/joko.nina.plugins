@@ -57,7 +57,7 @@ A candidate is accepted only when its normalized brightness divided by the measu
 *Sensitivity is the star's brightness above background relative to the noise; a dim star with low \((s-b)/n\) is rejected.*
 
 !!! tip "When to adjust"
-    Lower it (toward 1) if too many real but faint stars are reported as **Low Sensitivity** and your autofocus runs are starved for stars. Raise it on noisy data where spurious faint blobs are slipping through. It can hurt by flooding detection with noise clumps if set too low, or by discarding usable faint stars near focus if set too high. Leave it at the default for typical data.
+    Lower it (toward 1) if too many real but faint stars are reported as **Low Sensitivity** (watch the **Low Sensitivity** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)) and your autofocus runs are starved for stars. Raise it on noisy data where spurious faint blobs are slipping through. It can hurt by flooding detection with noise clumps if set too low, or by discarding usable faint stars near focus if set too high. Leave it at the default for typical data.
 
 ## Star Peak Response
 
@@ -79,7 +79,7 @@ The option is shown as a percentage (default 75%), so a candidate fails when its
 *A genuine star has a median far below its peak; a flat blob's median sits close to the peak and is rejected.*
 
 !!! tip "When to adjust"
-    Increase it if legitimate stars — often slightly defocused or undersampled ones — are wrongly rejected as **Too Flat**. Leave it at the default for in-focus data. Setting it too high weakens the gate and lets diffuse, non-stellar structure through.
+    Increase it if legitimate stars — often slightly defocused or undersampled ones — are wrongly rejected as **Too Flat** (check the **Too Flat** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)). Leave it at the default for in-focus data. Setting it too high weakens the gate and lets diffuse, non-stellar structure through.
 
 ## Max Distortion
 
@@ -101,7 +101,7 @@ This is a **fill ratio**: the number of structure pixels divided by \(d^2\), whe
 *Fill ratio is pixel count over the square box area; a compact star passes while a stringy shape fails.*
 
 !!! tip "When to adjust"
-    Lower it if real stars with elongation — from tilt, coma, field curvature, or tracking error — are being rejected as **Too Distorted**. Raise it toward the \(\pi/4\) ideal only on excellent optics where you want to suppress trails and spikes aggressively; that risks discarding stars in the corners of a tilted or curved field. For heavily **defocused** frames, prefer the [Defocus-Aware Gates](#defocus-aware-gates) below over simply lowering this value, since that keeps near-focus frames strict.
+    Lower it if real stars with elongation — from tilt, coma, field curvature, or tracking error — are being rejected as **Too Distorted** (watch the **Too Distorted** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)). Raise it toward the \(\pi/4\) ideal only on excellent optics where you want to suppress trails and spikes aggressively; that risks discarding stars in the corners of a tilted or curved field. For heavily **defocused** frames, prefer the [Defocus-Aware Gates](#defocus-aware-gates) below over simply lowering this value, since that keeps near-focus frames strict.
 
 ## Star Center Tolerance
 
@@ -117,7 +117,7 @@ The gate defines a centered sub-rectangle within the bounding box and requires t
 *The centroid must fall inside the centered acceptance sub-box; an off-center centroid is rejected.*
 
 !!! tip "When to adjust"
-    Raise it (toward 50%) if well-formed stars are rejected as **Not Centered**, which is common with asymmetric aberration or undersampled centroids. Leave the default for typical fields. Setting it too high lets genuinely off-center blends and double stars through. As with distortion, for far-from-focus donut stars the [Defocus-Aware Gates](#defocus-aware-gates) relax this automatically for large candidates only.
+    Raise it (toward 50%) if well-formed stars are rejected as **Not Centered** (track the **Not Centered** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)), which is common with asymmetric aberration or undersampled centroids. Leave the default for typical fields. Setting it too high lets genuinely off-center blends and double stars through. As with distortion, for far-from-focus donut stars the [Defocus-Aware Gates](#defocus-aware-gates) relax this automatically for large candidates only.
 
 ## Min Bounding Box Size
 
@@ -132,8 +132,11 @@ This is the first gate applied. It removes tiny detections — single hot pixels
 ![Candidate boxes compared against the minimum-size threshold](../assets/figures/gate-min-size.png){ width=620 }
 *Candidates smaller than the minimum box size on either side are rejected as Too Small.*
 
+!!! tip "Starting point"
+    From your rig: `MinStarBoundingBoxSize ≈ max(3, round(2–3 × FWHM_px))`, where `FWHM_px = FWHM_arcsec / pixelScale` ([reasoning](../analysis/heuristic-defaults.md)). This is just a starting point the Simple presets and the optimizer refine.
+
 !!! tip "When to adjust"
-    Increase it at very long focal lengths, where the plate scale spreads real stars over many pixels and small structures are almost always artifacts. Lower it for wide-field, undersampled rigs where genuine stars occupy only a few pixels — too high a value there will silently drop real stars. The Simple-mode presets already nudge this down for wide-field and up for long focal length.
+    Increase it at very long focal lengths, where the plate scale spreads real stars over many pixels and small structures are almost always artifacts. Lower it for wide-field, undersampled rigs where genuine stars occupy only a few pixels — too high a value there will silently drop real stars (and inflate the **Too Small** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)). The Simple-mode presets already nudge this down for wide-field and up for long focal length.
 
 ## Min HFR
 
@@ -143,7 +146,7 @@ Rejects candidates whose measured Half-Flux Radius is at or below this floor —
 
 A star's HFR is the radius enclosing half its total flux (see [Star detection](../overview/star-detection.md)). An impossibly small HFR indicates a point-like artifact — a residual hot pixel or single-pixel spike — rather than a focused star, which always has a finite, optics-limited width. The gate runs late, after HFR has actually been measured, and rejects when \(\text{HFR} \le \text{MinHFR}\).
 
-**Default:** 1.2 px — **Range:** > 0 (must be non-negative; the UI requires greater than zero)
+**Default:** 1.2 px — **Range:** > 0 (the model accepts 0, but the UI requires a value greater than zero)
 
 !!! tip "When to adjust"
     Leave it at the default for almost all setups. Lower it only if you are extremely undersampled and confident your real stars measure below 1.2 px. Raising it discards the sharpest stars and is rarely useful. The default of 1.2 is an honest-HFR floor calibrated to the current measurement pipeline; the older 1.5 floor was tuned against noise-inflated faint-star HFRs and is no longer appropriate.

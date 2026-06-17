@@ -85,7 +85,9 @@ applied to the measurement image, not just the structure map.
 
     Bump to **High** for a noisy sensor or very high f-ratio where faint stars are being missed in noise.
     Leave at **Typical** for most CMOS rigs. **None** is for already-clean data; over-blurring (High on a
-    clean image) can merge close stars and slightly inflate HFR.
+    clean image) can merge close stars and slightly inflate HFR. To tell whether a change is helping,
+    re-detect and watch **Total detected** rise without the spurious/**Structure candidates** counts
+    ballooning in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel).
 
 ### Pixel Scale
 

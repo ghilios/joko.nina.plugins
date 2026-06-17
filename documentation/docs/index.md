@@ -2,8 +2,8 @@
 
 **Hocus Focus** is a plugin for [NINA](https://nighttime-imaging.eu/) (Nighttime Imaging 'N' Astronomy)
 that provides improved **star detection**, customizable **star annotation**, a concurrent
-**autofocus** engine, and a **tilt / aberration inspector** that measures backfocus and sensor-tilt
-errors. It fits PSF models to stars for more accurate HFR, eccentricity, and FWHM measurements; lets
+**autofocus** engine, and a **tilt / aberration inspector** that measures backfocus (the spacing
+between the corrector/flattener and the sensor) and sensor-tilt errors. It fits PSF models to stars for more accurate HFR, eccentricity, and FWHM measurements; lets
 you swap in just the star detector or just the annotator without taking both; and builds a full sensor
 tilt-and-curvature model so you can quantify and correct aberrations across the field.
 

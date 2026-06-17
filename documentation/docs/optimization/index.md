@@ -38,8 +38,9 @@ The high-level loop is simple:
    recommended autofocus step size is offered alongside them.
 
 Optionally, you can label a handful of hard frames (missed stars, false positives) to add a
-**recall/precision** term to the score — decisive for dim or bloated, out-of-focus "donut" stars that
-the raw star count barely reflects.
+**recall/precision** term to the score (recall = the fraction of real stars recovered; precision = the
+fraction of accepted detections that are real) — decisive for dim or bloated, out-of-focus "donut"
+stars that the raw star count barely reflects.
 
 ![Staged compass/pattern search trajectory on a 2D objective surface](../assets/figures/compass-search.png){ width=620 }
 

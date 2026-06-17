@@ -3,7 +3,7 @@
 The **Aberration Inspector** is a dockable panel that drives an auto-focus run (or a single snapshot)
 and turns the result into a quantitative picture of how your sensor sits in the optical train. It
 answers the questions a single center-of-frame focus number cannot: *Is one corner sharper than the
-other? Is the field bowed? Is my back-focus distance right?* And, when paired with a tilt-adapter
+other? Is the field bowed? Is my backfocus (the spacing between the corrector/flattener and the sensor) distance right?* And, when paired with a tilt-adapter
 calibration, it translates those numbers into concrete screw-turn guidance.
 
 ## Sensor tilt, in one paragraph
@@ -13,7 +13,7 @@ is reached at a *different* focuser position on each side of the frame: stars on
 while the opposite edge is bloated, no matter where you park the focuser. That asymmetry is **tilt**.
 A separate but related defect, **field curvature**, is when the best-focus surface is not flat but
 bowl- or dome-shaped, so the corners and the center focus at different positions even with zero tilt.
-The inspector measures both, plus the axial **back-focus** offset between the center and the corners.
+The inspector measures both, plus the axial **backfocus** offset between the center and the corners.
 
 ![Sensor tilt and field-curvature best-focus offset map](../assets/figures/tilt-heatmap.png){ width=620 }
 
