@@ -19,7 +19,7 @@ A key idea runs through all of these: Hocus Focus keeps **two images**. A *struc
 | Noise Reduction Radius (`NoiseReductionRadius`) | 3 | ≥ 0 (UI requires > 0) | Half-size of the Gaussian blur applied for noise reduction |
 | Noise Clipping Multiplier (`NoiseClippingMultiplier`) | 4.0 | ≥ 0 (UI requires > 0) | σ multiplier for the structure-map binarization floor (candidate finding) |
 | Star Clipping Multiplier (`StarClippingMultiplier`) | 2.0 | ≥ 0 (UI requires > 0) | σ multiplier for the per-star measurement-pixel inclusion gate |
-| Pixel Sample Size (`PixelSampleSize`) | 1.0 (100%) | (0, 1]; UI 25%–100% | Sub-pixel sampling granularity for center/HFR measurement |
+| Pixel Sample Size (`PixelSampleSize`) | 1.0 (100%) | setter (0, 1]; UI floor 25% (25%–100%) | Sub-pixel sampling granularity for center/HFR measurement |
 
 ![Noisy star field before and after a Gaussian blur](../assets/figures/noise-reduction.png){ width=620 }
 *Noise reduction blurs the image so that per-pixel noise does not fragment a star or produce spurious candidates. By default this blur is applied only to the structure-detection image.*
@@ -37,7 +37,7 @@ A key idea runs through all of these: Hocus Focus keeps **two images**. A *struc
 The radius is a *half-size*: the convolution kernel spans roughly twice the radius, with the Gaussian σ chosen automatically to match. A larger radius merges more neighboring pixels, which smooths away noise but also softens faint, closely-spaced, or small stars. Because a blur would smear hot pixels into their neighbors, enabling noise reduction implies hot-pixel filtering runs first (see [Hot Pixels & Saturation](hotpixel-saturation.md)).
 
 !!! tip "When this helps"
-    Raise it for **low-SNR** subframes (short exposures, fast focus sweeps, or a noisy sensor) where single-pixel noise is fragmenting stars or producing spurious candidates. Leave it at the default for typical data. **It can hurt** when the field is tightly packed or the rig is undersampled — over-blurring merges adjacent stars and erases the smallest ones.
+    Raise it for **low-SNR** subframes (short exposures, fast focus sweeps, or a noisy sensor) where single-pixel noise is fragmenting stars or producing spurious candidates. Leave it at the default for typical data. **It can hurt** when the field is tightly packed or the rig is undersampled — over-blurring merges adjacent stars and erases the smallest ones. **Feedback:** in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel), a good move raises **Total detected** while the **Structure candidates** count falls toward it (fewer spurious candidates are formed only to be rejected).
 
 ## Noise Reduced Star Measurement
 
@@ -95,7 +95,7 @@ Where the Noise Clipping Multiplier decides *which structures become candidates*
 above the local background is used as an **inclusion gate**: pixels at or below \(b + \tau\) are excluded from the centroid, flux, and HFR sum. Because \(\sigma_{\text{measurement}}\) is measured on the image actually sampled, the multiplier is an honest multiple of the real noise — the same value means the same thing whether or not noise reduction is on.
 
 !!! tip "When this helps"
-    **Lower it** when many obviously-real dim stars are being thrown out as degenerate (their wings sink below the gate, leaving too few pixels to measure). **Raise it** if faint star measurements look noise-inflated and you want a stricter, cleaner pixel set. Setting it too low lets background noise leak into the flux sum and biases HFR; too high starves faint stars of pixels.
+    **Lower it** when many obviously-real dim stars are being thrown out as degenerate (their wings sink below the gate, leaving too few pixels to measure). **Raise it** if faint star measurements look noise-inflated and you want a stricter, cleaner pixel set. Setting it too low lets background noise leak into the flux sum and biases HFR; too high starves faint stars of pixels. **Feedback:** watch the **Degenerate** rejection count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) — lowering this should bring it down as starved stars recover enough pixels to measure.
 
 !!! note
     The two multipliers are independent knobs for two different stages. If faint stars are missing entirely, the Noise Clipping Multiplier (candidate finding) and [Brightness Sensitivity](structure-detection.md) are usually the levers; if faint stars are *found* but rejected as degenerate, the Star Clipping Multiplier is the one to relax.
@@ -117,6 +117,9 @@ This value is the spacing of the sampling grid, in pixels, that Hocus Focus walk
 
 !!! tip "When this helps"
     Leave it at **1.0** if you are correctly sampled or oversampled — finer sampling buys nothing there and only costs time. Lower it (toward **0.5** or below) for **undersampled** rigs — wide-field setups with large pixels and short focal lengths — where stars span only a few pixels; the Wide-field pixel-scale preset sets it to 0.5 for you. Going below the default on a well-sampled rig wastes computation without improving accuracy.
+
+!!! tip "Starting point"
+    From your rig's FWHM in pixels (\(\text{FWHM}_{px} = \text{FWHM}_{arcsec} / \text{pixelScale}\)): use **1.0** if \(\text{FWHM}_{px} \gtrsim 3\), ramp toward **0.5** as \(\text{FWHM}_{px} \to 1.5\), and go below 0.5 if \(\text{FWHM}_{px} < 1\). This is just a starting point the optimizer and Simple presets refine — see [Heuristic Defaults](../analysis/heuristic-defaults.md).
 
 !!! warning
     Finer sub-pixel sampling improves accuracy but does not create resolution that the optics did not capture. For a severely undersampled rig, also consider enabling [PSF pixel integration](psf-modeling.md), which reduces PSF bias at very small FWHM.

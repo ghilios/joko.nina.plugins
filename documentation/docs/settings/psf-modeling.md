@@ -42,7 +42,7 @@ When this is on, each accepted star is fit and the results populate the star's F
 *Eccentricity measures how elongated a star is: a round star (left) has eccentricity near 0, while an elongated one (right) — from tilt, trailing, or astigmatism — has high eccentricity. This shape comes only from the fitted PSF.*
 
 !!! tip "When this helps"
-    Leave it **on** for aberration inspection, tilt analysis, eccentricity maps, and any workflow that reads FWHM/eccentricity. Turn it **off** only when you need the lightest, fastest detection and care solely about star counts and HFR. (Auto-focus runs already disable PSF modeling internally for speed, so this switch primarily affects detection-driven analysis panels.)
+    Leave it **on** for aberration inspection, tilt analysis, eccentricity maps, and any workflow that reads FWHM/eccentricity. Turn it **off** only when you need the lightest, fastest detection and care solely about star counts and HFR (the cost is per-star fit time, which grows on dense fields). (Auto-focus runs already disable PSF modeling internally for speed, so this switch primarily affects detection-driven analysis panels.)
 
 ## PSF Type
 
@@ -106,7 +106,7 @@ Computes the model value for each pixel as the integral over the pixel's area ra
 Point-sampling the model at \( (i, j) \) ignores how the profile varies across a pixel. On **undersampled** rigs — where a star spans only a couple of pixels — that approximation biases the fitted sigma. Integrating the model over each pixel area \([i-0.5, i+0.5]\times[j-0.5, j+0.5]\) removes most of that bias.
 
 !!! tip "When this helps"
-    Turn it **on** for undersampled setups (short focal length / large pixels, FWHM around 1.5 px), where it cuts sigma error from roughly 8% to under 5%. **Leave it off** for well-sampled rigs — the extra cost buys nothing there.
+    Turn it **on** for undersampled setups (short focal length / large pixels, FWHM around 1.5 px), where it cuts sigma error from roughly 8% to under 5%. **Leave it off** for well-sampled rigs — the extra cost buys nothing there. To judge it, compare reported FWHM/σ stability before and after, and watch the **PSFFitFailed** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) for any change in fit rejections.
 
 ## PSF MAD Fitting
 
@@ -119,7 +119,7 @@ Experimental fitting mode that minimizes absolute deviation instead of squared r
 Fitting to minimize absolute deviation downweights outlier pixels (a hot pixel, a cosmic-ray hit, a nearby star's flux) relative to a least-squares fit, at a modest extra computational cost. The internal note describes it as "more robust to noise and outlier pixels."
 
 !!! tip "When this helps"
-    Try it on **noisy frames** or fields with frequent outlier pixels where ordinary fits are being pulled around, and when you want behavior closer to PixInsight's PSF logic. Because it is experimental and slower, **leave it off** by default and enable it deliberately when robustness matters more than speed.
+    Try it on **noisy frames** or fields with frequent outlier pixels where ordinary fits are being pulled around, and when you want behavior closer to PixInsight's PSF logic. To gauge the effect, compare reported FWHM/σ stability before and after and watch the **PSFFitFailed** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) for any shift in fit rejections. Because it is experimental and slower, **leave it off** by default and enable it deliberately when robustness matters more than speed.
 
 ## PSF Parallel Size
 

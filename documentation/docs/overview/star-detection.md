@@ -13,7 +13,8 @@ A naive "threshold and count blobs" detector is fooled by the things real astrop
 and galaxy gradients, hot pixels, sensor noise, saturated cores, diffraction spikes, close double stars, and
 heavily defocused donuts. Hocus Focus addresses these head-on:
 
-- **Large-scale structure is removed before detection** with a B-spline wavelet residual, so nebulosity and
+- **Large-scale structure is removed before detection** with an à-trous B3-spline wavelet (a multi-scale
+  smoothing that separates star-sized structure from large-scale background) residual, so nebulosity and
   sky gradients do not drown faint stars or create spurious blobs.
 - **The background is modeled as a tilted plane per star**, not a single number, so a one-sided gradient
   under a star no longer biases its centroid, flux, or HFR.
@@ -21,7 +22,7 @@ heavily defocused donuts. Hocus Focus addresses these head-on:
   measurement annulus is flagged and (by default) removed, instead of quietly corrupting the HFR.
 - **Multiple independent acceptance gates** reject clipped, distorted, off-center, flat, dim, and
   contaminated candidates, each tracked as a named rejection count you can inspect.
-- **Aggregation is robust** — median and MAD, plus an explicit outlier pass — so a handful of bad
+- **Aggregation is robust** — median and median absolute deviation (MAD), plus an explicit outlier pass — so a handful of bad
   measurements cannot drag the reported focus metric around.
 
 Nearly every stage is tunable. This page walks the pipeline in execution order; the
@@ -62,7 +63,7 @@ so it helps most on noisy, short, or high-gain subs and can hurt on already-clea
 ### 4. Wavelet structure detection (remove large-scale structures)
 
 This is the heart of what makes the detector robust to nebulae and gradients. The detector computes an
-à-trous B-spline wavelet residual over a configurable number of layers and **subtracts it**, which removes
+à-trous B3-spline wavelet residual over a configurable number of layers and **subtracts it**, which removes
 structures larger than the stars while keeping the stars themselves. A short Gaussian smoothing then heals
 the holes that subtracting large scales can punch in the middle of big or out-of-focus stars.
 
@@ -80,7 +81,7 @@ donut stars survive the subtraction. See [Structure Detection](../settings/struc
 
 The smoothed structure map is thresholded into foreground (star) vs. background. The threshold is the
 structure map's median plus a **noise-clipping multiplier** times an estimated noise sigma, where the sigma
-comes from a kappa-sigma noise estimate on the noise-reduced image:
+comes from a Kappa-Sigma (an iterative clip-at-k·σ robust noise estimate) noise estimate on the noise-reduced image:
 
 \[
 T = \text{median} + k_\sigma \cdot \sigma_{\text{noise}}

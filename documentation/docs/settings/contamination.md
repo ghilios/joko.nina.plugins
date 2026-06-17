@@ -76,7 +76,9 @@ per star, not assumed globally.
 
     - **Lower it (e.g. 3–4)** when you image dense fields, clusters, or galaxy/nebula regions
       where close pairs are common and you want HFR and PSF statistics scrubbed of every
-      contaminated star. More stars get flagged.
+      contaminated star. More stars get flagged — watch the **Contaminated** rejection count in
+      the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)
+      climb as you lower it (or, with rejection off, the contaminated annotation count).
     - **Leave it at 5** for typical wide-to-medium fields. This is the validated default and
       balances rejecting genuine contaminants against keeping good stars.
     - **Raise it (e.g. 8–12)** in sparse fields if you find the test is flagging real,
@@ -106,7 +108,11 @@ tools, which keep flagged stars so they can be analyzed.
 !!! tip "When to adjust"
 
     - **Leave it on** for normal autofocus and HFR work. Removing contaminated stars keeps
-      the focus curve and PSF statistics clean, which is the whole point of the test.
+      the focus curve and PSF statistics clean, which is the whole point of the test; with
+      reject on, the count appears under **Contaminated** in the
+      [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel),
+      whereas with reject off the same stars stay accepted and show only the flagged/contaminated
+      annotation.
     - **Turn it off** when you want to *see* which stars are suspect rather than lose them —
       for example while diagnosing why a frame is short on stars, or when feeding frames to
       the review/diagnostic tooling. It is also the safe choice in very sparse fields where
