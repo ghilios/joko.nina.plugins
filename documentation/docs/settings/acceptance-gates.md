@@ -180,15 +180,20 @@ A single opt-in toggle that relaxes **both** the Max Distortion and Star Center 
 **How the relaxation works.** The candidate size used as the defocus proxy is \(d = \max(\text{box width}, \text{box height})\). Candidates at or below the **Defocus Size Reference** keep the strict thresholds; larger candidates are relaxed progressively:
 
 - Distortion: the effective fill-ratio threshold is
-\[
-\text{MaxDistortion} \times \operatorname{clamp}\!\left(\frac{\text{SizeReference}}{d},\ \text{MinFactor},\ 1.0\right),
-\]
-so a bigger donut needs to fill proportionally less of its box, floored at `MinFactor × MaxDistortion`.
+
+    \[
+    \text{MaxDistortion} \times \operatorname{clamp}\!\left(\frac{\text{SizeReference}}{d},\ \text{MinFactor},\ 1.0\right),
+    \]
+
+    so a bigger donut needs to fill proportionally less of its box, floored at `MinFactor × MaxDistortion`.
+
 - Centering: the effective tolerance is
-\[
-\text{StarCenterTolerance} \times \operatorname{clamp}\!\left(\frac{d}{\text{SizeReference}},\ 1.0,\ \text{ToleranceFactor}\right),
-\]
-additionally capped at 1.0 (the sub-box covering the whole bounding box), so a bigger donut gets a larger centered acceptance region.
+
+    \[
+    \text{StarCenterTolerance} \times \operatorname{clamp}\!\left(\frac{d}{\text{SizeReference}},\ 1.0,\ \text{ToleranceFactor}\right),
+    \]
+
+    additionally capped at 1.0 (the sub-box covering the whole bounding box), so a bigger donut gets a larger centered acceptance region.
 
 Because near-focus candidates stay at or below the size reference, they keep the strict thresholds and junk is still rejected. Stars admitted only by the relaxation are flagged internally so the optimizer can discourage over-relaxing into false positives.
 
