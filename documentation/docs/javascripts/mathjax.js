@@ -16,9 +16,13 @@ window.MathJax = {
 
 // Material's `navigation.instant` swaps page content via XHR without a full reload, so MathJax
 // must be re-run on every page change or new pages render raw TeX. `document$` is Material's hook.
+// Use typesetPromise() (not updateDocument()) so MathJax re-scans the freshly swapped-in DOM for
+// new math; clear the previous page's typeset output/cache first to avoid stale or duplicated math.
 document$.subscribe(() => {
-  if (window.MathJax && MathJax.startup && MathJax.typesetPromise) {
-    MathJax.startup.document.clear();
-    MathJax.startup.document.updateDocument();
+  if (typeof MathJax !== "undefined" && MathJax.typesetPromise) {
+    MathJax.startup.output.clearCache();
+    MathJax.typesetClear();
+    MathJax.texReset();
+    MathJax.typesetPromise();
   }
 });
