@@ -1,0 +1,106 @@
+site_name: Hocus Focus — NINA Plugin Documentation
+site_description: >-
+  User and technical documentation for the Hocus Focus NINA plugin: advanced star
+  detection, star annotation, autofocus, and tilt / aberration inspection.
+site_author: George Hilios (jokogeo)
+# Project page (NOT a user/org page): the site is served under the /hocus-focus/ base path,
+# which equals the repository name. site_url MUST match it for correct asset/link resolution.
+site_url: https://ghilios.github.io/hocus-focus/
+
+repo_name: ghilios/hocus-focus
+repo_url: https://github.com/ghilios/hocus-focus
+edit_uri: edit/develop/documentation/docs/
+
+docs_dir: documentation/docs
+site_dir: site
+
+copyright: Copyright &copy; George Hilios (jokogeo) — content licensed under MPL-2.0
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Overview & Features:
+      - overview/index.md
+      - Star Detection: overview/star-detection.md
+      - Star Annotation: overview/star-annotation.md
+      - AutoFocus: overview/autofocus.md
+      - Tilt & Aberration Inspector: overview/tilt-aberration-inspector.md
+  - Star Detection Settings:
+      - settings/index.md
+      - Preprocessing & Noise: settings/preprocessing.md
+      - Structure & Detection: settings/structure-detection.md
+      - Star Acceptance Gates: settings/acceptance-gates.md
+      - Hot Pixels & Saturation: settings/hotpixel-saturation.md
+      - PSF Modeling: settings/psf-modeling.md
+      - Contamination Rejection: settings/contamination.md
+      - Advanced & Debug: settings/advanced-debug.md
+  - Star Detection Optimization:
+      - optimization/index.md
+      - The Objective Function: optimization/objective-function.md
+      - Search Variables & Bounds: optimization/search-variables.md
+      - Staged Compass Search: optimization/search-algorithm.md
+      - AF-Curve Fitting & Sigma-Focus: optimization/af-curve-fitting.md
+      - Labels, Recall & Precision: optimization/labels-recall-precision.md
+      - Step-Size Recommendation: optimization/step-size.md
+  - Heuristic Defaults Analysis: analysis/heuristic-defaults.md

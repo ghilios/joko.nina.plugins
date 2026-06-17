@@ -1,0 +1,78 @@
+name: Docs
+
+# Publishes the MkDocs site to GitHub Pages.
+#
+# ONE-TIME MANUAL PREREQUISITE (repo admin): Settings -> Pages -> Build and deployment ->
+# Source -> "GitHub Actions". The deploy job fails until this is set; it cannot be automated.
+#
+# This workflow is disjoint from build-and-release.yml (runs only on release/v* tags) and
+# tests.yml (runs on develop push/PR with different permissions), so there is no interference.
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - 'documentation/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Serialize Pages deploys; let an in-progress publish finish rather than cancelling mid-deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install docs dependencies
+        run: python -m pip install -r requirements-docs.txt
+
+      # Regenerate the figures fresh with the pinned toolchain so the published images are always
+      # consistent with this environment (the generator is deterministic — fixed per-figure seeds —
+      # so output is stable run-to-run). Committed PNGs exist for local preview / PR diffs; CI
+      # overwrites them here. `--check` is available locally to detect drift.
+      - name: Generate figures
+        run: python documentation/figures/generate_figures.py
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build site (strict)
+        run: python -m mkdocs build --strict --site-dir ./site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

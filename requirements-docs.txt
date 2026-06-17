@@ -1,0 +1,13 @@
+# Documentation site + synthetic-figure generation toolchain.
+# Pinned for reproducible CI builds (GitHub Actions, Ubuntu, Python 3.12) and figure rendering.
+# Install:  python -m pip install -r requirements-docs.txt
+
+# Static site
+mkdocs==1.6.1
+mkdocs-material==9.5.39
+pymdown-extensions==10.11.2
+
+# Synthetic figure generation (documentation/figures/generate_figures.py)
+numpy==2.1.2
+matplotlib==3.9.2
+pillow==10.4.0   # only needed for the local `generate_figures.py --check` structural compare

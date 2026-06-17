@@ -11,6 +11,10 @@
 *launchSettings.json
 .claude/settings.local.json
 
+# Documentation site build output + local docs virtualenv (sources live under documentation/)
+/site/
+.venv-docs/
+
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/

@@ -1,0 +1,10 @@
+# Protect committed binary figures from line-ending mangling on the Windows filesystem,
+# and keep text sources LF so CI (Ubuntu) and local (WSL/Windows) agree.
+*.png   binary
+*.jpg   binary
+*.ico   binary
+
+*.md    text eol=lf
+*.py    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
