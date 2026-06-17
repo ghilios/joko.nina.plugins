@@ -137,16 +137,20 @@ public class OptimizerVariableTests {
     // ---- CreateCuratedSet ----
 
     [Test]
-    public void CreateCuratedSet_HasFourteenDistinctVariables() {
-        var set = OptimizerVariable.CreateCuratedSet();
-        Assert.That(set.Count, Is.EqualTo(14));
-        Assert.That(set.Select(x => x.Name).Distinct().Count(), Is.EqualTo(14));
+    public void CreateCuratedSet_Default_Has14_OptIn_Adds4DefocusKnobs() {
+        var def = OptimizerVariable.CreateCuratedSet();
+        var opt = OptimizerVariable.CreateCuratedSet(defocusRecovery: true);
+        Assert.Multiple(() => {
+            Assert.That(def.Count, Is.EqualTo(14), "default (no opt-in) == baseline dimensionality");
+            Assert.That(def.Select(x => x.Name).Distinct().Count(), Is.EqualTo(14));
+            Assert.That(opt.Count, Is.EqualTo(18), "opt-in adds the 4 defocus-knob variables");
+            Assert.That(opt.Select(x => x.Name).Distinct().Count(), Is.EqualTo(18));
+        });
     }
 
     [Test]
-    public void CreateCuratedSet_NamesMatchStarDetectorParamsProperties() {
-        var set = OptimizerVariable.CreateCuratedSet();
-        var expected = new[] {
+    public void CreateCuratedSet_DefaultNamesAreBaseline_OptInAddsDefocusKnobs() {
+        var baseNames = new[] {
             nameof(StarDetectorParams.Sensitivity),
             nameof(StarDetectorParams.StarClippingMultiplier),
             nameof(StarDetectorParams.NoiseClippingMultiplier),
@@ -159,15 +163,23 @@ public class OptimizerVariableTests {
             nameof(StarDetectorParams.MinimumStarBoundingBoxSize),
             nameof(StarDetectorParams.HotpixelThresholdingEnabled),
             nameof(StarDetectorParams.HotpixelThreshold),
-            // Synthetic combined switch (drives DefocusAwareDistortion + DefocusAwareCentering together).
-            OptimizerVariable.DefocusAwareGatesName,
-            // Synthetic integer knob (drives DefocusAwareStructure + StructureLayerBoost together).
-            OptimizerVariable.DefocusAwareStructureName,
+            OptimizerVariable.DefocusAwareGatesName,      // pre-change / baseline
+            OptimizerVariable.DefocusAwareStructureName,  // pre-change / baseline
         };
-        Assert.That(set.Select(x => x.Name), Is.EquivalentTo(expected));
+        var knobNames = new[] {
+            nameof(StarDetectorParams.DefocusDistortionSizeReference),
+            nameof(StarDetectorParams.DefocusMaxElongation),
+            nameof(StarDetectorParams.DefocusDistortionMinFactor),
+            nameof(StarDetectorParams.DefocusCenteringToleranceFactor),
+        };
+        Assert.Multiple(() => {
+            Assert.That(OptimizerVariable.CreateCuratedSet().Select(x => x.Name), Is.EquivalentTo(baseNames));
+            Assert.That(OptimizerVariable.CreateCuratedSet(defocusRecovery: true).Select(x => x.Name),
+                Is.EquivalentTo(baseNames.Concat(knobNames)));
+        });
     }
 
-    // ---- DefocusAwareGates combined switch (F3) ----
+    // ---- DefocusAwareGates combined switch ----
 
     [Test]
     public void CreateCuratedSet_IncludesDefocusAwareGates_AsBoolean() {
@@ -180,24 +192,39 @@ public class OptimizerVariableTests {
     }
 
     [Test]
-    public void DefocusAwareGates_WritingTrue_SetsBothFlags() {
+    public void DefocusAwareGates_DefaultSet_WritingTrue_SetsDistortionAndCentering_NotRoundness() {
+        // Baseline behavior: the default (non-opt-in) gates switch must NOT enable the roundness rescue.
         var v = OptimizerVariable.CreateCuratedSet().Single(x => x.Name == OptimizerVariable.DefocusAwareGatesName);
-        var p = new StarDetectorParams { DefocusAwareDistortion = false, DefocusAwareCentering = false };
+        var p = new StarDetectorParams { DefocusAwareDistortion = false, DefocusAwareCentering = false, DefocusRoundnessAdmission = false };
         v.Write(p, 1.0);
         Assert.Multiple(() => {
             Assert.That(p.DefocusAwareDistortion, Is.True);
             Assert.That(p.DefocusAwareCentering, Is.True);
+            Assert.That(p.DefocusRoundnessAdmission, Is.False, "roundness is opt-in only");
         });
     }
 
     [Test]
-    public void DefocusAwareGates_WritingFalse_ClearsBothFlags() {
-        var v = OptimizerVariable.CreateCuratedSet().Single(x => x.Name == OptimizerVariable.DefocusAwareGatesName);
-        var p = new StarDetectorParams { DefocusAwareDistortion = true, DefocusAwareCentering = true };
+    public void DefocusAwareGates_OptInSet_WritingTrue_SetsAllThreeFlags() {
+        var v = OptimizerVariable.CreateCuratedSet(defocusRecovery: true).Single(x => x.Name == OptimizerVariable.DefocusAwareGatesName);
+        var p = new StarDetectorParams { DefocusAwareDistortion = false, DefocusAwareCentering = false, DefocusRoundnessAdmission = false };
+        v.Write(p, 1.0);
+        Assert.Multiple(() => {
+            Assert.That(p.DefocusAwareDistortion, Is.True);
+            Assert.That(p.DefocusAwareCentering, Is.True);
+            Assert.That(p.DefocusRoundnessAdmission, Is.True);
+        });
+    }
+
+    [Test]
+    public void DefocusAwareGates_OptInSet_WritingFalse_ClearsAllThreeFlags() {
+        var v = OptimizerVariable.CreateCuratedSet(defocusRecovery: true).Single(x => x.Name == OptimizerVariable.DefocusAwareGatesName);
+        var p = new StarDetectorParams { DefocusAwareDistortion = true, DefocusAwareCentering = true, DefocusRoundnessAdmission = true };
         v.Write(p, 0.0);
         Assert.Multiple(() => {
             Assert.That(p.DefocusAwareDistortion, Is.False);
             Assert.That(p.DefocusAwareCentering, Is.False);
+            Assert.That(p.DefocusRoundnessAdmission, Is.False);
         });
     }
 
@@ -214,7 +241,8 @@ public class OptimizerVariableTests {
 
     [Test]
     public void CreateCuratedSet_BoundsAndStepsMatchSpec() {
-        var set = OptimizerVariable.CreateCuratedSet().ToDictionary(x => x.Name);
+        // Use the opt-in (superset) so all 18 variables' bounds/steps are covered in one place.
+        var set = OptimizerVariable.CreateCuratedSet(defocusRecovery: true).ToDictionary(x => x.Name);
         void Check(string name, OptimizerVariableType type, double lo, double hi, double step) {
             var v = set[name];
             Assert.Multiple(() => {
@@ -236,6 +264,10 @@ public class OptimizerVariableTests {
         Check(nameof(StarDetectorParams.MinimumStarBoundingBoxSize), OptimizerVariableType.Integer, 2, 20, 1);
         Check(nameof(StarDetectorParams.HotpixelThresholdingEnabled), OptimizerVariableType.Boolean, 0, 1, 1);
         Check(nameof(StarDetectorParams.HotpixelThreshold), OptimizerVariableType.Continuous, 0.0001, 0.05, 0.001);
+        Check(nameof(StarDetectorParams.DefocusDistortionSizeReference), OptimizerVariableType.Continuous, 15.0, 60.0, 5.0);
+        Check(nameof(StarDetectorParams.DefocusMaxElongation), OptimizerVariableType.Continuous, 1.0, 4.0, 0.25);
+        Check(nameof(StarDetectorParams.DefocusDistortionMinFactor), OptimizerVariableType.Continuous, 0.1, 1.0, 0.05);
+        Check(nameof(StarDetectorParams.DefocusCenteringToleranceFactor), OptimizerVariableType.Continuous, 1.0, 4.0, 0.25);
     }
 
     [Test]

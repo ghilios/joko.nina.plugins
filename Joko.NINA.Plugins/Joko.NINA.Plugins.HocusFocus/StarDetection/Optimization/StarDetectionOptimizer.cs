@@ -75,6 +75,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private readonly ObjectiveConstants constants;
 
         public StarDetectionOptimizer(ObjectiveConstants constants = null) {
+            // Default == baseline (extreme-recall term OFF) so the optimizer does not trade AF-curve fit for star
+            // count unless the caller opts in. The defocus-recovery opt-in passes an ObjectiveConstants with
+            // EnableExtremeRecall = true to actively keep faint donuts at the sweep extremes.
             this.constants = constants ?? new ObjectiveConstants();
         }
 

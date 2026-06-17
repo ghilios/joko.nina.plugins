@@ -94,6 +94,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             MinStarBoundingBoxSize = s.MinStarBoundingBoxSize;
             HotpixelThresholdingEnabled = s.HotpixelThresholdingEnabled;
             HotpixelThreshold = s.HotpixelThreshold;
+            // Defocus-aware family (the optimizer tunes these too). A single DefocusAwareGates flag drives the
+            // three detector flags via BuildStarDetectorParams; the numeric knobs and the structure pair follow.
+            DefocusAwareGates = s.DefocusAwareGates;
+            DefocusDistortionSizeReference = s.DefocusDistortionSizeReference;
+            DefocusDistortionMinFactor = s.DefocusDistortionMinFactor;
+            DefocusCenteringToleranceFactor = s.DefocusCenteringToleranceFactor;
+            DefocusMaxElongation = s.DefocusMaxElongation;
+            DefocusAwareStructure = s.DefocusAwareStructure;
+            StructureLayerBoost = s.StructureLayerBoost;
         }
 
         private void DerivePresetSettings() {
@@ -170,6 +179,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             PSFResolution = 10;
             PSFFitThreshold = 0.9;
             HotpixelThreshold = 0.001d;
+            // Defocus-aware family: not preset-scaled, so reset to the defaults here. This keeps them consistent
+            // with the other curated knobs when "Use Optimized Settings" is toggled OFF or a preset changes (the
+            // snapshot apply runs DerivePresetSettings first, then overrides these with the optimized values).
+            DefocusAwareGates = false;
+            DefocusDistortionSizeReference = 30.0;
+            DefocusDistortionMinFactor = 0.25;
+            DefocusCenteringToleranceFactor = 2.0;
+            DefocusMaxElongation = 2.0;
+            DefocusAwareStructure = false;
+            StructureLayerBoost = 0;
         }
 
         private void StarDetectionOptions_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -206,10 +225,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             brightnessSensitivity = optionsAccessor.GetValueDouble("BrightnessSensitivity", 2.0);
             starPeakResponse = optionsAccessor.GetValueDouble("StarPeakResponse", 0.75);
             maxDistortion = optionsAccessor.GetValueDouble("MaxDistortion", 0.5);
+            // Default OFF (baseline): the defocus-aware gates + roundness rescue trade AF-curve tightness for
+            // donut recall (a measured fit regression across the AF bank), so they are opt-in. They are turned on
+            // only via the optimization wizard's "Recover defocused/donut stars" opt-in (and written to the profile
+            // when that result is accepted). Default-OFF keeps detection bit-identical to baseline.
             defocusAwareGates = optionsAccessor.GetValueBoolean("DefocusAwareGates", false);
             defocusDistortionSizeReference = optionsAccessor.GetValueDouble("DefocusDistortionSizeReference", 30.0);
             defocusDistortionMinFactor = optionsAccessor.GetValueDouble("DefocusDistortionMinFactor", 0.25);
             defocusCenteringToleranceFactor = optionsAccessor.GetValueDouble("DefocusCenteringToleranceFactor", 2.0);
+            defocusMaxElongation = optionsAccessor.GetValueDouble("DefocusMaxElongation", 2.0);
             starCenterTolerance = optionsAccessor.GetValueDouble("StarCenterTolerance", 0.3);
             starBackgroundBoxExpansion = optionsAccessor.GetValueInt32("StarBackgroundBoxExpansion", 3);
             minStarBoundingBoxSize = optionsAccessor.GetValueInt32("MinStarBoundingBoxSize", 5);
@@ -273,6 +297,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             DefocusDistortionSizeReference = 30.0;
             DefocusDistortionMinFactor = 0.25;
             DefocusCenteringToleranceFactor = 2.0;
+            DefocusMaxElongation = 2.0;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
@@ -658,6 +683,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     defocusCenteringToleranceFactor = value;
                     optionsAccessor.SetValueDouble("DefocusCenteringToleranceFactor", defocusCenteringToleranceFactor);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double defocusMaxElongation;
+
+        // Advanced-only tuning knob for the defocus-aware gates (only consulted while DefocusAwareGates is ON). The
+        // maximum pixel-coordinate elongation (1.0 = perfectly round; larger = more elongated) for a large low-fill
+        // candidate to be RESCUED by the roundness gate, i.e. admitted as a donut even though its fill-ratio is
+        // below the (relaxed) distortion threshold. Complete donut rings score ~1; streaks / diffraction-spike
+        // fragments / partial arcs score higher and stay rejected. Must be >= 1.0. Default 2.0 (~2:1).
+        public double DefocusMaxElongation {
+            get => defocusMaxElongation;
+            set {
+                if (defocusMaxElongation != value) {
+                    if (value < 1.0 || value > 10.0) {
+                        throw new ArgumentException("DefocusMaxElongation must be within [1, 10]", "DefocusMaxElongation");
+                    }
+                    defocusMaxElongation = value;
+                    optionsAccessor.SetValueDouble("DefocusMaxElongation", defocusMaxElongation);
                     RaisePropertyChanged();
                 }
             }

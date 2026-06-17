@@ -78,6 +78,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // stars before the run-level relaxed-fraction fallback may apply any penalty.
         public int MinFramesForPenalty { get; set; } = 3;
         public int MinAcceptedForPenalty { get; set; } = 1;
+
+        // ── F5: extreme-frame donut-recall term (SExtreme) ─────────────────────────────────────────────────
+        // The optimizer otherwise has NO incentive to keep faint donuts at the sweep EXTREMES: S_stars saturates
+        // its nMin knee at NFloor (8), so 10 vs 30 stars on the most-defocused frame score identically, and a
+        // cleaner focus curve / higher label precision actively reward REJECTING those donuts. This additive term
+        // rewards star recall on the min/max focuser-position frames so the search keeps (and the defocus-aware
+        // gates earn their place recovering) extreme-defocus donuts. OFF by default so the raw objective stays
+        // bit-identical for existing tests; the production StarDetectionOptimizer constructs constants with it ON.
+        public bool EnableExtremeRecall { get; set; } = false;
+
+        // Additive weight of SExtreme in the JRun weighted sum (folded into wSum alongside Wf/Ws/Wc[/Wl]). Only
+        // included when EnableExtremeRecall is on AND the run has >= 2 distinct focuser positions (so extremes
+        // exist). 0.30 makes it strong enough to push back on the focus/precision terms' incentive to cull faint
+        // extreme donuts (Wf = 0.55 dominates otherwise) without overriding a genuinely bad curve.
+        public double We { get; set; } = 0.30;
+
+        // Star count on an extreme frame at/above which SExtreme saturates to 1.0. SExtreme is the clamped mean,
+        // over the min- and max-focuser-position frames, of (extremeFrameStarCount / ExtremeTarget). Set near the
+        // achievable extreme-frame recall on a rich field so the term keeps a gradient across the operating range
+        // (a too-low target saturates and stops rewarding additional recovery); capping the reward at the target
+        // means there is no incentive to inflate extreme counts with junk past it. 50 tuned on the mufti AF run
+        // (achievable extreme recall ≈ 66 with the defocus-aware gates on); revisit across the AF bank.
+        public int ExtremeTarget { get; set; } = 50;
     }
 
     /// <summary>
@@ -191,6 +214,37 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         /// <summary>
+        /// S_extreme ∈ [0, 1]: the clamped mean, over the two EXTREME frames (lowest and highest focuser
+        /// position — the most defocused), of <c>extremeStarCount / ExtremeTarget</c>. Rewards donut recall at the
+        /// sweep boundaries, which S_stars (saturating at NFloor) and the focus/label terms do not. Returns
+        /// <c>null</c> when the term is not applicable — gate off, no per-frame data, mismatched lengths, or fewer
+        /// than 2 distinct focuser positions (no extremes) — so <see cref="JRun"/> omits it and keeps the existing
+        /// weighting/renormalization unchanged.
+        /// </summary>
+        public static double? SExtreme(RunEvaluationMetrics m, ObjectiveConstants c) {
+            if (m == null || !c.EnableExtremeRecall || c.ExtremeTarget <= 0) {
+                return null;
+            }
+            var positions = m.FrameFocuserPositions;
+            var counts = m.FrameStarCounts;
+            if (positions == null || counts == null || positions.Count != counts.Count || positions.Count == 0) {
+                return null;
+            }
+
+            int minPos = positions[0], maxPos = positions[0], minIdx = 0, maxIdx = 0;
+            for (var i = 1; i < positions.Count; i++) {
+                if (positions[i] < minPos) { minPos = positions[i]; minIdx = i; }
+                if (positions[i] > maxPos) { maxPos = positions[i]; maxIdx = i; }
+            }
+            if (minPos == maxPos) {
+                return null; // fewer than 2 distinct positions ⇒ no extremes
+            }
+
+            var meanExtreme = 0.5 * (counts[minIdx] + counts[maxIdx]);
+            return Clamp01(meanExtreme / c.ExtremeTarget);
+        }
+
+        /// <summary>
         /// Composite score for a single run. Returns 0 (hard fail) when the focus σ is unusable (both
         /// sigmaFocus and looStdError non-finite) OR when more than <see cref="ObjectiveConstants.MaxFramesBelowHardFloor"/>
         /// frames have a star count below <see cref="ObjectiveConstants.NHard"/>. Otherwise returns the
@@ -218,15 +272,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var sStars = SStars(m.FrameStarCounts, c);
             var sFit = SFit(m.RSquared, m.ReducedChiSquared, c);
 
-            double j;
+            // F5: extreme-frame donut-recall term. Additive (a first-class objective term, like S_label), folded
+            // into the weighted sum and renormalized into wSum. Included ONLY when applicable (gate on, >= 2
+            // distinct focuser positions); otherwise sExtreme is null and the term — and its weight — are omitted,
+            // so the existing (Wf, Ws, Wc[, Wl]) weighting is exactly preserved.
+            var sExtreme = SExtreme(m, c);
+
+            double weighted = c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit;
+            double wSum = c.Wf + c.Ws + c.Wc;
             if (effRecall.HasValue && effPrecision.HasValue) {
-                var sLabel = LabelScore(effRecall.Value, effPrecision.Value);
-                var wSum = c.Wf + c.Ws + c.Wc + c.Wl;
-                j = (c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit + c.Wl * sLabel) / wSum;
-            } else {
-                var wSum = c.Wf + c.Ws + c.Wc;
-                j = (c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit) / wSum;
+                weighted += c.Wl * LabelScore(effRecall.Value, effPrecision.Value);
+                wSum += c.Wl;
             }
+            if (sExtreme.HasValue) {
+                weighted += c.We * sExtreme.Value;
+                wSum += c.We;
+            }
+            double j = weighted / wSum;
 
             // F3: MULTIPLICATIVE label-free precision penalty. NOT an additive Wd weight (that would change the
             // baseline). SDefocusPrecision returns exactly 1.0 when there is no relaxation data or zero relaxation

@@ -43,6 +43,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool HotpixelThresholdingEnabled { get; set; }
         public double HotpixelThreshold { get; set; }
 
+        // Defocus-aware family (set only when the wizard's defocus-recovery opt-in produced this snapshot). Defaults
+        // MATCH StarDetectionOptions so a snapshot that predates these fields (SchemaVersion 1, no defocus keys in
+        // its JSON) deserializes to the BASELINE defaults — gates OFF with the default knobs — rather than zeros
+        // (which would, e.g., set an invalid 0 px size reference). DefocusAwareGates is a single flag because the
+        // optimizer moves the three detector flags (distortion/centering/roundness) in lockstep.
+        public bool DefocusAwareGates { get; set; } = false;
+        public double DefocusDistortionSizeReference { get; set; } = 30.0;
+        public double DefocusDistortionMinFactor { get; set; } = 0.25;
+        public double DefocusCenteringToleranceFactor { get; set; } = 2.0;
+        public double DefocusMaxElongation { get; set; } = 2.0;
+        public bool DefocusAwareStructure { get; set; } = false;
+        public int StructureLayerBoost { get; set; } = 0;
+
         // Metadata about the optimization run that produced this snapshot
         public DateTime CreatedAtUtc { get; set; }
         public int RunCount { get; set; }
@@ -50,7 +63,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double FinalJ { get; set; }
         public int RecommendedStepSize { get; set; }
         public int RecommendedOffsetSteps { get; set; }
-        public int SchemaVersion { get; set; } = 1;
+        public int SchemaVersion { get; set; } = 2; // 2 adds the defocus-aware family
 
         public OptimizedStarDetectionSettings Clone() {
             return (OptimizedStarDetectionSettings)MemberwiseClone();
@@ -83,6 +96,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 MinStarBoundingBoxSize = p.MinimumStarBoundingBoxSize,
                 HotpixelThresholdingEnabled = p.HotpixelThresholdingEnabled,
                 HotpixelThreshold = p.HotpixelThreshold,
+
+                // Defocus-aware family. The three gate flags move in lockstep (the optimizer's combined switch),
+                // so the single DefocusAwareGates mirrors p.DefocusAwareDistortion.
+                DefocusAwareGates = p.DefocusAwareDistortion,
+                DefocusDistortionSizeReference = p.DefocusDistortionSizeReference,
+                DefocusDistortionMinFactor = p.DefocusDistortionMinFactor,
+                DefocusCenteringToleranceFactor = p.DefocusCenteringToleranceFactor,
+                DefocusMaxElongation = p.DefocusMaxElongation,
+                DefocusAwareStructure = p.DefocusAwareStructure,
+                StructureLayerBoost = p.StructureLayerBoost,
 
                 CreatedAtUtc = DateTime.UtcNow,
                 RunCount = runCount,

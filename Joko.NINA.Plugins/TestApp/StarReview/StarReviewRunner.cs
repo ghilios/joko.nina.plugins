@@ -369,10 +369,11 @@ namespace TestApp.StarReview {
         }
 
         /// <summary>
-        /// Overlays the 12 curated snapshot knobs onto <paramref name="p"/> LOCALLY (no ApplyOptimizedSettings, which
+        /// Overlays the curated snapshot knobs onto <paramref name="p"/> LOCALLY (no ApplyOptimizedSettings, which
         /// would persist through the options accessor). Shared by the file (--opt-results / auto) and profile paths so
         /// the mapping lives in one place. Mapping mirrors HocusFocusStarDetection.BuildStarDetectorParams (snapshot
-        /// field names match the matching StarDetectionOptions property names) and OptimizedStarDetectionSettings.FromParams.
+        /// field names match the matching StarDetectionOptions property names) and OptimizedStarDetectionSettings.FromParams,
+        /// including the defocus-aware family (the single DefocusAwareGates flag drives all three detector flags).
         /// </summary>
         private static void OverlaySnapshot(StarDetectorParams p, OptimizedStarDetectionSettings snapshot) {
             p.Sensitivity = snapshot.BrightnessSensitivity;
@@ -387,6 +388,16 @@ namespace TestApp.StarReview {
             p.MinimumStarBoundingBoxSize = snapshot.MinStarBoundingBoxSize;
             p.HotpixelThresholdingEnabled = snapshot.HotpixelThresholdingEnabled;
             p.HotpixelThreshold = snapshot.HotpixelThreshold;
+            // Defocus-aware family — the single gates flag drives distortion + centering + roundness in lockstep.
+            p.DefocusAwareDistortion = snapshot.DefocusAwareGates;
+            p.DefocusAwareCentering = snapshot.DefocusAwareGates;
+            p.DefocusRoundnessAdmission = snapshot.DefocusAwareGates;
+            p.DefocusDistortionSizeReference = snapshot.DefocusDistortionSizeReference;
+            p.DefocusDistortionMinFactor = snapshot.DefocusDistortionMinFactor;
+            p.DefocusCenteringToleranceFactor = snapshot.DefocusCenteringToleranceFactor;
+            p.DefocusMaxElongation = snapshot.DefocusMaxElongation;
+            p.DefocusAwareStructure = snapshot.DefocusAwareStructure;
+            p.StructureLayerBoost = snapshot.StructureLayerBoost;
         }
 
         /// <summary>

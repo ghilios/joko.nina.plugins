@@ -247,6 +247,79 @@ public class OptimizationObjectiveTests {
         Assert.That(j, Is.GreaterThanOrEqualTo(0.0));
     }
 
+    // ---- SExtreme (F5 extreme-frame donut-recall term) ----
+
+    // Metrics with explicit per-frame focuser positions and star counts (everything else neutral for J).
+    private static RunEvaluationMetrics RunWithCounts(int[] positions, int[] counts) => new RunEvaluationMetrics {
+        SigmaFocus = 0.05,
+        LooStdError = double.NaN,
+        StepSize = 100,
+        RSquared = 0.99,
+        ReducedChiSquared = 1.0,
+        FrameStarCounts = counts,
+        FrameFocuserPositions = positions,
+        BestFocusPosition = positions[positions.Length / 2]
+    };
+
+    [Test]
+    public void SExtreme_GateOff_ReturnsNull() {
+        // Default constants leave the term OFF ⇒ the objective is bit-identical (no extreme term).
+        var m = RunWithCounts(new[] { 5000, 5100, 5200 }, new[] { 10, 40, 30 });
+        Assert.That(OptimizationObjective.SExtreme(m, C), Is.Null);
+    }
+
+    [Test]
+    public void SExtreme_NoPositions_OrSingleDistinctPosition_ReturnsNull() {
+        var c = new ObjectiveConstants { EnableExtremeRecall = true };
+        var noPos = new RunEvaluationMetrics { FrameStarCounts = new[] { 10, 20 }, FrameFocuserPositions = null };
+        var oneDistinct = RunWithCounts(new[] { 5000, 5000, 5000 }, new[] { 10, 40, 30 });
+        Assert.Multiple(() => {
+            Assert.That(OptimizationObjective.SExtreme(noPos, c), Is.Null, "no positions ⇒ not applicable");
+            Assert.That(OptimizationObjective.SExtreme(oneDistinct, c), Is.Null, "single distinct position ⇒ no extremes");
+        });
+    }
+
+    [Test]
+    public void SExtreme_IsClampedMeanOfExtremeFrameCounts() {
+        var c = new ObjectiveConstants { EnableExtremeRecall = true, ExtremeTarget = 20 };
+        // Extremes are the min (5000 ⇒ 10 stars) and max (5200 ⇒ 30 stars) positions; mid frame is ignored.
+        // mean(10, 30) = 20 ⇒ 20/20 = 1.0.
+        var atTarget = RunWithCounts(new[] { 5000, 5100, 5200 }, new[] { 10, 999, 30 });
+        // mean(5, 5) = 5 ⇒ 5/20 = 0.25.
+        var quarter = RunWithCounts(new[] { 5000, 5100, 5200 }, new[] { 5, 999, 5 });
+        Assert.Multiple(() => {
+            Assert.That(OptimizationObjective.SExtreme(atTarget, c).Value, Is.EqualTo(1.0).Within(1e-12));
+            Assert.That(OptimizationObjective.SExtreme(quarter, c).Value, Is.EqualTo(0.25).Within(1e-12));
+        });
+    }
+
+    [Test]
+    public void SExtreme_SaturatesAtTarget() {
+        var c = new ObjectiveConstants { EnableExtremeRecall = true, ExtremeTarget = 20 };
+        var rich = RunWithCounts(new[] { 5000, 5100, 5200 }, new[] { 60, 5, 80 });
+        Assert.That(OptimizationObjective.SExtreme(rich, c).Value, Is.EqualTo(1.0), "capped at the target (no junk incentive past it)");
+    }
+
+    [Test]
+    public void JRun_ExtremeRecallOn_BitIdentical_ToOffWhenExtremesAtTarget() {
+        // When SExtreme = 1 (extremes at target), folding We·1 in and adding We to wSum leaves a perfect run at 1.0,
+        // matching the gate-off result — proving the renormalization is exact.
+        var on = new ObjectiveConstants { EnableExtremeRecall = true, ExtremeTarget = 8 };
+        var m = RunWithCounts(new[] { 5000, 5100, 5200 }, new[] { 100, 100, 100 });
+        m.SigmaFocus = 1e-9; m.RSquared = 1.0; m.ReducedChiSquared = 1.0;
+        Assert.That(OptimizationObjective.JRun(m, on), Is.EqualTo(1.0).Within(1e-9));
+    }
+
+    [Test]
+    public void JRun_ExtremeRecallOn_RewardsRicherExtremes() {
+        var c = new ObjectiveConstants { EnableExtremeRecall = true, ExtremeTarget = 30 };
+        // Same focus/fit/median; only the EXTREME-frame counts differ. The mid frames keep nMin/median identical
+        // so S_stars is matched, isolating the extreme term's effect.
+        var poor = RunWithCounts(new[] { 5000, 5100, 5200 }, new[] { 8, 50, 8 });
+        var rich = RunWithCounts(new[] { 5000, 5100, 5200 }, new[] { 28, 50, 28 });
+        Assert.That(OptimizationObjective.JRun(rich, c), Is.GreaterThan(OptimizationObjective.JRun(poor, c)));
+    }
+
     // ---- SDefocusPrecision (F3 label-free precision penalty) ----
 
     // GoodRun augmented with the per-frame plumbing the near-focus signal needs: a focuser-position axis centered

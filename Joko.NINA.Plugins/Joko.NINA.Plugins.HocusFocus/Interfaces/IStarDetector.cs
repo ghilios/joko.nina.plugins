@@ -359,6 +359,25 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // near-focus accepted/NotCentered counts (near-focus candidates stay <= the size reference, so factor 1.0).
         public double DefocusCenteringToleranceFactor { get; set; } = 2.0;
 
+        // Opt-in (default OFF for bit-identical detection). Roundness-rescue for the TooDistorted gate: fill-ratio
+        // is a POOR donut discriminator (a real donut ring and an irregular junk blob can share the same ~0.47
+        // fill), so relaxing the fill-ratio alone admits junk too. When true, a LARGE candidate
+        // (candidateSize = max(bbox.Width, bbox.Height) > DefocusDistortionSizeReference) that the (possibly
+        // relaxed) fill-ratio gate would reject is RESCUED — admitted — iff it is sufficiently ROUND, i.e. its
+        // pixel-coordinate elongation (√(λmax/λmin) of the unweighted covariance) is <= DefocusMaxElongation. A
+        // complete donut ring is radially symmetric (elongation ≈ 1); streaks, diffraction-spike fragments, and
+        // partial arcs are elongated and stay rejected. Rescued admissions set Star.RelaxationAdmitted (so the
+        // objective's near-focus precision penalty still accounts for them). LATE-gate param: it changes only the
+        // late TooDistorted decision, so it is excluded from the early cache key. Mapped from
+        // StarDetectionOptions.DefocusAwareGates in BuildStarDetectorParams (rides the same single toggle).
+        public bool DefocusRoundnessAdmission { get; set; } = false;
+
+        // The maximum pixel-coordinate elongation (√(λmax/λmin) of the candidate's unweighted coordinate
+        // covariance; 1.0 = perfectly round, larger = more elongated) for a large low-fill candidate to be
+        // rescued by DefocusRoundnessAdmission. Only consulted when DefocusRoundnessAdmission is true. Default 2.0
+        // (admits up to ~2:1 roundish donuts; rejects clearly elongated streaks/spike-fragments).
+        public double DefocusMaxElongation { get; set; } = 2.0;
+
         // Size (as a ratio) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star
         public double StarCenterTolerance { get; set; } = 0.3;
 

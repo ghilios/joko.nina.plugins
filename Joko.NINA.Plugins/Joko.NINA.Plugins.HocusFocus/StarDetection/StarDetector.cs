@@ -1193,6 +1193,54 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
+        /// Pixel-coordinate elongation of a candidate footprint: √(λmax / λmin) of the UNWEIGHTED 2×2 covariance
+        /// of the candidate's pixel coordinates. Equals 1.0 for a radially-symmetric footprint (a round, complete
+        /// donut ring or a filled disk) and grows with elongation (≈ the major/minor axis ratio of the equivalent
+        /// ellipse): streaks, diffraction-spike fragments, and partial donut arcs score &gt; 1. Used by the
+        /// roundness-rescue path of the TooDistorted gate to admit round low-fill donuts while still rejecting
+        /// elongated junk. Pure + deterministic (operates only on the coordinate list), so it is unit-testable in
+        /// isolation. Returns <see cref="double.PositiveInfinity"/> for degenerate footprints (&lt; 2 points, or a
+        /// perfectly collinear/zero-area set) so such candidates are never rescued.
+        /// </summary>
+        public static double ComputeCandidateElongation(IReadOnlyList<Point> starPoints) {
+            if (starPoints == null || starPoints.Count < 2) {
+                return double.PositiveInfinity;
+            }
+
+            double cx = 0.0, cy = 0.0;
+            for (var i = 0; i < starPoints.Count; ++i) {
+                cx += starPoints[i].X;
+                cy += starPoints[i].Y;
+            }
+            var n = starPoints.Count;
+            cx /= n;
+            cy /= n;
+
+            double sxx = 0.0, sxy = 0.0, syy = 0.0;
+            for (var i = 0; i < starPoints.Count; ++i) {
+                var dx = starPoints[i].X - cx;
+                var dy = starPoints[i].Y - cy;
+                sxx += dx * dx;
+                sxy += dx * dy;
+                syy += dy * dy;
+            }
+            sxx /= n;
+            sxy /= n;
+            syy /= n;
+
+            // Eigenvalues of the symmetric 2×2 covariance [[sxx, sxy], [sxy, syy]].
+            var trace = sxx + syy;
+            var diff = sxx - syy;
+            var disc = Math.Sqrt(diff * diff + 4.0 * sxy * sxy);
+            var lambdaMax = 0.5 * (trace + disc);
+            var lambdaMin = 0.5 * (trace - disc);
+            if (lambdaMin <= 0.0 || lambdaMax <= 0.0) {
+                return double.PositiveInfinity;
+            }
+            return Math.Sqrt(lambdaMax / lambdaMin);
+        }
+
+        /// <summary>
         /// Computes the effective fill-ratio threshold the TooDistorted gate compares against for a candidate of
         /// bbox max-dimension <paramref name="candidateSize"/> (= max(bbox.Width, bbox.Height), the same d the
         /// gate divides by).
@@ -1351,11 +1399,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var fillRatio = starPoints.Count / d / d;
             var effectiveMaxDistortion = ComputeEffectiveMaxDistortion(p, d);
             if (fillRatio < effectiveMaxDistortion) {
-                metrics.TooDistortedBounds.Add(starBounds);
-                if (rejectedBag != null) {
-                    RecordRejection(rejectedBag, starBounds, RejectionGate.TooDistorted, fillRatio, effectiveMaxDistortion, bboxCenterX, bboxCenterY);
+                // Roundness rescue (opt-in, default OFF ⇒ bit-identical): fill-ratio cannot tell a real donut ring
+                // from an irregular junk blob (both ~0.47), so before rejecting a LARGE low-fill candidate, admit it
+                // iff it is sufficiently ROUND — a complete donut ring is radially symmetric (elongation ≈ 1) while
+                // streaks / spike fragments / partial arcs are elongated. Admission is marked as a relaxation so the
+                // objective's near-focus precision penalty still accounts for it.
+                var roundnessRescued = p.DefocusRoundnessAdmission
+                    && d > p.DefocusDistortionSizeReference
+                    && ComputeCandidateElongation(starPoints) <= p.DefocusMaxElongation;
+                if (!roundnessRescued) {
+                    metrics.TooDistortedBounds.Add(starBounds);
+                    if (rejectedBag != null) {
+                        RecordRejection(rejectedBag, starBounds, RejectionGate.TooDistorted, fillRatio, effectiveMaxDistortion, bboxCenterX, bboxCenterY);
+                    }
+                    return null;
                 }
-                return null;
+                relaxationAdmitted = true;
             }
             // The accept/reject decision above uses the effective threshold ONLY. Separately (informational), note
             // whether the verbatim STRICT threshold would have rejected this candidate — i.e. it survives only

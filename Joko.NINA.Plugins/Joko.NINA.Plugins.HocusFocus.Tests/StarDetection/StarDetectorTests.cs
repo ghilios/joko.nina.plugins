@@ -156,6 +156,74 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         // -----------------------------------------------------------------------
+        // ComputeCandidateElongation (roundness-rescue discriminator) tests
+        // -----------------------------------------------------------------------
+
+        // Build a filled rectangle footprint (w x h) of integer pixel coordinates.
+        private static List<CvPoint> FilledRect(int w, int h) {
+            var pts = new List<CvPoint>(w * h);
+            for (int y = 0; y < h; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    pts.Add(new CvPoint(x, y));
+                }
+            }
+            return pts;
+        }
+
+        [Test]
+        public void Elongation_FilledSquare_IsNearOne() {
+            // A symmetric (square) footprint has equal coordinate variances ⇒ elongation ≈ 1.
+            var e = StarDetector.ComputeCandidateElongation(FilledRect(21, 21));
+            Assert.That(e, Is.EqualTo(1.0).Within(1e-9));
+        }
+
+        [Test]
+        public void Elongation_Streak_MatchesAspectRatio() {
+            // For a filled w x h rectangle the coordinate-covariance eigenvalues are the per-axis variances,
+            // so elongation = sqrt(varMajor / varMinor) = (longer side / shorter side) for uniform fills.
+            // A 60x20 streak ⇒ 3:1. Allow a small tolerance for the discrete uniform variance ratio.
+            var e = StarDetector.ComputeCandidateElongation(FilledRect(60, 20));
+            Assert.That(e, Is.EqualTo(3.0).Within(0.05));
+        }
+
+        [Test]
+        public void Elongation_DonutRing_IsNearOne_AndPassesTypicalCap() {
+            // A hollow ring (donut) of outer radius ~20 px, inner radius ~9 px is radially symmetric ⇒ elongation ≈ 1,
+            // so it clears the default DefocusMaxElongation = 2.0 cap (admitted), unlike an elongated streak.
+            var pts = new List<CvPoint>();
+            const double rOut = 20.0, rIn = 9.0;
+            for (int y = -22; y <= 22; ++y) {
+                for (int x = -22; x <= 22; ++x) {
+                    var r = Math.Sqrt(x * x + y * y);
+                    if (r >= rIn && r <= rOut) {
+                        pts.Add(new CvPoint(x + 30, y + 30));
+                    }
+                }
+            }
+            var e = StarDetector.ComputeCandidateElongation(pts);
+            Assert.Multiple(() => {
+                Assert.That(e, Is.EqualTo(1.0).Within(0.05), "a symmetric ring is round");
+                Assert.That(e, Is.LessThanOrEqualTo(2.0), "round donut clears the default elongation cap");
+            });
+        }
+
+        [Test]
+        public void Elongation_DegenerateFootprints_ReturnInfinity() {
+            Assert.Multiple(() => {
+                Assert.That(StarDetector.ComputeCandidateElongation(null), Is.EqualTo(double.PositiveInfinity));
+                Assert.That(StarDetector.ComputeCandidateElongation(new List<CvPoint>()), Is.EqualTo(double.PositiveInfinity));
+                Assert.That(StarDetector.ComputeCandidateElongation(new List<CvPoint> { new CvPoint(5, 5) }),
+                    Is.EqualTo(double.PositiveInfinity), "single pixel ⇒ infinite (never rescued)");
+                // A perfectly collinear set has zero minor-axis variance ⇒ infinite elongation (a line is not round).
+                var line = new List<CvPoint>();
+                for (int x = 0; x < 10; ++x) {
+                    line.Add(new CvPoint(x, 3));
+                }
+                Assert.That(StarDetector.ComputeCandidateElongation(line), Is.EqualTo(double.PositiveInfinity));
+            });
+        }
+
+        // -----------------------------------------------------------------------
         // ComputeEffectiveStarCenterTolerance (defocus-aware NotCentered gate) tests
         // -----------------------------------------------------------------------
 

@@ -215,6 +215,17 @@ namespace TestApp {
                 detectionParams.StructureLayerBoost = boost;
             }
 
+            // Opt-in ROUNDNESS-rescue test switch (companion to --defocus-distortion). Flips DefocusRoundnessAdmission
+            // ON so a large low-fill candidate the (relaxed) distortion gate would reject is admitted iff it is round
+            // (a complete donut ring). --defocus-max-elongation overrides the elongation cap (default 2.0).
+            if (DiagnosticUtil.HasFlag(args, "--defocus-roundness")) {
+                detectionParams.DefocusRoundnessAdmission = true;
+                var elongArg = DiagnosticUtil.GetArg(args, "--defocus-max-elongation");
+                if (!string.IsNullOrWhiteSpace(elongArg) && double.TryParse(elongArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var elong)) {
+                    detectionParams.DefocusMaxElongation = elong;
+                }
+            }
+
             // Optional StructureLayers override (diagnostic only): pins the nominal StructureLayers independent of
             // the profile so the structure-boost mechanism can be A/B-tested against a controlled baseline (e.g.
             // the factory default 4 where the donuts are NO-CANDIDATE) rather than against a drifted/optimized

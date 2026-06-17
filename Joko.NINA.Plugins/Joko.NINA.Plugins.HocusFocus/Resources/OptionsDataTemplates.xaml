@@ -447,6 +447,7 @@
     <TextBlock x:Key="DefocusDistortionSizeReference_Tooltip" Text="Tuning knob for the Defocus-Aware Gates (only used while they are enabled). The candidate bounding-box size (in pixels, the larger of width/height) at or below which the strict gate thresholds still apply; larger candidates get the relaxed thresholds. Shared by both the distortion and centering relaxations. Lower it to relax smaller stars; raise it to keep more of the strict behavior. Default 30." />
     <TextBlock x:Key="DefocusDistortionMinFactor_Tooltip" Text="Tuning knob for the Defocus-Aware Gates (only used while they are enabled). The floor multiplier applied to Max Distortion for very large (very defocused) candidates — the most permissive the distortion gate ever becomes. Must be greater than 0 and at most 1. Smaller values accept more heavily-distorted donuts. Default 0.25." />
     <TextBlock x:Key="DefocusCenteringToleranceFactor_Tooltip" Text="Tuning knob for the Defocus-Aware Gates (only used while they are enabled). The maximum multiplier applied to Star Center Tolerance for very large (very defocused) candidates — the most permissive the centering gate ever becomes. Must be at least 1 (1 is a no-op; larger values relax centering further). Default 2." />
+    <TextBlock x:Key="DefocusMaxElongation_Tooltip" Text="Tuning knob for the Defocus-Aware Gates (only used while they are enabled). A large, low-fill candidate that the distortion gate would reject is rescued — kept as a star — only if it is round enough, i.e. its elongation (1.0 = perfectly round; larger = more stretched) is at or below this value. A complete out-of-focus donut ring is round (~1), while streaks, diffraction-spike fragments, and partial arcs are elongated and stay rejected. Lower it to be stricter (admit only very round donuts); raise it to admit more oval shapes. Must be at least 1. Default 2 (about 2:1)." />
     <TextBlock x:Key="DefocusAwareStructure_Tooltip" Text="When enabled, large/donut (heavily defocused) stars are kept during structure detection so they form candidates instead of being erased. The wavelet step that removes large-scale background structure (nebulae, gradients) can also erase a big out-of-focus donut entirely, so it never even becomes a candidate to evaluate. This option makes that removal coarser (by Structure Layer Boost extra layers) so large stars survive. Off by default (detection is unchanged); enable it together with a Structure Layer Boost above 0 if heavily-defocused stars are missing entirely (not just rejected). EARLY-stage setting." />
     <TextBlock x:Key="StructureLayerBoost_Tooltip" Text="Only used while Defocus-Aware Structure is enabled. The number of extra wavelet layers added when removing large-scale structure, making the removal coarser so larger defocused donuts survive and form candidates. 0 means no change (identical to the feature being off). Raise it (1–6) if very out-of-focus stars never appear; raising it too far can let nebulosity/background structure leak in as false candidates. Default 0." />
     <TextBlock x:Key="StarCenterTolerance_Tooltip" Text="Size (as a percentage) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star" />
@@ -489,7 +490,7 @@
     <TextBlock x:Key="SaveIntermediateFiles_Tooltip" Text="If enabled, every step of star detection emits a debugging file to the intermediate path" />
     <TextBlock x:Key="UseAdvanced_Tooltip" Text="Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless you're an expert" />
     <TextBlock x:Key="OptimizeStarDetection_Tooltip" Text="Opens the Star Detection Optimization Wizard, which tunes star detection against one or more saved auto-focus runs and (optionally) applies the result as your Simple-Mode settings" />
-    <TextBlock x:Key="UseOptimizedSettings_Tooltip" Text="When enabled, the optimized star-detection settings produced by the optimization wizard drive detection instead of the Noise Level / Pixel Scale / Focus Range presets. Only available in Simple Mode after the wizard has produced and applied a result" />
+    <TextBlock x:Key="UseOptimizedSettings_Tooltip" Text="When enabled, the optimized star-detection settings produced by the optimization wizard drive detection instead of the Noise Level / Pixel Scale / Focus Range presets. Shown in Simple Mode; it stays disabled until the optimization wizard has produced and applied a result for this profile." />
     <TextBlock x:Key="ModelPSF_Tooltip" Text="Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity" />
     <TextBlock x:Key="PSFFitType_Tooltip" Text="What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight" />
     <TextBlock x:Key="PSFResolution_Tooltip" Text="The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting. Higher resolution may be more accurate, but takes longer to calculate" />
@@ -975,19 +976,6 @@
                         </MultiDataTrigger>
                     </Style.Triggers>
                 </Style>
-                <!--  "Use Optimized Settings" toggle: Simple Mode, and only when the wizard has produced a result.  -->
-                <Style x:Key="ShowOnSimpleHasOptimized" TargetType="{x:Type RowDefinition}">
-                    <Setter Property="Height" Value="0" />
-                    <Style.Triggers>
-                        <MultiDataTrigger>
-                            <MultiDataTrigger.Conditions>
-                                <Condition Binding="{Binding StarDetectionOptions.UseAdvanced}" Value="False" />
-                                <Condition Binding="{Binding StarDetectionOptions.HasOptimizedSettings}" Value="True" />
-                            </MultiDataTrigger.Conditions>
-                            <Setter Property="Height" Value="Auto" />
-                        </MultiDataTrigger>
-                    </Style.Triggers>
-                </Style>
                 <Style x:Key="ShowOnUseHotpixelThresholding_Advanced" TargetType="{x:Type RowDefinition}">
                     <Setter Property="Height" Value="0" />
                     <Style.Triggers>
@@ -1019,10 +1007,10 @@
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition />
-                <!--  Row 1: "Use Optimized Settings" toggle (Simple + HasOptimized) — placed ABOVE the
+                <!--  Row 1: "Use Optimized Settings" toggle (Simple Mode; disabled-not-hidden until HasOptimized) — placed ABOVE the
                       Noise Level / Pixel Scale / Focus Range presets it replaces. Rows 2-4: those presets,
                       shown only when NOT using the optimized settings.  -->
-                <RowDefinition Style="{StaticResource ShowOnSimpleHasOptimized}" />
+                <RowDefinition Style="{StaticResource ShowOnUseSimple}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
                 <RowDefinition Style="{StaticResource ShowOnUseSimpleNotOptimized}" />
@@ -1068,13 +1056,14 @@
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource HideOnSaveIntermediateOff}" />
                 <RowDefinition />
-                <!--  41: Defocus-Aware Gates toggle (advanced-only); 42-44: its three numeric tuning knobs
+                <!--  41: Defocus-Aware Gates toggle (advanced-only); 42-45: its four numeric tuning knobs
                       (advanced-only AND only when the gates toggle is on).  -->
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
-                <!--  45: Defocus-Aware Structure toggle (advanced-only); 46: its layer-boost knob (advanced-only).  -->
+                <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDefocusGates}" />
+                <!--  46: Defocus-Aware Structure toggle (advanced-only); 47: its layer-boost knob (advanced-only).  -->
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
             </Grid.RowDefinitions>
@@ -1166,20 +1155,17 @@
                 </ComboBox.ItemTemplate>
             </ComboBox>
 
-            <!--  Simple-Mode toggle: drive detection from the wizard's optimized settings. Shown only in Simple Mode once optimized settings exist (!UseAdvanced && HasOptimizedSettings). Placed ABOVE the presets it replaces.  -->
+            <!--  Simple-Mode toggle: drive detection from the wizard's optimized settings. Visible throughout Simple
+                  Mode (!UseAdvanced); DISABLED (not hidden) until the wizard has produced a result (HasOptimizedSettings),
+                  so users can see the option exists. Placed ABOVE the presets it replaces.  -->
             <TextBlock
                 Grid.Row="1"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Use Optimized Settings"
-                ToolTip="{StaticResource UseOptimizedSettings_Tooltip}">
-                <TextBlock.Visibility>
-                    <MultiBinding Converter="{StaticResource HF_MultiBooleanToVisibilityCollapsedConverter}">
-                        <Binding Converter="{StaticResource HF_InverseBooleanConverter}" Path="StarDetectionOptions.UseAdvanced" />
-                        <Binding Path="StarDetectionOptions.HasOptimizedSettings" />
-                    </MultiBinding>
-                </TextBlock.Visibility>
-            </TextBlock>
+                IsEnabled="{Binding StarDetectionOptions.HasOptimizedSettings}"
+                ToolTip="{StaticResource UseOptimizedSettings_Tooltip}"
+                Visibility="{Binding StarDetectionOptions.UseAdvanced, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}" />
             <CheckBox
                 Grid.Row="1"
                 Grid.Column="1"
@@ -1188,14 +1174,9 @@
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 IsChecked="{Binding StarDetectionOptions.UseOptimizedSettings}"
-                ToolTip="{StaticResource UseOptimizedSettings_Tooltip}">
-                <CheckBox.Visibility>
-                    <MultiBinding Converter="{StaticResource HF_MultiBooleanToVisibilityCollapsedConverter}">
-                        <Binding Converter="{StaticResource HF_InverseBooleanConverter}" Path="StarDetectionOptions.UseAdvanced" />
-                        <Binding Path="StarDetectionOptions.HasOptimizedSettings" />
-                    </MultiBinding>
-                </CheckBox.Visibility>
-            </CheckBox>
+                IsEnabled="{Binding StarDetectionOptions.HasOptimizedSettings}"
+                ToolTip="{StaticResource UseOptimizedSettings_Tooltip}"
+                Visibility="{Binding StarDetectionOptions.UseAdvanced, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}" />
 
             <TextBlock
                 Grid.Row="7"
@@ -1582,10 +1563,37 @@
                 Grid.Row="45"
                 Grid.Column="0"
                 VerticalAlignment="Center"
+                Text="Defocus Max Elongation"
+                ToolTip="{StaticResource DefocusMaxElongation_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="45"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ToolTip="{StaticResource DefocusMaxElongation_Tooltip}">
+                <Binding
+                    Path="StarDetectionOptions.DefocusMaxElongation"
+                    UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="10.0" Minimum="1.0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="46"
+                Grid.Column="0"
+                VerticalAlignment="Center"
                 Text="Defocus-Aware Structure"
                 ToolTip="{StaticResource DefocusAwareStructure_Tooltip}" />
             <CheckBox
-                Grid.Row="45"
+                Grid.Row="46"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1595,13 +1603,13 @@
                 ToolTip="{StaticResource DefocusAwareStructure_Tooltip}" />
 
             <TextBlock
-                Grid.Row="46"
+                Grid.Row="47"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Structure Layer Boost"
                 ToolTip="{StaticResource StructureLayerBoost_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="46"
+                Grid.Row="47"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"

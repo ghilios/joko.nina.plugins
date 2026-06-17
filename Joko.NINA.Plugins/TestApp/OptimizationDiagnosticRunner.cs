@@ -106,6 +106,12 @@ namespace TestApp {
 
             var labelsDir = DiagnosticUtil.GetArg(args, "--labels");
 
+            // Defocus-recovery OPT-IN (default OFF = baseline, no AF-curve fit regression). When set, the optimizer
+            // explores the full donut package: the 4 defocus-knob search variables are added, the gates switch also
+            // drives the roundness rescue, and the extreme-frame donut-recall objective term is enabled. Mirrors the
+            // wizard's "Recover defocused/donut stars" checkbox.
+            var defocusRecovery = DiagnosticUtil.HasFlag(args, "--defocus-recovery");
+
             // --per-run is a valueless flag: optimize each discovered run INDEPENDENTLY (one optimization, one
             // evaluator, one output subfolder, one hard-floor assertion per run) instead of jointly. Use this
             // when --runs points at a bank of DIFFERENT optical setups, where a joint (N>1 balanced) objective
@@ -216,11 +222,15 @@ namespace TestApp {
                 HighSigmaOutlierRejection = highSigmaOutlierRejection,
                 LowSigmaOutlierRejection = lowSigmaOutlierRejection,
                 Seed = seed,
-                Variables = OptimizerVariable.CreateCuratedSet(),
+                Variables = OptimizerVariable.CreateCuratedSet(defocusRecovery),
                 MaxEvals = maxEvals,
                 LabelsDir = labelsDir,
-                AnnotateAll = annotateAll
+                AnnotateAll = annotateAll,
+                ExtremeRecall = defocusRecovery
             };
+            Console.WriteLine(defocusRecovery
+                ? "  Defocus-recovery OPT-IN: donut package enabled (roundness + 4 defocus knobs + extreme-recall term)"
+                : "  Defocus recovery OFF (default): baseline search — no AF-curve fit regression");
 
             if (perRun) {
                 await RunPerRun(ctx, runsDir, outDir, discovery.Runs, labelsByRun).ConfigureAwait(false);
@@ -240,6 +250,7 @@ namespace TestApp {
             public double LowSigmaOutlierRejection;
             public StarDetectorParams Seed;
             public IReadOnlyList<OptimizerVariable> Variables;
+            public bool ExtremeRecall = true;
             public int? MaxEvals;
             public string LabelsDir;
             public bool AnnotateAll;
@@ -382,7 +393,8 @@ namespace TestApp {
             }
 
             var variables = ctx.Variables;
-            var optimizer = new StarDetectionOptimizer();
+            // Opt-in only: pass EnableExtremeRecall=true; otherwise null ⇒ default ctor == baseline (term OFF).
+            var optimizer = new StarDetectionOptimizer(ctx.ExtremeRecall ? new ObjectiveConstants { EnableExtremeRecall = true } : null);
 
             var dataList = loadedRuns.Select(r => r.Data).ToList();
             var evaluator = RunEvaluationData.CreateEvaluator(dataList);

@@ -306,6 +306,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // --defocus-distortion / --defocus-centering switches can toggle them separately.
                 DefocusAwareDistortion = options.DefocusAwareGates,
                 DefocusAwareCentering = options.DefocusAwareGates,
+                // Roundness-rescue for the TooDistorted gate rides the same single toggle: a large low-fill
+                // candidate the (relaxed) fill-ratio would reject is admitted iff it is round (donut ring), so
+                // fill-ratio relaxation no longer admits elongated junk/spike fragments along with real donuts.
+                DefocusRoundnessAdmission = options.DefocusAwareGates,
+                DefocusMaxElongation = options.DefocusMaxElongation,
                 // Numeric tuning knobs (Advanced options); only take effect while the gates are ON.
                 DefocusDistortionSizeReference = options.DefocusDistortionSizeReference,
                 DefocusDistortionMinFactor = options.DefocusDistortionMinFactor,

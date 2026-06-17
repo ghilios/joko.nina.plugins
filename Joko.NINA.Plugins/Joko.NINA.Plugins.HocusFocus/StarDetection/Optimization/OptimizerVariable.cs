@@ -92,7 +92,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         /// <summary>
-        /// The 13 curated tunable variables. Bounds/initial steps follow the validation ranges in
+        /// The curated tunable variables. Bounds/initial steps follow the validation ranges in
         /// StarDetectionOptions.cs where a UI range exists; where a range is open-ended the bound is a
         /// HEURISTIC (pragmatic, easily editable) value — see the named constants below.
         ///
@@ -102,7 +102,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// the published bounds. The descriptor properties are init-only, so the bounds the lambda quantizes
         /// against are exactly the ones returned by <see cref="Lower"/>/<see cref="Upper"/>.
         /// </summary>
-        public static IReadOnlyList<OptimizerVariable> CreateCuratedSet() {
+        public static IReadOnlyList<OptimizerVariable> CreateCuratedSet(bool defocusRecovery = false) {
             // --- Heuristic bounds (no hard UI validation range; chosen pragmatically). Edit here to retune. ---
             const double SensitivityLower = 0.0;       // heuristic
             const double SensitivityUpper = 50.0;      // heuristic; widened 20 -> 50 because rich fields pinned the old 20 ceiling
@@ -120,8 +120,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             const int NoiseReductionRadiusUpper = 10;  // heuristic
             const int MinBoundingBoxLower = 2;         // heuristic
             const int MinBoundingBoxUpper = 20;        // heuristic
+            const double DefocusSizeRefLower = 15.0;   // heuristic; bbox max-dim (px) above which the defocus gates relax
+            const double DefocusSizeRefUpper = 60.0;   // heuristic
+            const double DefocusMaxElongationLower = 1.0; // heuristic; 1.0 = admit only perfectly-round donuts
+            const double DefocusMaxElongationUpper = 4.0; // heuristic; up to ~4:1 elongation admitted
+            const double DefocusMinFactorLower = 0.1;  // heuristic; floor multiplier on MaxDistortion (most permissive)
+            const double DefocusMinFactorUpper = 1.0;  // heuristic; 1.0 = no distortion relaxation
+            const double DefocusCenterFactorLower = 1.0; // heuristic; 1.0 = no centering relaxation
+            const double DefocusCenterFactorUpper = 4.0; // heuristic; max centering-tolerance multiplier
 
-            return new List<OptimizerVariable> {
+            // The defocus-aware gates switch. In the BASELINE (default) set it drives distortion + centering only —
+            // exactly the pre-existing behavior. Under the defocus-recovery OPT-IN it ALSO drives the roundness
+            // rescue, and the 4 numeric defocus knobs below are added. Keeping the default set == baseline is what
+            // guarantees no AF-curve fit regression for users who don't opt into donut recovery.
+            Action<StarDetectorParams, bool> gatesWrite = defocusRecovery
+                ? (p, en) => { p.DefocusAwareDistortion = en; p.DefocusAwareCentering = en; p.DefocusRoundnessAdmission = en; }
+                : (p, en) => { p.DefocusAwareDistortion = en; p.DefocusAwareCentering = en; };
+
+            var set = new List<OptimizerVariable> {
                 Continuous(nameof(StarDetectorParams.Sensitivity), SensitivityLower, SensitivityUpper, 1.0,
                     p => p.Sensitivity, (p, v) => p.Sensitivity = v),
                 Continuous(nameof(StarDetectorParams.StarClippingMultiplier), StarClipLower, StarClipUpper, 0.5,
@@ -146,21 +162,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     p => p.HotpixelThresholdingEnabled, (p, b) => p.HotpixelThresholdingEnabled = b),
                 Continuous(nameof(StarDetectorParams.HotpixelThreshold), HotpixelThresholdLower, HotpixelThresholdUpper, 0.001,
                     p => p.HotpixelThreshold, (p, v) => p.HotpixelThreshold = v),
-                // F3: a single combined switch that flips BOTH defocus-aware gates together, so the optimizer can
-                // explore the defocus relaxation (recovering large/donut defocused stars) as one knob. The Name is
-                // a SYNTHETIC alias (not a StarDetectorParams property): Read reports the distortion flag (the two
-                // are written in lockstep), Write sets distortion AND centering to the same value. The seed reads
-                // the current params (both OFF by default), so the baseline is unchanged; the search may flip it on.
-                // Size-reference tuning is intentionally NOT exposed as a variable for now — only this flag.
-                BooleanVar(DefocusAwareGatesName, 1,
-                    p => p.DefocusAwareDistortion,
-                    (p, en) => { p.DefocusAwareDistortion = en; p.DefocusAwareCentering = en; }),
-                // Defocus-aware STRUCTURE detection as a single integer knob (EARLY): 0 ⇒ OFF (bit-identical
-                // baseline), >0 ⇒ enable DefocusAwareStructure with that many extra wavelet layers, recovering
-                // large/donut defocused stars that never form a candidate. The seed reads the effective boost (0
-                // when the flag is off), so the baseline J is unchanged; the search may raise it.
+                // Combined defocus-aware-gates switch (a SYNTHETIC alias; Read reports the distortion flag, Write
+                // drives the flags in lockstep). Present in BOTH sets — it was curated pre-change, so keeping it is
+                // part of the baseline. The roundness coupling differs by mode (see gatesWrite above).
+                BooleanVar(DefocusAwareGatesName, 1, p => p.DefocusAwareDistortion, gatesWrite),
+                // Defocus-aware STRUCTURE integer knob (EARLY): 0 ⇒ OFF (bit-identical), >0 ⇒ extra wavelet layers.
+                // Also pre-change / baseline, so kept in both sets.
                 StructureBoostVar(),
             };
+
+            if (defocusRecovery) {
+                // OPT-IN ONLY: the LATE gate-tuning knobs. They are excluded from the default set because adding 4
+                // extra search dimensions on a fixed eval budget measurably dilutes convergence and regresses the
+                // AF-curve fit across the bank. They only take effect while the gates are ON. SizeReference = the
+                // bbox max-dim (px) above which a candidate gets the relaxed gates + roundness rescue; MaxElongation
+                // = the roundness cap; MinFactor = the floor multiplier on MaxDistortion; CenteringToleranceFactor =
+                // how far the NotCentered tolerance grows. All LATE (not in the early cache key) so they reuse context.
+                set.Add(Continuous(nameof(StarDetectorParams.DefocusDistortionSizeReference), DefocusSizeRefLower, DefocusSizeRefUpper, 5.0,
+                    p => p.DefocusDistortionSizeReference, (p, v) => p.DefocusDistortionSizeReference = v));
+                set.Add(Continuous(nameof(StarDetectorParams.DefocusMaxElongation), DefocusMaxElongationLower, DefocusMaxElongationUpper, 0.25,
+                    p => p.DefocusMaxElongation, (p, v) => p.DefocusMaxElongation = v));
+                set.Add(Continuous(nameof(StarDetectorParams.DefocusDistortionMinFactor), DefocusMinFactorLower, DefocusMinFactorUpper, 0.05,
+                    p => p.DefocusDistortionMinFactor, (p, v) => p.DefocusDistortionMinFactor = v));
+                set.Add(Continuous(nameof(StarDetectorParams.DefocusCenteringToleranceFactor), DefocusCenterFactorLower, DefocusCenterFactorUpper, 0.25,
+                    p => p.DefocusCenteringToleranceFactor, (p, v) => p.DefocusCenteringToleranceFactor = v));
+            }
+            return set;
         }
 
         /// <summary>Synthetic curated-set variable name for the combined defocus-aware-gates switch. It is NOT a

@@ -59,10 +59,11 @@ public class StarDetectionOptionsTests {
         options.StarCenterTolerance = 0.5;
         options.StarPeakResponse = 0.8;
         options.MaxDistortion = 0.4;
-        options.DefocusAwareGates = true;
+        options.DefocusAwareGates = true; // differs from the default (false) so the setter persists it
         options.DefocusDistortionSizeReference = 25.0;
         options.DefocusDistortionMinFactor = 0.3;
         options.DefocusCenteringToleranceFactor = 2.5;
+        options.DefocusMaxElongation = 3.0;
         options.StarBackgroundBoxExpansion = 4;
         options.MinStarBoundingBoxSize = 6;
         options.MinHFR = 1.0;
@@ -98,6 +99,7 @@ public class StarDetectionOptionsTests {
             Assert.That(store.Snapshot["DefocusDistortionSizeReference"], Is.EqualTo(25.0));
             Assert.That(store.Snapshot["DefocusDistortionMinFactor"], Is.EqualTo(0.3));
             Assert.That(store.Snapshot["DefocusCenteringToleranceFactor"], Is.EqualTo(2.5));
+            Assert.That(store.Snapshot["DefocusMaxElongation"], Is.EqualTo(3.0));
             Assert.That(store.Snapshot["StarBackgroundBoxExpansion"], Is.EqualTo(4));
             Assert.That(store.Snapshot["MinStarBoundingBoxSize"], Is.EqualTo(6));
             Assert.That(store.Snapshot["MinHFR"], Is.EqualTo(1.0));
@@ -275,19 +277,21 @@ public class StarDetectionOptionsTests {
 
     [Test]
     public void DefocusAwareGates_DefaultsOff() {
+        // Default OFF (baseline): the gates trade AF-curve tightness for donut recall, so they are opt-in via the
+        // optimization wizard's defocus-recovery toggle (see donut-defocus-detection-analysis-design.md).
         var (options, _, _) = Build();
         Assert.That(options.DefocusAwareGates, Is.False);
     }
 
     [Test]
     public void DefocusTunables_DefaultToParamDefaults() {
-        // Defaults must equal the StarDetectorParams class defaults so detection stays bit-identical when the
-        // gates are off and unchanged when first turned on.
+        // Defaults must equal the StarDetectorParams class defaults so the knobs are unchanged from the detector.
         var (options, _, _) = Build();
         Assert.Multiple(() => {
             Assert.That(options.DefocusDistortionSizeReference, Is.EqualTo(30.0));
             Assert.That(options.DefocusDistortionMinFactor, Is.EqualTo(0.25));
             Assert.That(options.DefocusCenteringToleranceFactor, Is.EqualTo(2.0));
+            Assert.That(options.DefocusMaxElongation, Is.EqualTo(2.0));
         });
     }
 
@@ -322,10 +326,11 @@ public class StarDetectionOptionsTests {
     public void ResetDefaults_RestoresDefocusGateDefaults() {
         var (options, _, _) = Build();
         options.UseAdvanced = true;
-        options.DefocusAwareGates = true;
+        options.DefocusAwareGates = true; // differs from the default (false)
         options.DefocusDistortionSizeReference = 25.0;
         options.DefocusDistortionMinFactor = 0.3;
         options.DefocusCenteringToleranceFactor = 2.5;
+        options.DefocusMaxElongation = 3.0;
 
         options.ResetDefaults();
 
@@ -334,38 +339,44 @@ public class StarDetectionOptionsTests {
             Assert.That(options.DefocusDistortionSizeReference, Is.EqualTo(30.0));
             Assert.That(options.DefocusDistortionMinFactor, Is.EqualTo(0.25));
             Assert.That(options.DefocusCenteringToleranceFactor, Is.EqualTo(2.0));
+            Assert.That(options.DefocusMaxElongation, Is.EqualTo(2.0));
         });
     }
 
     [Test]
     public void DefocusGates_RoundTripThroughBuildStarDetectorParams() {
-        // The single DefocusAwareGates toggle must drive BOTH detector-param flags, and the three numeric knobs
-        // must flow through unchanged.
+        // The single DefocusAwareGates toggle must drive ALL THREE detector-param flags (distortion, centering,
+        // roundness rescue), and the numeric knobs must flow through unchanged.
         var (options, _, _) = Build();
         options.UseAdvanced = true;
         options.DefocusAwareGates = true;
         options.DefocusDistortionSizeReference = 22.0;
         options.DefocusDistortionMinFactor = 0.4;
         options.DefocusCenteringToleranceFactor = 3.0;
+        options.DefocusMaxElongation = 1.8;
 
         var p = HocusFocusStarDetection.BuildStarDetectorParams(options);
 
         Assert.Multiple(() => {
             Assert.That(p.DefocusAwareDistortion, Is.True);
             Assert.That(p.DefocusAwareCentering, Is.True);
+            Assert.That(p.DefocusRoundnessAdmission, Is.True);
             Assert.That(p.DefocusDistortionSizeReference, Is.EqualTo(22.0));
             Assert.That(p.DefocusDistortionMinFactor, Is.EqualTo(0.4));
             Assert.That(p.DefocusCenteringToleranceFactor, Is.EqualTo(3.0));
+            Assert.That(p.DefocusMaxElongation, Is.EqualTo(1.8));
         });
     }
 
     [Test]
-    public void DefocusGatesOff_BothDetectorFlagsOff() {
+    public void DefocusGatesOff_AllThreeDetectorFlagsOff() {
         var (options, _, _) = Build();
+        // DefocusAwareGates defaults OFF, so a fresh options object yields all three detector flags off.
         var p = HocusFocusStarDetection.BuildStarDetectorParams(options);
         Assert.Multiple(() => {
             Assert.That(p.DefocusAwareDistortion, Is.False);
             Assert.That(p.DefocusAwareCentering, Is.False);
+            Assert.That(p.DefocusRoundnessAdmission, Is.False);
         });
     }
 
@@ -433,6 +444,7 @@ public class StarDetectionOptionsTests {
     [TestCase(nameof(StarDetectionOptions.DefocusDistortionSizeReference), 25.0)]
     [TestCase(nameof(StarDetectionOptions.DefocusDistortionMinFactor), 0.3)]
     [TestCase(nameof(StarDetectionOptions.DefocusCenteringToleranceFactor), 2.5)]
+    [TestCase(nameof(StarDetectionOptions.DefocusMaxElongation), 3.0)]
     public void Setter_RaisesPropertyChanged(string propertyName, object newValue) {
         var (options, _, _) = Build();
         var raised = new List<string>();
@@ -519,13 +531,22 @@ public class StarDetectionOptionsTests {
             MinStarBoundingBoxSize = 8,
             HotpixelThresholdingEnabled = false,
             HotpixelThreshold = 0.02,
+            // Defocus-aware family — non-default numeric values (defaults are 30/0.25/2.0/2.0, structure off/0) so
+            // the apply test proves these are actually driven from the snapshot, not coincidentally the defaults.
+            DefocusAwareGates = true,
+            DefocusDistortionSizeReference = 22.0,
+            DefocusDistortionMinFactor = 0.4,
+            DefocusCenteringToleranceFactor = 2.5,
+            DefocusMaxElongation = 1.7,
+            DefocusAwareStructure = true,
+            StructureLayerBoost = 3,
             CreatedAtUtc = new DateTime(2026, 6, 14, 12, 0, 0, DateTimeKind.Utc),
             RunCount = 5,
             BaselineJ = 0.9,
             FinalJ = 0.4,
             RecommendedStepSize = 25,
             RecommendedOffsetSteps = 6,
-            SchemaVersion = 1
+            SchemaVersion = 2
         };
     }
 
@@ -543,6 +564,13 @@ public class StarDetectionOptionsTests {
             Assert.That(options.MinStarBoundingBoxSize, Is.EqualTo(s.MinStarBoundingBoxSize));
             Assert.That(options.HotpixelThresholdingEnabled, Is.EqualTo(s.HotpixelThresholdingEnabled));
             Assert.That(options.HotpixelThreshold, Is.EqualTo(s.HotpixelThreshold));
+            Assert.That(options.DefocusAwareGates, Is.EqualTo(s.DefocusAwareGates));
+            Assert.That(options.DefocusDistortionSizeReference, Is.EqualTo(s.DefocusDistortionSizeReference));
+            Assert.That(options.DefocusDistortionMinFactor, Is.EqualTo(s.DefocusDistortionMinFactor));
+            Assert.That(options.DefocusCenteringToleranceFactor, Is.EqualTo(s.DefocusCenteringToleranceFactor));
+            Assert.That(options.DefocusMaxElongation, Is.EqualTo(s.DefocusMaxElongation));
+            Assert.That(options.DefocusAwareStructure, Is.EqualTo(s.DefocusAwareStructure));
+            Assert.That(options.StructureLayerBoost, Is.EqualTo(s.StructureLayerBoost));
         });
     }
 
@@ -598,6 +626,16 @@ public class StarDetectionOptionsTests {
             Assert.That(p.MinimumStarBoundingBoxSize, Is.EqualTo(snapshot.MinStarBoundingBoxSize));
             Assert.That(p.HotpixelThresholdingEnabled, Is.EqualTo(snapshot.HotpixelThresholdingEnabled));
             Assert.That(p.HotpixelThreshold, Is.EqualTo(snapshot.HotpixelThreshold));
+            // Defocus-aware family: the single gates flag drives all three detector flags; knobs flow through.
+            Assert.That(p.DefocusAwareDistortion, Is.EqualTo(snapshot.DefocusAwareGates));
+            Assert.That(p.DefocusAwareCentering, Is.EqualTo(snapshot.DefocusAwareGates));
+            Assert.That(p.DefocusRoundnessAdmission, Is.EqualTo(snapshot.DefocusAwareGates));
+            Assert.That(p.DefocusDistortionSizeReference, Is.EqualTo(snapshot.DefocusDistortionSizeReference));
+            Assert.That(p.DefocusDistortionMinFactor, Is.EqualTo(snapshot.DefocusDistortionMinFactor));
+            Assert.That(p.DefocusCenteringToleranceFactor, Is.EqualTo(snapshot.DefocusCenteringToleranceFactor));
+            Assert.That(p.DefocusMaxElongation, Is.EqualTo(snapshot.DefocusMaxElongation));
+            Assert.That(p.DefocusAwareStructure, Is.EqualTo(snapshot.DefocusAwareStructure));
+            Assert.That(p.StructureLayerBoost, Is.EqualTo(snapshot.StructureLayerBoost));
         });
     }
 
