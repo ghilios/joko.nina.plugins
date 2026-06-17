@@ -12,7 +12,6 @@ on:
   push:
     branches:
       - develop
-      - ghilios/docs-site   # TEMPORARY: enables a branch-preview deploy; remove before merging
     paths:
       - 'documentation/**'
       - 'mkdocs.yml'
