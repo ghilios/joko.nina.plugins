@@ -488,7 +488,7 @@
     <TextBlock x:Key="SaveIntermediatePath_Tooltip" Text="When Save Intermediate Files is enabled, they are written to this path the next time star detection runs" />
     <TextBlock x:Key="SaveIntermediateFiles_Tooltip" Text="If enabled, every step of star detection emits a debugging file to the intermediate path" />
     <TextBlock x:Key="UseAdvanced_Tooltip" Text="Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless you're an expert" />
-    <TextBlock x:Key="OptimizeStarDetection_Tooltip" Text="Opens the Star Detection Optimization Wizard, which tunes star detection against one or more saved auto-focus runs and (optionally) applies the result as your Simple-Mode settings" />
+    <TextBlock x:Key="OptimizeStarDetection_Tooltip" Text="Opens the Star Detection Optimization Wizard, which tunes star detection against a saved auto-focus run and (optionally) applies the result as your Simple-Mode settings" />
     <TextBlock x:Key="UseOptimizedSettings_Tooltip" Text="When enabled, the optimized star-detection settings produced by the optimization wizard drive detection instead of the Noise Level / Pixel Scale / Focus Range presets. Only available in Simple Mode after the wizard has produced and applied a result" />
     <TextBlock x:Key="ModelPSF_Tooltip" Text="Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity" />
     <TextBlock x:Key="PSFFitType_Tooltip" Text="What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight" />
