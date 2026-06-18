@@ -665,10 +665,15 @@ flag is false the detector fills no per-sector residual arrays and skips the dia
 
 The Star Detection Optimization Wizard ships with `TestApp` subcommands that drive the **same**
 `StarDetectionOptimizer` the live wizard uses, so the optimizer can be exercised/tuned offline. They load the
-user's real NINA profile and build the seed via `BuildStarDetectorParams` plus the AF overrides (`ModelPSF=false`,
-`Region=Full`, `SaveIntermediateFilesPath=""`, `PixelScale` from the profile × binning=1 for raw Mats). All are
-**read-only with respect to the profile/options** (they never call a settings setter or touch the options
-accessor — NINA auto-saves the active profile, so mutating options would silently rewrite the user's settings).
+user's real NINA profile and, mirroring the wizard, build two param bundles (each with the AF overrides
+`ModelPSF=false`, `Region=Full`, `SaveIntermediateFilesPath=""`, `PixelScale` from the profile × binning=1 for raw
+Mats): the optimizer **seed** = fully-default params (`BuildDefaultStarDetectorParams`, the wizard's
+`LoadedRun.Seed`), and the **baseline** = the user's current settings (`BuildStarDetectorParams`, the wizard's
+`LoadedRun.Baseline`). The search starts from the default seed; improvement (J, σ_focus, curated-param deltas, the
+`optimized_settings.json` `BaselineJ`) is reported **vs the current-settings baseline** — exactly the wizard's
+"vs current" display. All are **read-only with respect to the profile/options** (they never call a settings setter
+or touch the options accessor — NINA auto-saves the active profile, so mutating options would silently rewrite the
+user's settings).
 
 > **Perf:** detection is split into a cacheable EARLY context (`BuildDetectionContext`) + a cheap LATE
 > `GateAndMeasure`; `RunEvaluationData` caches the early context per (frame, early-key) and reuses it across

@@ -162,19 +162,27 @@ namespace TestApp {
                 Logger.Warning("PixelScale is NaN; pixel size / focal length not set in the profile");
             }
 
-            // Seed params = the SAME mapping NINA uses (BuildStarDetectorParams), with the AF overrides
-            // GetStarDetectorParams(..., isAutoFocus:true) applies: ModelPSF=false, no intermediate files, plus
-            // PixelScale and Region=Full. This is exactly the bundle the optimizer starts from and tunes.
-            var seed = HocusFocusStarDetection.BuildStarDetectorParams(starDetectionOptions);
-            seed.PixelScale = pixelScale;
-            seed.Region = StarDetectionRegion.Full;
-            seed.ModelPSF = false;
-            seed.SaveIntermediateFilesPath = string.Empty;
-            // The optimizer scores the full accepted set, so keep contaminated stars only if the profile says to.
-            // Leave RejectContaminatedStars exactly as the profile resolved it (matches production AF).
+            // Mirror the wizard's seed/baseline split (optimizer default seed + current-settings baseline):
+            //  - Seed = fully-DEFAULT params (BuildDefaultStarDetectorParams) — the bundle the optimizer STARTS from,
+            //    exactly like the wizard's LoadedRun.Seed, so the headless search reproduces the live result.
+            //  - Baseline = the user's CURRENT settings (BuildStarDetectorParams) — the "before" that improvement is
+            //    measured against (σ, J, curated-param deltas), exactly like the wizard's LoadedRun.Baseline.
+            // Both carry the same AF image-context overrides GetStarDetectorParams / GetDefaultStarDetectorParams apply
+            // (PixelScale, Region=Full, ModelPSF=false, no intermediate files). Neither writes to the profile.
+            StarDetectorParams ApplyAfContext(StarDetectorParams p) {
+                p.PixelScale = pixelScale;
+                p.Region = StarDetectionRegion.Full;
+                p.ModelPSF = false;
+                p.SaveIntermediateFilesPath = string.Empty;
+                return p;
+            }
+            var seed = ApplyAfContext(HocusFocusStarDetection.BuildDefaultStarDetectorParams());
+            var baseline = ApplyAfContext(HocusFocusStarDetection.BuildStarDetectorParams(starDetectionOptions));
 
-            Console.WriteLine($"Seed params: Sensitivity={F(seed.Sensitivity)}, StarClippingMultiplier={F(seed.StarClippingMultiplier)}, " +
-                $"NoiseClippingMultiplier={F(seed.NoiseClippingMultiplier)}, StructureLayers={seed.StructureLayers}, PixelScale={F(seed.PixelScale)}, " +
+            Console.WriteLine($"Default seed params: Sensitivity={F(seed.Sensitivity)}, StarClippingMultiplier={F(seed.StarClippingMultiplier)}, " +
+                $"NoiseClippingMultiplier={F(seed.NoiseClippingMultiplier)}, StructureLayers={seed.StructureLayers}, PixelScale={F(seed.PixelScale)}");
+            Console.WriteLine($"Current (baseline) params: Sensitivity={F(baseline.Sensitivity)}, StarClippingMultiplier={F(baseline.StarClippingMultiplier)}, " +
+                $"NoiseClippingMultiplier={F(baseline.NoiseClippingMultiplier)}, StructureLayers={baseline.StructureLayers}, " +
                 $"MeasurementAverage={starDetectionOptions.MeasurementAverage}");
 
             // The fixed AF-detection sigma rejections the wizard's RunEvaluationLoader uses (the
@@ -216,6 +224,7 @@ namespace TestApp {
                 HighSigmaOutlierRejection = highSigmaOutlierRejection,
                 LowSigmaOutlierRejection = lowSigmaOutlierRejection,
                 Seed = seed,
+                Baseline = baseline,
                 Variables = OptimizerVariable.CreateCuratedSet(),
                 MaxEvals = maxEvals,
                 LabelsDir = labelsDir,
@@ -238,7 +247,8 @@ namespace TestApp {
             public MeasurementAverageEnum MeasurementAverage;
             public double HighSigmaOutlierRejection;
             public double LowSigmaOutlierRejection;
-            public StarDetectorParams Seed;
+            public StarDetectorParams Seed;       // optimizer start = fully-default params (wizard's LoadedRun.Seed)
+            public StarDetectorParams Baseline;    // current settings = displayed "before" (wizard's LoadedRun.Baseline)
             public IReadOnlyList<OptimizerVariable> Variables;
             public int? MaxEvals;
             public string LabelsDir;
@@ -251,7 +261,8 @@ namespace TestApp {
             public int WorstFrameCount;
             public string WorstRunId;
             public OptimizationResult Result;
-            public List<RunEvaluationResult> PerRunSeed;
+            public double BaselineJ = double.NaN;   // J of the user's CURRENT settings (the displayed "before")
+            public List<RunEvaluationResult> PerRunBaseline;   // per-run eval of CURRENT settings (the "before" columns)
             public List<RunEvaluationResult> PerRunBest;
             public List<LoadedHarnessRun> LoadedRuns;
         }
@@ -302,7 +313,7 @@ namespace TestApp {
                     if (!outcome.HardFloorPassed) {
                         anyFailure = true;
                     }
-                    aggregate.Add(BuildAggregateRow(d.RunId, outcome));
+                    aggregate.Add(BuildAggregateRow(d.RunId, ctx, outcome));
                     Console.WriteLine($"  -> {d.RunId}: seedJ={F(outcome.Result.SeedJ)} bestJ={F(outcome.Result.BestJ)} " +
                         $"hard-floor {(outcome.HardFloorPassed ? "PASS" : "FAIL")}; outputs in {subDir}");
                 } catch (Exception ex) {
@@ -404,14 +415,20 @@ namespace TestApp {
             Console.WriteLine($"Optimize phase: {sw.Elapsed.TotalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} s wall, " +
                 $"early-context builds={builds}, reuses={reuses} ({reusePct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}% reuse of {totalDetections} frame detections)");
 
-            var perRunSeed = new List<RunEvaluationResult>(loadedRuns.Count);
+            // "Before" = the user's CURRENT settings (ctx.Baseline) — the wizard's displayed baseline, NOT the default
+            // seed the optimizer started from. perRunBaseline feeds every before-column; baselineJ (the SAME JTotal
+            // the optimizer uses, over the single baseline bundle across runs) is the reported "before J", mirroring
+            // the wizard's currentBaselineJ so the headless improvement equals the live wizard's.
+            var perRunBaseline = new List<RunEvaluationResult>(loadedRuns.Count);
             var perRunBest = new List<RunEvaluationResult>(loadedRuns.Count);
             foreach (var r in loadedRuns) {
-                perRunSeed.Add(await r.Data.EvaluateAndFitAsync(ctx.Seed, CancellationToken.None).ConfigureAwait(false));
+                perRunBaseline.Add(await r.Data.EvaluateAndFitAsync(ctx.Baseline, CancellationToken.None).ConfigureAwait(false));
                 perRunBest.Add(await r.Data.EvaluateAndFitAsync(result.BestParams, CancellationToken.None).ConfigureAwait(false));
             }
 
             var objectiveConstants = new ObjectiveConstants();
+            var baselineJ = OptimizationObjective.JTotal(
+                perRunBaseline.Select(pr => OptimizationObjective.JRun(pr.Metrics, objectiveConstants)).ToList(), objectiveConstants);
             var (passed, worstFrameCount, worstRunId) = AssertHardFloor(loadedRuns, perRunBest, objectiveConstants);
             Console.WriteLine(passed
                 ? $"PASS: every frame has >= {objectiveConstants.NHard} stars under optimized params (min observed = {worstFrameCount})"
@@ -420,9 +437,9 @@ namespace TestApp {
             // The focuser's max step is unavailable headless, so it is left null — StepSizeRecommender clamps to >= 1.
             var focuserMaxStep = (int?)null;
 
-            WriteSummary(Path.Combine(targetDir, "optimize_summary.txt"), runsDir, ctx.Seed, result, variables,
-                loadedRuns, perRunSeed, perRunBest, objectiveConstants, focuserMaxStep, ctx.LabelsDir, settings, passed, worstFrameCount, worstRunId);
-            WriteCsv(Path.Combine(targetDir, "optimize_result.csv"), loadedRuns, perRunSeed, perRunBest);
+            WriteSummary(Path.Combine(targetDir, "optimize_summary.txt"), runsDir, ctx.Baseline, baselineJ, result, variables,
+                loadedRuns, perRunBaseline, perRunBest, objectiveConstants, focuserMaxStep, ctx.LabelsDir, settings, passed, worstFrameCount, worstRunId);
+            WriteCsv(Path.Combine(targetDir, "optimize_result.csv"), loadedRuns, perRunBaseline, perRunBest);
 
             // Optimized-settings handoff: write the winning snapshot as optimized_settings.json into each focus run's
             // own source folder (so `review --runs <same>` auto-discovers it) plus a single copy in the --out dir.
@@ -430,7 +447,7 @@ namespace TestApp {
             // so the headless and in-app handoffs can never drift. The source-folder copies each carry that run's OWN
             // recommended step (StepSizeRecommender, exactly as BuildAggregateRow computes it); the single --out copy
             // uses the representative (first) run's step in joint mode (see WriteOptimizedSettings).
-            WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, focuserMaxStep);
+            WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, baselineJ, focuserMaxStep);
 
             await WriteAnnotatedFrames(targetDir, loadedRuns, result.BestParams, ctx.Detector,
                 ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection, ctx.AnnotateAll).ConfigureAwait(false);
@@ -440,7 +457,8 @@ namespace TestApp {
                 WorstFrameCount = worstFrameCount,
                 WorstRunId = worstRunId,
                 Result = result,
-                PerRunSeed = perRunSeed,
+                BaselineJ = baselineJ,
+                PerRunBaseline = perRunBaseline,
                 PerRunBest = perRunBest,
                 LoadedRuns = loadedRuns
             };
@@ -461,14 +479,14 @@ namespace TestApp {
         /// </summary>
         private static void WriteOptimizedSettings(
             string targetDir, List<LoadedHarnessRun> loadedRuns, List<RunEvaluationResult> perRunBest,
-            OptimizationResult result, int? focuserMaxStep) {
+            OptimizationResult result, double baselineJ, int? focuserMaxStep) {
             // Per-run source-folder copies: each run's frame directory gets the winner snapshot with its OWN step.
             for (int i = 0; i < loadedRuns.Count; i++) {
                 var run = loadedRuns[i];
                 try {
                     var rec = StepSizeRecommender.Recommend(perRunBest[i].BestFit, run.StepSize, focuserMaxStep);
                     var dto = OptimizedStarDetectionSettings.FromParams(
-                        result.BestParams, loadedRuns.Count, result.SeedJ, result.BestJ, rec.StepSize, rec.OffsetSteps);
+                        result.BestParams, loadedRuns.Count, baselineJ, result.BestJ, rec.StepSize, rec.OffsetSteps);
                     var json = JsonConvert.SerializeObject(dto);
 
                     // The run's source folder is the directory holding its frames (each run's frames live together).
@@ -495,7 +513,7 @@ namespace TestApp {
                 try {
                     var rec = StepSizeRecommender.Recommend(perRunBest[0].BestFit, representative.StepSize, focuserMaxStep);
                     var dto = OptimizedStarDetectionSettings.FromParams(
-                        result.BestParams, loadedRuns.Count, result.SeedJ, result.BestJ, rec.StepSize, rec.OffsetSteps);
+                        result.BestParams, loadedRuns.Count, baselineJ, result.BestJ, rec.StepSize, rec.OffsetSteps);
                     var json = JsonConvert.SerializeObject(dto);
                     var outPath = Path.Combine(targetDir, "optimized_settings.json");
                     File.WriteAllText(outPath, json);
@@ -527,34 +545,41 @@ namespace TestApp {
             public string Error;                    // populated only when LoadOk == false
             public bool HardFloorPassed;
             public int WorstFrameCount;
-            public double SeedJ = double.NaN;
+            public double BaselineJ = double.NaN;       // J of the user's CURRENT settings (the "before")
             public double BestJ = double.NaN;
-            public double SeedSigmaFocus = double.NaN;
+            public double BaselineSigmaFocus = double.NaN;   // σ_focus of the CURRENT settings (the "before")
             public double BestSigmaFocus = double.NaN;
             public int RecommendedStep;
             public string ChangedParams = string.Empty;
         }
 
-        /// <summary>Builds an aggregate row from a per-run outcome (exactly one run in the set in --per-run mode).</summary>
-        private static AggregateRow BuildAggregateRow(string runId, RunSetOutcome outcome) {
+        /// <summary>Builds an aggregate row from a per-run outcome (exactly one run in the set in --per-run mode).
+        /// J / σ_focus / changed-params are reported vs the user's CURRENT settings (ctx.Baseline), mirroring the
+        /// wizard — NOT vs the default seed the optimizer started from.</summary>
+        private static AggregateRow BuildAggregateRow(string runId, RunDetectionContext ctx, RunSetOutcome outcome) {
             var run = outcome.LoadedRuns[0];
-            var seedM = outcome.PerRunSeed[0].Metrics;
+            var baselineM = outcome.PerRunBaseline[0].Metrics;
             var bestM = outcome.PerRunBest[0].Metrics;
             var rec = StepSizeRecommender.Recommend(outcome.PerRunBest[0].BestFit, run.StepSize, null);
-            var changed = outcome.Result.ChangedVariables;
+            // Changed curated params = current (Baseline) -> optimized (BestParams), exactly the diff the wizard shows
+            // (and would apply), not the optimizer's default-seed -> optimized deltas.
+            var changed = ctx.Variables
+                .Select(v => (v.Name, Cur: v.Read(ctx.Baseline), Best: v.Read(outcome.Result.BestParams)))
+                .Where(t => Math.Abs(t.Cur - t.Best) > 1e-9)
+                .ToList();
             return new AggregateRow {
                 RunId = runId,
                 LoadOk = true,
                 HardFloorPassed = outcome.HardFloorPassed,
                 WorstFrameCount = outcome.WorstFrameCount,
-                SeedJ = outcome.Result.SeedJ,
+                BaselineJ = outcome.BaselineJ,
                 BestJ = outcome.Result.BestJ,
-                SeedSigmaFocus = seedM.SigmaFocus,
+                BaselineSigmaFocus = baselineM.SigmaFocus,
                 BestSigmaFocus = bestM.SigmaFocus,
                 RecommendedStep = rec.StepSize,
-                ChangedParams = (changed == null || changed.Count == 0)
+                ChangedParams = changed.Count == 0
                     ? "(none)"
-                    : string.Join("; ", changed.Select(cv => $"{cv.Name}: {F(cv.SeedValue)}->{F(cv.BestValue)}"))
+                    : string.Join("; ", changed.Select(t => $"{t.Name}: {F(t.Cur)}->{F(t.Best)}"))
             };
         }
 
@@ -582,8 +607,8 @@ namespace TestApp {
                 }
                 sb.AppendLine($"  load        : OK");
                 sb.AppendLine($"  hard-floor  : {(r.HardFloorPassed ? "PASS" : "FAIL")} (min stars = {r.WorstFrameCount})");
-                sb.AppendLine($"  J           : {F(r.SeedJ)} -> {F(r.BestJ)}");
-                sb.AppendLine($"  sigma_focus : {F(r.SeedSigmaFocus)} -> {F(r.BestSigmaFocus)}");
+                sb.AppendLine($"  J           : {F(r.BaselineJ)} -> {F(r.BestJ)}  (current -> optimized)");
+                sb.AppendLine($"  sigma_focus : {F(r.BaselineSigmaFocus)} -> {F(r.BestSigmaFocus)}  (current -> optimized)");
                 sb.AppendLine($"  rec. step   : {r.RecommendedStep}");
                 sb.AppendLine($"  changed     : {r.ChangedParams}");
                 sb.AppendLine();
@@ -872,9 +897,9 @@ namespace TestApp {
         // ---- Output: summary + CSV -------------------------------------------------------------------------
 
         private static void WriteSummary(
-            string path, string runsDir, StarDetectorParams seed, OptimizationResult result,
+            string path, string runsDir, StarDetectorParams baseline, double baselineJ, OptimizationResult result,
             IReadOnlyList<OptimizerVariable> variables, List<LoadedHarnessRun> runs,
-            List<RunEvaluationResult> perRunSeed, List<RunEvaluationResult> perRunBest,
+            List<RunEvaluationResult> perRunBaseline, List<RunEvaluationResult> perRunBest,
             ObjectiveConstants c, int? focuserMaxStep, string labelsDir, OptimizerSettings settings,
             bool passed, int worstFrameCount, string worstRunId) {
             var sb = new StringBuilder();
@@ -883,23 +908,24 @@ namespace TestApp {
             sb.AppendLine($"Runs: {runs.Count} ({string.Join(", ", runs.Select(r => r.Discovered.RunId))})");
             sb.AppendLine($"Labels: {(string.IsNullOrWhiteSpace(labelsDir) ? "(none — unlabeled)" : labelsDir)}");
             sb.AppendLine($"MaxEvaluations: {settings.MaxEvaluations}; evaluator calls: {result.Evaluations}");
+            sb.AppendLine("Optimizer seed: fully-default params; improvement is measured vs the user's CURRENT settings (matches the wizard).");
             sb.AppendLine();
 
-            sb.AppendLine("--- Objective ---");
-            sb.AppendLine($"Seed J : {F(result.SeedJ)}");
-            sb.AppendLine($"Best J : {F(result.BestJ)}  ({(result.ImprovedOverSeed ? "improved over seed" : "no improvement over seed")})");
+            sb.AppendLine("--- Objective (current settings -> optimized) ---");
+            sb.AppendLine($"Current J : {F(baselineJ)}");
+            sb.AppendLine($"Best J    : {F(result.BestJ)}  ({(result.BestJ > baselineJ ? "improved over current" : "no improvement over current")})");
             sb.AppendLine();
 
-            sb.AppendLine("--- Per-run σ_focus (seed -> optimized) and recommended step size ---");
+            sb.AppendLine("--- Per-run σ_focus (current -> optimized) and recommended step size ---");
             for (int i = 0; i < runs.Count; i++) {
                 var run = runs[i];
-                var seedM = perRunSeed[i].Metrics;
+                var baselineM = perRunBaseline[i].Metrics;
                 var bestM = perRunBest[i].Metrics;
                 var rec = StepSizeRecommender.Recommend(perRunBest[i].BestFit, run.StepSize, focuserMaxStep);
                 sb.AppendLine($"  {run.Discovered.RunId}:");
-                sb.AppendLine($"    σ_focus       : {F(seedM.SigmaFocus)} -> {F(bestM.SigmaFocus)}");
-                sb.AppendLine($"    R²            : {F(seedM.RSquared)} -> {F(bestM.RSquared)}");
-                sb.AppendLine($"    reducedχ²     : {F(seedM.ReducedChiSquared)} -> {F(bestM.ReducedChiSquared)}");
+                sb.AppendLine($"    σ_focus       : {F(baselineM.SigmaFocus)} -> {F(bestM.SigmaFocus)}");
+                sb.AppendLine($"    R²            : {F(baselineM.RSquared)} -> {F(bestM.RSquared)}");
+                sb.AppendLine($"    reducedχ²     : {F(baselineM.ReducedChiSquared)} -> {F(bestM.ReducedChiSquared)}");
                 sb.AppendLine($"    current step  : {run.StepSize}");
                 sb.AppendLine($"    recommended   : step {rec.StepSize}, offset {rec.OffsetSteps} per side (half-width {F(rec.HalfWidth)})");
                 if (bestM.Recall.HasValue || bestM.Precision.HasValue) {
@@ -908,16 +934,14 @@ namespace TestApp {
             }
             sb.AppendLine();
 
-            sb.AppendLine("--- Curated params (seed -> optimized) ---");
-            // Map changed variables for quick lookup.
-            var changed = result.ChangedVariables?.ToDictionary(cv => cv.Name, cv => cv) ?? new Dictionary<string, (string, double, double)>();
+            sb.AppendLine("--- Curated params (current -> optimized) ---");
             foreach (var v in variables) {
-                var seedVal = v.Read(seed);
+                var currentVal = v.Read(baseline);
                 var bestVal = v.Read(result.BestParams);
-                var marker = changed.ContainsKey(v.Name) ? "  *" : "";
-                sb.AppendLine($"  {v.Name,-30} {F(seedVal),14} -> {F(bestVal),-14}{marker}");
+                var marker = Math.Abs(currentVal - bestVal) > 1e-9 ? "  *" : "";
+                sb.AppendLine($"  {v.Name,-30} {F(currentVal),14} -> {F(bestVal),-14}{marker}");
             }
-            sb.AppendLine("  (* = changed by the optimizer)");
+            sb.AppendLine("  (* = differs from your current settings)");
             sb.AppendLine();
 
             sb.AppendLine($"--- Hard-floor check (every frame must keep >= {c.NHard} stars) ---");
@@ -926,15 +950,15 @@ namespace TestApp {
                 : $"  FAIL (min observed = {worstFrameCount} in run {worstRunId})");
             sb.AppendLine();
 
-            sb.AppendLine("--- Per-frame star counts (per run, per focuser position: seed -> optimized) ---");
+            sb.AppendLine("--- Per-frame star counts (per run, per focuser position: current -> optimized) ---");
             for (int i = 0; i < runs.Count; i++) {
                 var run = runs[i];
                 sb.AppendLine($"  {run.Discovered.RunId}:");
-                // Group frames by focuser position; report seed/optimized counts for each.
-                var byPos = BuildPerPositionCounts(run, perRunSeed[i], perRunBest[i]);
-                sb.AppendLine($"    {"focuser",-10} {"seed",6} {"opt",6}");
+                // Group frames by focuser position; report current/optimized counts for each.
+                var byPos = BuildPerPositionCounts(run, perRunBaseline[i], perRunBest[i]);
+                sb.AppendLine($"    {"focuser",-10} {"current",7} {"opt",6}");
                 foreach (var kvp in byPos) {
-                    sb.AppendLine($"    {kvp.Key,-10} {kvp.Value.seed,6} {kvp.Value.opt,6}");
+                    sb.AppendLine($"    {kvp.Key,-10} {kvp.Value.current,7} {kvp.Value.opt,6}");
                 }
             }
 
@@ -942,22 +966,22 @@ namespace TestApp {
         }
 
         /// <summary>
-        /// Builds a focuser-position -> (seed count, optimized count) map for one run. FrameStarCounts is in the
+        /// Builds a focuser-position -> (current count, optimized count) map for one run. FrameStarCounts is in the
         /// SAME order RunEvaluationData iterates its frames (the order they were added), so it aligns 1:1 with the
         /// run's frame list; multiple frames at one position are summed (matches how the V-curve pools positions).
         /// </summary>
-        private static SortedDictionary<int, (int seed, int opt)> BuildPerPositionCounts(
-            LoadedHarnessRun run, RunEvaluationResult seedResult, RunEvaluationResult bestResult) {
-            var byPos = new SortedDictionary<int, (int seed, int opt)>();
+        private static SortedDictionary<int, (int current, int opt)> BuildPerPositionCounts(
+            LoadedHarnessRun run, RunEvaluationResult baselineResult, RunEvaluationResult bestResult) {
+            var byPos = new SortedDictionary<int, (int current, int opt)>();
             var frames = run.Discovered.Frames;
-            var seedCounts = seedResult.Metrics.FrameStarCounts;
+            var baselineCounts = baselineResult.Metrics.FrameStarCounts;
             var bestCounts = bestResult.Metrics.FrameStarCounts;
             for (int i = 0; i < frames.Count; i++) {
                 var pos = frames[i].FocuserPosition;
-                var s = (seedCounts != null && i < seedCounts.Count) ? seedCounts[i] : 0;
+                var s = (baselineCounts != null && i < baselineCounts.Count) ? baselineCounts[i] : 0;
                 var o = (bestCounts != null && i < bestCounts.Count) ? bestCounts[i] : 0;
                 if (byPos.TryGetValue(pos, out var cur)) {
-                    byPos[pos] = (cur.seed + s, cur.opt + o);
+                    byPos[pos] = (cur.current + s, cur.opt + o);
                 } else {
                     byPos[pos] = (s, o);
                 }
@@ -966,16 +990,16 @@ namespace TestApp {
         }
 
         private static void WriteCsv(
-            string path, List<LoadedHarnessRun> runs, List<RunEvaluationResult> perRunSeed, List<RunEvaluationResult> perRunBest) {
+            string path, List<LoadedHarnessRun> runs, List<RunEvaluationResult> perRunBaseline, List<RunEvaluationResult> perRunBest) {
             var sb = new StringBuilder();
-            sb.AppendLine("run,focuserPosition,seedStarCount,optimizedStarCount,frameIndex,framePath");
+            sb.AppendLine("run,focuserPosition,currentStarCount,optimizedStarCount,frameIndex,framePath");
             for (int i = 0; i < runs.Count; i++) {
                 var run = runs[i];
                 var frames = run.Discovered.Frames;
-                var seedCounts = perRunSeed[i].Metrics.FrameStarCounts;
+                var baselineCounts = perRunBaseline[i].Metrics.FrameStarCounts;
                 var bestCounts = perRunBest[i].Metrics.FrameStarCounts;
                 for (int j = 0; j < frames.Count; j++) {
-                    var s = (seedCounts != null && j < seedCounts.Count) ? seedCounts[j] : 0;
+                    var s = (baselineCounts != null && j < baselineCounts.Count) ? baselineCounts[j] : 0;
                     var o = (bestCounts != null && j < bestCounts.Count) ? bestCounts[j] : 0;
                     sb.AppendLine(string.Join(",",
                         Csv(run.Discovered.RunId), frames[j].FocuserPosition, s, o, j, Csv(frames[j].Path)));
