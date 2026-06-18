@@ -314,7 +314,7 @@ namespace TestApp {
                         anyFailure = true;
                     }
                     aggregate.Add(BuildAggregateRow(d.RunId, ctx, outcome));
-                    Console.WriteLine($"  -> {d.RunId}: seedJ={F(outcome.Result.SeedJ)} bestJ={F(outcome.Result.BestJ)} " +
+                    Console.WriteLine($"  -> {d.RunId}: currentJ={F(outcome.BaselineJ)} bestJ={F(outcome.Result.BestJ)} " +
                         $"hard-floor {(outcome.HardFloorPassed ? "PASS" : "FAIL")}; outputs in {subDir}");
                 } catch (Exception ex) {
                     anyFailure = true;
@@ -397,38 +397,47 @@ namespace TestApp {
 
             var dataList = loadedRuns.Select(r => r.Data).ToList();
             var evaluator = RunEvaluationData.CreateEvaluator(dataList);
+            var objectiveConstants = new ObjectiveConstants();
+
+            // "Before" = the user's CURRENT settings (ctx.Baseline) — the wizard's displayed baseline, NOT the default
+            // seed the optimizer started from. Evaluate it FIRST so baselineJ (the SAME JTotal the optimizer uses, over
+            // the single baseline bundle across runs) is available to the progress + completion lines, keeping every
+            // console/report number "vs current" — consistent with the final summary and the live wizard.
+            var perRunBaseline = new List<RunEvaluationResult>(loadedRuns.Count);
+            foreach (var r in loadedRuns) {
+                perRunBaseline.Add(await r.Data.EvaluateAndFitAsync(ctx.Baseline, CancellationToken.None).ConfigureAwait(false));
+            }
+            var baselineJ = OptimizationObjective.JTotal(
+                perRunBaseline.Select(pr => OptimizationObjective.JRun(pr.Metrics, objectiveConstants)).ToList(), objectiveConstants);
+            Console.WriteLine($"Current settings J: {F(baselineJ)}");
 
             var progress = new Progress<OptimizationProgress>(op =>
-                Console.WriteLine($"  [{op.Phase}] evals={op.Evaluations}/{op.MaxEvaluations} bestJ={F(op.BestJ)} seedJ={F(op.SeedJ)}"));
+                Console.WriteLine($"  [{op.Phase}] evals={op.Evaluations}/{op.MaxEvaluations} bestJ={F(op.BestJ)} currentJ={F(baselineJ)}"));
+
+            // Snapshot the cache counters so the readout below measures the OPTIMIZE phase only (the baseline eval above
+            // already warmed some early contexts; counting its builds would understate the optimizer's own reuse).
+            var buildsBefore = dataList.Sum(d => d.ContextBuilds);
+            var reusesBefore = dataList.Sum(d => d.ContextReuses);
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var result = await optimizer.OptimizeAsync(ctx.Seed, variables, evaluator, settings, progress, CancellationToken.None).ConfigureAwait(false);
             sw.Stop();
-            Console.WriteLine($"Optimization complete: seedJ={F(result.SeedJ)} -> bestJ={F(result.BestJ)} ({(result.ImprovedOverSeed ? "improved" : "no improvement")}), evals={result.Evaluations}");
+            Console.WriteLine($"Optimization complete: currentJ={F(baselineJ)} -> bestJ={F(result.BestJ)} ({(result.BestJ > baselineJ ? "improved over current" : "no improvement over current")}), evals={result.Evaluations}");
 
             // Cache-health + wall-clock readout (the early-context build:reuse ratio is the direct measure of how much
             // per-frame early work the staged search / context cache avoids; see the performance-design doc).
-            var builds = dataList.Sum(d => d.ContextBuilds);
-            var reuses = dataList.Sum(d => d.ContextReuses);
+            var builds = dataList.Sum(d => d.ContextBuilds) - buildsBefore;
+            var reuses = dataList.Sum(d => d.ContextReuses) - reusesBefore;
             var totalDetections = builds + reuses;
             var reusePct = totalDetections > 0 ? 100.0 * reuses / totalDetections : 0.0;
             Console.WriteLine($"Optimize phase: {sw.Elapsed.TotalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} s wall, " +
                 $"early-context builds={builds}, reuses={reuses} ({reusePct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}% reuse of {totalDetections} frame detections)");
 
-            // "Before" = the user's CURRENT settings (ctx.Baseline) — the wizard's displayed baseline, NOT the default
-            // seed the optimizer started from. perRunBaseline feeds every before-column; baselineJ (the SAME JTotal
-            // the optimizer uses, over the single baseline bundle across runs) is the reported "before J", mirroring
-            // the wizard's currentBaselineJ so the headless improvement equals the live wizard's.
-            var perRunBaseline = new List<RunEvaluationResult>(loadedRuns.Count);
+            // Evaluate the winner per run (the current-settings baseline was already evaluated above).
             var perRunBest = new List<RunEvaluationResult>(loadedRuns.Count);
             foreach (var r in loadedRuns) {
-                perRunBaseline.Add(await r.Data.EvaluateAndFitAsync(ctx.Baseline, CancellationToken.None).ConfigureAwait(false));
                 perRunBest.Add(await r.Data.EvaluateAndFitAsync(result.BestParams, CancellationToken.None).ConfigureAwait(false));
             }
-
-            var objectiveConstants = new ObjectiveConstants();
-            var baselineJ = OptimizationObjective.JTotal(
-                perRunBaseline.Select(pr => OptimizationObjective.JRun(pr.Metrics, objectiveConstants)).ToList(), objectiveConstants);
             var (passed, worstFrameCount, worstRunId) = AssertHardFloor(loadedRuns, perRunBest, objectiveConstants);
             Console.WriteLine(passed
                 ? $"PASS: every frame has >= {objectiveConstants.NHard} stars under optimized params (min observed = {worstFrameCount})"
