@@ -385,6 +385,36 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
+            var detectorParams = BuildStarDetectorParams(starDetectionOptions);
+            ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus);
+            if (!isAutoFocus) {
+                // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again.
+                starDetectionOptions.SaveIntermediateImages = false;
+            }
+            return detectorParams;
+        }
+
+        /// <summary>
+        /// The Optimization Wizard's seed: the fully-default detector params (<see cref="BuildDefaultStarDetectorParams"/>)
+        /// with the SAME image-dependent fields + auto-focus overrides as <see cref="GetStarDetectorParams"/> layered on
+        /// (PixelScale, Region, ModelPSF=false, SaveIntermediateFilesPath=""). Read-only with respect to options — it
+        /// never touches <c>starDetectionOptions</c>. <paramref name="isAutoFocus"/> is expected to be true for the
+        /// wizard's replay path.
+        /// </summary>
+        public StarDetectorParams GetDefaultStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
+            var detectorParams = BuildDefaultStarDetectorParams();
+            ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus);
+            return detectorParams;
+        }
+
+        /// <summary>
+        /// Layers the image-dependent fields (PixelScale from the profile × binning, Region) and the auto-focus
+        /// overrides (ModelPSF=false, no intermediate-file save) onto an already-built params bundle. Pure with
+        /// respect to options — shared by <see cref="GetStarDetectorParams"/> and
+        /// <see cref="GetDefaultStarDetectorParams"/> so the two can never diverge in how they compute pixel scale or
+        /// apply the AF overrides.
+        /// </summary>
+        private void ApplyDetectionImageContext(StarDetectorParams detectorParams, IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
             var binning = Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
             var pixelScale = MathUtility.ArcsecPerPixel(profileService.ActiveProfile.CameraSettings.PixelSize, profileService.ActiveProfile.TelescopeSettings.FocalLength) * binning;
             if (double.IsNaN(pixelScale)) {
@@ -395,11 +425,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Logger.Warning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
             }
 
-            var detectorParams = BuildStarDetectorParams(starDetectionOptions);
             detectorParams.PixelScale = pixelScale;
             detectorParams.Region = starDetectionRegion;
 
-            // For AutoFocus, don't save intermediate data or model PSFs
+            // For AutoFocus, don't save intermediate data or model PSFs.
             if (isAutoFocus) {
                 detectorParams.SaveIntermediateFilesPath = string.Empty;
                 detectorParams.ModelPSF = false;
@@ -409,11 +438,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // PeakResponse is also reused in the sensitivity (NormalizedBrightness) calc so loosening it has side
                 // effects. Revisit with a real defocus dataset (TestApp focus-sweep) if AF star counts drop at sweep
                 // extremes.
-            } else {
-                // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again
-                starDetectionOptions.SaveIntermediateImages = false;
             }
-            return detectorParams;
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {

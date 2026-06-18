@@ -34,6 +34,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus);
 
+        /// <summary>The Optimization Wizard's seed: fully-default detector params with the same image-context +
+        /// auto-focus overrides as <see cref="GetStarDetectorParams"/>. Read-only with respect to options.</summary>
+        StarDetectorParams GetDefaultStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus);
+
         Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token);
 
         /// <summary>
