@@ -398,6 +398,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             set { if (value) { OptimizeMode = WizardOptimizeMode.UseCurrentSettings; } }
         }
 
+        private bool startFromCurrentSettings;
+
+        /// <summary>When true (default OFF), the optimization SEED is the user's current settings (the run's
+        /// Baseline) instead of the fully-default params, so the search refines the current setup rather than
+        /// re-deriving from scratch. Only meaningful in Optimize mode. Improvement is still reported vs the current
+        /// settings, and the never-regress floor becomes the current settings' J.</summary>
+        public bool StartFromCurrentSettings {
+            get => startFromCurrentSettings;
+            set {
+                if (startFromCurrentSettings != value) {
+                    startFromCurrentSettings = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private SourceMode sourceMode = SourceMode.Replay;
 
         public SourceMode SourceMode {
@@ -998,9 +1014,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     optimized = false;
                 } else {
                     CurrentStep = WizardStep.Optimize;
-                    // Warm the DEFAULT-seed early contexts (the optimizer starts here) so the bar moves during the
-                    // first build instead of sitting on the optimizer's seed evaluation.
-                    await AnalyzeWithProgressAsync(loadedRuns, r => r.Seed, token).ConfigureAwait(true);
+                    // Warm the early contexts the optimizer will start from (default seed, or the current settings
+                    // when StartFromCurrentSettings is on) so the bar moves during the first build instead of
+                    // sitting on the optimizer's seed evaluation.
+                    await AnalyzeWithProgressAsync(loadedRuns,
+                        r => StartFromCurrentSettings ? r.Baseline : r.Seed, token).ConfigureAwait(true);
                     optimizeResult = await OptimizeAsync(loadedRuns, token).ConfigureAwait(true);
                     optimized = true;
                 }
@@ -1212,7 +1230,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private async Task<OptimizationResult> OptimizeAsync(IReadOnlyList<LoadedRun> runs, CancellationToken token,
             StarDetectorParams seedOverride = null, IReadOnlyList<OptimizerVariable> variablesOverride = null) {
             // All runs share the same camera/optics, so the search starts from the first run's seed (or the override).
-            var seed = seedOverride ?? runs[0].Seed;
+            // With StartFromCurrentSettings, seed from the current settings (Baseline) to refine them rather than the
+            // fully-default params. The warm-start override (feedback path) always wins.
+            var seed = seedOverride ?? (StartFromCurrentSettings ? runs[0].Baseline : runs[0].Seed);
             var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet();
             var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList());
 

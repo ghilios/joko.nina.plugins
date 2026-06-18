@@ -21,8 +21,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
     /// <summary>Tuning knobs for the search engine (not the objective — those live in <see cref="ObjectiveConstants"/>).</summary>
     public sealed class OptimizerSettings {
-        /// <summary>Hard cap on evaluator invocations (cache misses). The search never exceeds this.</summary>
-        public int MaxEvaluations { get; set; } = 400;
+        /// <summary>
+        /// Hard cap on evaluator invocations (cache misses). The search never exceeds this. Default 250: a
+        /// bank-wide convergence study (docs/star-detection-optimizer-speedup-results.md) showed the search
+        /// self-terminates well before 400 on most runs and that capping at 250 costs ≤0.011% J worst-case while
+        /// cutting wall-clock on the long runs — the late evals are disproportionately expensive EARLY rebuilds.
+        /// </summary>
+        public int MaxEvaluations { get; set; } = 250;
 
         /// <summary>Number of grid levels per axis in the Phase-A coarse seed (over the 2 highest-impact axes).</summary>
         public int CoarseGridLevels { get; set; } = 4;

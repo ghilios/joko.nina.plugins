@@ -368,6 +368,31 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
+    public void StartFromCurrentSettings_DefaultsOff() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.That(vm.StartFromCurrentSettings, Is.False);
+    }
+
+    [Test]
+    public async Task Start_StartFromCurrentSettings_OptimizerSeedsFromCurrentSettingsNotDefault() {
+        // Complement of Start_OptimizerStartsFromSeed_...: with the toggle ON the optimizer must START from the
+        // user's CURRENT settings (Baseline.Sensitivity=8), not the default Seed (2). Result.ChangedVariables is
+        // the optimizer's own seed->best record, so its SeedValue is the actual seed the search began from.
+        var vm = NewVM(LoaderReturning(SeedBaselineSplitRun()));
+        vm.StartFromCurrentSettings = true;
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        var rawSensitivity = vm.Result.ChangedVariables
+            .FirstOrDefault(c => c.Name == nameof(StarDetectorParams.Sensitivity));
+        Assert.That(rawSensitivity.Name, Is.EqualTo(nameof(StarDetectorParams.Sensitivity)),
+            "the optimizer changed Sensitivity from its seed");
+        Assert.That(rawSensitivity.SeedValue, Is.EqualTo(8.0).Within(1e-9),
+            "with StartFromCurrentSettings the optimizer started from the current settings (8), not the default seed (2)");
+    }
+
+    [Test]
     public async Task Apply_CallsApplyOptimizedSettingsWithCuratedValuesAndMetadata() {
         var options = Substitute.For<IStarDetectionOptions>();
         var vm = NewVM(LoaderReturning(GoodRun()), options);

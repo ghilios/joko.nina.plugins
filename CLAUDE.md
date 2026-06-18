@@ -684,7 +684,7 @@ user's settings).
 **`TestApp.exe optimize`** — headless driver of the optimizer. Args:
 `--runs <folder>` (required), `--per-run` (flag), `--profile-id <guid>` (default active), `--out <dir>`
 (default `%LOCALAPPDATA%\NINA\Logs\hf-diag\optimize\<timestamp>`), `--max-evals <int>` (override the
-optimizer budget; wizard default 400), `--annotate extremes|all` (default `extremes` = min/max-focuser frames
+optimizer budget; wizard default 250), `--annotate extremes|all` (default `extremes` = min/max-focuser frames
 only), `--labels <dir>` (label JSON dir; activates the recall/precision objective term), `--verbose` (restore
 TRACE logging; default INFO). `optimize` has **no** `--defocus-*` switches — the combined `DefocusAwareGates`
 flag is in the optimizer's curated search set (`OptimizerVariable.CreateCuratedSet`), so the optimizer explores
@@ -711,7 +711,8 @@ dir (or each per-run subfolder).
   harness useful for sensor-modeling work.
 - Outputs (in `--out`, or per-run subfolders): `optimize_summary.txt` (seed→optimized `J`, per-run σ_focus /
   R² / reducedχ², recommended step size, curated params old→new with `*` markers, hard-floor check, per-frame
-  star counts), `optimize_result.csv`, and stretched annotated PNG(s) (accepted = green circle + HFR; rejected
+  star counts), `optimize_result.csv`, `optimize_trajectory.csv` (bestJ vs eval# — one row per accepted move; the
+  convergence curve for eval-budget analysis), and stretched annotated PNG(s) (accepted = green circle + HFR; rejected
   color-coded by reason from `StarDetectorMetrics.*Bounds`; **a real star with no marker = missed entirely**);
   `--per-run` also writes `aggregate_summary.txt`. Verbose TRACE in `%LOCALAPPDATA%\NINA\Logs`.
 

@@ -411,8 +411,14 @@ namespace TestApp {
                 perRunBaseline.Select(pr => OptimizationObjective.JRun(pr.Metrics, objectiveConstants)).ToList(), objectiveConstants);
             Console.WriteLine($"Current settings J: {F(baselineJ)}");
 
-            var progress = new Progress<OptimizationProgress>(op =>
-                Console.WriteLine($"  [{op.Phase}] evals={op.Evaluations}/{op.MaxEvaluations} bestJ={F(op.BestJ)} currentJ={F(baselineJ)}"));
+            // Trajectory capture (eval-budget analysis): the optimizer reports on the seed + every accepted move, so
+            // these rows are the bestJ-vs-evals staircase. Written to optimize_trajectory.csv; analyzed offline to
+            // find the smallest eval count reaching finalBestJ·(1−relTol) — the data backing an eval-budget cut.
+            var trajectory = new List<(int Evaluations, double BestJ, string Phase)>();
+            var progress = new Progress<OptimizationProgress>(op => {
+                trajectory.Add((op.Evaluations, op.BestJ, op.Phase));
+                Console.WriteLine($"  [{op.Phase}] evals={op.Evaluations}/{op.MaxEvaluations} bestJ={F(op.BestJ)} currentJ={F(baselineJ)}");
+            });
 
             // Snapshot the cache counters so the readout below measures the OPTIMIZE phase only (the baseline eval above
             // already warmed some early contexts; counting its builds would understate the optimizer's own reuse).
@@ -432,6 +438,19 @@ namespace TestApp {
             var reusePct = totalDetections > 0 ? 100.0 * reuses / totalDetections : 0.0;
             Console.WriteLine($"Optimize phase: {sw.Elapsed.TotalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} s wall, " +
                 $"early-context builds={builds}, reuses={reuses} ({reusePct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}% reuse of {totalDetections} frame detections)");
+
+            // Persist the bestJ-vs-evals trajectory (eval-budget analysis). finalBestJ is result.BestJ; the rows let
+            // us read off how few evals reach within a small tolerance of it.
+            try {
+                var trajLines = new List<string> { "eval,bestJ,phase,wall_s_total,final_bestJ" };
+                foreach (var t in trajectory) {
+                    trajLines.Add($"{t.Evaluations},{t.BestJ.ToString("R", CultureInfo.InvariantCulture)},{t.Phase}," +
+                        $"{sw.Elapsed.TotalSeconds.ToString("R", CultureInfo.InvariantCulture)},{result.BestJ.ToString("R", CultureInfo.InvariantCulture)}");
+                }
+                File.WriteAllLines(Path.Combine(targetDir, "optimize_trajectory.csv"), trajLines);
+            } catch (Exception ex) {
+                Logger.Warning($"Failed to write optimize_trajectory.csv: {ex.Message}");
+            }
 
             // Evaluate the winner per run (the current-settings baseline was already evaluated above).
             var perRunBest = new List<RunEvaluationResult>(loadedRuns.Count);
