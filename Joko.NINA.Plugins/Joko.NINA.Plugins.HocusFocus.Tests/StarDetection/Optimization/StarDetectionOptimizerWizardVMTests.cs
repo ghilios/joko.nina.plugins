@@ -89,6 +89,19 @@ public class StarDetectionOptimizerWizardVMTests {
         return new LoadedRun { Data = data, Seed = seed, AfOptions = afOptions };
     }
 
+    // A run whose optimizer SEED (default) and displayed BASELINE (current settings) differ, so a test can prove
+    // the optimizer starts from Seed while the summary's "before" column reflects Baseline.
+    private static LoadedRun SeedBaselineSplitRun(
+        string id = "split", double optSensitivity = 10.0, int seedSensitivity = 2, int baselineSensitivity = 8) {
+        var data = new RunEvaluationData(id, NineFrames(), OptimizableDetect(optSensitivity), NewAlglib(), DefaultFitConfig());
+        return new LoadedRun {
+            Data = data,
+            Seed = new StarDetectorParams { Sensitivity = seedSensitivity, StarClippingMultiplier = 2.0 },
+            Baseline = new StarDetectorParams { Sensitivity = baselineSensitivity, StarClippingMultiplier = 2.0 },
+            AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 }
+        };
+    }
+
     // A degenerate run: only two distinct focuser positions => the fit cannot be determined (NaN sigma), which
     // is exactly the STARHFR/seed guard condition.
     private static LoadedRun DegenerateRun(string id = "degenerate") {
@@ -322,6 +335,35 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(sensitivityRow.SeedValue, Is.EqualTo(2.0).Within(1e-9));
             Assert.That(Math.Abs(sensitivityRow.OptimizedValue - 10.0),
                 Is.LessThan(Math.Abs(sensitivityRow.SeedValue - 10.0)), "optimized Sensitivity is closer to the optimum");
+        });
+    }
+
+    [Test]
+    public async Task Start_OptimizerStartsFromSeed_ButSummaryBaselineIsCurrentSettings() {
+        // The optimizer must start from the (default) Seed, while the displayed improvement/changed-parameters
+        // "before" column must reflect the user's CURRENT settings (Baseline). Seed.Sensitivity=2 (default),
+        // Baseline.Sensitivity=8 (current); both optimize toward 10.
+        var vm = NewVM(LoaderReturning(SeedBaselineSplitRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        // The optimizer's own record (Result.ChangedVariables) starts from the Seed (2).
+        var rawSensitivity = vm.Result.ChangedVariables
+            .FirstOrDefault(c => c.Name == nameof(StarDetectorParams.Sensitivity));
+        Assert.That(rawSensitivity.Name, Is.EqualTo(nameof(StarDetectorParams.Sensitivity)),
+            "the optimizer changed Sensitivity from its seed");
+        Assert.That(rawSensitivity.SeedValue, Is.EqualTo(2.0).Within(1e-9), "the optimizer started from the default Seed (2)");
+
+        // The displayed summary's "before" column reflects the current-settings Baseline (8).
+        var displayedSensitivity = vm.Summary.ChangedParameters
+            .FirstOrDefault(r => r.Name == nameof(StarDetectorParams.Sensitivity));
+        Assert.That(displayedSensitivity, Is.Not.Null, "the summary shows the Sensitivity change vs current settings");
+        Assert.Multiple(() => {
+            Assert.That(displayedSensitivity.SeedValue, Is.EqualTo(8.0).Within(1e-9),
+                "the summary 'before' value is the user's current setting (8), not the default seed (2)");
+            Assert.That(Math.Abs(displayedSensitivity.OptimizedValue - 10.0),
+                Is.LessThan(Math.Abs(8.0 - 10.0)), "optimized Sensitivity is closer to the optimum than current");
         });
     }
 
