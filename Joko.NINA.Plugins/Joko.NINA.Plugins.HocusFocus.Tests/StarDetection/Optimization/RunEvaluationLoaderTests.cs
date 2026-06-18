@@ -48,4 +48,18 @@ public class RunEvaluationLoaderTests {
             Substitute.For<IAutoFocusEngine>(),
             Substitute.For<IHocusFocusStarDetection>()));
     }
+
+    [Test]
+    public void LoadedRun_Baseline_FallsBackToSeed_WhenNotSet() {
+        var seed = new StarDetectorParams { Sensitivity = 3.0 };
+        var run = new LoadedRun { Seed = seed };
+        Assert.That(run.Baseline, Is.SameAs(seed), "Baseline defaults to Seed when not provided");
+
+        var baseline = new StarDetectorParams { Sensitivity = 9.0 };
+        run.Baseline = baseline;
+        Assert.Multiple(() => {
+            Assert.That(run.Baseline, Is.SameAs(baseline), "an explicitly set Baseline is independent of Seed");
+            Assert.That(run.Seed, Is.SameAs(seed), "setting Baseline does not change Seed");
+        });
+    }
 }
