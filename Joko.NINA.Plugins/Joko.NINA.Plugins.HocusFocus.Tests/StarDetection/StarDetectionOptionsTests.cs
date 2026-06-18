@@ -370,6 +370,58 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
+    public void BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild() {
+        // The optimizer's "fully-default" seed must equal what BuildStarDetectorParams produces from a freshly
+        // reset options object — for EVERY option-derived field. If a default ever changes in only one place
+        // (ResetDefaults or BuildDefaultStarDetectorParams), this test fails loudly.
+        var (options, _, _) = Build();
+        options.ResetDefaults();
+        var fromOptions = HocusFocusStarDetection.BuildStarDetectorParams(options);
+        var fromDefault = HocusFocusStarDetection.BuildDefaultStarDetectorParams();
+
+        Assert.Multiple(() => {
+            Assert.That(fromDefault.ModelPSF, Is.EqualTo(fromOptions.ModelPSF));
+            Assert.That(fromDefault.StarMeasurementNoiseReductionEnabled, Is.EqualTo(fromOptions.StarMeasurementNoiseReductionEnabled));
+            Assert.That(fromDefault.PSFFitType, Is.EqualTo(fromOptions.PSFFitType));
+            Assert.That(fromDefault.HotpixelFiltering, Is.EqualTo(fromOptions.HotpixelFiltering));
+            Assert.That(fromDefault.HotpixelThresholdingEnabled, Is.EqualTo(fromOptions.HotpixelThresholdingEnabled));
+            Assert.That(fromDefault.NoiseReductionRadius, Is.EqualTo(fromOptions.NoiseReductionRadius));
+            Assert.That(fromDefault.NoiseClippingMultiplier, Is.EqualTo(fromOptions.NoiseClippingMultiplier));
+            Assert.That(fromDefault.StarClippingMultiplier, Is.EqualTo(fromOptions.StarClippingMultiplier));
+            Assert.That(fromDefault.ContaminationSensitivity, Is.EqualTo(fromOptions.ContaminationSensitivity));
+            Assert.That(fromDefault.RejectContaminatedStars, Is.EqualTo(fromOptions.RejectContaminatedStars));
+            Assert.That(fromDefault.StructureLayers, Is.EqualTo(fromOptions.StructureLayers));
+            Assert.That(fromDefault.DefocusAwareStructure, Is.EqualTo(fromOptions.DefocusAwareStructure));
+            Assert.That(fromDefault.StructureLayerBoost, Is.EqualTo(fromOptions.StructureLayerBoost));
+            Assert.That(fromDefault.Sensitivity, Is.EqualTo(fromOptions.Sensitivity));
+            Assert.That(fromDefault.PeakResponse, Is.EqualTo(fromOptions.PeakResponse));
+            Assert.That(fromDefault.MaxDistortion, Is.EqualTo(fromOptions.MaxDistortion));
+            Assert.That(fromDefault.DefocusAwareDistortion, Is.EqualTo(fromOptions.DefocusAwareDistortion));
+            Assert.That(fromDefault.DefocusAwareCentering, Is.EqualTo(fromOptions.DefocusAwareCentering));
+            Assert.That(fromDefault.DefocusDistortionSizeReference, Is.EqualTo(fromOptions.DefocusDistortionSizeReference));
+            Assert.That(fromDefault.DefocusDistortionMinFactor, Is.EqualTo(fromOptions.DefocusDistortionMinFactor));
+            Assert.That(fromDefault.DefocusCenteringToleranceFactor, Is.EqualTo(fromOptions.DefocusCenteringToleranceFactor));
+            Assert.That(fromDefault.StarCenterTolerance, Is.EqualTo(fromOptions.StarCenterTolerance));
+            Assert.That(fromDefault.BackgroundBoxExpansion, Is.EqualTo(fromOptions.BackgroundBoxExpansion));
+            Assert.That(fromDefault.MinimumStarBoundingBoxSize, Is.EqualTo(fromOptions.MinimumStarBoundingBoxSize));
+            Assert.That(fromDefault.MinHFR, Is.EqualTo(fromOptions.MinHFR));
+            Assert.That(fromDefault.StructureDilationSize, Is.EqualTo(fromOptions.StructureDilationSize));
+            Assert.That(fromDefault.StructureDilationCount, Is.EqualTo(fromOptions.StructureDilationCount));
+            Assert.That(fromDefault.AnalysisSamplingSize, Is.EqualTo(fromOptions.AnalysisSamplingSize));
+            Assert.That(fromDefault.StoreStructureMap, Is.EqualTo(fromOptions.StoreStructureMap));
+            Assert.That(fromDefault.SaveIntermediateFilesPath, Is.EqualTo(fromOptions.SaveIntermediateFilesPath));
+            Assert.That(fromDefault.PSFParallelPartitionSize, Is.EqualTo(fromOptions.PSFParallelPartitionSize));
+            Assert.That(fromDefault.PSFResolution, Is.EqualTo(fromOptions.PSFResolution));
+            Assert.That(fromDefault.PSFGoodnessOfFitThreshold, Is.EqualTo(fromOptions.PSFGoodnessOfFitThreshold));
+            Assert.That(fromDefault.UsePSFAbsoluteDeviation, Is.EqualTo(fromOptions.UsePSFAbsoluteDeviation));
+            Assert.That(fromDefault.HotpixelThreshold, Is.EqualTo(fromOptions.HotpixelThreshold));
+            Assert.That(fromDefault.SaturationThreshold, Is.EqualTo(fromOptions.SaturationThreshold));
+            Assert.That(fromDefault.PSFPixelIntegration, Is.EqualTo(fromOptions.PSFPixelIntegration));
+            Assert.That(fromDefault.MaxStarEvaluationParallelism, Is.EqualTo(fromOptions.MaxStarEvaluationParallelism));
+        });
+    }
+
+    [Test]
     public void PixelSampleSize_RejectsOutOfRange() {
         var (options, _, _) = Build();
         options.UseAdvanced = true;
