@@ -332,7 +332,89 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             };
         }
 
+        /// <summary>
+        /// The "fully-default" detector params — the analogue of <see cref="BuildStarDetectorParams"/> for an
+        /// options object at <c>StarDetectionOptions.ResetDefaults()</c>. Every option-derived field is at its
+        /// documented default. Used as the Optimization Wizard's seed so the search starts from a clean,
+        /// reproducible point regardless of the user's current settings. Image-dependent fields (PixelScale,
+        /// Region) and the auto-focus overrides are layered on by <see cref="GetDefaultStarDetectorParams"/>.
+        /// The literals here are kept in lockstep with ResetDefaults by
+        /// StarDetectionOptionsTests.BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild.
+        /// </summary>
+        internal static StarDetectorParams BuildDefaultStarDetectorParams() {
+            return new StarDetectorParams() {
+                ModelPSF = true,
+                StarMeasurementNoiseReductionEnabled = false,
+                PSFFitType = StarDetectorPSFFitType.Moffat_40,
+                HotpixelFiltering = true,
+                HotpixelThresholdingEnabled = true,
+                NoiseReductionRadius = 3,
+                NoiseClippingMultiplier = 4.0,
+                StarClippingMultiplier = 2.0,
+                ContaminationSensitivity = 5.0,
+                RejectContaminatedStars = true,
+                StructureLayers = 4,
+                DefocusAwareStructure = false,
+                StructureLayerBoost = 0,
+                Sensitivity = 2.0,
+                PeakResponse = 0.75,
+                MaxDistortion = 0.5,
+                DefocusAwareDistortion = false,
+                DefocusAwareCentering = false,
+                DefocusDistortionSizeReference = 30.0,
+                DefocusDistortionMinFactor = 0.25,
+                DefocusCenteringToleranceFactor = 2.0,
+                StarCenterTolerance = 0.3,
+                BackgroundBoxExpansion = 3,
+                MinimumStarBoundingBoxSize = 5,
+                MinHFR = 1.2,
+                StructureDilationSize = 3,
+                StructureDilationCount = 0,
+                AnalysisSamplingSize = 1.0f,
+                StoreStructureMap = false,
+                SaveIntermediateFilesPath = string.Empty,
+                PSFParallelPartitionSize = 100,
+                PSFResolution = 10,
+                PSFGoodnessOfFitThreshold = 0.9,
+                UsePSFAbsoluteDeviation = false,
+                HotpixelThreshold = 0.001d,
+                SaturationThreshold = 0.99d,
+                PSFPixelIntegration = false,
+                MaxStarEvaluationParallelism = 0
+            };
+        }
+
         public StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
+            var detectorParams = BuildStarDetectorParams(starDetectionOptions);
+            ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus);
+            if (!isAutoFocus) {
+                // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again.
+                starDetectionOptions.SaveIntermediateImages = false;
+            }
+            return detectorParams;
+        }
+
+        /// <summary>
+        /// The Optimization Wizard's seed: the fully-default detector params (<see cref="BuildDefaultStarDetectorParams"/>)
+        /// with the SAME image-dependent fields + auto-focus overrides as <see cref="GetStarDetectorParams"/> layered on
+        /// (PixelScale, Region, ModelPSF=false, SaveIntermediateFilesPath=""). Read-only with respect to options — it
+        /// never touches <c>starDetectionOptions</c>. <paramref name="isAutoFocus"/> is expected to be true for the
+        /// wizard's replay path.
+        /// </summary>
+        public StarDetectorParams GetDefaultStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
+            var detectorParams = BuildDefaultStarDetectorParams();
+            ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus);
+            return detectorParams;
+        }
+
+        /// <summary>
+        /// Layers the image-dependent fields (PixelScale from the profile × binning, Region) and the auto-focus
+        /// overrides (ModelPSF=false, no intermediate-file save) onto an already-built params bundle. Pure with
+        /// respect to options — shared by <see cref="GetStarDetectorParams"/> and
+        /// <see cref="GetDefaultStarDetectorParams"/> so the two can never diverge in how they compute pixel scale or
+        /// apply the AF overrides.
+        /// </summary>
+        private void ApplyDetectionImageContext(StarDetectorParams detectorParams, IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
             var binning = Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
             var pixelScale = MathUtility.ArcsecPerPixel(profileService.ActiveProfile.CameraSettings.PixelSize, profileService.ActiveProfile.TelescopeSettings.FocalLength) * binning;
             if (double.IsNaN(pixelScale)) {
@@ -343,11 +425,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Logger.Warning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
             }
 
-            var detectorParams = BuildStarDetectorParams(starDetectionOptions);
             detectorParams.PixelScale = pixelScale;
             detectorParams.Region = starDetectionRegion;
 
-            // For AutoFocus, don't save intermediate data or model PSFs
+            // For AutoFocus, don't save intermediate data or model PSFs.
             if (isAutoFocus) {
                 detectorParams.SaveIntermediateFilesPath = string.Empty;
                 detectorParams.ModelPSF = false;
@@ -357,11 +438,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // PeakResponse is also reused in the sensitivity (NormalizedBrightness) calc so loosening it has side
                 // effects. Revisit with a real defocus dataset (TestApp focus-sweep) if AF star counts drop at sweep
                 // extremes.
-            } else {
-                // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again
-                starDetectionOptions.SaveIntermediateImages = false;
             }
-            return detectorParams;
         }
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {

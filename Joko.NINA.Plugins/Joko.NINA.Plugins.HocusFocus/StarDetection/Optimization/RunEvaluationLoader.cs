@@ -33,7 +33,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// </summary>
     public sealed class LoadedRun {
         public RunEvaluationData Data { get; set; }
+
+        /// <summary>The params the optimizer starts its search from. In production this is the fully-DEFAULT
+        /// detector params (see <see cref="IHocusFocusStarDetection.GetDefaultStarDetectorParams"/>), carrying
+        /// PixelScale + Region + ModelPSF=false.</summary>
         public StarDetectorParams Seed { get; set; }
+
+        private StarDetectorParams baseline;
+
+        /// <summary>The user's CURRENT settings — the displayed "before" baseline (σ, cost J, the "Current" curve,
+        /// and the changed-parameters before-column). Defaults to <see cref="Seed"/> when not separately provided,
+        /// so a caller/test that sets only <see cref="Seed"/> keeps the legacy "the seed is the baseline" behavior.</summary>
+        public StarDetectorParams Baseline {
+            get => baseline ?? Seed;
+            set => baseline = value;
+        }
+
         public AutoFocusEngineOptions AfOptions { get; set; }
     }
 
@@ -144,9 +159,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 progress?.Report(new RunLoadProgress(++loadedCount, totalImages));
             }
 
-            // Seed = AF-base detector params for the first image (PixelScale + Region + ModelPSF=false). This is
-            // the bundle the optimizer starts from and tunes.
-            var seed = detection.GetStarDetectorParams(firstImage, region, isAutoFocus: true);
+            // Seed = fully-DEFAULT AF-base detector params for the first image (PixelScale + Region + ModelPSF=false):
+            // the optimizer starts its search from a clean, reproducible default regardless of the user's current
+            // settings. Baseline = the user's CURRENT settings, kept for the displayed "before" comparison (σ, cost J,
+            // the "Current" curve). Both carry the same image context; neither writes to options.
+            var seed = detection.GetDefaultStarDetectorParams(firstImage, region, isAutoFocus: true);
+            var baseline = detection.GetStarDetectorParams(firstImage, region, isAutoFocus: true);
 
             // AF detection params: the auto-focus detection contract (sigma rejections + AF flag). NumberOfAFStars
             // is left at 0 so detection keeps every accepted star — the optimizer scores on the full accepted set,
@@ -177,6 +195,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return new LoadedRun {
                 Data = data,
                 Seed = seed,
+                Baseline = baseline,
                 AfOptions = afOptions
             };
         }

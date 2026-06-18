@@ -241,6 +241,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private int running; // 0 = idle, 1 = a Start is in flight (guards against double-start)
         private bool disposed;
 
+        // The objective the optimizer uses by default (StarDetectionOptimizer ctor defaults to new ObjectiveConstants()).
+        // The wizard computes the current-settings baseline J with the SAME constants so it is comparable to BestJ.
+        private readonly ObjectiveConstants objectiveConstants = new ObjectiveConstants();
+
+        // J of the user's CURRENT settings (Baseline), evaluated on the loaded runs. The displayed "before" for the
+        // improvement readouts (summary SeedJ + live ProgressSeedJ). Set in StartAsync (and the re-optimize path)
+        // before the optimize + summary steps.
+        private double currentBaselineJ;
+
         /// <summary>
         /// MEF/T5 convenience constructor: wires the real collaborators from the plugin singletons + mediators.
         /// The wizard is not MEF-exported (it is created on demand by T5's launch command), so this just supplies
@@ -960,10 +969,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     return; // ErrorMessage already set, or cancelled
                 }
 
-                // 2. Seed guard — evaluate the seed once; bail with a clear error on a degenerate run.
+                // 2. Seed guard — evaluate the current settings once; bail with a clear error on a degenerate run.
                 if (!await SeedFitIsUsableAsync(loadedRuns, token).ConfigureAwait(true)) {
                     return; // ErrorMessage set by the guard
                 }
+
+                // 2b. Baseline J = the user's CURRENT settings' objective, the displayed "before" for improvement.
+                //     Computed once here (cheap: the guard just warmed the current-settings contexts).
+                currentBaselineJ = await ComputeBaselineJAsync(loadedRuns, token).ConfigureAwait(true);
+                ProgressSeedJ = currentBaselineJ;
 
                 // 3. Optimize — off the UI thread, progress marshaled back. OptimizeAsync always returns a
                 // non-null result; it signals cancellation by throwing OperationCanceledException (caught below).
@@ -974,9 +988,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (OptimizeMode == WizardOptimizeMode.UseCurrentSettings) {
                     SetProgress("Using current settings (no optimization)", 0, 0);
                     optimizeResult = new OptimizationResult {
-                        BestParams = loadedRuns[0].Seed,
-                        SeedJ = 0.0,
-                        BestJ = 0.0,
+                        BestParams = loadedRuns[0].Baseline,
+                        SeedJ = currentBaselineJ,
+                        BestJ = currentBaselineJ,
                         Evaluations = 0,
                         ImprovedOverSeed = false,
                         ChangedVariables = new List<(string Name, double SeedValue, double BestValue)>()
@@ -984,6 +998,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     optimized = false;
                 } else {
                     CurrentStep = WizardStep.Optimize;
+                    // Warm the DEFAULT-seed early contexts (the optimizer starts here) so the bar moves during the
+                    // first build instead of sitting on the optimizer's seed evaluation.
+                    await AnalyzeWithProgressAsync(loadedRuns, r => r.Seed, token).ConfigureAwait(true);
                     optimizeResult = await OptimizeAsync(loadedRuns, token).ConfigureAwait(true);
                     optimized = true;
                 }
@@ -995,9 +1012,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
                 // The Current (seed) variant always exists — for the comparison curve and the baseline summary.
                 currentResult = new OptimizationResult {
-                    BestParams = loadedRuns[0].Seed,
-                    SeedJ = optimizeResult.SeedJ,
-                    BestJ = optimizeResult.SeedJ,
+                    BestParams = loadedRuns[0].Baseline,
+                    SeedJ = currentBaselineJ,
+                    BestJ = currentBaselineJ,
                     Evaluations = 0,
                     ImprovedOverSeed = false,
                     ChangedVariables = new List<(string Name, double SeedValue, double BestValue)>()
@@ -1127,7 +1144,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Evaluate the seed on every run WITH determinate "Analyzing frames" progress. This first pass also builds
             // each frame's expensive early-detection context (the long initial wait), so reporting it here is what
             // makes the bar advance instead of sitting on a static count; the optimizer then reuses the warmed contexts.
-            var results = await AnalyzeWithProgressAsync(runs, r => r.Seed, token).ConfigureAwait(true);
+            var results = await AnalyzeWithProgressAsync(runs, r => r.Baseline, token).ConfigureAwait(true);
             var anyUsable = false;
             foreach (var eval in results) {
                 if (double.IsFinite(eval.Metrics.SigmaFocus) && eval.PooledPointCount >= MinPositionsForFit) {
@@ -1168,6 +1185,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return results;
         }
 
+        /// <summary>
+        /// Computes the objective J of the user's CURRENT settings (<see cref="LoadedRun.Baseline"/>) on the loaded
+        /// runs, using the same <see cref="ObjectiveConstants"/> and JRun/JTotal aggregation the optimizer uses, so the
+        /// value is directly comparable to <see cref="OptimizationResult.BestJ"/>. This is the displayed "before"
+        /// baseline for the improvement readouts. Cheap after the seed guard warmed the early-detection contexts (the
+        /// late stage re-runs against the warmed cache).
+        /// </summary>
+        private async Task<double> ComputeBaselineJAsync(IReadOnlyList<LoadedRun> runs, CancellationToken token) {
+            // Use a SINGLE current-settings bundle (runs[0].Baseline) across every run, exactly as the optimizer's
+            // evaluator applies one StarDetectorParams across all runs — so this J is directly comparable to BestJ.
+            var baseline = runs[0].Baseline;
+            var perRunJ = new List<double>(runs.Count);
+            for (var i = 0; i < runs.Count; i++) {
+                token.ThrowIfCancellationRequested();
+                var eval = await runs[i].Data.EvaluateAndFitAsync(baseline, token).ConfigureAwait(true);
+                perRunJ.Add(OptimizationObjective.JRun(eval.Metrics, objectiveConstants));
+            }
+            return OptimizationObjective.JTotal(perRunJ, objectiveConstants);
+        }
+
         /// <summary>Runs the pure optimizer off the UI thread; progress posts back via <see cref="IProgress{T}"/>.
         /// When <paramref name="seedOverride"/>/<paramref name="variablesOverride"/> are supplied (the warm-start
         /// "Optimize with feedback" path), the search starts from the analytic recommendation and explores only the
@@ -1184,7 +1221,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 ProgressCurrent = p.Evaluations;
                 ProgressTotal = p.MaxEvaluations;
                 ProgressBestJ = p.BestJ;
-                ProgressSeedJ = p.SeedJ;
+                // The displayed baseline is the user's CURRENT settings (currentBaselineJ), not the optimizer's
+                // default seed J (p.SeedJ), so the live "improved ~X%" reads vs current and matches the summary.
+                ProgressSeedJ = currentBaselineJ;
                 Phase = FriendlyPhase(p.Phase);
             });
 
@@ -1209,35 +1248,45 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         };
 
         /// <summary>
-        /// Builds the summary: the changed-parameters table, before/after J + σ(focus) (re-evaluated at seed and
-        /// best, averaged across runs), and the recommended step size from the representative (first) run's best
+        /// Builds the summary: the changed-parameters table, before/after J + σ(focus) (re-evaluated at the current
+        /// settings (baseline) and best, averaged across runs), and the recommended step size from the representative (first) run's best
         /// fit, clamped to the focuser's max increment when known.
         /// </summary>
         private async Task<(OptimizationSummary Summary, OptimizationCurve CurrentCurve, OptimizationCurve OptimizedCurve)>
             BuildSummaryAsync(IReadOnlyList<LoadedRun> runs, OptimizationResult res, CancellationToken token) {
-            var seed = runs[0].Seed;
-            var changed = res.ChangedVariables
-                .Select(c => new ChangedParameterRow { Name = c.Name, SeedValue = c.SeedValue, OptimizedValue = c.BestValue })
-                .ToList();
+            // The displayed "before" is the user's CURRENT settings (Baseline), NOT the optimizer's default seed.
+            var baseline = runs[0].Baseline;
+
+            // Changed-parameters table = current (Baseline) -> optimized (BestParams) over the curated knobs, so it is
+            // exactly the diff the user would accept onto their live settings (consistent with the σ/J improvement,
+            // which is also measured vs current). This intentionally replaces res.ChangedVariables (default -> best).
+            var changed = new List<ChangedParameterRow>();
+            foreach (var v in OptimizerVariable.CreateCuratedSet()) {
+                var before = v.Read(baseline);
+                var after = v.Read(res.BestParams);
+                if (Math.Abs(before - after) > 1e-9) {
+                    changed.Add(new ChangedParameterRow { Name = v.Name, SeedValue = before, OptimizedValue = after });
+                }
+            }
 
             // σ(focus) before/after, averaged over the runs (the first run also yields the representative best fit
-            // AND the curves we plot — seed = "Current", best = "Optimized"; both carry the scatter points + fit).
-            double seedSigmaSum = 0.0, bestSigmaSum = 0.0;
-            var seedSigmaCount = 0; var bestSigmaCount = 0;
+            // AND the curves we plot — baseline = "Current", best = "Optimized"; both carry the scatter points + fit).
+            double baselineSigmaSum = 0.0, bestSigmaSum = 0.0;
+            var baselineSigmaCount = 0; var bestSigmaCount = 0;
             AlglibHyperbolicFitting representativeBestFit = null;
             OptimizationCurve currentCurveLocal = null, optimizedCurveLocal = null;
             for (var i = 0; i < runs.Count; i++) {
                 token.ThrowIfCancellationRequested();
-                var seedEval = await runs[i].Data.EvaluateAndFitAsync(seed, token).ConfigureAwait(true);
+                var baselineEval = await runs[i].Data.EvaluateAndFitAsync(baseline, token).ConfigureAwait(true);
                 var bestEval = await runs[i].Data.EvaluateAndFitAsync(res.BestParams, token).ConfigureAwait(true);
-                if (double.IsFinite(seedEval.Metrics.SigmaFocus)) { seedSigmaSum += seedEval.Metrics.SigmaFocus; seedSigmaCount++; }
+                if (double.IsFinite(baselineEval.Metrics.SigmaFocus)) { baselineSigmaSum += baselineEval.Metrics.SigmaFocus; baselineSigmaCount++; }
                 if (double.IsFinite(bestEval.Metrics.SigmaFocus)) { bestSigmaSum += bestEval.Metrics.SigmaFocus; bestSigmaCount++; }
                 if (i == 0) {
                     representativeBestFit = bestEval.BestFit;
                     currentCurveLocal = new OptimizationCurve {
-                        Label = "Current", Points = seedEval.Points, Fit = seedEval.BestFit,
-                        FrameStarCounts = seedEval.Metrics.FrameStarCounts,
-                        FrameFocuserPositions = seedEval.Metrics.FrameFocuserPositions
+                        Label = "Current", Points = baselineEval.Points, Fit = baselineEval.BestFit,
+                        FrameStarCounts = baselineEval.Metrics.FrameStarCounts,
+                        FrameFocuserPositions = baselineEval.Metrics.FrameFocuserPositions
                     };
                     optimizedCurveLocal = new OptimizationCurve {
                         Label = "Optimized", Points = bestEval.Points, Fit = bestEval.BestFit,
@@ -1253,9 +1302,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             var summary = new OptimizationSummary {
                 ChangedParameters = changed,
-                SeedJ = res.SeedJ,
+                SeedJ = currentBaselineJ,
                 BestJ = res.BestJ,
-                SeedSigmaFocus = seedSigmaCount > 0 ? seedSigmaSum / seedSigmaCount : double.NaN,
+                SeedSigmaFocus = baselineSigmaCount > 0 ? baselineSigmaSum / baselineSigmaCount : double.NaN,
                 BestSigmaFocus = bestSigmaCount > 0 ? bestSigmaSum / bestSigmaCount : double.NaN,
                 RunCount = runs.Count,
                 RecommendedStepSize = recommendation.StepSize,
@@ -1334,12 +1383,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             // Build the snapshot via the shared params->DTO mapping (the single source of truth shared with the
             // headless harness) so the in-app and offline paths can never drift. CreatedAtUtc is stamped inside.
+            // Record the displayed (vs current-settings) before/after J in the snapshot + log, so the persisted record
+            // matches the improvement the user saw. summary.SeedJ is the current-settings baseline J; summary.BestJ is
+            // the optimizer's best (== result.BestJ).
             var dto = OptimizedStarDetectionSettings.FromParams(
-                result.BestParams, summary.RunCount, result.SeedJ, result.BestJ,
+                result.BestParams, summary.RunCount, summary.SeedJ, summary.BestJ,
                 summary.RecommendedStepSize, summary.RecommendedOffsetSteps);
 
             starDetectionOptions.ApplyOptimizedSettings(dto);
-            Logger.Info($"Applied optimized star-detection settings (J {result.SeedJ:F3} -> {result.BestJ:F3}, {summary.RunCount} run(s))");
+            Logger.Info($"Applied optimized star-detection settings (J {summary.SeedJ:F3} -> {summary.BestJ:F3}, {summary.RunCount} run(s))");
 
             if (ApplyRecommendedStepSize) {
                 var focuserSettings = profileService?.ActiveProfile?.FocuserSettings;
@@ -1635,6 +1687,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // Warm + report the per-frame early contexts for the params the optimizer will start from (re-optimize
                 // skips the seed-guard, so this is the parity warm-up that makes the bar move during the initial build).
                 await AnalyzeWithProgressAsync(reloaded, _ => seedOverride ?? reloaded[0].Seed, token).ConfigureAwait(true);
+
+                // Baseline J for the reloaded runs (current settings) — the displayed "before" for the feedback summary,
+                // keeping the improvement measured vs the user's current settings on this path too.
+                currentBaselineJ = await ComputeBaselineJAsync(reloaded, token).ConfigureAwait(true);
 
                 // Re-run the optimize + summary pipeline over the labeled runs (warm-started when we have a recommendation).
                 var optimizeResult = await OptimizeAsync(reloaded, token, seedOverride, variablesOverride).ConfigureAwait(true);
