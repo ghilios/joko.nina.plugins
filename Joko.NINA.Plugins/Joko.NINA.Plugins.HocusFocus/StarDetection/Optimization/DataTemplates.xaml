@@ -14,13 +14,12 @@
     </ResourceDictionary.MergedDictionaries>
 
     <!--  Tooltips  -->
-    <TextBlock x:Key="SDOpt_SourceMode_Tooltip" Text="Replay optimizes against one or more saved auto-focus runs (recommended). Live triggers a fresh auto-focus that saves its frames, then optimizes against those." />
+    <TextBlock x:Key="SDOpt_SourceMode_Tooltip" Text="Replay optimizes against a saved auto-focus run (recommended). Live triggers a fresh auto-focus that saves its frames, then optimizes against those." />
     <TextBlock x:Key="SDOpt_OptimizeMode_Tooltip" Text="Optimize runs the parameter search and recommends improved settings. Use current settings skips the search entirely and jumps straight to a summary built from your current settings, so you can review (and label) today's detection without an optimization pass. Either way, after reviewing you can still run Optimize with feedback to recover the stars you labeled." />
     <TextBlock x:Key="SDOpt_FeedbackBreakdown_Tooltip" Text="How your labels map to the detector's gates: each row is the gate that rejected the stars you marked, and the setting change that would recover them — bounded so it doesn't admit too many unlabeled candidates (precision). Optimize with feedback starts the optimizer from these recommendations." />
-    <TextBlock x:Key="SDOpt_RunCount_Tooltip" Text="How many saved auto-focus runs to optimize against together. Using two or three runs balances the settings across them and reduces overfitting to a single night's conditions." />
     <TextBlock x:Key="SDOpt_ApplyStepSize_Tooltip" Text="When checked, clicking Accept also writes the recommended auto-focus step size and offset steps to the active profile (they appear in the Changed parameters list above). The step size is sized so a sweep lands several measurement points across the focus-sensitive region of the curve. Disabled when the recommendation already matches your current settings (nothing to apply)." />
     <TextBlock x:Key="SDOpt_Review_Tooltip" Text="Optional: review the optimized detector boxes over every loaded frame and label any missed, falsely-accepted, or wrongly-rejected stars. The labels are saved next to the run and can drive a future re-optimization. Reviewing is not required — you can Accept directly." />
-    <TextBlock x:Key="SDOpt_ReOptimize_Tooltip" Text="Re-run the optimization using the labels you just made in Review. Your missed / wrongly-rejected stars steer the optimizer to recover them (recall), and your should-reject stars steer it to exclude them (precision). The runs are re-read from disk and the search re-runs, landing on an updated summary you can review again or accept." />
+    <TextBlock x:Key="SDOpt_ReOptimize_Tooltip" Text="Re-run the optimization using the labels you just made in Review. Your missed / wrongly-rejected stars steer the optimizer to recover them (recall), and your should-reject stars steer it to exclude them (precision). The run is re-read from disk and the search re-runs, landing on an updated summary you can review again or accept." />
     <TextBlock x:Key="SDOpt_Variant_Tooltip" Text="Switch the chart and the summary below between your current settings, the optimized settings, and (after Optimize with feedback) the feedback-optimized settings. Accept applies whichever variant is shown (Current can't be accepted — it's your baseline)." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
@@ -132,7 +131,7 @@
                 <StackPanel Visibility="{Binding ShowSelectSource, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                     <TextBlock
                         Margin="0,0,0,8"
-                        Text="Choose one or more saved auto-focus runs to tune star detection against. The optimizer re-runs detection on those frames with many parameter combinations and keeps the settings that best pin down focus."
+                        Text="Choose a saved auto-focus run to tune star detection against. The optimizer re-runs detection on its frames with many parameter combinations and keeps the settings that best pin down focus."
                         TextWrapping="Wrap" />
 
                     <StackPanel Margin="0,4" Orientation="Horizontal">

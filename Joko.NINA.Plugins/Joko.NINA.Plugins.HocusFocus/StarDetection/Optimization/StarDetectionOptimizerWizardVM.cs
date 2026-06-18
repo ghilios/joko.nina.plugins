@@ -876,11 +876,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             for (var i = 0; i < RunCount; i++) {
                 var path = i < SourcePaths.Count ? SourcePaths[i] : null;
                 if (string.IsNullOrWhiteSpace(path)) {
-                    ErrorMessage = $"Select a saved auto-focus folder for run {i + 1}.";
+                    ErrorMessage = "Select a saved auto-focus folder.";
                     return false;
                 }
                 if (!normalized.Add(NormalizePath(path))) {
-                    ErrorMessage = "Each run must use a different saved auto-focus folder.";
+                    ErrorMessage = "Each selected auto-focus folder must be different.";
                     return false;
                 }
             }
@@ -1059,17 +1059,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     } else {
                         folder = i < SourcePaths.Count ? SourcePaths[i] : null;
                         if (string.IsNullOrEmpty(folder)) {
-                            ErrorMessage = $"Select a saved auto-focus folder for run {i + 1}.";
+                            ErrorMessage = "Select a saved auto-focus folder.";
                             CurrentStep = WizardStep.SelectSource;
                             DisposeLoadedRuns(runs);
                             return null;
                         }
                     }
 
-                    var runIndex = i;
-                    SetProgress($"Loading run {runIndex + 1} of {RunCount}", 0, 0);
+                    SetProgress("Loading frames", 0, 0);
                     var loadProgress = new Progress<RunLoadProgress>(rp =>
-                        SetProgress($"Loading frames (run {runIndex + 1} of {RunCount})", rp.Current, rp.Total));
+                        SetProgress("Loading frames", rp.Current, rp.Total));
                     var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, token).ConfigureAwait(true);
                     runs.Add(loaded);
                     // Record the actual folder loaded (in load order) so the re-optimize path can re-read it from disk
@@ -1150,7 +1149,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>
         /// Evaluates <paramref name="paramsSelector"/>'s params on each run while reporting determinate
-        /// "Analyzing frames (run i of N)" progress as each frame's detection completes. Used to surface — and warm —
+        /// "Analyzing frames" progress as each frame's detection completes. Used to surface — and warm —
         /// the expensive first-evaluation early-context build so the progress bar moves during the long initial wait.
         /// Returns the per-run results (the seed-guard reads them; the re-optimize warm-up discards them, the call
         /// having only primed the cache).
@@ -1160,9 +1159,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var results = new List<RunEvaluationResult>(runs.Count);
             for (var i = 0; i < runs.Count; i++) {
                 token.ThrowIfCancellationRequested();
-                var runIndex = i;
                 var run = runs[i];
-                var label = $"Analyzing frames (run {runIndex + 1} of {runs.Count})";
+                var label = "Analyzing frames";
                 SetProgress(label, 0, run.Data.FrameCount);
                 var frameProgress = new Progress<RunLoadProgress>(rp => SetProgress(label, rp.Current, rp.Total));
                 results.Add(await run.Data.EvaluateAndFitAsync(paramsSelector(run), frameProgress, token).ConfigureAwait(true));
@@ -1601,8 +1599,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 reloaded = new List<LoadedRun>(reoptimizeRunFolders.Count);
                 for (var i = 0; i < reoptimizeRunFolders.Count; i++) {
                     token.ThrowIfCancellationRequested();
-                    var runIndex = i;
-                    SetProgress($"Re-loading run {runIndex + 1} of {reoptimizeRunFolders.Count}", 0, 0);
+                    SetProgress("Re-loading frames", 0, 0);
                     var folder = reoptimizeRunFolders[i];
 
                     // The RunId was recorded during the first acquire (it is a deterministic function of the folder),
@@ -1615,7 +1612,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     // delegates to this one with labels: null), so a label-less run is loaded the same as before.
                     var frameLabels = LabelConverter.ToFrameLabels(runLabels);
                     var loadProgress = new Progress<RunLoadProgress>(rp =>
-                        SetProgress($"Loading frames (run {runIndex + 1} of {reoptimizeRunFolders.Count})", rp.Current, rp.Total));
+                        SetProgress("Loading frames", rp.Current, rp.Total));
                     var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, loadProgress, token).ConfigureAwait(true);
                     reloaded.Add(loaded);
                 }
