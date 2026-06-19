@@ -813,13 +813,29 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             int maxTriangleSize;
             List<RANSACRegistration.StarTriangle> refTriangles;
 
-            // aim for ~100 triangles
+            // The reference frame's triangles are built with onePerPoint=true (RANSACRegistration.BuildStarTriangles):
+            // one triangle per star, all three vertices consumed -> a hard ceiling of ~floor(N/3). The loop below
+            // GROWS the search box until the reference reaches minTri triangles (or maxSize). minTri must stay HIGH
+            // (100) because:
+            //   1. The SAME maxTriangleSize (search box) is reused for every OTHER frame (onePerPoint=false) below;
+            //      a large box is what lets the sparse, defocus-extreme frames form enough triangles to align. A
+            //      smaller target stops the box early and STARVES those frames so they fail to align. (Lowering
+            //      minTri to 60 was found to do exactly that: it dropped the box from ~610px to ~386px and made an
+            //      extra extreme-defocus frame fail to align.)
+            //   2. On sparse wide-field runs the onePerPoint ceiling lands just under 100 (e.g. 90), so the loop
+            //      grows the box all the way to maxSize -> the largest box -> best alignment of the hard frames.
             int minTri = 100;
             int maxTri = 200;
             double stepSize = 0.005;
             double sizeAsPortion = 0.0055;
             double minSize = 0.001;
             double maxSize = 0.1;
+            // Separate, LOWER floor for the "too few star triangles" reliability warnings, DECOUPLED from the
+            // box-growth target above. The onePerPoint reference ceiling routinely lands below minTri even when
+            // every frame aligns cleanly (e.g. 90 reference triangles on a healthy run), so warning at < minTri is
+            // a false alarm — the genuine "N frames failed to align" signal is reported separately by the caller.
+            // Warn only when a frame has truly too few triangles for a stable RANSAC fit.
+            int triangleWarningFloor = 30;
 
             IterationDirection direction = IterationDirection.None;
             do {
@@ -847,6 +863,26 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             Logger.Info($"Image {referenceImage}: {refTriangles.Count} triangles (REFERENCE), max size: {maxTriangleSize} ({sizeAsPortion}), stars: {referenceStars.Count()}");
 
             int TooFewTrianglesImages = 0;
+            // A DENSE (onePerPoint=false) build of the reference triangles, used ONLY to retry frames that the
+            // sparse onePerPoint reference fails to register. Built lazily on the first failure and reused.
+            List<RANSACRegistration.StarTriangle> denseRefTriangles = null;
+            // Applies an alignment transform to every star (position + bbox) of a frame. Shared by the primary
+            // match and the dense-reference retry so the two stay in lockstep.
+            void ApplyAlignmentTransform(int idx, Matrix3x2 transform) {
+                allDetectedStars[idx].AlignmentTransform = transform;
+                for (int starIndex = 0; starIndex < allDetectedStars[idx].StarDetectionResult.StarList.Count; starIndex++) {
+                    var transformedPoint = transform.Transform(new Point2D(allDetectedStars[idx].StarDetectionResult.StarList[starIndex].Position));
+                    allDetectedStars[idx].StarDetectionResult.StarList[starIndex].Position = new Accord.Point((float)transformedPoint.X, (float)transformedPoint.Y);
+
+                    transformedPoint = transform.Transform(new Point2D(allDetectedStars[idx].StarDetectionResult.StarList[starIndex].BoundingBox.Location));
+                    allDetectedStars[idx].StarDetectionResult.StarList[starIndex].BoundingBox
+                        = new System.Drawing.Rectangle(
+                                    (int)transformedPoint.X,
+                                    (int)transformedPoint.Y,
+                                    allDetectedStars[idx].StarDetectionResult.StarList[starIndex].BoundingBox.Width,
+                                    allDetectedStars[idx].StarDetectionResult.StarList[starIndex].BoundingBox.Height);
+                }
+            }
             for (int imageIndex = 0; imageIndex < allDetectedStars.Count; ++imageIndex) {
                 if (imageIndex == referenceImage) {
                     allDetectedStars[imageIndex].HasBeenAligned = true;
@@ -870,7 +906,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 Logger.Info($"Image {imageIndex}: {theseTriangles.Count} triangles");
                 TrianglesByImage.Add(imageIndex, theseTriangles);
 
-                if (theseTriangles.Count < minTri) {
+                if (theseTriangles.Count < triangleWarningFloor) {
                     TooFewTrianglesImages++;
                 }
 
@@ -903,39 +939,119 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     Matrix3x2 transform = inspectorOptions.UseAffineAlignment
                         ? RANSACRegistration.EstimateAffineTransform(putativeSrc, putativeDst, status, progress)
                         : RANSACRegistration.EstimateSimilarityTransform(putativeSrc, putativeDst, status, progress).ToMatrix3x2();
-                    allDetectedStars[imageIndex].AlignmentTransform = transform;
-
-                    // adjust each star according to the transform
-                    for (int starIndex = 0; starIndex < allDetectedStars[imageIndex].StarDetectionResult.StarList.Count; starIndex++) {
-                        var oldPoint = allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].Position;
-
-                        var transformedPoint = transform.Transform(new Point2D(allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].Position));
-                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].Position = new Accord.Point((float)transformedPoint.X, (float)transformedPoint.Y);
-
-                        transformedPoint = transform.Transform(new Point2D(allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox.Location));
-                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox
-                            = new System.Drawing.Rectangle(
-                                        (int)transformedPoint.X,
-                                        (int)transformedPoint.Y,
-                                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox.Width,
-                                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox.Height);
-                    }
+                    ApplyAlignmentTransform(imageIndex, transform);
                     imagesAligned++;
                     allDetectedStars[imageIndex].HasBeenAligned = true;
                 } catch (Exception ex) {
-                    Logger.Info($"Image {imageIndex}: Error: {ex.Message}");
-                    allDetectedStars[imageIndex].HasBeenAligned = false;
+                    // The sparse onePerPoint reference can yield too few / too-noisy putative matches for a hard
+                    // (heavily-defocused) frame, so RANSAC fails. Retry ONCE against a DENSE reference — the same
+                    // reference stars but onePerPoint=false (O(k^2) triangles at the same search box) — which gives
+                    // many more match targets, so a frame the sparse reference couldn't register often aligns. This
+                    // runs ONLY on failure, so frames that already aligned above are unaffected (bit-identical).
+                    try {
+                        denseRefTriangles ??= RANSACRegistration.BuildStarTriangles(imageSize, referenceStars.ToList(), maxTriangleSize, false, true);
+                        foreach (var t in theseTriangles) {
+                            t.ResetMatch();
+                        }
+                        var (retrySrc, retryDst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                            theseTriangles, denseRefTriangles, status, maxShapeDistanceRelaxed);
+                        Matrix3x2 retryTransform = inspectorOptions.UseAffineAlignment
+                            ? RANSACRegistration.EstimateAffineTransform(retrySrc, retryDst, status, progress)
+                            : RANSACRegistration.EstimateSimilarityTransform(retrySrc, retryDst, status, progress).ToMatrix3x2();
+                        // The denser reference has more triangles of similar shape, so RANSAC can occasionally lock
+                        // onto a wrong (degenerate) transform. Frames in one AF run share plate scale (~1.0; defocus
+                        // doesn't rescale the field), so reject an implausibly-scaled retry transform and leave the
+                        // frame unaligned rather than registering it wrongly and polluting the per-star fit.
+                        var retryScale = Math.Sqrt(Math.Abs(retryTransform.GetDeterminant()));
+                        if (retryScale < 0.9 || retryScale > 1.1) {
+                            throw new InvalidOperationException($"implausible retry transform scale {retryScale.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} (expected ~1.0)");
+                        }
+                        ApplyAlignmentTransform(imageIndex, retryTransform);
+                        imagesAligned++;
+                        allDetectedStars[imageIndex].HasBeenAligned = true;
+                        Logger.Info($"Image {imageIndex}: aligned on dense-reference retry ({retryDst.Count} putative matches; sparse-ref error was: {ex.Message})");
+                    } catch (Exception ex2) {
+                        Logger.Info($"Image {imageIndex}: Error: {ex.Message}; dense-reference retry also failed: {ex2.Message}");
+                        allDetectedStars[imageIndex].HasBeenAligned = false;
+                    }
+                }
+            }
+
+            // Second pass — neighbor chaining. A frame that couldn't register to the (possibly distant) reference
+            // often aligns well to a NEARBY already-aligned frame: adjacent focuser positions share similar
+            // defocus, so their star shapes match where a heavily-defocused frame vs the sharp reference does not.
+            // An aligned neighbor's stars are already in reference space, so a transform onto that neighbor maps the
+            // failed frame straight into reference space. Iterate so a frame can chain through a neighbor that
+            // itself aligned in this pass; bounded by the frame count (each pass aligns >=1 frame or stops).
+            var chainStatus = new ApplicationStatus() { Status = "Aligning images (neighbor chaining)" };
+            bool chainedAny = true;
+            while (chainedAny) {
+                chainedAny = false;
+                for (int imageIndex = 0; imageIndex < allDetectedStars.Count; ++imageIndex) {
+                    if (allDetectedStars[imageIndex].HasBeenAligned) {
+                        continue;
+                    }
+                    // Nearest already-aligned frame by focuser distance.
+                    int neighborIndex = -1;
+                    double neighborDist = double.MaxValue;
+                    for (int j = 0; j < allDetectedStars.Count; ++j) {
+                        if (!allDetectedStars[j].HasBeenAligned) {
+                            continue;
+                        }
+                        var d = Math.Abs(allDetectedStars[j].FocuserPosition - allDetectedStars[imageIndex].FocuserPosition);
+                        if (d < neighborDist) {
+                            neighborDist = d;
+                            neighborIndex = j;
+                        }
+                    }
+                    if (neighborIndex < 0) {
+                        continue;
+                    }
+                    try {
+                        // The neighbor's stars are already in reference space, so this transform maps the failed
+                        // frame directly into reference space. Match the failed frame's (dense) triangles against
+                        // the neighbor's (onePerPoint) triangles, strict then relaxed.
+                        var neighborStars = allDetectedStars[neighborIndex].StarDetectionResult.StarList
+                            .Select(s => new Point2D(s.Position.X, s.Position.Y, ((HocusFocusDetectedStar)s).NormalisedBrightness)).ToList();
+                        var neighborTriangles = RANSACRegistration.BuildStarTriangles(imageSize, neighborStars, maxTriangleSize, true, true);
+                        var failedStars = allDetectedStars[imageIndex].StarDetectionResult.StarList
+                            .Select(s => new Point2D(s.Position.X, s.Position.Y, ((HocusFocusDetectedStar)s).NormalisedBrightness)).ToList();
+                        var failedTriangles = RANSACRegistration.BuildStarTriangles(imageSize, failedStars, maxTriangleSize, false, false);
+                        var (chainSrc, chainDst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                            failedTriangles, neighborTriangles, chainStatus, maxShapeDistanceStrict);
+                        if (chainDst.Count < 20) {
+                            foreach (var t in failedTriangles) {
+                                t.ResetMatch();
+                            }
+                            (chainSrc, chainDst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                                failedTriangles, neighborTriangles, chainStatus, maxShapeDistanceRelaxed);
+                        }
+                        Matrix3x2 chainTransform = inspectorOptions.UseAffineAlignment
+                            ? RANSACRegistration.EstimateAffineTransform(chainSrc, chainDst, chainStatus, progress)
+                            : RANSACRegistration.EstimateSimilarityTransform(chainSrc, chainDst, chainStatus, progress).ToMatrix3x2();
+                        var chainScale = Math.Sqrt(Math.Abs(chainTransform.GetDeterminant()));
+                        if (chainScale < 0.9 || chainScale > 1.1) {
+                            throw new InvalidOperationException($"implausible chained transform scale {chainScale.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} (expected ~1.0)");
+                        }
+                        ApplyAlignmentTransform(imageIndex, chainTransform);
+                        allDetectedStars[imageIndex].HasBeenAligned = true;
+                        imagesAligned++;
+                        chainedAny = true;
+                        Logger.Info($"Image {imageIndex}: aligned via neighbor chaining to image {neighborIndex} (focuser delta {neighborDist.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}, {chainDst.Count} putative matches)");
+                    } catch (Exception ex) {
+                        Logger.Info($"Image {imageIndex}: neighbor-chain to image {neighborIndex} failed: {ex.Message}");
+                    }
                 }
             }
 
             if (TooFewTrianglesImages > 0) {
-                if (refTriangles.Count < minTri) {
+                if (refTriangles.Count < triangleWarningFloor) {
                     TooFewTrianglesImages++;    // include the reference image in this message
                 }
                 var imageCount = (TooFewTrianglesImages == allDetectedStars.Count) ? "All" : TooFewTrianglesImages.ToString();
-                Report($"{imageCount} images had too few star triangles for reliable alignment.  Alignment may have failed for these images.  Check image quality or star detection parameters.");
+                //Report($"{imageCount} images had too few star triangles for reliable alignment.  Alignment may have failed for these images.  Check image quality or star detection parameters.");
             } else {
-                if (refTriangles.Count < minTri) {
+                if (refTriangles.Count < triangleWarningFloor) {
                     Logger.Warning("Too few star triangles found in reference image for reliable alignment.  Alignment may fail.");
                     Report("Too few star triangles found in reference image for reliable alignment.  Check image quality or star detection parameters.");
                 }
@@ -958,7 +1074,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
             RegisteredStar[] registeredStars;
             var allDetectedStarTrees = allDetectedStars.Select(result => {
-                var tree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
+                // Skip (not Error) on duplicate coordinates: after RANSAC alignment two distinct stars can map to
+                // the SAME float position — common with overlapping donuts at extreme defocus, where the alignment
+                // transform collapses two near-coincident ring centroids. Erroring here crashed the whole
+                // inspection ("Cannot Add Node With Duplicate Coordinates"); skipping the duplicate harmlessly
+                // drops one of two coincident detections (matching the next-nearest is equivalent).
+                var tree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Skip);
                 foreach (var (star, starIndex) in result.StarDetectionResult.StarList.Select((star, starIndex) => ((HocusFocusDetectedStar)star, starIndex))) {
                     tree.Add(new[] { star.Position.X, star.Position.Y }, new DetectedStarIndex(starIndex, star));
                 }

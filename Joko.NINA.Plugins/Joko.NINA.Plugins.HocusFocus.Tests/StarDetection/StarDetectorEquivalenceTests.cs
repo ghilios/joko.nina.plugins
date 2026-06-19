@@ -100,6 +100,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             "LowSensitivityBounds=[]\r\n" +
             "NotCenteredBounds=[]\r\n" +
             "TooFlatBounds=[]\r\n" +
+            "TooElongatedBounds=[]\r\n" +
+            "BloomSuppressedBounds=[]\r\n" +
             "ContaminatedBounds=[(154,410,14,13)]\r\n";
 
         // Set to true locally to print the signature (then copy it into GoldenSignature above).

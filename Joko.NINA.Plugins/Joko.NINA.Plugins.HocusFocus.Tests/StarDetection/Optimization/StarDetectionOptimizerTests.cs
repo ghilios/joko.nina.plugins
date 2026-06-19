@@ -325,6 +325,8 @@ public class StarDetectionOptimizerTests {
             nameof(StarDetectorParams.HotpixelThreshold),
             // Synthetic defocus-aware-structure knob — named for the EARLY cache-key property it drives.
             OptimizerVariable.DefocusAwareStructureName,
+            // Donut morphological-close kernel size — EARLY (changes candidate formation).
+            nameof(StarDetectorParams.DonutMorphCloseSize),
         };
 
         Assert.Multiple(() => {

@@ -98,6 +98,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double DefocusDistortionSizeReference { get; set; }
         double DefocusDistortionMinFactor { get; set; }
         double DefocusCenteringToleranceFactor { get; set; }
+        bool DefocusAwareDonutDetection { get; set; }
+        int DonutMorphCloseSize { get; set; }
+        double DonutMinAnnularityHoleFraction { get; set; }
+        double DonutMaxStreakEccentricity { get; set; }
+        double DonutSaturationBloomRadius { get; set; }
         double StarCenterTolerance { get; set; }
         int StarBackgroundBoxExpansion { get; set; }
         int MinStarBoundingBoxSize { get; set; }

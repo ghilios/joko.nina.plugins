@@ -104,6 +104,11 @@ namespace TestApp {
                 }
             }
 
+            // --donut forces the DefocusAwareDonutDetection MASTER on for this headless run (the profile option is
+            // read-only here), so the optimizer explores the donut-recovery + spike-suppression axes. Without it the
+            // master follows the profile (default OFF) and no defocus axis is searched — for A/B before/after.
+            bool forceDonut = DiagnosticUtil.HasFlag(args, "--donut");
+
             var labelsDir = DiagnosticUtil.GetArg(args, "--labels");
 
             // --per-run is a valueless flag: optimize each discovered run INDEPENDENTLY (one optimization, one
@@ -178,6 +183,11 @@ namespace TestApp {
             }
             var seed = ApplyAfContext(HocusFocusStarDetection.BuildDefaultStarDetectorParams());
             var baseline = ApplyAfContext(HocusFocusStarDetection.BuildStarDetectorParams(starDetectionOptions));
+            if (forceDonut) {
+                seed.DefocusAwareDonutDetection = true;
+                baseline.DefocusAwareDonutDetection = true;
+                Console.WriteLine("--donut: DefocusAwareDonutDetection forced ON (optimizer will explore the donut/spike axes)");
+            }
 
             Console.WriteLine($"Default seed params: Sensitivity={F(seed.Sensitivity)}, StarClippingMultiplier={F(seed.StarClippingMultiplier)}, " +
                 $"NoiseClippingMultiplier={F(seed.NoiseClippingMultiplier)}, StructureLayers={seed.StructureLayers}, PixelScale={F(seed.PixelScale)}");
@@ -225,7 +235,7 @@ namespace TestApp {
                 LowSigmaOutlierRejection = lowSigmaOutlierRejection,
                 Seed = seed,
                 Baseline = baseline,
-                Variables = OptimizerVariable.CreateCuratedSet(),
+                Variables = OptimizerVariable.CreateCuratedSet(seed),
                 MaxEvals = maxEvals,
                 LabelsDir = labelsDir,
                 AnnotateAll = annotateAll

@@ -200,6 +200,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private readonly Func<string> folderPicker;
         private readonly StarDetectionRegion region;
         private readonly OptimizerSettings optimizerSettings;
+        // Standard optimizer evaluation budget, captured from optimizerSettings ONCE at construction so the
+        // donut-off path always restores it (OptimizeAsync mutates optimizerSettings.MaxEvaluations per run).
+        private readonly int standardMaxEvaluations;
+        // Larger budget used when "Recover out-of-focus donut stars" is enabled: turning the donut master on adds
+        // the defocus axes to the curated search set, enlarging the space the optimizer must explore, so it gets
+        // the pre-cut 400-eval budget instead of the standard one.
+        private const int DonutMaxEvaluations = 400;
 
         // The review-build seam: given the snapshotted frame descriptors + the params to detect with, produces the
         // per-frame FrameReviews the StarReviewVM renders. Production wires FrameReviewBuilder over a real
@@ -303,6 +310,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             this.folderPicker = folderPicker ?? (() => null);
             this.region = region ?? StarDetectionRegion.Full;
             this.optimizerSettings = optimizerSettings ?? new OptimizerSettings();
+            this.standardMaxEvaluations = this.optimizerSettings.MaxEvaluations;
             this.frameReviewBuilder = frameReviewBuilder;
             this.isCameraConnected = isCameraConnected ?? (() => true);
             this.isFocuserConnected = isFocuserConnected ?? (() => true);
@@ -409,6 +417,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             set {
                 if (startFromCurrentSettings != value) {
                     startFromCurrentSettings = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>Pass-through to the profile-saved <see cref="IStarDetectionOptions.DefocusAwareDonutDetection"/>
+        /// master toggle, surfaced on the wizard start page. Default OFF. UNLIKE <see cref="StartFromCurrentSettings"/>
+        /// (VM-only, resets each launch) this is a true profile option: the setter persists IMMEDIATELY on click
+        /// (NINA auto-saves the active profile), because it changes what the wizard's seed/baseline detection does
+        /// for this very run (it gates the early morph-close and unlocks the defocus axes for the optimizer). The
+        /// optimizer's tuned numeric values still persist only on Accept (ApplyOptimizedSettings).</summary>
+        public bool DefocusAwareDonutDetection {
+            get => starDetectionOptions.DefocusAwareDonutDetection;
+            set {
+                if (starDetectionOptions.DefocusAwareDonutDetection != value) {
+                    starDetectionOptions.DefocusAwareDonutDetection = value;
                     RaisePropertyChanged();
                 }
             }
@@ -1233,7 +1257,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // With StartFromCurrentSettings, seed from the current settings (Baseline) to refine them rather than the
             // fully-default params. The warm-start override (feedback path) always wins.
             var seed = seedOverride ?? (StartFromCurrentSettings ? runs[0].Baseline : runs[0].Seed);
-            var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet();
+            // The master donut toggle is a profile option, NOT an optimizer axis: stamp it onto the seed so the
+            // seed's early morph-close runs and CreateCuratedSet includes the defocus axes iff the user enabled it
+            // (the default Seed carries master=OFF, so without this the donut feature would never be searched when
+            // not starting from current settings).
+            seed.DefocusAwareDonutDetection = starDetectionOptions.DefocusAwareDonutDetection;
+            // Donut recovery widens the curated search space (the defocus axes are added only when the master is
+            // on), so it needs more iterations to converge: use the larger budget when enabled, else the standard
+            // one. Re-applied each call so toggling the donut master between builds takes effect.
+            optimizerSettings.MaxEvaluations = starDetectionOptions.DefocusAwareDonutDetection ? DonutMaxEvaluations : standardMaxEvaluations;
+            var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet(seed);
             var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList());
 
             ProgressTotal = optimizerSettings.MaxEvaluations;
@@ -1281,7 +1314,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // exactly the diff the user would accept onto their live settings (consistent with the σ/J improvement,
             // which is also measured vs current). This intentionally replaces res.ChangedVariables (default -> best).
             var changed = new List<ChangedParameterRow>();
-            foreach (var v in OptimizerVariable.CreateCuratedSet()) {
+            // Iterate the SAME axis set the search used: baseline (current settings) carries the master toggle, so
+            // the defocus axes appear in the diff iff the user enabled donut detection.
+            foreach (var v in OptimizerVariable.CreateCuratedSet(baseline)) {
                 var before = v.Read(baseline);
                 var after = v.Read(res.BestParams);
                 if (Math.Abs(before - after) > 1e-9) {
@@ -1701,7 +1736,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (feedback != null) {
                     seedOverride = feedback.Recommended;
                     variablesOverride = OptimizerVariable.CreateWarmStartSet(
-                        OptimizerVariable.CreateCuratedSet(), reviewParams, feedback.Recommended);
+                        OptimizerVariable.CreateCuratedSet(reviewParams), reviewParams, feedback.Recommended);
+                    // The recommendation may only move axes that aren't searchable (e.g. it recommends the defocus
+                    // gates while the master donut toggle is OFF, so they're excluded from the curated set). That
+                    // would leave an EMPTY warm-start set, which the optimizer can't run. Fall back to the full
+                    // (master-gated) curated set in OptimizeAsync so the feedback round still refines the base axes.
+                    if (variablesOverride.Count == 0) {
+                        variablesOverride = null;
+                    }
                 }
 
                 // Warm + report the per-frame early contexts for the params the optimizer will start from (re-optimize

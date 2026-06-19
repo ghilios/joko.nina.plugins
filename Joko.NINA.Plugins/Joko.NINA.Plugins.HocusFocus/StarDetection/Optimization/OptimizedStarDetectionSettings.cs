@@ -43,6 +43,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool HotpixelThresholdingEnabled { get; set; }
         public double HotpixelThreshold { get; set; }
 
+        // Defocus-aware axes (added schema v2). Initialized to valid ResetDefaults values so a v1 snapshot
+        // (missing these keys) deserializes to an inert/legacy configuration (master OFF).
+        public bool DefocusAwareGates { get; set; } = false;
+        public double DefocusDistortionSizeReference { get; set; } = 30.0;
+        public double DefocusDistortionMinFactor { get; set; } = 0.25;
+        public double DefocusCenteringToleranceFactor { get; set; } = 2.0;
+        public bool DefocusAwareStructure { get; set; } = false;
+        public int StructureLayerBoost { get; set; } = 0;
+        public bool DefocusAwareDonutDetection { get; set; } = false;
+        public int DonutMorphCloseSize { get; set; } = 5;
+        public double DonutMinAnnularityHoleFraction { get; set; } = 0.15;
+        public double DonutMaxStreakEccentricity { get; set; } = 1.0;
+        public double DonutSaturationBloomRadius { get; set; } = 0.0;
+
         // Metadata about the optimization run that produced this snapshot
         public DateTime CreatedAtUtc { get; set; }
         public int RunCount { get; set; }
@@ -50,7 +64,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double FinalJ { get; set; }
         public int RecommendedStepSize { get; set; }
         public int RecommendedOffsetSteps { get; set; }
-        public int SchemaVersion { get; set; } = 1;
+        public int SchemaVersion { get; set; } = 2;
 
         public OptimizedStarDetectionSettings Clone() {
             return (OptimizedStarDetectionSettings)MemberwiseClone();
@@ -83,6 +97,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 MinStarBoundingBoxSize = p.MinimumStarBoundingBoxSize,
                 HotpixelThresholdingEnabled = p.HotpixelThresholdingEnabled,
                 HotpixelThreshold = p.HotpixelThreshold,
+
+                // Defocus-aware axes (schema v2). DefocusAwareGates reflects the combined gate flag (distortion ==
+                // centering by construction). The master + donut knobs persist the optimizer's donut-recovery /
+                // spike-suppression result so it survives Accept.
+                DefocusAwareGates = p.DefocusAwareDistortion,
+                DefocusDistortionSizeReference = p.DefocusDistortionSizeReference,
+                DefocusDistortionMinFactor = p.DefocusDistortionMinFactor,
+                DefocusCenteringToleranceFactor = p.DefocusCenteringToleranceFactor,
+                DefocusAwareStructure = p.DefocusAwareStructure,
+                StructureLayerBoost = p.StructureLayerBoost,
+                DefocusAwareDonutDetection = p.DefocusAwareDonutDetection,
+                DonutMorphCloseSize = p.DonutMorphCloseSize,
+                DonutMinAnnularityHoleFraction = p.DonutMinAnnularityHoleFraction,
+                DonutMaxStreakEccentricity = p.DonutMaxStreakEccentricity,
+                DonutSaturationBloomRadius = p.DonutSaturationBloomRadius,
 
                 CreatedAtUtc = DateTime.UtcNow,
                 RunCount = runCount,
