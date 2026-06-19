@@ -106,6 +106,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         //  - Region: the ROI submat (outer) and the inner-crop clearing both change which candidates are collected.
         //  - HotpixelFilterRadius: gates the pipeline (only radius 1 supported) and would change filtering if ever
         //    extended; included for safety.
+        // Default extra wavelet layers applied for donut recovery when the master DefocusAwareDonutDetection is on
+        // but the explicit DefocusAwareStructure axis is off — enough to keep large defocused donuts from being
+        // erased by the structure-removal wavelet (StructureLayers default 4 + 2 ≈ the user's working value of 6).
+        private const int DonutDefaultStructureLayerBoost = 2;
+
         private static readonly HashSet<string> EarlyCacheKeyProperties = new HashSet<string>(StringComparer.Ordinal) {
             nameof(StarDetectorParams.HotpixelFiltering),
             nameof(StarDetectorParams.HotpixelThresholdingEnabled),
@@ -508,9 +513,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // Defocus-aware structure (opt-in): use a COARSER residual (more layers) so large/donut defocused
                     // stars survive the subtraction. When OFF, effectiveStructureLayers == p.StructureLayers exactly,
                     // so candidate formation is bit-identical.
-                    var effectiveStructureLayers = p.DefocusAwareStructure
-                        ? Math.Max(1, p.StructureLayers + p.StructureLayerBoost)
-                        : p.StructureLayers;
+                    //
+                    // Donut recovery needs the LARGE rings to SURVIVE this wavelet subtraction — the downstream
+                    // morph-close and hole-fill cannot un-erase a donut the residual already removed. So when the
+                    // donut master is on we apply a default structure boost EVEN IF the explicit DefocusAwareStructure
+                    // axis is off (the optimizer can raise it further via that axis). Gated by the master ⇒
+                    // bit-identical when off.
+                    int effectiveStructureLayers;
+                    if (p.DefocusAwareStructure) {
+                        effectiveStructureLayers = Math.Max(1, p.StructureLayers + p.StructureLayerBoost);
+                    } else if (p.DefocusAwareDonutDetection) {
+                        effectiveStructureLayers = Math.Max(1, p.StructureLayers + DonutDefaultStructureLayerBoost);
+                    } else {
+                        effectiveStructureLayers = p.StructureLayers;
+                    }
                     using (var residualLayer = ComputeResidualAtrousB3SplineDyadicWaveletLayer(structureMap, effectiveStructureLayers)) {
                         MaybeSaveIntermediateImage(residualLayer, p, "04-structure-wavelet-residual.tif");
                         CvImageUtility.SubtractInPlace(structureMap, residualLayer);
