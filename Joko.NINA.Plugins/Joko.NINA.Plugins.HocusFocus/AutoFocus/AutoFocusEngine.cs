@@ -398,7 +398,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             public int FrameNumber { get; private set; }
             public int FocuserPosition { get; private set; }
             public bool FinalValidation { get; private set; }
-            public StarDetectionResult StarDetectionResult { get; set; }
+
+            // Per-region star detection results. The 7 region-analysis tasks of a single frame run concurrently and
+            // all share this one AutoFocusImageState, so a single shared StarDetectionResult field was written by one
+            // region and read back by another (HFR misattribution). Keyed by region index so each region reads its own
+            // result. Only feeds the SubMeasurementPointCompleted event (the Inspector's sensor model); the AF curve
+            // consumes the pooled MeasureAndError via SubMeasurementsByFocuserPoints instead, so this is independent.
+            private readonly PerRegionStarDetectionResults starDetectionResults = new PerRegionStarDetectionResults();
+
+            public void SetStarDetectionResult(int regionIndex, StarDetectionResult result) {
+                starDetectionResults.Set(regionIndex, result);
+            }
+
+            public StarDetectionResult GetStarDetectionResult(int regionIndex) {
+                return starDetectionResults.Get(regionIndex);
+            }
+
             public IRenderedImage PreservedExposure { get; set; }
 
             private bool measurementStarted = false;
@@ -622,7 +637,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
                 }
 
-                imageState.StarDetectionResult = analysisResult;
+                imageState.SetStarDetectionResult(regionState.RegionIndex, analysisResult);
                 if (state.Options.PreserveExposures) {
                     imageState.PreservedExposure = image;
                 }
@@ -1850,7 +1865,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 RegionIndex = regionState.RegionIndex,
                 Region = regionState.Region,
                 FocuserPosition = imageState.FocuserPosition,
-                StarDetectionResult = imageState.StarDetectionResult,
+                StarDetectionResult = imageState.GetStarDetectionResult(regionState.RegionIndex),
                 Image = imageState.PreservedExposure
             });
         }

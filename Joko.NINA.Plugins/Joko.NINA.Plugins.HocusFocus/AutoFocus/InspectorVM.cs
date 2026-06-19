@@ -1137,7 +1137,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (e.RegionIndex == 6) {
                 var hfStarDetectionResult = e.StarDetectionResult as HocusFocusStarDetectionResult;
                 if (hfStarDetectionResult != null) {
-                    FullSensorDetectedStars.Add(new SensorDetectedStars(e.FocuserPosition, hfStarDetectionResult, e.Image));
+                    // SubMeasurementPointCompleted fires concurrently for different focuser positions, so guard the
+                    // List.Add against concurrent mutation. Order is irrelevant (consumers OrderBy(FocuserPosition)).
+                    lock (fullSensorDetectedStarsLock) {
+                        FullSensorDetectedStars.Add(new SensorDetectedStars(e.FocuserPosition, hfStarDetectionResult, e.Image));
+                    }
                 }
             }
         }
@@ -1340,7 +1344,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void ClearAnalysis() {
-            FullSensorDetectedStars.Clear();
+            lock (fullSensorDetectedStarsLock) {
+                FullSensorDetectedStars.Clear();
+            }
             ClearPlots();
         }
 
@@ -1406,6 +1412,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public ICommand SlewToZenithWestCommand { get; private set; }
         public ICommand CancelSlewToZenithCommand { get; private set; }
 
+        private readonly object fullSensorDetectedStarsLock = new object();
         private readonly List<SensorDetectedStars> FullSensorDetectedStars = new List<SensorDetectedStars>();
         public AsyncObservableCollection<ScatterErrorPoint>[] RegionFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint>[] RegionPlotFocusPoints { get; private set; }
