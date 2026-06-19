@@ -181,12 +181,21 @@ namespace TestApp {
                 p.SaveIntermediateFilesPath = string.Empty;
                 return p;
             }
-            var seed = ApplyAfContext(HocusFocusStarDetection.BuildDefaultStarDetectorParams());
             var baseline = ApplyAfContext(HocusFocusStarDetection.BuildStarDetectorParams(starDetectionOptions));
+            // --start-from-current mirrors the wizard's "Start from my current settings" toggle: the optimizer SEED
+            // becomes the user's current settings (Baseline) instead of the fully-default params, so the never-regress
+            // floor is the current J and the search refines from the current basin (it can only improve on current).
+            bool startFromCurrent = DiagnosticUtil.HasFlag(args, "--start-from-current");
+            var seed = startFromCurrent
+                ? ApplyAfContext(HocusFocusStarDetection.BuildStarDetectorParams(starDetectionOptions))
+                : ApplyAfContext(HocusFocusStarDetection.BuildDefaultStarDetectorParams());
             if (forceDonut) {
                 seed.DefocusAwareDonutDetection = true;
                 baseline.DefocusAwareDonutDetection = true;
                 Console.WriteLine("--donut: DefocusAwareDonutDetection forced ON (optimizer will explore the donut/spike axes)");
+            }
+            if (startFromCurrent) {
+                Console.WriteLine("--start-from-current: optimizer seed = current settings (never regresses below current)");
             }
 
             Console.WriteLine($"Default seed params: Sensitivity={F(seed.Sensitivity)}, StarClippingMultiplier={F(seed.StarClippingMultiplier)}, " +

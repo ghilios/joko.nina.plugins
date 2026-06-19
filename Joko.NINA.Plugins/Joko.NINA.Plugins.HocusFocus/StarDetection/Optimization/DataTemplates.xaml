@@ -301,6 +301,15 @@
                                 Visibility="{Binding HasFeedback, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                         </StackPanel>
 
+                        <!--  Shown when the optimizer could not beat the user's current settings: the page defaults to
+                              Current so Accept keeps it. Explains why + points at "Start from my current settings".  -->
+                        <TextBlock
+                            Margin="0,0,0,8"
+                            FontStyle="Italic"
+                            TextWrapping="Wrap"
+                            Text="{Binding OptimizerNoImprovementNote, Mode=OneWay}"
+                            Visibility="{Binding ShowNoImprovementNote, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
                         <!--  Auto-focus curve for the selected variant (rebuilt on toggle via the ContentControl).  -->
                         <Border
                             Height="260"

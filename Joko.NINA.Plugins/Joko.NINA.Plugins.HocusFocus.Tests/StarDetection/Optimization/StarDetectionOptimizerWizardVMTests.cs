@@ -1000,6 +1000,34 @@ public class StarDetectionOptimizerWizardVMTests {
         });
     }
 
+    // A run where the user's CURRENT settings (Baseline) are ALREADY at the detection optimum (Sensitivity =
+    // optSensitivity), while the optimizer seeds from the default (Sensitivity 2). The search can only climb
+    // TOWARD the same optimum, so it can never beat current — the saturated-plateau / local-optimum case.
+    private static LoadedRun AlreadyOptimalBaselineRun(string id = "optimal", double optSensitivity = 10.0) {
+        var data = new RunEvaluationData(id, NineFrames(), OptimizableDetect(optSensitivity), NewAlglib(), DefaultFitConfig());
+        return new LoadedRun {
+            Data = data,
+            Seed = new StarDetectorParams { Sensitivity = 2, StarClippingMultiplier = 2.0 },
+            Baseline = new StarDetectorParams { Sensitivity = optSensitivity, StarClippingMultiplier = 2.0 },
+            AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 }
+        };
+    }
+
+    [Test]
+    public async Task Start_OptimizerCannotBeatCurrent_DefaultsToCurrentVariant() {
+        var vm = NewVM(LoaderReturning(AlreadyOptimalBaselineRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.OptimizerImprovedOverCurrent, Is.False, "the optimizer could not beat the already-optimal current settings");
+            Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Current),
+                "when the optimizer can't beat current, default to Current so the default Accept keeps current settings");
+            Assert.That(vm.HasOptimized, Is.True, "the optimized variant is still available to inspect");
+        });
+    }
+
     [Test]
     public async Task SelectingCurrentVariant_SwitchesCurveAndSummary_AndDisablesAccept() {
         var vm = NewVM(LoaderReturning(GoodRun()));

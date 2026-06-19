@@ -208,6 +208,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // the pre-cut 400-eval budget instead of the standard one.
         private const int DonutMaxEvaluations = 400;
 
+        // Minimum strictly-positive J margin for the optimized result to count as beating the user's current settings
+        // (drives OptimizerImprovedOverCurrent / the default-to-Current guard). Just above double round-off so a true
+        // tie (e.g. the StartFromCurrentSettings path returning current unchanged) reads as "no improvement".
+        private const double ImprovementEpsilon = 1e-9;
+
         // The review-build seam: given the snapshotted frame descriptors + the params to detect with, produces the
         // per-frame FrameReviews the StarReviewVM renders. Production wires FrameReviewBuilder over a real
         // StarDetector + a profile-aware disk loader; the unit tests inject a fake so the step-flow can be exercised
@@ -653,6 +658,38 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool HasOptimized => optimizedResult != null;
         public bool HasFeedback => feedbackResult != null;
 
+        private bool optimizerImprovedOverCurrent;
+
+        /// <summary>True when an optimization pass produced a result that STRICTLY beats the user's current settings
+        /// (BestJ &gt; current-settings J). The optimizer seeds from the fully-default params and only guarantees
+        /// "&ge; the seed", NOT "&ge; current" — on an easy/saturated run it can converge to a local optimum that is
+        /// worse than a well-tuned current setup. When this is false the results page defaults to the Current variant
+        /// (so the default Accept keeps current); the Optimized variant is still available to inspect. The UI binds
+        /// this to show a "could not improve on your current settings" note.</summary>
+        public bool OptimizerImprovedOverCurrent {
+            get => optimizerImprovedOverCurrent;
+            private set {
+                if (optimizerImprovedOverCurrent != value) {
+                    optimizerImprovedOverCurrent = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(OptimizerNoImprovementNote));
+                    RaisePropertyChanged(nameof(ShowNoImprovementNote));
+                }
+            }
+        }
+
+        /// <summary>True when an optimization pass ran but could not beat the current settings — drives the
+        /// visibility of the "kept Current" note on the results page.</summary>
+        public bool ShowNoImprovementNote => HasOptimized && !OptimizerImprovedOverCurrent;
+
+        /// <summary>A short note shown when an optimization pass ran but could not beat the current settings; empty
+        /// otherwise. Lets the user understand why the page defaulted to Current rather than the optimized variant.</summary>
+        public string OptimizerNoImprovementNote =>
+            ShowNoImprovementNote
+                ? "The optimizer could not improve on your current settings — keeping Current. " +
+                  "Tip: enable \"Start from my current settings\" to refine them, or inspect the Optimized variant below."
+                : string.Empty;
+
         private bool IsVariantAvailable(OptimizationVariant v) => v switch {
             OptimizationVariant.Feedback => HasFeedback,
             OptimizationVariant.Optimized => HasOptimized,
@@ -771,6 +808,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             currentSummary = optimizedSummary = feedbackSummary = null;
             currentCurve = optimizedCurve = feedbackCurve = null;
             selectedVariant = OptimizationVariant.Current;
+            OptimizerImprovedOverCurrent = false;
             RaiseSelectedVariantDependents();
         }
 
@@ -1068,8 +1106,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     optimizedResult = optimizeResult;
                     optimizedSummary = built.Summary;
                     optimizedCurve = built.OptimizedCurve;
-                    selectedVariant = OptimizationVariant.Optimized; // default to showing the improvement
+                    // Only PRESENT the optimized result as the recommendation when it strictly beats the user's
+                    // current settings. The search seeds from the default params and guarantees ">= seed", NOT
+                    // ">= current"; on a saturated/easy run it can converge to a local optimum worse than a well-tuned
+                    // current setup (validated on the mufti run: BestJ 0.999919 < current 0.999939). In that case
+                    // default to Current so the default Accept keeps current; the Optimized variant stays available.
+                    OptimizerImprovedOverCurrent = optimizeResult.BestJ > currentBaselineJ + ImprovementEpsilon;
+                    selectedVariant = OptimizerImprovedOverCurrent
+                        ? OptimizationVariant.Optimized // default to showing the genuine improvement
+                        : OptimizationVariant.Current;  // optimizer couldn't beat current => keep current by default
                 } else {
+                    OptimizerImprovedOverCurrent = false;
                     selectedVariant = OptimizationVariant.Current; // review-only: only the current curve exists
                 }
                 RaiseSelectedVariantDependents();
