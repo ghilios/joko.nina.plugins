@@ -160,6 +160,14 @@ namespace TestApp {
                 return;
             }
 
+            // Headless aberration-inspector alignment reproducer: `TestApp inspect-align --runs <folder> ...`.
+            // Drives the real SensorModel.RegisterStarsAndFit RANSAC alignment and reports the reference frame,
+            // per-frame triangle counts, frames aligned, and every registration warning.
+            if (args.Length > 0 && args[0].Equals("inspect-align", StringComparison.OrdinalIgnoreCase)) {
+                await InspectAlignRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&

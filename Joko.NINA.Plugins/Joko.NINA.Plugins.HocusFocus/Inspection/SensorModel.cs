@@ -813,21 +813,29 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             int maxTriangleSize;
             List<RANSACRegistration.StarTriangle> refTriangles;
 
-            // Target triangle band for the reference frame. The reference is built with onePerPoint=true
-            // (RANSACRegistration.BuildStarTriangles), which emits AT MOST one triangle per star and marks all
-            // three vertices used — a hard ceiling of floor(N/3) that greedy consumption + the "needs >=3 unused
-            // neighbours in the search box" rule pushes well below floor(N/3). On sparse wide-field frames even a
-            // healthy star count (e.g. ~337 stars -> only 99 reference triangles at the max search size) lands
-            // just under the old minTri=100, tripping a spurious "too few star triangles in reference image"
-            // warning while the non-reference frames (onePerPoint=false, O(k^2) triangles) clear it easily. 60
-            // reference triangles is still ample for the 4-DOF similarity RANSAC, so lower the floor to remove the
-            // false warning without weakening alignment in practice.
-            int minTri = 60;
+            // The reference frame's triangles are built with onePerPoint=true (RANSACRegistration.BuildStarTriangles):
+            // one triangle per star, all three vertices consumed -> a hard ceiling of ~floor(N/3). The loop below
+            // GROWS the search box until the reference reaches minTri triangles (or maxSize). minTri must stay HIGH
+            // (100) because:
+            //   1. The SAME maxTriangleSize (search box) is reused for every OTHER frame (onePerPoint=false) below;
+            //      a large box is what lets the sparse, defocus-extreme frames form enough triangles to align. A
+            //      smaller target stops the box early and STARVES those frames so they fail to align. (Lowering
+            //      minTri to 60 was found to do exactly that: it dropped the box from ~610px to ~386px and made an
+            //      extra extreme-defocus frame fail to align.)
+            //   2. On sparse wide-field runs the onePerPoint ceiling lands just under 100 (e.g. 90), so the loop
+            //      grows the box all the way to maxSize -> the largest box -> best alignment of the hard frames.
+            int minTri = 100;
             int maxTri = 200;
             double stepSize = 0.005;
             double sizeAsPortion = 0.0055;
             double minSize = 0.001;
             double maxSize = 0.1;
+            // Separate, LOWER floor for the "too few star triangles" reliability warnings, DECOUPLED from the
+            // box-growth target above. The onePerPoint reference ceiling routinely lands below minTri even when
+            // every frame aligns cleanly (e.g. 90 reference triangles on a healthy run), so warning at < minTri is
+            // a false alarm — the genuine "N frames failed to align" signal is reported separately by the caller.
+            // Warn only when a frame has truly too few triangles for a stable RANSAC fit.
+            int triangleWarningFloor = 30;
 
             IterationDirection direction = IterationDirection.None;
             do {
@@ -878,7 +886,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 Logger.Info($"Image {imageIndex}: {theseTriangles.Count} triangles");
                 TrianglesByImage.Add(imageIndex, theseTriangles);
 
-                if (theseTriangles.Count < minTri) {
+                if (theseTriangles.Count < triangleWarningFloor) {
                     TooFewTrianglesImages++;
                 }
 
@@ -937,13 +945,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             }
 
             if (TooFewTrianglesImages > 0) {
-                if (refTriangles.Count < minTri) {
+                if (refTriangles.Count < triangleWarningFloor) {
                     TooFewTrianglesImages++;    // include the reference image in this message
                 }
                 var imageCount = (TooFewTrianglesImages == allDetectedStars.Count) ? "All" : TooFewTrianglesImages.ToString();
                 //Report($"{imageCount} images had too few star triangles for reliable alignment.  Alignment may have failed for these images.  Check image quality or star detection parameters.");
             } else {
-                if (refTriangles.Count < minTri) {
+                if (refTriangles.Count < triangleWarningFloor) {
                     Logger.Warning("Too few star triangles found in reference image for reliable alignment.  Alignment may fail.");
                     Report("Too few star triangles found in reference image for reliable alignment.  Check image quality or star detection parameters.");
                 }
