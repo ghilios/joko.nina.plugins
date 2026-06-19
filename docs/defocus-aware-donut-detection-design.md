@@ -78,10 +78,52 @@ falsely detected). The remaining rejects (NO-CANDIDATE + small-fragment LowSensi
 are genuinely at the noise floor — recovering them would require lowering the global binarization/sensitivity
 floor (a precision trade), which the dense golden set inflates.
 
+### Follow-up 2: Off-Center & Degenerate recovery (donut-aware clip cap)
+
+After the sensitivity fix, a live run still rejected many donuts as **Off-Center (NotCentered)** and **Degenerate
+Shape (Degenerate)**. `diagnose-labels` on the golden set (live profile, master on) attributed, of 4666 golden
+boxes: 932 ACCEPTED, 184 NotCentered, 198 Degenerate (plus 1521 TooDistorted / 1437 NO-CANDIDATE upstream).
+Cropping the flagged boxes confirmed they are **real donut rings** (clear hollow rings at the opposite defocus
+extreme), with strong signal (ring peak 7–13σ, 200–480 px above 3σ).
+
+**Single root cause — an aggressive per-pixel clip strips the thin ring.** The clip margin used for flux /
+centroid / HFR is `StarClippingMultiplier × noiseSigma`. This run's profile had `StarClippingMultiplier = 9.5`
+(default 2.0; pushed high by a prior optimization — the optimizer's own recommendation here is 9.5 → 2.0). A
+defocused donut spreads its flux thinly, so each ring pixel sits only a few σ above background; a 9.5σ clip
+exceeds the ring's per-pixel amplitude and removes the **entire** ring, which:
+- leaves ≤1 surviving pixel → the `ComputeStarParameters` degenerate guard fires → **Degenerate**; and
+- when a few of the brightest pixels do survive, they are the brightest **arc** of the ring → the flux-weighted
+  centroid is pulled off the geometric (hole) center → **NotCentered**.
+
+This was proven by instrumenting the degenerate path (ring rawRange `[0.0140, 0.0184]`, bgMed `0.0141`,
+**clip `0.0053` > ring amplitude `0.0043`** → flatSurv = 0) and by a centroid replication: at a 9.5σ clip 0–15
+pixels survive and the centroid offset is 0.35–0.55 (rejected); at a 2σ clip 276–581 pixels survive and the
+offset drops to 0.11–0.20 (accepted).
+
+**Fix — donut-aware clip cap (`EffectiveClipMultiplier` / `DonutClipMultiplierCap = 2.0`).** For an EXTENDED
+candidate (bbox max-dim ≥ `DefocusDistortionSizeReference`, the existing defocused-star proxy) when the master
+is on, the effective clip multiplier is `Math.Min(StarClippingMultiplier, 2.0)` — the honest default τ from the
+sigma-consistency work — applied consistently in `ComputeStarParameters` (flux/centroid/degenerate) **and**
+`MeasureStar` (HFR). It only ever LOWERS the clip, so profiles with `StarClippingMultiplier ≤ 2.0` are
+unchanged even with the master on, and master-OFF is bit-identical. Lowering the clip lets the full ring back
+into the flux sum, which fixes the survivor count (Degenerate) and re-centers the centroid (NotCentered) in one
+move.
+
+**Result** (golden set, master on, vs the live profile): ACCEPTED **932 → 1174** (+242; recall 20% → 25%),
+NotCentered **184 → 46**, Degenerate **198 → 113**, with the saturated-star/spike `shouldReject` boxes still at
+**0 ACCEPTED** (precision held). **AF-fit impact** (identical current settings, fix off → on): the per-position
+star count at the defocus extremes roughly **doubles** (e.g. focuser 2925 35 → 70, 2325 56 → 89), giving more
+robustness against the ≥3-star hard floor; the V-curve fit stays excellent (R² 0.9995 → 0.9967) with a small
+rise in focus-position scatter (σ_focus 1.8 → 4.4 steps, still ≪ the recommended 36-step interval) from the
+extra extreme-defocus wing points. The deeper remedy is to re-optimize the profile (the optimizer drops
+`StarClippingMultiplier` to ~2.0 on its own); the cap is the safety net that keeps an aggressive clip from
+destroying donuts.
+
 ## Key files
 
 - `StarDetection/StarDetector.cs` — EARLY structure boost + morph-close; LATE hole-count, streak gate, two-pass
-  bloom suppression; `CountEnclosedHole` / `ComputePointCloudEccentricity` helpers.
+  bloom suppression; donut-aware clip cap (`EffectiveClipMultiplier` / `DonutClipMultiplierCap`, applied in
+  `ComputeStarParameters` + `MeasureStar`); `CountEnclosedHole` / `ComputePointCloudEccentricity` helpers.
 - `Interfaces/IStarDetector.cs` — `StarDetectorParams` donut fields; `EarlyCacheKeyProperties` (master +
   morph-close); `TooElongated`/`BloomSuppressed` metrics + `RejectionGate` consts.
 - `StarDetection/HocusFocusStarDetection.cs` — `BuildStarDetectorParams`/`BuildDefaultStarDetectorParams`

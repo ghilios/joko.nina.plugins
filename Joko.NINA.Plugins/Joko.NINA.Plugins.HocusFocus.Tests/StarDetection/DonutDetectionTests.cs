@@ -260,5 +260,80 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 Assert.That(s2[0].PeakBrightness, Is.EqualTo(s1[0].PeakBrightness).Within(1e-9));
             });
         }
+
+        // ---- Donut-aware clip cap (Off-Center / Degenerate recovery) -------------------------------------
+
+        [Test]
+        public void EffectiveClipMultiplier_MasterOff_ReturnsVerbatim() {
+            var p = StarDetectorEquivalence.StandardParams();
+            p.StarClippingMultiplier = 9.5;
+            p.DefocusDistortionSizeReference = 30.0;
+            p.DefocusAwareDonutDetection = false;
+            // Even for a large candidate, the master being off ⇒ verbatim clip (bit-identical).
+            Assert.That(StarDetector.EffectiveClipMultiplier(p, 100.0), Is.EqualTo(9.5));
+        }
+
+        [Test]
+        public void EffectiveClipMultiplier_MasterOn_SmallCandidate_ReturnsVerbatim() {
+            var p = StarDetectorEquivalence.StandardParams();
+            p.StarClippingMultiplier = 9.5;
+            p.DefocusDistortionSizeReference = 30.0;
+            p.DefocusAwareDonutDetection = true;
+            // A near-focus point source (size < the defocus size reference) keeps the strict clip.
+            Assert.That(StarDetector.EffectiveClipMultiplier(p, 12.0), Is.EqualTo(9.5));
+        }
+
+        [Test]
+        public void EffectiveClipMultiplier_MasterOn_ExtendedCandidate_CapsAggressiveClip() {
+            var p = StarDetectorEquivalence.StandardParams();
+            p.StarClippingMultiplier = 9.5;
+            p.DefocusDistortionSizeReference = 30.0;
+            p.DefocusAwareDonutDetection = true;
+            // A defocused donut (size >= the reference) gets its clip capped at the honest default 2.0 so the
+            // thin ring is not stripped to its brightest arc.
+            Assert.That(StarDetector.EffectiveClipMultiplier(p, 36.0), Is.EqualTo(2.0));
+        }
+
+        [Test]
+        public void EffectiveClipMultiplier_NeverIncreasesClip() {
+            var p = StarDetectorEquivalence.StandardParams();
+            p.StarClippingMultiplier = 1.25; // already below the cap
+            p.DefocusDistortionSizeReference = 30.0;
+            p.DefocusAwareDonutDetection = true;
+            // Math.Min ⇒ a profile with a gentle clip is unchanged even for an extended candidate (so the common
+            // case StarClippingMultiplier <= cap stays bit-identical with the master on).
+            Assert.That(StarDetector.EffectiveClipMultiplier(p, 50.0), Is.EqualTo(1.25));
+        }
+
+        [Test]
+        public async Task DonutClipCap_RecoversRingThatAnAggressiveClipDegenerates() {
+            // A faint ring whose per-pixel amplitude is below an aggressive clip: the clip strips the whole ring
+            // during measurement ⇒ <=1 pixel survives ⇒ the Degenerate guard fires. The ring is small enough to
+            // survive candidate formation WITHOUT the master's structure boost and thick enough to clear the
+            // distortion gate with the master OFF — so the clip is the sole difference between the two runs. With
+            // the master ON the clip is capped at the honest default (2.0) ⇒ the full ring survives and is detected.
+            Mat Make() {
+                var m = SyntheticDefocusedStarImage.CreateAnnulus(256, 256, 128, 128,
+                    innerRadius: 3, outerRadius: 12, peak: 0.08, background: 0.05, edgeBlurSigma: 1.0);
+                SyntheticDefocusedStarImage.AddGaussianNoise(m, 0.004, 1717);
+                return m;
+            }
+            StarDetectorParams Base() {
+                var p = StarDetectorEquivalence.StandardParams();
+                p.PeakResponse = 0.98;                 // uniform-ish ring must not trip TooFlat
+                p.StarClippingMultiplier = 50.0;       // extreme clip: strips the whole ring (every pixel < bg + clip)
+                p.DefocusDistortionSizeReference = 20.0; // 24px ring counts as "extended" ⇒ the cap applies (master on)
+                return p;
+            }
+            var pOff = Base();                                          // master OFF ⇒ verbatim 20-sigma clip
+            var pOn = Base(); pOn.DefocusAwareDonutDetection = true;    // master ON ⇒ clip capped at 2.0
+
+            using var i1 = Make(); var off = await StarDetectorEquivalence.RunDetect(i1, pOff);
+            using var i2 = Make(); var on = await StarDetectorEquivalence.RunDetect(i2, pOn);
+            Assert.Multiple(() => {
+                Assert.That(DetectedNear(off, 128, 128, 8), Is.False, "aggressive clip must strip the thin ring (Degenerate)");
+                Assert.That(DetectedNear(on, 128, 128, 8), Is.True, "donut clip cap must recover the ring");
+            });
+        }
     }
 }

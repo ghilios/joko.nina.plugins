@@ -111,6 +111,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // erased by the structure-removal wavelet (StructureLayers default 4 + 2 ≈ the user's working value of 6).
         private const int DonutDefaultStructureLayerBoost = 2;
 
+        // Donut recovery clip cap. A defocused donut spreads its flux thinly, so each ring pixel sits only a few
+        // sigma above background. An aggressive StarClippingMultiplier (calibrated for COMPACT stars, and often
+        // pushed high by the optimizer) then clips the ENTIRE thin ring during flux/centroid/HFR measurement,
+        // which (a) starves the surviving-pixel count → the Degenerate guard fires, and (b) leaves only the
+        // brightest arc → the flux-weighted centroid is pulled off the geometric center → the NotCentered gate
+        // fires. For an EXTENDED candidate the effective clip multiplier is capped at this honest default (2.0,
+        // the calibrated uniform tau from the sigma-consistency work) so the full ring participates. See
+        // EffectiveClipMultiplier; ungated profiles with StarClippingMultiplier <= this cap are unaffected.
+        private const double DonutClipMultiplierCap = 2.0;
+
         private static readonly HashSet<string> EarlyCacheKeyProperties = new HashSet<string>(StringComparer.Ordinal) {
             nameof(StarDetectorParams.HotpixelFiltering),
             nameof(StarDetectorParams.HotpixelThresholdingEnabled),
@@ -1025,7 +1035,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var startY = star.Center.Y - p.AnalysisSamplingSize * Math.Floor((star.Center.Y - star.StarBoundingBox.Top) / p.AnalysisSamplingSize);
             var endX = star.StarBoundingBox.Right;
             var endY = star.StarBoundingBox.Bottom;
-            var noiseThreshold = p.StarClippingMultiplier * noiseSigma;
+            // Donut-aware clip (mirrors ComputeStarParameters): cap the per-pixel HFR clip for EXTENDED candidates
+            // so the full thin ring — not just its brightest arc — feeds the HFR flux sum, keeping the recovered
+            // donuts' HFR consistent with their flux/centroid. Verbatim when the master is off or the candidate is
+            // small ⇒ bit-identical.
+            var noiseThreshold = EffectiveClipMultiplier(p, Math.Max(star.StarBoundingBox.Width, star.StarBoundingBox.Height)) * noiseSigma;
             for (var y = startY; y <= endY; y += p.AnalysisSamplingSize) {
                 for (var x = startX; x <= endX; x += p.AnalysisSamplingSize) {
                     var dx = x - star.Center.X;
@@ -1298,6 +1312,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 factor = minFactor;
             }
             return p.MaxDistortion * factor;
+        }
+
+        /// <summary>
+        /// Effective per-pixel clip multiplier (× noiseSigma) used for a candidate's flux / centroid / HFR
+        /// measurement. When <see cref="StarDetectorParams.DefocusAwareDonutDetection"/> is FALSE this returns
+        /// <see cref="StarDetectorParams.StarClippingMultiplier"/> verbatim (default-OFF ⇒ bit-identical). When TRUE
+        /// and the candidate is EXTENDED (bbox max-dim <paramref name="candidateSize"/> >=
+        /// <see cref="StarDetectorParams.DefocusDistortionSizeReference"/> — the same defocused-star proxy the
+        /// distortion / sensitivity relaxations use) it caps the multiplier at <see cref="DonutClipMultiplierCap"/>
+        /// so a high (compact-star-calibrated) clip cannot strip a thin defocused ring down to its brightest arc.
+        /// Uses Math.Min, so it NEVER increases the clip: profiles with StarClippingMultiplier &lt;= the cap are
+        /// unchanged even with the master on, and only near-focus-aggressive profiles get the donut relief. Pure +
+        /// deterministic, so it is unit-testable in isolation.
+        /// </summary>
+        public static double EffectiveClipMultiplier(StarDetectorParams p, double candidateSize) {
+            if (p.DefocusAwareDonutDetection && p.DefocusDistortionSizeReference > 0.0
+                && candidateSize >= p.DefocusDistortionSizeReference) {
+                return Math.Min(p.StarClippingMultiplier, DonutClipMultiplierCap);
+            }
+            return p.StarClippingMultiplier;
         }
 
         /// <summary>
@@ -1979,7 +2013,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 ? new LocalBackgroundPlane(cx, cy, gr.B0, gr.B1, gr.B2, isFlat: false)
                 : LocalBackgroundPlane.Flat(cx, cy, backgroundMedian);
 
-            var clipMargin = p.StarClippingMultiplier * noiseSigma;
+            // Donut-aware clip: cap the per-pixel clip for EXTENDED candidates so an aggressive
+            // StarClippingMultiplier cannot strip a thin defocused ring to its brightest arc (which starves the
+            // surviving-pixel count → Degenerate, and biases the centroid off-center → NotCentered). Verbatim
+            // StarClippingMultiplier when the master is off or the candidate is small ⇒ bit-identical. See
+            // EffectiveClipMultiplier / DonutClipMultiplierCap.
+            var clipMargin = EffectiveClipMultiplier(p, Math.Max(starBounds.Width, starBounds.Height)) * noiseSigma;
             double totalFlux = 0d, peak = 0d;
             int numUnclippedPixels = 0;
             unsafe {
