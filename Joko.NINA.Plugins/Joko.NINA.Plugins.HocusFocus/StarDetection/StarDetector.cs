@@ -181,6 +181,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             public double TotalFlux;
             public double Peak;
             public int PixelCount;
+            // Clip-survivor count: pixels actually summed into TotalFlux (raw > background + clipMargin). Used by
+            // the donut-aware integrated-flux sensitivity path.
+            public int UnclippedPixelCount;
             public Rect StarBoundingBox;
             public double StarMedian;
             public bool ContaminationSuspected;
@@ -1273,7 +1276,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// MinFactor · MaxDistortion. Pure + deterministic (no image access) so it is unit-testable in isolation.
         /// </summary>
         public static double ComputeEffectiveMaxDistortion(StarDetectorParams p, double candidateSize) {
-            if (!p.DefocusAwareDistortion) {
+            // The relaxation is active when the explicit DefocusAwareDistortion flag is on OR the donut master is on
+            // (donut recovery defaults the distortion relaxation on, like the structure boost). It only relaxes for
+            // LARGE candidates (candidateSize > SizeReference), so near-focus point sources are unaffected; small
+            // fields stay bit-identical, and master-OFF + flag-OFF returns MaxDistortion verbatim.
+            if (!p.DefocusAwareDistortion && !p.DefocusAwareDonutDetection) {
                 return p.MaxDistortion;
             }
 
@@ -1548,6 +1555,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             // Not bright enough (background already subtracted out) relative to noise level
             var sensitivity = starCandidate.NormalizedBrightness / srcImageNoiseSigma;
+            // Donut-aware sensitivity (defocus recovery): a faint defocused donut/disk spreads its flux thinly over
+            // a LARGE footprint, so its per-pixel peak — and hence NormalizedBrightness — is low even when the
+            // INTEGRATED flux is a strong detection. For an EXTENDED candidate (bbox max-dim >= the defocus size
+            // reference — a defocused-star proxy; partially-filled donuts often have no clean enclosed hole, so
+            // size is a better discriminator than annularity here) also gauge brightness by the integrated-flux
+            // SNR  TotalFlux / (σ·√N), the matched-filter statistic that is √N× more sensitive to an extended
+            // source. Small fragments / point noise are not extended, so they keep the strict per-pixel floor; and
+            // because the SAME Sensitivity threshold now means "σ of an INTEGRATED detection" on this path, the
+            // bar stays high (a real source clears it; noise does not). Gated by the master ⇒ bit-identical OFF.
+            if (p.DefocusAwareDonutDetection && srcImageNoiseSigma > 0.0 && starCandidate.UnclippedPixelCount > 0
+                && d >= p.DefocusDistortionSizeReference) {
+                var integratedSnr = starCandidate.TotalFlux / (srcImageNoiseSigma * Math.Sqrt(starCandidate.UnclippedPixelCount));
+                if (integratedSnr > sensitivity) {
+                    sensitivity = integratedSnr;
+                }
+            }
             if (sensitivity <= p.Sensitivity) {
                 metrics.LowSensitivityBounds.Add(starBounds);
                 if (rejectedBag != null) {
@@ -1568,7 +1591,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // The gate accepts iff this is <= the effective tolerance, so it inverts monotonically in
                     // StarCenterTolerance (raise the tolerance to >= the offset to recover the star).
                     var ncBox = starCandidate.StarBoundingBox;
-                    var ncEffTol = p.DefocusAwareCentering
+                    var ncEffTol = (p.DefocusAwareCentering || p.DefocusAwareDonutDetection)
                         ? ComputeEffectiveStarCenterTolerance(p.StarCenterTolerance, Math.Max(ncBox.Width, ncBox.Height), p.DefocusDistortionSizeReference, p.DefocusCenteringToleranceFactor)
                         : p.StarCenterTolerance;
                     var ncOffX = ncBox.Width > 0 ? Math.Abs(starCandidate.Center.X - (ncBox.X + ncBox.Width / 2.0)) / (ncBox.Width / 2.0) : 0.0;
@@ -1669,13 +1692,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         private static bool IsStarCentered(StarCandidate starCandidate, StarDetectorParams p, out bool strictCentered) {
             var box = starCandidate.StarBoundingBox;
-            var effectiveTolerance = p.DefocusAwareCentering
+            // Centering relaxation is active when the explicit DefocusAwareCentering flag is on OR the donut master
+            // is on (donut recovery defaults it on). It only grows the tolerance for LARGE candidates, so near-focus
+            // point sources are unaffected.
+            var centeringRelaxed = p.DefocusAwareCentering || p.DefocusAwareDonutDetection;
+            var effectiveTolerance = centeringRelaxed
                 ? ComputeEffectiveStarCenterTolerance(p.StarCenterTolerance, Math.Max(box.Width, box.Height), p.DefocusDistortionSizeReference, p.DefocusCenteringToleranceFactor)
                 : p.StarCenterTolerance;
             var centered = CenterWithinTolerance(box, starCandidate.Center, effectiveTolerance);
             // The strict tolerance is the verbatim StarCenterTolerance — i.e. exactly the value the effective
             // tolerance equals when the gate is OFF. So with the gate OFF strictCentered == centered always.
-            strictCentered = p.DefocusAwareCentering
+            strictCentered = centeringRelaxed
                 ? CenterWithinTolerance(box, starCandidate.Center, p.StarCenterTolerance)
                 : centered;
             return centered;
@@ -2051,6 +2078,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 StarBoundingBox = starBounds,
                 StarMedian = starMedian,
                 PixelCount = starPoints.Count,
+                UnclippedPixelCount = numUnclippedPixels,
                 ContaminationSuspected = contaminationSuspected,
                 ContaminationDiagnostics = contaminationDiagnostics
             };

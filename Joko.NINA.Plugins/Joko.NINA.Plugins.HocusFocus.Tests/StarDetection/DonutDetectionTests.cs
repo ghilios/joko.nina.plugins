@@ -127,13 +127,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             var legacy = StarDetectorEquivalence.StandardParams();
 
             var withKnobs = StarDetectorEquivalence.StandardParams();
-            // Master OFF, but every donut/spike knob set to an aggressive non-default value: all must be inert.
+            // Master OFF, but every donut/spike knob set to an aggressive non-default value: all must be inert
+            // (morph-close, hole-fill/integrated-sensitivity, streak, bloom, and the master-default distortion/
+            // centering relaxations are ALL gated by the master).
             withKnobs.DonutMorphCloseSize = 9;
             withKnobs.DonutMinAnnularityHoleFraction = 0.4;
             withKnobs.DonutMaxStreakEccentricity = 0.85;
             withKnobs.DonutSaturationBloomRadius = 40.0;
-            withKnobs.DefocusAwareDistortion = true; // even the legacy relaxations must be inert without the master
-            withKnobs.DefocusAwareCentering = true;
 
             using var f1 = StarDetectorEquivalence.BuildSmallField();
             var r1 = await StarDetectorEquivalence.RunDetect(f1, legacy);
@@ -178,6 +178,39 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             Assert.Multiple(() => {
                 Assert.That(DetectedNear(off, 128, 128, 6), Is.False, "legacy detection must reject the hollow ring");
                 Assert.That(DetectedNear(on, 128, 128, 6), Is.True, "donut mode must recover the hollow ring");
+            });
+        }
+
+        [Test]
+        public async Task DonutAwareSensitivity_RecoversFaintExtendedDonut_PeakPathRejects() {
+            // A LARGE, FAINT donut: per-pixel peak is low (fails the peak-based LowSensitivity gate) but its
+            // INTEGRATED ring flux is a strong detection. Structure-boost + distortion relaxation are on in BOTH
+            // runs (so the donut forms and clears the distortion gate); the ONLY difference is the master, which
+            // enables the integrated-flux sensitivity path.
+            Mat Make() {
+                // Faint: ring only ~0.012 above background, with low noise so it survives clipping but its
+                // per-pixel SNR is small while the integrated ring SNR is large.
+                var m = SyntheticDefocusedStarImage.CreateAnnulus(200, 200, 100, 100,
+                    innerRadius: 14, outerRadius: 22, peak: 0.062, background: 0.05, edgeBlurSigma: 1.0);
+                SyntheticDefocusedStarImage.AddGaussianNoise(m, 0.0015, 321);
+                return m;
+            }
+            StarDetectorParams Base() {
+                var p = StarDetectorEquivalence.StandardParams();
+                p.PeakResponse = 0.98;
+                p.DefocusAwareStructure = true; p.StructureLayerBoost = 3; // keep the big donut alive
+                p.DefocusAwareDistortion = true; p.DefocusAwareCentering = true; // clear the distortion gate
+                p.Sensitivity = 100.0; // high: the faint donut's per-pixel peak SNR is well below this
+                return p;
+            }
+            var pPeakOnly = Base();                                       // master OFF -> no integrated path
+            var pIntegrated = Base(); pIntegrated.DefocusAwareDonutDetection = true; // master ON -> integrated path
+
+            using var i1 = Make(); var r1 = await StarDetectorEquivalence.RunDetect(i1, pPeakOnly);
+            using var i2 = Make(); var r2 = await StarDetectorEquivalence.RunDetect(i2, pIntegrated);
+            Assert.Multiple(() => {
+                Assert.That(DetectedNear(r1, 100, 100, 8), Is.False, "faint donut must fail the peak-based sensitivity gate");
+                Assert.That(DetectedNear(r2, 100, 100, 8), Is.True, "donut-aware integrated-flux sensitivity must recover it");
             });
         }
 
