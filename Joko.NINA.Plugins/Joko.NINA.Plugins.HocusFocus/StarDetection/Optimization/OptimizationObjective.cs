@@ -46,6 +46,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         public double Beta { get; set; } = 0.5;  // J_total = (1-β)·mean + β·min over runs
 
+        // ── Plateau tie-breaker (Wtie) ─────────────────────────────────────────────────────────────────────
+        // On an easy AF run every primary sub-score clamps to 1.0 (sharp focus, perfect fit, counts past the
+        // S_stars knees), so J saturates at 1.0 over a whole plateau of settings and the search — which only
+        // accepts strictly-improving moves and seeds from the DEFAULT params — wanders to an arbitrary tie-point
+        // far from (and often worse than) the user's settings (e.g. it halves the star count for no J gain).
+        // TieBreakerScore is an UNSATURATING secondary score (more stars / lower σ ⇒ higher, forever) blended
+        // into J as a convex combination: J = (1−Wtie)·J_primary + Wtie·T. Wtie is tiny so any genuine primary-J
+        // difference (≥~1e-3) dominates and off-plateau ranking is unchanged; on the plateau (J_primary tied) T
+        // decides, steering toward the star-rich / sharper basin. Wtie = 0 ⇒ J is bit-identical to the pre-tie
+        // -breaker objective. See docs/optimizer-plateau-tiebreaker-design.md.
+        public double Wtie { get; set; } = 1e-3;
+
         // ── F3: label-free precision / false-positive penalty (SDefocusPrecision) ──────────────────────────
         // These gate the MULTIPLICATIVE penalty the objective applies for defocus-relaxation that admits junk.
         // They are deliberately CONSERVATIVE: with the defocus-aware gates OFF (the baseline) every per-frame
@@ -234,7 +246,53 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // drops below 1 for the near-focus junk signature; legitimate defocused-extreme donut recovery is not
             // penalized. Composes identically in the labeled and unlabeled cases (applied after the weighted sum).
             j *= SDefocusPrecision(m, c);
+
+            // Plateau tie-breaker: blend in the unsaturating secondary score so that when the primary objective is
+            // flat (J saturated at 1.0 over a region) the search still prefers more stars / lower σ. Applied ONLY on
+            // this feasible path (the hard-fail returns above keep returning 0.0, so it never rescues an infeasible
+            // run). Wtie = 0 ⇒ exactly j (bit-identical to the pre-tie-breaker objective). Convex ⇒ J stays in [0,1].
+            if (c.Wtie > 0.0) {
+                j = (1.0 - c.Wtie) * j + c.Wtie * TieBreakerScore(m, c);
+            }
             return Clamp01(j);
+        }
+
+        /// <summary>
+        /// Unsaturating secondary "quality" score in [0, 1), used by <see cref="JRun"/> to break ties on the
+        /// saturated objective plateau. Rewards MORE stars and LOWER focus σ with strictly-monotone, never-clamping
+        /// Michaelis–Menten terms (<c>n/(n+k)</c>, <c>RhoRef/(RhoRef+ρ)</c>) so it retains a gradient exactly where
+        /// the primary sub-scores (which CLAMP at the NFloor/NTarget/RhoRef knees) have none. The knees are reused as
+        /// half-saturation points so no new tuning constants are introduced; star count dominates (0.6) because it is
+        /// the robust, large-signal indicator of sensor-model quality, with σ a gentle secondary (0.4). Returns 0 for
+        /// an empty run.
+        ///
+        /// <para>The star term uses the per-run MEAN (total richness across the whole sweep), NOT a minimum-dominated
+        /// blend: on the plateau every frame is already well past the S_stars knees, so minimum-frame protection is
+        /// redundant (the hard floor + primary S_stars own it), and a min-dominated tie-breaker is GAMEABLE — the
+        /// search can lift only the worst frame while shedding stars on the rich frames (observed on the mufti run:
+        /// it raised the min 82→91 while dropping total 1247→904). Mean rewards keeping stars everywhere, which is
+        /// what a tilt/sensor model needs.</para>
+        /// </summary>
+        public static double TieBreakerScore(RunEvaluationMetrics m, ObjectiveConstants c) {
+            if (m?.FrameStarCounts == null || m.FrameStarCounts.Count == 0) {
+                return 0.0;
+            }
+            var nMean = m.FrameStarCounts.Average();
+            // Unsaturating total-star richness: mean/(mean+k), half-saturated at the S_stars target knee.
+            var tStars = nMean / (nMean + c.NTarget);
+
+            // Unsaturating focus sharpness: lower ρ = σ/step ⇒ higher. Falls back to the LOO σ like SFocus; if no
+            // usable σ/step, contribute the neutral 0.5 so the term is well-defined (the star term still dominates).
+            var sigma = IsFinite(m.SigmaFocus) ? m.SigmaFocus : (IsFinite(m.LooStdError) ? m.LooStdError : double.NaN);
+            double tFocus;
+            if (IsFinite(sigma) && m.StepSize > 0.0 && c.RhoRef > 0.0) {
+                var rho = sigma / m.StepSize;
+                tFocus = c.RhoRef / (c.RhoRef + rho);
+            } else {
+                tFocus = 0.5;
+            }
+
+            return 0.6 * tStars + 0.4 * tFocus;
         }
 
         /// <summary>

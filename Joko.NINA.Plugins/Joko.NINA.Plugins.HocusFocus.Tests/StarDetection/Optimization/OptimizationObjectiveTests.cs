@@ -206,7 +206,7 @@ public class OptimizationObjectiveTests {
 
     [Test]
     public void JRun_WithoutLabels_UsesThreeWeightsSummingToOne() {
-        var c = C;
+        var c = new ObjectiveConstants { Wtie = 0.0 }; // isolate the weight-normalization invariant from the tie-breaker
         // With a perfect run (all sub-scores = 1) J must equal 1 exactly => weights normalized to sum 1.
         var j = OptimizationObjective.JRun(PerfectRun(), c);
         Assert.That(j, Is.EqualTo(1.0).Within(1e-9));
@@ -214,7 +214,7 @@ public class OptimizationObjectiveTests {
 
     [Test]
     public void JRun_WithLabels_RenormalizesFourWeightsToSumToOne() {
-        var c = C;
+        var c = new ObjectiveConstants { Wtie = 0.0 }; // isolate the weight-normalization invariant from the tie-breaker
         // Perfect run including a perfect label score => J = 1 exactly.
         var j = OptimizationObjective.JRun(PerfectRun(), c, recall: 1.0, precision: 1.0);
         Assert.That(j, Is.EqualTo(1.0).Within(1e-9));
@@ -390,7 +390,7 @@ public class OptimizationObjectiveTests {
 
     [Test]
     public void JRun_BitIdentical_Unlabeled_WhenRelaxedCountsAllZero() {
-        var c = C;
+        var c = new ObjectiveConstants { Wtie = 0.0 }; // bit-identity is the F3-penalty guarantee; isolate from the tie-breaker
         var m = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18); // all-zero relaxed
         var actual = OptimizationObjective.JRun(m, c);
         var expected = LegacyJRun(m, c, null, null);
@@ -400,7 +400,7 @@ public class OptimizationObjectiveTests {
 
     [Test]
     public void JRun_BitIdentical_Labeled_WhenRelaxedCountsAllZero() {
-        var c = C;
+        var c = new ObjectiveConstants { Wtie = 0.0 }; // bit-identity is the F3-penalty guarantee; isolate from the tie-breaker
         var m = RunWithPositions(frameCount: 9, starsPerFrame: 12, sigmaFocus: 0.22); // all-zero relaxed
         var actual = OptimizationObjective.JRun(m, c, recall: 0.7, precision: 0.6);
         var expected = LegacyJRun(m, c, 0.7, 0.6);
@@ -410,7 +410,7 @@ public class OptimizationObjectiveTests {
 
     [Test]
     public void JRun_BitIdentical_WhenNoRelaxationPlumbingAtAll() {
-        var c = C;
+        var c = new ObjectiveConstants { Wtie = 0.0 }; // bit-identity is the F3-penalty guarantee; isolate from the tie-breaker
         // GoodRun has null FrameRelaxationAdmittedCounts/positions — the legacy callers' shape. Must be unchanged.
         var m = GoodRun(sigmaFocus: 0.2, frameCount: 10, starsPerFrame: 25);
         Assert.That(OptimizationObjective.JRun(m, c), Is.EqualTo(LegacyJRun(m, c, null, null)));
@@ -440,6 +440,107 @@ public class OptimizationObjectiveTests {
         var jDonut = OptimizationObjective.JRun(donut, c);
         Assert.That(jDonut, Is.EqualTo(jClean),
             "legitimate donut recovery on the defocused extremes must not be penalized");
+    }
+
+    // ---- TieBreakerScore (plateau tie-breaker) + JRun blend ----
+
+    // A run whose PRIMARY sub-scores all saturate to 1.0 (sharp focus, perfect fit, counts past both knees),
+    // so J_primary == 1.0 regardless of star count — the saturated-plateau case the tie-breaker targets.
+    private static RunEvaluationMetrics PlateauRun(int starsPerFrame, double sigmaFocus = 1e-6) => new RunEvaluationMetrics {
+        SigmaFocus = sigmaFocus,
+        LooStdError = double.NaN,
+        StepSize = 100.0,
+        RSquared = 1.0,
+        ReducedChiSquared = 1.0,
+        FrameStarCounts = Enumerable.Repeat(starsPerFrame, 9).ToList()
+    };
+
+    [Test]
+    public void TieBreakerScore_IncreasesWithStarCount() {
+        var c = C;
+        var fewer = OptimizationObjective.TieBreakerScore(PlateauRun(100), c);
+        var more = OptimizationObjective.TieBreakerScore(PlateauRun(300), c);
+        Assert.That(more, Is.GreaterThan(fewer));
+    }
+
+    [Test]
+    public void TieBreakerScore_DecreasesWithSigma() {
+        var c = C;
+        var sharp = OptimizationObjective.TieBreakerScore(PlateauRun(100, sigmaFocus: 0.1), c);
+        var soft = OptimizationObjective.TieBreakerScore(PlateauRun(100, sigmaFocus: 100.0), c);
+        Assert.That(sharp, Is.GreaterThan(soft));
+    }
+
+    [Test]
+    public void TieBreakerScore_NeverSaturates_StillRewardsBeyondKnees() {
+        var c = C; // NFloor=8, NTarget=20 — primary S_stars CLAMPS here; the tie-breaker must NOT.
+        var atKnees = OptimizationObjective.TieBreakerScore(PlateauRun(20), c);
+        var farAbove = OptimizationObjective.TieBreakerScore(PlateauRun(2000), c);
+        Assert.Multiple(() => {
+            Assert.That(farAbove, Is.GreaterThan(atKnees), "more stars beyond the S_stars knee still scores higher");
+            Assert.That(farAbove, Is.LessThan(1.0), "asymptotic: never reaches 1.0");
+        });
+    }
+
+    [Test]
+    public void TieBreakerScore_RewardsTotalRichness_NotJustTheWorstFrame() {
+        var c = C;
+        // Regression for the observed gaming: on the mufti plateau the optimizer raised ONLY the worst frame
+        // (82->91) while dropping ~27% of the total stars (1247->904). The tie-breaker must reward overall
+        // richness, so the star-richer set must win even though its MINIMUM frame is lower.
+        var richOverall = new RunEvaluationMetrics { // total 1247, min 82
+            SigmaFocus = 1e-6, LooStdError = double.NaN, StepSize = 100.0, RSquared = 1.0, ReducedChiSquared = 1.0,
+            FrameStarCounts = new[] { 97, 140, 226, 334, 219, 149, 82 }
+        };
+        var leanButFlatter = new RunEvaluationMetrics { // total 904, min 91
+            SigmaFocus = 1e-6, LooStdError = double.NaN, StepSize = 100.0, RSquared = 1.0, ReducedChiSquared = 1.0,
+            FrameStarCounts = new[] { 103, 141, 125, 150, 144, 150, 91 }
+        };
+        Assert.That(OptimizationObjective.TieBreakerScore(richOverall, c),
+            Is.GreaterThan(OptimizationObjective.TieBreakerScore(leanButFlatter, c)),
+            "tie-breaker must reward total star richness, not be gamed by raising only the worst frame");
+    }
+
+    [Test]
+    public void JRun_OnSaturatedPlateau_PrefersMoreStars() {
+        var c = C; // default Wtie > 0
+        var c0 = new ObjectiveConstants { Wtie = 0.0 };
+        Assert.Multiple(() => {
+            // Both runs saturate the PRIMARY objective (J_primary == 1.0) ...
+            Assert.That(OptimizationObjective.JRun(PlateauRun(300), c0), Is.EqualTo(1.0).Within(1e-9));
+            Assert.That(OptimizationObjective.JRun(PlateauRun(120), c0), Is.EqualTo(1.0).Within(1e-9));
+            // ... yet WITH the tie-breaker the star-richer run is preferred.
+            Assert.That(OptimizationObjective.JRun(PlateauRun(300), c),
+                Is.GreaterThan(OptimizationObjective.JRun(PlateauRun(120), c)));
+        });
+    }
+
+    [Test]
+    public void JRun_TieBreaker_DisabledWhenWtieZero() {
+        var c0 = new ObjectiveConstants { Wtie = 0.0 };
+        var rich = OptimizationObjective.JRun(PlateauRun(300), c0);
+        var lean = OptimizationObjective.JRun(PlateauRun(120), c0);
+        Assert.That(rich, Is.EqualTo(lean), "Wtie=0 => pure primary objective => plateau ties stay tied");
+    }
+
+    [Test]
+    public void JRun_TieBreaker_DoesNotOverrideRealPrimaryDifference() {
+        var c = C; // the tiny tie-breaker must NOT flip a genuine focus-quality gap
+        // A: sharp focus (better primary) but FEWER stars. B: soft focus (worse primary) but MORE stars.
+        var sharpFewer = OptimizationObjective.JRun(PlateauRun(50, sigmaFocus: 10.0), c);   // rho=0.1
+        var softMore = OptimizationObjective.JRun(PlateauRun(400, sigmaFocus: 30.0), c);    // rho=0.3
+        Assert.That(sharpFewer, Is.GreaterThan(softMore), "a real primary-J advantage dominates the tie-breaker");
+    }
+
+    [Test]
+    public void JRun_TieBreaker_DoesNotRescueHardFail() {
+        var c = C;
+        var starved = PlateauRun(300);
+        var counts = starved.FrameStarCounts.ToList();
+        counts[0] = 1; // below NHard=3 => hard fail
+        starved.FrameStarCounts = counts;
+        Assert.That(OptimizationObjective.JRun(starved, c), Is.EqualTo(0.0),
+            "the tie-breaker is applied only on the feasible path; it never rescues an infeasible run");
     }
 
     // ---- JTotal ----
