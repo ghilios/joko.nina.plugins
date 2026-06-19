@@ -958,6 +958,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         Matrix3x2 retryTransform = inspectorOptions.UseAffineAlignment
                             ? RANSACRegistration.EstimateAffineTransform(retrySrc, retryDst, status, progress)
                             : RANSACRegistration.EstimateSimilarityTransform(retrySrc, retryDst, status, progress).ToMatrix3x2();
+                        // The denser reference has more triangles of similar shape, so RANSAC can occasionally lock
+                        // onto a wrong (degenerate) transform. Frames in one AF run share plate scale (~1.0; defocus
+                        // doesn't rescale the field), so reject an implausibly-scaled retry transform and leave the
+                        // frame unaligned rather than registering it wrongly and polluting the per-star fit.
+                        var retryScale = Math.Sqrt(Math.Abs(retryTransform.GetDeterminant()));
+                        if (retryScale < 0.9 || retryScale > 1.1) {
+                            throw new InvalidOperationException($"implausible retry transform scale {retryScale.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} (expected ~1.0)");
+                        }
                         ApplyAlignmentTransform(imageIndex, retryTransform);
                         imagesAligned++;
                         allDetectedStars[imageIndex].HasBeenAligned = true;
@@ -999,7 +1007,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
             RegisteredStar[] registeredStars;
             var allDetectedStarTrees = allDetectedStars.Select(result => {
-                var tree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Error);
+                // Skip (not Error) on duplicate coordinates: after RANSAC alignment two distinct stars can map to
+                // the SAME float position — common with overlapping donuts at extreme defocus, where the alignment
+                // transform collapses two near-coincident ring centroids. Erroring here crashed the whole
+                // inspection ("Cannot Add Node With Duplicate Coordinates"); skipping the duplicate harmlessly
+                // drops one of two coincident detections (matching the next-nearest is equivalent).
+                var tree = new KdTree<float, DetectedStarIndex>(2, new FloatMath(), AddDuplicateBehavior.Skip);
                 foreach (var (star, starIndex) in result.StarDetectionResult.StarList.Select((star, starIndex) => ((HocusFocusDetectedStar)star, starIndex))) {
                     tree.Add(new[] { star.Position.X, star.Position.Y }, new DetectedStarIndex(starIndex, star));
                 }
