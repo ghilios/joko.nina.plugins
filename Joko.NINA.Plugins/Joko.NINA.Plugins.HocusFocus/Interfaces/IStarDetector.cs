@@ -359,6 +359,37 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // near-focus accepted/NotCentered counts (near-focus candidates stay <= the size reference, so factor 1.0).
         public double DefocusCenteringToleranceFactor { get; set; } = 2.0;
 
+        // MASTER flag for defocus-aware DONUT recovery + diffraction-spike/bloom suppression (opt-in, default OFF
+        // for bit-identical detection). Gated by the StarDetectionOptions.DefocusAwareDonutDetection profile option,
+        // which (when OFF) ALSO forces DefocusAwareDistortion/Centering/Structure off in BuildStarDetectorParams.
+        // When OFF, none of the donut code paths run, so detection is byte-for-byte legacy. EARLY param (it gates
+        // the early morph-close): listed in StarDetector.EarlyCacheKeyProperties.
+        public bool DefocusAwareDonutDetection { get; set; } = false;
+
+        // EARLY donut-recovery knob (only when DefocusAwareDonutDetection is true). Ellipse kernel DIAMETER (px) for
+        // the morphological CLOSE of the binarized structure map applied before candidate collection, reconnecting
+        // fragmented donut-ring arcs into one candidate (fixes TooSmall fragmentation). <= 1 ⇒ no close. EARLY param
+        // (changes candidate formation): listed in StarDetector.EarlyCacheKeyProperties.
+        public int DonutMorphCloseSize { get; set; } = 5;
+
+        // LATE donut-recovery knob (only when DefocusAwareDonutDetection is true). Minimum enclosed-hole area (as a
+        // fraction of the candidate bbox area) for a candidate to be treated as an annular donut whose hole pixel
+        // COUNT is added to the fill-ratio used by the TooDistorted gate (so a hollow ring is judged like a filled
+        // disk). DETECTION-ONLY: the measured starPoints are NOT mutated, so flux/HFR/centroid stay byte-identical.
+        // See StarDetector.CountEnclosedHole. LATE param (excluded from the early cache key).
+        public double DonutMinAnnularityHoleFraction { get; set; } = 0.15;
+
+        // LATE spike-suppression knob (only when DefocusAwareDonutDetection is true). Reject a candidate as a
+        // diffraction spike / satellite trail when its point-cloud second-moment eccentricity >= this value. A
+        // perfect line has eccentricity → 1.0, so 1.0 (the default) DISABLES the gate; lower it (e.g. 0.95) to
+        // enable. LATE param (excluded from the early cache key).
+        public double DonutMaxStreakEccentricity { get; set; } = 1.0;
+
+        // LATE spike-suppression knob (only when DefocusAwareDonutDetection is true). Reject candidates whose
+        // centroid lies within this many px of a saturated source (peak >= SaturationThreshold), suppressing
+        // bloom/halo fragments around a bright saturated star. 0 ⇒ OFF. LATE param (excluded from the early cache key).
+        public double DonutSaturationBloomRadius { get; set; } = 0.0;
+
         // Size (as a ratio) of a centered rectangle within the star bounding box that the star center must be in. 1.0 covers the whole region, and 0.0 will fail every star
         public double StarCenterTolerance { get; set; } = 0.3;
 
@@ -626,6 +657,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public List<Rect> NotCenteredBounds { get; private set; } = new List<Rect>();
         public int TooFlat { get => TooFlatBounds.Count; set => throw new NotSupportedException("Can't set TooFlat directly"); }
         public List<Rect> TooFlatBounds { get; private set; } = new List<Rect>();
+        // Defocus-aware spike suppression (only populated when DefocusAwareDonutDetection is on): candidates
+        // rejected as diffraction spikes / satellite trails by the eccentricity gate, and bloom/halo fragments
+        // rejected within DonutSaturationBloomRadius of a saturated source. Both empty when the feature is off.
+        public int TooElongated { get => TooElongatedBounds.Count; set => throw new NotSupportedException("Can't set TooElongated directly"); }
+        public List<Rect> TooElongatedBounds { get; private set; } = new List<Rect>();
+        public int BloomSuppressed { get => BloomSuppressedBounds.Count; set => throw new NotSupportedException("Can't set BloomSuppressed directly"); }
+        public List<Rect> BloomSuppressedBounds { get; private set; } = new List<Rect>();
         public int TooLowHFR { get; set; } = 0;
         public int HFRAnalysisFailed { get; set; } = 0;
 
@@ -677,6 +715,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
             LowSensitivityBounds,
             NotCenteredBounds,
             TooFlatBounds,
+            TooElongatedBounds,
+            BloomSuppressedBounds,
             ContaminatedBounds
         };
 
@@ -767,6 +807,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public const string LowSensitivity = "LowSensitivity";
         public const string NotCentered = "NotCentered";
         public const string TooFlat = "TooFlat";
+        public const string TooElongated = "TooElongated";
+        public const string BloomSuppressed = "BloomSuppressed";
         public const string HFRAnalysisFailed = "HFRAnalysisFailed";
         public const string TooLowHFR = "TooLowHFR";
         public const string Contaminated = "Contaminated";

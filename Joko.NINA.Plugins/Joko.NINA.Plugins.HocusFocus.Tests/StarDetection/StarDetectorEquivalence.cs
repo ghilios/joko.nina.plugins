@@ -153,6 +153,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             AppendBounds(sb, "LowSensitivityBounds", m.LowSensitivityBounds);
             AppendBounds(sb, "NotCenteredBounds", m.NotCenteredBounds);
             AppendBounds(sb, "TooFlatBounds", m.TooFlatBounds);
+            AppendBounds(sb, "TooElongatedBounds", m.TooElongatedBounds);
+            AppendBounds(sb, "BloomSuppressedBounds", m.BloomSuppressedBounds);
             AppendBounds(sb, "ContaminatedBounds", m.ContaminatedBounds);
 
             return sb.ToString();

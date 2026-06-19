@@ -22,6 +22,7 @@
     <TextBlock x:Key="SDOpt_Review_Tooltip" Text="Optional: review the optimized detector boxes over every loaded frame and label any missed, falsely-accepted, or wrongly-rejected stars. The labels are saved next to the run and can drive a future re-optimization. Reviewing is not required — you can Accept directly." />
     <TextBlock x:Key="SDOpt_ReOptimize_Tooltip" Text="Re-run the optimization using the labels you just made in Review. Your missed / wrongly-rejected stars steer the optimizer to recover them (recall), and your should-reject stars steer it to exclude them (precision). The run is re-read from disk and the search re-runs, landing on an updated summary you can review again or accept." />
     <TextBlock x:Key="SDOpt_Variant_Tooltip" Text="Switch the chart and the summary below between your current settings, the optimized settings, and (after Optimize with feedback) the feedback-optimized settings. Accept applies whichever variant is shown (Current can't be accepted — it's your baseline)." />
+    <TextBlock x:Key="SDOpt_DonutDetection_Tooltip" Text="When checked, the optimizer is allowed to recover out-of-focus DONUT stars — heavily defocused stars that appear as hollow rings — which the detector otherwise drops (they fragment or fail the fill-ratio test). It also unlocks diffraction-spike and saturated-bloom suppression so a bright star's rays aren't mistaken for stars. Recommended for telescopes with a central obstruction (Newtonians/SCTs) whose defocused stars become donuts; leave OFF for refractors (defocused stars are filled disks, not rings). Saved to your profile and default OFF. When OFF, star detection is exactly as before." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
           SelectedCurve, so toggling the variant rebuilds the plot from a fresh OptimizationCurve instance (a robust
@@ -187,6 +188,21 @@
                             IsEnabled="{Binding IsOptimizeMode}"
                             Text="Start from my current settings (refine them further)"
                             ToolTip="{StaticResource SDOpt_StartFromCurrent_Tooltip}" />
+                    </StackPanel>
+
+                    <!--  Defocus-aware donut detection MASTER toggle (profile-saved, default OFF). Recovers
+                          out-of-focus donut stars and unlocks the defocus axes for the optimizer; details in the
+                          tooltip. Persists on click (it is a profile option, not VM-only).  -->
+                    <StackPanel Margin="0,4" Orientation="Horizontal">
+                        <CheckBox
+                            VerticalAlignment="Center"
+                            IsChecked="{Binding DefocusAwareDonutDetection}"
+                            ToolTip="{StaticResource SDOpt_DonutDetection_Tooltip}" />
+                        <TextBlock
+                            Margin="6,0,0,0"
+                            VerticalAlignment="Center"
+                            Text="Recover out-of-focus donut stars (reflectors/SCTs)"
+                            ToolTip="{StaticResource SDOpt_DonutDetection_Tooltip}" />
                     </StackPanel>
 
                     <!--  Single saved-run folder picker (Saved Auto-Focus only). Optimizing against one run at a time

@@ -120,6 +120,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             nameof(StarDetectorParams.StructureDilationSize),
             nameof(StarDetectorParams.StructureDilationCount),
             nameof(StarDetectorParams.SaturationThreshold),
+            // Defocus-aware donut detection: the MASTER flag gates the early morphological-close (and the close
+            // kernel size), so both change candidate formation and MUST be early-keyed. The hole-fill / streak /
+            // bloom knobs are LATE (gate-only) and are deliberately NOT listed here.
+            nameof(StarDetectorParams.DefocusAwareDonutDetection),
+            nameof(StarDetectorParams.DonutMorphCloseSize),
             nameof(StarDetectorParams.Region)
         };
 
@@ -566,6 +571,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                     stopWatch.RecordEntry("Binarization");
                     MaybeSaveIntermediateImage(structureMap, p, "07-structure-binarized.tif");
+
+                    // Step 7b (defocus-aware donut recovery, opt-in): morphologically CLOSE the binarized structure
+                    // map so fragmented donut-ring arcs reconnect into ONE candidate region (otherwise each arc is a
+                    // tiny region the late gate rejects as TooSmall — the dominant donut loss). Erode-after-dilate
+                    // keeps the outer bbox and the central hole intact (kernel diameter << hole), so annularity is
+                    // preserved for the late hole-fill gate, and a kernel smaller than the spike-to-spike gap will
+                    // not bridge a bright star's diffraction spikes. Gated by the master flag ⇒ bit-identical OFF.
+                    if (p.DefocusAwareDonutDetection && p.DonutMorphCloseSize > 1) {
+                        using (var donutCloseKernel = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(p.DonutMorphCloseSize, p.DonutMorphCloseSize))) {
+                            Cv2.MorphologyEx(structureMap, structureMap, MorphTypes.Close, donutCloseKernel, borderType: BorderTypes.Reflect);
+                        }
+                        stopWatch.RecordEntry("DonutMorphClose");
+                        MaybeSaveIntermediateImage(structureMap, p, "07b-structure-donut-closed.tif");
+                    }
 
                     // Step 8: Scan the structure map and collect ALL candidate regions (the late size/shape/border
                     // gates are NOT applied here — they live in GateAndMeasure, so the candidate set depends only on
@@ -1064,12 +1083,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 results[i] = EvaluateStarCandidate(srcImage, p, candidates[i].Bounds, candidates[i].Points, srcImageNoiseSigma, localMetrics.Value, diagnosticsBag, rejectedBag);
             });
 
-            // Fold each per-thread metrics instance into the main metrics (additive — see Merge), then sort the
-            // bounds lists by (Y, X) so the output is independent of thread scheduling.
+            // Fold each per-thread metrics instance into the main metrics (additive — see Merge).
             foreach (var threadMetrics in localMetrics.Values) {
                 metrics.Merge(threadMetrics);
             }
-            metrics.SortBounds();
+
+            // Defocus-aware saturation bloom suppression (opt-in, two-pass). The saturated-source centers are only
+            // known after the parallel pass (via the merged SaturatedBounds). Null out accepted NON-saturated
+            // candidates whose centroid lies within DonutSaturationBloomRadius px of a saturated source — removing
+            // bloom/halo fragments around a bright saturated star while keeping the saturated star itself. Radius 0
+            // or master OFF ⇒ no suppression (bit-identical).
+            List<Point2d> saturatedCenters = null;
+            double bloomR2 = 0.0;
+            if (p.DefocusAwareDonutDetection && p.DonutSaturationBloomRadius > 0.0 && metrics.SaturatedBounds.Count > 0) {
+                bloomR2 = p.DonutSaturationBloomRadius * p.DonutSaturationBloomRadius;
+                saturatedCenters = metrics.SaturatedBounds
+                    .Select(b => new Point2d(b.X + b.Width / 2.0, b.Y + b.Height / 2.0)).ToList();
+            }
 
             // Assemble in index order to preserve today's exact top-left raster ordering of DetectedStars, and
             // count detections on the main metrics. RelaxationAdmittedCount is tallied here (main thread) from the
@@ -1079,16 +1109,37 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             int totalDetected = 0;
             int relaxationAdmitted = 0;
             for (int i = 0; i < results.Length; ++i) {
-                if (results[i] != null) {
-                    stars.Add(results[i]);
-                    ++totalDetected;
-                    if (results[i].RelaxationAdmitted) {
-                        ++relaxationAdmitted;
+                var star = results[i];
+                if (star == null) {
+                    continue;
+                }
+                if (saturatedCenters != null && (star.Background + star.PeakBrightness) < p.SaturationThreshold) {
+                    bool suppressed = false;
+                    foreach (var sc in saturatedCenters) {
+                        var dx = star.Center.X - sc.X; var dy = star.Center.Y - sc.Y;
+                        if (dx * dx + dy * dy <= bloomR2) { suppressed = true; break; }
                     }
+                    if (suppressed) {
+                        metrics.BloomSuppressedBounds.Add(star.StarBoundingBox);
+                        if (rejectedBag != null) {
+                            RecordRejection(rejectedBag, star.StarBoundingBox, RejectionGate.BloomSuppressed, double.NaN, p.DonutSaturationBloomRadius, star.Center.X, star.Center.Y, star.HFR);
+                        }
+                        continue;
+                    }
+                }
+                stars.Add(star);
+                ++totalDetected;
+                if (star.RelaxationAdmitted) {
+                    ++relaxationAdmitted;
                 }
             }
             metrics.TotalDetected = totalDetected;
             metrics.RelaxationAdmittedCount = relaxationAdmitted;
+
+            // Sort all bounds lists by (Y, X) so production output is independent of thread scheduling (this also
+            // orders the main-thread BloomSuppressedBounds additions above). Bit-identical to the prior single
+            // SortBounds when bloom suppression is off.
+            metrics.SortBounds();
 
             return stars;
         }
@@ -1265,6 +1316,82 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return effective > 1.0 ? 1.0 : effective;
         }
 
+        /// <summary>
+        /// DETECTION-ONLY annularity test for defocus-aware donut recovery. Rasterizes the candidate's structure
+        /// points into a bbox-sized mask, flood-fills the background INWARD from the bbox border (4-connectivity),
+        /// and counts the background cells NOT border-reachable — i.e. an enclosed interior HOLE (the dark center of
+        /// a donut ring; classic morphological hole-fill / imfill). Returns the hole pixel count when it is at least
+        /// <paramref name="minHoleFraction"/> of the bbox area, else 0. A solid disk, a straight line, or a C-shaped
+        /// arc open to the border has no enclosed hole and returns 0. Pure + deterministic; does NOT mutate
+        /// <paramref name="starPoints"/>, so flux/HFR/centroid measured from those points are unchanged.
+        /// </summary>
+        public static int CountEnclosedHole(List<Point> starPoints, Rect bounds, double minHoleFraction) {
+            int w = bounds.Width, h = bounds.Height;
+            if (w <= 2 || h <= 2 || starPoints == null || starPoints.Count == 0 || minHoleFraction <= 0.0) {
+                return 0;
+            }
+            var fg = new bool[w * h];
+            foreach (var pt in starPoints) {
+                int lx = pt.X - bounds.X, ly = pt.Y - bounds.Y;
+                if (lx >= 0 && lx < w && ly >= 0 && ly < h) {
+                    fg[ly * w + lx] = true;
+                }
+            }
+            var outside = new bool[w * h];
+            var stack = new Stack<int>();
+            void Seed(int x, int y) {
+                int idx = y * w + x;
+                if (!fg[idx] && !outside[idx]) { outside[idx] = true; stack.Push(idx); }
+            }
+            for (int x = 0; x < w; ++x) { Seed(x, 0); Seed(x, h - 1); }
+            for (int y = 0; y < h; ++y) { Seed(0, y); Seed(w - 1, y); }
+            while (stack.Count > 0) {
+                int idx = stack.Pop(); int x = idx % w, y = idx / w;
+                if (x > 0) Seed(x - 1, y);
+                if (x < w - 1) Seed(x + 1, y);
+                if (y > 0) Seed(x, y - 1);
+                if (y < h - 1) Seed(x, y + 1);
+            }
+            int hole = 0;
+            for (int i = 0; i < fg.Length; ++i) {
+                if (!fg[i] && !outside[i]) { ++hole; }
+            }
+            return hole >= minHoleFraction * w * h ? hole : 0;
+        }
+
+        /// <summary>
+        /// Second-moment eccentricity of a candidate's point cloud, e = sqrt(1 - λ2/λ1) where λ1 ≥ λ2 are the
+        /// eigenvalues of the 2×2 covariance matrix of the points. A line → λ2 ≈ 0 ⇒ e → 1 (diffraction spike /
+        /// satellite trail); a round disk/ring → e small. Orientation-independent (unlike a bbox aspect ratio,
+        /// which a diagonal spike defeats). Returns 0 for degenerate inputs. Pure + deterministic.
+        /// </summary>
+        public static double ComputePointCloudEccentricity(List<Point> starPoints) {
+            int n = starPoints?.Count ?? 0;
+            if (n < 3) {
+                return 0.0;
+            }
+            double mx = 0, my = 0;
+            foreach (var p in starPoints) { mx += p.X; my += p.Y; }
+            mx /= n; my /= n;
+            double sxx = 0, syy = 0, sxy = 0;
+            foreach (var p in starPoints) {
+                double dx = p.X - mx, dy = p.Y - my;
+                sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+            }
+            sxx /= n; syy /= n; sxy /= n;
+            double tr = sxx + syy;
+            double det = sxx * syy - sxy * sxy;
+            double disc = Math.Sqrt(Math.Max(0.0, tr * tr / 4.0 - det));
+            double l1 = tr / 2.0 + disc;
+            double l2 = tr / 2.0 - disc;
+            if (l1 <= 0.0) {
+                return 0.0;
+            }
+            double ratio = l2 / l1;
+            if (ratio < 0.0) ratio = 0.0;
+            return Math.Sqrt(1.0 - ratio);
+        }
+
         // Emits a RejectedCandidateRecord into the (thread-safe) bag, guarded by the caller's null check. centerX/Y
         // are pre-ROI image coords (the ROI offset is applied once during materialization in GateAndMeasureInternal,
         // mirroring the metrics *Bounds lists). measured/threshold are NaN for the non-scalar gates; hfr is NaN when
@@ -1341,6 +1468,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return null;
             }
 
+            // Diffraction-spike / satellite-trail rejection (defocus-aware, opt-in). A spike/trail is extremely
+            // LINEAR; a donut (even astigmatic) is roundish. Judge the RAW point cloud's second-moment eccentricity
+            // (before any hole-fill). DonutMaxStreakEccentricity == 1.0 ⇒ gate OFF (a perfect line has e → 1.0).
+            // Gated by the master flag + a finite point count so faint specks aren't judged on noise ⇒ bit-identical OFF.
+            if (p.DefocusAwareDonutDetection && p.DonutMaxStreakEccentricity < 1.0 && starPoints.Count >= 8) {
+                var streakEcc = ComputePointCloudEccentricity(starPoints);
+                if (streakEcc >= p.DonutMaxStreakEccentricity) {
+                    metrics.TooElongatedBounds.Add(starBounds);
+                    if (rejectedBag != null) {
+                        RecordRejection(rejectedBag, starBounds, RejectionGate.TooElongated, streakEcc, p.DonutMaxStreakEccentricity, bboxCenterX, bboxCenterY);
+                    }
+                    return null;
+                }
+            }
+
             // Too distorted. The fill-ratio metric is (pixel count) / d², where d is the bbox max dimension; a
             // perfect disk fills ~PI/4 ≈ 0.79. When DefocusAwareDistortion is off, the effective threshold is
             // exactly p.MaxDistortion (bit-identical to the legacy gate). When on, it is relaxed for large
@@ -1348,7 +1490,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // ComputeEffectiveMaxDistortion. The same effective threshold drives both the decision and the
             // TooDistorted metrics tally.
             double d = Math.Max(starBounds.Width, starBounds.Height);
-            var fillRatio = starPoints.Count / d / d;
+            // Annularity-aware fill ratio (defocus-aware, opt-in, DETECTION-ONLY). A defocused donut is a hollow
+            // ring whose fill-ratio (ring pixels / d²) is far below MaxDistortion ⇒ the strict gate rejects it. When
+            // the candidate has an enclosed interior hole (≥ DonutMinAnnularityHoleFraction of the bbox), add the
+            // hole's pixel COUNT so the ratio reflects the FILLED disk and the strict threshold accepts it — while a
+            // spike/arc (no enclosed hole) is unaffected and still rejected. CountEnclosedHole does NOT mutate
+            // starPoints, so flux/HFR/centroid stay byte-identical. 0 when the master is OFF ⇒ bit-identical.
+            int donutHoleArea = (p.DefocusAwareDonutDetection && p.DonutMinAnnularityHoleFraction > 0.0)
+                ? CountEnclosedHole(starPoints, starBounds, p.DonutMinAnnularityHoleFraction)
+                : 0;
+            var fillRatio = (starPoints.Count + donutHoleArea) / d / d;
             var effectiveMaxDistortion = ComputeEffectiveMaxDistortion(p, d);
             if (fillRatio < effectiveMaxDistortion) {
                 metrics.TooDistortedBounds.Add(starBounds);

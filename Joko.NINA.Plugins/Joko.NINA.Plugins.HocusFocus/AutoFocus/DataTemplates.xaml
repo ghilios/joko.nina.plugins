@@ -83,6 +83,8 @@
     <TextBlock x:Key="SDR_SaturatedPixels_Tooltip" Text="The total number of saturated (clipped) pixels encountered across all detected stars." />
     <TextBlock x:Key="SDR_Hotpixels_Tooltip" Text="The number of hot pixels identified and filtered out during detection." />
     <TextBlock x:Key="SDR_Contaminated_Tooltip" Text="Stars flagged as contaminated by a localized neighbor or hot column (after the smooth local background gradient is removed). With 'Reject Contaminated Stars' enabled they are rejected; otherwise they are kept and only flagged." />
+    <TextBlock x:Key="SDR_TooElongated_Tooltip" Text="Candidates rejected as diffraction spikes or satellite/aircraft trails because their shape was too linear (high eccentricity). Only active when Defocus-Aware Donut Detection and the streak gate are enabled." />
+    <TextBlock x:Key="SDR_BloomSuppressed_Tooltip" Text="Candidates rejected because they fell within the saturation bloom radius of a bright saturated star (halo/bloom fragments). Only active when Defocus-Aware Donut Detection and a bloom radius are enabled." />
     <TextBlock x:Key="SDR_RelaxationAdmitted_Tooltip" Text="Accepted stars that were admitted only because a defocus-aware gate (distortion and/or centering) relaxed its threshold — they would have failed the strict gate. Always zero when the defocus-aware gates are off. Large near-focus values can indicate the relaxation is admitting junk blobs." />
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
@@ -904,6 +906,32 @@
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
                                     Text="{Binding Metrics.TooFlat, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
+                            </StackPanel>
+                        </UniformGrid>
+                        <UniformGrid Columns="2">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Too Elongated"
+                                    ToolTip="{StaticResource SDR_TooElongated_Tooltip}" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.TooElongated, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    Width="120"
+                                    VerticalAlignment="Center"
+                                    Text="Bloom Suppressed"
+                                    ToolTip="{StaticResource SDR_BloomSuppressed_Tooltip}" />
+                                <TextBlock
+                                    Width="70"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Text="{Binding Metrics.BloomSuppressed, Converter={StaticResource HF_ZeroToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
                         <UniformGrid Columns="2">

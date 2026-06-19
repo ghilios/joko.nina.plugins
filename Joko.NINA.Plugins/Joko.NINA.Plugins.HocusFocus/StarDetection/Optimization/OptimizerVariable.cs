@@ -102,7 +102,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// the published bounds. The descriptor properties are init-only, so the bounds the lambda quantizes
         /// against are exactly the ones returned by <see cref="Lower"/>/<see cref="Upper"/>.
         /// </summary>
-        public static IReadOnlyList<OptimizerVariable> CreateCuratedSet() {
+        /// <summary>No-arg form returns the FULL set (all axes incl. the defocus-aware ones) — for introspection
+        /// and tests. Production callers use <see cref="CreateCuratedSet(StarDetectorParams)"/> so the defocus axes
+        /// are gated by the master toggle.</summary>
+        public static IReadOnlyList<OptimizerVariable> CreateCuratedSet() => CreateCuratedSet(includeDefocusAxes: true);
+
+        /// <summary>
+        /// Curated set, including the defocus-aware axes ONLY when <paramref name="seed"/> has
+        /// DefocusAwareDonutDetection ON — the MASTER toggle. The defocus-aware axes are the combined gate switch,
+        /// the structure boost, the three gate tuning knobs, and the donut morph-close / hole-fill / streak / bloom
+        /// knobs. When the master is OFF (or seed is null) the optimizer never touches any defocus param, so its
+        /// search stays conservative/bit-identical w.r.t. those axes. (Matches the runtime gating in
+        /// BuildStarDetectorParams, which AND-gates every defocus flag with the same master option.)
+        /// </summary>
+        public static IReadOnlyList<OptimizerVariable> CreateCuratedSet(StarDetectorParams seed)
+            => CreateCuratedSet(includeDefocusAxes: seed != null && seed.DefocusAwareDonutDetection);
+
+        private static IReadOnlyList<OptimizerVariable> CreateCuratedSet(bool includeDefocusAxes) {
             // --- Heuristic bounds (no hard UI validation range; chosen pragmatically). Edit here to retune. ---
             const double SensitivityLower = 0.0;       // heuristic
             const double SensitivityUpper = 50.0;      // heuristic; widened 20 -> 50 because rich fields pinned the old 20 ceiling
@@ -121,7 +137,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             const int MinBoundingBoxLower = 2;         // heuristic
             const int MinBoundingBoxUpper = 20;        // heuristic
 
-            return new List<OptimizerVariable> {
+            var vars = new List<OptimizerVariable> {
                 Continuous(nameof(StarDetectorParams.Sensitivity), SensitivityLower, SensitivityUpper, 1.0,
                     p => p.Sensitivity, (p, v) => p.Sensitivity = v),
                 Continuous(nameof(StarDetectorParams.StarClippingMultiplier), StarClipLower, StarClipUpper, 0.5,
@@ -146,21 +162,37 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     p => p.HotpixelThresholdingEnabled, (p, b) => p.HotpixelThresholdingEnabled = b),
                 Continuous(nameof(StarDetectorParams.HotpixelThreshold), HotpixelThresholdLower, HotpixelThresholdUpper, 0.001,
                     p => p.HotpixelThreshold, (p, v) => p.HotpixelThreshold = v),
-                // F3: a single combined switch that flips BOTH defocus-aware gates together, so the optimizer can
-                // explore the defocus relaxation (recovering large/donut defocused stars) as one knob. The Name is
-                // a SYNTHETIC alias (not a StarDetectorParams property): Read reports the distortion flag (the two
-                // are written in lockstep), Write sets distortion AND centering to the same value. The seed reads
-                // the current params (both OFF by default), so the baseline is unchanged; the search may flip it on.
-                // Size-reference tuning is intentionally NOT exposed as a variable for now — only this flag.
-                BooleanVar(DefocusAwareGatesName, 1,
-                    p => p.DefocusAwareDistortion,
-                    (p, en) => { p.DefocusAwareDistortion = en; p.DefocusAwareCentering = en; }),
-                // Defocus-aware STRUCTURE detection as a single integer knob (EARLY): 0 ⇒ OFF (bit-identical
-                // baseline), >0 ⇒ enable DefocusAwareStructure with that many extra wavelet layers, recovering
-                // large/donut defocused stars that never form a candidate. The seed reads the effective boost (0
-                // when the flag is off), so the baseline J is unchanged; the search may raise it.
-                StructureBoostVar(),
             };
+
+            // Defocus-aware axes — appended ONLY when the master donut toggle is ON (gated by the seed). When the
+            // master is OFF the optimizer never explores any defocus param.
+            if (includeDefocusAxes) {
+                // Combined gate switch (distortion + centering relaxation) — synthetic alias; Write drives both.
+                vars.Add(BooleanVar(DefocusAwareGatesName, 1,
+                    p => p.DefocusAwareDistortion,
+                    (p, en) => { p.DefocusAwareDistortion = en; p.DefocusAwareCentering = en; }));
+                // Defocus-aware STRUCTURE boost (EARLY): 0 ⇒ OFF.
+                vars.Add(StructureBoostVar());
+                // The three gate tuning knobs (previously fixed; now searchable while the master is on).
+                vars.Add(Continuous(nameof(StarDetectorParams.DefocusDistortionSizeReference), 10.0, 80.0, 5.0,
+                    p => p.DefocusDistortionSizeReference, (p, v) => p.DefocusDistortionSizeReference = v));
+                vars.Add(Continuous(nameof(StarDetectorParams.DefocusDistortionMinFactor), 0.05, 1.0, 0.05,
+                    p => p.DefocusDistortionMinFactor, (p, v) => p.DefocusDistortionMinFactor = v));
+                vars.Add(Continuous(nameof(StarDetectorParams.DefocusCenteringToleranceFactor), 1.0, 4.0, 0.25,
+                    p => p.DefocusCenteringToleranceFactor, (p, v) => p.DefocusCenteringToleranceFactor = v));
+                // Donut recovery: EARLY morph-close kernel (1 ⇒ off) + LATE annularity hole-fraction.
+                vars.Add(IntegerVar(nameof(StarDetectorParams.DonutMorphCloseSize), 1, 15, 2,
+                    p => p.DonutMorphCloseSize, (p, v) => p.DonutMorphCloseSize = v));
+                vars.Add(Continuous(nameof(StarDetectorParams.DonutMinAnnularityHoleFraction), 0.05, 0.5, 0.05,
+                    p => p.DonutMinAnnularityHoleFraction, (p, v) => p.DonutMinAnnularityHoleFraction = v));
+                // Spike suppression (LATE): streak eccentricity (1.0 ⇒ off) + saturation bloom radius (0 ⇒ off).
+                // Default-off in the seed; the objective's label term enables them when should-reject boxes exist.
+                vars.Add(Continuous(nameof(StarDetectorParams.DonutMaxStreakEccentricity), 0.85, 1.0, 0.025,
+                    p => p.DonutMaxStreakEccentricity, (p, v) => p.DonutMaxStreakEccentricity = v));
+                vars.Add(Continuous(nameof(StarDetectorParams.DonutSaturationBloomRadius), 0.0, 60.0, 5.0,
+                    p => p.DonutSaturationBloomRadius, (p, v) => p.DonutSaturationBloomRadius = v));
+            }
+            return vars;
         }
 
         /// <summary>Synthetic curated-set variable name for the combined defocus-aware-gates switch. It is NOT a
@@ -190,7 +222,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var beforeVal = v.Read(before);
                 var afterVal = v.Read(after);
                 var moved = Math.Abs(beforeVal - afterVal) > 1e-9;
-                var isDefocusToggle = v.Name == DefocusAwareGatesName || v.Name == DefocusAwareStructureName;
+                // Keep the defocus toggles AND the spike-suppression knobs live at full range under feedback so the
+                // optimizer can enable them even if the analytic recommender didn't move them (e.g. to suppress a
+                // saturated star's spikes/bloom that only the should-reject labels reveal).
+                var isDefocusToggle = v.Name == DefocusAwareGatesName || v.Name == DefocusAwareStructureName
+                    || v.Name == nameof(StarDetectorParams.DonutMaxStreakEccentricity)
+                    || v.Name == nameof(StarDetectorParams.DonutSaturationBloomRadius);
                 if (moved) {
                     var half = bandSteps * v.InitialStep;
                     var lo = Math.Max(v.Lower, afterVal - half);

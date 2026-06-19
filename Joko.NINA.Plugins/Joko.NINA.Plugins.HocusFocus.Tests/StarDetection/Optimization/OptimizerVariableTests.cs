@@ -137,10 +137,27 @@ public class OptimizerVariableTests {
     // ---- CreateCuratedSet ----
 
     [Test]
-    public void CreateCuratedSet_HasFourteenDistinctVariables() {
+    public void CreateCuratedSet_HasTwentyOneDistinctVariables() {
+        // 12 base axes + 9 defocus-aware axes (combined gate switch, structure boost, 3 gate knobs, 4 donut knobs).
+        // The no-arg form returns the FULL set (master gating is applied via the StarDetectorParams overload).
         var set = OptimizerVariable.CreateCuratedSet();
-        Assert.That(set.Count, Is.EqualTo(14));
-        Assert.That(set.Select(x => x.Name).Distinct().Count(), Is.EqualTo(14));
+        Assert.That(set.Count, Is.EqualTo(21));
+        Assert.That(set.Select(x => x.Name).Distinct().Count(), Is.EqualTo(21));
+    }
+
+    [Test]
+    public void CreateCuratedSet_Seed_GatesDefocusAxesByMaster() {
+        var masterOff = new StarDetectorParams { DefocusAwareDonutDetection = false };
+        var masterOn = new StarDetectorParams { DefocusAwareDonutDetection = true };
+        Assert.Multiple(() => {
+            // Master OFF ⇒ only the 12 base axes; no defocus axis is searchable.
+            Assert.That(OptimizerVariable.CreateCuratedSet(masterOff).Count, Is.EqualTo(12));
+            Assert.That(OptimizerVariable.CreateCuratedSet(masterOff).Any(v => v.Name == OptimizerVariable.DefocusAwareGatesName), Is.False);
+            Assert.That(OptimizerVariable.CreateCuratedSet((StarDetectorParams)null).Count, Is.EqualTo(12));
+            // Master ON ⇒ the full set incl. all defocus axes.
+            Assert.That(OptimizerVariable.CreateCuratedSet(masterOn).Count, Is.EqualTo(21));
+            Assert.That(OptimizerVariable.CreateCuratedSet(masterOn).Any(v => v.Name == nameof(StarDetectorParams.DonutMorphCloseSize)), Is.True);
+        });
     }
 
     [Test]
@@ -163,6 +180,14 @@ public class OptimizerVariableTests {
             OptimizerVariable.DefocusAwareGatesName,
             // Synthetic integer knob (drives DefocusAwareStructure + StructureLayerBoost together).
             OptimizerVariable.DefocusAwareStructureName,
+            // Defocus-aware gate tuning knobs + donut/spike knobs (master-gated; present in the full no-arg set).
+            nameof(StarDetectorParams.DefocusDistortionSizeReference),
+            nameof(StarDetectorParams.DefocusDistortionMinFactor),
+            nameof(StarDetectorParams.DefocusCenteringToleranceFactor),
+            nameof(StarDetectorParams.DonutMorphCloseSize),
+            nameof(StarDetectorParams.DonutMinAnnularityHoleFraction),
+            nameof(StarDetectorParams.DonutMaxStreakEccentricity),
+            nameof(StarDetectorParams.DonutSaturationBloomRadius),
         };
         Assert.That(set.Select(x => x.Name), Is.EquivalentTo(expected));
     }

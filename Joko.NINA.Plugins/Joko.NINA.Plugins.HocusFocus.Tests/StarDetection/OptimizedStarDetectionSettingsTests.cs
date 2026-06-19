@@ -34,8 +34,9 @@ public class OptimizedStarDetectionSettingsTests {
     }
 
     [Test]
-    public void DefaultSchemaVersion_IsOne() {
-        Assert.That(new OptimizedStarDetectionSettings().SchemaVersion, Is.EqualTo(1));
+    public void DefaultSchemaVersion_IsTwo() {
+        // v2 added the defocus-aware axes (master + donut/spike knobs).
+        Assert.That(new OptimizedStarDetectionSettings().SchemaVersion, Is.EqualTo(2));
     }
 
     [Test]
@@ -112,7 +113,7 @@ public class OptimizedStarDetectionSettingsTests {
             Assert.That(dto.FinalJ, Is.EqualTo(0.4));
             Assert.That(dto.RecommendedStepSize, Is.EqualTo(25));
             Assert.That(dto.RecommendedOffsetSteps, Is.EqualTo(6));
-            Assert.That(dto.SchemaVersion, Is.EqualTo(1));
+            Assert.That(dto.SchemaVersion, Is.EqualTo(2));
             Assert.That(dto.CreatedAtUtc, Is.InRange(before, after));
             Assert.That(dto.CreatedAtUtc.Kind, Is.EqualTo(DateTimeKind.Utc));
         });

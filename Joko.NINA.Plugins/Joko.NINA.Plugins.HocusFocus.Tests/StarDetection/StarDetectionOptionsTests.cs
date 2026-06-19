@@ -343,6 +343,7 @@ public class StarDetectionOptionsTests {
         // must flow through unchanged.
         var (options, _, _) = Build();
         options.UseAdvanced = true;
+        options.DefocusAwareDonutDetection = true; // master gate: required for the gate flags to flow through
         options.DefocusAwareGates = true;
         options.DefocusDistortionSizeReference = 22.0;
         options.DefocusDistortionMinFactor = 0.4;

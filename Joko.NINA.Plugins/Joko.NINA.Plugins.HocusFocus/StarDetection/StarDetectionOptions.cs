@@ -94,6 +94,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             MinStarBoundingBoxSize = s.MinStarBoundingBoxSize;
             HotpixelThresholdingEnabled = s.HotpixelThresholdingEnabled;
             HotpixelThreshold = s.HotpixelThreshold;
+            // Defocus-aware axes (schema v2). A v1 snapshot deserializes these to ResetDefaults (master OFF), so
+            // applying it is inert/legacy. The master + donut knobs persist the optimizer's donut result.
+            DefocusAwareGates = s.DefocusAwareGates;
+            DefocusDistortionSizeReference = s.DefocusDistortionSizeReference;
+            DefocusDistortionMinFactor = s.DefocusDistortionMinFactor;
+            DefocusCenteringToleranceFactor = s.DefocusCenteringToleranceFactor;
+            DefocusAwareStructure = s.DefocusAwareStructure;
+            StructureLayerBoost = s.StructureLayerBoost;
+            DefocusAwareDonutDetection = s.DefocusAwareDonutDetection;
+            DonutMorphCloseSize = s.DonutMorphCloseSize;
+            DonutMinAnnularityHoleFraction = s.DonutMinAnnularityHoleFraction;
+            DonutMaxStreakEccentricity = s.DonutMaxStreakEccentricity;
+            DonutSaturationBloomRadius = s.DonutSaturationBloomRadius;
         }
 
         private void DerivePresetSettings() {
@@ -210,6 +223,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             defocusDistortionSizeReference = optionsAccessor.GetValueDouble("DefocusDistortionSizeReference", 30.0);
             defocusDistortionMinFactor = optionsAccessor.GetValueDouble("DefocusDistortionMinFactor", 0.25);
             defocusCenteringToleranceFactor = optionsAccessor.GetValueDouble("DefocusCenteringToleranceFactor", 2.0);
+            defocusAwareDonutDetection = optionsAccessor.GetValueBoolean("DefocusAwareDonutDetection", false);
+            donutMorphCloseSize = optionsAccessor.GetValueInt32("DonutMorphCloseSize", 5);
+            donutMinAnnularityHoleFraction = optionsAccessor.GetValueDouble("DonutMinAnnularityHoleFraction", 0.15);
+            donutMaxStreakEccentricity = optionsAccessor.GetValueDouble("DonutMaxStreakEccentricity", 1.0);
+            donutSaturationBloomRadius = optionsAccessor.GetValueDouble("DonutSaturationBloomRadius", 0.0);
             starCenterTolerance = optionsAccessor.GetValueDouble("StarCenterTolerance", 0.3);
             starBackgroundBoxExpansion = optionsAccessor.GetValueInt32("StarBackgroundBoxExpansion", 3);
             minStarBoundingBoxSize = optionsAccessor.GetValueInt32("MinStarBoundingBoxSize", 5);
@@ -273,6 +291,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             DefocusDistortionSizeReference = 30.0;
             DefocusDistortionMinFactor = 0.25;
             DefocusCenteringToleranceFactor = 2.0;
+            DefocusAwareDonutDetection = false;
+            DonutMorphCloseSize = 5;
+            DonutMinAnnularityHoleFraction = 0.15;
+            DonutMaxStreakEccentricity = 1.0;
+            DonutSaturationBloomRadius = 0.0;
             StarCenterTolerance = 0.3;
             StarBackgroundBoxExpansion = 3;
             MinStarBoundingBoxSize = 5;
@@ -658,6 +681,104 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     defocusCenteringToleranceFactor = value;
                     optionsAccessor.SetValueDouble("DefocusCenteringToleranceFactor", defocusCenteringToleranceFactor);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool defocusAwareDonutDetection;
+
+        // MASTER toggle for defocus-aware donut detection (opt-in, default OFF; surfaced on the optimizer wizard
+        // start page AND in Advanced options). When OFF, detection is BIT-IDENTICAL to legacy: it forces every
+        // defocus-aware behavior off in BuildStarDetectorParams (DefocusAwareDistortion/Centering/Structure AND the
+        // new donut morph-close / hole-fill / streak / bloom knobs), and the optimizer omits all defocus axes. When
+        // ON it recovers out-of-focus donut stars (morph-close + annularity hole-fill, active by default) and lets
+        // the optimizer tune every defocus knob; spike/saturation suppression (streak + bloom) ships OFF and is
+        // enabled by the optimizer via should-reject labels.
+        public bool DefocusAwareDonutDetection {
+            get => defocusAwareDonutDetection;
+            set {
+                if (defocusAwareDonutDetection != value) {
+                    defocusAwareDonutDetection = value;
+                    optionsAccessor.SetValueBoolean("DefocusAwareDonutDetection", defocusAwareDonutDetection);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int donutMorphCloseSize;
+
+        // Donut recovery (only while DefocusAwareDonutDetection is ON). Ellipse kernel diameter (px) for the
+        // morphological CLOSE of the binarized structure map that reconnects fragmented donut rings into one
+        // candidate (fixes TooSmall fragmentation). 1 = OFF (no close). EARLY param. Range [1, 25]. Default 5.
+        public int DonutMorphCloseSize {
+            get => donutMorphCloseSize;
+            set {
+                if (donutMorphCloseSize != value) {
+                    if (value < 1 || value > 25) {
+                        throw new ArgumentException("DonutMorphCloseSize must be within [1, 25]", "DonutMorphCloseSize");
+                    }
+                    donutMorphCloseSize = value;
+                    optionsAccessor.SetValueInt32("DonutMorphCloseSize", donutMorphCloseSize);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double donutMinAnnularityHoleFraction;
+
+        // Donut recovery (only while DefocusAwareDonutDetection is ON). Minimum enclosed-hole area (as a fraction of
+        // the candidate bbox area) for a candidate to count as an annular donut whose hole is filled for the
+        // TooDistorted fill-ratio test (DETECTION-ONLY: never changes flux/HFR/centroid). Range [0.02, 0.6].
+        // Default 0.15.
+        public double DonutMinAnnularityHoleFraction {
+            get => donutMinAnnularityHoleFraction;
+            set {
+                if (donutMinAnnularityHoleFraction != value) {
+                    if (value < 0.02 || value > 0.6) {
+                        throw new ArgumentException("DonutMinAnnularityHoleFraction must be within [0.02, 0.6]", "DonutMinAnnularityHoleFraction");
+                    }
+                    donutMinAnnularityHoleFraction = value;
+                    optionsAccessor.SetValueDouble("DonutMinAnnularityHoleFraction", donutMinAnnularityHoleFraction);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double donutMaxStreakEccentricity;
+
+        // Spike suppression (only while DefocusAwareDonutDetection is ON). Reject a candidate as a diffraction
+        // spike / satellite trail when its point-cloud eccentricity >= this value. 1.0 = OFF (a perfect line has
+        // eccentricity → 1.0, so the gate never fires). Lower it (e.g. 0.95) to enable. Range [0.8, 1.0].
+        // Default 1.0 (OFF; the optimizer enables it via should-reject labels).
+        public double DonutMaxStreakEccentricity {
+            get => donutMaxStreakEccentricity;
+            set {
+                if (donutMaxStreakEccentricity != value) {
+                    if (value < 0.8 || value > 1.0) {
+                        throw new ArgumentException("DonutMaxStreakEccentricity must be within [0.8, 1.0]", "DonutMaxStreakEccentricity");
+                    }
+                    donutMaxStreakEccentricity = value;
+                    optionsAccessor.SetValueDouble("DonutMaxStreakEccentricity", donutMaxStreakEccentricity);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double donutSaturationBloomRadius;
+
+        // Spike suppression (only while DefocusAwareDonutDetection is ON). Reject candidates whose centroid lies
+        // within this many px of a saturated source (peak >= SaturationThreshold), suppressing bloom/halo
+        // fragments around a bright saturated star. 0 = OFF. Range [0, 100]. Default 0 (OFF; optimizer enables it).
+        public double DonutSaturationBloomRadius {
+            get => donutSaturationBloomRadius;
+            set {
+                if (donutSaturationBloomRadius != value) {
+                    if (value < 0.0 || value > 100.0) {
+                        throw new ArgumentException("DonutSaturationBloomRadius must be within [0, 100]", "DonutSaturationBloomRadius");
+                    }
+                    donutSaturationBloomRadius = value;
+                    optionsAccessor.SetValueDouble("DonutSaturationBloomRadius", donutSaturationBloomRadius);
                     RaisePropertyChanged();
                 }
             }

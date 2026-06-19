@@ -294,22 +294,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 ContaminationSensitivity = options.ContaminationSensitivity,
                 RejectContaminatedStars = options.RejectContaminatedStars,
                 StructureLayers = options.StructureLayers,
-                DefocusAwareStructure = options.DefocusAwareStructure,
+                // The DefocusAwareDonutDetection MASTER toggle (default OFF) gates EVERY defocus-aware behavior:
+                // when OFF, the structure-boost, the two gate relaxations, and all donut/spike knobs below are
+                // forced off, so detection is bit-identical to legacy.
+                DefocusAwareStructure = options.DefocusAwareStructure && options.DefocusAwareDonutDetection,
                 StructureLayerBoost = options.StructureLayerBoost,
                 Sensitivity = options.BrightnessSensitivity,
                 PeakResponse = options.StarPeakResponse,
                 MaxDistortion = options.MaxDistortion,
-                // Single opt-in toggle (default OFF) drives BOTH defocus-aware gate relaxations: the distortion
-                // gate (relaxes MaxDistortion for large/defocused candidates) and the centering gate (relaxes the
-                // NotCentered StarCenterTolerance for those same candidates, reusing the shared size reference as
-                // the defocus proxy). The detector still keeps the two flags independent so TestApp's granular
-                // --defocus-distortion / --defocus-centering switches can toggle them separately.
-                DefocusAwareDistortion = options.DefocusAwareGates,
-                DefocusAwareCentering = options.DefocusAwareGates,
+                // DefocusAwareGates drives BOTH gate relaxations (distortion + centering), gated by the master.
+                // The detector keeps the two flags independent so TestApp's --defocus-distortion/--defocus-centering
+                // switches can toggle them separately.
+                DefocusAwareDistortion = options.DefocusAwareGates && options.DefocusAwareDonutDetection,
+                DefocusAwareCentering = options.DefocusAwareGates && options.DefocusAwareDonutDetection,
                 // Numeric tuning knobs (Advanced options); only take effect while the gates are ON.
                 DefocusDistortionSizeReference = options.DefocusDistortionSizeReference,
                 DefocusDistortionMinFactor = options.DefocusDistortionMinFactor,
                 DefocusCenteringToleranceFactor = options.DefocusCenteringToleranceFactor,
+                // Master + donut-recovery / spike-suppression knobs. Each is runtime-gated by
+                // DefocusAwareDonutDetection inside the detector, so passing the option values verbatim is safe
+                // (when the master is OFF none of them are consulted ⇒ bit-identical).
+                DefocusAwareDonutDetection = options.DefocusAwareDonutDetection,
+                DonutMorphCloseSize = options.DonutMorphCloseSize,
+                DonutMinAnnularityHoleFraction = options.DonutMinAnnularityHoleFraction,
+                DonutMaxStreakEccentricity = options.DonutMaxStreakEccentricity,
+                DonutSaturationBloomRadius = options.DonutSaturationBloomRadius,
                 StarCenterTolerance = options.StarCenterTolerance,
                 BackgroundBoxExpansion = options.StarBackgroundBoxExpansion,
                 MinimumStarBoundingBoxSize = options.MinStarBoundingBoxSize,
@@ -364,6 +373,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 DefocusDistortionSizeReference = 30.0,
                 DefocusDistortionMinFactor = 0.25,
                 DefocusCenteringToleranceFactor = 2.0,
+                // Donut master + knobs at their ResetDefaults values (master OFF ⇒ inert). Kept in lockstep with
+                // StarDetectionOptions.ResetDefaults by BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild.
+                DefocusAwareDonutDetection = false,
+                DonutMorphCloseSize = 5,
+                DonutMinAnnularityHoleFraction = 0.15,
+                DonutMaxStreakEccentricity = 1.0,
+                DonutSaturationBloomRadius = 0.0,
                 StarCenterTolerance = 0.3,
                 BackgroundBoxExpansion = 3,
                 MinimumStarBoundingBoxSize = 5,
