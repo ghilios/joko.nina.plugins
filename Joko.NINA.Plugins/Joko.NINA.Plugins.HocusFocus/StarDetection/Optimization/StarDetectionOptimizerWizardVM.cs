@@ -200,6 +200,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private readonly Func<string> folderPicker;
         private readonly StarDetectionRegion region;
         private readonly OptimizerSettings optimizerSettings;
+        // Standard optimizer evaluation budget, captured from optimizerSettings ONCE at construction so the
+        // donut-off path always restores it (OptimizeAsync mutates optimizerSettings.MaxEvaluations per run).
+        private readonly int standardMaxEvaluations;
+        // Larger budget used when "Recover out-of-focus donut stars" is enabled: turning the donut master on adds
+        // the defocus axes to the curated search set, enlarging the space the optimizer must explore, so it gets
+        // the pre-cut 400-eval budget instead of the standard one.
+        private const int DonutMaxEvaluations = 400;
 
         // The review-build seam: given the snapshotted frame descriptors + the params to detect with, produces the
         // per-frame FrameReviews the StarReviewVM renders. Production wires FrameReviewBuilder over a real
@@ -303,6 +310,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             this.folderPicker = folderPicker ?? (() => null);
             this.region = region ?? StarDetectionRegion.Full;
             this.optimizerSettings = optimizerSettings ?? new OptimizerSettings();
+            this.standardMaxEvaluations = this.optimizerSettings.MaxEvaluations;
             this.frameReviewBuilder = frameReviewBuilder;
             this.isCameraConnected = isCameraConnected ?? (() => true);
             this.isFocuserConnected = isFocuserConnected ?? (() => true);
@@ -1254,6 +1262,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // (the default Seed carries master=OFF, so without this the donut feature would never be searched when
             // not starting from current settings).
             seed.DefocusAwareDonutDetection = starDetectionOptions.DefocusAwareDonutDetection;
+            // Donut recovery widens the curated search space (the defocus axes are added only when the master is
+            // on), so it needs more iterations to converge: use the larger budget when enabled, else the standard
+            // one. Re-applied each call so toggling the donut master between builds takes effect.
+            optimizerSettings.MaxEvaluations = starDetectionOptions.DefocusAwareDonutDetection ? DonutMaxEvaluations : standardMaxEvaluations;
             var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet(seed);
             var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList());
 

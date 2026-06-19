@@ -192,15 +192,19 @@
 
                     <!--  Defocus-aware donut detection MASTER toggle (profile-saved, default OFF). Recovers
                           out-of-focus donut stars and unlocks the defocus axes for the optimizer; details in the
-                          tooltip. Persists on click (it is a profile option, not VM-only).  -->
+                          tooltip. Persists on click (it is a profile option, not VM-only). Only meaningful in
+                          Optimize mode (it gates the optimizer's defocus axes), so disabled in Use-current mode —
+                          like the start-from-current toggle above.  -->
                     <StackPanel Margin="0,4" Orientation="Horizontal">
                         <CheckBox
                             VerticalAlignment="Center"
                             IsChecked="{Binding DefocusAwareDonutDetection}"
+                            IsEnabled="{Binding IsOptimizeMode}"
                             ToolTip="{StaticResource SDOpt_DonutDetection_Tooltip}" />
                         <TextBlock
                             Margin="6,0,0,0"
                             VerticalAlignment="Center"
+                            IsEnabled="{Binding IsOptimizeMode}"
                             Text="Recover out-of-focus donut stars (reflectors/SCTs)"
                             ToolTip="{StaticResource SDOpt_DonutDetection_Tooltip}" />
                     </StackPanel>
