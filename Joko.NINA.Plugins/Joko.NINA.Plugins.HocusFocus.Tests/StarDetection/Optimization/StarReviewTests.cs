@@ -18,6 +18,7 @@ using Newtonsoft.Json;
 using NUnit.Framework;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using TestApp.StarReview;
 using Rect = OpenCvSharp.Rect;
 
@@ -400,6 +401,123 @@ public class StarReviewTests {
             Assert.That(vm.AcceptedMarkers[0].Width, Is.EqualTo(box.Width));
             Assert.That(vm.AcceptedMarkers[0].Height, Is.EqualTo(box.Height));
         });
+    }
+
+    // ---- Per-frame HFR stats + outlier coloring -----------------------------------------------------------
+
+    [Test]
+    public void HfrStats_Compute_MedianMode_MatchesMedianMad() {
+        var hfrs = new[] { 2.0, 2.1, 2.2, 2.3, 2.4 };
+        var (center, dev) = StarReviewHfrStats.Compute(hfrs, MeasurementAverageEnum.Median);
+        var (expMedian, expMad) = hfrs.MedianMAD();
+        Assert.Multiple(() => {
+            Assert.That(center, Is.EqualTo(expMedian).Within(1e-12));
+            Assert.That(dev, Is.EqualTo(expMad).Within(1e-12));
+        });
+    }
+
+    [Test]
+    public void HfrStats_Compute_MeanMode_MatchesMeanStdDev() {
+        var hfrs = new[] { 2.0, 2.5, 3.0, 3.5 };
+        var (center, dev) = StarReviewHfrStats.Compute(hfrs, MeasurementAverageEnum.MeanOutliers);
+        var (expMean, expVar) = hfrs.MeanVar();
+        Assert.Multiple(() => {
+            Assert.That(center, Is.EqualTo(expMean).Within(1e-12));
+            Assert.That(dev, Is.EqualTo(Math.Sqrt(expVar)).Within(1e-12));
+        });
+    }
+
+    [Test]
+    public void HfrStats_Compute_FiltersNonPositive_AndHandlesDegenerateCounts() {
+        // Non-positive / NaN HFRs (unmeasured stars) are excluded.
+        var (c1, d1) = StarReviewHfrStats.Compute(new[] { 2.0, 0.0, -1.0, double.NaN, 2.4 }, MeasurementAverageEnum.Median);
+        var (expMedian, expMad) = new[] { 2.0, 2.4 }.MedianMAD();
+        // No valid values -> (NaN, NaN); single value -> (value, NaN spread).
+        var (c0, d0) = StarReviewHfrStats.Compute(new[] { 0.0, -1.0 }, MeasurementAverageEnum.Median);
+        var (cs, ds) = StarReviewHfrStats.Compute(new[] { 3.3 }, MeasurementAverageEnum.Median);
+        Assert.Multiple(() => {
+            Assert.That(c1, Is.EqualTo(expMedian).Within(1e-12));
+            Assert.That(d1, Is.EqualTo(expMad).Within(1e-12));
+            Assert.That(c0, Is.NaN);
+            Assert.That(d0, Is.NaN);
+            Assert.That(cs, Is.EqualTo(3.3).Within(1e-12));
+            Assert.That(ds, Is.NaN);
+        });
+    }
+
+    [Test]
+    public void HfrStats_IsOutlier_FlagsBothSidesBeyondThreshold() {
+        // center 2.2, dev 0.1 => threshold = 3 * 0.1 = 0.3 on either side.
+        Assert.Multiple(() => {
+            Assert.That(StarReviewHfrStats.IsOutlier(2.6, 2.2, 0.1), Is.True, "above");
+            Assert.That(StarReviewHfrStats.IsOutlier(1.8, 2.2, 0.1), Is.True, "below");
+            Assert.That(StarReviewHfrStats.IsOutlier(2.4, 2.2, 0.1), Is.False, "within");
+            Assert.That(StarReviewHfrStats.IsOutlier(5.0, 2.2, 0.0), Is.False, "zero deviation -> nothing is an outlier");
+            Assert.That(StarReviewHfrStats.IsOutlier(5.0, double.NaN, double.NaN), Is.False, "undefined stats");
+        });
+    }
+
+    [Test]
+    public void HfrStats_FormatStats_MatchesModeAndDegenerateCases() {
+        Assert.Multiple(() => {
+            Assert.That(StarReviewHfrStats.FormatStats(2.2, 0.15, 5, MeasurementAverageEnum.Median),
+                Is.EqualTo("Median HFR: 2.20 ± 0.15  (n=5)"));
+            Assert.That(StarReviewHfrStats.FormatStats(2.2, 0.15, 5, MeasurementAverageEnum.MeanOutliers),
+                Is.EqualTo("Mean HFR: 2.20 ± 0.15  (n=5)"));
+            // Single star: no spread term.
+            Assert.That(StarReviewHfrStats.FormatStats(3.3, double.NaN, 1, MeasurementAverageEnum.Median),
+                Is.EqualTo("Median HFR: 3.30  (n=1)"));
+            // No stars: empty (overlay hides).
+            Assert.That(StarReviewHfrStats.FormatStats(double.NaN, double.NaN, 0, MeasurementAverageEnum.Median),
+                Is.EqualTo(string.Empty));
+        });
+    }
+
+    [Test]
+    public void AcceptedOverlay_OutlierHfrRecolored_AndCornerStatsPopulated_MedianMode() {
+        // Four tight stars + one grossly bloated one. In robust (Median) mode the bloated star trips the ±3·MAD
+        // band and is recolored; the rest keep the normal brush. The corner caption reads the Median label.
+        var stars = new List<(double, double, double, Rect)> {
+            (10, 10, 2.00, new Rect(10, 10, 8, 8)),
+            (30, 10, 2.05, new Rect(30, 10, 8, 8)),
+            (50, 10, 2.10, new Rect(50, 10, 8, 8)),
+            (70, 10, 2.15, new Rect(70, 10, 8, 8)),
+            (90, 10, 9.00, new Rect(90, 10, 30, 30)), // the outlier
+        };
+        var review = new FrameReview { RunId = "run1", FocuserPosition = 5000, FramePath = "f.fits", ImageProvider = null, Accepted = stars };
+        var labelsByRun = new Dictionary<string, StarReviewRunLabels> { { "run1", new StarReviewRunLabels { RunId = "run1" } } };
+
+        var vm = new StarReviewVM(new[] { review }, labelsByRun, string.Empty); // default = Median
+
+        Assert.Multiple(() => {
+            Assert.That(vm.AcceptedMarkers, Has.Count.EqualTo(5));
+            for (var i = 0; i < 4; i++) {
+                Assert.That(vm.AcceptedMarkers[i].HfrBrush, Is.SameAs(vm.HfrNormalBrush), $"star {i} should be normal");
+            }
+            Assert.That(vm.AcceptedMarkers[4].HfrBrush, Is.SameAs(vm.HfrOutlierBrush), "bloated star should be the outlier");
+            Assert.That(vm.FrameStatsText, Does.StartWith("Median HFR:"));
+            Assert.That(vm.FrameStatsText, Does.Contain("(n=5)"));
+            Assert.That(vm.ShowFrameStats, Is.True);
+        });
+    }
+
+    [Test]
+    public void CornerStats_MeanModeLabel_AndFollowsShowHfrToggle() {
+        var stars = new List<(double, double, double, Rect)> {
+            (10, 10, 2.0, new Rect(10, 10, 8, 8)),
+            (30, 10, 2.4, new Rect(30, 10, 8, 8)),
+        };
+        var review = new FrameReview { RunId = "run1", FocuserPosition = 5000, FramePath = "f.fits", ImageProvider = null, Accepted = stars };
+        var labelsByRun = new Dictionary<string, StarReviewRunLabels> { { "run1", new StarReviewRunLabels { RunId = "run1" } } };
+
+        var vm = new StarReviewVM(new[] { review }, labelsByRun, string.Empty, MeasurementAverageEnum.MeanOutliers);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.FrameStatsText, Does.StartWith("Mean HFR:"));
+            Assert.That(vm.ShowFrameStats, Is.True, "shown when Show HFR is on (default)");
+        });
+        vm.ShowHfr = false;
+        Assert.That(vm.ShowFrameStats, Is.False, "corner stats follow the Show HFR toggle");
     }
 
     // The reported "box is off" bug: the green ACCEPTED box renders OFFSET from its star. The box Rectangle lives

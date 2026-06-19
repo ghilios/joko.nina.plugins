@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Core.Utility;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -62,6 +63,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         /// <summary>Preformatted HFR for the optional on-overlay HFR label ("2.34", or "—" when unavailable).</summary>
         public string HfrText { get; set; }
+
+        /// <summary>Foreground brush for the HFR label — normally white, recolored when this star's HFR is an outlier
+        /// for the frame (more than <see cref="StarReviewHfrStats.OutlierDeviations"/> deviations from the center).</summary>
+        public Brush HfrBrush { get; set; }
     }
 
     /// <summary>The detector's measured star position (the flux-weighted <c>Center</c>) for an accepted star, in
@@ -132,6 +137,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         private readonly Dictionary<string, StarReviewRunLabels> labelsByRun;
         private readonly string labelsDir;
 
+        // The profile's "Measurement Averaging" choice — drives whether the corner stats + per-star outlier test use
+        // median + scaled MAD (Median) or mean + std-dev (MeanOutliers), matching the detector's HFR aggregation.
+        private readonly MeasurementAverageEnum measurementAverage;
+
         // Per-reason overlay colors, matching T6's annotated-PNG legend (RGB here; BGR there).
         private static readonly Dictionary<string, Color> ReasonColors = new(StringComparer.Ordinal) {
             { "TooDistorted",   Color.FromRgb(255, 255, 0) },   // yellow
@@ -173,6 +182,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// <summary>User "wrongly-rejected / keep" label stroke (bright green, dashed).</summary>
         public Brush WronglyRejectedBrush { get; } = FrozenBrush(WronglyRejectedColor);
 
+        /// <summary>Normal (non-outlier) HFR label color — white, matching the rest of the overlay text.</summary>
+        public Brush HfrNormalBrush { get; } = FrozenBrush(Colors.White);
+
+        /// <summary>Outlier HFR label color — bright red, to pull the eye to a star whose HFR is far from the frame's
+        /// center (bloated or suspiciously tiny). Distinct from the green/orange/cyan box strokes.</summary>
+        public Brush HfrOutlierBrush { get; } = FrozenBrush(Color.FromRgb(0xFF, 0x40, 0x40));
+
         private static SolidColorBrush FrozenBrush(Color c) {
             var b = new SolidColorBrush(c);
             b.Freeze();
@@ -182,10 +198,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public StarReviewVM(
             IReadOnlyList<FrameReview> queue,
             Dictionary<string, StarReviewRunLabels> labelsByRun,
-            string labelsDir) {
+            string labelsDir,
+            MeasurementAverageEnum measurementAverage = MeasurementAverageEnum.Median) {
             this.queue = queue ?? throw new ArgumentNullException(nameof(queue));
             this.labelsByRun = labelsByRun ?? throw new ArgumentNullException(nameof(labelsByRun));
             this.labelsDir = labelsDir ?? throw new ArgumentNullException(nameof(labelsDir));
+            this.measurementAverage = measurementAverage;
 
             Viewport = new StarReviewViewport();
             LegendEntries = BuildLegend();
@@ -276,8 +294,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// HFR on the overlay. Bound to a checkbox in the toolbar.</summary>
         public bool ShowHfr {
             get => showHfr;
-            set { if (showHfr != value) { showHfr = value; RaisePropertyChanged(); } }
+            set { if (showHfr != value) { showHfr = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ShowFrameStats)); } }
         }
+
+        private string frameStatsText = string.Empty;
+
+        /// <summary>The corner-overlay caption summarizing the current frame's accepted-star HFRs — e.g.
+        /// "Median HFR: 2.34 ± 0.12  (n=42)" (Median mode) or "Mean HFR: …" (MeanOutliers mode). Empty when the frame
+        /// has no measured stars. Recomputed per frame in <see cref="LoadCurrent"/>.</summary>
+        public string FrameStatsText {
+            get => frameStatsText;
+            private set { if (frameStatsText != value) { frameStatsText = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ShowFrameStats)); } }
+        }
+
+        /// <summary>Whether the corner HFR-stats overlay is shown: it follows the "Show HFR" toggle and hides when the
+        /// frame has no stats text.</summary>
+        public bool ShowFrameStats => ShowHfr && !string.IsNullOrEmpty(FrameStatsText);
 
         /// <summary>Raises the zoom-dependent marker-thickness/text bindings. The view calls this after any viewport
         /// change (wheel-zoom, fit, pan) so the stroke widths + HFR text size track the current scale.</summary>
@@ -403,10 +435,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
             // Overlays in image coords — accepted stars draw the detector's REAL bounding box (top-left + size).
             // The measured-Center crosshair is a dev-only overlay, hidden by default (see ShowCentroidMarkers).
+            // Per-frame HFR center + deviation (over the accepted stars), per the profile's averaging mode. Drives the
+            // corner stats overlay and recolors each star's HFR label when it is an outlier for this frame.
+            var (hfrCenter, hfrDeviation) = StarReviewHfrStats.Compute(f.Accepted.Select(a => a.HFR), measurementAverage);
+            FrameStatsText = StarReviewHfrStats.FormatStats(hfrCenter, hfrDeviation, f.Accepted.Count, measurementAverage);
+
             AcceptedMarkers.Clear();
             CentroidMarkers.Clear();
             foreach (var (cx, cy, hfr, b) in f.Accepted) {
-                AcceptedMarkers.Add(new AcceptedMarker { X = b.X, Y = b.Y, Width = b.Width, Height = b.Height, HFR = hfr, HfrText = FormatHfr(hfr) });
+                var hfrBrush = StarReviewHfrStats.IsOutlier(hfr, hfrCenter, hfrDeviation) ? HfrOutlierBrush : HfrNormalBrush;
+                AcceptedMarkers.Add(new AcceptedMarker { X = b.X, Y = b.Y, Width = b.Width, Height = b.Height, HFR = hfr, HfrText = FormatHfr(hfr), HfrBrush = hfrBrush });
                 if (ShowCentroidMarkers) {
                     CentroidMarkers.Add(new CentroidMarker { X = cx, Y = cy });
                 }

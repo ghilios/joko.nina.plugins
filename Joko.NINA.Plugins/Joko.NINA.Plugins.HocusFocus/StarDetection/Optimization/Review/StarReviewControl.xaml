@@ -138,6 +138,7 @@
         <!-- Image + overlays. The Image and all marker layers share one transform (zoom/pan) so markers stay
              pinned to image pixels. Mouse events are handled in code-behind against the viewport. -->
         <Border Grid.Row="0" Grid.Column="0" ClipToBounds="True" Background="Black" BorderBrush="#FF3F4958" BorderThickness="1">
+          <Grid>
             <Canvas x:Name="ViewportCanvas"
                     Background="Transparent"
                     MouseWheel="ViewportCanvas_MouseWheel"
@@ -212,7 +213,7 @@
                                      the box with no overlap. -->
                                 <TextBlock Text="{Binding HfrText}"
                                            HorizontalAlignment="Left" VerticalAlignment="Top"
-                                           FontSize="10" Foreground="White" Background="#B0000000" Padding="2,0"
+                                           FontSize="10" Foreground="{Binding HfrBrush}" Background="#B0000000" Padding="2,0"
                                            IsHitTestVisible="False" RenderTransformOrigin="0,0"
                                            Visibility="{Binding DataContext.ShowHfr, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
                                     <TextBlock.RenderTransform>
@@ -378,6 +379,15 @@
                            StrokeThickness="{Binding LabelStrokeThickness}"
                            IsHitTestVisible="False" />
             </Canvas>
+
+            <!-- Corner HFR-stats HUD. A sibling of the zoomed canvas (NOT inside its RenderTransform), so it stays a
+                 fixed size pinned to the image's top-left corner regardless of zoom/pan. Follows the Show HFR toggle. -->
+            <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6"
+                    Background="#B0000000" Padding="6,3" CornerRadius="3" IsHitTestVisible="False"
+                    Visibility="{Binding ShowFrameStats, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding FrameStatsText}" Foreground="White" FontSize="12" FontWeight="SemiBold" />
+            </Border>
+          </Grid>
         </Border>
 
             <!-- Scrollbars: driven from code-behind (UpdateScrollBars); the Scroll handlers map value -> viewport offset. -->
