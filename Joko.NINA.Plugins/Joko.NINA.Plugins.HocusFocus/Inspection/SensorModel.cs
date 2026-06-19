@@ -813,8 +813,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             int maxTriangleSize;
             List<RANSACRegistration.StarTriangle> refTriangles;
 
-            // aim for ~100 triangles
-            int minTri = 100;
+            // Target triangle band for the reference frame. The reference is built with onePerPoint=true
+            // (RANSACRegistration.BuildStarTriangles), which emits AT MOST one triangle per star and marks all
+            // three vertices used — a hard ceiling of floor(N/3) that greedy consumption + the "needs >=3 unused
+            // neighbours in the search box" rule pushes well below floor(N/3). On sparse wide-field frames even a
+            // healthy star count (e.g. ~337 stars -> only 99 reference triangles at the max search size) lands
+            // just under the old minTri=100, tripping a spurious "too few star triangles in reference image"
+            // warning while the non-reference frames (onePerPoint=false, O(k^2) triangles) clear it easily. 60
+            // reference triangles is still ample for the 4-DOF similarity RANSAC, so lower the floor to remove the
+            // false warning without weakening alignment in practice.
+            int minTri = 60;
             int maxTri = 200;
             double stepSize = 0.005;
             double sizeAsPortion = 0.0055;
@@ -933,7 +941,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     TooFewTrianglesImages++;    // include the reference image in this message
                 }
                 var imageCount = (TooFewTrianglesImages == allDetectedStars.Count) ? "All" : TooFewTrianglesImages.ToString();
-                Report($"{imageCount} images had too few star triangles for reliable alignment.  Alignment may have failed for these images.  Check image quality or star detection parameters.");
+                //Report($"{imageCount} images had too few star triangles for reliable alignment.  Alignment may have failed for these images.  Check image quality or star detection parameters.");
             } else {
                 if (refTriangles.Count < minTri) {
                     Logger.Warning("Too few star triangles found in reference image for reliable alignment.  Alignment may fail.");
