@@ -977,6 +977,73 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 }
             }
 
+            // Second pass — neighbor chaining. A frame that couldn't register to the (possibly distant) reference
+            // often aligns well to a NEARBY already-aligned frame: adjacent focuser positions share similar
+            // defocus, so their star shapes match where a heavily-defocused frame vs the sharp reference does not.
+            // An aligned neighbor's stars are already in reference space, so a transform onto that neighbor maps the
+            // failed frame straight into reference space. Iterate so a frame can chain through a neighbor that
+            // itself aligned in this pass; bounded by the frame count (each pass aligns >=1 frame or stops).
+            var chainStatus = new ApplicationStatus() { Status = "Aligning images (neighbor chaining)" };
+            bool chainedAny = true;
+            while (chainedAny) {
+                chainedAny = false;
+                for (int imageIndex = 0; imageIndex < allDetectedStars.Count; ++imageIndex) {
+                    if (allDetectedStars[imageIndex].HasBeenAligned) {
+                        continue;
+                    }
+                    // Nearest already-aligned frame by focuser distance.
+                    int neighborIndex = -1;
+                    double neighborDist = double.MaxValue;
+                    for (int j = 0; j < allDetectedStars.Count; ++j) {
+                        if (!allDetectedStars[j].HasBeenAligned) {
+                            continue;
+                        }
+                        var d = Math.Abs(allDetectedStars[j].FocuserPosition - allDetectedStars[imageIndex].FocuserPosition);
+                        if (d < neighborDist) {
+                            neighborDist = d;
+                            neighborIndex = j;
+                        }
+                    }
+                    if (neighborIndex < 0) {
+                        continue;
+                    }
+                    try {
+                        // The neighbor's stars are already in reference space, so this transform maps the failed
+                        // frame directly into reference space. Match the failed frame's (dense) triangles against
+                        // the neighbor's (onePerPoint) triangles, strict then relaxed.
+                        var neighborStars = allDetectedStars[neighborIndex].StarDetectionResult.StarList
+                            .Select(s => new Point2D(s.Position.X, s.Position.Y, ((HocusFocusDetectedStar)s).NormalisedBrightness)).ToList();
+                        var neighborTriangles = RANSACRegistration.BuildStarTriangles(imageSize, neighborStars, maxTriangleSize, true, true);
+                        var failedStars = allDetectedStars[imageIndex].StarDetectionResult.StarList
+                            .Select(s => new Point2D(s.Position.X, s.Position.Y, ((HocusFocusDetectedStar)s).NormalisedBrightness)).ToList();
+                        var failedTriangles = RANSACRegistration.BuildStarTriangles(imageSize, failedStars, maxTriangleSize, false, false);
+                        var (chainSrc, chainDst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                            failedTriangles, neighborTriangles, chainStatus, maxShapeDistanceStrict);
+                        if (chainDst.Count < 20) {
+                            foreach (var t in failedTriangles) {
+                                t.ResetMatch();
+                            }
+                            (chainSrc, chainDst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                                failedTriangles, neighborTriangles, chainStatus, maxShapeDistanceRelaxed);
+                        }
+                        Matrix3x2 chainTransform = inspectorOptions.UseAffineAlignment
+                            ? RANSACRegistration.EstimateAffineTransform(chainSrc, chainDst, chainStatus, progress)
+                            : RANSACRegistration.EstimateSimilarityTransform(chainSrc, chainDst, chainStatus, progress).ToMatrix3x2();
+                        var chainScale = Math.Sqrt(Math.Abs(chainTransform.GetDeterminant()));
+                        if (chainScale < 0.9 || chainScale > 1.1) {
+                            throw new InvalidOperationException($"implausible chained transform scale {chainScale.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} (expected ~1.0)");
+                        }
+                        ApplyAlignmentTransform(imageIndex, chainTransform);
+                        allDetectedStars[imageIndex].HasBeenAligned = true;
+                        imagesAligned++;
+                        chainedAny = true;
+                        Logger.Info($"Image {imageIndex}: aligned via neighbor chaining to image {neighborIndex} (focuser delta {neighborDist.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}, {chainDst.Count} putative matches)");
+                    } catch (Exception ex) {
+                        Logger.Info($"Image {imageIndex}: neighbor-chain to image {neighborIndex} failed: {ex.Message}");
+                    }
+                }
+            }
+
             if (TooFewTrianglesImages > 0) {
                 if (refTriangles.Count < triangleWarningFloor) {
                     TooFewTrianglesImages++;    // include the reference image in this message

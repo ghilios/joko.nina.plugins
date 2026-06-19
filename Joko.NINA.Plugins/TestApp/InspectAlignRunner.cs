@@ -109,7 +109,12 @@ namespace TestApp {
                 using var mat = await DiagnosticUtil.LoadFloatMat(path, profileService);
                 imageSize = new DrawingSize(mat.Width, mat.Height);
                 var result = await detector.Detect(mat, detectorParams, progress: null, CancellationToken.None);
-                var starList = result.DetectedStars.Select(HocusFocusStarDetection.ToDetectedStar).ToList();
+                // Order stars by raster position EXACTLY as BuildStarDetectionResult does (HocusFocusStarDetection
+                // line 612). The reference triangles are built onePerPoint=true (order-dependent greedy
+                // consumption), so matching the production star-list order is required to reproduce the live
+                // alignment outcome faithfully.
+                var starList = result.DetectedStars.Select(HocusFocusStarDetection.ToDetectedStar)
+                    .OrderBy(s => s.Position.Y * (long)mat.Width + s.Position.X).ToList();
                 var hfResult = new HocusFocusStarDetectionResult { StarList = starList, ImageSize = imageSize };
                 frames.Add(new SensorDetectedStars(focuser, hfResult, image: null));
                 Console.WriteLine($"  Focuser {focuser}: {starList.Count} stars");
