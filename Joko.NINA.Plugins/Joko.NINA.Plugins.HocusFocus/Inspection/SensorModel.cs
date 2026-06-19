@@ -863,6 +863,26 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             Logger.Info($"Image {referenceImage}: {refTriangles.Count} triangles (REFERENCE), max size: {maxTriangleSize} ({sizeAsPortion}), stars: {referenceStars.Count()}");
 
             int TooFewTrianglesImages = 0;
+            // A DENSE (onePerPoint=false) build of the reference triangles, used ONLY to retry frames that the
+            // sparse onePerPoint reference fails to register. Built lazily on the first failure and reused.
+            List<RANSACRegistration.StarTriangle> denseRefTriangles = null;
+            // Applies an alignment transform to every star (position + bbox) of a frame. Shared by the primary
+            // match and the dense-reference retry so the two stay in lockstep.
+            void ApplyAlignmentTransform(int idx, Matrix3x2 transform) {
+                allDetectedStars[idx].AlignmentTransform = transform;
+                for (int starIndex = 0; starIndex < allDetectedStars[idx].StarDetectionResult.StarList.Count; starIndex++) {
+                    var transformedPoint = transform.Transform(new Point2D(allDetectedStars[idx].StarDetectionResult.StarList[starIndex].Position));
+                    allDetectedStars[idx].StarDetectionResult.StarList[starIndex].Position = new Accord.Point((float)transformedPoint.X, (float)transformedPoint.Y);
+
+                    transformedPoint = transform.Transform(new Point2D(allDetectedStars[idx].StarDetectionResult.StarList[starIndex].BoundingBox.Location));
+                    allDetectedStars[idx].StarDetectionResult.StarList[starIndex].BoundingBox
+                        = new System.Drawing.Rectangle(
+                                    (int)transformedPoint.X,
+                                    (int)transformedPoint.Y,
+                                    allDetectedStars[idx].StarDetectionResult.StarList[starIndex].BoundingBox.Width,
+                                    allDetectedStars[idx].StarDetectionResult.StarList[starIndex].BoundingBox.Height);
+                }
+            }
             for (int imageIndex = 0; imageIndex < allDetectedStars.Count; ++imageIndex) {
                 if (imageIndex == referenceImage) {
                     allDetectedStars[imageIndex].HasBeenAligned = true;
@@ -919,28 +939,33 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     Matrix3x2 transform = inspectorOptions.UseAffineAlignment
                         ? RANSACRegistration.EstimateAffineTransform(putativeSrc, putativeDst, status, progress)
                         : RANSACRegistration.EstimateSimilarityTransform(putativeSrc, putativeDst, status, progress).ToMatrix3x2();
-                    allDetectedStars[imageIndex].AlignmentTransform = transform;
-
-                    // adjust each star according to the transform
-                    for (int starIndex = 0; starIndex < allDetectedStars[imageIndex].StarDetectionResult.StarList.Count; starIndex++) {
-                        var oldPoint = allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].Position;
-
-                        var transformedPoint = transform.Transform(new Point2D(allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].Position));
-                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].Position = new Accord.Point((float)transformedPoint.X, (float)transformedPoint.Y);
-
-                        transformedPoint = transform.Transform(new Point2D(allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox.Location));
-                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox
-                            = new System.Drawing.Rectangle(
-                                        (int)transformedPoint.X,
-                                        (int)transformedPoint.Y,
-                                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox.Width,
-                                        allDetectedStars[imageIndex].StarDetectionResult.StarList[starIndex].BoundingBox.Height);
-                    }
+                    ApplyAlignmentTransform(imageIndex, transform);
                     imagesAligned++;
                     allDetectedStars[imageIndex].HasBeenAligned = true;
                 } catch (Exception ex) {
-                    Logger.Info($"Image {imageIndex}: Error: {ex.Message}");
-                    allDetectedStars[imageIndex].HasBeenAligned = false;
+                    // The sparse onePerPoint reference can yield too few / too-noisy putative matches for a hard
+                    // (heavily-defocused) frame, so RANSAC fails. Retry ONCE against a DENSE reference — the same
+                    // reference stars but onePerPoint=false (O(k^2) triangles at the same search box) — which gives
+                    // many more match targets, so a frame the sparse reference couldn't register often aligns. This
+                    // runs ONLY on failure, so frames that already aligned above are unaffected (bit-identical).
+                    try {
+                        denseRefTriangles ??= RANSACRegistration.BuildStarTriangles(imageSize, referenceStars.ToList(), maxTriangleSize, false, true);
+                        foreach (var t in theseTriangles) {
+                            t.ResetMatch();
+                        }
+                        var (retrySrc, retryDst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                            theseTriangles, denseRefTriangles, status, maxShapeDistanceRelaxed);
+                        Matrix3x2 retryTransform = inspectorOptions.UseAffineAlignment
+                            ? RANSACRegistration.EstimateAffineTransform(retrySrc, retryDst, status, progress)
+                            : RANSACRegistration.EstimateSimilarityTransform(retrySrc, retryDst, status, progress).ToMatrix3x2();
+                        ApplyAlignmentTransform(imageIndex, retryTransform);
+                        imagesAligned++;
+                        allDetectedStars[imageIndex].HasBeenAligned = true;
+                        Logger.Info($"Image {imageIndex}: aligned on dense-reference retry ({retryDst.Count} putative matches; sparse-ref error was: {ex.Message})");
+                    } catch (Exception ex2) {
+                        Logger.Info($"Image {imageIndex}: Error: {ex.Message}; dense-reference retry also failed: {ex2.Message}");
+                        allDetectedStars[imageIndex].HasBeenAligned = false;
+                    }
                 }
             }
 
