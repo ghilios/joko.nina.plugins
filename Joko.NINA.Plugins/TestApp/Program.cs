@@ -153,6 +153,13 @@ namespace TestApp {
                 return;
             }
 
+            // Minimal CSV-driven annotator: `TestApp annotate --image <frame> --stars <csv> ...` (or --runs).
+            // Overlays an external star list on the real plugin MTF stretch; also exports plain stretched PNGs.
+            if (args.Length > 0 && args[0].Equals("annotate", StringComparison.OrdinalIgnoreCase)) {
+                await AnnotateRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&
