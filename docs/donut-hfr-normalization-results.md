@@ -153,3 +153,46 @@ cmd.exe /c "dotnet build Joko.NINA.Plugins\TestApp\TestApp.csproj -c Debug --nol
   --defocus-distortion --defocus-centering --out "C:\temp\hf-donut-2925"
 # then regress cog_radii.csv columns R20/R30/R50/R80 (and *f variants) on log10(PeakBrightness)
 ```
+
+## A-vs-B agreement (§9.5)
+
+`TestApp agreement --image <frame> --defocus-distortion --defocus-centering` runs detection exactly like
+the `contamination` runner, then for every accepted **donut** star (bboxMax ≥ `DefocusDistortionSizeReference`
+= 22.5 px) computes two independent size estimates from the **same** ring-fit center and local background
+plane: **A** = encircled-flux **R₅₀** (the production candidate) and **B** = the annulus⊛Gaussian
+forward-fit **Rring = Rout·(1+ε)/2** (geometric, brightness-independent by construction). Agreement is
+measured over rows with oracle `FitR2 ≥ 0.5`. Per design §9.5 the metric passes when the R₅₀-vs-Rring OLS
+slope ∈ ~[0.9, 1.1] **and** both brightness slopes are < 0.3 px/dex.
+
+| Frame | N donuts (used/excl) | slope (R₅₀ vs Rring) | Pearson r | median \|R₅₀−Rring\| | R₅₀ bright. slope | Rring bright. slope | §9.5 |
+|---|---|---|---|---|---|---|---|
+| mufti F2925   | 82/0   | 0.751  | 0.654  | 1.29 px (9.2%)  | −0.513 | 1.692 | **FAIL** |
+| Panos F44396  | 24/1   | −0.077 | −0.225 | 1.68 px (12.0%) | −0.926 | 5.913 | **FAIL** |
+| toml999 F4237 | 517/1  | 0.630  | 0.665  | 2.49 px (36.5%) | 0.957  | 0.419 | **FAIL** |
+
+### Interpretation
+
+**No frame passes the §9.5 gate.** The absolute agreement is reasonable — median |R₅₀−Rring| is ~1.3–2.5 px
+and R₅₀/Rring both land in the expected ~7–14 px donut-radius range — but the two estimates do **not** track
+each other tightly enough star-to-star: the OLS slope is well below 0.9 on every frame (0.75 / −0.08 / 0.63),
+and the correlation is weak-to-absent on Panos (r = −0.22). Worse, **B (Rring) is the more brightness-biased
+of the two**: its brightness slope is large and positive on every frame (+1.69 / +5.91 / +0.42 px/dex),
+which is the opposite of the §9.5 premise that B is the brightness-independent ground truth. The grid-search
+forward fit (coarse `Rout`/`ε`/`σ` steps, correlation-only amplitude fit) appears to latch onto brighter,
+better-defined rings at systematically larger `Rout`, so B is not behaving as a clean comparator here. R₅₀'s
+own brightness slope is mixed (−0.51 / −0.93 / +0.96) and only marginal on mufti.
+
+**Bottom line:** A-vs-B does not yet validate R₅₀ as a brightness-independent donut size. Before this gates
+production, the oracle (B) needs to be hardened — finer/continuous forward-fit parameters, a proper
+amplitude+background least-squares (not correlation), and a tighter `FitR2` floor — so that B is genuinely
+brightness-flat and the slope comparison is meaningful. Reported as measured; numbers were not massaged.
+
+### Reproduce (agreement)
+
+```bash
+cmd.exe /c "dotnet build Joko.NINA.Plugins\TestApp\TestApp.csproj -c Debug --nologo"
+./Joko.NINA.Plugins/TestApp/bin/Debug/net8.0-windows7.0/TestApp.exe agreement \
+  --image "D:\Autofocus Bank\mufti\AutoFocus_20260607_030642-20260615T214722Z-3-001\attempt01\01_Frame00_BitDepth16_Bayered0_Focuser2925.fits" \
+  --defocus-distortion --defocus-centering --out "C:\temp\hf-agree\mufti2925"
+# reads agreement_summary.txt (stats) + agreement.csv (per-donut R50/Rring/Eps/FitR2)
+```
