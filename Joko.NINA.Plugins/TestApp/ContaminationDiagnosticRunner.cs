@@ -349,34 +349,10 @@ namespace TestApp {
             public double TotalFlux = double.NaN, ConvRadius = double.NaN;
         }
 
-        // Fill background-subtracted annular flux into 1px bins; bin b holds pixels with floor(r)==b.
-        // Returns (annular[], count[]) so perturbed-background variants can be derived without re-scanning.
-        private static (double[] annular, long[] count) ScanRadialBins(
-                Mat img, double cx, double cy, LocalBackgroundPlane plane, double scalarBg,
-                double maxRadius, double bgDelta) {
-            int nbins = (int)Math.Ceiling(maxRadius) + 1;
-            var annular = new double[nbins];
-            var count = new long[nbins];
-            int W = img.Width, H = img.Height;
-            int x0 = Math.Max(0, (int)Math.Floor(cx - maxRadius));
-            int x1 = Math.Min(W - 1, (int)Math.Ceiling(cx + maxRadius));
-            int y0 = Math.Max(0, (int)Math.Floor(cy - maxRadius));
-            int y1 = Math.Min(H - 1, (int)Math.Ceiling(cy + maxRadius));
-            for (int y = y0; y <= y1; ++y) {
-                for (int x = x0; x <= x1; ++x) {
-                    double dx = x - cx, dy = y - cy;
-                    double r = Math.Sqrt(dx * dx + dy * dy);
-                    if (r > maxRadius) continue;
-                    int b = (int)r;
-                    if (b >= nbins) continue;
-                    double bg = (plane != null ? plane.ValueAt(x, y) : scalarBg) + bgDelta;
-                    annular[b] += img.At<float>(y, x) - bg;
-                    count[b] += 1;
-                }
-            }
-            return (annular, count);
-        }
-
+        // Convergence-capped encircled-flux radii at the four reported fractions. The radial-bin scan
+        // (DonutRadiusOracle.ScanAnnularBins) and the per-fraction radius (DonutRadiusOracle.EncircledRadius)
+        // are the shared reference implementation; this wrapper just reports all four fractions in one struct
+        // and exposes the convergence/total-flux bookkeeping the CSV needs.
         private static CogResult ComputeCog(double[] annular, double noiseSigma, double maxRadius) {
             int nbins = annular.Length;
             // Convergence: first radius (>=5px) where 3 consecutive annular sums fall below the per-annulus
@@ -399,50 +375,11 @@ namespace TestApp {
             double total = convBin >= 0 ? cum[convBin] : double.NaN;
             return new CogResult {
                 TotalFlux = total, ConvRadius = convR,
-                R20 = FractionRadius(cum, convBin, total, 0.20),
-                R30 = FractionRadius(cum, convBin, total, 0.30),
-                R50 = FractionRadius(cum, convBin, total, 0.50),
-                R80 = FractionRadius(cum, convBin, total, 0.80),
+                R20 = DonutRadiusOracle.EncircledRadius(annular, noiseSigma, maxRadius, 0.20),
+                R30 = DonutRadiusOracle.EncircledRadius(annular, noiseSigma, maxRadius, 0.30),
+                R50 = DonutRadiusOracle.EncircledRadius(annular, noiseSigma, maxRadius, 0.50),
+                R80 = DonutRadiusOracle.EncircledRadius(annular, noiseSigma, maxRadius, 0.80),
             };
-        }
-
-        // Radius where cumulative flux crosses frac*total; cum[b] is flux within r < b+1, so a crossing
-        // between bins (b-1, b) maps to radius in [b, b+1].
-        private static double FractionRadius(double[] cum, int convBin, double total, double frac) {
-            if (!(total > 0)) return double.NaN;
-            double target = frac * total;
-            for (int b = 0; b <= convBin; ++b) {
-                if (cum[b] >= target) {
-                    double prev = b > 0 ? cum[b - 1] : 0.0;
-                    double denom = cum[b] - prev;
-                    double f = denom > 1e-12 ? (target - prev) / denom : 0.0;
-                    return b + f;
-                }
-            }
-            return double.NaN;
-        }
-
-        // Flux-weighted centroid of the bright RING pixels (val-bg > 3 sigma) — robust for a hollow donut
-        // whose intensity centroid is unstable. One refinement pass from the detector's center.
-        private static (double cx, double cy) RingCenter(
-                Mat img, double cx0, double cy0, LocalBackgroundPlane plane, double scalarBg,
-                double maxRadius, double noiseSigma) {
-            int W = img.Width, H = img.Height;
-            int x0 = Math.Max(0, (int)Math.Floor(cx0 - maxRadius));
-            int x1 = Math.Min(W - 1, (int)Math.Ceiling(cx0 + maxRadius));
-            int y0 = Math.Max(0, (int)Math.Floor(cy0 - maxRadius));
-            int y1 = Math.Min(H - 1, (int)Math.Ceiling(cy0 + maxRadius));
-            double sw = 0, sx = 0, sy = 0;
-            double thresh = 3.0 * noiseSigma;
-            for (int y = y0; y <= y1; ++y) {
-                for (int x = x0; x <= x1; ++x) {
-                    double dx = x - cx0, dy = y - cy0;
-                    if (dx * dx + dy * dy > maxRadius * maxRadius) continue;
-                    double v = img.At<float>(y, x) - (plane != null ? plane.ValueAt(x, y) : scalarBg);
-                    if (v > thresh) { sw += v; sx += v * x; sy += v * y; }
-                }
-            }
-            return sw > 0 ? (sx / sw, sy / sw) : (cx0, cy0);
         }
 
         private static void WriteCurveOfGrowth(string path, Mat srcFloat, HocusFocusStarDetectorResult result,
@@ -494,18 +431,18 @@ namespace TestApp {
                 if (!double.IsNaN(nn) && nn > 0) maxRadius = Math.Min(maxRadius, 0.9 * nn);
 
                 // P0: ring-fit center (stable for hollow donuts), then both caps measured from it.
-                var (cx, cy) = RingCenter(srcFloat, star.Center.X, star.Center.Y, plane, star.Background, maxRadius, sigma);
+                var (cx, cy) = DonutRadiusOracle.RingCenter(srcFloat, star.Center.X, star.Center.Y, plane, star.Background, maxRadius, sigma);
                 double centerShift = Math.Sqrt((cx - star.Center.X) * (cx - star.Center.X) + (cy - star.Center.Y) * (cy - star.Center.Y));
 
                 // Adaptive (noise-convergence) cap — the naive baseline.
-                var (annAd, _) = ScanRadialBins(srcFloat, cx, cy, plane, star.Background, maxRadius, 0.0);
+                var annAd = DonutRadiusOracle.ScanAnnularBins(srcFloat, cx, cy, plane, star.Background, maxRadius, 0.0);
                 var cogAd = ComputeCog(annAd, sigma, maxRadius);
 
                 // Fixed brightness-independent cap — integrate exactly to frameFixedRadius (inside 0.9x nn).
                 double fixedRadius = frameFixedRadius;
                 if (!double.IsNaN(nn) && nn > 0) fixedRadius = Math.Min(fixedRadius, 0.9 * nn);
                 CogResult Fixed(double delta) {
-                    var (a, _) = ScanRadialBins(srcFloat, cx, cy, plane, star.Background, fixedRadius, delta);
+                    var a = DonutRadiusOracle.ScanAnnularBins(srcFloat, cx, cy, plane, star.Background, fixedRadius, delta);
                     // force total = full integral to the fixed radius (no noise convergence)
                     return ComputeCog(a, 0.0, fixedRadius);
                 }
