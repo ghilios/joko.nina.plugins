@@ -587,6 +587,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         // makes the previously no-op WeightedHyperbolicFitEnabled meaningful. It does not affect the
         // best-focus standard error, which is self-calibrated from the fit residuals.
         private static double EstimateHfrStdDev(HocusFocusDetectedStar star) {
+            // Donut R_e carries a background-σ-propagated uncertainty; prefer it when present (design §6 weighting).
+            if (!double.IsNaN(star.NormalizedHFRStdDev) && star.NormalizedHFRStdDev > 0.0) {
+                return Math.Max(star.NormalizedHFRStdDev, 1e-3);
+            }
             var signal = star.AverageBrightness - star.Background;
             var noise = Math.Sqrt(Math.Max(star.AverageBrightness, 1.0));
             var snr = signal > 0 ? signal / noise : 0.0;
@@ -665,7 +669,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     // high-SNR frame could otherwise carry ~1000× weight inside this star's sweep fit
                     // (the weight-chain F5a hazard's sibling — see WeightRegularization).
                     var points = WeightRegularization.Regularize(
-                        registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.HFR, 0.0d, EstimateHfrStdDev(s.Star))).ToList());
+                        registeredStar.MatchedStars.Select(s => new ScatterErrorPoint(s.FocuserPosition, s.Star.NormalizedHFR, 0.0d, EstimateHfrStdDev(s.Star))).ToList());
                     var useWeights = autoFocusOptions.WeightedHyperbolicFitEnabled;
                     // Outlier budget: the configured cap when bad-match rejection is on, but never enough to prune a
                     // star below minStarCountForFitting points (so each per-star fit keeps a reliable point count).

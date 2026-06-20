@@ -156,6 +156,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
                     var hfr = Math.Sqrt(minHfr * minHfr + slopePerStep * slopePerStep * fromMin * fromMin);
                     starList.Add(new HocusFocusDetectedStar {
                         HFR = hfr,
+                        NormalizedHFR = hfr,
                         Position = new Accord.Point((float)spec.X, (float)spec.Y),
                         AverageBrightness = spec.AvgBrightness,
                         MaxBrightness = spec.AvgBrightness * 2.0,
