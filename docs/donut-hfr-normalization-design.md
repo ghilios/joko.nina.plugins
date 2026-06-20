@@ -2,7 +2,10 @@
 
 **Date:** 2026-06-19
 **Status:** Design (approved direction; production path A + complement C, gated to defocus-aware runs;
-B implemented in `TestApp` as an offline validation oracle for A+C)
+B implemented in `TestApp` as an offline validation oracle for A+C).
+**Approach A empirically validated** on the mufti 2925 frame — see
+[`donut-hfr-normalization-results.md`](donut-hfr-normalization-results.md) (brightness slope
+3.12 → 0.35 px/dex, no longer significant; tilt confound 29.2 → 1.1 R² pts).
 **Author:** George Hilios (with Claude)
 
 ---
@@ -92,18 +95,24 @@ fraction scaling with each star's total flux (invariant under image × constant)
 
 1. **Center.** For deep donuts use a **flux-symmetry / ring-fit center, *not* the intensity-weighted
    centroid** — a hollow annulus has an unstable intensity centroid (the middle is a hole). *(P0,
-   reviewer; not in the original sketch.)*
+   reviewer.)* **Empirically the load-bearing fix (§9):** the detector centroid was off by a median
+   3.67 px on these donuts, and that brightness-correlated error alone kept naive `R₅₀` sloping at
+   1.5 px/dex; the ring-fit center dropped it to 0.35 px/dex.
 2. **Curve of growth.** Cumulative background-subtracted flux vs radius from that center, using the
    existing fitted **local background plane** (`b0+b1·dx+b2·dy`, robust IRLS) for per-pixel
    subtraction.
-3. **Bounded total flux.** Integrate out to a **brightness-independent, tightly capped** outer
-   radius: the smaller of (i) CoG convergence (incremental annular flux ≈ noise), (ii) a multiple of
-   the geometric defocus radius `Δ·D/f` (Δ from focuser position), and (iii) just inside the nearest
-   neighbor. The **cap is the single biggest lever** on residual bias (leverage ∝ area — see §6).
+3. **Bounded total flux.** Integrate out to a **noise-convergence** outer radius (incremental annular
+   flux ≈ per-annulus photon noise `σ·√(2πr)`), clamped to just inside the nearest neighbor.
+   **Empirically validated as superior to a frame-fixed cap** (§9 results): a fixed radius gives faint
+   donuts a large background-dominated area (leverage ∝ area), re-biasing their total flux — the
+   adaptive cap stops where SNR dies and removes that. (The geometric `Δ·D/f` radius from the focuser
+   position remains available as an upper clamp.) See §6.
 4. **Radius.** `R_e` = radius where cumulative flux = `frac × total`, by interpolation/bisection
-   between radial bins. **Use `frac = 0.3–0.5`, *not* 0.5–0.8** — outer fractions sit in the noisy
-   wing where convergence/background errors concentrate (R80 slope 0.30 vs R50 0.14 vs R30 0.08
-   px/dex in simulation). *(P0, reviewer.)*
+   between radial bins. **Use `frac = 0.5` (R₅₀) for donuts** — empirically (§9) the sweet spot for an
+   annulus: R20/R30 ride the rising inner ring edge and still slope (~1.3–1.5 px/dex), R80 overshoots
+   into the noisy outer wing (negative slope), while **R₅₀ → 0.35 px/dex**. (This differs from the
+   reviewer's *compact-star* simulation where R20–R30 were best — for a hollow annulus the inner
+   fractions are less stable. Revisit `frac` for the near-focus/compact regime.)
 5. **Uncertainty.** Propagate background-plane σ into a **per-star `R_e` error bar**; the sensor/tilt
    fit (already weighted by 1/σ²) should **down-weight large-area, high-σ_bg donuts**. *(P0,
    reviewer.)*

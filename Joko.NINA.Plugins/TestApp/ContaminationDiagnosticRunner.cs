@@ -192,7 +192,8 @@ namespace TestApp {
             WriteSummary(Path.Combine(outDir, "contamination_summary.txt"), imagePath, srcFloat, baseParams, total, suspected, diagnostics, shapes);
             WriteAnnotated(Path.Combine(outDir, "contamination_annotated.png"), srcFloat, diagnostics, shapes);
             WriteGradientRobustSweep(Path.Combine(outDir, "gr_sweep.csv"), diagnostics, shapes);
-            Console.WriteLine($"Wrote contamination_stars.csv, contamination_summary.txt, contamination_annotated.png, gr_sweep.csv to {outDir}");
+            WriteCurveOfGrowth(Path.Combine(outDir, "cog_radii.csv"), srcFloat, result, diagnostics, shapes);
+            Console.WriteLine($"Wrote contamination_stars.csv, contamination_summary.txt, contamination_annotated.png, gr_sweep.csv, cog_radii.csv to {outDir}");
         }
 
         private static async Task RunSweep(Mat srcFloat, StarDetectorParams baseParams, string sweepArg, string outDir) {
@@ -335,6 +336,192 @@ namespace TestApp {
         // Round center coords to 0.01 px for an exact-match key between records and stars.
         private static (long, long) CenterKey(double x, double y) =>
             ((long)Math.Round(x * 100.0), (long)Math.Round(y * 100.0));
+
+        // ---- Curve-of-growth / encircled-flux radius (Approach A validation) -------------------------
+        // For each accepted star, accumulate background-subtracted flux into 1px radial bins from the
+        // star center, derive a noise-limited convergence radius + total flux, and report the true
+        // encircled-flux radii R20/R30/R50/R80. Also reports R50 under +/-0.1sigma and +/-0.5sigma
+        // background-plane perturbations (the design's dominant residual-bias risk). Self-contained:
+        // operates on the ORIGINAL srcFloat using each star's fitted local background plane.
+
+        private sealed class CogResult {
+            public double R20 = double.NaN, R30 = double.NaN, R50 = double.NaN, R80 = double.NaN;
+            public double TotalFlux = double.NaN, ConvRadius = double.NaN;
+        }
+
+        // Fill background-subtracted annular flux into 1px bins; bin b holds pixels with floor(r)==b.
+        // Returns (annular[], count[]) so perturbed-background variants can be derived without re-scanning.
+        private static (double[] annular, long[] count) ScanRadialBins(
+                Mat img, double cx, double cy, LocalBackgroundPlane plane, double scalarBg,
+                double maxRadius, double bgDelta) {
+            int nbins = (int)Math.Ceiling(maxRadius) + 1;
+            var annular = new double[nbins];
+            var count = new long[nbins];
+            int W = img.Width, H = img.Height;
+            int x0 = Math.Max(0, (int)Math.Floor(cx - maxRadius));
+            int x1 = Math.Min(W - 1, (int)Math.Ceiling(cx + maxRadius));
+            int y0 = Math.Max(0, (int)Math.Floor(cy - maxRadius));
+            int y1 = Math.Min(H - 1, (int)Math.Ceiling(cy + maxRadius));
+            for (int y = y0; y <= y1; ++y) {
+                for (int x = x0; x <= x1; ++x) {
+                    double dx = x - cx, dy = y - cy;
+                    double r = Math.Sqrt(dx * dx + dy * dy);
+                    if (r > maxRadius) continue;
+                    int b = (int)r;
+                    if (b >= nbins) continue;
+                    double bg = (plane != null ? plane.ValueAt(x, y) : scalarBg) + bgDelta;
+                    annular[b] += img.At<float>(y, x) - bg;
+                    count[b] += 1;
+                }
+            }
+            return (annular, count);
+        }
+
+        private static CogResult ComputeCog(double[] annular, double noiseSigma, double maxRadius) {
+            int nbins = annular.Length;
+            // Convergence: first radius (>=5px) where 3 consecutive annular sums fall below the per-annulus
+            // photon-noise floor ~ sigma*sqrt(2*pi*r). Caps total-flux leverage from the noisy outer wing.
+            double convR = maxRadius;
+            int below = 0;
+            // noiseSigma <= 0 => no convergence, integrate to the full (fixed) radius.
+            if (noiseSigma > 0) {
+                for (int b = 5; b < nbins; ++b) {
+                    double floor = noiseSigma * Math.Sqrt(2.0 * Math.PI * (b + 0.5));
+                    if (annular[b] < floor) {
+                        if (++below >= 3) { convR = b - 2; break; }
+                    } else below = 0;
+                }
+            }
+            int convBin = Math.Min((int)convR, nbins - 1);
+            var cum = new double[nbins];
+            double acc = 0;
+            for (int b = 0; b < nbins; ++b) { acc += annular[b]; cum[b] = acc; }
+            double total = convBin >= 0 ? cum[convBin] : double.NaN;
+            return new CogResult {
+                TotalFlux = total, ConvRadius = convR,
+                R20 = FractionRadius(cum, convBin, total, 0.20),
+                R30 = FractionRadius(cum, convBin, total, 0.30),
+                R50 = FractionRadius(cum, convBin, total, 0.50),
+                R80 = FractionRadius(cum, convBin, total, 0.80),
+            };
+        }
+
+        // Radius where cumulative flux crosses frac*total; cum[b] is flux within r < b+1, so a crossing
+        // between bins (b-1, b) maps to radius in [b, b+1].
+        private static double FractionRadius(double[] cum, int convBin, double total, double frac) {
+            if (!(total > 0)) return double.NaN;
+            double target = frac * total;
+            for (int b = 0; b <= convBin; ++b) {
+                if (cum[b] >= target) {
+                    double prev = b > 0 ? cum[b - 1] : 0.0;
+                    double denom = cum[b] - prev;
+                    double f = denom > 1e-12 ? (target - prev) / denom : 0.0;
+                    return b + f;
+                }
+            }
+            return double.NaN;
+        }
+
+        // Flux-weighted centroid of the bright RING pixels (val-bg > 3 sigma) — robust for a hollow donut
+        // whose intensity centroid is unstable. One refinement pass from the detector's center.
+        private static (double cx, double cy) RingCenter(
+                Mat img, double cx0, double cy0, LocalBackgroundPlane plane, double scalarBg,
+                double maxRadius, double noiseSigma) {
+            int W = img.Width, H = img.Height;
+            int x0 = Math.Max(0, (int)Math.Floor(cx0 - maxRadius));
+            int x1 = Math.Min(W - 1, (int)Math.Ceiling(cx0 + maxRadius));
+            int y0 = Math.Max(0, (int)Math.Floor(cy0 - maxRadius));
+            int y1 = Math.Min(H - 1, (int)Math.Ceiling(cy0 + maxRadius));
+            double sw = 0, sx = 0, sy = 0;
+            double thresh = 3.0 * noiseSigma;
+            for (int y = y0; y <= y1; ++y) {
+                for (int x = x0; x <= x1; ++x) {
+                    double dx = x - cx0, dy = y - cy0;
+                    if (dx * dx + dy * dy > maxRadius * maxRadius) continue;
+                    double v = img.At<float>(y, x) - (plane != null ? plane.ValueAt(x, y) : scalarBg);
+                    if (v > thresh) { sw += v; sx += v * x; sy += v * y; }
+                }
+            }
+            return sw > 0 ? (sx / sw, sy / sw) : (cx0, cy0);
+        }
+
+        private static void WriteCurveOfGrowth(string path, Mat srcFloat, HocusFocusStarDetectorResult result,
+                List<ContaminationDiagnosticRecord> diagnostics, Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
+            // noiseSigma per star (by center) from the diagnostic records.
+            var sigmaByCenter = new Dictionary<(long, long), double>();
+            foreach (var r in diagnostics) {
+                var key = CenterKey(r.CenterX, r.CenterY);
+                if (!sigmaByCenter.ContainsKey(key)) sigmaByCenter[key] = r.NoiseSigma;
+            }
+            // nearest-neighbor distance per star (by center) from the shape lookup.
+            var nnByCenter = new Dictionary<(long, long), double>();
+            foreach (var kv in shapes) {
+                var key = CenterKey(kv.Key.CenterX, kv.Key.CenterY);
+                if (!nnByCenter.ContainsKey(key)) nnByCenter[key] = kv.Value.NearestNeighborDist;
+            }
+
+            var stars = result.DetectedStars ?? new List<Star>();
+            // Brightness-INDEPENDENT integration cap: a frame-level fixed radius from the MEDIAN donut
+            // outer size (robust, not per-star, so it can't track a star's brightness). This removes the
+            // brightness-dependent convergence-area leverage that lets background error bias R50.
+            var bboxList = stars.Select(s => Math.Max(s.StarBoundingBox.Width, s.StarBoundingBox.Height))
+                                .OrderBy(v => v).ToList();
+            double medianBboxMax = bboxList.Count > 0 ? bboxList[bboxList.Count / 2] : 60.0;
+            double frameFixedRadius = 1.15 * (medianBboxMax / 2.0); // ~1.15x median outer radius
+
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Join(",", new[] {
+                "CenterX", "CenterY", "PeakBrightness", "MeanBrightness", "LegacyHfr", "BBoxMax",
+                "NoiseSigma", "MaxRadius", "FixedRadius", "CenterShift", "ConvRadius", "TotalFlux",
+                // convergence-cap (adaptive) radii
+                "R20", "R30", "R50", "R80",
+                // fixed-cap (brightness-independent) radii — the P0 mitigation
+                "R20f", "R30f", "R50f", "R80f",
+                // R50f under background-plane perturbation
+                "R50f_bgM0p1", "R50f_bgP0p1", "R50f_bgM0p5", "R50f_bgP0p5",
+            }));
+
+            foreach (var star in stars) {
+                var key = CenterKey(star.Center.X, star.Center.Y);
+                double sigma = sigmaByCenter.TryGetValue(key, out var s) ? s : double.NaN;
+                double nn = nnByCenter.TryGetValue(key, out var d) ? d : double.NaN;
+                double bboxMax = Math.Max(star.StarBoundingBox.Width, star.StarBoundingBox.Height);
+                if (double.IsNaN(sigma) || sigma <= 0) sigma = 1e-6;
+                var plane = star.BackgroundPlane;
+
+                // Generous scan radius (for the adaptive/convergence path + ring-center search).
+                double maxRadius = Math.Min(90.0, Math.Max(30.0, bboxMax * 1.5));
+                if (!double.IsNaN(nn) && nn > 0) maxRadius = Math.Min(maxRadius, 0.9 * nn);
+
+                // P0: ring-fit center (stable for hollow donuts), then both caps measured from it.
+                var (cx, cy) = RingCenter(srcFloat, star.Center.X, star.Center.Y, plane, star.Background, maxRadius, sigma);
+                double centerShift = Math.Sqrt((cx - star.Center.X) * (cx - star.Center.X) + (cy - star.Center.Y) * (cy - star.Center.Y));
+
+                // Adaptive (noise-convergence) cap — the naive baseline.
+                var (annAd, _) = ScanRadialBins(srcFloat, cx, cy, plane, star.Background, maxRadius, 0.0);
+                var cogAd = ComputeCog(annAd, sigma, maxRadius);
+
+                // Fixed brightness-independent cap — integrate exactly to frameFixedRadius (inside 0.9x nn).
+                double fixedRadius = frameFixedRadius;
+                if (!double.IsNaN(nn) && nn > 0) fixedRadius = Math.Min(fixedRadius, 0.9 * nn);
+                CogResult Fixed(double delta) {
+                    var (a, _) = ScanRadialBins(srcFloat, cx, cy, plane, star.Background, fixedRadius, delta);
+                    // force total = full integral to the fixed radius (no noise convergence)
+                    return ComputeCog(a, 0.0, fixedRadius);
+                }
+                var cogF = Fixed(0.0);
+
+                sb.AppendLine(string.Join(",", new[] {
+                    F(cx), F(cy), F(star.PeakBrightness), F(star.MeanBrightness),
+                    F(star.HFR), F(bboxMax), F(sigma), F(maxRadius), F(fixedRadius), F(centerShift),
+                    F(cogAd.ConvRadius), F(cogF.TotalFlux),
+                    F(cogAd.R20), F(cogAd.R30), F(cogAd.R50), F(cogAd.R80),
+                    F(cogF.R20), F(cogF.R30), F(cogF.R50), F(cogF.R80),
+                    F(Fixed(-0.1 * sigma).R50), F(Fixed(0.1 * sigma).R50), F(Fixed(-0.5 * sigma).R50), F(Fixed(0.5 * sigma).R50),
+                }));
+            }
+            File.WriteAllText(path, sb.ToString());
+        }
 
         private static void WriteCsv(string path, List<ContaminationDiagnosticRecord> diagnostics,
                 Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {

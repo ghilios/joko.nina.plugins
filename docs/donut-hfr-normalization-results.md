@@ -1,0 +1,111 @@
+# Donut HFR Normalization — §9 Validation Results
+
+**Date:** 2026-06-19
+**Branch:** `ghilios/donut-hfr-normalization`
+**Design:** [`donut-hfr-normalization-design.md`](donut-hfr-normalization-design.md)
+**Status:** Empirical proof of Approach A (curve-of-growth `R_e`) on real data — **target met.**
+
+## Setup
+
+- **Frame:** `D:\Autofocus Bank\mufti\…-3-001\attempt01\01_Frame00_…_Focuser2925.fits` (the most
+  heavily-defocused frame; 96 detected donuts), profile `Default`, defocus-aware gates ON.
+- **Tool:** `TestApp contamination … --defocus-distortion --defocus-centering`, which now also emits
+  `cog_radii.csv` — a per-star curve-of-growth dump (background-subtracted flux in 1-px radial bins
+  using each star's fitted local background plane), reporting encircled-flux radii R20/R30/R50/R80
+  under two integration caps and a ring-fit center, plus background-perturbation variants.
+- **Analysis:** offline Python regressions (this file). No production-plugin code was changed.
+
+## Headline result
+
+| Metric | Brightness slope (px/dex) | t-stat | r² | Verdict |
+|---|---|---|---|---|
+| **Legacy flux-weighted HFR** | **+3.12 ± 0.57** | **5.50** | 0.244 | brightness-dependent (significant) |
+| **`R₅₀` (ring center + adaptive cap)** | **+0.35 ± 0.88** | **0.40** | 0.002 | **indistinguishable from 0** |
+
+**Tilt-fit acid test** — extra variance explained by adding `log(peak brightness)` on top of a spatial
+`(x, y)` fit (a pure brightness *confound* with the tilt signal):
+
+| Metric | spatial-only R² | + log(brightness) R² | brightness adds |
+|---|---|---|---|
+| Legacy HFR | 0.401 | 0.693 | **+29.2 pts** |
+| `R₅₀` (ring center + adaptive cap) | 0.562 | 0.573 | **+1.1 pts** |
+
+The brightness confound is **eliminated** (29.2 → 1.1 pts) *and* the spatial tilt signal becomes
+**cleaner** (spatial R² 0.40 → 0.56). Partial `log(peak)` coefficient in the joint tilt model drops
+from +3.46 to +0.92 px/dex (−73 %).
+
+## What actually mattered (and what didn't)
+
+Two refinements were tested independently against a naive `R₅₀`:
+
+1. **Ring-fit center — load-bearing (the dominant fix).** A hollow donut's intensity centroid is
+   unstable: the detector's center differed from the flux-weighted ring center by a **median of
+   3.67 px** (large vs a ~14 px radius), and that error was brightness-correlated. Naive `R₅₀` from
+   the detector centroid still sloped at **1.5 px/dex**; recomputing from the ring center dropped it
+   to **0.35 px/dex**. This confirms reviewer P0 #2.
+
+2. **Adaptive (noise-convergence) cap beat the fixed cap — hypothesis rejected.** I expected a
+   brightness-independent *fixed* integration radius (frame-median donut size) to be safest. It was
+   **worse**: `R₅₀f` (fixed) sloped at **1.38 px/dex** vs **0.35** for the adaptive convergence cap.
+   Reason: integrating every star to the same generous radius gives faint donuts a large
+   background-dominated area (background leverage ∝ area), re-biasing their total flux. The
+   noise-convergence cap naturally stops where SNR dies, limiting that area for faint stars.
+
+| Fraction | Adaptive cap slope | Fixed cap slope |
+|---|---|---|
+| R20 | 1.53 | 1.96 |
+| R30 | 1.27 | 1.87 |
+| **R50** | **0.35** | 1.38 |
+| R80 | −1.46 | 0.33 |
+
+For the adaptive cap, **R50 is the sweet spot** (R20/R30 ride the inner ring edge and still slope;
+R80 overshoots into the noisy outer wing and goes negative). Note this differs from the reviewer's
+*compact-star* simulation (where R20–R30 were best) — for an **annulus** the inner fractions sit on
+the rising inner ring edge and are less stable, so R50 wins.
+
+## Background-sensitivity (the residual risk, quantified)
+
+The reviewer's #1 risk — background-plane bias, brightness-dependent via donut area — is real but
+**small at realistic bias levels** with the adaptive cap + ring center:
+
+| Background-plane offset | median \|ΔR50f\| | ΔR50f vs log(peak) slope |
+|---|---|---|
+| ±0.1σ | ~0.04 px | ±0.23–0.27 px/dex |
+| ±0.5σ | ~0.20 px | −0.95 / +1.75 px/dex |
+
+A ±0.1σ plane error (a realistic IRLS plane-fit accuracy) perturbs R50 by <0.05 px and adds
+<0.3 px/dex of brightness slope. A ±0.5σ error would matter — motivating the design's remaining P0s
+(external-annulus background + per-star σ propagation + down-weighting high-σ_bg donuts), which were
+**not** needed to hit target here but are the headroom for harder frames. The residual +0.92 px/dex
+partial coefficient is consistent with a few tenths of a sigma of brightness-correlated plane error.
+
+## Caveats / scope of this proof
+
+- **One frame, one optical setup.** This proves the mechanism and the fix on the mufti 2925 frame.
+  Bank-wide validation across setups (and across the focus sweep, not just the extreme) is still TODO.
+- **`R₅₀`'s raw CV is slightly higher** than legacy (21.4 % vs 18.6 %) — but that is because *more of
+  its variance is now real spatial tilt signal* (spatial R² 0.40 → 0.56) and *less is brightness
+  noise*. CV is the wrong success metric here; the brightness slope and tilt-fit confound are the
+  right ones, and both improved decisively.
+- **B oracle cross-check still pending.** The §9.5 A+C-vs-B agreement report (forward-model donut fit
+  in TestApp) has not been run yet; this validates A against the brightness axis directly, not yet
+  against an independent geometric ground truth.
+
+## Conclusion
+
+Approach A is empirically validated on real data: a true encircled-flux `R₅₀`, **measured from a
+ring-fit center with a noise-convergence integration cap**, removes the donut HFR brightness artifact
+(slope 3.12 → 0.35 px/dex, no longer significant; tilt confound 29.2 → 1.1 R² pts) while sharpening
+the spatial tilt signal. The **ring-fit center is essential**; the fixed-radius cap idea was tested
+and rejected in favor of the adaptive convergence cap. Approach C (empirical detrend) is **not
+needed** for this frame — the residual brightness slope is statistically zero.
+
+## Reproduce
+
+```bash
+cmd.exe /c "dotnet build Joko.NINA.Plugins\TestApp\TestApp.csproj -c Debug --nologo"
+./Joko.NINA.Plugins/TestApp/bin/Debug/net8.0-windows7.0/TestApp.exe contamination \
+  --image "D:\Autofocus Bank\mufti\AutoFocus_20260607_030642-20260615T214722Z-3-001\attempt01\01_Frame00_BitDepth16_Bayered0_Focuser2925.fits" \
+  --defocus-distortion --defocus-centering --out "C:\temp\hf-donut-2925"
+# then regress cog_radii.csv columns R20/R30/R50/R80 (and *f variants) on log10(PeakBrightness)
+```
