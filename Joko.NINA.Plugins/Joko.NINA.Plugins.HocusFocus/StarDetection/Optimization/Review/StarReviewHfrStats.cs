@@ -67,15 +67,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// <summary>
         /// Formats the corner overlay caption, e.g. "Median HFR: 2.34 ± 0.12  (n=42)" or "Mean HFR: 2.34 ± 0.12
         /// (n=42)". The "± deviation" term is omitted when the deviation is undefined (a single star), and an empty
-        /// string is returned when there are no valid stars (the overlay hides itself). <paramref name="metricLabel"/>
-        /// names the measured quantity (default "HFR"); pass "Norm HFR" when the displayed values are the
-        /// donut-size-normalized HFR so the caption makes clear which metric is shown.
+        /// string is returned when there are no valid stars (the overlay hides itself).
         /// </summary>
-        public static string FormatStats(double center, double deviation, int starCount, MeasurementAverageEnum mode, string metricLabel = "HFR") {
+        public static string FormatStats(double center, double deviation, int starCount, MeasurementAverageEnum mode) {
             if (starCount <= 0 || double.IsNaN(center)) {
                 return string.Empty;
             }
-            var label = (mode == MeasurementAverageEnum.MeanOutliers ? "Mean " : "Median ") + metricLabel;
+            var label = mode == MeasurementAverageEnum.MeanOutliers ? "Mean HFR" : "Median HFR";
             var c = center.ToString("F2", CultureInfo.InvariantCulture);
             var dev = double.IsNaN(deviation)
                 ? string.Empty

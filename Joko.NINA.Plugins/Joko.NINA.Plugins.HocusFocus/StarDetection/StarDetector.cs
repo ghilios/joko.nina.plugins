@@ -1708,23 +1708,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 diagnosticsBag.Add(record);
             }
 
-            // HFR gate still uses the legacy flux-weighted HFR (its threshold is calibrated for it). NormalizedHFR
-            // defaults to HFR (bit-identical) and is replaced by the brightness-independent R_e only for large/donut
-            // candidates when enabled (design §8.1; near-focus/compact stars keep HFR — §9 panos_lo regression).
-            star.NormalizedHFR = star.HFR;
-            var candidateSize = Math.Max(star.StarBoundingBox.Width, star.StarBoundingBox.Height);
-            if (p.NormalizeDonutSize && p.DefocusDistortionSizeReference > 0.0 && candidateSize >= p.DefocusDistortionSizeReference) {
-                var plane = star.BackgroundPlane ?? LocalBackgroundPlane.Flat(star.Center.X, star.Center.Y, star.Background);
-                // Integration window: 1.5× bbox, clamped to [30,90]px to enclose the donut while bounding scan cost.
-                var donutMaxRadius = Math.Min(90.0, Math.Max(30.0, candidateSize * 1.5));
-                var ringCenter = DonutEncircledRadius.RingCenter(srcImage, star.Center.X, star.Center.Y, plane, star.Background, donutMaxRadius, srcImageNoiseSigma);
-                var re = DonutEncircledRadius.Measure(srcImage, ringCenter.cx, ringCenter.cy, plane, star.Background, srcImageNoiseSigma, donutMaxRadius, 0.5);
-                if (!double.IsNaN(re.Radius) && re.Radius > 0.0) {
-                    star.NormalizedHFR = re.Radius;
-                    star.NormalizedHFRStdDev = re.StdDev;
-                }
-            }
-
             return star;
         }
 

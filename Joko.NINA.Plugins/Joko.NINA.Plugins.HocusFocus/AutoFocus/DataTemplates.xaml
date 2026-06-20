@@ -651,7 +651,7 @@
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center">
-                                    <Run Text="{Binding Statistics.StarDetectionAnalysis.RegularHFR, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" /><Run Text=' px' />
+                                    <Run Text="{Binding Statistics.StarDetectionAnalysis.HFR, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" /><Run Text=' px' />
                                 </TextBlock>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal">
@@ -664,34 +664,7 @@
                                     Width="70"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
-                                    Text="{Binding Statistics.StarDetectionAnalysis.RegularHFRStdDev, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" />
-                            </StackPanel>
-                        </UniformGrid>
-                        <UniformGrid Columns="2" Visibility="{Binding Statistics.StarDetectionAnalysis.ShowNormalizedHFR, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock
-                                    Width="120"
-                                    VerticalAlignment="Center"
-                                    Text="Norm HFR"
-                                    ToolTip="{StaticResource SDR_HFR_Tooltip}" />
-                                <TextBlock
-                                    Width="70"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center">
-                                    <Run Text="{Binding Statistics.StarDetectionAnalysis.NormalizedHFR, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" /><Run Text=' px' />
-                                </TextBlock>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock
-                                    Width="120"
-                                    VerticalAlignment="Center"
-                                    Text="{Binding Statistics.StarDetectionAnalysis.MeasurementAverage, Mode=OneWay, Converter={StaticResource HF_MeasurementAverageDisplayConverter}, ConverterParameter='Norm '}"
-                                    ToolTip="{StaticResource SDR_HFRStdDev_Tooltip}" />
-                                <TextBlock
-                                    Width="70"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Text="{Binding Statistics.StarDetectionAnalysis.NormalizedHFRStdDev, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" />
+                                    Text="{Binding Statistics.StarDetectionAnalysis.HFRStDev, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
                         <UniformGrid Columns="2">

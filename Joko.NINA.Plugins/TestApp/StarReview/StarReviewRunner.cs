@@ -198,8 +198,7 @@ namespace TestApp.StarReview {
             var reviewFrames = queue.Select(q => detections[(q.RunId, q.FocuserPosition)]).ToList();
 
             Console.WriteLine("Opening review window. Mark Missed (false negatives) and Should-Reject (false positives), then Save.");
-            ShowReviewWindowSta(reviewFrames, labelsByRun, labelsDir, starDetectionOptions.MeasurementAverage,
-                normalizedHfrActive: detectionParams.NormalizeDonutSize);
+            ShowReviewWindowSta(reviewFrames, labelsByRun, labelsDir, starDetectionOptions.MeasurementAverage);
 
             Console.WriteLine($"Labels written to {labelsDir}");
             Console.WriteLine($"Next: TestApp optimize --runs \"{runsDir}\" --labels \"{labelsDir}\"");
@@ -224,8 +223,7 @@ namespace TestApp.StarReview {
             List<FrameReview> reviewFrames,
             Dictionary<string, StarReviewRunLabels> labelsByRun,
             string labelsDir,
-            MeasurementAverageEnum measurementAverage,
-            bool normalizedHfrActive) {
+            MeasurementAverageEnum measurementAverage) {
             Exception uiError = null;
             var thread = new Thread(() => {
                 try {
@@ -236,7 +234,7 @@ namespace TestApp.StarReview {
                     SynchronizationContext.SetSynchronizationContext(
                         new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
 
-                    var vm = new StarReviewVM(reviewFrames, labelsByRun, labelsDir, measurementAverage, normalizedHfrActive);
+                    var vm = new StarReviewVM(reviewFrames, labelsByRun, labelsDir, measurementAverage);
                     var window = new StarReviewWindow();
                     window.DataContext = vm;
                     // Save-on-close: the plugin VM no longer takes a Window, so the host wires the flush. (The VM

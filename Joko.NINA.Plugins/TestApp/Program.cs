@@ -168,15 +168,6 @@ namespace TestApp {
                 return;
             }
 
-            // Headless A-vs-B donut-size agreement report: `TestApp agreement --image <path> ...`. Runs
-            // detection like the contamination runner, then for each accepted donut star compares the
-            // encircled-flux R50 (A) against the annulus-forward-fit ring radius Rring (B). Must precede the
-            // generic --image fall-through below.
-            if (args.Length > 0 && args[0].Equals("agreement", StringComparison.OrdinalIgnoreCase)) {
-                await AgreementRunner.Run(args);
-                return;
-            }
-
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&

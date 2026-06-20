@@ -167,17 +167,6 @@ namespace TestApp {
                 Console.WriteLine("DefocusAwareCentering=OFF");
             }
 
-            // Opt-in donut HFR normalization switch. Turns on the production NormalizeDonutSize path in StarDetector,
-            // which sets Star.NormalizedHFR = R_e (curve-of-growth effective radius) for large/donut candidates
-            // (candidateSize >= DefocusDistortionSizeReference) and = HFR otherwise. Validates the brightness-flat
-            // NormalizedHFR on real donut frames. Donut DETECTION still comes from the profile + --defocus-* flags.
-            if (DiagnosticUtil.HasFlag(args, "--normalize-donut")) {
-                baseParams.NormalizeDonutSize = true;
-                Console.WriteLine($"NormalizeDonutSize=ON (SizeReference={baseParams.DefocusDistortionSizeReference.ToString(CultureInfo.InvariantCulture)} px)");
-            } else {
-                Console.WriteLine("NormalizeDonutSize=OFF");
-            }
-
             // Load the original image once (CV_32F, normalized [0,1]). Detection mutates its input in place,
             // so each run gets a clone and the original is kept for the annotated background.
             using var srcFloat = await DiagnosticUtil.LoadFloatMat(imagePath, profileService);
@@ -203,8 +192,7 @@ namespace TestApp {
             WriteSummary(Path.Combine(outDir, "contamination_summary.txt"), imagePath, srcFloat, baseParams, total, suspected, diagnostics, shapes);
             WriteAnnotated(Path.Combine(outDir, "contamination_annotated.png"), srcFloat, diagnostics, shapes);
             WriteGradientRobustSweep(Path.Combine(outDir, "gr_sweep.csv"), diagnostics, shapes);
-            WriteCurveOfGrowth(Path.Combine(outDir, "cog_radii.csv"), srcFloat, result, diagnostics, shapes);
-            Console.WriteLine($"Wrote contamination_stars.csv, contamination_summary.txt, contamination_annotated.png, gr_sweep.csv, cog_radii.csv to {outDir}");
+            Console.WriteLine($"Wrote contamination_stars.csv, contamination_summary.txt, contamination_annotated.png, gr_sweep.csv to {outDir}");
         }
 
         private static async Task RunSweep(Mat srcFloat, StarDetectorParams baseParams, string sweepArg, string outDir) {
@@ -272,14 +260,6 @@ namespace TestApp {
             public bool PsfFitOk = false;
             public double NearestNeighborDist = double.NaN;
             public double NearestNeighborOverHfr = double.NaN;
-            // Brightness + footprint, for the donut HFR-vs-brightness analysis.
-            public double PeakBrightness = double.NaN;
-            public double MeanBrightness = double.NaN;
-            public double BBoxW = double.NaN;
-            public double BBoxH = double.NaN;
-            // Production donut-normalized HFR (== legacy HFR unless NormalizeDonutSize is on and the candidate
-            // is large/donut-sized, in which case it is the curve-of-growth R_e).
-            public double NormalizedHFR = double.NaN;
             public bool HasCloseNeighbor =>
                 !double.IsNaN(NearestNeighborOverHfr) && NearestNeighborOverHfr < CloseNeighborHfrFactor;
         }
@@ -323,11 +303,6 @@ namespace TestApp {
                 var info = new ShapeInfo();
                 var key = CenterKey(r.CenterX, r.CenterY);
                 if (byCenter.TryGetValue(key, out var star)) {
-                    info.PeakBrightness = star.PeakBrightness;
-                    info.MeanBrightness = star.MeanBrightness;
-                    info.NormalizedHFR = star.NormalizedHFR;
-                    info.BBoxW = star.StarBoundingBox.Width;
-                    info.BBoxH = star.StarBoundingBox.Height;
                     if (star.PSF != null) {
                         info.PsfFitOk = true;
                         info.Eccentricity = star.PSF.Eccentricity;
@@ -352,129 +327,6 @@ namespace TestApp {
         private static (long, long) CenterKey(double x, double y) =>
             ((long)Math.Round(x * 100.0), (long)Math.Round(y * 100.0));
 
-        // ---- Curve-of-growth / encircled-flux radius (Approach A validation) -------------------------
-        // For each accepted star, accumulate background-subtracted flux into 1px radial bins from the
-        // star center, derive a noise-limited convergence radius + total flux, and report the true
-        // encircled-flux radii R20/R30/R50/R80. Also reports R50 under +/-0.1sigma and +/-0.5sigma
-        // background-plane perturbations (the design's dominant residual-bias risk). Self-contained:
-        // operates on the ORIGINAL srcFloat using each star's fitted local background plane.
-
-        private sealed class CogResult {
-            public double R20 = double.NaN, R30 = double.NaN, R50 = double.NaN, R80 = double.NaN;
-            public double TotalFlux = double.NaN, ConvRadius = double.NaN;
-        }
-
-        // Convergence-capped encircled-flux radii at the four reported fractions. The radial-bin scan
-        // (DonutRadiusOracle.ScanAnnularBins) and the per-fraction radius (DonutRadiusOracle.EncircledRadius)
-        // are the shared reference implementation; this wrapper just reports all four fractions in one struct
-        // and exposes the convergence/total-flux bookkeeping the CSV needs.
-        private static CogResult ComputeCog(double[] annular, double noiseSigma, double maxRadius) {
-            int nbins = annular.Length;
-            // Convergence: first radius (>=5px) where 3 consecutive annular sums fall below the per-annulus
-            // photon-noise floor ~ sigma*sqrt(2*pi*r). Caps total-flux leverage from the noisy outer wing.
-            double convR = maxRadius;
-            int below = 0;
-            // noiseSigma <= 0 => no convergence, integrate to the full (fixed) radius.
-            if (noiseSigma > 0) {
-                for (int b = 5; b < nbins; ++b) {
-                    double floor = noiseSigma * Math.Sqrt(2.0 * Math.PI * (b + 0.5));
-                    if (annular[b] < floor) {
-                        if (++below >= 3) { convR = b - 2; break; }
-                    } else below = 0;
-                }
-            }
-            int convBin = Math.Min((int)convR, nbins - 1);
-            var cum = new double[nbins];
-            double acc = 0;
-            for (int b = 0; b < nbins; ++b) { acc += annular[b]; cum[b] = acc; }
-            double total = convBin >= 0 ? cum[convBin] : double.NaN;
-            return new CogResult {
-                TotalFlux = total, ConvRadius = convR,
-                R20 = DonutRadiusOracle.EncircledRadius(annular, noiseSigma, maxRadius, 0.20),
-                R30 = DonutRadiusOracle.EncircledRadius(annular, noiseSigma, maxRadius, 0.30),
-                R50 = DonutRadiusOracle.EncircledRadius(annular, noiseSigma, maxRadius, 0.50),
-                R80 = DonutRadiusOracle.EncircledRadius(annular, noiseSigma, maxRadius, 0.80),
-            };
-        }
-
-        private static void WriteCurveOfGrowth(string path, Mat srcFloat, HocusFocusStarDetectorResult result,
-                List<ContaminationDiagnosticRecord> diagnostics, Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
-            // noiseSigma per star (by center) from the diagnostic records.
-            var sigmaByCenter = new Dictionary<(long, long), double>();
-            foreach (var r in diagnostics) {
-                var key = CenterKey(r.CenterX, r.CenterY);
-                if (!sigmaByCenter.ContainsKey(key)) sigmaByCenter[key] = r.NoiseSigma;
-            }
-            // nearest-neighbor distance per star (by center) from the shape lookup.
-            var nnByCenter = new Dictionary<(long, long), double>();
-            foreach (var kv in shapes) {
-                var key = CenterKey(kv.Key.CenterX, kv.Key.CenterY);
-                if (!nnByCenter.ContainsKey(key)) nnByCenter[key] = kv.Value.NearestNeighborDist;
-            }
-
-            var stars = result.DetectedStars ?? new List<Star>();
-            // Brightness-INDEPENDENT integration cap: a frame-level fixed radius from the MEDIAN donut
-            // outer size (robust, not per-star, so it can't track a star's brightness). This removes the
-            // brightness-dependent convergence-area leverage that lets background error bias R50.
-            var bboxList = stars.Select(s => Math.Max(s.StarBoundingBox.Width, s.StarBoundingBox.Height))
-                                .OrderBy(v => v).ToList();
-            double medianBboxMax = bboxList.Count > 0 ? bboxList[bboxList.Count / 2] : 60.0;
-            double frameFixedRadius = 1.15 * (medianBboxMax / 2.0); // ~1.15x median outer radius
-
-            var sb = new StringBuilder();
-            sb.AppendLine(string.Join(",", new[] {
-                "CenterX", "CenterY", "PeakBrightness", "MeanBrightness", "LegacyHfr", "BBoxMax",
-                "NoiseSigma", "MaxRadius", "FixedRadius", "CenterShift", "ConvRadius", "TotalFlux",
-                // convergence-cap (adaptive) radii
-                "R20", "R30", "R50", "R80",
-                // fixed-cap (brightness-independent) radii — the P0 mitigation
-                "R20f", "R30f", "R50f", "R80f",
-                // R50f under background-plane perturbation
-                "R50f_bgM0p1", "R50f_bgP0p1", "R50f_bgM0p5", "R50f_bgP0p5",
-            }));
-
-            foreach (var star in stars) {
-                var key = CenterKey(star.Center.X, star.Center.Y);
-                double sigma = sigmaByCenter.TryGetValue(key, out var s) ? s : double.NaN;
-                double nn = nnByCenter.TryGetValue(key, out var d) ? d : double.NaN;
-                double bboxMax = Math.Max(star.StarBoundingBox.Width, star.StarBoundingBox.Height);
-                if (double.IsNaN(sigma) || sigma <= 0) sigma = 1e-6;
-                var plane = star.BackgroundPlane;
-
-                // Generous scan radius (for the adaptive/convergence path + ring-center search).
-                double maxRadius = Math.Min(90.0, Math.Max(30.0, bboxMax * 1.5));
-                if (!double.IsNaN(nn) && nn > 0) maxRadius = Math.Min(maxRadius, 0.9 * nn);
-
-                // P0: ring-fit center (stable for hollow donuts), then both caps measured from it.
-                var (cx, cy) = DonutRadiusOracle.RingCenter(srcFloat, star.Center.X, star.Center.Y, plane, star.Background, maxRadius, sigma);
-                double centerShift = Math.Sqrt((cx - star.Center.X) * (cx - star.Center.X) + (cy - star.Center.Y) * (cy - star.Center.Y));
-
-                // Adaptive (noise-convergence) cap — the naive baseline.
-                var annAd = DonutRadiusOracle.ScanAnnularBins(srcFloat, cx, cy, plane, star.Background, maxRadius, 0.0);
-                var cogAd = ComputeCog(annAd, sigma, maxRadius);
-
-                // Fixed brightness-independent cap — integrate exactly to frameFixedRadius (inside 0.9x nn).
-                double fixedRadius = frameFixedRadius;
-                if (!double.IsNaN(nn) && nn > 0) fixedRadius = Math.Min(fixedRadius, 0.9 * nn);
-                CogResult Fixed(double delta) {
-                    var a = DonutRadiusOracle.ScanAnnularBins(srcFloat, cx, cy, plane, star.Background, fixedRadius, delta);
-                    // force total = full integral to the fixed radius (no noise convergence)
-                    return ComputeCog(a, 0.0, fixedRadius);
-                }
-                var cogF = Fixed(0.0);
-
-                sb.AppendLine(string.Join(",", new[] {
-                    F(cx), F(cy), F(star.PeakBrightness), F(star.MeanBrightness),
-                    F(star.HFR), F(bboxMax), F(sigma), F(maxRadius), F(fixedRadius), F(centerShift),
-                    F(cogAd.ConvRadius), F(cogF.TotalFlux),
-                    F(cogAd.R20), F(cogAd.R30), F(cogAd.R50), F(cogAd.R80),
-                    F(cogF.R20), F(cogF.R30), F(cogF.R50), F(cogF.R80),
-                    F(Fixed(-0.1 * sigma).R50), F(Fixed(0.1 * sigma).R50), F(Fixed(-0.5 * sigma).R50), F(Fixed(0.5 * sigma).R50),
-                }));
-            }
-            File.WriteAllText(path, sb.ToString());
-        }
-
         private static void WriteCsv(string path, List<ContaminationDiagnosticRecord> diagnostics,
                 Dictionary<ContaminationDiagnosticRecord, ShapeInfo> shapes) {
             var sb = new StringBuilder();
@@ -494,11 +346,6 @@ namespace TestApp {
             header.Add("NearestNeighborOverHfr");
             header.Add("HasCloseNeighbor");
             header.Add("PsfFitOk");
-            header.Add("PeakBrightness");
-            header.Add("MeanBrightness");
-            header.Add("NormalizedHFR");
-            header.Add("BBoxW");
-            header.Add("BBoxH");
             sb.AppendLine(string.Join(",", header));
 
             foreach (var r in diagnostics) {
@@ -519,11 +366,6 @@ namespace TestApp {
                 row.Add(F(info.NearestNeighborOverHfr));
                 row.Add(info.HasCloseNeighbor ? "1" : "0");
                 row.Add(info.PsfFitOk ? "1" : "0");
-                row.Add(F(info.PeakBrightness));
-                row.Add(F(info.MeanBrightness));
-                row.Add(F(info.NormalizedHFR));
-                row.Add(F(info.BBoxW));
-                row.Add(F(info.BBoxH));
                 sb.AppendLine(string.Join(",", row));
             }
             File.WriteAllText(path, sb.ToString());

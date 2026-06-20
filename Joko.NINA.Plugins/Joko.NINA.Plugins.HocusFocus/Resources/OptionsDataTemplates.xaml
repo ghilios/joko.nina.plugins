@@ -450,7 +450,6 @@
     <TextBlock x:Key="DefocusAwareStructure_Tooltip" Text="When enabled, large/donut (heavily defocused) stars are kept during structure detection so they form candidates instead of being erased. The wavelet step that removes large-scale background structure (nebulae, gradients) can also erase a big out-of-focus donut entirely, so it never even becomes a candidate to evaluate. This option makes that removal coarser (by Structure Layer Boost extra layers) so large stars survive. Off by default (detection is unchanged); enable it together with a Structure Layer Boost above 0 if heavily-defocused stars are missing entirely (not just rejected). EARLY-stage setting." />
     <TextBlock x:Key="StructureLayerBoost_Tooltip" Text="Only used while Defocus-Aware Structure is enabled. The number of extra wavelet layers added when removing large-scale structure, making the removal coarser so larger defocused donuts survive and form candidates. 0 means no change (identical to the feature being off). Raise it (1–6) if very out-of-focus stars never appear; raising it too far can let nebulosity/background structure leak in as false candidates. Default 0." />
     <TextBlock x:Key="DefocusAwareDonutDetection_Tooltip" Text="MASTER toggle for defocus-aware donut detection (also on the optimizer wizard's start page). When ON, out-of-focus DONUT stars (heavily defocused stars that appear as hollow rings) are recovered: a morphological close reconnects fragmented rings and an annularity test lets a hollow ring pass the distortion gate like a filled disk (detection-only — it never changes HFR). It also unlocks the optimizer to tune ALL defocus-aware settings and to enable diffraction-spike / saturated-bloom suppression. Recommended for telescopes with a central obstruction (Newtonians/SCTs); leave OFF for refractors. Off by default; when OFF, detection is exactly as before." />
-    <TextBlock x:Key="UseNormalizedHFR_Tooltip" Text="When enabled (default), heavily-defocused 'donut' stars report a brightness-independent encircled-flux radius (Normalized HFR) instead of the brightness-biased flux-weighted HFR. Only affects large/defocused stars when Defocus-Aware Donut Detection is on; compact stars and non-donut runs are unchanged." />
     <TextBlock x:Key="DonutMorphCloseSize_Tooltip" Text="Only used while Defocus-Aware Donut Detection is on. Diameter (px) of the morphological-close kernel that reconnects fragmented donut-ring arcs into one candidate (the dominant cause of donuts being dropped as 'too small'). 1 means no close. Keep it smaller than the gap between a bright star's diffraction spikes so it doesn't bridge them. EARLY-stage setting. Default 5." />
     <TextBlock x:Key="DonutMinAnnularityHoleFraction_Tooltip" Text="Only used while Defocus-Aware Donut Detection is on. Minimum size of a candidate's enclosed dark center (as a fraction of its bounding-box area) for it to count as a donut whose hole is filled for the distortion test — so a hollow ring is judged like a filled disk. This is detection-only and never changes the measured HFR/flux/center. Lower it to accept thinner rings; raise it to be stricter. Default 0.15." />
     <TextBlock x:Key="DonutMaxStreakEccentricity_Tooltip" Text="Only used while Defocus-Aware Donut Detection is on. Rejects very LINEAR candidates (diffraction spikes from a bright star, or satellite/aircraft trails) when their elongation (eccentricity) meets or exceeds this value. 1.0 means OFF (a perfect line has eccentricity 1.0, so nothing is rejected); lower it toward 0.95 to enable. Round donuts measure well below this, so they are never affected. Default 1.0 (OFF — the optimizer enables it when you label false detections)." />
@@ -1101,8 +1100,6 @@
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDonutDetection}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDonutDetection}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDonutDetection}" />
-                <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDonutDetection}" />
-                <!--  52: Use Normalized HFR (advanced-only AND only when donut detection is on).  -->
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDonutDetection}" />
             </Grid.RowDefinitions>
             <TextBlock
@@ -1764,22 +1761,6 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
-
-            <TextBlock
-                Grid.Row="52"
-                Grid.Column="0"
-                VerticalAlignment="Center"
-                Text="Use Normalized HFR"
-                ToolTip="{StaticResource UseNormalizedHFR_Tooltip}" />
-            <CheckBox
-                Grid.Row="52"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,5,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                IsChecked="{Binding StarDetectionOptions.UseNormalizedHFR}"
-                ToolTip="{StaticResource UseNormalizedHFR_Tooltip}" />
 
             <TextBlock
                 Grid.Row="19"

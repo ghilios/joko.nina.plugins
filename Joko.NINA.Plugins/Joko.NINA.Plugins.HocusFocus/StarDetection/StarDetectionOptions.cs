@@ -224,7 +224,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             defocusDistortionMinFactor = optionsAccessor.GetValueDouble("DefocusDistortionMinFactor", 0.25);
             defocusCenteringToleranceFactor = optionsAccessor.GetValueDouble("DefocusCenteringToleranceFactor", 2.0);
             defocusAwareDonutDetection = optionsAccessor.GetValueBoolean("DefocusAwareDonutDetection", false);
-            useNormalizedHFR = optionsAccessor.GetValueBoolean("UseNormalizedHFR", true);
             donutMorphCloseSize = optionsAccessor.GetValueInt32("DonutMorphCloseSize", 5);
             donutMinAnnularityHoleFraction = optionsAccessor.GetValueDouble("DonutMinAnnularityHoleFraction", 0.15);
             donutMaxStreakEccentricity = optionsAccessor.GetValueDouble("DonutMaxStreakEccentricity", 1.0);
@@ -293,7 +292,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             DefocusDistortionMinFactor = 0.25;
             DefocusCenteringToleranceFactor = 2.0;
             DefocusAwareDonutDetection = false;
-            UseNormalizedHFR = true;
             DonutMorphCloseSize = 5;
             DonutMinAnnularityHoleFraction = 0.15;
             DonutMaxStreakEccentricity = 1.0;
@@ -703,18 +701,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 if (defocusAwareDonutDetection != value) {
                     defocusAwareDonutDetection = value;
                     optionsAccessor.SetValueBoolean("DefocusAwareDonutDetection", defocusAwareDonutDetection);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private bool useNormalizedHFR;
-        public bool UseNormalizedHFR {
-            get => useNormalizedHFR;
-            set {
-                if (useNormalizedHFR != value) {
-                    useNormalizedHFR = value;
-                    optionsAccessor.SetValueBoolean("UseNormalizedHFR", useNormalizedHFR);
                     RaisePropertyChanged();
                 }
             }

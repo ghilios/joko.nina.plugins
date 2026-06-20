@@ -157,58 +157,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
         }
-
-        private bool showNormalizedHFR;
-
-        public bool ShowNormalizedHFR {
-            get => showNormalizedHFR;
-            set {
-                if (showNormalizedHFR != value) {
-                    showNormalizedHFR = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private double regularHFR = double.NaN;
-
-        public double RegularHFR {
-            get => regularHFR;
-            set {
-                regularHFR = value;
-                RaisePropertyChanged();
-            }
-        }
-
-        private double regularHFRStdDev = double.NaN;
-
-        public double RegularHFRStdDev {
-            get => regularHFRStdDev;
-            set {
-                regularHFRStdDev = value;
-                RaisePropertyChanged();
-            }
-        }
-
-        private double normalizedHFR = double.NaN;
-
-        public double NormalizedHFR {
-            get => normalizedHFR;
-            set {
-                normalizedHFR = value;
-                RaisePropertyChanged();
-            }
-        }
-
-        private double normalizedHFRStdDev = double.NaN;
-
-        public double NormalizedHFRStdDev {
-            get => normalizedHFRStdDev;
-            set {
-                normalizedHFRStdDev = value;
-                RaisePropertyChanged();
-            }
-        }
     }
 
     public class DebugData {
@@ -254,11 +202,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double PixelSize { get; set; } = double.NaN;
         public double PixelScale { get; set; } = double.NaN;
         public MeasurementAverageEnum MeasurementAverage { get; set; } = MeasurementAverageEnum.Median;
-        public double RegularAverageHFR { get; set; } = double.NaN;
-        public double RegularHFRStdDev { get; set; } = double.NaN;
-        public double NormalizedAverageHFR { get; set; } = double.NaN;
-        public double NormalizedHFRStdDev { get; set; } = double.NaN;
-        public bool NormalizedHFRApplied { get; set; }
     }
 
     public class HocusFocusDetectedStar : DetectedStar {
@@ -266,8 +209,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public float NormalisedBrightness { get; set; }
         public Accord.Point OriginalPosition { get; set; }
         public bool StarContaminationSuspected { get; set; }
-        public double NormalizedHFR { get; set; }
-        public double NormalizedHFRStdDev { get; set; } = double.NaN;
 
         public override string ToString() {
             return $"{{{nameof(PSF)}={PSF}, {nameof(HFR)}={HFR.ToString()}, {nameof(Position)}={Position.ToString()}, {nameof(AverageBrightness)}={AverageBrightness.ToString()}, {nameof(MaxBrightness)}={MaxBrightness.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(BoundingBox)}={BoundingBox.ToString()}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected.ToString()}}}";
@@ -374,8 +315,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // DefocusAwareDonutDetection inside the detector, so passing the option values verbatim is safe
                 // (when the master is OFF none of them are consulted ⇒ bit-identical).
                 DefocusAwareDonutDetection = options.DefocusAwareDonutDetection,
-                // R_e is computed only when donut detection is on AND the user wants normalized HFR (default true).
-                NormalizeDonutSize = options.DefocusAwareDonutDetection && options.UseNormalizedHFR,
                 DonutMorphCloseSize = options.DonutMorphCloseSize,
                 DonutMinAnnularityHoleFraction = options.DonutMinAnnularityHoleFraction,
                 DonutMaxStreakEccentricity = options.DonutMaxStreakEccentricity,
@@ -616,8 +555,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 // Now that we have a properly filtered star list, let's compute stats and further filter out from the average
                 // Median and MAD are used as they are more robust to outliers
-                var (hfrMedian, hfrMAD) = starList.Select(s => s.NormalizedHFR).MedianMAD();
-                starList = starList.Where(s => s.NormalizedHFR <= hfrMedian + hocusFocusParams.HighSigmaOutlierRejection * hfrMAD && s.NormalizedHFR >= hfrMedian - hocusFocusParams.LowSigmaOutlierRejection * hfrMAD).ToList<Star>();
+                var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
+                starList = starList.Where(s => s.HFR <= hfrMedian + hocusFocusParams.HighSigmaOutlierRejection * hfrMAD && s.HFR >= hfrMedian - hocusFocusParams.LowSigmaOutlierRejection * hfrMAD).ToList<Star>();
 
                 int countAfter = starList.Count;
                 Logger.Trace($"Discarded {countBefore - countAfter} outlier stars");
@@ -673,33 +612,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             result.StarList = starList.Select(s => ToDetectedStar(s)).OrderBy(s => s.Position.Y * imageSize.Width + s.Position.X).ToList();
             if (starList.Count > 1) {
                 if (this.starDetectionOptions.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
-                    result.AverageHFR = starList.Average(s => s.NormalizedHFR);
-                    var hfrVariance = starList.Sum(s => (s.NormalizedHFR - result.AverageHFR) * (s.NormalizedHFR - result.AverageHFR)) / (starList.Count - 1);
+                    result.AverageHFR = starList.Average(s => s.HFR);
+                    var hfrVariance = starList.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (starList.Count - 1);
                     result.HFRStdDev = Math.Sqrt(hfrVariance);
 
                     Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result?.Region.Index ?? 0}");
                 } else {
-                    var (hfrMedian, hfrMAD) = starList.Select(s => s.NormalizedHFR).MedianMAD();
+                    var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
                     result.AverageHFR = hfrMedian;
                     result.HFRStdDev = hfrMAD;
 
                     Logger.Info($"Average HFR: {result.AverageHFR}, HFR MAD: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result?.Region.Index ?? 0}");
                 }
-
-                // Always expose both regular (legacy HFR) and normalized aggregates for the stats display. The
-                // primary AverageHFR/HFRStdDev pair is already computed over s.NormalizedHFR with identical math,
-                // so the normalized pair just mirrors it; only the regular (over s.HFR) pair needs computing.
-                if (this.starDetectionOptions.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
-                    result.RegularAverageHFR = starList.Average(s => s.HFR);
-                    result.RegularHFRStdDev = Math.Sqrt(starList.Sum(s => (s.HFR - result.RegularAverageHFR) * (s.HFR - result.RegularAverageHFR)) / (starList.Count - 1));
-                } else {
-                    var (regMed, regMad) = starList.Select(s => s.HFR).MedianMAD();
-                    result.RegularAverageHFR = regMed;
-                    result.RegularHFRStdDev = regMad;
-                }
-                result.NormalizedAverageHFR = result.AverageHFR;
-                result.NormalizedHFRStdDev = result.HFRStdDev;
-                result.NormalizedHFRApplied = detectorParams.NormalizeDonutSize;
             }
             result.DebugData = starDetectorResult.DebugData;
             result.Metrics = starDetectorResult.Metrics;
@@ -715,9 +639,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Background = star.Background,
                 BoundingBox = star.StarBoundingBox.ToDrawingRectangle(),
                 PSF = star.PSF,
-                StarContaminationSuspected = star.StarContaminationSuspected,
-                NormalizedHFR = star.NormalizedHFR,
-                NormalizedHFRStdDev = star.NormalizedHFRStdDev,
+                StarContaminationSuspected = star.StarContaminationSuspected
             };
         }
 
@@ -738,11 +660,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var hocusFocusResult = (HocusFocusStarDetectionResult)result;
             hocusFocusAnalysis.HFR = result.AverageHFR;
             hocusFocusAnalysis.HFRStDev = result.HFRStdDev;
-            hocusFocusAnalysis.RegularHFR = hocusFocusResult.RegularAverageHFR;
-            hocusFocusAnalysis.RegularHFRStdDev = hocusFocusResult.RegularHFRStdDev;
-            hocusFocusAnalysis.NormalizedHFR = hocusFocusResult.NormalizedAverageHFR;
-            hocusFocusAnalysis.NormalizedHFRStdDev = hocusFocusResult.NormalizedHFRStdDev;
-            hocusFocusAnalysis.ShowNormalizedHFR = hocusFocusResult.NormalizedHFRApplied;
             hocusFocusAnalysis.DetectedStars = result.DetectedStars;
             hocusFocusAnalysis.Metrics = hocusFocusResult.Metrics;
             hocusFocusAnalysis.PSFType = hocusFocusResult.PSFType;
