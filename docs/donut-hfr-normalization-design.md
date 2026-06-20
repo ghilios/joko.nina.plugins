@@ -209,16 +209,22 @@ paths consume `R_e`; in-focus AF keeps legacy HFR unless explicitly switched.
 
 ### 8.1 Gating — donut scenarios only
 
-The normalization is **strictly gated on the existing defocus-aware donut detection master toggle**
+The normalization is gated on the existing defocus-aware donut detection master toggle
 (`DefocusAwareDonutDetection` / `DefocusAwareGates`, mapped in
-`HocusFocusStarDetection.BuildStarDetectorParams`). Rationale: that toggle is precisely the signal
-that "donuts are expected," and reusing it avoids a second, redundant user option.
+`HocusFocusStarDetection.BuildStarDetectorParams`) **AND, within that, size-gated per star.** Reusing
+the master toggle avoids a second redundant user option; the per-star size gate is **required** by the
+multi-setup validation (§9 results, `panos_lo`): a defocus-aware AF run still contains near-focus
+frames, and at median HFR ≈ 2 px the donut-tuned R_e (ring-fit center + 1-px-binned CoG) *introduces* a
+significant negative brightness slope where legacy HFR was fine. **Apply R_e only to candidates above a
+donut size threshold (reuse `DefocusDistortionSizeReference` ≈ 22.5 px "large candidate"); fall back to
+legacy HFR for compact stars.**
 
 - **Toggle OFF (default):** `R_e` is **not computed**, no aggregate consumes it, and the size used
   everywhere is the legacy flux-weighted HFR — **bit-identical to today**. No risk to in-focus AF.
-- **Toggle ON:** `R_e` (+ its σ) is computed for detected stars and is the size consumed by the
-  donut-aware aggregation and the sensor/tilt model; legacy `HFR` is still carried for display/
-  back-compat.
+- **Toggle ON:** `R_e` (+ its σ) is computed for **large/donut candidates only** (size ≥
+  `DefocusDistortionSizeReference`) and is the size consumed by the donut-aware aggregation and the
+  sensor/tilt model; **compact stars keep legacy HFR** (§9 `panos_lo`); legacy `HFR` is still carried
+  for display/back-compat on all stars.
 - A `StarDetectorParams` field (e.g. `NormalizeDonutSize`, derived from the master toggle in
   `BuildStarDetectorParams`) carries the gate into the detector, mirroring how
   `DefocusAwareDistortion`/`DefocusAwareCentering` are derived today. TestApp keeps an explicit CLI

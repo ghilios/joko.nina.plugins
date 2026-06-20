@@ -3,7 +3,9 @@
 **Date:** 2026-06-19
 **Branch:** `ghilios/donut-hfr-normalization`
 **Design:** [`donut-hfr-normalization-design.md`](donut-hfr-normalization-design.md)
-**Status:** Empirical proof of Approach A (curve-of-growth `R_e`) on real data — **target met.**
+**Status:** Empirical proof of Approach A (curve-of-growth `R_e`) on real data — **target met on the
+mufti frame and replicated across 4 more setups** (§ Multi-setup validation). Key refinement from the
+multi-setup run: the metric must be **size-gated per star** (donut regime only), not just toggle-gated.
 
 ## Setup
 
@@ -99,6 +101,48 @@ ring-fit center with a noise-convergence integration cap**, removes the donut HF
 the spatial tilt signal. The **ring-fit center is essential**; the fixed-radius cap idea was tested
 and rejected in favor of the adaptive convergence cap. Approach C (empirical detrend) is **not
 needed** for this frame — the residual brightness slope is statistically zero.
+
+## Multi-setup validation (4 additional banks)
+
+Re-ran the same `cog_radii.csv` pipeline on the most-defocused extreme frames of four more setups
+(`LinwoodFocus`, `Panos`, `toml999`, `FlyData`), each defocus-aware. Brightness slope vs log(peak) and
+the tilt-fit confound (extra R² from log(peak) on top of a spatial fit):
+
+| Frame | N | med HFR | dyn range | Legacy slope (t) | **R₅₀ slope (t)** | Tilt confound legacy→R₅₀ |
+|---|---|---|---|---|---|---|
+| panos_hi | 26 | 13.2 px | 10× | **+5.71 (6.6, sig)** | −4.02 (−1.2, n.s.) | **63.9 → 5.8** |
+| toml999_hi | 533 | 8.7 px | 426× | **+0.89 (18.1, sig)** | +0.47 (1.5, n.s.) | **41.5 → 0.4** |
+| toml999_lo | 486 | 8.1 px | 311× | **+0.69 (19.6, sig)** | +0.25 (0.8, n.s.) | **44.7 → 0.1** |
+| linwood_hi | 11 | 12.9 px | 65× | +2.31 (2.8, sig) | +1.40 (2.0) | 17.4 → 7.1 |
+| flydata_hi | 33 | 6.7 px | 33× | +0.60 (0.3, n.s.) | +0.63 (0.3) | 1.3 → 1.1 |
+| flydata_lo | 50 | 4.8 px | 35× | +0.79 (0.8, n.s.) | −1.30 (−0.8) | 1.8 → 0.7 |
+| **panos_lo** | 222 | **2.1 px** | 135× | +0.23 (3.2) | **−1.55 (−3.1, sig)** | 6.3 → 4.0 |
+| linwood_lo | 5 | — | 11× | (too few stars) | — | — |
+
+### Findings
+
+1. **Donut regime (median HFR ≳ 6 px): R₅₀ works, replicated across 4 setups.** Every frame with a
+   *significant* legacy brightness slope (panos_hi t=6.6, toml999_hi/lo t≈18–20, linwood_hi t=2.8) has
+   that slope rendered **non-significant** by R₅₀, and the tilt confound collapses (63.9→5.8, 41.5→0.4,
+   44.7→0.1, 17.4→7.1). This confirms the mufti 2925 result generalizes.
+
+2. **Near-focus regime (panos_lo, median HFR 2.1 px): R₅₀ HURTS.** At the extreme focuser position but
+   essentially in focus, the donut-tuned pipeline (ring-fit center + 1-px-binned curve of growth)
+   *introduces* a significant **negative** brightness slope (−1.55, t=−3.1) where legacy had almost
+   none (+0.23). Compact stars are quantization-limited at 1-px bins and have no hollow center for the
+   ring-fit to lock onto.
+
+3. **No-artifact frames (flydata): R₅₀ is ~neutral** — where legacy already showed no significant
+   brightness dependence, R₅₀ neither helps nor clearly hurts (small N).
+
+### Consequence for the design — size-gate, not just toggle-gate
+
+Finding 2 means gating on the `DefocusAwareDonutDetection` *toggle* alone is **insufficient**: a
+defocus-aware AF run still contains near-focus frames (and a single frame mixes compact and donut
+stars). The normalization must be **size-gated per star** — apply R₅₀ only to candidates above a donut
+size threshold (reuse the existing `DefocusDistortionSizeReference` ≈ 22.5 px "large candidate"
+notion), and **fall back to legacy HFR for compact stars**. This keeps the win in the donut regime
+without the panos_lo-style regression near focus. (Folded into design §8.1.)
 
 ## Reproduce
 
