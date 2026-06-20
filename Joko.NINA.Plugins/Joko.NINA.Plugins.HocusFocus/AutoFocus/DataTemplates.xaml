@@ -2819,6 +2819,62 @@
                                     </TextBlock.Style>
                                 </TextBlock>
                             </Grid>
+
+                            <!--  Precise numeric adjustments (turns / steps) — shown when adapter hardware is configured  -->
+                            <Grid
+                                Margin="5,8,5,0"
+                                Visibility="{Binding TiltGuidance.HasNumericGuidance, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="75" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <!--  Header  -->
+                                <TextBlock Grid.Row="0" Grid.Column="1" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 1" />
+                                <TextBlock Grid.Row="0" Grid.Column="2" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 2" />
+                                <TextBlock Grid.Row="0" Grid.Column="3" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 3" />
+                                <TextBlock Grid.Row="0" Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 4"
+                                    Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <!--  Tilt amounts  -->
+                                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Tilt" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw1TiltAmount}" />
+                                <TextBlock Grid.Row="1" Grid.Column="2" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw2TiltAmount}" />
+                                <TextBlock Grid.Row="1" Grid.Column="3" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw3TiltAmount}" />
+                                <TextBlock Grid.Row="1" Grid.Column="4" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw4TiltAmount}"
+                                    Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <!--  Backfocus amounts  -->
+                                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Backfocus" />
+                                <TextBlock Grid.Row="2" Grid.Column="1" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw1BackfocusAmount}" />
+                                <TextBlock Grid.Row="2" Grid.Column="2" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw2BackfocusAmount}" />
+                                <TextBlock Grid.Row="2" Grid.Column="3" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw3BackfocusAmount}" />
+                                <TextBlock Grid.Row="2" Grid.Column="4" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw4BackfocusAmount}"
+                                    Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <!--  Total  -->
+                                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="Total" />
+                                <TextBlock Grid.Row="3" Grid.Column="1" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw1TotalAmount}" />
+                                <TextBlock Grid.Row="3" Grid.Column="2" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw2TotalAmount}" />
+                                <TextBlock Grid.Row="3" Grid.Column="3" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw3TotalAmount}" />
+                                <TextBlock Grid.Row="3" Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw4TotalAmount}"
+                                    Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                            </Grid>
+
+                            <!--  Saved-vs-measured pitch mismatch warning  -->
+                            <Border
+                                Margin="5,6,5,0"
+                                Padding="5"
+                                BorderBrush="{StaticResource NotificationWarningBrush}"
+                                BorderThickness="1"
+                                Visibility="{Binding TiltGuidance.HasPitchMismatch, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <TextBlock Text="{Binding TiltGuidance.PitchMismatchWarning}" TextWrapping="Wrap" />
+                            </Border>
                         </StackPanel>
                     </StackPanel>
                 </Expander>

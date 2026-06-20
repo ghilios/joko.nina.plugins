@@ -72,6 +72,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private double allScrewsCurvatureReading;
         private CancellationTokenSource measureCts;
 
+        private double calibrationAppliedAmount = 1.0;
+        private double measuredHardwareMicrons = double.NaN;
+        private double calibrationPixelSizeMicrons;
+        private double calibrationFocuserStepMicrons;
+        private double calibrationScrewRadiusMm;
+
         private const double MeasurementConsistencyWarningThreshold = 0.02;
 
         [ImportingConstructor]
@@ -113,6 +119,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             UseSavedAFCommand = new AsyncRelayCommand(RunSavedMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring);
             CancelCommand = new RelayCommand(CancelMeasurement, () => IsMeasuring);
             RestartCommand = new RelayCommand(Restart);
+            UseMeasuredHardwareCommand = new RelayCommand(UseMeasuredHardware, () => HasMeasuredHardware);
 
             tiltAdapterOptions.PropertyChanged += (s, e) => {
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)) {
@@ -127,6 +134,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.MeasurementAverageCount)) {
                     RaisePropertyChanged(nameof(ShowRunColumn));
+                }
+                if (e.PropertyName == nameof(ITiltAdapterOptions.AdjustmentType) ||
+                    e.PropertyName == nameof(ITiltAdapterOptions.ThreadPitchMicrons) ||
+                    e.PropertyName == nameof(ITiltAdapterOptions.StepperStepSizeMicrons) ||
+                    e.PropertyName == nameof(ITiltAdapterOptions.ScrewRadiusMillimeters)) {
+                    RaisePropertyChanged(nameof(IsStepperAdjustment));
+                    RaisePropertyChanged(nameof(CalibrationAmountLabel));
+                    RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
+                    RaisePropertyChanged(nameof(AdjustmentType));
+                    RaisePropertyChanged(nameof(ThreadPitchMillimeters));
+                    RaisePropertyChanged(nameof(StepperStepSizeMicronsValue));
+                    RaisePropertyChanged(nameof(ScrewRadiusMillimetersValue));
+                    RaiseHardwareSummaryChanged();
                 }
             };
 
@@ -330,6 +350,89 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public ICommand UseSavedAFCommand { get; }
         public ICommand CancelCommand { get; }
         public ICommand RestartCommand { get; }
+        public ICommand UseMeasuredHardwareCommand { get; }
+
+        // Known amount the user moves each screw during the per-screw calibration steps (full turns
+        // for screws, steps for steppers). Defaults to 1.0 to match the "1 full turn" instructions.
+        public double CalibrationAppliedAmount {
+            get => calibrationAppliedAmount;
+            set {
+                if (calibrationAppliedAmount != value) {
+                    calibrationAppliedAmount = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
+                }
+            }
+        }
+
+        public bool IsStepperAdjustment => tiltAdapterOptions.AdjustmentType == TiltAdjustmentType.StepperMotors;
+
+        public string CalibrationAmountLabel => IsStepperAdjustment ? "Steps applied per screw" : "Turns applied per screw";
+
+        public bool HasMeasuredHardware => !double.IsNaN(measuredHardwareMicrons) && measuredHardwareMicrons > 0;
+
+        public string MeasuredHardwareDisplay =>
+            !HasMeasuredHardware ? "—"
+            : IsStepperAdjustment ? $"{measuredHardwareMicrons:0.###} µm/step"
+            : $"{measuredHardwareMicrons / 1000.0:0.####} mm/turn";
+
+        public string SavedHardwareDisplay {
+            get {
+                double saved = IsStepperAdjustment ? tiltAdapterOptions.StepperStepSizeMicrons : tiltAdapterOptions.ThreadPitchMicrons;
+                if (saved <= 0) return "not set";
+                return IsStepperAdjustment ? $"{saved:0.###} µm/step" : $"{saved / 1000.0:0.####} mm/turn";
+            }
+        }
+
+        public string HardwareDeltaDisplay {
+            get {
+                double saved = IsStepperAdjustment ? tiltAdapterOptions.StepperStepSizeMicrons : tiltAdapterOptions.ThreadPitchMicrons;
+                if (!HasMeasuredHardware || saved <= 0) return string.Empty;
+                double pct = (measuredHardwareMicrons - saved) / saved * 100.0;
+                return $"{pct:+0.#;-0.#;0}% vs saved";
+            }
+        }
+
+        public string CalibrationPixelSizeDisplay => calibrationPixelSizeMicrons > 0 ? $"{calibrationPixelSizeMicrons:0.##} µm" : "—";
+        public string CalibrationFocuserStepDisplay => calibrationFocuserStepMicrons > 0 ? $"{calibrationFocuserStepMicrons:0.###} µm" : "—";
+        public string CalibrationScrewRadiusDisplay => calibrationScrewRadiusMm > 0 ? $"{calibrationScrewRadiusMm:0.##} mm" : "not set";
+        public string CalibrationAppliedAmountDisplay => IsStepperAdjustment ? $"{calibrationAppliedAmount:0.##} steps" : $"{calibrationAppliedAmount:0.##} turns";
+
+        // Config-panel bindings. They wrap the persisted options, presenting thread pitch in mm and
+        // showing 0 for the unset (-1) sentinel so the textboxes read cleanly.
+        public TiltAdjustmentType AdjustmentType {
+            get => tiltAdapterOptions.AdjustmentType;
+            set {
+                if (tiltAdapterOptions.AdjustmentType != value) {
+                    tiltAdapterOptions.AdjustmentType = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public double ThreadPitchMillimeters {
+            get { var um = tiltAdapterOptions.ThreadPitchMicrons; return um > 0 ? um / 1000.0 : 0; }
+            set {
+                tiltAdapterOptions.ThreadPitchMicrons = value > 0 ? value * 1000.0 : -1;
+                RaisePropertyChanged();
+            }
+        }
+
+        public double StepperStepSizeMicronsValue {
+            get { var v = tiltAdapterOptions.StepperStepSizeMicrons; return v > 0 ? v : 0; }
+            set {
+                tiltAdapterOptions.StepperStepSizeMicrons = value > 0 ? value : -1;
+                RaisePropertyChanged();
+            }
+        }
+
+        public double ScrewRadiusMillimetersValue {
+            get { var v = tiltAdapterOptions.ScrewRadiusMillimeters; return v > 0 ? v : 0; }
+            set {
+                tiltAdapterOptions.ScrewRadiusMillimeters = value > 0 ? value : -1;
+                RaisePropertyChanged();
+            }
+        }
 
         private Task StartAsync() {
             StatusText = string.Empty;
@@ -684,6 +787,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             if (next == WizardStep.Complete) {
                 CalculateAndSaveAngles();
+                CalculateAndSaveHardware();
                 RebuildDiagram();
             }
 
@@ -702,11 +806,86 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             screw2Reading = default;
             baselineCurvatureReading = 0;
             allScrewsCurvatureReading = 0;
+            measuredHardwareMicrons = double.NaN;
+            RaiseHardwareSummaryChanged();
             StepMeasurementSummary.Clear();
             HasMeasurementConsistencyWarning = false;
             MeasurementConsistencyWarningText = string.Empty;
             StatusText = string.Empty;
             CurrentStep = WizardStep.Baseline;
+        }
+
+        private void UseMeasuredHardware() {
+            if (!HasMeasuredHardware) return;
+            if (IsStepperAdjustment) {
+                tiltAdapterOptions.StepperStepSizeMicrons = measuredHardwareMicrons;
+            } else {
+                tiltAdapterOptions.ThreadPitchMicrons = measuredHardwareMicrons;
+            }
+            RaiseHardwareSummaryChanged();
+        }
+
+        // Recover thread pitch (µm/turn) or stepper step size (µm/step) from the known per-screw
+        // calibration moves and the measured tilt-plane changes. Stored as the "last measured" value;
+        // the user can copy it into the active saved value via UseMeasuredHardwareCommand.
+        private void CalculateAndSaveHardware() {
+            measuredHardwareMicrons = double.NaN;
+            calibrationScrewRadiusMm = tiltAdapterOptions.ScrewRadiusMillimeters;
+
+            var model = inspector.TiltModel?.TiltPlaneModel;
+            if (model == null) { RaiseHardwareSummaryChanged(); return; }
+
+            double pixelSize = profileService.ActiveProfile.CameraSettings.PixelSize;
+            double fStep = model.FocuserStepSizeMicrons;
+            if (double.IsNaN(fStep) || fStep <= 0) fStep = focuserInfo.StepSize;
+            calibrationPixelSizeMicrons = pixelSize;
+            calibrationFocuserStepMicrons = fStep;
+
+            double radiusMm = tiltAdapterOptions.ScrewRadiusMillimeters;
+            double applied = calibrationAppliedAmount;
+            double sensorW = model.ImageSize.Width * pixelSize;
+            double sensorH = model.ImageSize.Height * pixelSize;
+            if (radiusMm <= 0 || applied <= 0 || pixelSize <= 0 || fStep <= 0 || sensorW <= 0 || sensorH <= 0) {
+                RaiseHardwareSummaryChanged();
+                return;
+            }
+
+            double radiusMicrons = radiusMm * 1000.0;
+            int n = tiltAdapterOptions.ScrewCount;
+
+            double d1A = screw1Reading.A - baselineReading.A;
+            double d1B = screw1Reading.B - baselineReading.B;
+            double d2A = screw2Reading.A - baselineReading.A;
+            double d2B = screw2Reading.B - baselineReading.B;
+
+            var (g1x, g1y) = TiltScrewGeometry.PlaneGradientToPhysical(d1A, d1B, fStep, sensorW, sensorH);
+            var (g2x, g2y) = TiltScrewGeometry.PlaneGradientToPhysical(d2A, d2B, fStep, sensorW, sensorH);
+            double delta1 = TiltScrewGeometry.CalibrationAxialMoveMicrons(g1x, g1y, n, radiusMicrons);
+            double delta2 = TiltScrewGeometry.CalibrationAxialMoveMicrons(g2x, g2y, n, radiusMicrons);
+
+            double measured = 0.5 * (delta1 + delta2) / applied;
+            if (double.IsNaN(measured) || measured <= 0) { RaiseHardwareSummaryChanged(); return; }
+
+            measuredHardwareMicrons = measured;
+            if (IsStepperAdjustment) {
+                tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = measured;
+            } else {
+                tiltAdapterOptions.LastMeasuredThreadPitchMicrons = measured;
+            }
+
+            RaiseHardwareSummaryChanged();
+        }
+
+        private void RaiseHardwareSummaryChanged() {
+            RaisePropertyChanged(nameof(HasMeasuredHardware));
+            RaisePropertyChanged(nameof(MeasuredHardwareDisplay));
+            RaisePropertyChanged(nameof(SavedHardwareDisplay));
+            RaisePropertyChanged(nameof(HardwareDeltaDisplay));
+            RaisePropertyChanged(nameof(CalibrationPixelSizeDisplay));
+            RaisePropertyChanged(nameof(CalibrationFocuserStepDisplay));
+            RaisePropertyChanged(nameof(CalibrationScrewRadiusDisplay));
+            RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
+            ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
         }
 
         private void CalculateAndSaveCurvatureSign() {
@@ -817,6 +996,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ((AsyncRelayCommand)RunMeasurementCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)UseSavedAFCommand).NotifyCanExecuteChanged();
             ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
+            ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
         }
 
         private static double NormalizeAngle(double deg) => ((deg % 360) + 360) % 360;

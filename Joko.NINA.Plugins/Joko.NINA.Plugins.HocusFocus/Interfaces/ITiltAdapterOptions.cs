@@ -14,6 +14,11 @@ using System.ComponentModel;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
+    public enum TiltAdjustmentType {
+        Screws = 0,
+        StepperMotors = 1
+    }
+
     public interface ITiltAdapterOptions : INotifyPropertyChanged {
         int ScrewCount { get; set; }             // 3 or 4
         bool IsCalibrated { get; set; }
@@ -24,5 +29,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         int CalibratedScrewCount { get; set; }      // screw count at time of last calibration; 0 = never calibrated
         int MeasurementAverageCount { get; set; }
         int ScrewInwardCurvatureSign { get; set; } // +1 or -1; 0 = not yet calibrated
+
+        // Physical adapter hardware model, used to convert focus deviation into absolute
+        // screw turns (or stepper steps). -1 = unset.
+        TiltAdjustmentType AdjustmentType { get; set; }      // screws vs stepper motors
+        double ThreadPitchMicrons { get; set; }              // axial microns per full screw turn
+        double StepperStepSizeMicrons { get; set; }          // axial microns per stepper step
+        double ScrewRadiusMillimeters { get; set; }          // screw distance from sensor center
+
+        // Last value the wizard measured from a calibration run; compared against the saved
+        // value above to warn when they diverge. -1 = none measured yet.
+        double LastMeasuredThreadPitchMicrons { get; set; }
+        double LastMeasuredStepperStepSizeMicrons { get; set; }
     }
 }
