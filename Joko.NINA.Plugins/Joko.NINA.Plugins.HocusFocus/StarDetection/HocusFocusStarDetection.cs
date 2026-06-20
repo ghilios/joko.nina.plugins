@@ -157,6 +157,46 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
         }
+
+        private double regularHFR = double.NaN;
+
+        public double RegularHFR {
+            get => regularHFR;
+            set {
+                regularHFR = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double regularHFRStdDev = double.NaN;
+
+        public double RegularHFRStdDev {
+            get => regularHFRStdDev;
+            set {
+                regularHFRStdDev = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double normalizedHFR = double.NaN;
+
+        public double NormalizedHFR {
+            get => normalizedHFR;
+            set {
+                normalizedHFR = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private double normalizedHFRStdDev = double.NaN;
+
+        public double NormalizedHFRStdDev {
+            get => normalizedHFRStdDev;
+            set {
+                normalizedHFRStdDev = value;
+                RaisePropertyChanged();
+            }
+        }
     }
 
     public class DebugData {
@@ -202,6 +242,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double PixelSize { get; set; } = double.NaN;
         public double PixelScale { get; set; } = double.NaN;
         public MeasurementAverageEnum MeasurementAverage { get; set; } = MeasurementAverageEnum.Median;
+        public double RegularAverageHFR { get; set; } = double.NaN;
+        public double RegularHFRStdDev { get; set; } = double.NaN;
+        public double NormalizedAverageHFR { get; set; } = double.NaN;
+        public double NormalizedHFRStdDev { get; set; } = double.NaN;
     }
 
     public class HocusFocusDetectedStar : DetectedStar {
@@ -628,6 +672,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                     Logger.Info($"Average HFR: {result.AverageHFR}, HFR MAD: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result?.Region.Index ?? 0}");
                 }
+
+                // Always expose both regular (legacy HFR) and normalized aggregates for the stats display.
+                if (this.starDetectionOptions.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
+                    result.RegularAverageHFR = starList.Average(s => s.HFR);
+                    result.RegularHFRStdDev = Math.Sqrt(starList.Sum(s => (s.HFR - result.RegularAverageHFR) * (s.HFR - result.RegularAverageHFR)) / (starList.Count - 1));
+                    result.NormalizedAverageHFR = starList.Average(s => s.NormalizedHFR);
+                    result.NormalizedHFRStdDev = Math.Sqrt(starList.Sum(s => (s.NormalizedHFR - result.NormalizedAverageHFR) * (s.NormalizedHFR - result.NormalizedAverageHFR)) / (starList.Count - 1));
+                } else {
+                    var (regMed, regMad) = starList.Select(s => s.HFR).MedianMAD();
+                    result.RegularAverageHFR = regMed;
+                    result.RegularHFRStdDev = regMad;
+                    var (normMed, normMad) = starList.Select(s => s.NormalizedHFR).MedianMAD();
+                    result.NormalizedAverageHFR = normMed;
+                    result.NormalizedHFRStdDev = normMad;
+                }
             }
             result.DebugData = starDetectorResult.DebugData;
             result.Metrics = starDetectorResult.Metrics;
@@ -666,6 +725,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var hocusFocusResult = (HocusFocusStarDetectionResult)result;
             hocusFocusAnalysis.HFR = result.AverageHFR;
             hocusFocusAnalysis.HFRStDev = result.HFRStdDev;
+            hocusFocusAnalysis.RegularHFR = hocusFocusResult.RegularAverageHFR;
+            hocusFocusAnalysis.RegularHFRStdDev = hocusFocusResult.RegularHFRStdDev;
+            hocusFocusAnalysis.NormalizedHFR = hocusFocusResult.NormalizedAverageHFR;
+            hocusFocusAnalysis.NormalizedHFRStdDev = hocusFocusResult.NormalizedHFRStdDev;
             hocusFocusAnalysis.DetectedStars = result.DetectedStars;
             hocusFocusAnalysis.Metrics = hocusFocusResult.Metrics;
             hocusFocusAnalysis.PSFType = hocusFocusResult.PSFType;
