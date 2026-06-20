@@ -260,6 +260,11 @@ namespace TestApp {
             public bool PsfFitOk = false;
             public double NearestNeighborDist = double.NaN;
             public double NearestNeighborOverHfr = double.NaN;
+            // Brightness + footprint, for the donut HFR-vs-brightness analysis.
+            public double PeakBrightness = double.NaN;
+            public double MeanBrightness = double.NaN;
+            public double BBoxW = double.NaN;
+            public double BBoxH = double.NaN;
             public bool HasCloseNeighbor =>
                 !double.IsNaN(NearestNeighborOverHfr) && NearestNeighborOverHfr < CloseNeighborHfrFactor;
         }
@@ -303,6 +308,10 @@ namespace TestApp {
                 var info = new ShapeInfo();
                 var key = CenterKey(r.CenterX, r.CenterY);
                 if (byCenter.TryGetValue(key, out var star)) {
+                    info.PeakBrightness = star.PeakBrightness;
+                    info.MeanBrightness = star.MeanBrightness;
+                    info.BBoxW = star.StarBoundingBox.Width;
+                    info.BBoxH = star.StarBoundingBox.Height;
                     if (star.PSF != null) {
                         info.PsfFitOk = true;
                         info.Eccentricity = star.PSF.Eccentricity;
@@ -346,6 +355,10 @@ namespace TestApp {
             header.Add("NearestNeighborOverHfr");
             header.Add("HasCloseNeighbor");
             header.Add("PsfFitOk");
+            header.Add("PeakBrightness");
+            header.Add("MeanBrightness");
+            header.Add("BBoxW");
+            header.Add("BBoxH");
             sb.AppendLine(string.Join(",", header));
 
             foreach (var r in diagnostics) {
@@ -366,6 +379,10 @@ namespace TestApp {
                 row.Add(F(info.NearestNeighborOverHfr));
                 row.Add(info.HasCloseNeighbor ? "1" : "0");
                 row.Add(info.PsfFitOk ? "1" : "0");
+                row.Add(F(info.PeakBrightness));
+                row.Add(F(info.MeanBrightness));
+                row.Add(F(info.BBoxW));
+                row.Add(F(info.BBoxH));
                 sb.AppendLine(string.Join(",", row));
             }
             File.WriteAllText(path, sb.ToString());
