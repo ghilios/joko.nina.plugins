@@ -278,6 +278,30 @@ These need radial profiles the current CSV lacks; extend `TestApp` to dump per-s
 - Jarvis et al. 2016 (size–magnitude stellar locus); Azevedo et al. 2025 (spatial confounding bias).
 - Tokovinin 2021 MNRAS 502, 794 (defocused-ring geometry).
 
+## 12.5 User-facing controls & display (implemented)
+
+Added on top of the core metric so users can control and see the normalization:
+
+- **`StarDetectionOptions.UseNormalizedHFR`** (bool, **default true**; Advanced + donut-detection-gated
+  CheckBox in `OptionsDataTemplates.xaml`). It is the standalone use-gate:
+  `NormalizeDonutSize = DefocusAwareDonutDetection && UseNormalizedHFR`. Default-true makes the gate
+  identical to the prior `= DefocusAwareDonutDetection` (so default behavior is unchanged and
+  bit-identical when donut detection is off); turning it off reverts to legacy HFR even with donut
+  detection on. R₅₀ is only *computed* when this gate is on (no perf cost otherwise).
+- **Annotator**: new `ShowAnnotationTypeEnum.NormalizedHFR` member + render branch in
+  `HocusFocusStarAnnotator` (falls back to legacy HFR for non-HocusFocus stars). Auto-appears in the
+  annotator's property combo.
+- **Star statistics panel** (`AutoFocus/DataTemplates.xaml`): shows **both** a *regular* HFR row
+  (avg±dev over `s.HFR`) and a *Norm HFR* row (over `s.NormalizedHFR`). Frame-level
+  `RegularAverageHFR`/`RegularHFRStdDev` and `NormalizedAverageHFR`/`NormalizedHFRStdDev` are exposed
+  on the result + analysis; the primary `AverageHFR`/`HFRStdDev` (used by AF) are unchanged. The Norm
+  row is hidden (`NormalizedHFRApplied = NormalizeDonutSize`) unless normalization was actually applied,
+  so default users don't see a duplicate row.
+- **Optimization-wizard labeler**: the displayed value already follows the config (it reads
+  `NormalizedHFR`, which `== HFR` when the gate is off); the corner caption reads **"Norm HFR"** vs
+  **"HFR"** based on the *review's* detector params (`NormalizeDonutSize`), not live options, so it
+  cannot mislabel raw values as normalized.
+
 ## 12. Tooling note
 
 A small diagnostic-only change was made to extract the §1.1 data: `TestApp`'s
