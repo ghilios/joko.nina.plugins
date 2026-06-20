@@ -133,8 +133,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                     return StarReviewImaging.BuildStretchedBitmap(srcFloat);
                 }),
                 // Each accepted star's REAL StarBoundingBox so the overlay draws actual-size boxes and the
-                // should-reject click records the actual bounds.
-                Accepted = accepted.Select(s => (s.Center.X, s.Center.Y, s.HFR, s.StarBoundingBox)).ToList(),
+                // should-reject click records the actual bounds. The corner stats + per-star outlier coloring read
+                // the brightness-independent NormalizedHFR (== legacy HFR when the donut toggle is off, so the overlay
+                // is bit-identical for non-donut runs), matching the per-frame HFR aggregation in HocusFocusStarDetection.
+                Accepted = accepted.Select(s => (s.Center.X, s.Center.Y, s.NormalizedHFR, s.StarBoundingBox)).ToList(),
                 Rejected = ExtractRejected(result),
                 RejectedCandidates = result.RejectedCandidates ?? new List<RejectedCandidateRecord>(),
             };

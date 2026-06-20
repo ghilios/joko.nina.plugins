@@ -44,7 +44,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public Func<Task<BitmapSource>> ImageProvider { get; set; }
 
         /// <summary>Accepted stars: the detector's real bounding box + its center (used for click hit-tests, the
-        /// should-reject label box, and the overlay) + HFR.</summary>
+        /// should-reject label box, and the overlay) + HFR. The HFR element carries the brightness-independent
+        /// <c>NormalizedHFR</c> (== legacy HFR unless the donut toggle is on), so the corner stats + per-star outlier
+        /// coloring stay consistent with the detector's per-frame HFR aggregation.</summary>
         public List<(double CX, double CY, double HFR, Rect Bounds)> Accepted { get; set; } = new();
         public List<(string Reason, Rect Bounds)> Rejected { get; set; } = new();
 
