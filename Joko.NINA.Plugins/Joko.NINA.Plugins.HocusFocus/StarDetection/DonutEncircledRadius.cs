@@ -38,13 +38,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return sw > 0 ? (sx / sw, sy / sw) : (cx0, cy0);
         }
 
+        /// <summary>
+        /// Preconditions: <paramref name="maxRadius"/> &gt; 0 and <paramref name="frac"/> ∈ (0,1).
+        /// </summary>
         public static Result Measure(Mat img, double cx, double cy, LocalBackgroundPlane plane,
                 double scalarBg, double noiseSigma, double maxRadius, double frac) {
+            if (!(frac > 0.0 && frac < 1.0)) throw new System.ArgumentOutOfRangeException(nameof(frac), "frac must be in (0,1)");
             double re = RadiusFromBins(ScanAnnular(img, cx, cy, plane, scalarBg, maxRadius, 0.0), noiseSigma, maxRadius, frac, out double total, out double convR);
             // Background-σ-propagated uncertainty: half the ±0.1σ plane-perturbation spread (design §6).
-            double rePlus = RadiusFromBins(ScanAnnular(img, cx, cy, plane, scalarBg, maxRadius, 0.1 * noiseSigma), noiseSigma, maxRadius, frac, out _, out _);
-            double reMinus = RadiusFromBins(ScanAnnular(img, cx, cy, plane, scalarBg, maxRadius, -0.1 * noiseSigma), noiseSigma, maxRadius, frac, out _, out _);
-            double sd = (double.IsNaN(rePlus) || double.IsNaN(reMinus)) ? double.NaN : Math.Abs(rePlus - reMinus) / 2.0;
+            // When noise is unavailable (noiseSigma <= 0) the perturbation is zero, so StdDev is reported as NaN per the Result contract.
+            double sd;
+            if (noiseSigma > 0) {
+                double rePlus = RadiusFromBins(ScanAnnular(img, cx, cy, plane, scalarBg, maxRadius, 0.1 * noiseSigma), noiseSigma, maxRadius, frac, out _, out _);
+                double reMinus = RadiusFromBins(ScanAnnular(img, cx, cy, plane, scalarBg, maxRadius, -0.1 * noiseSigma), noiseSigma, maxRadius, frac, out _, out _);
+                sd = (double.IsNaN(rePlus) || double.IsNaN(reMinus)) ? double.NaN : Math.Abs(rePlus - reMinus) / 2.0;
+            } else {
+                sd = double.NaN;
+            }
             return new Result(re, sd, total, convR);
         }
 

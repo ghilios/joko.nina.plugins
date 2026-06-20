@@ -31,5 +31,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             var bright = Re(5.0);   // 100× brighter
             Assert.That(System.Math.Abs(bright - faint), Is.LessThan(0.6)); // px (validated regime ~0.35 px/dex)
         }
+
+        // No flux above background in the integration window ⇒ total ≤ 0 ⇒ Radius is NaN (graceful, not 0 / not an exception).
+        // The image is pure background; the subtracted background plane sits slightly above it, so every
+        // background-subtracted pixel is non-positive ⇒ total < 0 ⇒ the !(total > 0) NaN path is exercised.
+        [Test]
+        public void Measure_AllBackgroundImage_ReturnsNaN() {
+            using var img = SyntheticDefocusedStarImage.CreateDisk(80, 80, 40, 40, radius: 0.0, peak: 0.0, background: 0.05);
+            var plane = LocalBackgroundPlane.Flat(40, 40, 0.06);
+            var re = DonutEncircledRadius.Measure(img, 40, 40, plane, 0.06, noiseSigma: 1e-4, maxRadius: 30, frac: 0.5).Radius;
+            Assert.That(double.IsNaN(re), Is.True);
+        }
     }
 }
