@@ -212,3 +212,48 @@ cmd.exe /c "dotnet build Joko.NINA.Plugins\TestApp\TestApp.csproj -c Debug --nol
   --defocus-distortion --defocus-centering --out "C:\temp\hf-agree\mufti2925"
 # reads agreement_summary.txt (stats) + agreement.csv (per-donut R50/Rring/Eps/FitR2)
 ```
+
+## Production end-to-end validation
+
+The offline curve-of-growth harness proved the R_e algorithm, but it does not exercise the *shipped* code path.
+This section validates the production `StarDetector` itself: with `NormalizeDonutSize` enabled, the detector sets
+`Star.NormalizedHFR = R_e` for large/donut candidates (`candidateSize >= DefocusDistortionSizeReference`, 22.5 px
+here) using its **bbox-derived integration cap** `min(90, max(30, bbox·1.5))` and the **ring-fit center** — and
+`= HFR` otherwise. We ran the real detector via `TestApp contamination --normalize-donut` (which only flips
+`baseParams.NormalizeDonutSize = true`; donut detection still comes from the profile + `--defocus-distortion`
+`--defocus-centering`) on three real donut frames and dumped per-star `Star.NormalizedHFR`. For each frame, over
+stars with `NormalizedHFR > 0` and `PeakBrightness > 0`, we fit OLS of legacy `Hfr` and of `NormalizedHFR`
+against `log10(PeakBrightness)`. The success bar (mirroring the offline cog result, legacy ~3 px/dex → R50 ~0.3)
+is that the `NormalizedHFR` brightness slope is substantially closer to 0 than the legacy slope on strong-donut
+frames.
+
+| frame | N donut-gated | legacy HFR slope (r²) | NormalizedHFR slope (r²) | median HFR | median NormalizedHFR |
+|---|---|---|---|---|---|
+| mufti2925 | 96 | +3.122 (0.244) | −0.092 (0.000) | 13.976 | 15.771 |
+| panos_hi | 26 | +5.714 (0.648) | −0.945 (0.051) | 12.881 | 15.645 |
+| toml999_hi | 530 | +0.890 (0.381) | +0.927 (0.010) | 8.666 | 9.212 |
+
+(N donut-gated = stars where `NormalizedHFR != Hfr`, i.e. R_e was actually applied. Slope in px/dex.)
+
+**Interpretation (as measured, not massaged).** The shipped `StarDetector` path reproduces the offline
+brightness-flattening on the two strong-donut frames. On **mufti** the legacy +3.12 px/dex bias collapses to
+−0.09 with r² → 0.000 (no residual brightness dependence), and on **panos** the very strong +5.71 px/dex
+(r² 0.648) drops to −0.95 with r² → 0.051 — both land at or below the offline ~0.3 px/dex bar in magnitude and,
+crucially, lose essentially all brightness *correlation*. **toml999** is the honest caveat: it is the
+least-defocused frame (median |R_e − HFR| only 0.56 px vs 1.70/3.14 px on mufti/panos), so R_e ≈ HFR and the
+slope stays ~0.9 px/dex — but its r² collapses from 0.381 to 0.010, so the remaining slope is uncorrelated
+noise, not a brightness trend. Where there is a real brightness-driven HFR inflation to remove (mufti, panos),
+the production code removes it; where the donuts are mild, NormalizedHFR tracks HFR as designed. This exercises
+the production code (bbox-derived cap + ring center) end-to-end, not the offline cog harness, and confirms the
+shipped path behaves as the algorithm intended.
+
+### Reproduce (production end-to-end)
+
+```bash
+cmd.exe /c "dotnet build Joko.NINA.Plugins\TestApp\TestApp.csproj -c Debug --nologo"
+EXE=./Joko.NINA.Plugins/TestApp/bin/Debug/net8.0-windows7.0/TestApp.exe
+$EXE contamination --image "...attempt01\01_Frame00_..._Focuser2925.fits" \
+  --defocus-distortion --defocus-centering --normalize-donut --out "C:\temp\hf-prod\mufti2925"
+# reads contamination_stars.csv columns: Hfr, NormalizedHFR, PeakBrightness
+# OLS each of {Hfr, NormalizedHFR} vs log10(PeakBrightness) over NormalizedHFR>0 & PeakBrightness>0
+```

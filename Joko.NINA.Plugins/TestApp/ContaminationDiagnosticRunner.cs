@@ -167,6 +167,17 @@ namespace TestApp {
                 Console.WriteLine("DefocusAwareCentering=OFF");
             }
 
+            // Opt-in donut HFR normalization switch. Turns on the production NormalizeDonutSize path in StarDetector,
+            // which sets Star.NormalizedHFR = R_e (curve-of-growth effective radius) for large/donut candidates
+            // (candidateSize >= DefocusDistortionSizeReference) and = HFR otherwise. Validates the brightness-flat
+            // NormalizedHFR on real donut frames. Donut DETECTION still comes from the profile + --defocus-* flags.
+            if (DiagnosticUtil.HasFlag(args, "--normalize-donut")) {
+                baseParams.NormalizeDonutSize = true;
+                Console.WriteLine($"NormalizeDonutSize=ON (SizeReference={baseParams.DefocusDistortionSizeReference.ToString(CultureInfo.InvariantCulture)} px)");
+            } else {
+                Console.WriteLine("NormalizeDonutSize=OFF");
+            }
+
             // Load the original image once (CV_32F, normalized [0,1]). Detection mutates its input in place,
             // so each run gets a clone and the original is kept for the annotated background.
             using var srcFloat = await DiagnosticUtil.LoadFloatMat(imagePath, profileService);
@@ -266,6 +277,9 @@ namespace TestApp {
             public double MeanBrightness = double.NaN;
             public double BBoxW = double.NaN;
             public double BBoxH = double.NaN;
+            // Production donut-normalized HFR (== legacy HFR unless NormalizeDonutSize is on and the candidate
+            // is large/donut-sized, in which case it is the curve-of-growth R_e).
+            public double NormalizedHFR = double.NaN;
             public bool HasCloseNeighbor =>
                 !double.IsNaN(NearestNeighborOverHfr) && NearestNeighborOverHfr < CloseNeighborHfrFactor;
         }
@@ -311,6 +325,7 @@ namespace TestApp {
                 if (byCenter.TryGetValue(key, out var star)) {
                     info.PeakBrightness = star.PeakBrightness;
                     info.MeanBrightness = star.MeanBrightness;
+                    info.NormalizedHFR = star.NormalizedHFR;
                     info.BBoxW = star.StarBoundingBox.Width;
                     info.BBoxH = star.StarBoundingBox.Height;
                     if (star.PSF != null) {
@@ -481,6 +496,7 @@ namespace TestApp {
             header.Add("PsfFitOk");
             header.Add("PeakBrightness");
             header.Add("MeanBrightness");
+            header.Add("NormalizedHFR");
             header.Add("BBoxW");
             header.Add("BBoxH");
             sb.AppendLine(string.Join(",", header));
@@ -505,6 +521,7 @@ namespace TestApp {
                 row.Add(info.PsfFitOk ? "1" : "0");
                 row.Add(F(info.PeakBrightness));
                 row.Add(F(info.MeanBrightness));
+                row.Add(F(info.NormalizedHFR));
                 row.Add(F(info.BBoxW));
                 row.Add(F(info.BBoxH));
                 sb.AppendLine(string.Join(",", row));
