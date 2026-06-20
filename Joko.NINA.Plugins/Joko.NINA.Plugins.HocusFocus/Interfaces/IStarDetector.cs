@@ -366,6 +366,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // the early morph-close): listed in StarDetector.EarlyCacheKeyProperties.
         public bool DefocusAwareDonutDetection { get; set; } = false;
 
+        // When true (mapped from StarDetectionOptions.DefocusAwareDonutDetection), compute a brightness-independent
+        // encircled-flux radius (R_e) for LARGE/donut candidates (bbox max-dim >= DefocusDistortionSizeReference) and
+        // expose it on Star.NormalizedHFR. Compact stars and the OFF state keep NormalizedHFR == HFR ⇒ bit-identical.
+        public bool NormalizeDonutSize { get; set; } = false;
+
         // EARLY donut-recovery knob (only when DefocusAwareDonutDetection is true). Ellipse kernel DIAMETER (px) for
         // the morphological CLOSE of the binarized structure map applied before candidate collection, reconnecting
         // fragmented donut-ring arcs into one candidate (fixes TooSmall fragmentation). <= 1 ⇒ no close. EARLY param
@@ -615,6 +620,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double MeanBrightness { get; set; }
         public double PeakBrightness { get; set; }
         public double HFR { get; set; }
+
+        /// <summary>
+        /// Brightness-independent size used by donut-aware aggregation and the sensor model. Equals a true
+        /// encircled-flux radius (DonutEncircledRadius) for large/donut candidates when
+        /// <see cref="StarDetectorParams.NormalizeDonutSize"/> is on; otherwise equals <see cref="HFR"/>
+        /// verbatim (so aggregates are bit-identical when the donut master is off or the star is compact).
+        /// </summary>
+        public double NormalizedHFR { get; set; }
+
+        /// <summary>Background-σ-propagated uncertainty of <see cref="NormalizedHFR"/> (px); NaN when not a donut measurement.</summary>
+        public double NormalizedHFRStdDev { get; set; } = double.NaN;
+
         public PSFModel PSF { get; set; }
 
         /// <summary>

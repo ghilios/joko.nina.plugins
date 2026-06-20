@@ -314,6 +314,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             return mat;
         }
 
+        // A single large defocused disk (bbox d ≈ 36px). Filled (no central hole) so the encircled-flux
+        // curve-of-growth is monotonic and DonutEncircledRadius returns a finite R_e through the full detector at
+        // realistic noise. Comfortably above the 20px size reference used by the R_e gate.
+        private static Mat BuildLargeDefocusedDiskField() {
+            const int w = 128, h = 128;
+            var mat = SyntheticDefocusedStarImage.CreateDisk(
+                w, h, centerX: 64, centerY: 64, radius: 14.0, peak: 0.7, background: 0.05, edgeBlurSigma: 1.0);
+            SyntheticDefocusedStarImage.AddGaussianNoise(mat, sigma: 0.002, seed: 4242);
+            return mat;
+        }
+
         [Test]
         public async Task RelaxationAdmittedCount_NearFocusSmallStars_ZeroAndCountsIdenticalOnVsOff() {
             // CRITICAL bit-identity: for a NEAR-FOCUS field of small, well-formed stars the defocus relaxation
@@ -361,6 +372,63 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     "every donut admitted only by relaxation is flagged + counted");
                 Assert.That(resultOn.DetectedStars.TrueForAll(s => s.RelaxationAdmitted), Is.True,
                     "the admitted donut(s) carry the RelaxationAdmitted flag");
+            });
+        }
+
+        // -----------------------------------------------------------------------
+        // NormalizedHFR (donut R_e size normalization) — end-to-end detection
+        // -----------------------------------------------------------------------
+
+        [Test]
+        public async Task NormalizedHFR_Off_EqualsLegacyHFR_ForEveryStar_BitIdentical() {
+            // CRITICAL invariant: with the donut master OFF, NormalizedHFR must equal the legacy flux-weighted HFR
+            // for every detected star (so all downstream aggregates are bit-identical to today).
+            var p = StarDetectorEquivalence.StandardParams();
+            // Defaults already leave the donut master + NormalizeDonutSize off; assert that explicitly here.
+            Assert.That(p.NormalizeDonutSize, Is.False, "the standard params must keep NormalizeDonutSize OFF");
+
+            using var field = StarDetectorEquivalence.BuildSmallField();
+            var result = await StarDetectorEquivalence.RunDetect(field, p);
+
+            Assert.That(result.DetectedStars.Count, Is.GreaterThan(0), "the synthetic field must detect at least one star");
+            Assert.Multiple(() => {
+                foreach (var s in result.DetectedStars) {
+                    Assert.That(s.NormalizedHFR, Is.EqualTo(s.HFR),
+                        "NormalizedHFR must equal legacy HFR byte-for-byte when the donut size-normalization is OFF");
+                }
+            });
+        }
+
+        [Test]
+        public async Task NormalizedHFR_On_LargeDefocusedStar_UsesEncircledRadius_DistinctFromLegacyHFR() {
+            // With the donut master ON, a large defocused candidate (bbox max-dim well above
+            // DefocusDistortionSizeReference) gets a brightness-independent encircled-flux radius (R_e) on
+            // NormalizedHFR. For a uniform defocused disk the flux-weighted-mean HFR (~2R/3) and the 50%
+            // encircled radius (~R/√2) differ, so NormalizedHFR must be set, > 0, and != HFR.
+            //
+            // NOTE: a large, defocused FILLED disk is used rather than a razor-sharp empty annulus on purpose.
+            // A sharp hollow ring's encircled-flux curve-of-growth dips below the noise floor inside the hole,
+            // so DonutEncircledRadius aborts early and returns NaN at realistic detector noise (it falls back to
+            // HFR — the documented graceful path; see DonutEncircledRadiusTests). A defocused disk has the
+            // monotonic curve-of-growth that R_e is designed for, and is a faithful large/donut candidate.
+            var p = DonutDetectParams(defocusAware: true);
+            p.NormalizeDonutSize = true;
+            // size reference 20 ⇒ the ~36px defocused disk qualifies as a large candidate.
+            p.DefocusDistortionSizeReference = 20.0;
+
+            using var field = BuildLargeDefocusedDiskField();
+            var result = await StarDetectorEquivalence.RunDetect(field, p);
+
+            Assert.That(result.DetectedStars.Count, Is.GreaterThanOrEqualTo(1), "the large defocused disk must be detected with the gates ON");
+            Assert.Multiple(() => {
+                foreach (var s in result.DetectedStars) {
+                    Assert.That(Math.Max(s.StarBoundingBox.Width, s.StarBoundingBox.Height),
+                        Is.GreaterThanOrEqualTo(p.DefocusDistortionSizeReference),
+                        "the candidate must exceed the size reference so the R_e path is taken");
+                    Assert.That(s.NormalizedHFR, Is.GreaterThan(0.0), "R_e must be a positive size");
+                    Assert.That(s.NormalizedHFR, Is.Not.EqualTo(s.HFR),
+                        "the encircled radius differs from the flux-weighted mean HFR for a defocused disk");
+                }
             });
         }
 
