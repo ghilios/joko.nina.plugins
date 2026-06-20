@@ -3,9 +3,15 @@
 **Date:** 2026-06-19
 **Branch:** `ghilios/donut-hfr-normalization`
 **Design:** [`donut-hfr-normalization-design.md`](donut-hfr-normalization-design.md)
-**Status:** Empirical proof of Approach A (curve-of-growth `R_e`) on real data — **target met on the
-mufti frame and replicated across 4 more setups** (§ Multi-setup validation). Key refinement from the
-multi-setup run: the metric must be **size-gated per star** (donut regime only), not just toggle-gated.
+**Status:** ❌ **Approach SHELVED — code reverted** (decision 2026-06-20; see the design doc §0
+Conclusion). These are the factual measurements from the attempt, kept as a record. R₅₀ removed the
+brightness *slope* but added too much per-frame *variance* (CV 18.6 % → 21.4 %), so it did not deliver
+*more robust* out-of-focus measurement. The "target met" framing below refers only to the narrow
+brightness-slope metric, not the overall goal.
+
+_Original status (historical):_ Empirical proof of Approach A (curve-of-growth `R_e`) on real data —
+target met on the mufti frame and replicated across 4 more setups (§ Multi-setup validation); the
+metric must be size-gated per star (donut regime only), not just toggle-gated.
 
 ## Setup
 

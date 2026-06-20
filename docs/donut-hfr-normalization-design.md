@@ -1,12 +1,51 @@
 # Brightness-Independent Donut Size for HFR Consistency & Sensor Modeling — Design
 
-**Date:** 2026-06-19
-**Status:** Design (approved direction; production path A + complement C, gated to defocus-aware runs;
-B implemented in `TestApp` as an offline validation oracle for A+C).
-**Approach A empirically validated** on the mufti 2925 frame — see
-[`donut-hfr-normalization-results.md`](donut-hfr-normalization-results.md) (brightness slope
-3.12 → 0.35 px/dex, no longer significant; tilt confound 29.2 → 1.1 R² pts).
+**Date:** 2026-06-19 (decision updated 2026-06-20)
+**Status:** ❌ **SHELVED — not adopted.** The approach was fully implemented and validated, then the
+code was **reverted**; only this design + the [`results`](donut-hfr-normalization-results.md) remain as
+a record of the attempt. R₅₀ did remove the brightness *slope* (3.12 → 0.35 px/dex; tilt confound
+29.2 → 1.1 R² pts), **but it added too much per-frame measurement variance** and did not deliver the
+real goal — *more robust* out-of-focus star measurement. See **§0 Conclusion** below.
 **Author:** George Hilios (with Claude)
+
+---
+
+## 0. Conclusion / Decision (2026-06-20) — shelved
+
+**Decision: do not adopt R₅₀ (the curve-of-growth encircled-flux radius). The implementation was
+reverted; this document and the results are kept for reference in case the problem is revisited.**
+
+The goal was **more robust measurement of out-of-focus (donut) stars**. R₅₀ succeeded on the *narrow*
+metric it was designed for — it removed the brightness-dependent *bias* (the slope of size vs
+brightness went from a significant 3.12 px/dex to a non-significant 0.35, and the tilt-fit brightness
+confound collapsed). But it failed the actual objective for these reasons:
+
+1. **It increased per-frame measurement variance.** The single-frame robust spread *rose* with R₅₀
+   (CV 18.6 % → 21.4 %; the on-screen "Norm HFR MAD" read higher than "HFR MAD", e.g. 2.78 → 3.02 on
+   the mufti 2925 frame). Trading a removable bias for *more scatter* is the opposite of "more
+   robust," and the extra variance was the dealbreaker.
+2. **Heavy-tailed outliers.** R₅₀ had a tight core but a fat tail (its non-robust stddev exceeded
+   legacy HFR's even where its MAD was smaller) — a handful of donuts (near-saturation / malformed /
+   hollow-centre) produced unstable radii.
+3. **No independent geometric confirmation.** The annulus forward-fit oracle (Approach B) could **not**
+   be made brightness-independent on real donuts (model misspecification), so R₅₀ could never be
+   certified against a ground truth — the A-vs-B agreement failed on every test frame.
+4. **The aggregate AF V-curve never needed it.** The brightness bias largely cancels in the robust
+   per-frame median, so legacy HFR's best-focus was already good; R₅₀'s only clear win was the per-star
+   sensor/tilt residual — not enough to justify the added variance and complexity for a default-on
+   feature.
+
+**What a future attempt should pursue instead:** a genuinely *more robust* out-of-focus size estimate
+— lower variance, not just lower bias. Candidates: a noise-weighted / robust radial-profile fit that
+explicitly down-weights the fat tail; a proper 2-D donut forward fit (amplitude separable) hardened
+against real-donut model error; saturation/hollow-centre rejection before measurement; and/or simply
+relying on the robust median of legacy HFR where the bias is shown to cancel. The TestApp diagnostics
+that produced these findings (curve-of-growth dump, A-vs-B agreement) were also reverted but remain in
+this branch's git history if the harnesses are wanted again.
+
+> The sections below describe the (now-reverted) implementation as originally designed. They are
+> retained verbatim as the record of the attempt; treat all "validated / implemented" language as
+> historical, superseded by this §0.
 
 ---
 
@@ -278,9 +317,12 @@ These need radial profiles the current CSV lacks; extend `TestApp` to dump per-s
 - Jarvis et al. 2016 (size–magnitude stellar locus); Azevedo et al. 2025 (spatial confounding bias).
 - Tokovinin 2021 MNRAS 502, 794 (defocused-ring geometry).
 
-## 12.5 User-facing controls & display (implemented)
+## 12.5 User-facing controls & display (implemented then REVERTED — see §0)
 
-Added on top of the core metric so users can control and see the normalization:
+> Historical: the following was implemented and then reverted with the rest of the code. Retained as a
+> record of what the UI/UX would have looked like.
+
+Added on top of the core metric so users could control and see the normalization:
 
 - **`StarDetectionOptions.UseNormalizedHFR`** (bool, **default true**; Advanced + donut-detection-gated
   CheckBox in `OptionsDataTemplates.xaml`). It is the standalone use-gate:
