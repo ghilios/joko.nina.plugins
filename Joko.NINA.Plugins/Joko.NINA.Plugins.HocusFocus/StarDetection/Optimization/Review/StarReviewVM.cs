@@ -143,6 +143,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         // median + scaled MAD (Median) or mean + std-dev (MeanOutliers), matching the detector's HFR aggregation.
         private readonly MeasurementAverageEnum measurementAverage;
 
+        // True when the displayed HFR values are the donut-size-normalized HFR (the detector's NormalizeDonutSize gate
+        // is on, i.e. DefocusAwareDonutDetection && UseNormalizedHFR). Only changes the corner-stats caption label
+        // ("Norm HFR" vs "HFR"); the displayed values already follow the config (Star.NormalizedHFR == Star.HFR off).
+        private readonly bool normalizedHfrActive;
+
         // Per-reason overlay colors, matching T6's annotated-PNG legend (RGB here; BGR there).
         private static readonly Dictionary<string, Color> ReasonColors = new(StringComparer.Ordinal) {
             { "TooDistorted",   Color.FromRgb(255, 255, 0) },   // yellow
@@ -201,11 +206,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             IReadOnlyList<FrameReview> queue,
             Dictionary<string, StarReviewRunLabels> labelsByRun,
             string labelsDir,
-            MeasurementAverageEnum measurementAverage = MeasurementAverageEnum.Median) {
+            MeasurementAverageEnum measurementAverage = MeasurementAverageEnum.Median,
+            bool normalizedHfrActive = false) {
             this.queue = queue ?? throw new ArgumentNullException(nameof(queue));
             this.labelsByRun = labelsByRun ?? throw new ArgumentNullException(nameof(labelsByRun));
             this.labelsDir = labelsDir ?? throw new ArgumentNullException(nameof(labelsDir));
             this.measurementAverage = measurementAverage;
+            this.normalizedHfrActive = normalizedHfrActive;
 
             Viewport = new StarReviewViewport();
             LegendEntries = BuildLegend();
@@ -440,7 +447,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             // Per-frame HFR center + deviation (over the accepted stars), per the profile's averaging mode. Drives the
             // corner stats overlay and recolors each star's HFR label when it is an outlier for this frame.
             var (hfrCenter, hfrDeviation) = StarReviewHfrStats.Compute(f.Accepted.Select(a => a.HFR), measurementAverage);
-            FrameStatsText = StarReviewHfrStats.FormatStats(hfrCenter, hfrDeviation, f.Accepted.Count, measurementAverage);
+            FrameStatsText = StarReviewHfrStats.FormatStats(hfrCenter, hfrDeviation, f.Accepted.Count, measurementAverage, metricLabel: normalizedHfrActive ? "Norm HFR" : "HFR");
 
             AcceptedMarkers.Clear();
             CentroidMarkers.Clear();

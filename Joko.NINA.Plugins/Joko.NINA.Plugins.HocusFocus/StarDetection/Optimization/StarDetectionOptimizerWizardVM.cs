@@ -1603,7 +1603,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (ReviewVM != null) {
                     ReviewVM.PropertyChanged -= OnReviewLabelsChanged;
                 }
-                ReviewVM = new StarReviewVM(reviews, labelsByRun, labelsDir ?? string.Empty, starDetectionOptions.MeasurementAverage);
+                ReviewVM = new StarReviewVM(reviews, labelsByRun, labelsDir ?? string.Empty, starDetectionOptions.MeasurementAverage,
+                    normalizedHfrActive: starDetectionOptions.DefocusAwareDonutDetection && starDetectionOptions.UseNormalizedHFR);
                 // Surface label edits live: the "Optimize with feedback" button enables as soon as the user labels
                 // anything (the StarReviewVM raises CountsLabel on every add/remove).
                 ReviewVM.PropertyChanged += OnReviewLabelsChanged;
