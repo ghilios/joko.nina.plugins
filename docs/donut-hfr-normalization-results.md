@@ -160,32 +160,48 @@ cmd.exe /c "dotnet build Joko.NINA.Plugins\TestApp\TestApp.csproj -c Debug --nol
 the `contamination` runner, then for every accepted **donut** star (bboxMax ≥ `DefocusDistortionSizeReference`
 = 22.5 px) computes two independent size estimates from the **same** ring-fit center and local background
 plane: **A** = encircled-flux **R₅₀** (the production candidate) and **B** = the annulus⊛Gaussian
-forward-fit **Rring = Rout·(1+ε)/2** (geometric, brightness-independent by construction). Agreement is
-measured over rows with oracle `FitR2 ≥ 0.5`. Per design §9.5 the metric passes when the R₅₀-vs-Rring OLS
-slope ∈ ~[0.9, 1.1] **and** both brightness slopes are < 0.3 px/dex.
+forward-fit **Rring = Rout·(1+ε)/2** (geometric, brightness-independent by construction). Per design §9.5 the
+metric passes when the R₅₀-vs-Rring OLS slope ∈ ~[0.9, 1.1] **and** both brightness slopes are < 0.3 px/dex.
+
+**Oracle B was hardened** (this round). The previous B fit scored candidates by **correlation r² only** (no
+explicit amplitude/background, no noise weighting) and was itself the more brightness-biased of the two
+estimates. It is now a proper **noise-weighted least-squares** fit: per `(Rout, ε, σ)` grid point it solves a
+closed-form 2×2 normal-equation for the ring **amplitude** and a **residual-background offset** (the local
+plane may be slightly off), with per-bin weight `w_b = 1/(count_b·σ²)` from photon/read noise; it rejects
+`amp ≤ 0`, scores by **weighted R²**, then does a **sub-pixel local refinement** (0.1 px `Rout`, 0.01 `ε`,
+0.1 `σ`) around the coarse optimum. Agreement is now measured over rows with oracle **`FitR2 ≥ 0.8`** (a
+genuine fit, not a loose one); rows below the floor are excluded and counted.
 
 | Frame | N donuts (used/excl) | slope (R₅₀ vs Rring) | Pearson r | median \|R₅₀−Rring\| | R₅₀ bright. slope | Rring bright. slope | §9.5 |
 |---|---|---|---|---|---|---|---|
-| mufti F2925   | 82/0   | 0.751  | 0.654  | 1.29 px (9.2%)  | −0.513 | 1.692 | **FAIL** |
-| Panos F44396  | 24/1   | −0.077 | −0.225 | 1.68 px (12.0%) | −0.926 | 5.913 | **FAIL** |
-| toml999 F4237 | 517/1  | 0.630  | 0.665  | 2.49 px (36.5%) | 0.957  | 0.419 | **FAIL** |
+| mufti F2925   | 79/3 | 1.134 | 0.934 | 1.17 px (8.4%)  | −0.004 | 1.037 | **FAIL** |
+| Panos F44396  | 22/3 | 0.297 | 0.414 | 1.49 px (10.6%) | −0.380 | 2.565 | **FAIL** |
+| toml999 F4237 | 512/6 | 0.885 | 0.768 | 2.06 px (28.6%) | 0.913  | 0.738 | **FAIL** |
 
 ### Interpretation
 
-**No frame passes the §9.5 gate.** The absolute agreement is reasonable — median |R₅₀−Rring| is ~1.3–2.5 px
-and R₅₀/Rring both land in the expected ~7–14 px donut-radius range — but the two estimates do **not** track
-each other tightly enough star-to-star: the OLS slope is well below 0.9 on every frame (0.75 / −0.08 / 0.63),
-and the correlation is weak-to-absent on Panos (r = −0.22). Worse, **B (Rring) is the more brightness-biased
-of the two**: its brightness slope is large and positive on every frame (+1.69 / +5.91 / +0.42 px/dex),
-which is the opposite of the §9.5 premise that B is the brightness-independent ground truth. The grid-search
-forward fit (coarse `Rout`/`ε`/`σ` steps, correlation-only amplitude fit) appears to latch onto brighter,
-better-defined rings at systematically larger `Rout`, so B is not behaving as a clean comparator here. R₅₀'s
-own brightness slope is mixed (−0.51 / −0.93 / +0.96) and only marginal on mufti.
+**The hardening clearly improved B's *fit quality* but did NOT make Rring brightness-independent — so no frame
+passes the §9.5 gate.** What got better: the star-to-star correlation rose sharply (mufti Pearson 0.654→0.934,
+slope 0.751→1.134; toml999 0.665→0.768, slope 0.630→0.885), and median |R₅₀−Rring| tightened slightly
+(~1.2–2.1 px, still ~8–14 px donut radii). The weighted LSQ also flattened **R₅₀'s** apparent brightness slope
+on mufti (−0.513→−0.004) and Panos (−0.926→−0.380), so A looks close to brightness-flat on two of three frames
+(toml999 is the exception at +0.913).
 
-**Bottom line:** A-vs-B does not yet validate R₅₀ as a brightness-independent donut size. Before this gates
-production, the oracle (B) needs to be hardened — finer/continuous forward-fit parameters, a proper
-amplitude+background least-squares (not correlation), and a tighter `FitR2` floor — so that B is genuinely
-brightness-flat and the slope comparison is meaningful. Reported as measured; numbers were not massaged.
+**What did NOT get fixed: B (Rring) is still strongly brightness-biased.** Its brightness slope remains large
+and positive on every frame — +1.04 / +2.57 / +0.74 px/dex (was +1.69 / +5.91 / +0.42). It came down on mufti
+and Panos but is still far above the 0.3 px/dex bar, actually rose on toml999, and is the dominant reason every
+frame fails `brightness-flat`. Panos additionally fails on slope (0.30) with only weak correlation (r = 0.41) —
+its 22-donut sample is small and the forward fit still drifts to larger `Rout` on the brighter rings. **This
+is the opposite of the §9.5 premise that B is the brightness-independent ground truth**, and it means B cannot
+yet be used to certify R₅₀: even where A *is* flat (mufti), the gate fails because B is not.
+
+**Bottom line (as measured, not massaged):** weighted amp+bg LSQ + sub-pixel refine + `FitR2 ≥ 0.8` makes B a
+*better-correlated* comparator but **does not remove B's own brightness bias**, so A-vs-B still does not
+validate R₅₀ as a brightness-independent donut size. The residual bias is intrinsic to fitting a single
+ring-amplitude to a brightness-varying donut profile (brighter donuts have more SNR in the outer skirt, pulling
+`Rout` outward); resolving it likely needs either an SNR-matched/normalized profile before fitting, or
+abandoning B as the ground truth in favor of a direct geometric construct that does not estimate amplitude at
+all.
 
 ### Reproduce (agreement)
 

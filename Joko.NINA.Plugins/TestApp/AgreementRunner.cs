@@ -162,9 +162,9 @@ namespace TestApp {
                 var plane = star.BackgroundPlane;
 
                 var c = DonutRadiusOracle.RingCenter(srcFloat, star.Center.X, star.Center.Y, plane, star.Background, maxRadius, noiseSigma);
-                var annular = DonutRadiusOracle.ScanAnnularBins(srcFloat, c.cx, c.cy, plane, star.Background, maxRadius, 0.0);
+                var (annular, count) = DonutRadiusOracle.ScanAnnularBinsWithCounts(srcFloat, c.cx, c.cy, plane, star.Background, maxRadius);
                 double r50 = DonutRadiusOracle.EncircledRadius(annular, noiseSigma, maxRadius, 0.5);
-                var fit = DonutRadiusOracle.FitAnnulus(annular, maxRadius);
+                var fit = DonutRadiusOracle.FitAnnulus(annular, count, noiseSigma, maxRadius);
 
                 if (double.IsNaN(r50) || double.IsNaN(fit.Rring)) continue;
                 rows.Add(new Row {
@@ -197,8 +197,8 @@ namespace TestApp {
 
         private static void WriteSummary(string path, string imagePath, Mat srcFloat, StarDetectorParams p,
                 double noiseSigma, int totalStars, int donutCount, List<Row> allRows) {
-            // Exclude oracle fit failures (FitR2 < 0.5) from the agreement statistics.
-            const double minFitR2 = 0.5;
+            // Exclude loose oracle fits (FitR2 < 0.8) — require a genuine fit, not a loose one.
+            const double minFitR2 = 0.8;
             var used = allRows.Where(r => r.FitR2 >= minFitR2).ToList();
             int excluded = allRows.Count - used.Count;
 
