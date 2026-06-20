@@ -593,8 +593,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 MeanBrightness = star.MeanBrightness,
                 PeakBrightness = star.PeakBrightness,
                 HFR = star.HFR,
+                NormalizedHFR = star.NormalizedHFR,
+                NormalizedHFRStdDev = star.NormalizedHFRStdDev,
                 PSF = star.PSF,
-                StarContaminationSuspected = star.StarContaminationSuspected
+                StarContaminationSuspected = star.StarContaminationSuspected,
+                RelaxationAdmitted = star.RelaxationAdmitted
             };
         }
 

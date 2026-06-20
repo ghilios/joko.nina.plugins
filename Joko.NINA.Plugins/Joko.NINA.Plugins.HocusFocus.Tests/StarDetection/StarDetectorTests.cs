@@ -888,5 +888,81 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 });
             }
         }
+
+        // -----------------------------------------------------------------------
+        // Star.AddOffset (ROI / region crop coordinate shift) — field preservation
+        // -----------------------------------------------------------------------
+
+        [Test]
+        public void AddOffset_PreservesNormalizedHfrAndRelaxationFlag_AndShiftsCoordinates() {
+            // REGRESSION: AddOffset rebuilds the Star field-by-field for the ROI/region crop path. It must carry
+            // ALL fields through — in particular NormalizedHFR / NormalizedHFRStdDev (consumed by downstream
+            // aggregation + the sensor model) and the pre-existing RelaxationAdmitted flag. Dropping them zeroed
+            // NormalizedHFR for every region-based detection (sensor model + per-region AF), corrupting aggregates
+            // and breaking off-state bit-identity on the ROI path.
+            var star = new Star() {
+                Center = new Point2d(100.0, 200.0),
+                StarBoundingBox = new Rect(90, 190, 20, 24),
+                Background = 12.0,
+                MeanBrightness = 50.0,
+                PeakBrightness = 250.0,
+                HFR = 4.2,
+                NormalizedHFR = 6.7,
+                NormalizedHFRStdDev = 0.3,
+                StarContaminationSuspected = true,
+                RelaxationAdmitted = true,
+            };
+
+            const int dx = 17;
+            const int dy = -23;
+            var shifted = star.AddOffset(xOffset: dx, yOffset: dy);
+
+            Assert.Multiple(() => {
+                // New fields must survive the transform.
+                Assert.That(shifted.NormalizedHFR, Is.EqualTo(6.7), "NormalizedHFR must be preserved across AddOffset");
+                Assert.That(shifted.NormalizedHFRStdDev, Is.EqualTo(0.3), "NormalizedHFRStdDev must be preserved across AddOffset");
+                Assert.That(shifted.RelaxationAdmitted, Is.True, "RelaxationAdmitted must be preserved across AddOffset");
+
+                // Pre-existing copied fields must remain intact (so we know the copy itself wasn't broken).
+                Assert.That(shifted.HFR, Is.EqualTo(4.2), "HFR must be preserved across AddOffset");
+                Assert.That(shifted.Background, Is.EqualTo(12.0));
+                Assert.That(shifted.MeanBrightness, Is.EqualTo(50.0));
+                Assert.That(shifted.PeakBrightness, Is.EqualTo(250.0));
+                Assert.That(shifted.StarContaminationSuspected, Is.True);
+
+                // Coordinates must shift by exactly (dx, dy).
+                Assert.That(shifted.Center.X, Is.EqualTo(100.0 + dx));
+                Assert.That(shifted.Center.Y, Is.EqualTo(200.0 + dy));
+                Assert.That(shifted.StarBoundingBox.X, Is.EqualTo(90 + dx));
+                Assert.That(shifted.StarBoundingBox.Y, Is.EqualTo(190 + dy));
+                Assert.That(shifted.StarBoundingBox.Width, Is.EqualTo(20), "width is unchanged by a translation");
+                Assert.That(shifted.StarBoundingBox.Height, Is.EqualTo(24), "height is unchanged by a translation");
+            });
+        }
+
+        [Test]
+        public async Task NormalizedHFR_Off_NonFullRegion_EqualsLegacyHFR_ForEveryStar() {
+            // REGRESSION (end-to-end ROI path): a non-full Region routes detection through Star.AddOffset. With the
+            // donut master OFF, NormalizedHFR must still equal the legacy HFR for every detected star — i.e. the
+            // field survives the ROI coordinate shift (the bug zeroed it on this path while leaving the Region=Full
+            // path correct).
+            var p = StarDetectorEquivalence.StandardParams();
+            Assert.That(p.NormalizeDonutSize, Is.False, "the standard params must keep NormalizeDonutSize OFF");
+            // A sub-rectangle that is not the full frame ⇒ Width/Height < 1.0 ⇒ the detector crops to an ROI and
+            // applies AddOffset to every detected star.
+            p.Region = new StarDetectionRegion(new RatioRect(0.1, 0.1, 0.8, 0.8));
+
+            using var field = StarDetectorEquivalence.BuildSmallField();
+            var result = await StarDetectorEquivalence.RunDetect(field, p);
+
+            Assert.That(result.DetectedStars.Count, Is.GreaterThan(0),
+                "the synthetic field must detect at least one star inside the sub-region");
+            Assert.Multiple(() => {
+                foreach (var s in result.DetectedStars) {
+                    Assert.That(s.NormalizedHFR, Is.EqualTo(s.HFR),
+                        "NormalizedHFR must survive the ROI AddOffset and equal legacy HFR when donut normalization is OFF");
+                }
+            });
+        }
     }
 }
