@@ -158,6 +158,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        private bool showNormalizedHFR;
+
+        public bool ShowNormalizedHFR {
+            get => showNormalizedHFR;
+            set {
+                if (showNormalizedHFR != value) {
+                    showNormalizedHFR = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private double regularHFR = double.NaN;
 
         public double RegularHFR {
@@ -246,6 +258,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public double RegularHFRStdDev { get; set; } = double.NaN;
         public double NormalizedAverageHFR { get; set; } = double.NaN;
         public double NormalizedHFRStdDev { get; set; } = double.NaN;
+        public bool NormalizedHFRApplied { get; set; }
     }
 
     public class HocusFocusDetectedStar : DetectedStar {
@@ -673,20 +686,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     Logger.Info($"Average HFR: {result.AverageHFR}, HFR MAD: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result?.Region.Index ?? 0}");
                 }
 
-                // Always expose both regular (legacy HFR) and normalized aggregates for the stats display.
+                // Always expose both regular (legacy HFR) and normalized aggregates for the stats display. The
+                // primary AverageHFR/HFRStdDev pair is already computed over s.NormalizedHFR with identical math,
+                // so the normalized pair just mirrors it; only the regular (over s.HFR) pair needs computing.
                 if (this.starDetectionOptions.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
                     result.RegularAverageHFR = starList.Average(s => s.HFR);
                     result.RegularHFRStdDev = Math.Sqrt(starList.Sum(s => (s.HFR - result.RegularAverageHFR) * (s.HFR - result.RegularAverageHFR)) / (starList.Count - 1));
-                    result.NormalizedAverageHFR = starList.Average(s => s.NormalizedHFR);
-                    result.NormalizedHFRStdDev = Math.Sqrt(starList.Sum(s => (s.NormalizedHFR - result.NormalizedAverageHFR) * (s.NormalizedHFR - result.NormalizedAverageHFR)) / (starList.Count - 1));
                 } else {
                     var (regMed, regMad) = starList.Select(s => s.HFR).MedianMAD();
                     result.RegularAverageHFR = regMed;
                     result.RegularHFRStdDev = regMad;
-                    var (normMed, normMad) = starList.Select(s => s.NormalizedHFR).MedianMAD();
-                    result.NormalizedAverageHFR = normMed;
-                    result.NormalizedHFRStdDev = normMad;
                 }
+                result.NormalizedAverageHFR = result.AverageHFR;
+                result.NormalizedHFRStdDev = result.HFRStdDev;
+                result.NormalizedHFRApplied = detectorParams.NormalizeDonutSize;
             }
             result.DebugData = starDetectorResult.DebugData;
             result.Metrics = starDetectorResult.Metrics;
@@ -729,6 +742,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             hocusFocusAnalysis.RegularHFRStdDev = hocusFocusResult.RegularHFRStdDev;
             hocusFocusAnalysis.NormalizedHFR = hocusFocusResult.NormalizedAverageHFR;
             hocusFocusAnalysis.NormalizedHFRStdDev = hocusFocusResult.NormalizedHFRStdDev;
+            hocusFocusAnalysis.ShowNormalizedHFR = hocusFocusResult.NormalizedHFRApplied;
             hocusFocusAnalysis.DetectedStars = result.DetectedStars;
             hocusFocusAnalysis.Metrics = hocusFocusResult.Metrics;
             hocusFocusAnalysis.PSFType = hocusFocusResult.PSFType;

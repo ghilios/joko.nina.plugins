@@ -667,7 +667,7 @@
                                     Text="{Binding Statistics.StarDetectionAnalysis.RegularHFRStdDev, StringFormat=\{0:0.00\}, Mode=OneWay, Converter={StaticResource NaNToDoubleDashConverter}}" />
                             </StackPanel>
                         </UniformGrid>
-                        <UniformGrid Columns="2">
+                        <UniformGrid Columns="2" Visibility="{Binding Statistics.StarDetectionAnalysis.ShowNormalizedHFR, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock
                                     Width="120"

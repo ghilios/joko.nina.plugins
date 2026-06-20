@@ -199,7 +199,7 @@ namespace TestApp.StarReview {
 
             Console.WriteLine("Opening review window. Mark Missed (false negatives) and Should-Reject (false positives), then Save.");
             ShowReviewWindowSta(reviewFrames, labelsByRun, labelsDir, starDetectionOptions.MeasurementAverage,
-                normalizedHfrActive: starDetectionOptions.DefocusAwareDonutDetection && starDetectionOptions.UseNormalizedHFR);
+                normalizedHfrActive: detectionParams.NormalizeDonutSize);
 
             Console.WriteLine($"Labels written to {labelsDir}");
             Console.WriteLine($"Next: TestApp optimize --runs \"{runsDir}\" --labels \"{labelsDir}\"");
