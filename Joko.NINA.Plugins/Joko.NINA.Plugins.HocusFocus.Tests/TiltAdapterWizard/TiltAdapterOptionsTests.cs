@@ -36,6 +36,7 @@ public class TiltAdapterOptionsTests {
             Assert.That(options.ThreadPitchMicrons, Is.EqualTo(-1.0));
             Assert.That(options.StepperStepSizeMicrons, Is.EqualTo(-1.0));
             Assert.That(options.ScrewRadiusMillimeters, Is.EqualTo(-1.0));
+            Assert.That(options.DeviceName, Is.EqualTo("Manual"));
         });
     }
 
@@ -55,6 +56,7 @@ public class TiltAdapterOptionsTests {
         options.ThreadPitchMicrons = 500.0;
         options.StepperStepSizeMicrons = 1.25;
         options.ScrewRadiusMillimeters = 21.0;
+        options.DeviceName = "Neumann CTU XT48";
 
         Assert.Multiple(() => {
             Assert.That(store.Snapshot[nameof(options.ScrewCount)], Is.EqualTo(4));
@@ -70,6 +72,7 @@ public class TiltAdapterOptionsTests {
             Assert.That(store.Snapshot[nameof(options.ThreadPitchMicrons)], Is.EqualTo(500.0));
             Assert.That(store.Snapshot[nameof(options.StepperStepSizeMicrons)], Is.EqualTo(1.25));
             Assert.That(store.Snapshot[nameof(options.ScrewRadiusMillimeters)], Is.EqualTo(21.0));
+            Assert.That(store.Snapshot[nameof(options.DeviceName)], Is.EqualTo("Neumann CTU XT48"));
         });
     }
 
@@ -94,6 +97,7 @@ public class TiltAdapterOptionsTests {
     [TestCase(nameof(TiltAdapterOptions.ThreadPitchMicrons), 500.0)]
     [TestCase(nameof(TiltAdapterOptions.StepperStepSizeMicrons), 1.25)]
     [TestCase(nameof(TiltAdapterOptions.ScrewRadiusMillimeters), 21.0)]
+    [TestCase(nameof(TiltAdapterOptions.DeviceName), "Neumann CTU XT48")]
     public void Setter_RaisesPropertyChanged(string propertyName, object newValue) {
         var (options, _, _) = Build();
         var raised = new List<string>();

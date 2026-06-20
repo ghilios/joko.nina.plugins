@@ -1694,12 +1694,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 : tiltAdapterOptions.LastMeasuredThreadPitchMicrons;
             if (TiltScrewGeometry.PitchMismatchExceeds(unitMicrons, measured, PitchMismatchFraction)) {
                 string label = steps ? "step size" : "thread pitch";
-                string units = steps ? "µm/step" : "mm/turn";
-                double activeDisplay = steps ? unitMicrons : unitMicrons / 1000.0;
-                double measuredDisplay = steps ? measured : measured / 1000.0;
+                string units = steps ? "µm/step" : "µm/turn";
                 guidance.PitchMismatchWarning =
-                    $"Saved {label} ({activeDisplay:0.###} {units}) differs from the wizard's last measured value " +
-                    $"({measuredDisplay:0.###} {units}). Re-run the Tilt Adapter Wizard or update the saved value.";
+                    $"Saved {label} ({unitMicrons:0.###} {units}) differs from the wizard's last measured value " +
+                    $"({measured:0.###} {units}). Re-run the Tilt Adapter Wizard or update the saved value.";
             }
         }
 

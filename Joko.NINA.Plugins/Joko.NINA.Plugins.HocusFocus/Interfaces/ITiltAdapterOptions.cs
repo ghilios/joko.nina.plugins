@@ -41,5 +41,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // value above to warn when they diverge. -1 = none measured yet.
         double LastMeasuredThreadPitchMicrons { get; set; }
         double LastMeasuredStepperStepSizeMicrons { get; set; }
+
+        // Selected device preset name ("Manual" = user-editable hardware fields). Choosing a preset
+        // pre-fills and locks the hardware fields. See TiltAdapterDevicePreset.
+        string DeviceName { get; set; }
     }
 }

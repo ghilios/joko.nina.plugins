@@ -193,5 +193,36 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             Assert.That(vm.HasMeasurementFeedback, Is.False);
             Assert.That(vm.HasMeasurementResults, Is.False);
         }
+
+        [Test]
+        public void SelectedDevice_Preset_SetsAndLocksHardwareFields() {
+            var (vm, options, _, _) = Build();
+
+            vm.SelectedDevice = "Neumann CTU XT48";
+
+            Assert.Multiple(() => {
+                options.Received().DeviceName = "Neumann CTU XT48";
+                options.Received().ScrewCount = 3;
+                options.Received().AdjustmentType = TiltAdjustmentType.Screws;
+                options.Received().ThreadPitchMicrons = 400;
+                options.Received().ScrewRadiusMillimeters = 44;
+                Assert.That(vm.IsManualDevice, Is.False);
+            });
+        }
+
+        [Test]
+        public void SelectedDevice_Manual_LeavesFieldsEditableAndDoesNotWriteHardware() {
+            var (vm, options, _, _) = Build();
+            options.ClearReceivedCalls();
+
+            vm.SelectedDevice = "Manual";
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsManualDevice, Is.True);
+                options.DidNotReceive().ScrewCount = Arg.Any<int>();
+                options.DidNotReceive().ThreadPitchMicrons = Arg.Any<double>();
+                options.DidNotReceive().ScrewRadiusMillimeters = Arg.Any<double>();
+            });
+        }
     }
 }

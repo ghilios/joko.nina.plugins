@@ -201,9 +201,19 @@
                         FontWeight="Bold"
                         Text="Settings" />
 
+                    <!--  Device preset: fills and locks the hardware fields below  -->
                     <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
-                        <TextBlock VerticalAlignment="Center" Text="Screws" />
-                        <ComboBox MinWidth="60" SelectedItem="{Binding TiltAdapterOptions.ScrewCount}">
+                        <TextBlock VerticalAlignment="Center" Text="Device"
+                            ToolTip="Select a known tilt adapter to auto-fill and lock its hardware values, or choose Manual to enter them yourself." />
+                        <ComboBox MinWidth="120" ItemsSource="{Binding DeviceNames}" SelectedItem="{Binding SelectedDevice}" />
+                    </UniformGrid>
+
+                    <!--  Adapter hardware: drives precise screw-turn amounts in the Aberration Inspector.
+                          Disabled when a non-Manual device preset is selected.  -->
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Screws"
+                            ToolTip="Number of adjustment screws on the tilt adapter (3 = independent screws, 4 = coupled opposite pairs)." />
+                        <ComboBox MinWidth="60" IsEnabled="{Binding IsManualDevice}" SelectedItem="{Binding TiltAdapterOptions.ScrewCount}">
                             <ComboBox.ItemsSource>
                                 <x:Array Type="{x:Type s:Int32}">
                                     <s:Int32>3</s:Int32>
@@ -214,16 +224,9 @@
                     </UniformGrid>
 
                     <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
-                        <TextBlock VerticalAlignment="Center" Text="Measurements" />
-                        <TextBox
-                            MinWidth="60"
-                            Text="{Binding TiltAdapterOptions.MeasurementAverageCount, UpdateSourceTrigger=LostFocus}" />
-                    </UniformGrid>
-
-                    <!--  Adapter hardware: drives precise screw-turn amounts in the Aberration Inspector  -->
-                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
-                        <TextBlock VerticalAlignment="Center" Text="Adjustment type" />
-                        <ComboBox MinWidth="120" SelectedValuePath="Tag" SelectedValue="{Binding AdjustmentType}">
+                        <TextBlock VerticalAlignment="Center" Text="Adjustment type"
+                            ToolTip="Whether the adapter is adjusted by turning screws or by stepper motors. Determines whether amounts are shown as turns or steps." />
+                        <ComboBox MinWidth="120" IsEnabled="{Binding IsManualDevice}" SelectedValuePath="Tag" SelectedValue="{Binding AdjustmentType}">
                             <ComboBoxItem Content="Screws" Tag="{x:Static interfaces:TiltAdjustmentType.Screws}" />
                             <ComboBoxItem Content="Stepper Motors" Tag="{x:Static interfaces:TiltAdjustmentType.StepperMotors}" />
                         </ComboBox>
@@ -241,8 +244,9 @@
                                 </Style.Triggers>
                             </Style>
                         </UniformGrid.Style>
-                        <TextBlock VerticalAlignment="Center" Text="Thread pitch (mm/turn)" />
-                        <TextBox MinWidth="60" Text="{Binding ThreadPitchMillimeters, UpdateSourceTrigger=LostFocus}" />
+                        <TextBlock VerticalAlignment="Center" Text="Thread pitch (µm/turn)"
+                            ToolTip="Axial sensor travel per full screw turn, in microns. Converts the required focus correction into a number of turns." />
+                        <TextBox MinWidth="60" IsEnabled="{Binding IsManualDevice}" Text="{Binding ThreadPitchMicronsValue, UpdateSourceTrigger=LostFocus}" />
                     </UniformGrid>
 
                     <!--  Step size (steppers only)  -->
@@ -257,18 +261,44 @@
                                 </Style.Triggers>
                             </Style>
                         </UniformGrid.Style>
-                        <TextBlock VerticalAlignment="Center" Text="Step size (µm/step)" />
-                        <TextBox MinWidth="60" Text="{Binding StepperStepSizeMicronsValue, UpdateSourceTrigger=LostFocus}" />
+                        <TextBlock VerticalAlignment="Center" Text="Step size (µm/step)"
+                            ToolTip="Axial sensor travel per stepper step, in microns. Converts the required focus correction into a number of steps." />
+                        <TextBox MinWidth="60" IsEnabled="{Binding IsManualDevice}" Text="{Binding StepperStepSizeMicronsValue, UpdateSourceTrigger=LostFocus}" />
                     </UniformGrid>
 
                     <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
-                        <TextBlock VerticalAlignment="Center" Text="Screw radius (mm)" />
-                        <TextBox MinWidth="60" Text="{Binding ScrewRadiusMillimetersValue, UpdateSourceTrigger=LostFocus}" />
+                        <TextBlock VerticalAlignment="Center" Text="Screw radius (mm)"
+                            ToolTip="Distance from the sensor center to each screw, in millimeters. Sets the lever arm used to convert tilt into screw adjustments." />
+                        <TextBox MinWidth="60" IsEnabled="{Binding IsManualDevice}" Text="{Binding ScrewRadiusMillimetersValue, UpdateSourceTrigger=LostFocus}" />
+                    </UniformGrid>
+
+                    <!--  Editable per-session fields (kept together, always editable)  -->
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Measurements"
+                            ToolTip="Number of autofocus runs to average per calibration step. Higher values reduce noise but take longer." />
+                        <TextBox
+                            MinWidth="60"
+                            Text="{Binding TiltAdapterOptions.MeasurementAverageCount, UpdateSourceTrigger=LostFocus}" />
                     </UniformGrid>
 
                     <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
-                        <TextBlock VerticalAlignment="Center" Text="{Binding CalibrationAmountLabel}" />
+                        <TextBlock VerticalAlignment="Center" Text="{Binding CalibrationAmountLabel}"
+                            ToolTip="How far you turn each screw (or move each stepper) during the per-screw calibration steps. Used to compute the measured thread pitch / step size." />
                         <TextBox MinWidth="60" Text="{Binding CalibrationAppliedAmount, UpdateSourceTrigger=LostFocus}" />
+                    </UniformGrid>
+
+                    <!--  Shared inputs that feed the calculation — grouped below the per-session fields.
+                          Editing these writes through to their source of truth (camera profile / Inspector options).  -->
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Pixel size (µm)"
+                            ToolTip="Camera pixel size in microns. Editing here updates your NINA camera profile — the same value used everywhere." />
+                        <TextBox MinWidth="60" Text="{Binding PixelSizeMicronsValue, UpdateSourceTrigger=LostFocus}" />
+                    </UniformGrid>
+
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Focuser step size (µm)"
+                            ToolTip="Microns of focus travel per focuser step. Editing here updates the Hocus Focus Aberration Inspector's 'Microns per focuser step' setting." />
+                        <TextBox MinWidth="60" Text="{Binding FocuserStepSizeMicronsValue, UpdateSourceTrigger=LostFocus}" />
                     </UniformGrid>
 
                     <Button

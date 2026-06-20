@@ -135,6 +135,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (e.PropertyName == nameof(ITiltAdapterOptions.MeasurementAverageCount)) {
                     RaisePropertyChanged(nameof(ShowRunColumn));
                 }
+                if (e.PropertyName == nameof(ITiltAdapterOptions.DeviceName)) {
+                    RaisePropertyChanged(nameof(SelectedDevice));
+                    RaisePropertyChanged(nameof(IsManualDevice));
+                }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.AdjustmentType) ||
                     e.PropertyName == nameof(ITiltAdapterOptions.ThreadPitchMicrons) ||
                     e.PropertyName == nameof(ITiltAdapterOptions.StepperStepSizeMicrons) ||
@@ -143,12 +147,22 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     RaisePropertyChanged(nameof(CalibrationAmountLabel));
                     RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
                     RaisePropertyChanged(nameof(AdjustmentType));
-                    RaisePropertyChanged(nameof(ThreadPitchMillimeters));
+                    RaisePropertyChanged(nameof(ThreadPitchMicronsValue));
                     RaisePropertyChanged(nameof(StepperStepSizeMicronsValue));
                     RaisePropertyChanged(nameof(ScrewRadiusMillimetersValue));
                     RaiseHardwareSummaryChanged();
                 }
             };
+
+            profileService.ProfileChanged += (s, e) => {
+                RaisePropertyChanged(nameof(PixelSizeMicronsValue));
+                RaisePropertyChanged(nameof(FocuserStepSizeMicronsValue));
+                RaisePropertyChanged(nameof(SelectedDevice));
+                RaisePropertyChanged(nameof(IsManualDevice));
+            };
+
+            // Re-assert and lock a persisted device preset on load.
+            ApplyDevice(tiltAdapterOptions.DeviceName);
 
             RebuildDiagram();
 
@@ -222,6 +236,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(AreDevicesConnected));
                 RaisePropertyChanged(nameof(ConnectionWarningText));
+                RaisePropertyChanged(nameof(PixelSizeMicronsValue));
                 NotifyCommandsCanExecuteChanged();
             }
         }
@@ -374,13 +389,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public string MeasuredHardwareDisplay =>
             !HasMeasuredHardware ? "—"
             : IsStepperAdjustment ? $"{measuredHardwareMicrons:0.###} µm/step"
-            : $"{measuredHardwareMicrons / 1000.0:0.####} mm/turn";
+            : $"{measuredHardwareMicrons:0.#} µm/turn";
 
         public string SavedHardwareDisplay {
             get {
                 double saved = IsStepperAdjustment ? tiltAdapterOptions.StepperStepSizeMicrons : tiltAdapterOptions.ThreadPitchMicrons;
                 if (saved <= 0) return "not set";
-                return IsStepperAdjustment ? $"{saved:0.###} µm/step" : $"{saved / 1000.0:0.####} mm/turn";
+                return IsStepperAdjustment ? $"{saved:0.###} µm/step" : $"{saved:0.#} µm/turn";
             }
         }
 
@@ -410,10 +425,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
-        public double ThreadPitchMillimeters {
-            get { var um = tiltAdapterOptions.ThreadPitchMicrons; return um > 0 ? um / 1000.0 : 0; }
+        public double ThreadPitchMicronsValue {
+            get { var um = tiltAdapterOptions.ThreadPitchMicrons; return um > 0 ? um : 0; }
             set {
-                tiltAdapterOptions.ThreadPitchMicrons = value > 0 ? value * 1000.0 : -1;
+                tiltAdapterOptions.ThreadPitchMicrons = value > 0 ? value : -1;
                 RaisePropertyChanged();
             }
         }
@@ -431,6 +446,41 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             set {
                 tiltAdapterOptions.ScrewRadiusMillimeters = value > 0 ? value : -1;
                 RaisePropertyChanged();
+            }
+        }
+
+        // Device presets. Selecting a non-Manual device fills and locks the hardware fields.
+        public IReadOnlyList<string> DeviceNames => TiltAdapterDevicePreset.All.Select(p => p.Name).ToList();
+
+        public string SelectedDevice {
+            get => tiltAdapterOptions.DeviceName;
+            set => ApplyDevice(value);
+        }
+
+        public bool IsManualDevice => TiltAdapterDevicePreset.ByName(tiltAdapterOptions.DeviceName).IsManual;
+
+        // Inputs that feed the screw-turn calculation, wired to their source of truth: pixel size to
+        // the active NINA camera profile, focuser step size to the Inspector's MicronsPerFocuserStep.
+        public double PixelSizeMicronsValue {
+            get => profileService.ActiveProfile.CameraSettings.PixelSize;
+            set {
+                if (profileService.ActiveProfile.CameraSettings.PixelSize != value) {
+                    profileService.ActiveProfile.CameraSettings.PixelSize = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public double FocuserStepSizeMicronsValue {
+            get {
+                var v = inspector.InspectorOptions?.MicronsPerFocuserStep ?? -1;
+                return v > 0 ? v : 0;
+            }
+            set {
+                if (inspector.InspectorOptions != null) {
+                    inspector.InspectorOptions.MicronsPerFocuserStep = value > 0 ? value : -1;
+                    RaisePropertyChanged();
+                }
             }
         }
 
@@ -813,6 +863,27 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             MeasurementConsistencyWarningText = string.Empty;
             StatusText = string.Empty;
             CurrentStep = WizardStep.Baseline;
+        }
+
+        private void ApplyDevice(string name) {
+            var preset = TiltAdapterDevicePreset.ByName(name);
+            tiltAdapterOptions.DeviceName = preset.Name;
+            if (!preset.IsManual) {
+                tiltAdapterOptions.ScrewCount = preset.ScrewCount;
+                tiltAdapterOptions.AdjustmentType = preset.AdjustmentType;
+                tiltAdapterOptions.ThreadPitchMicrons = preset.ThreadPitchMicrons;
+                tiltAdapterOptions.StepperStepSizeMicrons = preset.StepperStepSizeMicrons;
+                tiltAdapterOptions.ScrewRadiusMillimeters = preset.ScrewRadiusMillimeters;
+            }
+            RaisePropertyChanged(nameof(SelectedDevice));
+            RaisePropertyChanged(nameof(IsManualDevice));
+            RaisePropertyChanged(nameof(AdjustmentType));
+            RaisePropertyChanged(nameof(ThreadPitchMicronsValue));
+            RaisePropertyChanged(nameof(StepperStepSizeMicronsValue));
+            RaisePropertyChanged(nameof(ScrewRadiusMillimetersValue));
+            RaisePropertyChanged(nameof(IsStepperAdjustment));
+            RaisePropertyChanged(nameof(CalibrationAmountLabel));
+            RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
         }
 
         private void UseMeasuredHardware() {
