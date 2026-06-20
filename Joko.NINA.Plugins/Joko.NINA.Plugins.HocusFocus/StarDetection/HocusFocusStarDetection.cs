@@ -209,6 +209,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public float NormalisedBrightness { get; set; }
         public Accord.Point OriginalPosition { get; set; }
         public bool StarContaminationSuspected { get; set; }
+        public double NormalizedHFR { get; set; }
+        public double NormalizedHFRStdDev { get; set; } = double.NaN;
 
         public override string ToString() {
             return $"{{{nameof(PSF)}={PSF}, {nameof(HFR)}={HFR.ToString()}, {nameof(Position)}={Position.ToString()}, {nameof(AverageBrightness)}={AverageBrightness.ToString()}, {nameof(MaxBrightness)}={MaxBrightness.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(BoundingBox)}={BoundingBox.ToString()}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected.ToString()}}}";
@@ -557,8 +559,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 // Now that we have a properly filtered star list, let's compute stats and further filter out from the average
                 // Median and MAD are used as they are more robust to outliers
-                var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
-                starList = starList.Where(s => s.HFR <= hfrMedian + hocusFocusParams.HighSigmaOutlierRejection * hfrMAD && s.HFR >= hfrMedian - hocusFocusParams.LowSigmaOutlierRejection * hfrMAD).ToList<Star>();
+                var (hfrMedian, hfrMAD) = starList.Select(s => s.NormalizedHFR).MedianMAD();
+                starList = starList.Where(s => s.NormalizedHFR <= hfrMedian + hocusFocusParams.HighSigmaOutlierRejection * hfrMAD && s.NormalizedHFR >= hfrMedian - hocusFocusParams.LowSigmaOutlierRejection * hfrMAD).ToList<Star>();
 
                 int countAfter = starList.Count;
                 Logger.Trace($"Discarded {countBefore - countAfter} outlier stars");
@@ -614,13 +616,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             result.StarList = starList.Select(s => ToDetectedStar(s)).OrderBy(s => s.Position.Y * imageSize.Width + s.Position.X).ToList();
             if (starList.Count > 1) {
                 if (this.starDetectionOptions.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
-                    result.AverageHFR = starList.Average(s => s.HFR);
-                    var hfrVariance = starList.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (starList.Count - 1);
+                    result.AverageHFR = starList.Average(s => s.NormalizedHFR);
+                    var hfrVariance = starList.Sum(s => (s.NormalizedHFR - result.AverageHFR) * (s.NormalizedHFR - result.AverageHFR)) / (starList.Count - 1);
                     result.HFRStdDev = Math.Sqrt(hfrVariance);
 
                     Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result?.Region.Index ?? 0}");
                 } else {
-                    var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
+                    var (hfrMedian, hfrMAD) = starList.Select(s => s.NormalizedHFR).MedianMAD();
                     result.AverageHFR = hfrMedian;
                     result.HFRStdDev = hfrMAD;
 
@@ -641,7 +643,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Background = star.Background,
                 BoundingBox = star.StarBoundingBox.ToDrawingRectangle(),
                 PSF = star.PSF,
-                StarContaminationSuspected = star.StarContaminationSuspected
+                StarContaminationSuspected = star.StarContaminationSuspected,
+                NormalizedHFR = star.NormalizedHFR,
+                NormalizedHFRStdDev = star.NormalizedHFRStdDev,
             };
         }
 
