@@ -133,6 +133,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                                 if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.HFR) {
                                     graphics.DrawString(star.HFR.ToString("#0.00"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
+                                } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.NormalizedHFR) {
+                                    var normHfr = hocusFocusStar?.NormalizedHFR ?? star.HFR;
+                                    graphics.DrawString(normHfr.ToString("#0.00"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
                                 } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.FWHM && psf != null) {
                                     graphics.DrawString(psf.FWHMArcsecs.ToString("#0.00"), annotationFont, annotationBrush, new PointF(Convert.ToSingle(textposx), Convert.ToSingle(textposy)));
                                 } else if (StarAnnotatorOptions.ShowAnnotationType == ShowAnnotationTypeEnum.FWHMPixels && psf != null) {

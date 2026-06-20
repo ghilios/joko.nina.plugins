@@ -37,6 +37,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         [Description("HFR")]
         HFR,
 
+        [Description("Normalized HFR")]
+        NormalizedHFR,
+
         [Description("FWHM Arcseconds")]
         FWHM,
 
