@@ -21,13 +21,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
             if (targetType == typeof(string)) {
+                // Optional ConverterParameter is prepended to the label (e.g. "Norm " => "Norm HFR MAD"),
+                // so the normalized-HFR stats row can be distinguished from the regular one.
+                var prefix = parameter as string ?? string.Empty;
                 var measurementAverage = value as MeasurementAverageEnum?;
                 if (measurementAverage != null) {
                     if (measurementAverage.Value == MeasurementAverageEnum.Median) {
-                        return "HFR MAD";
+                        return prefix + "HFR MAD";
                     }
                 }
-                return global::NINA.Core.Locale.Loc.Instance["LblHFRStDev"];
+                return prefix + global::NINA.Core.Locale.Loc.Instance["LblHFRStDev"];
             }
             throw new ArgumentException("Invalid Type for Converter");
         }

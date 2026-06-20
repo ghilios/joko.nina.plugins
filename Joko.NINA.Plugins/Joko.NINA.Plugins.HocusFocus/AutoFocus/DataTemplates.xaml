@@ -685,7 +685,7 @@
                                 <TextBlock
                                     Width="120"
                                     VerticalAlignment="Center"
-                                    Text="{Binding Statistics.StarDetectionAnalysis.MeasurementAverage, Mode=OneWay, Converter={StaticResource HF_MeasurementAverageDisplayConverter}}"
+                                    Text="{Binding Statistics.StarDetectionAnalysis.MeasurementAverage, Mode=OneWay, Converter={StaticResource HF_MeasurementAverageDisplayConverter}, ConverterParameter='Norm '}"
                                     ToolTip="{StaticResource SDR_HFRStdDev_Tooltip}" />
                                 <TextBlock
                                     Width="70"
