@@ -33,6 +33,7 @@ using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Scottplot;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
@@ -1625,8 +1626,79 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }
 
+            FillNumericGuidance(guidance, n);
+
             TiltGuidance = guidance;
             RaisePropertyChanged(nameof(TiltGuidance));
+        }
+
+        private const double PitchMismatchFraction = 0.15;
+
+        // Populate the precise per-screw turn/step amounts from the fitted paraboloid model and the
+        // configured adapter hardware. Magnitudes are direction-indicated by the existing arrows; the
+        // total carries an explicit IN/OUT word. Everything is computed in axial best-focus microns
+        // (tilt = -TiltAt, backfocus = -CurvatureAt) then divided by the saved pitch/step size — there
+        // is no square root, the curvature term is already a length.
+        private void FillNumericGuidance(TiltAdapterGuidanceVM guidance, int n) {
+            if (!HasTiltAdapterCalibration) return;
+            var model = SensorModel?.DisplayedSensorModel;
+            if (model == null) return;
+
+            bool steps = tiltAdapterOptions.AdjustmentType == TiltAdjustmentType.StepperMotors;
+            double unitMicrons = steps ? tiltAdapterOptions.StepperStepSizeMicrons : tiltAdapterOptions.ThreadPitchMicrons;
+            double radiusMm = tiltAdapterOptions.ScrewRadiusMillimeters;
+            if (unitMicrons <= 0 || radiusMm <= 0) return;
+
+            double radiusMicrons = radiusMm * 1000.0;
+            int curvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign;
+            bool hasDirection = curvatureSign != 0;
+            int signForTotal = hasDirection ? curvatureSign : 1;
+
+            var angles = new double[n];
+            angles[0] = tiltAdapterOptions.Screw1AngleDegrees;
+            angles[1] = tiltAdapterOptions.Screw2AngleDegrees;
+            angles[2] = tiltAdapterOptions.Screw3AngleDegrees;
+            if (n == 4) angles[3] = tiltAdapterOptions.Screw4AngleDegrees;
+            if (angles.Any(double.IsNaN)) return;
+
+            var tiltText = new string[n];
+            var backText = new string[n];
+            var totalText = new string[n];
+            for (int i = 0; i < n; i++) {
+                var corr = TiltScrewGeometry.ScrewCorrectionMicrons(
+                    model.Gx, model.Gy, model.Kx, model.Ky, model.X0, model.Y0, angles[i], radiusMicrons);
+                tiltText[i] = TiltAdapterGuidanceVM.FormatMagnitude(corr.TiltMicrons / unitMicrons, steps);
+                backText[i] = TiltAdapterGuidanceVM.FormatMagnitude(corr.BackfocusMicrons / unitMicrons, steps);
+                double totalInward = TiltScrewGeometry.InwardAdjustment(corr.TotalMicrons, unitMicrons, signForTotal);
+                totalText[i] = TiltAdapterGuidanceVM.FormatTotal(totalInward, steps, hasDirection);
+            }
+
+            guidance.Screw1TiltAmount = tiltText[0];
+            guidance.Screw2TiltAmount = tiltText[1];
+            guidance.Screw3TiltAmount = tiltText[2];
+            if (n == 4) guidance.Screw4TiltAmount = tiltText[3];
+            guidance.Screw1BackfocusAmount = backText[0];
+            guidance.Screw2BackfocusAmount = backText[1];
+            guidance.Screw3BackfocusAmount = backText[2];
+            if (n == 4) guidance.Screw4BackfocusAmount = backText[3];
+            guidance.Screw1TotalAmount = totalText[0];
+            guidance.Screw2TotalAmount = totalText[1];
+            guidance.Screw3TotalAmount = totalText[2];
+            if (n == 4) guidance.Screw4TotalAmount = totalText[3];
+
+            guidance.UnitsAreSteps = steps;
+            guidance.HasNumericGuidance = true;
+
+            double measured = steps
+                ? tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons
+                : tiltAdapterOptions.LastMeasuredThreadPitchMicrons;
+            if (TiltScrewGeometry.PitchMismatchExceeds(unitMicrons, measured, PitchMismatchFraction)) {
+                string label = steps ? "step size" : "thread pitch";
+                string units = steps ? "µm/step" : "µm/turn";
+                guidance.PitchMismatchWarning =
+                    $"Saved {label} ({unitMicrons:0.###} {units}) differs from the wizard's last measured value " +
+                    $"({measured:0.###} {units}). Re-run the Tilt Adapter Wizard or update the saved value.";
+            }
         }
 
         private TrendlineFitting GetLineFitting(AutoFocusFitting fitting) {

@@ -2,7 +2,8 @@
     x:Class="NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard.DataTemplates"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:s="clr-namespace:System;assembly=mscorlib">
+    xmlns:s="clr-namespace:System;assembly=mscorlib"
+    xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces">
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="../Resources/OptionsDataTemplates.xaml" />
     </ResourceDictionary.MergedDictionaries>
@@ -200,9 +201,19 @@
                         FontWeight="Bold"
                         Text="Settings" />
 
+                    <!--  Device preset: fills and locks the hardware fields below  -->
                     <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
-                        <TextBlock VerticalAlignment="Center" Text="Screws" />
-                        <ComboBox MinWidth="60" SelectedItem="{Binding TiltAdapterOptions.ScrewCount}">
+                        <TextBlock VerticalAlignment="Center" Text="Device"
+                            ToolTip="Select a known tilt adapter to auto-fill and lock its hardware values, or choose Manual to enter them yourself." />
+                        <ComboBox MinWidth="120" ItemsSource="{Binding DeviceNames}" SelectedItem="{Binding SelectedDevice}" />
+                    </UniformGrid>
+
+                    <!--  Adapter hardware: drives precise screw-turn amounts in the Aberration Inspector.
+                          Disabled when a non-Manual device preset is selected.  -->
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Screws"
+                            ToolTip="Number of adjustment screws on the tilt adapter (3 = independent screws, 4 = coupled opposite pairs)." />
+                        <ComboBox MinWidth="60" IsEnabled="{Binding IsManualDevice}" SelectedItem="{Binding TiltAdapterOptions.ScrewCount}">
                             <ComboBox.ItemsSource>
                                 <x:Array Type="{x:Type s:Int32}">
                                     <s:Int32>3</s:Int32>
@@ -213,10 +224,81 @@
                     </UniformGrid>
 
                     <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
-                        <TextBlock VerticalAlignment="Center" Text="Measurements" />
+                        <TextBlock VerticalAlignment="Center" Text="Adjustment type"
+                            ToolTip="Whether the adapter is adjusted by turning screws or by stepper motors. Determines whether amounts are shown as turns or steps." />
+                        <ComboBox MinWidth="120" IsEnabled="{Binding IsManualDevice}" SelectedValuePath="Tag" SelectedValue="{Binding AdjustmentType}">
+                            <ComboBoxItem Content="Screws" Tag="{x:Static interfaces:TiltAdjustmentType.Screws}" />
+                            <ComboBoxItem Content="Stepper Motors" Tag="{x:Static interfaces:TiltAdjustmentType.StepperMotors}" />
+                        </ComboBox>
+                    </UniformGrid>
+
+                    <!--  Thread pitch (screws only)  -->
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <UniformGrid.Style>
+                            <Style TargetType="UniformGrid">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsStepperAdjustment}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </UniformGrid.Style>
+                        <TextBlock VerticalAlignment="Center" Text="Thread pitch (µm/turn)"
+                            ToolTip="Axial sensor travel per full screw turn, in microns. Converts the required focus correction into a number of turns." />
+                        <TextBox MinWidth="60" IsEnabled="{Binding IsManualDevice}" Text="{Binding ThreadPitchMicronsValue, UpdateSourceTrigger=LostFocus}" />
+                    </UniformGrid>
+
+                    <!--  Step size (steppers only)  -->
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <UniformGrid.Style>
+                            <Style TargetType="UniformGrid">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsStepperAdjustment}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </UniformGrid.Style>
+                        <TextBlock VerticalAlignment="Center" Text="Step size (µm/step)"
+                            ToolTip="Axial sensor travel per stepper step, in microns. Converts the required focus correction into a number of steps." />
+                        <TextBox MinWidth="60" IsEnabled="{Binding IsManualDevice}" Text="{Binding StepperStepSizeMicronsValue, UpdateSourceTrigger=LostFocus}" />
+                    </UniformGrid>
+
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Screw radius (mm)"
+                            ToolTip="Distance from the sensor center to each screw, in millimeters. Sets the lever arm used to convert tilt into screw adjustments." />
+                        <TextBox MinWidth="60" IsEnabled="{Binding IsManualDevice}" Text="{Binding ScrewRadiusMillimetersValue, UpdateSourceTrigger=LostFocus}" />
+                    </UniformGrid>
+
+                    <!--  Editable per-session fields (kept together, always editable)  -->
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Measurements"
+                            ToolTip="Number of autofocus runs to average per calibration step. Higher values reduce noise but take longer." />
                         <TextBox
                             MinWidth="60"
                             Text="{Binding TiltAdapterOptions.MeasurementAverageCount, UpdateSourceTrigger=LostFocus}" />
+                    </UniformGrid>
+
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="{Binding CalibrationAmountLabel}"
+                            ToolTip="How far you turn each screw (or move each stepper) during the per-screw calibration steps. Used to compute the measured thread pitch / step size." />
+                        <TextBox MinWidth="60" Text="{Binding CalibrationAppliedAmount, UpdateSourceTrigger=LostFocus}" />
+                    </UniformGrid>
+
+                    <!--  Shared inputs that feed the calculation — grouped below the per-session fields.
+                          Editing these writes through to their source of truth (camera profile / Inspector options).  -->
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Pixel size (µm)"
+                            ToolTip="Camera pixel size in microns. Editing here updates your NINA camera profile — the same value used everywhere." />
+                        <TextBox MinWidth="60" Text="{Binding PixelSizeMicronsValue, UpdateSourceTrigger=LostFocus}" />
+                    </UniformGrid>
+
+                    <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
+                        <TextBlock VerticalAlignment="Center" Text="Focuser step size (µm)"
+                            ToolTip="Microns of focus travel per focuser step. Editing here updates the Hocus Focus Aberration Inspector's 'Microns per focuser step' setting." />
+                        <TextBox MinWidth="60" Text="{Binding FocuserStepSizeMicronsValue, UpdateSourceTrigger=LostFocus}" />
                     </UniformGrid>
 
                     <Button
@@ -596,6 +678,72 @@
                             ContentTemplate="{StaticResource HF_TiltScrewDiagram}"
                             Content="{Binding}" />
                     </Grid>
+
+                    <!--  Measured thread pitch / step size vs the saved value  -->
+                    <StackPanel Margin="0,10,0,0">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasMeasuredHardware}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <TextBlock FontWeight="Bold" Text="Measured Adapter Hardware" />
+
+                        <UniformGrid Margin="0,4,0,0" Columns="2">
+                            <TextBlock Text="Measured" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding MeasuredHardwareDisplay}" />
+                                <TextBlock Margin="8,0,0,0" Opacity="0.7" Text="{Binding HardwareDeltaDisplay}" />
+                            </StackPanel>
+                            <TextBlock Text="Saved" />
+                            <TextBlock Text="{Binding SavedHardwareDisplay}" />
+                        </UniformGrid>
+
+                        <Button
+                            Margin="0,8,0,2"
+                            HorizontalAlignment="Left"
+                            Command="{Binding UseMeasuredHardwareCommand}">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Use measured value" />
+                        </Button>
+
+                        <TextBlock Margin="0,6,0,2" FontStyle="Italic" Text="Inputs to this calculation:" />
+                        <UniformGrid Columns="2">
+                            <TextBlock Text="Pixel size" />
+                            <TextBlock Text="{Binding CalibrationPixelSizeDisplay}" />
+                            <TextBlock Text="Focuser step size" />
+                            <TextBlock Text="{Binding CalibrationFocuserStepDisplay}" />
+                            <TextBlock Text="Screw radius" />
+                            <TextBlock Text="{Binding CalibrationScrewRadiusDisplay}" />
+                            <TextBlock Text="Applied per screw" />
+                            <TextBlock Text="{Binding CalibrationAppliedAmountDisplay}" />
+                        </UniformGrid>
+                    </StackPanel>
+
+                    <TextBlock
+                        Margin="0,10,0,0"
+                        FontStyle="Italic"
+                        Opacity="0.7"
+                        Text="Set a screw radius (and thread pitch / step size) in Settings to measure adapter hardware."
+                        TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasMeasuredHardware}" Value="False">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
 
                     <Button
                         Margin="0,8,0,2"

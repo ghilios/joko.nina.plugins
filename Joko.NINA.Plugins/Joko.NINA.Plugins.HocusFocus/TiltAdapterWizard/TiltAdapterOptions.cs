@@ -55,6 +55,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             calibratedScrewCount = optionsAccessor.GetValueInt32(nameof(CalibratedScrewCount), 0);
             measurementAverageCount = optionsAccessor.GetValueInt32(nameof(MeasurementAverageCount), 1);
             screwInwardCurvatureSign = optionsAccessor.GetValueInt32(nameof(ScrewInwardCurvatureSign), 0);
+            adjustmentType = optionsAccessor.GetValueEnum(nameof(AdjustmentType), TiltAdjustmentType.Screws);
+            threadPitchMicrons = optionsAccessor.GetValueDouble(nameof(ThreadPitchMicrons), -1.0);
+            stepperStepSizeMicrons = optionsAccessor.GetValueDouble(nameof(StepperStepSizeMicrons), -1.0);
+            screwRadiusMillimeters = optionsAccessor.GetValueDouble(nameof(ScrewRadiusMillimeters), -1.0);
+            lastMeasuredThreadPitchMicrons = optionsAccessor.GetValueDouble(nameof(LastMeasuredThreadPitchMicrons), -1.0);
+            lastMeasuredStepperStepSizeMicrons = optionsAccessor.GetValueDouble(nameof(LastMeasuredStepperStepSizeMicrons), -1.0);
+            deviceName = optionsAccessor.GetValueString(nameof(DeviceName), TiltAdapterDevicePreset.ManualName);
         }
 
         private int screwCount;
@@ -169,6 +176,97 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (screwInwardCurvatureSign != value) {
                     screwInwardCurvatureSign = value;
                     optionsAccessor.SetValueInt32(nameof(ScrewInwardCurvatureSign), screwInwardCurvatureSign);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private TiltAdjustmentType adjustmentType;
+
+        public TiltAdjustmentType AdjustmentType {
+            get => adjustmentType;
+            set {
+                if (adjustmentType != value) {
+                    adjustmentType = value;
+                    optionsAccessor.SetValueEnum(nameof(AdjustmentType), adjustmentType);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double threadPitchMicrons;
+
+        public double ThreadPitchMicrons {
+            get => threadPitchMicrons;
+            set {
+                if (threadPitchMicrons != value) {
+                    threadPitchMicrons = value;
+                    optionsAccessor.SetValueDouble(nameof(ThreadPitchMicrons), threadPitchMicrons);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double stepperStepSizeMicrons;
+
+        public double StepperStepSizeMicrons {
+            get => stepperStepSizeMicrons;
+            set {
+                if (stepperStepSizeMicrons != value) {
+                    stepperStepSizeMicrons = value;
+                    optionsAccessor.SetValueDouble(nameof(StepperStepSizeMicrons), stepperStepSizeMicrons);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double screwRadiusMillimeters;
+
+        public double ScrewRadiusMillimeters {
+            get => screwRadiusMillimeters;
+            set {
+                if (screwRadiusMillimeters != value) {
+                    screwRadiusMillimeters = value;
+                    optionsAccessor.SetValueDouble(nameof(ScrewRadiusMillimeters), screwRadiusMillimeters);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double lastMeasuredThreadPitchMicrons;
+
+        public double LastMeasuredThreadPitchMicrons {
+            get => lastMeasuredThreadPitchMicrons;
+            set {
+                if (lastMeasuredThreadPitchMicrons != value) {
+                    lastMeasuredThreadPitchMicrons = value;
+                    optionsAccessor.SetValueDouble(nameof(LastMeasuredThreadPitchMicrons), lastMeasuredThreadPitchMicrons);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double lastMeasuredStepperStepSizeMicrons;
+
+        public double LastMeasuredStepperStepSizeMicrons {
+            get => lastMeasuredStepperStepSizeMicrons;
+            set {
+                if (lastMeasuredStepperStepSizeMicrons != value) {
+                    lastMeasuredStepperStepSizeMicrons = value;
+                    optionsAccessor.SetValueDouble(nameof(LastMeasuredStepperStepSizeMicrons), lastMeasuredStepperStepSizeMicrons);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private string deviceName;
+
+        public string DeviceName {
+            get => deviceName;
+            set {
+                if (deviceName != value) {
+                    deviceName = value;
+                    optionsAccessor.SetValueString(nameof(DeviceName), deviceName);
                     RaisePropertyChanged();
                 }
             }
