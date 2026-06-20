@@ -317,8 +317,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // DefocusAwareDonutDetection inside the detector, so passing the option values verbatim is safe
                 // (when the master is OFF none of them are consulted ⇒ bit-identical).
                 DefocusAwareDonutDetection = options.DefocusAwareDonutDetection,
-                // Reuse the donut master toggle (design §8.1): no new user option. Per-star SIZE gating happens in the detector.
-                NormalizeDonutSize = options.DefocusAwareDonutDetection,
+                // R_e is computed only when donut detection is on AND the user wants normalized HFR (default true).
+                NormalizeDonutSize = options.DefocusAwareDonutDetection && options.UseNormalizedHFR,
                 DonutMorphCloseSize = options.DonutMorphCloseSize,
                 DonutMinAnnularityHoleFraction = options.DonutMinAnnularityHoleFraction,
                 DonutMaxStreakEccentricity = options.DonutMaxStreakEccentricity,
