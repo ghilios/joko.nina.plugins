@@ -78,7 +78,8 @@ focus curves for every star. This enables calculation of centering error and cur
 similar to the type of analysis done by CCD Inspector." Stars are matched across frames (the panel
 notes "[each] star needs to be matched across at least 5 of the frames, and some star fits are
 rejected as outliers during modeling"), optionally after RANSAC alignment, and a paraboloid is fit
-through the per-star best-focus positions.
+through the per-star best-focus positions. For the surface model itself, the weighted fit, and how
+outliers are detected and rejected, see [Sensor Model Fitting](sensor-model.md).
 
 ![The 3D sensor curve model surface showing tilt and field curvature](../assets/screenshots/inspector-sensor-model-3d.png){ width=620 }
 

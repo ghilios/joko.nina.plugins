@@ -929,6 +929,68 @@ def fig_annotation_overlay(out_dir):
     return _finalize(fig, "annotation-overlay", out_dir)
 
 
+def fig_sensor_surface_decomposition(out_dir):
+    # Best-focus offset across the sensor, split into the linear tilt plane, the rotationally
+    # symmetric field curvature, and their sum (the tilted paraboloid the sensor model fits).
+    g = np.linspace(-1, 1, 80)
+    gx, gy = np.meshgrid(g, g)
+    tilt = 38 * gx + 14 * gy           # linear tilt plane (microns)
+    curv = 22 * (gx ** 2 + gy ** 2)    # field curvature bowl (microns)
+    surface = tilt + curv              # the paraboloid surface
+    panels = [
+        (r"Tilt plane  $G_x x + G_y y$", tilt),
+        (r"Field curvature  $K r^2$", curv),
+        ("Sensor surface (sum)", surface),
+    ]
+    vmax = max(np.abs(tilt).max(), np.abs(curv).max(), np.abs(surface).max())
+    fig, axes = plt.subplots(1, 3, figsize=(9.6, 3.6))
+    im = None
+    for ax, (title, z) in zip(axes, panels):
+        im = ax.imshow(z, cmap="coolwarm", extent=[-1, 1, -1, 1], origin="lower", vmin=-vmax, vmax=vmax)
+        ax.set_title(title, fontsize=10)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.grid(False)
+    fig.colorbar(im, ax=axes, label="best-focus offset (µm)", fraction=0.026, pad=0.02)
+    return _finalize(fig, "sensor-surface-decomposition", out_dir)
+
+
+def fig_sensor_outlier_rejection(out_dir):
+    # The surface fit's MAD-based residual clip: per-star best-focus points scatter around the
+    # fitted surface; points outside the ±2.5·MAD band are dropped, then the surface is refit.
+    rng = np.random.default_rng(7)
+    x = np.linspace(-12, 12, 240)
+
+    def model(xx):
+        return 1.6 * xx + 0.10 * xx ** 2   # tilt + curvature cross-section (microns)
+
+    fit = model(x)
+    n = 90
+    xs = rng.uniform(-12, 12, n)
+    ys = model(xs) + rng.normal(0.0, 1.2, n)
+    # A handful of failed / contaminated star fits land far from the surface.
+    xo = rng.uniform(-11, 11, 7)
+    yo = model(xo) + rng.choice([-1.0, 1.0], 7) * rng.uniform(7.0, 12.0, 7)
+    xs = np.concatenate([xs, xo])
+    ys = np.concatenate([ys, yo])
+
+    resid = ys - model(xs)
+    mad = 1.483 * np.median(np.abs(resid - np.median(resid)))   # scaled MAD, as in the solver
+    band = 2.5 * mad
+    rejected = np.abs(resid) > band
+
+    fig, ax = plt.subplots(figsize=(7.0, 4.4))
+    ax.fill_between(x, fit - band, fit + band, color=ACCENT, alpha=0.12, label=r"$\pm 2.5\,\mathrm{MAD}$ band")
+    ax.plot(x, fit, color=ACCENT, lw=2, label="fitted surface (cross-section)")
+    ax.scatter(xs[~rejected], ys[~rejected], s=14, color=GOOD, label="kept", zorder=3)
+    ax.scatter(xs[rejected], ys[rejected], s=34, color=ACCENT2, marker="x", lw=1.6, label="dropped outlier", zorder=4)
+    ax.set_xlabel("sensor position (mm)")
+    ax.set_ylabel("best-focus offset (µm)")
+    ax.set_title(r"MAD residual clip: points beyond $\pm 2.5\,\mathrm{MAD}$ are dropped, then refit")
+    ax.legend(frameon=False, fontsize=8.5, loc="upper left")
+    return save_plot(fig, "sensor-outlier-rejection", out_dir)
+
+
 # --------------------------------------------------------------------------------------------------
 # Registry + CLI
 # --------------------------------------------------------------------------------------------------
@@ -960,6 +1022,8 @@ FIGURES = {
     "step-size": fig_step_size,
     "tilt-heatmap": fig_tilt_heatmap,
     "aberration-corners": fig_aberration_corners,
+    "sensor-surface-decomposition": fig_sensor_surface_decomposition,
+    "sensor-outlier-rejection": fig_sensor_outlier_rejection,
     "annotation-overlay": fig_annotation_overlay,
     "hyperbola-anatomy": fig_hyperbola_anatomy,
     "hyperbola-asymmetric-bias": fig_hyperbola_asymmetric_bias,
