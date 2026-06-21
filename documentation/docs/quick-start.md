@@ -69,7 +69,8 @@ center-to-corner offset), and **field curvature**. A lighter **Simple Analysis**
 exposure to show an FWHM contour map and an eccentricity vector field for a quick look.
 
 Enable **Sensor Curve Model** if you want curvature and centering numbers (not just a corner-vs-center
-tilt plane), for example when you intend to physically correct tilt.
+tilt plane), for example when you intend to physically correct tilt. How that model is fit is covered
+in [Sensor Model Fitting](overview/sensor-model.md).
 
 → Full detail: [Tilt &amp; Aberration Inspector](overview/tilt-aberration-inspector.md).
 

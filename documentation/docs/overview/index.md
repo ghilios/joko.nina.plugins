@@ -24,7 +24,7 @@ The Hocus Focus auto-focus engine **analyzes each exposure while the next focus 
 
 ### Tilt & Aberration Inspector
 
-The inspector estimates **backfocus and tilt errors** by running an auto-focus and computing AF curves for the **center and corner regions of the sensor split into a 3×3 grid**, producing a full **sensor tilt and curvature model**, which lets it measure backfocus error even when tilt is present. For single exposures it also generates **FWHM contour maps** and **eccentricity vector fields** for a quick visual read, offers a **3D visualization of sensor tilt**, and can **replay saved AF runs**. See [Tilt & Aberration Inspector](tilt-aberration-inspector.md).
+The inspector estimates **backfocus and tilt errors** by running an auto-focus and computing AF curves for the **center and corner regions of the sensor split into a 3×3 grid**, producing a full **sensor tilt and curvature model**, which lets it measure backfocus error even when tilt is present. For single exposures it also generates **FWHM contour maps** and **eccentricity vector fields** for a quick visual read, offers a **3D visualization of sensor tilt**, and can **replay saved AF runs**. See [Tilt & Aberration Inspector](tilt-aberration-inspector.md), and [Sensor Model Fitting](sensor-model.md) for how the tilt and curvature model is fit.
 
 ![Sensor tilt and curvature best-focus offset map](../assets/figures/tilt-heatmap.png){ width=620 }
 *The Aberration Inspector models how best-focus position varies across the sensor, separating uniform backfocus error from tilt and field curvature.*
