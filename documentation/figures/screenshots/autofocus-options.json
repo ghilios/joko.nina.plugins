@@ -1,0 +1,26 @@
+{
+  "source": "plugin-autofocus-tab.png",
+  "crop": [
+    358,
+    305,
+    760,
+    715
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [
+    {
+      "box": [
+        360,
+        312,
+        437,
+        360
+      ],
+      "style": "rect",
+      "color": "#E91E63"
+    }
+  ],
+  "output": "autofocus-options.png"
+}

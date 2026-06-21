@@ -24,6 +24,10 @@ At its core the wizard drives a derivative-free search engine, the `StarDetectio
 **same** engine runs in the live wizard and in the offline `TestApp optimize` harness, so results are
 reproducible and the optimizer can be exercised without launching NINA.
 
+![The optimization wizard start page with the saved-run source picker, mode, and objective toggles](../assets/screenshots/optimizer-wizard-start.png){ width=620 }
+
+*The wizard's start page: choose a saved auto-focus run and the optimization objectives.*
+
 The high-level loop is simple:
 
 1. **Seed from the defaults, measure against your current settings.** The optimizer starts its search
@@ -40,6 +44,10 @@ The high-level loop is simple:
    recommended autofocus step size is offered alongside them. From the summary you can press
    **"Continue optimizing"** to run another pass seeded from the result so far (up to three passes
    total; the summary then shows the full Current → R1 → R2 → R3 trajectory).
+
+![The optimization wizard summary with the focus curve, focus precision, stars per frame, and recommended step size](../assets/screenshots/optimizer-wizard-summary.png){ width=620 }
+
+*The summary shows the resulting focus curve, focus precision, and a recommended auto-focus step size.*
 
 Optionally, you can label a handful of hard frames (missed stars, false positives) to add a
 **recall/precision** term to the score (recall = the fraction of real stars recovered; precision = the

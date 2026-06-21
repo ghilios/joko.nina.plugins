@@ -1,0 +1,26 @@
+{
+  "source": "inspector-model-analysis.png",
+  "crop": [
+    263,
+    498,
+    1110,
+    920
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [
+    {
+      "box": [
+        270,
+        814,
+        1095,
+        844
+      ],
+      "style": "rect",
+      "color": "#E91E63"
+    }
+  ],
+  "output": "inspector-measurements.png"
+}

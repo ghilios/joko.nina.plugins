@@ -1,0 +1,26 @@
+{
+  "source": "plugin-advanced-full.png",
+  "crop": [
+    360,
+    645,
+    735,
+    825
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [
+    {
+      "box": [
+        428,
+        657,
+        715,
+        820
+      ],
+      "style": "rect",
+      "color": "#E91E63"
+    }
+  ],
+  "output": "advanced-psf-modeling.png"
+}

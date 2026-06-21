@@ -1,0 +1,15 @@
+{
+  "source": "imaging-docks-overview.png",
+  "crop": [
+    812,
+    605,
+    1598,
+    945
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [],
+  "output": "star-detection-results-empty.png"
+}

@@ -42,6 +42,10 @@ Hocus Focus is published through NINA's in-app plugin manager: open **Plugins �
 **Options → Imaging → Image Options** and select **Hocus Focus** in the Star Detection, Star Annotator,
 and Auto Focus dropdowns.
 
+![Selecting Hocus Focus as the Star Detector in Options, Imaging, Image Options](assets/screenshots/image-options-dropdown.png){ width=488 }
+
+*Switch NINA to Hocus Focus in Options, Imaging, Image Options.*
+
 !!! tip "Minimum NINA version"
     Hocus Focus requires NINA **3.2.0.2001** or newer.
 

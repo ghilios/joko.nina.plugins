@@ -1,0 +1,31 @@
+{
+  "source": "plugin-stardetector-simple.png",
+  "crop": [
+    358,
+    300,
+    1360,
+    620
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [
+    {
+      "box": [
+        632,
+        357,
+        706,
+        383
+      ],
+      "style": "arrow",
+      "color": "#E91E63",
+      "tail": [
+        845,
+        369
+      ],
+      "label": "Turn on to show all settings"
+    }
+  ],
+  "output": "advanced-mode-toggle.png"
+}

@@ -32,6 +32,10 @@ used when tuning detection.
 **Advanced Mode** (property `UseAdvanced`) is the master switch between Simple Mode (preset-driven) and
 Advanced Mode (manual control of every knob).
 
+![The Advanced Mode toggle at the top of the Star Detector tab, with an arrow pointing to it](../assets/screenshots/advanced-mode-toggle.png){ width=620 }
+
+*Turn on Advanced Mode to expose every individual detector setting.*
+
 > Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless
 > you're an expert
 
@@ -53,6 +57,10 @@ values become a starting point you can tune freely.
 In Simple Mode, three dropdowns describe your rig and conditions; Hocus Focus translates them into the full
 advanced parameter bundle. The mapping below is exactly what the plugin applies (it runs whenever any preset
 changes).
+
+![The Star Detector tab in Simple mode showing the Noise Level, Pixel Scale, and Focus Range preset dropdowns](../assets/screenshots/star-detector-simple-presets.png){ width=402 }
+
+*In Simple mode, three presets (Noise Level, Pixel Scale, Focus Range) stand in for the full advanced settings.*
 
 ### Noise Level
 
@@ -225,6 +233,10 @@ normal exposures.
 ## Debug Mode
 
 Saves additional in-memory debug data during detection.
+
+![The Debug Mode and Save Intermediate toggles at the bottom of the advanced settings list](../assets/screenshots/advanced-debug-controls.png){ width=400 }
+
+*Debug Mode and Save Intermediate write diagnostic images; leave them off for normal use.*
 
 > Enables debug mode, which saves additional data useful for debugging. Keep this off unless you're tuning
 > star detection and want to view structure maps.

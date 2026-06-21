@@ -72,8 +72,9 @@ per **distinct** focuser position.
 
 With at least **3 distinct focuser positions**, the wizard runs the same "best fit" model selection
 the auto-focus engine uses (`AlglibHyperbolicFitting.SelectBestModel`): it tries the candidate models
-and lets the winner compete on merit, rather than forcing a single shape. From the winning fit it
-reads:
+and lets the winner compete on merit, rather than forcing a single shape (see
+[Hyperbolic Curve Fitting](../overview/hyperbola-fitting.md) for the model family and the Hybrid
+selection rules). From the winning fit it reads:
 
 | Quantity | Meaning |
 |---|---|

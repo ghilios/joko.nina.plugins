@@ -1,0 +1,15 @@
+{
+  "source": "inspector-options.png",
+  "crop": [
+    263,
+    234,
+    782,
+    500
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [],
+  "output": "inspector-options-empty.png"
+}

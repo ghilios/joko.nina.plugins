@@ -1,0 +1,15 @@
+{
+  "source": "inspector-sensor-model.png",
+  "crop": [
+    263,
+    316,
+    1004,
+    815
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [],
+  "output": "inspector-sensor-model-3d.png"
+}

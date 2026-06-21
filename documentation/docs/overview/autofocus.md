@@ -6,7 +6,7 @@ Hocus Focus replaces NINA's built-in autofocus engine with a star-detection-driv
 
 A focus sweep produces a set of (focuser position, HFR) points that form a V: sharp in the middle, bloated on either side. The job of autofocus is to find the bottom of that V. Hocus Focus improves on a plain minimum-finder in several ways:
 
-- **Multiple curve-fitting models** — hyperbolic (several asymmetric variants), parabolic, and trendline fits, each with a goodness-of-fit rejection gate (\(R^2\) or reduced \(\chi^2\)).
+- **Multiple curve-fitting models** — hyperbolic (several asymmetric variants), parabolic, and trendline fits, each with a goodness-of-fit rejection gate (\(R^2\) or reduced \(\chi^2\)). See [Hyperbolic Curve Fitting](hyperbola-fitting.md) for the model formulas and when each applies.
 - **Hybrid model selection** — at the end of a run every hyperbolic model is refit and the one with the least expected error for the best-focus position is kept, so each run self-selects its most trustworthy fit.
 - **Weighted fitting** — each point carries its own measurement uncertainty \(\sigma\) (the per-frame star-HFR scatter), and the fit can weight points by \(1/\sigma^2\) so a noisy point counts for less.
 - **Outlier rejection** — an iterative two-tailed Grubbs test removes points that do not belong on the curve (e.g. a frame ruined by a cloud or satellite).
@@ -15,6 +15,10 @@ A focus sweep produces a set of (focuser position, HFR) points that form a V: sh
 
 ![Autofocus HFR V-curve with hyperbolic fit, best-focus marker, and sigma-focus error band](../assets/figures/af-vcurve.png){ width=620 }
 *An autofocus run: measured HFR points form a V, a hyperbolic model is fit through them, and the fitted minimum (with its \(\sigma_{\text{focus}}\) error band) marks best focus.*
+
+![A real autofocus HFR V-curve with a hyperbolic fit through the measured focus points](../assets/screenshots/autofocus-vcurve-real.png){ width=620 }
+
+*A real autofocus run: HFR versus focuser position with the hyperbolic best-fit curve.*
 
 ## The autofocus run, step by step
 
@@ -62,6 +66,10 @@ If it fails, the whole run is retried up to NINA's configured number of attempts
 ## Key autofocus options
 
 All tooltips below are quoted verbatim from the plugin UI.
+
+![The Hocus Focus Auto Focus options tab](../assets/screenshots/autofocus-options.png){ width=402 }
+
+*The Auto Focus tab supplements NINA's own auto-focus options.*
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|

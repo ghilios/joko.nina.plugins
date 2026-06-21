@@ -1,0 +1,15 @@
+{
+  "source": "inspector-populated.png",
+  "crop": [
+    263,
+    452,
+    1110,
+    655
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [],
+  "output": "inspector-tilt-guidance.png"
+}

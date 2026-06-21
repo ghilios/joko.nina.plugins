@@ -22,6 +22,10 @@ By default the annotator draws *every* detected star. If you turn **Show All Sta
 
 These controls govern the always-on overlay drawn for accepted stars. ("Property" is NINA's term for the per-star label / annotation type.)
 
+![The Star Annotator display options: show toggles, bounds type, property selector, fonts, and colors](../assets/screenshots/star-annotator-display.png){ width=402 }
+
+*Display options control which markers and labels the annotator draws over each frame.*
+
 | Setting | Default | Range / values | What it does |
 |---|---|---|---|
 | Show Annotations | On | on / off | Master switch. *"Toggles the annotations on/off"*. When off, the unmodified image is returned. |
@@ -71,6 +75,10 @@ The label drawn beside each star reflects the selected annotation type. **HFR** 
 ## Rejection diagnostics
 
 This is where annotation earns its keep. The detector records, per frame, the bounding boxes of candidates it threw out and groups them by the gate that rejected them. Each class has its own toggle (all default **off**) and its own color, so you can light up exactly the failure mode you are chasing. By default these reject boxes share a half-transparent green, so give the ones you are studying distinct colors before comparing them.
+
+![The Star Annotator rejection-diagnostic toggles and per-reason box colors](../assets/screenshots/star-annotator-rejection.png){ width=402 }
+
+*Each rejection reason has its own show toggle and box color, so you can see why a candidate was excluded.*
 
 | Toggle | Default color | What it reveals |
 |---|---|---|

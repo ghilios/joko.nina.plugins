@@ -2,6 +2,10 @@
 
 After a star is detected and its HFR measured, Hocus Focus can fit an analytic **Point Spread Function (PSF)** to the star's pixels. The PSF fit is what produces a star's **FWHM** (full width at half maximum) and **eccentricity**; without it those metrics are unavailable. This page covers the settings that control whether PSF fitting runs, which model is used, how finely it samples, and the goodness-of-fit gate that decides whether a fit is trusted.
 
+![The PSF modeling settings (type, resolution, parallel size, fit threshold) highlighted in the advanced list](../assets/screenshots/advanced-psf-modeling.png){ width=375 }
+
+*The PSF modeling block: model type, resolution, parallel batch size, and fit threshold.*
+
 These settings live under the **Advanced** star-detection options. They do not affect star *acceptance* (which stars pass the [acceptance gates](acceptance-gates.md)). They only shape the per-star *shape measurement* that PSF fitting produces.
 
 ## What PSF modeling does

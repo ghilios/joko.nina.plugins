@@ -1,0 +1,15 @@
+{
+  "source": "plugin-starannotator.png",
+  "crop": [
+    358,
+    665,
+    760,
+    1000
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [],
+  "output": "star-annotator-rejection.png"
+}

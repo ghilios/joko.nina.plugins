@@ -558,6 +558,187 @@ def fig_af_vcurve(out_dir):
     return save_plot(fig, "af-vcurve", out_dir)
 
 
+# -------- hyperbolic fit-model figures (see overview/hyperbola-fitting.md) --------
+# Model forms mirror the plugin's fitters (StarDetection/*HyperbolicFittingAlglib.cs); u = x - x0.
+
+def _hyp_sym(x, x0, y0, a, b):
+    u = x - x0
+    return y0 + (a / b) * np.sqrt(u * u + b * b)
+
+
+def _hyp_tilted(x, x0, y0, a, b, sigma):
+    u = x - x0
+    return y0 + (a / b) * (np.sqrt(u * u + b * b) + sigma * u)
+
+
+def _tilted_min_x(x0, b, sigma):
+    return x0 - sigma * b / np.sqrt(max(1.0 - sigma * sigma, 1e-12))
+
+
+def _hyp_smooth(x, x0, y0, a, b, c, w):
+    u = x - x0
+    t = 1.0 / (1.0 + np.exp(np.clip(u / w, -40, 40)))
+    return y0 + t * (a / b) * np.sqrt(u * u + b * b) + (1.0 - t) * (a / c) * np.sqrt(u * u + c * c)
+
+
+def _hyp_uneven(x, x0, y0, a, b, c, step):
+    u = x - x0
+    t = np.clip((x0 - x) / step, 0.0, 1.0)
+    return t * (a / b) * np.sqrt(u * u + b * b) + (1.0 - t) * (a / c) * np.sqrt(u * u + c * c) + y0
+
+
+def _lm_fit(model, p0, x, y, lower, upper, iters=400):
+    """Tiny bounded Levenberg-Marquardt (numerical Jacobian) for honest, deterministic figure fits."""
+    lower = np.array(lower, float)
+    upper = np.array(upper, float)
+    p = np.clip(np.array(p0, float), lower, upper)
+    lam = 1e-2
+    r = model(x, *p) - y
+    cost = float(r @ r)
+    for _ in range(iters):
+        f0 = model(x, *p)
+        J = np.empty((x.size, p.size))
+        for j in range(p.size):
+            dpj = max(1e-6, abs(p[j]) * 1e-6)
+            pj = p.copy()
+            pj[j] += dpj
+            J[:, j] = (model(x, *pj) - f0) / dpj
+        JtJ = J.T @ J
+        g = J.T @ r
+        try:
+            step = np.linalg.solve(JtJ + lam * np.diag(np.diag(JtJ) + 1e-9), -g)
+        except np.linalg.LinAlgError:
+            lam = min(lam * 4, 1e8)
+            continue
+        pn = np.clip(p + step, lower, upper)
+        rn = model(x, *pn) - y
+        cn = float(rn @ rn)
+        if cn < cost:
+            p, r, cost = pn, rn, cn
+            lam = max(lam * 0.5, 1e-9)
+        else:
+            lam = min(lam * 2.5, 1e8)
+    return p
+
+
+def fig_hyperbola_anatomy(out_dir):
+    x0, y0, a, b = 5000.0, 1.4, 2.6, 320.0
+    x = np.linspace(4200, 5800, 500)
+    y = _hyp_sym(x, x0, y0, a, b)
+    fig, ax = plt.subplots(figsize=(7.0, 4.4))
+    ax.plot(x, y, color=ACCENT, lw=2, label="symmetric hyperbola")
+    ax.plot(x, y0 + (a / b) * np.abs(x - x0), color="0.6", lw=1, ls="--",
+            label=r"asymptotes, slope $=a/b$")
+    ax.axvline(x0, color=ACCENT2, lw=1.1, ls=":")
+    ax.plot([x0], [y0 + a], "o", color=ACCENT2, ms=7)
+    ax.annotate("best focus $x_0$\nmin HFR $= a + y_0$", xy=(x0, y0 + a),
+                xytext=(x0 + 130, y0 + a + 2.6), fontsize=9,
+                arrowprops=dict(arrowstyle="->", color=ACCENT2))
+    ax.set_ylim(0, None)
+    ax.set_xlabel("focuser position (steps)")
+    ax.set_ylabel("HFR (px)")
+    ax.set_title(r"Symmetric hyperbola: $y=\frac{a}{b}\sqrt{u^2+b^2}+y_0,\ u=x-x_0$")
+    ax.legend(frameon=False, fontsize=9, loc="upper center")
+    return save_plot(fig, "hyperbola-anatomy", out_dir)
+
+
+def fig_hyperbola_asymmetric_bias(out_dir):
+    rng = np.random.default_rng(202)
+    x0, y0, a, b, sigma = 5000.0, 1.4, 2.6, 300.0, 0.5
+    pos = np.linspace(4250, 5750, 11)
+    meas = _hyp_tilted(pos, x0, y0, a, b, sigma) + rng.normal(0, 0.07, pos.size)
+    x = np.linspace(4150, 5850, 500)
+    p_t = _lm_fit(_hyp_tilted, [5000, 1.0, 2.0, 300, 0.0], pos, meas,
+                  [4200, -5, 0.05, 30, -0.9], [5800, 8, 8, 1200, 0.9])
+    p_s = _lm_fit(_hyp_sym, [5000, 1.0, 2.0, 300], pos, meas,
+                  [4200, -5, 0.05, 30], [5800, 8, 8, 1200])
+    xmin_t, xmin_s = _tilted_min_x(p_t[0], p_t[3], p_t[4]), p_s[0]
+    fig, ax = plt.subplots(figsize=(7.2, 4.4))
+    ax.errorbar(pos, meas, yerr=0.12, fmt="o", color=GOOD, ms=5, capsize=2, label="measured HFR")
+    ax.plot(x, _hyp_tilted(x, *p_t), color=ACCENT, lw=2, label="tilted fit")
+    ax.plot(x, _hyp_sym(x, *p_s), color=ACCENT2, lw=2, ls="--", label="symmetric fit")
+    ax.axvline(xmin_t, color=ACCENT, lw=1, ls=":")
+    ax.axvline(xmin_s, color=ACCENT2, lw=1, ls=":")
+    ylo = ax.get_ylim()[0]
+    ax.annotate("", xy=(xmin_t, ylo + 0.35), xytext=(xmin_s, ylo + 0.35),
+                arrowprops=dict(arrowstyle="<->", color="0.3"))
+    ax.text((xmin_t + xmin_s) / 2, ylo + 0.6, f"focus error ≈ {abs(xmin_s - xmin_t):.0f} steps",
+            ha="center", fontsize=9, color="0.2")
+    ax.set_xlabel("focuser position (steps)")
+    ax.set_ylabel("HFR (px)")
+    ax.set_title("A symmetric fit biases best focus on an asymmetric curve")
+    ax.legend(frameon=False, fontsize=9)
+    return save_plot(fig, "hyperbola-asymmetric-bias", out_dir)
+
+
+def fig_hyperbola_variants(out_dir):
+    rng = np.random.default_rng(303)
+    # Strongly asymmetric truth (steep left wing, shallow right) so the variants separate near focus.
+    x0, y0, a, b, c = 5000.0, 1.2, 2.6, 185.0, 520.0
+    pos = np.linspace(4250, 5750, 13)
+    meas = _hyp_smooth(pos, x0, y0, a, b, c, 0.25 * 150.0) + rng.normal(0, 0.05, pos.size)
+    x = np.linspace(4150, 5850, 700)
+    w = 0.25 * float(np.median(np.diff(np.sort(pos))))
+    step = (pos.max() - pos.min()) / 12.0
+    p_t = _lm_fit(_hyp_tilted, [5000, 1, 2, 300, 0], pos, meas,
+                  [4200, -5, 0.05, 30, -0.9], [5800, 8, 8, 1200, 0.9])
+    p_sm = _lm_fit(lambda xx, x0, y0, a, b, c: _hyp_smooth(xx, x0, y0, a, b, c, w),
+                   [5000, 1, 2, 200, 500], pos, meas, [4200, -5, 0.05, 30, 30], [5800, 8, 8, 1500, 1500])
+    p_un = _lm_fit(lambda xx, x0, y0, a, b, c: _hyp_uneven(xx, x0, y0, a, b, c, step),
+                   [5000, 1, 2, 200, 500], pos, meas, [4200, -5, 0.05, 30, 30], [5800, 8, 8, 1500, 1500])
+    smooth = lambda xx: _hyp_smooth(xx, p_sm[0], p_sm[1], p_sm[2], p_sm[3], p_sm[4], w)
+    uneven = lambda xx: _hyp_uneven(xx, p_un[0], p_un[1], p_un[2], p_un[3], p_un[4], step)
+    fig, ax = plt.subplots(figsize=(7.2, 4.6))
+    ax.plot(pos, meas, "o", color=GOOD, ms=4, alpha=0.7, label="measured HFR")
+    ax.plot(x, _hyp_tilted(x, *p_t), color=ACCENT, lw=1.8, label="Tilted")
+    ax.plot(x, smooth(x), color=GOOD, lw=1.8, label="Smooth Blend")
+    ax.plot(x, uneven(x), color=ACCENT2, lw=1.8, label="Uneven Blend (legacy)")
+    ax.set_xlabel("focuser position (steps)")
+    ax.set_ylabel("HFR (px)")
+    ax.set_title("Three asymmetric variants fit the same curve")
+    ax.legend(frameon=False, fontsize=9, loc="upper left")
+    # Inset zoom on the vertex: the Uneven blend kinks where the smooth models stay round.
+    xv = np.linspace(p_un[0] - 300, p_un[0] + 300, 400)
+    axin = ax.inset_axes([0.60, 0.42, 0.37, 0.42])
+    axin.plot(xv, _hyp_tilted(xv, *p_t), color=ACCENT, lw=1.6)
+    axin.plot(xv, smooth(xv), color=GOOD, lw=1.6)
+    axin.plot(xv, uneven(xv), color=ACCENT2, lw=1.6)
+    axin.set_title("vertex (zoom)", fontsize=8)
+    axin.tick_params(labelsize=7)
+    yv = uneven(np.array([p_un[0]]))[0]
+    axin.annotate("C⁰ kink", xy=(p_un[0], yv), xytext=(p_un[0] + 55, yv + 0.42),
+                  fontsize=8, color=ACCENT2, arrowprops=dict(arrowstyle="->", color=ACCENT2))
+    ax.indicate_inset_zoom(axin, edgecolor="0.5")
+    return save_plot(fig, "hyperbola-variants", out_dir)
+
+
+def fig_hyperbola_parsimony(out_dir):
+    rng = np.random.default_rng(404)
+    x0, y0, a, b = 5000.0, 1.4, 2.6, 320.0
+    pos = np.linspace(4300, 5700, 9)
+    meas = _hyp_sym(pos, x0, y0, a, b) + rng.normal(0, 0.05, pos.size)
+    x = np.linspace(4200, 5800, 500)
+    p_s = _lm_fit(_hyp_sym, [5000, 1, 2, 300], pos, meas, [4200, -5, 0.05, 30], [5800, 8, 8, 1200])
+    p_t = _lm_fit(_hyp_tilted, [5000, 1, 2, 300, 0], pos, meas,
+                  [4200, -5, 0.05, 30, -0.9], [5800, 8, 8, 1200, 0.9])
+    xmin_s, xmin_t = p_s[0], _tilted_min_x(p_t[0], p_t[3], p_t[4])
+    fig, ax = plt.subplots(figsize=(7.2, 4.5))
+    ax.errorbar(pos, meas, yerr=0.08, fmt="o", color=GOOD, ms=5, capsize=2, label="measured HFR")
+    ax.plot(x, _hyp_sym(x, *p_s), color=ACCENT, lw=2, label="symmetric fit (kept)")
+    ax.plot(x, _hyp_tilted(x, *p_t), color=ACCENT2, lw=1.4, ls="--", label="asymmetric fit (rejected)")
+    ax.axvline(xmin_s, color=ACCENT, lw=1, ls=":")
+    ax.axvline(xmin_t, color=ACCENT2, lw=1, ls=":")
+    ax.text(0.025, 0.96,
+            "Asymmetric Δχ² not significant\n(F < F_crit at 95%) → keep Symmetric\n(smaller σ_focus)",
+            transform=ax.transAxes, va="top", ha="left", fontsize=8.5,
+            bbox=dict(boxstyle="round", fc="white", ec="0.7"))
+    ax.set_xlabel("focuser position (steps)")
+    ax.set_ylabel("HFR (px)")
+    ax.set_title("When symmetric wins: the parsimony gate rejects the over-fit")
+    ax.legend(frameon=False, fontsize=9, loc="upper right")
+    return save_plot(fig, "hyperbola-parsimony", out_dir)
+
+
 def fig_objective_sfocus(out_dir):
     rho = np.linspace(0, 1.2, 400)
     for_ref = 0.25
@@ -780,6 +961,10 @@ FIGURES = {
     "tilt-heatmap": fig_tilt_heatmap,
     "aberration-corners": fig_aberration_corners,
     "annotation-overlay": fig_annotation_overlay,
+    "hyperbola-anatomy": fig_hyperbola_anatomy,
+    "hyperbola-asymmetric-bias": fig_hyperbola_asymmetric_bias,
+    "hyperbola-variants": fig_hyperbola_variants,
+    "hyperbola-parsimony": fig_hyperbola_parsimony,
 }
 
 
