@@ -912,30 +912,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             calibrationPixelSizeMicrons = pixelSize;
             calibrationFocuserStepMicrons = fStep;
 
-            double radiusMm = tiltAdapterOptions.ScrewRadiusMillimeters;
-            double applied = calibrationAppliedAmount;
-            double sensorW = model.ImageSize.Width * pixelSize;
-            double sensorH = model.ImageSize.Height * pixelSize;
-            if (radiusMm <= 0 || applied <= 0 || pixelSize <= 0 || fStep <= 0 || sensorW <= 0 || sensorH <= 0) {
-                RaiseHardwareSummaryChanged();
-                return;
-            }
-
-            double radiusMicrons = radiusMm * 1000.0;
-            int n = tiltAdapterOptions.ScrewCount;
-
-            double d1A = screw1Reading.A - baselineReading.A;
-            double d1B = screw1Reading.B - baselineReading.B;
-            double d2A = screw2Reading.A - baselineReading.A;
-            double d2B = screw2Reading.B - baselineReading.B;
-
-            var (g1x, g1y) = TiltScrewGeometry.PlaneGradientToPhysical(d1A, d1B, fStep, sensorW, sensorH);
-            var (g2x, g2y) = TiltScrewGeometry.PlaneGradientToPhysical(d2A, d2B, fStep, sensorW, sensorH);
-            double delta1 = TiltScrewGeometry.CalibrationAxialMoveMicrons(g1x, g1y, n, radiusMicrons);
-            double delta2 = TiltScrewGeometry.CalibrationAxialMoveMicrons(g2x, g2y, n, radiusMicrons);
-
-            double measured = 0.5 * (delta1 + delta2) / applied;
-            if (double.IsNaN(measured) || measured <= 0) { RaiseHardwareSummaryChanged(); return; }
+            // The pitch/step recovery math lives in the pure TiltCalibrationCalculator (shared with the validator);
+            // it applies the same guards (radius/applied/pixel/fStep/sensor > 0) and returns NaN otherwise.
+            var inputs = new TiltCalibrationInputs {
+                ScrewCount = tiltAdapterOptions.ScrewCount,
+                Baseline = new TiltGradient(baselineReading.A, baselineReading.B, 0),
+                Screw1 = new TiltGradient(screw1Reading.A, screw1Reading.B, 0),
+                Screw2 = new TiltGradient(screw2Reading.A, screw2Reading.B, 0),
+                ImageWidthPixels = model.ImageSize.Width,
+                ImageHeightPixels = model.ImageSize.Height,
+                PixelSizeMicrons = pixelSize,
+                FocuserStepMicrons = fStep,
+                ScrewRadiusMillimeters = tiltAdapterOptions.ScrewRadiusMillimeters,
+                CalibrationAppliedAmount = calibrationAppliedAmount,
+                IsStepperAdjustment = IsStepperAdjustment
+            };
+            double measured = TiltCalibrationCalculator.RecoverHardwareMicrons(inputs);
+            if (double.IsNaN(measured)) { RaiseHardwareSummaryChanged(); return; }
 
             measuredHardwareMicrons = measured;
             if (IsStepperAdjustment) {
@@ -960,67 +953,58 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         private void CalculateAndSaveCurvatureSign() {
-            double delta = allScrewsCurvatureReading - baselineCurvatureReading;
-            tiltAdapterOptions.ScrewInwardCurvatureSign = delta >= 0 ? 1 : -1;
+            tiltAdapterOptions.ScrewInwardCurvatureSign = TiltCalibrationCalculator.ComputeCurvatureSign(
+                allScrewsCurvatureReading, baselineCurvatureReading);
         }
 
         private void CalculateAndSaveAngles() {
+            // The per-screw angle math (winding detection + constrained equal-spacing fit) lives in the pure
+            // TiltCalibrationCalculator, shared with the headless validator so the two can never drift.
             double d1A = screw1Reading.A - baselineReading.A;
             double d1B = screw1Reading.B - baselineReading.B;
             double d2A = screw2Reading.A - baselineReading.A;
             double d2B = screw2Reading.B - baselineReading.B;
 
-            // atan2(dA, -dB): 0°=top, 90°=right (clockwise from top in image space)
-            double angle1 = NormalizeAngle(Math.Atan2(d1A, -d1B) * 180.0 / Math.PI);
-            double angle2 = NormalizeAngle(Math.Atan2(d2A, -d2B) * 180.0 / Math.PI);
+            var (s1, s2, s3, s4, rawDiff) = TiltCalibrationCalculator.ComputeScrewAngles(
+                d1A, d1B, d2A, d2B, tiltAdapterOptions.ScrewCount);
 
-            // Determine winding direction from measured data. Image mirroring causes screws
-            // numbered clockwise on the physical adapter to appear counter-clockwise in the
-            // sensor image; the diff tells us which direction is correct.
-            double rawDiff = NormalizeAngle(angle2 - angle1);
-            bool clockwise = rawDiff < 180.0;
-            int n = tiltAdapterOptions.ScrewCount;
-
-            // Constrained least-squares fit: find theta1 that minimises
-            //   (theta1 - angle1)^2 + (theta1 + s - angle2)^2
-            // subject to equal angular spacing s. Solution: shift angle1 by half the
-            // residual from the ideal gap, splitting measurement error evenly.
-            if (n == 3) {
-                double s = clockwise ? 120.0 : -120.0;
-                double expectedDiff = clockwise ? 120.0 : 240.0;
-                double theta1 = NormalizeAngle(angle1 + (rawDiff - expectedDiff) / 2.0);
-                tiltAdapterOptions.Screw1AngleDegrees = theta1;
-                tiltAdapterOptions.Screw2AngleDegrees = NormalizeAngle(theta1 + s);
-                tiltAdapterOptions.Screw3AngleDegrees = NormalizeAngle(theta1 + 2 * s);
-                tiltAdapterOptions.Screw4AngleDegrees = double.NaN;
-            } else {
-                double s = clockwise ? 90.0 : -90.0;
-                double expectedDiff = clockwise ? 90.0 : 270.0;
-                double theta1 = NormalizeAngle(angle1 + (rawDiff - expectedDiff) / 2.0);
-                double theta2 = NormalizeAngle(theta1 + s);
-                tiltAdapterOptions.Screw1AngleDegrees = theta1;
-                tiltAdapterOptions.Screw2AngleDegrees = theta2;
-                // Opposite screws are always 180° apart regardless of mirroring.
-                tiltAdapterOptions.Screw3AngleDegrees = NormalizeAngle(theta1 + 180.0);
-                tiltAdapterOptions.Screw4AngleDegrees = NormalizeAngle(theta2 + 180.0);
-            }
-
+            tiltAdapterOptions.Screw1AngleDegrees = s1;
+            tiltAdapterOptions.Screw2AngleDegrees = s2;
+            tiltAdapterOptions.Screw3AngleDegrees = s3;
+            tiltAdapterOptions.Screw4AngleDegrees = s4;
             tiltAdapterOptions.CalibratedScrewCount = tiltAdapterOptions.ScrewCount;
             tiltAdapterOptions.IsCalibrated = true;
-            ValidateAngleSeparation(rawDiff);
+            var magnitudeRatio = TiltCalibrationCalculator.MoveMagnitudeRatio(d1A, d1B, d2A, d2B);
+            ValidateCalibrationQuality(rawDiff, magnitudeRatio);
         }
 
-        // Checks raw measured diff (before constrained fit) to catch poor-quality calibrations.
-        private void ValidateAngleSeparation(double rawDiff) {
+        // Two single-screw turns of the same amount should produce gradient changes that are ~equal in magnitude
+        // and the correct angular distance apart. A bad angle gap OR very unequal magnitudes (uneven turning /
+        // backlash) means the recovered geometry/hardware is unreliable — warn so the user recalibrates.
+        private const double MagnitudeRatioWarnThreshold = 1.5; // larger move > 1.5x smaller => suspect
+
+        private void ValidateCalibrationQuality(double rawDiff, double magnitudeRatio) {
             int n = tiltAdapterOptions.ScrewCount;
             double expected = n == 3 ? 120.0 : 90.0;
             // Fold the diff so it is in [0, 180] — both CW and CCW gaps compare to the same expected value.
             double foldedDiff = rawDiff <= 180.0 ? rawDiff : 360.0 - rawDiff;
             double deviation = Math.Abs(foldedDiff - expected);
-            HasWarning = deviation > 30.0;
-            WarningText = HasWarning
-                ? $"Screw 1→2 measured angle gap is {foldedDiff:F1}° (expected ~{expected}°). Consider recalibrating."
-                : string.Empty;
+            bool angleBad = deviation > 30.0;
+            bool magnitudeBad = !double.IsNaN(magnitudeRatio) && magnitudeRatio > MagnitudeRatioWarnThreshold;
+
+            HasWarning = angleBad || magnitudeBad;
+            if (!HasWarning) {
+                WarningText = string.Empty;
+                return;
+            }
+            var parts = new List<string>(2);
+            if (angleBad) {
+                parts.Add($"Screw 1→2 measured angle gap is {foldedDiff:F1}° (expected ~{expected}°)");
+            }
+            if (magnitudeBad) {
+                parts.Add($"the two screw turns produced very unequal tilt changes ({magnitudeRatio:F1}× apart) — turn each screw the same amount");
+            }
+            WarningText = string.Join("; ", parts) + ". Consider recalibrating.";
         }
 
         private void RebuildDiagram() {

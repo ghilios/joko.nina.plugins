@@ -168,6 +168,15 @@ namespace TestApp {
                 return;
             }
 
+            // Headless tilt-calibration validator: `TestApp tilt --dataset <folder> ...`. Reproduces the Tilt
+            // Adapter Wizard's calibration over a bank of saved AF runs and reports computed screw angles +
+            // recovered hardware against ground-truth metadata. Optionally runs (and persists) star-detection
+            // optimization first.
+            if (args.Length > 0 && args[0].Equals("tilt", StringComparison.OrdinalIgnoreCase)) {
+                await TiltCalibrationRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&
