@@ -219,7 +219,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return await task;
         }
 
-        public async Task<bool> AnalyzeAutoFocusFromSaved(CancellationToken token, Action onFolderSelected = null) {
+        public async Task<bool> AnalyzeAutoFocusFromSaved(CancellationToken token, Action onFolderSelected = null, AutoFocusSaveOverride saveOverride = null) {
             string folderPath;
             using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
                 if (!String.IsNullOrEmpty(autoFocusOptions.LastSelectedLoadPath)) {
@@ -232,12 +232,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusOptions.LastSelectedLoadPath = folderPath;
             }
             onFolderSelected?.Invoke();
-            var task = AnalyzeAutoFocusFromSavedImpl(folderPath);
+            var task = AnalyzeAutoFocusFromSavedImpl(folderPath, saveOverride);
             token.Register(() => analyzeCts?.Cancel());
             return await task;
         }
 
-        private async Task<bool> AnalyzeAutoFocusFromSavedImpl(string folderPath) {
+        private async Task<bool> AnalyzeAutoFocusFromSavedImpl(string folderPath, AutoFocusSaveOverride saveOverride = null) {
             var localAnalyzeTask = analyzeTask;
             if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
                 Notification.ShowError("Analysis still in progress");
@@ -260,8 +260,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             Logger.Info($"Rerunning auto focus attempt from {folderPath}");
+            bool suppressAuxiliaryFiles = saveOverride?.SuppressAuxiliaryFiles == true;
+            bool savedSaveIntermediateImages = starDetectionOptions.SaveIntermediateImages;
+            if (suppressAuxiliaryFiles) {
+                starDetectionOptions.SaveIntermediateImages = false;
+            }
             localAnalyzeTask = Task.Run(async () => {
                 var options = GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt);
+                if (saveOverride != null) {
+                    options.Save = saveOverride.Save;
+                    options.SavePath = saveOverride.SavePath;
+                    if (options.Save) {
+                        options.PreserveExposures = true;
+                    }
+                }
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                 var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
 
@@ -276,14 +288,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ResetErrors();
                 ResetExposureAnalysis();
 
+                LastSaveFolder = null;
                 var result = await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
                 if (result == null) {
                     InspectorErrorText = "AutoFocus Analysis Failed";
                     DeactivateAutoFocusAnalysis();
                     return false;
                 }
+                LastSaveFolder = result.SaveFolder;
 
-                var analysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token, true);
+                var analysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token, forRerun: true, suppressRegisteredImages: suppressAuxiliaryFiles);
                 if (!analysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed");
                     InspectorErrorText = "AutoFocus Analysis Failed";
@@ -310,6 +324,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 DeactivateAutoFocusAnalysis();
                 return false;
             } finally {
+                if (suppressAuxiliaryFiles) {
+                    starDetectionOptions.SaveIntermediateImages = savedSaveIntermediateImages;
+                }
                 RaisePropertyChanged(nameof(IsAnalysisRunning));
             }
         }

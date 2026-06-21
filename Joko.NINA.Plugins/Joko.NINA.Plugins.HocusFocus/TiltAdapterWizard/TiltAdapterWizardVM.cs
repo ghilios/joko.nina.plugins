@@ -731,8 +731,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
             var readings = new List<(double A, double B, double Mean)>(count);
 
+            // Redirect this step's run into its own folder when saving — for both live capture and the
+            // "Use Saved AF" path (re-analyzing a previously captured run still writes a replayable per-step run).
             AutoFocusSaveOverride saveOverride = null;
-            if (!fromSaved && saveAFRuns && !string.IsNullOrEmpty(runRootFolder)) {
+            if (saveAFRuns && !string.IsNullOrEmpty(runRootFolder)) {
                 try {
                     var perStepDir = Path.Combine(runRootFolder, StepFolderName(step));
                     Directory.CreateDirectory(perStepDir);
@@ -750,7 +752,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (fromSaved) {
                     // IsMeasuring is set via callback after the folder dialog closes so the chart doesn't appear
                     // until the user has confirmed a selection.
-                    ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true);
+                    ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true, saveOverride: saveOverride);
                 } else {
                     ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true, saveOverride);
                 }
@@ -773,7 +775,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 Mean = avgMean,
                 TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
                 DirectionDeg = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
-                SaveFolder = (!fromSaved && saveOverride != null) ? inspector.LastSaveFolder : null
+                SaveFolder = saveOverride != null ? inspector.LastSaveFolder : null
             };
             PopulateCurvature(ref reading);
             return reading;
