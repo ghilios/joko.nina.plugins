@@ -56,6 +56,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public class AutoFocusSaveOverride {
         public bool Save { get; set; }
         public string SavePath { get; set; }
+
+        // When true, suppress the auxiliary artifacts a normal inspection run writes — the registered/annotated
+        // alignment images and the star-detection intermediate files — so a saved calibration run keeps only the
+        // raw frames needed for replay.
+        public bool SuppressAuxiliaryFiles { get; set; }
     }
 
     public class AutoFocusEngineOptions {

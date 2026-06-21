@@ -325,6 +325,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var localAnalyzeCts = new CancellationTokenSource();
             analyzeCts = localAnalyzeCts;
 
+            bool suppressAuxiliaryFiles = saveOverride?.SuppressAuxiliaryFiles == true;
+            bool savedSaveIntermediateImages = starDetectionOptions.SaveIntermediateImages;
             localAnalyzeTask = Task.Run(async () => {
                 try {
                     if (captureCameraBlock) {
@@ -340,6 +342,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             // Mirror GetAutoFocusEngineOptions: keep exposures so the run can be re-analyzed later.
                             options.PreserveExposures = true;
                         }
+                    }
+                    if (suppressAuxiliaryFiles) {
+                        // A saved calibration run keeps only the raw frames — suppress star-detection intermediate
+                        // files (restored in the finally) and, below, the registered/annotated alignment images.
+                        starDetectionOptions.SaveIntermediateImages = false;
                     }
                     var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                     var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
@@ -364,7 +371,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
                     LastSaveFolder = result.SaveFolder;
 
-                    var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token);
+                    var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token, suppressRegisteredImages: suppressAuxiliaryFiles);
                     if (!autoFocusAnalysisResult) {
                         InspectorErrorText = "AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.";
                         Notification.ShowError("AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.");
@@ -383,6 +390,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Notification.ShowInformation("Aberration Inspection Complete");
                     return true;
                 } finally {
+                    if (suppressAuxiliaryFiles) {
+                        starDetectionOptions.SaveIntermediateImages = savedSaveIntermediateImages;
+                    }
                     if (captureCameraBlock) {
                         this.cameraMediator.ReleaseCaptureBlock(this);
                     }
@@ -425,7 +435,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusResult result,
             bool sensorCurveModelEnabled,
             CancellationToken ct,
-            bool forRerun = false) {
+            bool forRerun = false,
+            bool suppressRegisteredImages = false) {
             if (result == null || !result.Succeeded) {
                 Logger.Error("Inspection analysis failed, due to failed AutoFocus");
                 return false;
@@ -458,7 +469,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     progress,
                     ct: ct);
 
-                if ((!forRerun) || (inspectorOptions.SaveImagesOnReruns)) {
+                if (!suppressRegisteredImages && ((!forRerun) || (inspectorOptions.SaveImagesOnReruns))) {
                     if (!String.IsNullOrEmpty(result.SaveFolder)) {
                         await SaveRegisteredImages(result.SaveFolder,
                             SensorModel.SensorModelResult.RegisteredStars,

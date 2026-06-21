@@ -407,6 +407,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        // Enabling saving immediately prompts for the folder (one click). Invoked from the view's CheckBox.Checked
+        // so the property setter stays free of UI side effects (unit-testable). No-op if a folder is already set.
+        public void PromptForSaveFolderIfNeeded() {
+            if (saveAFRuns && string.IsNullOrWhiteSpace(SaveAFRunsPath)) {
+                BrowseSaveFolder();
+            }
+        }
+
         public string SaveAFRunsPath {
             get => tiltAdapterOptions.SaveAFRunsPath;
             set {
@@ -728,7 +736,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 try {
                     var perStepDir = Path.Combine(runRootFolder, StepFolderName(step));
                     Directory.CreateDirectory(perStepDir);
-                    saveOverride = new AutoFocusSaveOverride { Save = true, SavePath = perStepDir };
+                    // Keep only the raw frames needed for replay — no annotated/alignment or intermediate files.
+                    saveOverride = new AutoFocusSaveOverride { Save = true, SavePath = perStepDir, SuppressAuxiliaryFiles = true };
                 } catch (Exception ex) {
                     Logger.Error(ex, "Failed to create per-step save folder; continuing without saving this step");
                 }

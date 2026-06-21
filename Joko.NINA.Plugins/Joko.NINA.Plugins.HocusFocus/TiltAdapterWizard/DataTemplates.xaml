@@ -302,11 +302,13 @@
                     </UniformGrid>
 
                     <!--  Save AutoFocus runs (opt-in per run; folder persisted for reuse, toggle resets each run)  -->
-                    <CheckBox
+                    <StackPanel
                         Margin="0,10,0,0"
-                        Content="Save AutoFocus runs (for replay)"
-                        IsChecked="{Binding SaveAFRuns}"
-                        ToolTip="Save each calibration step's AutoFocus sweep into a per-run folder with a metadata.json so the run can be replayed later. Off by default; enable before each run." />
+                        Orientation="Horizontal"
+                        ToolTip="Save each calibration step's AutoFocus sweep into a per-run folder with a metadata.json so the run can be replayed later. Off by default; enable before each run.">
+                        <CheckBox VerticalAlignment="Center" IsChecked="{Binding SaveAFRuns}" Checked="SaveAFRuns_Checked" />
+                        <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" Text="Save AutoFocus runs (for replay)" />
+                    </StackPanel>
                     <Grid Margin="0,4,0,0" HorizontalAlignment="Stretch">
                         <Grid.Style>
                             <Style TargetType="Grid">
@@ -353,7 +355,7 @@
                         <TextBlock
                             Margin="10,5,10,5"
                             Foreground="{StaticResource ButtonForegroundBrush}"
-                            Text="Replay Saved Run…" />
+                            Text="Replay" />
                     </Button>
 
                     <TextBlock Margin="0,10,0,0" Text="No calibration saved.">
