@@ -11,7 +11,7 @@ Hocus Focus registers its annotator as a pluggable behavior (it implements NINA'
 
 The annotator converts the displayed image to an 8-bit grayscale canvas, draws every overlay element onto it, and hands the result back to NINA as the image you see. Changing any annotation option triggers a live re-render on a background thread, so you can flip a setting and watch the overlay update without re-running detection.
 
-If **Show Annotations** is off, the annotator returns the image untouched — nothing else in this page applies until you turn it back on.
+If **Show Annotations** is off, the annotator returns the image untouched, and nothing else in this page applies until you turn it back on.
 
 By default the annotator draws *every* detected star. If you turn **Show All Stars** off, it keeps only the **Maximum Stars** brightest stars (sorted by average brightness) and labels those. The rejection boxes described later are drawn from the detector's metrics independently of this limit, so they always appear in full when their toggle is on.
 
@@ -87,7 +87,7 @@ Each toggle has a companion color setting (Distorted Box Color, Degenerate Box C
 **Contaminated** is special. Its tooltip explains: *"Whether to mark stars flagged as possibly contaminated by a neighbor, background gradient, or hot column. The marker is shown whether or not 'Reject Contaminated Stars' is enabled, so you can see which stars were flagged even when they are excluded from measurements"*. In other words the magenta box appears even for stars the detector already removed from the measured set, so you can tell which measurements a nearby star or gradient may have affected. The marker is drawn as the star's bounding box, in **Contaminated Box Color** (magenta, half-transparent by default).
 
 !!! tip "When this helps"
-    Turn on **Show Degenerate**, **Show Distorted**, and **Show Low Sensitivity** together to see which stars are being dropped and why. If real stars are vanishing into one rejection color, that gate is too aggressive for your optics — adjust the matching acceptance gate. If a marker sits on noise, the gate is doing its job.
+    Turn on **Show Degenerate**, **Show Distorted**, and **Show Low Sensitivity** together to see which stars are being dropped and why. If real stars are vanishing into one rejection color, that gate is too aggressive for your optics; adjust the matching acceptance gate. If a marker sits on noise, the gate is doing its job.
 
 ## Structure map overlay (debug)
 
@@ -102,7 +102,7 @@ Each toggle has a companion color setting (Distorted Box Color, Degenerate Box C
 The mask pixels are blended onto the image in **Structure Map Color** (*"The color of the overlayed structure map"*; magenta/purple, half-transparent by default). This control is only exposed when the detector's debug mode is enabled, since it exists for algorithm-level tuning rather than routine use.
 
 !!! warning
-    The structure-map overlay is a debugging aid for tuning the structure-detection stage (noise clipping, dilation). It is not meant to be left on during normal focusing — it obscures the underlying image.
+    The structure-map overlay is a debugging aid for tuning the structure-detection stage (noise clipping, dilation). It is not meant to be left on during normal focusing, since it obscures the underlying image.
 
 ## Practical recipes
 
@@ -113,7 +113,7 @@ The mask pixels are blended onto the image in **Structure Map Color** (*"The col
     Set **Show Property** to FWHM or Eccentricity (PSF modeling required) and watch for consistent, low values near best focus. The star-center reticule makes off-center or trailed stars at the defocus extremes easy to spot.
 
 !!! example "Mapping the PSF across the sensor"
-    Combine **Star Bounds Type = PSF** with the Eccentricity or PSF Rotation label to overlay the actual fitted ellipse shape and orientation everywhere in the frame. Systematic stretch toward the corners points to tilt, coma, or curvature — the kind of thing the Tilt & Aberration Inspector quantifies.
+    Combine **Star Bounds Type = PSF** with the Eccentricity or PSF Rotation label to overlay the actual fitted ellipse shape and orientation everywhere in the frame. Systematic stretch toward the corners points to tilt, coma, or curvature, the kind of thing the Tilt & Aberration Inspector quantifies.
 
 !!! example "Understanding contamination in nebulosity"
     Turn on **Show Contaminated** while imaging over bright nebulosity. Because flagged stars draw whether or not they were rejected, you can immediately see which measurements a gradient or close neighbor may be biasing.

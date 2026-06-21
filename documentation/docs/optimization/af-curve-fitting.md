@@ -1,7 +1,7 @@
 # From Focus Frames to a Score
 
 The optimization wizard does not score your settings on a single image. It scores them on a whole
-**auto-focus run** — a sweep of frames taken across a range of focuser positions. For each candidate
+**auto-focus run**, a sweep of frames taken across a range of focuser positions. For each candidate
 set of detection parameters, the wizard detects stars on every frame, rebuilds the HFR-vs-focuser
 curve those frames imply, fits it, and reads how *sharp and trustworthy* the resulting best-focus
 estimate is. That single number is what the search maximizes.
@@ -36,8 +36,8 @@ narrower.*
 
 !!! note
     The wizard loads each saved exposure once (rendered, no detection), then re-runs detection on the
-    already-loaded frames for every candidate. The fit configuration — step size, weighting,
-    outlier-rejection count and confidence — is taken from the run's own auto-focus options, so the
+    already-loaded frames for every candidate. The fit configuration (step size, weighting,
+    outlier-rejection count and confidence) is taken from the run's own auto-focus options, so the
     wizard's curve fit matches the auto-focus engine's fit exactly. The optimizer is not changing how
     you focus; it is changing how cleanly the stars are measured.
 
@@ -45,7 +45,7 @@ narrower.*
 
 For every frame, detection returns the **average HFR** of the accepted stars and the **HFR standard
 deviation** across them, plus the **accepted-star count**. HFR (Half-Flux Radius) is the radius that
-encloses half a star's flux — the standard size proxy that grows as a star defocuses.
+encloses half a star's flux, the standard size proxy that grows as a star defocuses.
 
 ![Enclosed-flux curve defining the Half-Flux Radius as the radius containing half the total flux](../assets/figures/hfr-half-flux.png){ width=620 }
 
@@ -63,7 +63,7 @@ as the resulting fit (see the star-count term, \(S_{\text{stars}}\), in
 
 Frames captured at the same focuser position are merged into one curve point using the same semantics
 as the auto-focus engine: the point's HFR is the **mean** of the per-frame measures, and its error
-bar is the **SEM-pooled** standard deviation — the per-frame \(\sigma\)s combined and divided by the
+bar is the **SEM-pooled** standard deviation: the per-frame \(\sigma\)s combined and divided by the
 square root of the number of contributing frames. Iterating in ascending focuser position keeps the
 fit input deterministic. The result is one scatter point (focuser position, pooled HFR, pooled error)
 per **distinct** focuser position.
@@ -83,14 +83,14 @@ reads:
 | Reduced \(\chi^2\) | Goodness of fit relative to the points' error bars. |
 
 If \(\sigma_{\text{focus}}\) comes back non-finite (NaN or infinite), the wizard computes a
-**leave-one-out** best-focus standard error as a fallback — refitting with each point dropped in turn
+**leave-one-out** best-focus standard error as a fallback, refitting with each point dropped in turn
 to estimate how much the minimum wanders. The objective prefers the parametric
 \(\sigma_{\text{focus}}\) and only pays for the leave-one-out fallback when the parametric value is
 unusable.
 
 !!! warning
     Fewer than 3 distinct focuser positions can never determine a fit (the hyperbola has 4–5
-    parameters). A run that thin produces a NaN \(\sigma\) — the evaluation does not throw, but the
+    parameters). A run that thin produces a NaN \(\sigma\). The evaluation does not throw, but the
     objective hard-fails it gracefully to a run score of 0. This is why a usable run needs a real
     sweep, not a couple of frames.
 
@@ -142,22 +142,22 @@ rather than the fit; it is covered alongside the full weighting in
 
 The same winning fit also drives the wizard's **step-size recommendation**, which is reported (and
 applied on confirm) but is *not* part of the score. The idea is to size the auto-focus step so a sweep
-lands roughly 3–4 measurement points on each side of focus inside the "focus-sensitive" band — the
-region where HFR climbs from its minimum to about twice the minimum, which carries the most slope and
+lands roughly 3–4 measurement points on each side of focus inside the "focus-sensitive" band, the
+region where HFR climbs from its minimum to about three times the minimum, which carries the most slope and
 therefore the most information.
 
-![Step size derived from the half-width where HFR reaches twice the minimum, targeting about 3.5 points per side](../assets/figures/step-size.png){ width=620 }
+![Step size derived from the half-width where HFR reaches three times the minimum, targeting about 3.5 points per side](../assets/figures/step-size.png){ width=620 }
 
-*The wizard reads the half-width \(W\) — the offset from best focus at which the fitted HFR reaches
-\(2 \times\) the minimum HFR, averaged over the two sides — and recommends a step of \(W / 3.5\), so
+*The wizard reads the half-width \(W\) (the offset from best focus at which the fitted HFR reaches
+\(3 \times\) the minimum HFR, averaged over the two sides) and recommends a step of \(W / 3.5\), so
 the focus-sensitive band holds about 3–4 points per side. The recommendation defaults to 4 offset
 steps per side and is clamped to at least 1 (and to the focuser's limits when known).*
 
 !!! tip "When this helps"
     A degenerate or near-flat fit (no finite minimum, non-positive minimum HFR, or a curve that never
-    reaches twice the minimum within the search budget) yields no usable half-width; the wizard then
+    reaches three times the minimum within the search budget) yields no usable half-width; the wizard then
     leaves your current step size unchanged rather than guessing. Trust the recommendation most when
-    the fit is clean and the V-curve is well-formed — exactly the runs where the optimizer also scores
+    the fit is clean and the V-curve is well-formed, exactly the runs where the optimizer also scores
     high.
 
 !!! note
@@ -167,7 +167,7 @@ steps per side and is clamped to at least 1 (and to the focuser's limits when kn
 
 ## How this scales to a budgeted search and to multiple runs
 
-This whole pipeline runs once per candidate, per run — and the search tries hundreds of candidates (up
+This whole pipeline runs once per candidate, per run, and the search tries hundreds of candidates (up
 to 400 evaluations). Two facts keep that affordable. First, detection is split into an expensive
 **early** stage (hot-pixel filtering, structure preparation, wavelet, binarization, candidate
 collection) and a cheap **late** stage (gate + measure); the early stage is cached per frame and
@@ -176,8 +176,8 @@ Second, identical parameter bundles are memoized, so a revisited point never re-
 **bit-identical** scores at roughly 10–13× the speed.
 
 When you optimize several runs together, each run is scored by this pipeline independently, and the
-per-run scores are blended so a candidate must be good on average **and** not bad on any single run —
-detailed under [multi-run blending](objective-function.md).
+per-run scores are blended so a candidate must be good on average **and** not bad on any single run;
+this is detailed under [multi-run blending](objective-function.md).
 
 !!! warning
     Only group runs from the **same** optical setup. The blend assumes the runs are comparable; a

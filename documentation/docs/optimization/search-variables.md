@@ -5,7 +5,7 @@ The optimizer does **not** tune every star-detection parameter. It tunes a delib
 This page is the reference for that curated set: every variable, its bounds, the setting it maps to, the two *synthetic* variables that drive more than one parameter at once, how values are quantized, and the EARLY/LATE split that makes the search fast.
 
 !!! note "Where the search space comes from"
-    The curated set is defined once, in code, by `OptimizerVariable.CreateCuratedSet()`. Each entry carries its own `[Lower, Upper]` bounds and `InitialStep`, and every proposal the search makes is clamped and quantized through that one descriptor — so the published bounds below are the bounds the optimizer actually obeys.
+    The curated set is defined once, in code, by `OptimizerVariable.CreateCuratedSet()`. Each entry carries its own `[Lower, Upper]` bounds and `InitialStep`, and every proposal the search makes is clamped and quantized through that one descriptor, so the published bounds below are the bounds the optimizer actually obeys.
 
 ## The curated variables
 
@@ -28,7 +28,7 @@ Each row is one tunable axis. **Type** governs quantization (see [Quantization r
 | `DefocusAwareGates` | Boolean (synthetic) | 0 | 1 | — | Two gate-relaxation params at once (see below) |
 | `DefocusAwareStructure` | Integer (synthetic) | 0 | 4 | 1 | Defocus-aware structure flag + layer boost (see below) |
 
-That is **14** axes. Several bounds are open-ended in the detector (there is no hard UI validation range), so the wizard applies pragmatic heuristic limits — for example `Sensitivity` was widened from a 20 to a 50 ceiling and `StarClippingMultiplier` to a `[0.25, 10]` range because rich star fields kept pinning the older, tighter bounds. The two highest-impact axes, `Sensitivity` and `StarClippingMultiplier`, are also the pair the search grids over first in its coarse Phase A (see [search algorithm](search-algorithm.md)).
+That is **14** axes. Several bounds are open-ended in the detector (there is no hard UI validation range), so the wizard applies pragmatic heuristic limits. For example, `Sensitivity` was widened from a 20 to a 50 ceiling and `StarClippingMultiplier` to a `[0.25, 10]` range because rich star fields kept pinning the older, tighter bounds. The two highest-impact axes, `Sensitivity` and `StarClippingMultiplier`, are also the pair the search grids over first in its coarse Phase A (see [search algorithm](search-algorithm.md)).
 
 ## The two synthetic variables
 
@@ -36,12 +36,12 @@ Most axes are a one-to-one alias for a single `StarDetectorParams` field. Two ar
 
 ### `DefocusAwareGates` (Boolean)
 
-A single on/off switch that flips **both** defocus-aware gate relaxations together — `DefocusAwareDistortion` **and** `DefocusAwareCentering` — in lockstep. When enabled, these gates relax the distortion and centering checks for large candidates (large size is used as a defocus proxy), recovering bloated and donut-shaped defocused stars that the strict gates would reject (see [defocused stars](../settings/acceptance-gates.md)).
+A single on/off switch that flips **both** defocus-aware gate relaxations together (`DefocusAwareDistortion` and `DefocusAwareCentering`) in lockstep. When enabled, these gates relax the distortion and centering checks for large candidates (large size is used as a defocus proxy), recovering bloated and donut-shaped defocused stars that the strict gates would reject (see [defocused stars](../settings/acceptance-gates.md)).
 
-The variable reads the distortion flag as its value and writes the same value to both flags. The seed reads your current params — both **OFF by default** — so the baseline is unchanged, and the search may flip the pair on if it helps the curve.
+The variable reads the distortion flag as its value and writes the same value to both flags. The seed reads your current params (both OFF by default), so the baseline is unchanged, and the search may flip the pair on if it helps the curve.
 
 !!! warning "Why turning the gates on isn't free"
-    Relaxing the gates can also admit large, low-fill junk blobs. The objective guards this with a multiplicative *near-focus precision penalty* (`SDefocusPrecision`): it is exactly `1.0` when no relaxation-admitted stars exist (so OFF is bit-identical), and it only bites when a near-focus frame shows a sustained relaxed fraction above `0.20` — the junk signature. Legitimate donut recovery on the defocused extremes is never penalized. See [the objective function](objective-function.md).
+    Relaxing the gates can also admit large, low-fill junk blobs. The objective guards this with a multiplicative *near-focus precision penalty* (`SDefocusPrecision`): it is exactly `1.0` when no relaxation-admitted stars exist (so OFF is bit-identical), and it only bites when a near-focus frame shows a sustained relaxed fraction above `0.20`, the junk signature. Legitimate donut recovery on the defocused extremes is never penalized. See [the objective function](objective-function.md).
 
 ### `DefocusAwareStructure` (Integer, 0–4)
 
@@ -64,15 +64,15 @@ Because the bounds live in exactly one place per variable and every write re-qua
 Detection is internally split into a cacheable **EARLY context** (image preparation, candidate regions, both noise sigmas, early metrics) and a cheap **LATE** gate-and-measure pass. The optimizer mirrors this split by classifying each curated axis using the detector's single source of truth, `StarDetector.IsEarlyCacheKeyParameter`:
 
 - **EARLY axes** feed `BuildDetectionContext`. Moving one **forces a full re-detect** of every frame *and* evicts the cached early context. The EARLY-keyed curated variables are: `NoiseClippingMultiplier`, `StructureLayers`, `NoiseReductionRadius`, `HotpixelThresholdingEnabled`, `HotpixelThreshold`, and the synthetic `DefocusAwareStructure` (it shares the early cache-key property name).
-- **LATE axes** are everything else: `Sensitivity`, `StarClippingMultiplier`, `PeakResponse`, `MaxDistortion`, `MinHFR`, `StarCenterTolerance`, `MinimumStarBoundingBoxSize`, and the synthetic `DefocusAwareGates`. A move on a LATE axis is a **per-frame cache hit** — it reuses the already-built early context and only re-runs the cheap gate/measure stage.
+- **LATE axes** are everything else: `Sensitivity`, `StarClippingMultiplier`, `PeakResponse`, `MaxDistortion`, `MinHFR`, `StarCenterTolerance`, `MinimumStarBoundingBoxSize`, and the synthetic `DefocusAwareGates`. A move on a LATE axis is a **per-frame cache hit**: it reuses the already-built early context and only re-runs the cheap gate/measure stage.
 
 !!! tip "Why this is ~10–13× faster"
-    The staged compass search refines all the cheap LATE axes first (with the EARLY params pinned, so every probe is a cache hit), then runs one bounded EARLY stage, and only revisits EARLY if it keeps improving. This drastically cuts the number of full re-detects versus probing every axis on every sweep — without changing which points are reachable, only the order they're visited. See [the search algorithm](search-algorithm.md).
+    The staged compass search refines all the cheap LATE axes first (with the EARLY params pinned, so every probe is a cache hit), then runs one bounded EARLY stage, and only revisits EARLY if it keeps improving. This drastically cuts the number of full re-detects versus probing every axis on every sweep, without changing which points are reachable, only the order they're visited. See [the search algorithm](search-algorithm.md).
 
 ![Staged compass/pattern search trajectory on a 2D objective surface](../assets/figures/compass-search.png){ width=620 }
 
-*The coarse grid seeds a starting point, then the staged compass search steps along axes — accepting only strictly-improving moves — and halves its step as it homes in.*
+*The coarse grid seeds a starting point, then the staged compass search steps along axes (accepting only strictly-improving moves) and halves its step as it homes in.*
 
 ## Bounds are a floor and a ceiling, not a target
 
-The optimizer starts from your **current** profile values (the seed) and only accepts strictly-improving moves, so the result can never be worse than where you started. The bounds above simply define how far each axis is *allowed* to travel; rich star fields tend to push `Sensitivity` and the clipping multipliers toward their upper ends, while sparse fields stay low. If you find an optimized value pinned exactly at a bound, that is a hint the true optimum may lie outside the curated range and the limit (not the data) stopped the search.
+The optimizer starts from your **current** profile values (the seed) and only accepts strictly-improving moves, so the result can never be worse than where you started. The bounds above define how far each axis is *allowed* to travel; rich star fields tend to push `Sensitivity` and the clipping multipliers toward their upper ends, while sparse fields stay low. If you find an optimized value pinned exactly at a bound, that is a hint the true optimum may lie outside the curated range and the limit (not the data) stopped the search.

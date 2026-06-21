@@ -1,6 +1,6 @@
 # Star Detection
 
-Everything Hocus Focus does — autofocus, the tilt/aberration inspector, sequence triggers — rests on one
+Everything Hocus Focus does (autofocus, the tilt/aberration inspector, sequence triggers) rests on one
 job: finding the real stars in a frame and measuring each one cleanly. The star detector takes a raw
 monochrome (or debayered) image and returns a list of accepted stars, each with a sub-pixel centroid, a
 local background, a Half-Flux Radius (HFR), and optionally a fitted PSF. It is deliberately conservative:
@@ -18,11 +18,11 @@ heavily defocused donuts. Hocus Focus addresses these head-on:
   sky gradients do not drown faint stars or create spurious blobs.
 - **The background is modeled as a tilted plane per star**, not a single number, so a one-sided gradient
   under a star no longer biases its centroid, flux, or HFR.
-- **Contamination is detected gradient-robustly** — a neighboring star bleeding into one side of the
+- **Contamination is detected gradient-robustly.** A neighboring star bleeding into one side of the
   measurement annulus is flagged and (by default) removed, instead of quietly corrupting the HFR.
 - **Multiple independent acceptance gates** reject clipped, distorted, off-center, flat, dim, and
   contaminated candidates, each tracked as a named rejection count you can inspect.
-- **Aggregation is robust** — median and median absolute deviation (MAD), plus an explicit outlier pass — so a handful of bad
+- **Aggregation is robust** (median and median absolute deviation (MAD), plus an explicit outlier pass), so a handful of bad
   measurements cannot drag the reported focus metric around.
 
 Nearly every stage is tunable. This page walks the pipeline in execution order; the
@@ -42,8 +42,8 @@ reported in full-frame pixels.
 ### 2. Hot-pixel filtering
 
 Single bright pixels (cosmic rays, sensor defects) look like tiny, intensely peaked stars and would survive
-most gates. A 3×3 median replaces a hot pixel with the median of its neighbors while leaving genuine stars —
-which span many pixels — essentially untouched. With *hot-pixel thresholding* enabled, only pixels that
+most gates. A 3×3 median replaces a hot pixel with the median of its neighbors while leaving genuine stars
+(which span many pixels) essentially untouched. With *hot-pixel thresholding* enabled, only pixels that
 exceed their surroundings by the configured threshold are corrected, so real star cores are preserved. For
 bayered images the filter runs on the raw CFA before debayering. See
 [Hot Pixels & Saturation](../settings/hotpixel-saturation.md).
@@ -113,8 +113,8 @@ For each candidate the detector measures, in order:
   configurable margin) are fit to a tilted plane \( b_0 + b_1\,dx + b_2\,dy \) by robust iteratively
   reweighted least squares with Huber weights. This models a smooth one-sided gradient (galaxy, nebula,
   bright neighbor halo) instead of assuming a flat background. The plane is then subtracted **per pixel**
-  everywhere it matters — centroid, flux, and HFR — so a gradient no longer biases the measurement. On a
-  flat field the plane simply equals the annulus median, so nothing changes.
+  everywhere it matters (centroid, flux, and HFR), so a gradient no longer biases the measurement. On a
+  flat field the plane equals the annulus median, so nothing changes.
 - **Centroid.** An iterative flux-weighted centroid; after the first pass it restricts contributing pixels
   to a circular aperture around the running estimate, so bright off-axis pixels do not pull the center of an
   asymmetric or tilted star.
@@ -123,7 +123,7 @@ For each candidate the detector measures, in order:
 
 ![Enclosed-flux curve defining the Half-Flux Radius](../assets/figures/hfr-half-flux.png){ width=620 }
 
-*HFR is the radius of the aperture containing half the star's flux — a focus-sensitive size measure that
+*HFR is the radius of the aperture containing half the star's flux, a focus-sensitive size measure that
 does not require fitting a model.*
 
 The pixel sampling step controls the HFR grid: a finer step samples undersampled stars more faithfully at
@@ -150,8 +150,11 @@ so the metrics panel tells you exactly *why* candidates are being dropped:
 The fill-ratio idea behind *too distorted*: a round disk fills about \( \pi/4 \approx 0.79 \) of its
 bounding box, while a streak (a satellite trail or merged pair) fills far less. The *defocus-aware gates*
 option (opt-in) relaxes the distortion and centering gates for large candidates so bloated donut stars near
-the sweep extremes are not thrown away; with it off, detection is unchanged. Full per-gate detail lives in
-[Acceptance Gates](../settings/acceptance-gates.md).
+the sweep extremes are not thrown away; with it off, detection is unchanged. For telescopes with a central
+obstruction, the separate opt-in
+[Recover Out-of-Focus Donut Stars](../settings/acceptance-gates.md#recover-out-of-focus-donut-stars) group
+goes further, reconnecting fragmented hollow rings and treating them like filled disks so they survive at
+all. Full per-gate detail lives in [Acceptance Gates](../settings/acceptance-gates.md).
 
 !!! note "Saturated stars are kept, not rejected"
     A partially-saturated star (background + peak at or above the saturation threshold) is **not** rejected.
@@ -165,7 +168,7 @@ The contamination test reuses the robust background plane from step 8: it subtra
 the annulus pixels, splits the residuals into eight angular sectors, and flags the star only when a single
 sector shows a one-sided **positive** residual excess above the contamination-sensitivity threshold (scaled
 by a local, MAD-based noise estimate). Because a contaminant *adds* light, the test ignores both smooth
-gradients — already removed by the plane fit — and edge-clip deficits, which are negative.
+gradients (already removed by the plane fit) and edge-clip deficits, which are negative.
 
 ![A star whose background annulus is brighter on one side due to a neighbor](../assets/figures/contamination-annulus.png){ width=620 }
 
@@ -181,7 +184,7 @@ keep and merely flag them (used by the diagnostics tooling). See
 When enabled (off during autofocus, where speed matters), each accepted star is fit with a Gaussian or
 Moffat point-spread function in parallel. A fit is accepted only if its \( R^2 \) meets the goodness-of-fit
 threshold; otherwise it is counted as a PSF failure and the star keeps its empirical HFR. The PSF yields
-sigma, FWHM in arcseconds, and eccentricity — the shape metrics the tilt/aberration inspector relies on. See
+sigma, FWHM in arcseconds, and eccentricity, the shape metrics the tilt/aberration inspector relies on. See
 [PSF Modeling](../settings/psf-modeling.md) and the
 [Tilt / Aberration Inspector](tilt-aberration-inspector.md) overview.
 
@@ -196,7 +199,7 @@ the median and MAD, then discards stars outside
 \]
 
 before averaging the rest. PSF-derived sigma, FWHM, and eccentricity are likewise aggregated by median and
-MAD across the stars that fitted successfully. The result is one clean HFR (and shape) value per frame — the
+MAD across the stars that fitted successfully. The result is one clean HFR (and shape) value per frame: the
 signal autofocus and the inspector consume.
 
 ![Star field with accepted stars in green and rejected in pink, with HFR labels](../assets/figures/annotation-overlay.png){ width=620 }

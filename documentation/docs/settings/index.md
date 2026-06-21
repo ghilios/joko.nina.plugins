@@ -1,6 +1,6 @@
 # Star Detection Settings
 
-Hocus Focus's star detector turns a raw frame into a set of accepted stars with measured Half-Flux Radius (HFR), and optionally a fitted PSF for FWHM and eccentricity. Almost every tunable knob feeds a single parameter bundle (`StarDetectorParams`) built by one function, `BuildStarDetectorParams`, so what you set in NINA's plugin options is exactly what the detector runs — and exactly what the headless tooling reproduces.
+Hocus Focus's star detector turns a raw frame into a set of accepted stars with measured Half-Flux Radius (HFR), and optionally a fitted PSF for FWHM and eccentricity. Almost every tunable knob feeds a single parameter bundle (`StarDetectorParams`) built by one function, `BuildStarDetectorParams`, so what you set in NINA's plugin options is exactly what the detector runs, and exactly what the headless tooling reproduces.
 
 This page is the entry point to the settings reference. It explains the two ways to drive the detector (**Simple mode** vs **Advanced mode**), where to find the options in NINA, the high-level shape of the detection pipeline, and the practical EARLY-vs-LATE parameter distinction. Each pipeline stage links to its own sub-page where every setting is documented with its tooltip, default, range, and when to adjust it.
 
@@ -22,7 +22,7 @@ Open NINA's options, go to the **Plugins** tab, and select **Hocus Focus**. The 
 
 ## Simple mode vs Advanced mode
 
-Most users should stay in **Simple mode** (Advanced Mode off). In Simple mode you do not edit the low-level parameters directly. Instead, three plain-language presets are translated into a full parameter set every time you change one of them, the active profile changes, or you toggle the relevant switches. The translation lives in `DerivePresetSettings`, and it sets *all* the advanced knobs for you — so the advanced controls become outputs of the presets rather than independent inputs.
+Most users should stay in **Simple mode** (Advanced Mode off). In Simple mode you do not edit the low-level parameters directly. Instead, three plain-language presets are translated into a full parameter set every time you change one of them, the active profile changes, or you toggle the relevant switches. The translation lives in `DerivePresetSettings`, and it sets *all* the advanced knobs for you, so the advanced controls become outputs of the presets rather than independent inputs.
 
 The three Simple-mode presets are:
 
@@ -52,7 +52,7 @@ Internally, this preset chooses the noise-reduction radius, whether measurement-
 
 !!! tip "When to leave Simple mode"
 
-    Stay in Simple mode unless you have a specific reason not to. If the presets don't give you enough stars on your rig, the recommended next step is **not** to start hand-tuning advanced knobs — it is to run the [Optimization Wizard](../optimization/index.md), which tunes detection against your own saved auto-focus runs and can apply the result as your Simple-mode settings. Advanced mode is for experts who want to set each parameter by hand.
+    Stay in Simple mode unless you have a specific reason not to. If the presets don't give you enough stars on your rig, the recommended next step is **not** to start hand-tuning advanced knobs. Instead, run the [Optimization Wizard](../optimization/index.md), which tunes detection against your own saved auto-focus runs and can apply the result as your Simple-mode settings. Advanced mode is for experts who want to set each parameter by hand.
 
 ### How the optimized snapshot interacts with the presets
 
@@ -67,10 +67,10 @@ signal for every adjustment below. It reports:
 - **Structure candidates** — bright structures evaluated as potential stars before any gate.
 - **Total detected** — stars accepted after all gates.
 - a **per-reason rejection count** for each gate: **Too Small**, **On Border**, **Too Distorted**, **Not
-  Centered**, **Too Flat**, **Low Sensitivity**, **Saturated** (kept, not rejected — pixels masked during
+  Centered**, **Too Flat**, **Low Sensitivity**, **Saturated** (kept, not rejected: pixels masked during
   PSF fitting), **Degenerate**, and **Contaminated**.
 
-When you change a setting, re-run detection and watch the count for the gate you are tuning — that number,
+When you change a setting, re-run detection and watch the count for the gate you are tuning. That number,
 not a subjective look at the image, tells you whether the change helped.
 
 ## Tuning workflow (Advanced mode)
@@ -129,7 +129,7 @@ Internally the detector splits into an **EARLY** phase (`BuildDetectionContext`)
 - **EARLY** parameters affect the prepared image, the candidate region set, and the noise estimates. Changing one forces a **full re-detect**. These are the hotpixel knobs (`HotpixelFiltering`, `HotpixelThresholdingEnabled`, `HotpixelThreshold`), noise reduction (`StarMeasurementNoiseReductionEnabled`, `NoiseReductionRadius`, `NoiseClippingMultiplier`), the structure-map knobs (`StructureLayers`, `DefocusAwareStructure`, `StructureLayerBoost`, `StructureDilationSize`, `StructureDilationCount`), `SaturationThreshold`, and the detection `Region`.
 - **LATE** parameters only re-gate or re-measure the candidates that already exist (sensitivity, distortion, centering, min-HFR, PSF settings, the defocus-aware *gate* relaxations, contamination). They are cheap to change.
 
-You don't normally need to think about this when using NINA — it changes whichever parameters you change. The distinction matters because the [Optimization Wizard](../optimization/index.md) and the headless tooling exploit it: an expensive early context is cached and reused across many late-only candidate moves, which is what makes the optimizer fast. The safe failure mode of the cache is always a redundant recompute, never stale reuse.
+You don't normally need to think about this when using NINA, since it changes whichever parameters you change. The distinction matters because the [Optimization Wizard](../optimization/index.md) and the headless tooling exploit it: an expensive early context is cached and reused across many late-only candidate moves, which is what makes the optimizer fast. The safe failure mode of the cache is always a redundant recompute, never stale reuse.
 
 !!! note "Profile-scoped and auto-saved"
 
