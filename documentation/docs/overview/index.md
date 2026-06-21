@@ -12,7 +12,7 @@ The plugin is deliberately modular. Per its documentation, you "can use the new 
 
 ### Star Detection
 
-The improved star detector fits a point-spread function (PSF) to each star — both a **Gaussian** and a **Moffat 4** model are supported. When PSF modeling is enabled, fit failures cause a star to be rejected and the surviving fits drive a better HFR calculation, plus per-star **eccentricity and FWHM** measurements. The result, when parameters are set well, is **higher accuracy — a lower HFR standard deviation** — across a frame. See [Star Detection](star-detection.md) for the full detection pipeline.
+The improved star detector measures each star's HFR empirically from a robust, gradient-aware background fit — HFR does not depend on PSF modeling. On top of that it can fit a point-spread function (PSF) to each star — both a **Gaussian** and a **Moffat 4** model are supported — to report per-star **eccentricity and FWHM** (a star whose PSF fit fails the goodness-of-fit gate simply keeps its empirical HFR and reports no FWHM/eccentricity). The result, when parameters are set well, is **higher accuracy — a lower HFR standard deviation** — across a frame, because cleaner detection and measurement reduce scatter. See [Star Detection](star-detection.md) for the full detection pipeline.
 
 ### Star Annotation
 
