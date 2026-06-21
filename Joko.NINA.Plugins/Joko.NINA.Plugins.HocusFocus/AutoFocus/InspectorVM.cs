@@ -325,18 +325,31 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // Copies a saved attempt's raw exposure frames into a fresh AutoFocus_<ts>/attempt01 folder under
         // <savePathRoot>, returning that AutoFocus_<ts> folder (the level a replay points at). Used by the Tilt
         // Adapter Wizard so re-analyzing a saved run still produces a self-contained, replayable per-step folder.
+        // Best-effort: the tilt measurement has already succeeded by the time this runs, so any copy failure is
+        // logged and yields a null result (this step simply won't be replayable) rather than failing the step.
         private static string CopySavedFramesForReplay(SavedAutoFocusAttempt savedAttempt, string savePathRoot) {
-            var runFolder = Path.Combine(savePathRoot, $"AutoFocus_{DateTime.Now:yyyyMMdd_HHmmss}");
-            var attemptFolder = Path.Combine(runFolder, "attempt01");
-            Directory.CreateDirectory(attemptFolder);
-            foreach (var img in savedAttempt.SavedImages) {
-                if (string.IsNullOrEmpty(img.Path) || !File.Exists(img.Path)) {
-                    continue;
+            try {
+                var runFolder = Path.Combine(savePathRoot, $"AutoFocus_{DateTime.Now:yyyyMMdd_HHmmss}");
+                var attemptFolder = Path.Combine(runFolder, "attempt01");
+                Directory.CreateDirectory(attemptFolder);
+                int copied = 0;
+                foreach (var img in savedAttempt.SavedImages) {
+                    if (string.IsNullOrEmpty(img.Path) || !File.Exists(img.Path)) {
+                        continue;
+                    }
+                    var dest = Path.Combine(attemptFolder, Path.GetFileName(img.Path));
+                    File.Copy(img.Path, dest, overwrite: true);
+                    copied++;
                 }
-                var dest = Path.Combine(attemptFolder, Path.GetFileName(img.Path));
-                File.Copy(img.Path, dest, overwrite: true);
+                if (copied == 0) {
+                    Logger.Warning($"No source frames could be copied to {runFolder}; this calibration step will not be replayable.");
+                    return null;
+                }
+                return runFolder;
+            } catch (Exception ex) {
+                Logger.Error(ex, "Failed to copy saved frames for replay; this calibration step will not be replayable");
+                return null;
             }
-            return runFolder;
         }
 
         private async Task<bool> AnalyzeAutoFocusImpl(bool captureCameraBlock, AutoFocusSaveOverride saveOverride = null) {

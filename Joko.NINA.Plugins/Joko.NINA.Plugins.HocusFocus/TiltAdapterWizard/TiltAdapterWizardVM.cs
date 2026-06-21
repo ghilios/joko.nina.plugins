@@ -730,7 +730,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // rows + the consistency warning, and captures the per-step field-curvature characterization. When saving
         // (live only), each step's run is redirected into its own folder and the saved location is recorded.
         private async Task<StepReading?> RunAveragedMeasurement(CancellationToken token, WizardStep step, string stepDescription, bool fromSaved) {
-            int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
+            // Re-analyzing the same saved frames repeatedly yields identical readings (and would pop the folder
+            // dialog once per run), so the saved path runs a single pass regardless of the averaging count.
+            int count = fromSaved ? 1 : Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
             var readings = new List<(double A, double B, double Mean)>(count);
 
             // Redirect this step's run into its own folder when saving — for both live capture and the
@@ -1154,6 +1156,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 }
             }
 
+            // "Replay Current Settings" applies the current screw geometry to the saved deltas; if the saved run
+            // used a different screw count, the angle fit is meaningless. Warn rather than silently corrupt.
+            if (!useMetadataSettings && metadata.NumberOfScrews != tiltAdapterOptions.ScrewCount) {
+                Notification.ShowWarning($"The saved run used {metadata.NumberOfScrews} screws but the current setting is " +
+                    $"{tiltAdapterOptions.ScrewCount}. Replaying with current settings may produce incorrect angles.");
+            }
+
             measureCts?.Dispose();
             measureCts = new CancellationTokenSource();
             var token = measureCts.Token;
@@ -1179,6 +1188,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             WarningText = string.Empty;
             StatusText = string.Empty;
 
+            bool completed = false;
             try {
                 if (overrideDetection) {
                     opts.ApplyOptimizedSettings(metadata.OptimizedStarDetectionSettings);
@@ -1190,11 +1200,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     bool ok = await inspector.AnalyzeAutoFocusFromSavedPath(byStep[step.ToString()], token);
                     if (!ok) {
                         StatusText = $"Replay failed at {step}.";
+                        Notification.ShowError($"Replay failed at step '{step}'. The saved frames could not be analyzed.");
                         return;
                     }
                     var m = inspector.TiltModel?.TiltPlaneModel;
                     if (m == null) {
                         StatusText = $"Replay produced no tilt model at {step}.";
+                        Notification.ShowError($"Replay produced no tilt model at step '{step}'.");
                         return;
                     }
                     var reading = new StepReading {
@@ -1239,6 +1251,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RebuildDiagram();
                 StatusText = "Replay complete.";
                 CurrentStep = WizardStep.Complete;
+                completed = true;
             } catch (OperationCanceledException) {
                 StatusText = "Replay cancelled.";
             } catch (Exception ex) {
@@ -1260,6 +1273,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 }
                 isReplaying = false;
                 IsMeasuring = false;
+                // A successful replay ends on the Complete panel (like a live run); a failed/cancelled replay
+                // returns to the idle config panel so the user can retry instead of being stuck mid-run.
+                if (!completed) {
+                    IsWizardRunning = false;
+                }
             }
         }
 

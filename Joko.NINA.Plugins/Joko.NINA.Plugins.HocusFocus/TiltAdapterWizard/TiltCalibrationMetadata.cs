@@ -99,7 +99,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public TiltCalibrationResultRecord Calibration { get; set; }
 
         // ---- Optional validator-only ground truth (omitted by the wizard) ----
-        public double ExpectedPositionAngleScrew1Deg { get; set; }
+        // NaN = not provided (a wizard-written file): the headless validator then reports the screw-1 angle as
+        // "n/a" instead of failing it against a bogus 0° expectation.
+        public double ExpectedPositionAngleScrew1Deg { get; set; } = double.NaN;
         public bool DefocusAwareDetectionNeeded { get; set; }
 
         [JsonIgnore]

@@ -605,17 +605,21 @@ namespace TestApp {
             Line($"Curvature (backfocus) inward sign: {calibration.CurvatureSign:+0;-0}");
             Line();
 
-            // Verdicts
-            bool angleOk = !double.IsNaN(screw1Deviation) && screw1Deviation <= 30.0;
+            // Verdicts. The screw-1 angle and hardware checks need ground truth that a wizard-written metadata.json
+            // does not carry; when absent they are reported "n/a" and do not fail the run.
+            bool angleProvided = !double.IsNaN(metadata.ExpectedPositionAngleScrew1Deg);
+            bool hardwareProvided = groundTruthHardware > 0;
+            bool angleOk = !angleProvided || (!double.IsNaN(screw1Deviation) && screw1Deviation <= 30.0);
             bool gapOk = Math.Abs(FoldGap(calibration.RawAngleDiffDegrees) - (metadata.NumberOfScrews == 3 ? 120.0 : 90.0)) <= 30.0;
-            bool hardwareOk = !double.IsNaN(hardwarePctDelta) && hardwarePctDelta <= 25.0;
+            bool hardwareOk = !hardwareProvided || (!double.IsNaN(hardwarePctDelta) && hardwarePctDelta <= 25.0);
             bool magnitudeOk = !double.IsNaN(calibration.MoveMagnitudeRatio) && calibration.MoveMagnitudeRatio <= 1.5;
             if (!magnitudeOk) {
                 Line("  NOTE: the two screw turns produced very unequal tilt changes — the recovered hardware/angles " +
                     "are unreliable. Re-capture turning each screw the same amount.");
             }
-            Line($"VERDICT: Screw1 angle {(angleOk ? "PASS" : "FAIL")}, angle separation {(gapOk ? "PASS" : "FAIL")}, " +
-                $"hardware {(hardwareOk ? "PASS" : "FAIL")}, move balance {(magnitudeOk ? "PASS" : "FAIL")}");
+            string V(bool ok, bool provided) => !provided ? "n/a" : (ok ? "PASS" : "FAIL");
+            Line($"VERDICT: Screw1 angle {V(angleOk, angleProvided)}, angle separation {(gapOk ? "PASS" : "FAIL")}, " +
+                $"hardware {V(hardwareOk, hardwareProvided)}, move balance {(magnitudeOk ? "PASS" : "FAIL")}");
 
             File.WriteAllText(Path.Combine(outDir, "tilt_summary.txt"), sb.ToString());
 

@@ -64,6 +64,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             Assert.That(md.IsStepperAdjustment, Is.False);
         }
 
+        [Test]
+        public void ExpectedPositionAngleScrew1Deg_DefaultsToNaN_AndRoundTrips() {
+            // NaN signals "not provided" (a wizard-written file) so the headless validator reports the angle as
+            // n/a instead of failing it against a bogus 0° expectation.
+            var md = new TiltCalibrationMetadata();
+            Assert.That(double.IsNaN(md.ExpectedPositionAngleScrew1Deg), Is.True);
+            var back = TiltCalibrationMetadata.Deserialize(md.Serialize());
+            Assert.That(double.IsNaN(back.ExpectedPositionAngleScrew1Deg), Is.True);
+        }
+
         [TestCase(5)]
         [TestCase(2)]
         public void Validate_RejectsBadScrewCount(int screwCount) {
