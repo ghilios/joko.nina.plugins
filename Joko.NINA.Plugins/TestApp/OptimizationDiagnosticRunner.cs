@@ -109,6 +109,22 @@ namespace TestApp {
             // master follows the profile (default OFF) and no defocus axis is searched — for A/B before/after.
             bool forceDonut = DiagnosticUtil.HasFlag(args, "--donut");
 
+            // --inspection mirrors the wizard's "Optimize for aberration inspection" toggle: swap in the
+            // star-favoring objective (ObjectiveConstants.ForAberrationInspection) bounded relative to the current
+            // settings' σ. Off ⇒ the standard objective (bit-identical to before).
+            bool inspection = DiagnosticUtil.HasFlag(args, "--inspection");
+
+            // --continue-rounds <0-2> mirrors the wizard's "Continue optimizing" button: after the first optimize,
+            // re-seed from the prior best and run again (fresh curated set / step scale) up to this many more times
+            // (3 passes total). Validates the chaining headlessly; per-round J is reported.
+            int continueRounds = 0;
+            var continueRoundsArg = DiagnosticUtil.GetArg(args, "--continue-rounds");
+            if (!string.IsNullOrWhiteSpace(continueRoundsArg)) {
+                if (!int.TryParse(continueRoundsArg, NumberStyles.Integer, CultureInfo.InvariantCulture, out continueRounds) || continueRounds < 0 || continueRounds > 2) {
+                    throw new ArgumentException($"--continue-rounds: '{continueRoundsArg}' must be an integer in [0, 2]");
+                }
+            }
+
             var labelsDir = DiagnosticUtil.GetArg(args, "--labels");
 
             // --per-run is a valueless flag: optimize each discovered run INDEPENDENTLY (one optimization, one
@@ -247,8 +263,16 @@ namespace TestApp {
                 Variables = OptimizerVariable.CreateCuratedSet(seed),
                 MaxEvals = maxEvals,
                 LabelsDir = labelsDir,
-                AnnotateAll = annotateAll
+                AnnotateAll = annotateAll,
+                Inspection = inspection,
+                ContinueRounds = continueRounds
             };
+            if (inspection) {
+                Console.WriteLine("--inspection: aberration-inspection objective (favor more stars, fit bounded vs current σ)");
+            }
+            if (continueRounds > 0) {
+                Console.WriteLine($"--continue-rounds: {continueRounds} extra pass(es) after the first ({continueRounds + 1} total)");
+            }
 
             if (perRun) {
                 await RunPerRun(ctx, runsDir, outDir, discovery.Runs, labelsByRun).ConfigureAwait(false);
@@ -272,6 +296,8 @@ namespace TestApp {
             public int? MaxEvals;
             public string LabelsDir;
             public bool AnnotateAll;
+            public bool Inspection;     // --inspection: use the aberration-inspection objective
+            public int ContinueRounds;  // --continue-rounds: extra chained passes after the first (0-2)
         }
 
         /// <summary>Outcome of optimizing one set of runs (joint or a single per-run), for the aggregate report.</summary>
@@ -412,23 +438,36 @@ namespace TestApp {
             }
 
             var variables = ctx.Variables;
-            var optimizer = new StarDetectionOptimizer();
 
             var dataList = loadedRuns.Select(r => r.Data).ToList();
             var evaluator = RunEvaluationData.CreateEvaluator(dataList);
-            var objectiveConstants = new ObjectiveConstants();
 
             // "Before" = the user's CURRENT settings (ctx.Baseline) — the wizard's displayed baseline, NOT the default
-            // seed the optimizer started from. Evaluate it FIRST so baselineJ (the SAME JTotal the optimizer uses, over
-            // the single baseline bundle across runs) is available to the progress + completion lines, keeping every
-            // console/report number "vs current" — consistent with the final summary and the live wizard.
+            // seed the optimizer started from. Evaluate it FIRST so it yields BOTH the current-settings σ (the
+            // aberration-inspection fit-guard anchor) and the baselineJ (the SAME JTotal the optimizer uses, over the
+            // single baseline bundle across runs), keeping every console/report number "vs current" — consistent with
+            // the final summary and the live wizard.
             var perRunBaseline = new List<RunEvaluationResult>(loadedRuns.Count);
             foreach (var r in loadedRuns) {
                 perRunBaseline.Add(await r.Data.EvaluateAndFitAsync(ctx.Baseline, CancellationToken.None).ConfigureAwait(false));
             }
+
+            // Finalize the objective: aberration-inspection (reweighted toward stars, fit bounded relative to the
+            // current-settings σ) when --inspection, else standard. The wizard builds these exact constants in
+            // ComputeBaselineJAsync; mirroring that here keeps the headless harness authoritative.
+            var baselineSigmas = perRunBaseline.Select(pr => pr.Metrics.SigmaFocus).Where(s => double.IsFinite(s)).ToList();
+            var currentSigma = baselineSigmas.Count > 0 ? baselineSigmas.Average() : double.NaN;
+            var objectiveConstants = ctx.Inspection
+                ? ObjectiveConstants.ForAberrationInspection(currentSigma)
+                : new ObjectiveConstants();
+            var optimizer = new StarDetectionOptimizer(objectiveConstants);
+
             var baselineJ = OptimizationObjective.JTotal(
                 perRunBaseline.Select(pr => OptimizationObjective.JRun(pr.Metrics, objectiveConstants)).ToList(), objectiveConstants);
             Console.WriteLine($"Current settings J: {F(baselineJ)}");
+            if (ctx.Inspection) {
+                Console.WriteLine($"  inspection objective: reference σ = {F(currentSigma)} (current settings), margin = {F(objectiveConstants.FitGuardMarginFraction)}");
+            }
 
             // Trajectory capture (eval-budget analysis): the optimizer reports on the seed + every accepted move, so
             // these rows are the bestJ-vs-evals staircase. Written to optimize_trajectory.csv; analyzed offline to
@@ -446,7 +485,24 @@ namespace TestApp {
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var result = await optimizer.OptimizeAsync(ctx.Seed, variables, evaluator, settings, progress, CancellationToken.None).ConfigureAwait(false);
+
+            // --continue-rounds: chain additional passes, each re-seeded from the prior best with a FRESH curated set
+            // (resets the pattern-search step scale, so it can make larger moves again — the point of "Continue").
+            // Mirrors the wizard's Continue button (latest replaces Optimized); per-round J reported. Never regresses
+            // (each pass's never-regress floor is its own seed = the prior best).
+            var roundBestJ = new List<double> { result.BestJ };
+            for (var roundIdx = 0; roundIdx < ctx.ContinueRounds; roundIdx++) {
+                var seedN = result.BestParams;
+                var variablesN = OptimizerVariable.CreateCuratedSet(seedN);
+                var next = await optimizer.OptimizeAsync(seedN, variablesN, evaluator, settings, progress, CancellationToken.None).ConfigureAwait(false);
+                Console.WriteLine($"Continue round {roundIdx + 1}: bestJ {F(result.BestJ)} -> {F(next.BestJ)}");
+                result = next;
+                roundBestJ.Add(next.BestJ);
+            }
             sw.Stop();
+            if (ctx.ContinueRounds > 0) {
+                Console.WriteLine($"Per-round J: {string.Join(" -> ", roundBestJ.Select(F))}");
+            }
             Console.WriteLine($"Optimization complete: currentJ={F(baselineJ)} -> bestJ={F(result.BestJ)} ({(result.BestJ > baselineJ ? "improved over current" : "no improvement over current")}), evals={result.Evaluations}");
 
             // Cache-health + wall-clock readout (the early-context build:reuse ratio is the direct measure of how much
@@ -665,7 +721,7 @@ namespace TestApp {
         }
 
         private static void PrintUsage() {
-            Console.Error.WriteLine("Usage: TestApp optimize --runs <folder> [--per-run] [--profile-id <guid>] [--out <dir>] [--max-evals <int>] [--annotate extremes|all] [--labels <dir>] [--verbose]");
+            Console.Error.WriteLine("Usage: TestApp optimize --runs <folder> [--per-run] [--profile-id <guid>] [--out <dir>] [--max-evals <int>] [--annotate extremes|all] [--labels <dir>] [--inspection] [--continue-rounds <0-2>] [--verbose]");
             Console.Error.WriteLine("  --runs       (required) folder of saved AF runs. Runs are 'attempt*' folders (recursively, <=4 deep) with >=3 focuser positions; or --runs itself.");
             Console.Error.WriteLine("  --per-run    (optional) optimize each discovered run INDEPENDENTLY into its own subfolder + an aggregate_summary.txt (use for a multi-setup bank).");
             Console.Error.WriteLine("  --profile-id (default active) NINA profile id to load (settings + PixelScale).");
@@ -673,6 +729,8 @@ namespace TestApp {
             Console.Error.WriteLine("  --max-evals  (optional) override the optimizer's MaxEvaluations budget.");
             Console.Error.WriteLine("  --annotate   (default extremes) annotate only min/max-focuser frames, or 'all' frames.");
             Console.Error.WriteLine("  --labels     (optional) folder of label JSON files; activates the recall/precision objective term.");
+            Console.Error.WriteLine("  --inspection (optional) use the aberration-inspection objective (favor more stars; fit bounded relative to current σ).");
+            Console.Error.WriteLine("  --continue-rounds (optional, 0-2) extra chained passes after the first, each re-seeded from the prior best (3 total).");
             Console.Error.WriteLine("  --verbose    (optional) restore TRACE logging (default INFO). Slower: serializes per-detection stage timings to the NINA log.");
         }
 

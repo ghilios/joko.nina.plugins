@@ -87,6 +87,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     }
 
     /// <summary>
+    /// One frame's accepted-star count and how it moved across the optimization passes, at a given focuser
+    /// position. <see cref="Stages"/> is the summed accepted-star count per stage: [current, round1, round2, …]
+    /// for the Optimized variant (after "Continue optimizing"), or a single [current] entry for the Current
+    /// variant. Shown as a compact wrapping list of per-position cells on the summary, mirroring
+    /// <see cref="FrameStarCountChange"/> but carrying the full per-round path like <c>ChangedParameterRow.Stages</c>.
+    /// </summary>
+    public sealed class FrameStarCountTrajectory {
+        public int FocuserPosition { get; set; }
+        public IReadOnlyList<int> Stages { get; set; }
+
+        /// <summary>Arrow-joined counts across the stages, e.g. "52→61→78" (or just "52" for a single stage).</summary>
+        public string CountsText => Stages == null ? string.Empty : string.Join("→", Stages);
+
+        /// <summary>Net change from the first stage (current) to the last (latest optimization). 0 for a single stage.</summary>
+        public int Delta => Stages != null && Stages.Count > 1 ? Stages[Stages.Count - 1] - Stages[0] : 0;
+
+        /// <summary>True when there is more than one stage (i.e. an optimization change to show a delta for).</summary>
+        public bool HasDelta => Stages != null && Stages.Count > 1;
+
+        /// <summary>Signed net delta ("+26" / "-4"); empty when there is no change to show (single stage).</summary>
+        public string DeltaText => !HasDelta ? string.Empty : (Delta > 0 ? $"+{Delta}" : Delta.ToString());
+    }
+
+    /// <summary>
     /// Determinate progress for the wizard's long-running per-item phases (loading frames from disk, building the
     /// per-frame early-detection contexts during the seed-guard, and detecting frames for review). Both fields are
     /// 1-based running counts: <see cref="Current"/> items done out of <see cref="Total"/>.

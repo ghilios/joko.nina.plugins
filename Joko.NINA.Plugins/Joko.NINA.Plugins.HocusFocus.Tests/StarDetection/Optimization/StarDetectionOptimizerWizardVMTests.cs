@@ -859,6 +859,228 @@ public class StarDetectionOptimizerWizardVMTests {
         Assert.That(vm.ReviewVM, Is.Not.Null);
     }
 
+    // ---- Continue optimizing (chained rounds) -----------------------------------------------------------
+
+    [Test]
+    public void Continue_BeforeAnyRun_CanExecuteIsFalse() {
+        var vm = NewVM(new RecordingLoader());
+        Assert.Multiple(() => {
+            Assert.That(vm.CanContinueOptimization, Is.False);
+            Assert.That(vm.ContinueOptimizationCommand.CanExecute(null), Is.False);
+            Assert.That(vm.RoundsCompleted, Is.EqualTo(0));
+        });
+    }
+
+    [Test]
+    public async Task Continue_AfterOptimize_AppendsRound_AndStaysOptimizedVariant() {
+        var loader = new RecordingLoader();
+        var vm = NewVM(loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\cont-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.Multiple(() => {
+            Assert.That(vm.HasOptimized, Is.True, "precondition: an optimization pass produced the Optimized variant");
+            Assert.That(vm.RoundsCompleted, Is.EqualTo(1), "the initial optimize is round 1");
+            Assert.That(vm.CanContinueOptimization, Is.True, "continue is available after the first pass");
+        });
+
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "continue returns to an updated Summary");
+            Assert.That(vm.ErrorMessage, Is.Null.Or.Empty);
+            Assert.That(vm.RoundsCompleted, Is.EqualTo(2), "continue appended a round");
+            Assert.That(vm.IsOptimizedVariant, Is.True, "the latest round IS the Optimized variant (chart + Accept follow it)");
+        });
+    }
+
+    [Test]
+    public async Task Continue_CapsAtThreeTotalRounds() {
+        var loader = new RecordingLoader();
+        var vm = NewVM(loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\cont-run";
+
+        await vm.StartAsync(CancellationToken.None);     // round 1
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null); // round 2
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null); // round 3
+        Assert.Multiple(() => {
+            Assert.That(vm.RoundsCompleted, Is.EqualTo(3));
+            Assert.That(vm.CanContinueOptimization, Is.False, "capped at 3 total passes");
+            Assert.That(vm.ContinueOptimizationCommand.CanExecute(null), Is.False);
+        });
+
+        // A further invocation must be a guarded no-op (no 4th round, still on Summary).
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null);
+        Assert.Multiple(() => {
+            Assert.That(vm.RoundsCompleted, Is.EqualTo(3), "the cap blocks a 4th round");
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        });
+    }
+
+    [Test]
+    public async Task Continue_TrajectoryRows_CarryEveryStage() {
+        var loader = new RecordingLoader();
+        var vm = NewVM(loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\cont-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null); // 2 rounds -> chain [baseline, r1, r2]
+
+        // The curated detector rows carry the full per-round path; the appended AF step-size/offset rows are a
+        // separate 2-stage concern, so scope to the trajectory (multi-stage) rows.
+        var trajectoryRows = vm.ChangedParametersDisplay.Where(r => r.Stages != null).ToList();
+        Assert.That(trajectoryRows, Is.Not.Empty, "the optimizer changed at least one curated param (Sensitivity)");
+        // Each multi-stage row carries one value per stage: current + each round (= RoundsCompleted + 1).
+        Assert.Multiple(() => {
+            foreach (var r in trajectoryRows) {
+                Assert.That(r.Stages.Count, Is.EqualTo(vm.RoundsCompleted + 1));
+            }
+            Assert.That(trajectoryRows[0].Trajectory, Does.Contain("→"), "the trajectory renders the arrowed per-round path");
+            Assert.That(vm.HasRoundsSummary, Is.True, "the multi-round J header is shown");
+        });
+    }
+
+    // ---- Optimize for aberration inspection -------------------------------------------------------------
+
+    [Test]
+    public void OptimizeForAberrationInspection_DefaultsOff() {
+        var vm = NewVM(new RecordingLoader());
+        Assert.That(vm.OptimizeForAberrationInspection, Is.False);
+    }
+
+    [Test]
+    public async Task OptimizeForAberrationInspection_Enabled_RunCompletesToSummary() {
+        // Exercises the inspection plumbing end-to-end: ComputeBaselineJAsync builds ForAberrationInspection from the
+        // measured current-settings σ and hands it to the optimizer, and the run still lands on a valid Summary.
+        var vm = NewVM(new RecordingLoader(), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\insp-run";
+        vm.OptimizeForAberrationInspection = true;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.ErrorMessage, Is.Null.Or.Empty);
+            Assert.That(vm.Summary, Is.Not.Null);
+        });
+    }
+
+    // ---- Elapsed / run-duration clock -------------------------------------------------------------------
+
+    [Test]
+    public void FormatDuration_RendersMinutesAndZeroPaddedSeconds() {
+        Assert.Multiple(() => {
+            Assert.That(StarDetectionOptimizerWizardVM.FormatDuration(TimeSpan.Zero), Is.EqualTo("0:00"));
+            Assert.That(StarDetectionOptimizerWizardVM.FormatDuration(TimeSpan.FromSeconds(9)), Is.EqualTo("0:09"));
+            Assert.That(StarDetectionOptimizerWizardVM.FormatDuration(TimeSpan.FromSeconds(65)), Is.EqualTo("1:05"));
+            Assert.That(StarDetectionOptimizerWizardVM.FormatDuration(TimeSpan.FromSeconds(605)), Is.EqualTo("10:05"));
+        });
+    }
+
+    [Test]
+    public void BeforeAnyRun_NoRunDuration() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.Multiple(() => {
+            Assert.That(vm.HasRunDuration, Is.False);
+            Assert.That(vm.RunDurationText, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task AfterRun_RunDuration_IsRecordedAndFormatted() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasRunDuration, Is.True, "the completed run records how long it took");
+            Assert.That(vm.RunDurationText, Does.Match(@"^\d+:\d{2}$"), "shown as M:SS on the summary");
+        });
+    }
+
+    // ---- Stars per frame (per-run star-count trajectory) ------------------------------------------------
+
+    [Test]
+    public void FrameStarCountTrajectory_RendersCountsAndNetDelta() {
+        var single = new FrameStarCountTrajectory { FocuserPosition = 100, Stages = new[] { 52 } };
+        var rising = new FrameStarCountTrajectory { FocuserPosition = 200, Stages = new[] { 52, 61, 78 } };
+        var falling = new FrameStarCountTrajectory { FocuserPosition = 300, Stages = new[] { 80, 74 } };
+        Assert.Multiple(() => {
+            Assert.That(single.CountsText, Is.EqualTo("52"));
+            Assert.That(single.HasDelta, Is.False);
+            Assert.That(single.DeltaText, Is.Empty);
+
+            Assert.That(rising.CountsText, Is.EqualTo("52→61→78"));
+            Assert.That(rising.HasDelta, Is.True);
+            Assert.That(rising.Delta, Is.EqualTo(26));
+            Assert.That(rising.DeltaText, Is.EqualTo("+26"));
+
+            Assert.That(falling.DeltaText, Is.EqualTo("-6"));
+        });
+    }
+
+    [Test]
+    public void BeforeAnyRun_NoStarsPerFrame() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.That(vm.HasStarsPerFrame, Is.False);
+    }
+
+    [Test]
+    public async Task OptimizedVariant_StarsPerFrame_ShowsCurrentToOptimizedTrajectory() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+        vm.IsOptimizedVariant = true; // ensure the Optimized variant is selected
+
+        Assert.Multiple(() => {
+            Assert.That(vm.IsOptimizedVariant, Is.True);
+            Assert.That(vm.HasStarsPerFrame, Is.True);
+            Assert.That(vm.StarsPerFrameLabel, Does.Contain("current"));
+            foreach (var r in vm.StarsPerFrame) {
+                Assert.That(r.Stages.Count, Is.EqualTo(vm.RoundsCompleted + 1), "current + one round");
+                Assert.That(r.CountsText, Does.Contain("→"));
+            }
+        });
+    }
+
+    [Test]
+    public async Task Continue_ExtendsStarsPerFrameTrajectory() {
+        var loader = new RecordingLoader();
+        var vm = NewVM(loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\cont-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null); // chain -> [current, r1, r2]
+
+        Assert.Multiple(() => {
+            Assert.That(vm.IsOptimizedVariant, Is.True);
+            Assert.That(vm.HasStarsPerFrame, Is.True);
+            foreach (var r in vm.StarsPerFrame) {
+                Assert.That(r.Stages.Count, Is.EqualTo(vm.RoundsCompleted + 1), "current + each round");
+            }
+        });
+    }
+
+    [Test]
+    public async Task CurrentVariant_StarsPerFrame_ShowsCountsOnly_NoDelta() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+        vm.IsCurrentVariant = true;
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasStarsPerFrame, Is.True, "Current variant shows the per-frame counts");
+            foreach (var r in vm.StarsPerFrame) {
+                Assert.That(r.Stages.Count, Is.EqualTo(1), "a single (current) stage");
+                Assert.That(r.HasDelta, Is.False);
+                Assert.That(r.DeltaText, Is.Empty);
+            }
+        });
+    }
+
     // ---- Source mode + summary UX (starry-hopper PR1) ---------------------------------------------------
 
     // ---- Start validation (starry-hopper) ---------------------------------------------------------------
