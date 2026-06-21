@@ -965,6 +965,40 @@ public class StarDetectionOptimizerWizardVMTests {
         });
     }
 
+    // ---- Elapsed / run-duration clock -------------------------------------------------------------------
+
+    [Test]
+    public void FormatDuration_RendersMinutesAndZeroPaddedSeconds() {
+        Assert.Multiple(() => {
+            Assert.That(StarDetectionOptimizerWizardVM.FormatDuration(TimeSpan.Zero), Is.EqualTo("0:00"));
+            Assert.That(StarDetectionOptimizerWizardVM.FormatDuration(TimeSpan.FromSeconds(9)), Is.EqualTo("0:09"));
+            Assert.That(StarDetectionOptimizerWizardVM.FormatDuration(TimeSpan.FromSeconds(65)), Is.EqualTo("1:05"));
+            Assert.That(StarDetectionOptimizerWizardVM.FormatDuration(TimeSpan.FromSeconds(605)), Is.EqualTo("10:05"));
+        });
+    }
+
+    [Test]
+    public void BeforeAnyRun_NoRunDuration() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.Multiple(() => {
+            Assert.That(vm.HasRunDuration, Is.False);
+            Assert.That(vm.RunDurationText, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task AfterRun_RunDuration_IsRecordedAndFormatted() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasRunDuration, Is.True, "the completed run records how long it took");
+            Assert.That(vm.RunDurationText, Does.Match(@"^\d+:\d{2}$"), "shown as M:SS on the summary");
+        });
+    }
+
     // ---- Source mode + summary UX (starry-hopper PR1) ---------------------------------------------------
 
     // ---- Start validation (starry-hopper) ---------------------------------------------------------------

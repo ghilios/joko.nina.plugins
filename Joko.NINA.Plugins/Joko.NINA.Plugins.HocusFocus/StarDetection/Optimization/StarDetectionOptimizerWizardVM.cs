@@ -29,6 +29,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using AsyncRelayCommand = CommunityToolkit.Mvvm.Input.AsyncRelayCommand;
 using Logger = NINA.Core.Utility.Logger;
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
@@ -525,6 +526,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             private set {
                 if (isBusy != value) {
                     isBusy = value;
+                    // Drive the elapsed-time clock off the busy state: it runs for the whole busy span the progress
+                    // window is shown for (load → analyze → optimize → build review), so the timer and the summary's
+                    // duration measure exactly the run the user sees progress for.
+                    if (value) { StartRunTimer(); } else { StopRunTimer(); }
                     RaisePropertyChanged();
                     RaiseStepVisibilityChanged();
                     StartCommand.NotifyCanExecuteChanged();
@@ -537,6 +542,50 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     RaisePropertyChanged(nameof(CanContinueOptimization));
                 }
             }
+        }
+
+        // Elapsed-time clock for the run currently in progress. runStopwatch measures the busy span; elapsedTimer
+        // ticks once a second to refresh ElapsedText in the progress window. lastRunDuration is the final elapsed of
+        // the most recent completed run, shown on the summary.
+        private readonly System.Diagnostics.Stopwatch runStopwatch = new System.Diagnostics.Stopwatch();
+        private DispatcherTimer elapsedTimer;
+        private TimeSpan lastRunDuration;
+
+        /// <summary>Live "M:SS" elapsed time for the in-progress run, shown under the progress text. Updates each
+        /// second while busy.</summary>
+        public string ElapsedText => FormatDuration(runStopwatch.Elapsed);
+
+        /// <summary>"M:SS" total time the most recent run took, shown on the summary. Empty until a run has completed.</summary>
+        public string RunDurationText => lastRunDuration > TimeSpan.Zero ? FormatDuration(lastRunDuration) : string.Empty;
+
+        /// <summary>Whether a completed-run duration is available to show on the summary.</summary>
+        public bool HasRunDuration => lastRunDuration > TimeSpan.Zero;
+
+        /// <summary>Formats a duration as minutes:seconds (e.g. "3:07"); pure — unit-tested.</summary>
+        public static string FormatDuration(TimeSpan t) => $"{(int)t.TotalMinutes}:{t.Seconds:D2}";
+
+        private void StartRunTimer() {
+            runStopwatch.Restart();
+            RaisePropertyChanged(nameof(ElapsedText));
+            if (elapsedTimer == null) {
+                elapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+                elapsedTimer.Tick += (_, __) => RaisePropertyChanged(nameof(ElapsedText));
+            }
+            elapsedTimer.Start();
+        }
+
+        private void StopRunTimer() {
+            elapsedTimer?.Stop();
+            runStopwatch.Stop();
+            RaisePropertyChanged(nameof(ElapsedText));
+        }
+
+        /// <summary>Captures the in-progress run's elapsed time as the displayed run duration (called on the success
+        /// path, just before landing on the Summary, while the stopwatch is still running).</summary>
+        private void RecordRunDuration() {
+            lastRunDuration = runStopwatch.Elapsed;
+            RaisePropertyChanged(nameof(RunDurationText));
+            RaisePropertyChanged(nameof(HasRunDuration));
         }
 
         private string errorMessage;
@@ -1241,6 +1290,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // step must detect from DISK afterward using only these paths/positions.
                 SnapshotReviewInputs(loadedRuns, loadedRunFolders, loadedRunIds);
 
+                RecordRunDuration();
                 CurrentStep = WizardStep.Summary;
             } catch (OperationCanceledException) {
                 Logger.Info("Star detection optimization cancelled");
@@ -1958,6 +2008,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // the RunIds are deterministic from the folders, so the same snapshot carries forward.
                 SnapshotReviewInputs(reloaded, reoptimizeRunFolders, reoptimizeRunIds);
 
+                RecordRunDuration();
                 CurrentStep = WizardStep.Summary;
             } catch (OperationCanceledException) {
                 Logger.Info("Star detection re-optimization cancelled");
@@ -2046,6 +2097,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // Re-snapshot so a further Continue (or Review) stays reachable from the freshly-reloaded runs.
                 SnapshotReviewInputs(reloaded, reoptimizeRunFolders, reoptimizeRunIds);
 
+                RecordRunDuration();
                 CurrentStep = WizardStep.Summary;
             } catch (OperationCanceledException) {
                 Logger.Info("Star detection continue-optimization cancelled");
@@ -2186,6 +2238,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return;
             }
             disposed = true;
+            elapsedTimer?.Stop();
+            elapsedTimer = null;
+            runStopwatch.Stop();
             cts?.Dispose();
             cts = null;
         }
