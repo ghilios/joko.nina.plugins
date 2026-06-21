@@ -551,8 +551,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private DispatcherTimer elapsedTimer;
         private TimeSpan lastRunDuration;
 
-        /// <summary>Live "M:SS" elapsed time for the in-progress run, shown under the progress text. Updates each
-        /// second while busy.</summary>
+        /// <summary>Live "M:SS" elapsed time for the in-progress run, shown inline with the progress count. Updates
+        /// each second while busy.</summary>
         public string ElapsedText => FormatDuration(runStopwatch.Elapsed);
 
         /// <summary>"M:SS" total time the most recent run took, shown on the summary. Empty until a run has completed.</summary>
@@ -566,10 +566,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         private void StartRunTimer() {
             runStopwatch.Restart();
-            RaisePropertyChanged(nameof(ElapsedText));
+            RaiseElapsedChanged();
             if (elapsedTimer == null) {
                 elapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-                elapsedTimer.Tick += (_, __) => RaisePropertyChanged(nameof(ElapsedText));
+                elapsedTimer.Tick += (_, __) => RaiseElapsedChanged();
             }
             elapsedTimer.Start();
         }
@@ -577,7 +577,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private void StopRunTimer() {
             elapsedTimer?.Stop();
             runStopwatch.Stop();
+            RaiseElapsedChanged();
+        }
+
+        /// <summary>Refreshes the elapsed readout and the combined "X / Y (M:SS)" progress line each tick.</summary>
+        private void RaiseElapsedChanged() {
             RaisePropertyChanged(nameof(ElapsedText));
+            RaisePropertyChanged(nameof(ProgressCountElapsedText));
         }
 
         /// <summary>Captures the in-progress run's elapsed time as the displayed run duration (called on the success
@@ -613,7 +619,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// analyzed / combinations tried / frames detected for review).</summary>
         public int ProgressCurrent {
             get => progressCurrent;
-            private set { progressCurrent = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ProgressCountText)); }
+            private set { progressCurrent = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ProgressCountText)); RaisePropertyChanged(nameof(ProgressCountElapsedText)); }
         }
 
         private int progressTotal;
@@ -626,6 +632,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 progressTotal = value;
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(ProgressCountText));
+                RaisePropertyChanged(nameof(ProgressCountElapsedText));
                 RaisePropertyChanged(nameof(HasProgressCount));
                 RaisePropertyChanged(nameof(IsProgressIndeterminate));
             }
@@ -639,6 +646,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>The "N / M" count line shown under the progress bar; empty when there is no determinate total.</summary>
         public string ProgressCountText => progressTotal > 0 ? $"{progressCurrent} / {progressTotal}" : string.Empty;
+
+        /// <summary>The progress line under the bar: "X / Y (M:SS)" when there is a determinate count, else just the
+        /// elapsed clock "(M:SS)" (so the timer stays visible during indeterminate phases). Re-raised each second by
+        /// the elapsed timer and whenever the count changes.</summary>
+        public string ProgressCountElapsedText =>
+            HasProgressCount ? $"{ProgressCountText} ({ElapsedText})" : $"({ElapsedText})";
 
         private bool isOptimizing;
 

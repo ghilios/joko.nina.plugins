@@ -271,21 +271,17 @@
                         Maximum="{Binding ProgressTotal}"
                         Minimum="0"
                         Value="{Binding ProgressCurrent, Mode=OneWay}" />
+                    <!--  Count + elapsed clock on one line: "X / Y (MM:SS)" while a determinate count is known, else
+                          just "(MM:SS)". Ticks once a second.  -->
                     <TextBlock
                         Margin="0,4,0,0"
                         HorizontalAlignment="Center"
-                        Text="{Binding ProgressCountText}"
-                        Visibility="{Binding HasProgressCount, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                        Text="{Binding ProgressCountElapsedText, Mode=OneWay}" />
                     <TextBlock
                         Margin="0,2,0,0"
                         HorizontalAlignment="Center"
                         Text="{Binding ProgressImprovementText}"
                         Visibility="{Binding IsOptimizing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
-                    <!--  Elapsed-time clock (minutes:seconds), below all the progress text. Ticks once a second.  -->
-                    <TextBlock
-                        Margin="0,6,0,0"
-                        HorizontalAlignment="Center"
-                        Text="{Binding ElapsedText, StringFormat=Elapsed {0}, Mode=OneWay}" />
                 </StackPanel>
 
                 <!--  Step 4: Summary (the results page)  -->
