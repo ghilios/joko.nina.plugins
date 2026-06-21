@@ -23,6 +23,8 @@
     <TextBlock x:Key="SDOpt_ReOptimize_Tooltip" Text="Re-run the optimization using the labels you just made in Review. Your missed / wrongly-rejected stars steer the optimizer to recover them (recall), and your should-reject stars steer it to exclude them (precision). The run is re-read from disk and the search re-runs, landing on an updated summary you can review again or accept." />
     <TextBlock x:Key="SDOpt_Variant_Tooltip" Text="Switch the chart and the summary below between your current settings, the optimized settings, and (after Optimize with feedback) the feedback-optimized settings. Accept applies whichever variant is shown (Current can't be accepted — it's your baseline)." />
     <TextBlock x:Key="SDOpt_DonutDetection_Tooltip" Text="When checked, the optimizer is allowed to recover out-of-focus DONUT stars — heavily defocused stars that appear as hollow rings — which the detector otherwise drops (they fragment or fail the fill-ratio test). It also unlocks diffraction-spike and saturated-bloom suppression so a bright star's rays aren't mistaken for stars. Recommended for telescopes with a central obstruction (Newtonians/SCTs) whose defocused stars become donuts; leave OFF for refractors (defocused stars are filled disks, not rings). Saved to your profile and default OFF. When OFF, star detection is exactly as before." />
+    <TextBlock x:Key="SDOpt_Inspection_Tooltip" Text="When checked, the optimizer favors detecting MANY MORE stars spread across the frame, which the aberration inspector needs to measure sensor tilt and field curvature. It does this by trading away a little auto-focus-curve sharpness for star count — but the fit is bounded: settings that make the focus curve noticeably worse than your current settings are penalized, so focus stays usable. Leave OFF to optimize purely for the tightest auto-focus curve (the default). Only applies in Optimize mode; nothing is saved until you Accept." />
+    <TextBlock x:Key="SDOpt_Continue_Tooltip" Text="Run another optimization pass starting from the settings just found, giving the search a fresh chance to refine further (it resets its step sizes, so it can make larger moves again). Useful when the last pass looks like it stopped just short. Limited to 3 total passes; the Changed parameters table shows the value of each setting after every pass." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
           SelectedCurve, so toggling the variant rebuilds the plot from a fresh OptimizationCurve instance (a robust
@@ -209,6 +211,23 @@
                             ToolTip="{StaticResource SDOpt_DonutDetection_Tooltip}" />
                     </StackPanel>
 
+                    <!--  Optimize-for-aberration-inspection toggle (VM-only, default OFF). Swaps in a star-favoring
+                          objective bounded relative to the current settings' fit; details in the tooltip. Only
+                          meaningful in Optimize mode (it shapes the search), so disabled in Use-current mode.  -->
+                    <StackPanel Margin="0,4" Orientation="Horizontal">
+                        <CheckBox
+                            VerticalAlignment="Center"
+                            IsChecked="{Binding OptimizeForAberrationInspection}"
+                            IsEnabled="{Binding IsOptimizeMode}"
+                            ToolTip="{StaticResource SDOpt_Inspection_Tooltip}" />
+                        <TextBlock
+                            Margin="6,0,0,0"
+                            VerticalAlignment="Center"
+                            IsEnabled="{Binding IsOptimizeMode}"
+                            Text="Optimize for aberration inspection (favor more stars)"
+                            ToolTip="{StaticResource SDOpt_Inspection_Tooltip}" />
+                    </StackPanel>
+
                     <!--  Single saved-run folder picker (Saved Auto-Focus only). Optimizing against one run at a time
                           keeps the recommendation interpretable; the multi-run selector was removed.  -->
                     <ItemsControl
@@ -364,6 +383,15 @@
                             Margin="0,4,0,4"
                             FontWeight="Bold"
                             Text="Changed parameters" />
+                        <!--  Multi-round header: after "Continue optimizing", shows the per-pass J path (e.g.
+                              "3 rounds  •  J: 0.940 → 0.985 → 0.990"). Hidden for a single pass.  -->
+                        <TextBlock
+                            Margin="0,0,0,4"
+                            FontStyle="Italic"
+                            Text="{Binding RoundsSummaryText, Mode=OneWay}"
+                            Visibility="{Binding HasRoundsSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                        <!--  The value column shows the full path "current → optimized" (and, after Continue, the
+                              per-round trajectory "current → R1 → R2 → …") via the row's arrow-joined Trajectory.  -->
                         <DataGrid
                             AutoGenerateColumns="False"
                             CanUserAddRows="False"
@@ -377,13 +405,9 @@
                                     Binding="{Binding Name}"
                                     Header="Parameter" />
                                 <DataGridTextColumn
-                                    Width="*"
-                                    Binding="{Binding SeedValue, StringFormat=F3}"
-                                    Header="Current" />
-                                <DataGridTextColumn
-                                    Width="*"
-                                    Binding="{Binding OptimizedValue, StringFormat=F3}"
-                                    Header="Optimized" />
+                                    Width="3*"
+                                    Binding="{Binding Trajectory}"
+                                    Header="Current → Optimized" />
                             </DataGrid.Columns>
                         </DataGrid>
 
@@ -536,6 +560,15 @@
                     Command="{Binding ReviewCommand}"
                     Content="Review frames"
                     ToolTip="{StaticResource SDOpt_Review_Tooltip}"
+                    Visibility="{Binding ShowSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                <!--  Continue optimizing: another pass from the current best. Disabled (greyed) once 3 passes have
+                      run, via the command's CanContinueOptimization. Only shown on the Summary page.  -->
+                <Button
+                    Width="140"
+                    Margin="0,0,8,0"
+                    Command="{Binding ContinueOptimizationCommand}"
+                    Content="Continue optimizing"
+                    ToolTip="{StaticResource SDOpt_Continue_Tooltip}"
                     Visibility="{Binding ShowSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <Button
                     Width="90"

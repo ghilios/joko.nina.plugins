@@ -670,4 +670,107 @@ public class OptimizationObjectiveTests {
             Assert.That(OptimizationObjective.Clamp01(2.0), Is.EqualTo(1.0));
         });
     }
+
+    // ---- SFitGuard (aberration-inspection fit bound) ----
+
+    private static RunEvaluationMetrics SigmaRun(double sigmaFocus) => new RunEvaluationMetrics {
+        SigmaFocus = sigmaFocus,
+        LooStdError = double.NaN,
+        StepSize = 1.0,
+        RSquared = 0.99,
+        ReducedChiSquared = 1.0,
+        FrameStarCounts = Enumerable.Repeat(40, 10).ToList()
+    };
+
+    [Test]
+    public void SFitGuard_ReturnsOne_ForStandardConstants() {
+        // Default constants leave ReferenceSigmaFocus = NaN ⇒ guard inert (J bit-identical to pre-guard).
+        var c = C;
+        Assert.That(OptimizationObjective.SFitGuard(SigmaRun(5.0), c), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SFitGuard_ReturnsOne_WithinMargin() {
+        // refσ = 0.10, margin 0.5 ⇒ no penalty up to σ = 0.15.
+        var c = ObjectiveConstants.ForAberrationInspection(referenceSigmaFocus: 0.10);
+        Assert.Multiple(() => {
+            Assert.That(OptimizationObjective.SFitGuard(SigmaRun(0.10), c), Is.EqualTo(1.0)); // at reference
+            Assert.That(OptimizationObjective.SFitGuard(SigmaRun(0.14), c), Is.EqualTo(1.0)); // within margin
+            Assert.That(OptimizationObjective.SFitGuard(SigmaRun(0.15), c), Is.EqualTo(1.0).Within(1e-12)); // exactly at the knee
+        });
+    }
+
+    [Test]
+    public void SFitGuard_DecreasesMonotonically_AndClampsToFloor_BeyondMargin() {
+        var c = ObjectiveConstants.ForAberrationInspection(referenceSigmaFocus: 0.10);
+        var pJust = OptimizationObjective.SFitGuard(SigmaRun(0.16), c);  // just past the knee
+        var pMore = OptimizationObjective.SFitGuard(SigmaRun(0.20), c);  // further
+        var pFar = OptimizationObjective.SFitGuard(SigmaRun(1.00), c);   // far past ⇒ clamped to floor
+        Assert.Multiple(() => {
+            Assert.That(pJust, Is.LessThan(1.0));
+            Assert.That(pMore, Is.LessThan(pJust));
+            Assert.That(pFar, Is.EqualTo(c.FitGuardMinFactor).Within(1e-12));
+            Assert.That(pMore, Is.GreaterThanOrEqualTo(c.FitGuardMinFactor));
+        });
+    }
+
+    [Test]
+    public void JRun_BitIdentical_WithDefaultConstants_RegardlessOfSigma() {
+        // The fit guard must not perturb the standard objective: a default-constants JRun is unchanged whether σ is
+        // tiny or large (SFitGuard ≡ 1.0). Compare against an explicit recompute of the weighted sub-scores.
+        var c = C;
+        var m = GoodRun(sigmaFocus: 2.5, frameCount: 10, starsPerFrame: 40); // a soft fit
+        var sFocus = OptimizationObjective.SFocus(m.SigmaFocus, m.LooStdError, m.StepSize, c);
+        var sStars = OptimizationObjective.SStars(m.FrameStarCounts, c);
+        var sFit = OptimizationObjective.SFit(m.RSquared, m.ReducedChiSquared, c);
+        var expected = (c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit) / (c.Wf + c.Ws + c.Wc);
+        expected = (1.0 - c.Wtie) * expected + c.Wtie * OptimizationObjective.TieBreakerScore(m, c);
+        Assert.That(OptimizationObjective.JRun(m, c), Is.EqualTo(expected).Within(1e-12));
+    }
+
+    // ---- ForAberrationInspection (star-favoring reweight) ----
+
+    [Test]
+    public void ForAberrationInspection_FlipsRankingTowardMoreStars() {
+        // A = sharp focus but star-poor; B = slightly softer focus (still within the fit-guard margin of A's σ) but
+        // star-rich. Under the STANDARD objective the sharp run wins; under the inspection objective (anchored to A's
+        // σ as "current settings") the star-rich run wins — the whole point of the mode.
+        var sharpStarPoor = new RunEvaluationMetrics {
+            SigmaFocus = 0.10, LooStdError = double.NaN, StepSize = 1.0, RSquared = 0.99, ReducedChiSquared = 1.0,
+            FrameStarCounts = Enumerable.Repeat(12, 10).ToList()
+        };
+        var softStarRich = new RunEvaluationMetrics {
+            SigmaFocus = 0.13, LooStdError = double.NaN, StepSize = 1.0, RSquared = 0.99, ReducedChiSquared = 1.0,
+            FrameStarCounts = Enumerable.Repeat(60, 10).ToList()
+        };
+
+        var standard = C;
+        var inspection = ObjectiveConstants.ForAberrationInspection(referenceSigmaFocus: 0.10);
+
+        Assert.Multiple(() => {
+            Assert.That(OptimizationObjective.JRun(sharpStarPoor, standard),
+                Is.GreaterThan(OptimizationObjective.JRun(softStarRich, standard)),
+                "standard objective should prefer the sharper run");
+            Assert.That(OptimizationObjective.JRun(softStarRich, inspection),
+                Is.GreaterThan(OptimizationObjective.JRun(sharpStarPoor, inspection)),
+                "inspection objective should prefer the star-rich run");
+        });
+    }
+
+    [Test]
+    public void ForAberrationInspection_PenalizesRunsThatBlowPastTheFitBound() {
+        // A star-rich run whose σ degrades far past the margin is held back by SFitGuard: its J is lower than the same
+        // star count would earn within the margin — bounding how far the optimizer can trade fit for stars.
+        var inspection = ObjectiveConstants.ForAberrationInspection(referenceSigmaFocus: 0.10);
+        var withinBound = new RunEvaluationMetrics {
+            SigmaFocus = 0.12, LooStdError = double.NaN, StepSize = 1.0, RSquared = 0.99, ReducedChiSquared = 1.0,
+            FrameStarCounts = Enumerable.Repeat(60, 10).ToList()
+        };
+        var wayPastBound = new RunEvaluationMetrics {
+            SigmaFocus = 0.60, LooStdError = double.NaN, StepSize = 1.0, RSquared = 0.99, ReducedChiSquared = 1.0,
+            FrameStarCounts = Enumerable.Repeat(60, 10).ToList()
+        };
+        Assert.That(OptimizationObjective.JRun(wayPastBound, inspection),
+            Is.LessThan(OptimizationObjective.JRun(withinBound, inspection)));
+    }
 }

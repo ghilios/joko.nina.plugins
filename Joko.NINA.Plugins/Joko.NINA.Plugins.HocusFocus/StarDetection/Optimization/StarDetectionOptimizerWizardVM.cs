@@ -66,11 +66,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         Live
     }
 
-    /// <summary>One row of the summary's changed-parameters table (seed vs optimized for a single knob).</summary>
+    /// <summary>One row of the summary's changed-parameters table (seed vs optimized for a single knob). For a
+    /// single optimization pass this is just current → optimized; after "Continue optimizing" it carries the full
+    /// per-round path in <see cref="Stages"/> (current → round1 → round2 → …), rendered as an arrowed
+    /// <see cref="Trajectory"/>.</summary>
     public sealed class ChangedParameterRow {
         public string Name { get; set; }
         public double SeedValue { get; set; }
         public double OptimizedValue { get; set; }
+
+        /// <summary>The value of this parameter at each stage: [current, round1, round2, …]. Defaults to the
+        /// 2-stage [SeedValue, OptimizedValue] when not explicitly set (single-pass rows / AF step-size rows).</summary>
+        public IReadOnlyList<double> Stages { get; set; }
+
+        /// <summary>The full path as an arrowed string, e.g. "0.500 → 0.620 → 0.680 → 0.700". Falls back to
+        /// current → optimized when <see cref="Stages"/> was not populated.</summary>
+        public string Trajectory =>
+            string.Join("  →  ", (Stages ?? new[] { SeedValue, OptimizedValue }).Select(v => v.ToString("F3")));
     }
 
     /// <summary>
@@ -253,9 +265,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private int running; // 0 = idle, 1 = a Start is in flight (guards against double-start)
         private bool disposed;
 
-        // The objective the optimizer uses by default (StarDetectionOptimizer ctor defaults to new ObjectiveConstants()).
-        // The wizard computes the current-settings baseline J with the SAME constants so it is comparable to BestJ.
-        private readonly ObjectiveConstants objectiveConstants = new ObjectiveConstants();
+        // The objective the optimizer uses. Rebuilt once per run in ComputeBaselineJAsync: the STANDARD objective by
+        // default, or — when OptimizeForAberrationInspection is on — ObjectiveConstants.ForAberrationInspection
+        // anchored to the measured current-settings σ. The wizard computes the current-settings baseline J with the
+        // SAME constants it hands the optimizer, so the before/after numbers stay comparable to BestJ.
+        private ObjectiveConstants objectiveConstants = new ObjectiveConstants();
 
         // J of the user's CURRENT settings (Baseline), evaluated on the loaded runs. The displayed "before" for the
         // improvement readouts (summary SeedJ + live ProgressSeedJ). Set in StartAsync (and the re-optimize path)
@@ -332,6 +346,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             ReviewCommand = new AsyncRelayCommand(EnterReviewAsync, CanEnterReview);
             BackToSummaryCommand = new RelayCommand(BackToSummary, () => CurrentStep == WizardStep.Review && !IsBusy);
             ReOptimizeCommand = new AsyncRelayCommand(() => ReOptimizeWithLabelsAsync(CancellationToken.None), () => HasLabels && !IsBusy);
+            ContinueOptimizationCommand = new AsyncRelayCommand(() => ContinueOptimizationAsync(CancellationToken.None), () => CanContinueOptimization);
 
             // Start enables/disables as the per-run paths are filled in (Saved Auto-Focus), so re-evaluate its
             // CanExecute whenever a path is set or the run count changes.
@@ -361,6 +376,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     ReviewCommand.NotifyCanExecuteChanged();
                     BackToSummaryCommand.NotifyCanExecuteChanged();
                     AcceptCommand.NotifyCanExecuteChanged();
+                    ContinueOptimizationCommand.NotifyCanExecuteChanged();
+                    RaisePropertyChanged(nameof(CanContinueOptimization));
+                    RaisePropertyChanged(nameof(RoundsSummaryText));
+                    RaisePropertyChanged(nameof(HasRoundsSummary));
                 }
             }
         }
@@ -443,6 +462,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
+        private bool optimizeForAberrationInspection;
+
+        /// <summary>When true (default OFF), the optimizer uses the aberration-inspection objective
+        /// (<see cref="ObjectiveConstants.ForAberrationInspection"/>): reweighted toward star count so it recovers
+        /// many more stars across the frame (what a tilt/curvature model needs), with the AF-curve fit bounded by
+        /// <see cref="OptimizationObjective.SFitGuard"/> relative to the current settings' σ so focus stays usable.
+        /// VM-only (resets each launch, like <see cref="StartFromCurrentSettings"/>): it only shapes the optimizer
+        /// search, not runtime detection, so nothing is persisted until Accept. Only meaningful in Optimize mode.</summary>
+        public bool OptimizeForAberrationInspection {
+            get => optimizeForAberrationInspection;
+            set {
+                if (optimizeForAberrationInspection != value) {
+                    optimizeForAberrationInspection = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private SourceMode sourceMode = SourceMode.Replay;
 
         public SourceMode SourceMode {
@@ -496,6 +533,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     ReviewCommand.NotifyCanExecuteChanged();
                     BackToSummaryCommand.NotifyCanExecuteChanged();
                     ReOptimizeCommand.NotifyCanExecuteChanged();
+                    ContinueOptimizationCommand.NotifyCanExecuteChanged();
+                    RaisePropertyChanged(nameof(CanContinueOptimization));
                 }
             }
         }
@@ -612,6 +651,37 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private OptimizationSummary currentSummary, optimizedSummary, feedbackSummary;
         private OptimizationCurve currentCurve, optimizedCurve, feedbackCurve;
         private OptimizationVariant selectedVariant = OptimizationVariant.Current;
+
+        // "Continue optimizing" chain for the Optimized variant: the params at each stage [baseline, round1Best,
+        // round2Best, …] and the per-round BestJ. Round 1 is the initial StartAsync optimize; each Continue appends a
+        // stage by re-seeding from the prior best. The latest stage IS the Optimized variant (chart + Accept follow
+        // it); the chain only drives the multi-stage trajectory shown in the Changed-parameters table. Capped at
+        // MaxOptimizationRounds total passes.
+        private const int MaxOptimizationRounds = 3;
+        private readonly List<StarDetectorParams> optimizedChain = new List<StarDetectorParams>();
+        private readonly List<double> optimizedRoundJ = new List<double>();
+
+        /// <summary>Number of optimization passes that have produced the current Optimized variant (1 after the
+        /// initial optimize; up to <see cref="MaxOptimizationRounds"/> after Continue). 0 when no optimization ran.</summary>
+        public int RoundsCompleted => Math.Max(0, optimizedChain.Count - 1);
+
+        /// <summary>True while another "Continue optimizing" pass is allowed (an Optimized variant exists, the cap
+        /// hasn't been reached, and nothing is running). Drives the Continue button's enabled state.</summary>
+        public bool CanContinueOptimization => !IsBusy && IsSummary && HasOptimized && RoundsCompleted < MaxOptimizationRounds;
+
+        /// <summary>Header shown above the Changed-parameters table once more than one optimization pass has run:
+        /// e.g. "3 rounds  •  J: 0.940 → 0.985 → 0.990". Empty for a single round (no chain to summarize).</summary>
+        public string RoundsSummaryText {
+            get {
+                if (selectedVariant != OptimizationVariant.Optimized || optimizedRoundJ.Count <= 1) {
+                    return string.Empty;
+                }
+                var js = string.Join(" → ", optimizedRoundJ.Select(j => j.ToString("F3")));
+                return $"{optimizedRoundJ.Count} rounds  •  J: {currentBaselineJ:F3} → {js}";
+            }
+        }
+
+        public bool HasRoundsSummary => RoundsSummaryText.Length > 0;
 
         private OptimizationResult SelectedResult => selectedVariant switch {
             OptimizationVariant.Feedback => feedbackResult,
@@ -798,8 +868,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(StarCountChangeBaselineLabel));
             RaisePropertyChanged(nameof(ShowReoptimizePrompt));
             RaisePropertyChanged(nameof(ShowFeedbackPanel));
+            RaisePropertyChanged(nameof(CanContinueOptimization));
+            RaisePropertyChanged(nameof(RoundsCompleted));
+            RaisePropertyChanged(nameof(RoundsSummaryText));
+            RaisePropertyChanged(nameof(HasRoundsSummary));
             AcceptCommand.NotifyCanExecuteChanged();
             BackCommand.NotifyCanExecuteChanged();
+            ContinueOptimizationCommand.NotifyCanExecuteChanged();
         }
 
         /// <summary>Resets all retained variants (called at the top of a fresh Start).</summary>
@@ -807,6 +882,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             currentResult = optimizedResult = feedbackResult = null;
             currentSummary = optimizedSummary = feedbackSummary = null;
             currentCurve = optimizedCurve = feedbackCurve = null;
+            optimizedChain.Clear();
+            optimizedRoundJ.Clear();
             selectedVariant = OptimizationVariant.Current;
             OptimizerImprovedOverCurrent = false;
             RaiseSelectedVariantDependents();
@@ -839,7 +916,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (Summary?.ChangedParameters == null) {
                     return Array.Empty<ChangedParameterRow>();
                 }
-                var rows = new List<ChangedParameterRow>(Summary.ChangedParameters);
+                // For the Optimized variant after one or more "Continue" passes, show the FULL per-round path
+                // (Current → R1 → R2 → …) from the chain; otherwise the plain current → optimized rows.
+                var baseRows = (selectedVariant == OptimizationVariant.Optimized && optimizedChain.Count > 2)
+                    ? BuildTrajectoryRows()
+                    : new List<ChangedParameterRow>(Summary.ChangedParameters);
+                var rows = baseRows;
                 if (ApplyRecommendedStepSize && CanApplyRecommendedStepSize) {
                     if (Summary.RecommendedStepSize != Summary.CurrentStepSize) {
                         rows.Add(new ChangedParameterRow {
@@ -858,6 +940,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
                 return rows;
             }
+        }
+
+        /// <summary>Builds the multi-stage changed-parameter rows from the Continue chain: one row per curated knob
+        /// that changed at ANY stage, carrying its value at every stage [current, round1, round2, …] so the table can
+        /// render the full Current → R1 → R2 → … trajectory. Mirrors BuildSummaryAsync's "diff over the curated set"
+        /// but across all stages rather than just current → best.</summary>
+        private List<ChangedParameterRow> BuildTrajectoryRows() {
+            var rows = new List<ChangedParameterRow>();
+            var baseline = optimizedChain[0];
+            foreach (var v in OptimizerVariable.CreateCuratedSet(baseline)) {
+                var stages = optimizedChain.Select(p => v.Read(p)).ToList();
+                if (stages.Skip(1).Any(s => Math.Abs(s - stages[0]) > 1e-9)) {
+                    rows.Add(new ChangedParameterRow {
+                        Name = v.Name,
+                        SeedValue = stages[0],
+                        OptimizedValue = stages[stages.Count - 1],
+                        Stages = stages
+                    });
+                }
+            }
+            return rows;
         }
 
         private StarReviewVM reviewVM;
@@ -916,6 +1019,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// feeds the labels the user made into the optimizer's recall/precision objective term, and returns to an
         /// updated Summary. Enabled only when <see cref="HasLabels"/> is true and the VM is idle.</summary>
         public AsyncRelayCommand ReOptimizeCommand { get; }
+
+        /// <summary>Summary → continue optimizing: re-loads the runs from disk and runs another optimization pass
+        /// seeded from the current best (fresh step scale), updating the Optimized variant in place and appending a
+        /// stage to the trajectory. Enabled only while <see cref="CanContinueOptimization"/> (≤ 3 total passes).</summary>
+        public AsyncRelayCommand ContinueOptimizationCommand { get; }
 
         #endregion Commands
 
@@ -1106,6 +1214,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     optimizedResult = optimizeResult;
                     optimizedSummary = built.Summary;
                     optimizedCurve = built.OptimizedCurve;
+                    // Round 1 of the "Continue optimizing" chain: [current settings, this pass's best]. Continue
+                    // appends a stage per pass; the trajectory table reads these.
+                    optimizedChain.Clear();
+                    optimizedChain.Add(loadedRuns[0].Baseline);
+                    optimizedChain.Add(optimizeResult.BestParams);
+                    optimizedRoundJ.Clear();
+                    optimizedRoundJ.Add(optimizeResult.BestJ);
                     // Only PRESENT the optimized result as the recommendation when it strictly beats the user's
                     // current settings. The search seeds from the default params and guarantees ">= seed", NOT
                     // ">= current"; on a saturated/easy run it can converge to a local optimum worse than a well-tuned
@@ -1285,12 +1400,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Use a SINGLE current-settings bundle (runs[0].Baseline) across every run, exactly as the optimizer's
             // evaluator applies one StarDetectorParams across all runs — so this J is directly comparable to BestJ.
             var baseline = runs[0].Baseline;
-            var perRunJ = new List<double>(runs.Count);
+            // Evaluate the current settings on each run ONCE: this yields both the σ that anchors the
+            // aberration-inspection fit guard and the metrics for the baseline J. σ is averaged over the runs that
+            // produced a finite focus σ (matching BuildSummaryAsync's baseline-σ aggregation).
+            var metrics = new List<RunEvaluationMetrics>(runs.Count);
+            double sigmaSum = 0.0; var sigmaCount = 0;
             for (var i = 0; i < runs.Count; i++) {
                 token.ThrowIfCancellationRequested();
                 var eval = await runs[i].Data.EvaluateAndFitAsync(baseline, token).ConfigureAwait(true);
-                perRunJ.Add(OptimizationObjective.JRun(eval.Metrics, objectiveConstants));
+                metrics.Add(eval.Metrics);
+                if (double.IsFinite(eval.Metrics.SigmaFocus)) { sigmaSum += eval.Metrics.SigmaFocus; sigmaCount++; }
             }
+
+            // Finalize the objective for THIS run before scoring: aberration-inspection reweights toward stars and
+            // bounds the fit relative to the measured current-settings σ; otherwise the standard objective. The same
+            // constants are then handed to the optimizer (OptimizeAsync), so the baseline J and BestJ are comparable.
+            var currentSigma = sigmaCount > 0 ? sigmaSum / sigmaCount : double.NaN;
+            objectiveConstants = OptimizeForAberrationInspection
+                ? ObjectiveConstants.ForAberrationInspection(currentSigma)
+                : new ObjectiveConstants();
+
+            var perRunJ = metrics.Select(m => OptimizationObjective.JRun(m, objectiveConstants)).ToList();
             return OptimizationObjective.JTotal(perRunJ, objectiveConstants);
         }
 
@@ -1327,7 +1457,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 Phase = FriendlyPhase(p.Phase);
             });
 
-            var optimizer = new StarDetectionOptimizer();
+            // Hand the optimizer the SAME objective the wizard scored the baseline with (standard, or the
+            // aberration-inspection reweight + fit guard) so BestJ and the displayed before/after stay comparable.
+            var optimizer = new StarDetectionOptimizer(objectiveConstants);
             IsOptimizing = true;
             try {
                 return await Task.Run(
@@ -1833,6 +1965,94 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             } catch (Exception ex) {
                 Logger.Error(ex, "Star detection re-optimization failed");
                 ErrorMessage = $"Re-optimization failed: {ex.Message}";
+                CurrentStep = WizardStep.Summary;
+            } finally {
+                DisposeLoadedRuns(reloaded);
+                IsBusy = false;
+                Interlocked.Exchange(ref running, 0);
+            }
+        }
+
+        /// <summary>
+        /// Summary → "Continue optimizing": runs ANOTHER optimization pass seeded from the current Optimized best,
+        /// updating the Optimized variant in place and appending a stage to the trajectory (Current → R1 → R2 → …).
+        /// Like <see cref="ReOptimizeWithLabelsAsync"/> it RE-LOADS the runs from disk (the first pass disposed the
+        /// in-memory data). Re-seeding with a FRESH curated set (built inside <see cref="OptimizeAsync"/> from the new
+        /// seed) resets the pattern-search step scale, so the search can make larger moves again — the whole point of
+        /// continuing. Never regresses: each pass's never-regress floor is its own seed (the prior best). Capped at
+        /// <see cref="MaxOptimizationRounds"/> total passes via <see cref="CanContinueOptimization"/>. No labels are
+        /// used (the feedback variant, if any, is left untouched).
+        /// </summary>
+        private async Task ContinueOptimizationAsync(CancellationToken externalToken) {
+            if (!CanContinueOptimization || reoptimizeRunFolders == null || reoptimizeRunFolders.Count == 0) {
+                return;
+            }
+            if (Interlocked.CompareExchange(ref running, 1, 0) != 0) {
+                return; // a Start/re-optimize/continue is already in flight
+            }
+
+            // The seed for this pass is the CURRENT Optimized best (captured before any UI churn). optimizedResult is
+            // not cleared by this path, so this stays valid through the reload.
+            var seedForContinue = optimizedResult.BestParams;
+
+            ErrorMessage = null;
+            SetProgress(null, 0, 0);
+            ProgressSeedJ = 0;
+            ProgressBestJ = 0;
+            IsBusy = true;
+
+            cts?.Dispose();
+            cts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
+            var token = cts.Token;
+
+            List<LoadedRun> reloaded = null;
+            try {
+                CurrentStep = WizardStep.Optimize;
+                reloaded = new List<LoadedRun>(reoptimizeRunFolders.Count);
+                for (var i = 0; i < reoptimizeRunFolders.Count; i++) {
+                    token.ThrowIfCancellationRequested();
+                    SetProgress("Re-loading frames", 0, 0);
+                    var folder = reoptimizeRunFolders[i];
+                    var loadProgress = new Progress<RunLoadProgress>(rp =>
+                        SetProgress("Loading frames", rp.Current, rp.Total));
+                    // No labels for a plain continue (byte-identical to the no-label load).
+                    var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, token).ConfigureAwait(true);
+                    reloaded.Add(loaded);
+                }
+
+                // Warm the early contexts the optimizer will start from (the new seed), so the bar moves during the
+                // first build (continue skips the seed-guard, like the re-optimize path).
+                await AnalyzeWithProgressAsync(reloaded, _ => seedForContinue, token).ConfigureAwait(true);
+
+                // Baseline J (current settings) for the reloaded runs — also (re)builds objectiveConstants for THIS
+                // run, so the inspection-vs-standard objective stays consistent across continued passes.
+                currentBaselineJ = await ComputeBaselineJAsync(reloaded, token).ConfigureAwait(true);
+
+                // Another optimize pass seeded from the prior best; variablesOverride=null ⇒ OptimizeAsync builds a
+                // fresh CreateCuratedSet(seedForContinue) with reset step scale.
+                var optimizeResult = await OptimizeAsync(reloaded, token, seedForContinue).ConfigureAwait(true);
+                var built = await BuildSummaryAsync(reloaded, optimizeResult, token).ConfigureAwait(true);
+
+                // The latest pass REPLACES the Optimized variant (chart + Accept follow it); append the trajectory stage.
+                optimizedResult = optimizeResult;
+                optimizedSummary = built.Summary;
+                optimizedCurve = built.OptimizedCurve;
+                optimizedChain.Add(optimizeResult.BestParams);
+                optimizedRoundJ.Add(optimizeResult.BestJ);
+                OptimizerImprovedOverCurrent = optimizeResult.BestJ > currentBaselineJ + ImprovementEpsilon;
+                selectedVariant = OptimizationVariant.Optimized;
+                RaiseSelectedVariantDependents();
+
+                // Re-snapshot so a further Continue (or Review) stays reachable from the freshly-reloaded runs.
+                SnapshotReviewInputs(reloaded, reoptimizeRunFolders, reoptimizeRunIds);
+
+                CurrentStep = WizardStep.Summary;
+            } catch (OperationCanceledException) {
+                Logger.Info("Star detection continue-optimization cancelled");
+                CurrentStep = WizardStep.Summary;
+            } catch (Exception ex) {
+                Logger.Error(ex, "Star detection continue-optimization failed");
+                ErrorMessage = $"Continue optimization failed: {ex.Message}";
                 CurrentStep = WizardStep.Summary;
             } finally {
                 DisposeLoadedRuns(reloaded);

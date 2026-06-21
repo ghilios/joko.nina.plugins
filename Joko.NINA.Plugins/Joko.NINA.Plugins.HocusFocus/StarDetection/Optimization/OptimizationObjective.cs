@@ -90,6 +90,51 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // stars before the run-level relaxed-fraction fallback may apply any penalty.
         public int MinFramesForPenalty { get; set; } = 3;
         public int MinAcceptedForPenalty { get; set; } = 1;
+
+        // ── Aberration-inspection fit guard (SFitGuard) ────────────────────────────────────────────────────
+        // The "Optimize for Aberration Inspection" mode reweights J toward star count (raised Ws + NFloor/NTarget
+        // knees, lowered Wf) so the optimizer trades some AF-curve sharpness for many more stars across the frame
+        // (what a tilt/curvature model needs). To keep the fit from degrading without bound, SFitGuard applies a
+        // MULTIPLICATIVE penalty once the focus σ grows past a margin over a reference σ (the sharpest curve the
+        // data supports — see StarDetectionOptimizerWizardVM, which seeds ReferenceSigmaFocus from the current
+        // settings' σ and ratchets it down to the best σ the search has seen).
+        //
+        // ReferenceSigmaFocus is NaN for the STANDARD objective, which makes SFitGuard return exactly 1.0 (J
+        // bit-identical to the pre-guard objective — every existing test is unaffected). It is set to a finite σ
+        // only by ForAberrationInspection / the wizard's inspection path.
+        public double ReferenceSigmaFocus { get; set; } = double.NaN;
+
+        // Allowed σ degradation before the penalty starts, as a fraction of ReferenceSigmaFocus: the penalty is
+        // exactly 1.0 while σ ≤ (1 + FitGuardMarginFraction)·ReferenceSigmaFocus. CALIBRATED on a real defocus-aware
+        // AF run (astrodet) so the star-recovery optimum (low sensitivity) lands inside the margin while a genuinely
+        // bad fit does not — see docs / the plan's calibration step. Only consulted when ReferenceSigmaFocus is finite.
+        public double FitGuardMarginFraction { get; set; } = 0.5;
+
+        // Penalty strength: how hard J is scaled down per unit of excess σ fraction above the margin. The penalty is
+        // 1 − Strength · max(0, σ/refσ − (1 + Margin)), clamped to [MinFactor, 1].
+        public double FitGuardStrength { get; set; } = 1.5;
+
+        // Floor on the fit-guard penalty so a single very-soft fit can't drive J to 0 on its own (the hard σ checks
+        // own the hard-fail path). 0.25 ⇒ at most a 4× reduction from this term alone.
+        public double FitGuardMinFactor { get; set; } = 0.25;
+
+        /// <summary>
+        /// Builds the constants for the "Optimize for Aberration Inspection" objective: reweighted toward star
+        /// count (so the optimizer recovers many more stars across the frame for tilt/curvature modeling) while the
+        /// fit stays bounded by <see cref="SFitGuard"/> relative to <paramref name="referenceSigmaFocus"/> (the
+        /// sharpest AF curve the data supports). All other knobs (curve-fit weight, hard floors, tie-breaker, the
+        /// defocus-precision penalty) are left at their standard values. When <paramref name="referenceSigmaFocus"/>
+        /// is NaN the fit guard is inert (no σ anchor), so the mode then degrades to a pure reweight.
+        /// </summary>
+        public static ObjectiveConstants ForAberrationInspection(double referenceSigmaFocus) {
+            return new ObjectiveConstants {
+                Wf = 0.30,   // focus matters less — we accept a slightly noisier curve for more stars
+                Ws = 0.45,   // star count dominates the primary trade
+                NFloor = 20, // raise the knees so the extra recovered stars keep paying off (don't clamp early)
+                NTarget = 60,
+                ReferenceSigmaFocus = referenceSigmaFocus
+            };
+        }
     }
 
     /// <summary>
@@ -247,6 +292,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // penalized. Composes identically in the labeled and unlabeled cases (applied after the weighted sum).
             j *= SDefocusPrecision(m, c);
 
+            // Aberration-inspection fit guard: MULTIPLICATIVE penalty that bounds how far the focus σ may degrade
+            // relative to the reference σ. Returns exactly 1.0 for the STANDARD objective (ReferenceSigmaFocus NaN)
+            // and while σ stays within the margin, so J is bit-identical unless the inspection mode set a finite
+            // reference AND the fit has degraded past it. Applied after the weighted sum, like SDefocusPrecision.
+            j *= SFitGuard(m, c);
+
             // Plateau tie-breaker: blend in the unsaturating secondary score so that when the primary objective is
             // flat (J saturated at 1.0 over a region) the search still prefers more stars / lower σ. Applied ONLY on
             // this feasible path (the hard-fail returns above keep returning 0.0, so it never rescues an infeasible
@@ -389,6 +440,41 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
             var penalty = 1.0 - c.DefocusPrecisionStrength * excess;
             var floor = c.DefocusPrecisionMinFactor;
+            if (penalty < floor) {
+                penalty = floor;
+            }
+            if (penalty > 1.0) {
+                penalty = 1.0;
+            }
+            return penalty;
+        }
+
+        /// <summary>
+        /// Aberration-inspection fit guard in (0, 1], MULTIPLIED into J by <see cref="JRun"/>. Returns
+        /// <b>exactly 1.0</b> (no penalty) when <see cref="ObjectiveConstants.ReferenceSigmaFocus"/> is non-finite
+        /// (the STANDARD objective — so J is bit-identical) OR when the run's focus σ is within the allowed margin
+        /// over the reference σ. Beyond the margin it decays linearly with the excess σ fraction, clamped to
+        /// [<see cref="ObjectiveConstants.FitGuardMinFactor"/>, 1].
+        ///
+        /// <para>σ is selected exactly like <see cref="SFocus"/> (SigmaFocus, else the leave-one-out fallback); if
+        /// neither is finite the guard is inert (1.0) — JRun already hard-fails an unusable σ before reaching here.
+        /// Penalty shape: <c>1 − Strength · max(0, σ/refσ − (1 + Margin))</c>.</para>
+        /// </summary>
+        public static double SFitGuard(RunEvaluationMetrics m, ObjectiveConstants c) {
+            if (m == null || !IsFinite(c.ReferenceSigmaFocus) || c.ReferenceSigmaFocus <= 0.0) {
+                return 1.0; // standard objective (no anchor) ⇒ no guard, J bit-identical
+            }
+            var sigma = IsFinite(m.SigmaFocus) ? m.SigmaFocus : (IsFinite(m.LooStdError) ? m.LooStdError : double.NaN);
+            if (!IsFinite(sigma) || sigma <= 0.0) {
+                return 1.0; // no usable σ ⇒ nothing to bound (the hard-fail path owns unusable σ)
+            }
+            var ratio = sigma / c.ReferenceSigmaFocus;
+            var excess = ratio - (1.0 + c.FitGuardMarginFraction);
+            if (excess <= 0.0) {
+                return 1.0; // within the allowed degradation margin
+            }
+            var penalty = 1.0 - c.FitGuardStrength * excess;
+            var floor = c.FitGuardMinFactor;
             if (penalty < floor) {
                 penalty = floor;
             }
