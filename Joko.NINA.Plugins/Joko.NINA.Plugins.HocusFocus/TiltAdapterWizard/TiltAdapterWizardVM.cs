@@ -738,6 +738,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 try {
                     var perStepDir = Path.Combine(runRootFolder, StepFolderName(step));
                     Directory.CreateDirectory(perStepDir);
+                    // Re-running a step (e.g. after a failed run) must not leave the prior attempt behind — clear
+                    // any earlier runs so the folder holds only this attempt's run(s).
+                    PruneStepFolderExcept(perStepDir, keepFolder: null);
                     // Keep only the raw frames needed for replay — no annotated/alignment or intermediate files.
                     saveOverride = new AutoFocusSaveOverride { Save = true, SavePath = perStepDir, SuppressAuxiliaryFiles = true };
                 } catch (Exception ex) {
@@ -778,7 +781,31 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 SaveFolder = saveOverride != null ? inspector.LastSaveFolder : null
             };
             PopulateCurvature(ref reading);
+
+            // Keep only the run the metadata references (when averaging > 1 the earlier runs are not replayed).
+            if (saveOverride != null && !string.IsNullOrEmpty(reading.SaveFolder)) {
+                PruneStepFolderExcept(saveOverride.SavePath, reading.SaveFolder);
+            }
             return reading;
+        }
+
+        // Deletes every AutoFocus run subfolder under a per-step folder except the one to keep (null = delete all),
+        // so a step folder never accumulates stale/failed runs. Best-effort; logs and continues on any failure.
+        private static void PruneStepFolderExcept(string perStepDir, string keepFolder) {
+            if (string.IsNullOrEmpty(perStepDir) || !Directory.Exists(perStepDir)) {
+                return;
+            }
+            var keepFull = string.IsNullOrEmpty(keepFolder) ? null : Path.GetFullPath(keepFolder);
+            foreach (var dir in Directory.GetDirectories(perStepDir)) {
+                if (keepFull != null && string.Equals(Path.GetFullPath(dir), keepFull, StringComparison.OrdinalIgnoreCase)) {
+                    continue;
+                }
+                try {
+                    Directory.Delete(dir, recursive: true);
+                } catch (Exception ex) {
+                    Logger.Warning($"Failed to delete stale calibration run folder {dir}: {ex.Message}");
+                }
+            }
         }
 
         private void AppendSummaryRows(List<(double A, double B, double Mean)> readings, string stepDescription,
