@@ -1,0 +1,15 @@
+{
+  "source": "optimizer-wizard-summary.png",
+  "crop": [
+    10,
+    108,
+    838,
+    378
+  ],
+  "scale_from": [
+    842,
+    721
+  ],
+  "highlights": [],
+  "output": "autofocus-vcurve-real.png"
+}

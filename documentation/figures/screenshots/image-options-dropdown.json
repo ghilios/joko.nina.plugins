@@ -1,0 +1,26 @@
+{
+  "source": "imaging-image-options-dropdown.png",
+  "crop": [
+    0,
+    8,
+    488,
+    232
+  ],
+  "scale_from": [
+    490,
+    275
+  ],
+  "highlights": [
+    {
+      "box": [
+        243,
+        168,
+        412,
+        224
+      ],
+      "style": "rect",
+      "color": "#E91E63"
+    }
+  ],
+  "output": "image-options-dropdown.png"
+}

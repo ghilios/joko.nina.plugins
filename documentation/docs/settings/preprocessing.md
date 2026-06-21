@@ -8,6 +8,10 @@ Before Hocus Focus can find and measure stars, it has to decide what is *signal*
 
 A key idea runs through all of these: Hocus Focus keeps **two images**. A *structure-detection image* is used to find where the candidate stars are, and a *measurement image* is used to measure each star's centroid, flux, HFR, and PSF. By default the noise reduction is applied **only** to the structure-detection image, so candidate-finding is robust to noise while the measurements stay on the sharp, unblurred pixels.
 
+![The preprocessing and noise settings highlighted in the advanced Star Detector list](../assets/screenshots/advanced-preprocessing.png){ width=375 }
+
+*The preprocessing controls: noise-reduced measurement, noise reduction radius, and the noise and star clipping multipliers.*
+
 !!! note
     These are **Advanced** settings. In Simple mode they are derived for you from the **Noise Level**, **Pixel Scale**, and **Focus Range** presets, so you normally never touch them directly. Switch on Advanced mode to expose them.
 

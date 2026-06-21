@@ -1,0 +1,26 @@
+{
+  "source": "imaging-image-options.png",
+  "crop": [
+    840,
+    305,
+    1350,
+    565
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [
+    {
+      "box": [
+        1080,
+        458,
+        1243,
+        540
+      ],
+      "style": "rect",
+      "color": "#E91E63"
+    }
+  ],
+  "output": "image-options-all.png"
+}

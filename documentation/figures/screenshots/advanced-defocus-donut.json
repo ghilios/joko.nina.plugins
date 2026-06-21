@@ -1,0 +1,26 @@
+{
+  "source": "plugin-advanced-bottom.png",
+  "crop": [
+    360,
+    775,
+    760,
+    1010
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [
+    {
+      "box": [
+        428,
+        778,
+        720,
+        998
+      ],
+      "style": "rect",
+      "color": "#E91E63"
+    }
+  ],
+  "output": "advanced-defocus-donut.png"
+}

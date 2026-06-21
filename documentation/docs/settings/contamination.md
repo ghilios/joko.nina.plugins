@@ -7,6 +7,10 @@ models the smooth local background, then flags a star only when extra light leak
 **one side** of its background annulus. These two settings control how aggressively that
 test fires and whether a flagged star is thrown out or merely marked.
 
+![The Contamination Sensitivity and Reject Contaminated Stars settings highlighted in the advanced list](../assets/screenshots/advanced-contamination.png){ width=400 }
+
+*Contamination Sensitivity sets the test strength; Reject Contaminated Stars chooses whether to drop or just flag them.*
+
 ## Settings at a glance
 
 | Setting | Default | Range | Effect |

@@ -8,6 +8,10 @@ This page is the entry point to the settings reference. It explains the two ways
 
 Open NINA's options, go to the **Plugins** tab, and select **Hocus Focus**. The star-detection settings live under the star-detection options area. Two top-level switches decide which controls you see:
 
+![The Hocus Focus entry under Options then Plugins in NINA, with its Auto Focus, Star Detector, and Star Annotator settings tabs](../assets/screenshots/hocus-focus-plugin-location.png){ width=620 }
+
+*Find the plugin under Options, then Plugins, then Hocus Focus. The same controls also appear as docks in the Imaging tab.*
+
 - **Advanced Mode** — exposes the full set of fine-grained parameters. Tooltip:
 
     > Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless you're an expert
@@ -63,6 +67,10 @@ When **Use Optimized Settings** is on and a wizard result exists, Simple mode fi
 Throughout these pages you are told to "watch the metrics panel." That panel is the **Star Detection
 Results** readout that Hocus Focus shows after a detection (and in the autofocus report). It is the feedback
 signal for every adjustment below. It reports:
+
+![The Star Detection Results dock before a frame is analyzed, listing PSF metrics and per-reason detection counts](../assets/screenshots/star-detection-results-empty.png){ width=620 }
+
+*The Star Detection Results dock reports the last frame's metrics and how many candidates each gate rejected.*
 
 - **Structure candidates** — bright structures evaluated as potential stars before any gate.
 - **Total detected** — stars accepted after all gates.

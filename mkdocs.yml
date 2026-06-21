@@ -86,6 +86,7 @@ nav:
       - Star Detection: overview/star-detection.md
       - Star Annotation: overview/star-annotation.md
       - AutoFocus: overview/autofocus.md
+      - Hyperbolic Curve Fitting: overview/hyperbola-fitting.md
       - Tilt & Aberration Inspector: overview/tilt-aberration-inspector.md
   - Star Detection Settings:
       - settings/index.md

@@ -27,6 +27,10 @@ Running a **Detailed Analysis** performs an auto-focus across several regions of
 Per the tooltip, this is used to "detect various aberrations, such as tilt, incorrect backfocus, and
 field curvature." The panel reports, among others:
 
+![The Aberration Inspector model properties and the model-analysis checklist with pass/fail results](../assets/screenshots/inspector-measurements.png){ width=620 }
+
+*The inspector reports tilt, curvature, and backfocus, then grades each against critical focus.*
+
 | Measurement | What it means (from the panel tooltips) |
 |---|---|
 | **Tilt** | "The angle the sensor is tilted. 0 indicates no tilt, and values here are typically very small." |
@@ -76,6 +80,10 @@ notes "[each] star needs to be matched across at least 5 of the frames, and some
 rejected as outliers during modeling"), optionally after RANSAC alignment, and a paraboloid is fit
 through the per-star best-focus positions.
 
+![The 3D sensor curve model surface showing tilt and field curvature](../assets/screenshots/inspector-sensor-model-3d.png){ width=620 }
+
+*The sensor curve model: a 3D surface of best-focus offset across the sensor (telescope up, sensor down).*
+
 !!! tip "When the surface model helps"
     Enable **Sensor Curve Model** when you intend to physically correct tilt or want curvature and
     centering numbers, not just a corner-vs-center plane. It is heavier (it fits a curve for every
@@ -95,6 +103,10 @@ through the per-star best-focus positions.
 A measured tilt plane tells you which corners need to move and by how much, but turning a screw moves
 the sensor along that screw's own axis. The inspector must therefore know **where each screw sits
 relative to the sensor**. That mapping is established once by the **Tilt Adapter Wizard**.
+
+![The Tilt Adapter Guidance table giving the direction and number of turns for each screw](../assets/screenshots/inspector-tilt-guidance.png){ width=620 }
+
+*Tilt Adapter Guidance turns the model into concrete per-screw adjustments: direction and number of turns.*
 
 ### The screw-angle convention
 
@@ -192,6 +204,10 @@ buttons sit next to **Calibrate**:
 
 These settings live in the inspector panel (not the main Options page). Defaults and ranges are taken
 from the option definitions; descriptions quote the in-app tooltips where one exists.
+
+![The Aberration Inspector options section](../assets/screenshots/inspector-options-empty.png){ width=519 }
+
+*The inspector's Options section sets the analysis grid, exposures, and sensor-model behavior.*
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|

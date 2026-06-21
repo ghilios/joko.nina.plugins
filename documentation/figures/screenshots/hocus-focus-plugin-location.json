@@ -1,0 +1,36 @@
+{
+  "source": "plugin-autofocus-tab.png",
+  "crop": [
+    0,
+    32,
+    905,
+    645
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [
+    {
+      "box": [
+        6,
+        438,
+        70,
+        490
+      ],
+      "style": "rect",
+      "color": "#E91E63"
+    },
+    {
+      "box": [
+        150,
+        66,
+        336,
+        96
+      ],
+      "style": "rect",
+      "color": "#E91E63"
+    }
+  ],
+  "output": "hocus-focus-plugin-location.png"
+}

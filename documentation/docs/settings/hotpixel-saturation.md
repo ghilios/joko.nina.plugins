@@ -2,6 +2,10 @@
 
 Two unrelated artifacts pollute star measurements: single bright **hot pixels** that masquerade as tiny stars, and **saturated** (clipped) cores that flatten the bright peak of an otherwise good star. Hocus Focus handles them up front in the detection pipeline. Hot pixels are cleaned out of the source image before star structures are found, and saturated pixels are masked out of the PSF fit so they do not bias the fitted profile.
 
+![The Hotpixel Threshold and Saturation Threshold settings highlighted in the advanced list](../assets/screenshots/advanced-hotpixel-saturation.png){ width=400 }
+
+*Hotpixel Threshold and Saturation Threshold control hot-pixel rejection and the saturation cutoff.*
+
 These options live in the **Advanced** star-detection settings. In Simple mode they are derived from the noise preset.
 
 ## Settings at a glance

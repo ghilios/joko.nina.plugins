@@ -1,0 +1,26 @@
+{
+  "source": "plugin-stardetector-presets.png",
+  "crop": [
+    358,
+    300,
+    760,
+    720
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [
+    {
+      "box": [
+        433,
+        418,
+        712,
+        494
+      ],
+      "style": "rect",
+      "color": "#E91E63"
+    }
+  ],
+  "output": "star-detector-simple-presets.png"
+}

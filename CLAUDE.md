@@ -26,6 +26,7 @@ Detailed conventions live in `.claude/docs/`. Read the matching file when a task
 | Running TestApp diagnostics/optimizer (`contamination`/`optimize`/`review`/`diagnose-labels`) | `.claude/docs/testapp-cli.md` |
 | Sensor tilt, tilt adapters, aberration inspector, screw orientation | `.claude/docs/tilt-domain.md` |
 | Editing the user-facing MkDocs manual (`documentation/docs/`) | `.claude/docs/documentation-style.md` |
+| Capturing real NINA/HocusFocus screenshots for the manual via the Windows MCP (capture pipeline, annotate helper, NINA navigation map) | `.claude/docs/nina-mcp-screenshots.md` |
 
 ## Project Invariants
 

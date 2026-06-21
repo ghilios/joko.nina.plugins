@@ -4,6 +4,10 @@ Before Hocus Focus measures a single star it has to *find* the stars. It does th
 
 These knobs live in the **Advanced** star-detection panel. They run *upstream* of the acceptance gates: if a star never makes it into the structure map, no gate can rescue it. That makes structure detection the right place to look when stars are missing *entirely* (no marker at all) rather than being rejected with a reason.
 
+![The Structure Layers and Structure Dilation settings highlighted in the advanced list](../assets/screenshots/advanced-structure-detection.png){ width=375 }
+
+*Structure detection is driven by Structure Layers and the Structure Dilation size and iterations.*
+
 ## How the structure map is built
 
 The detector removes large-scale structure with an **à-trous (dyadic) B3-spline wavelet**. It computes the wavelet *residual* (the coarse, large-scale content) at a chosen number of layers and subtracts it from the image, leaving only fine structure on the scale of stars. Because the layers are dyadic (powers of two), keeping \(L\) layers removes structure larger than roughly \(2^{L}\) pixels: anything bigger than that scale is treated as background and erased. After subtraction the map is lightly blurred, a binarization threshold is set from the background median plus a noise multiple, the map is optionally dilated, and finally it is binarized into the candidate mask.

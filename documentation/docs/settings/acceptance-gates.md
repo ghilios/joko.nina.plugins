@@ -2,6 +2,10 @@
 
 Once the structure-detection stage has produced a list of **candidate** bounding boxes, every candidate must pass a sequence of per-star quality gates before it is accepted into the measured-star set. Each gate guards against a specific kind of false positive: a hot pixel, a noisy clump, a diffraction spike, a clipped star at the image edge, a faint blob indistinguishable from background, or a contaminated neighbor. When a gate rejects a candidate it tags it with a **rejection reason** you can see in the star-detection metrics panel and the annotated overlay.
 
+![The per-star acceptance gate settings highlighted in the advanced Star Detector list](../assets/screenshots/advanced-acceptance-gates.png){ width=375 }
+
+*The acceptance gates: brightness sensitivity, peak response, distortion, centering, box size, and minimum HFR.*
+
 This page documents the gates exposed as **Advanced** star-detection options. They run in a fixed order, and a candidate is discarded by the **first** gate it fails:
 
 1. **Too Small**: `MinStarBoundingBoxSize`
@@ -169,6 +173,10 @@ The detector fits a robust local background plane to the annulus of pixels just 
 ## Defocus-Aware Gates
 
 A single opt-in toggle that relaxes both the Max Distortion and Star Center Tolerance gates for large candidates, which act as a proxy for heavy defocus. It is **off by default**, and when off, detection is bit-identical to the strict gates.
+
+![The Defocus-Aware Gates, Defocus-Aware Structure, and Defocus-Aware Donut Detection settings at the bottom of the advanced list](../assets/screenshots/advanced-defocus-donut.png){ width=400 }
+
+*The defocus-aware options and donut-recovery controls sit at the end of the advanced list.*
 
 > When enabled, both the Max Distortion and Star Center Tolerance gates are relaxed for large candidates (a proxy for large defocus). At large defocus a star becomes a hollow donut (the central-obstruction shadow): it has a big bounding box with a low pixel fill-ratio (which the strict Max Distortion would wrongly reject as too distorted) and a wobbly intensity-weighted center (which the strict centering test would wrongly reject as not centered). Small candidates (near focus) keep the strict thresholds, so junk is still rejected. Off by default; enable it if you collect autofocus frames far from focus and find defocused donut stars being dropped. The three Defocus-Aware tuning values below take effect only while this is enabled.
 

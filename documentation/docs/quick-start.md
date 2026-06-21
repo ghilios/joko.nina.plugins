@@ -28,6 +28,10 @@ two things right first: your **pixel scale** and how far your **focuser moves pe
 Turn on the parts you want. Go to **Options → Imaging → Image Options** and, in the dropdowns, select
 **Hocus Focus** for:
 
+![The Image Options dropdowns set to Hocus Focus for Star Detector, Star Annotator, and Autofocus](assets/screenshots/image-options-all.png){ width=510 }
+
+*Set Star Detector, Star Annotator, and Autofocus to Hocus Focus in Options, Imaging, Image Options.*
+
 - **Star Detection** — the improved detector (see [Star Detection](overview/star-detection.md)).
 - **Star Annotator** — the customizable overlay (see [Star Annotation](overview/star-annotation.md)).
 - **Auto Focus** — the concurrent autofocus engine (see [Autofocus](overview/autofocus.md)).
