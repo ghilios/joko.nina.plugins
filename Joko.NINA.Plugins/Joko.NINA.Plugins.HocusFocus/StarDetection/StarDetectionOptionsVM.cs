@@ -18,6 +18,7 @@ using System;
 using System.ComponentModel.Composition;
 using System.Windows;
 using System.Windows.Input;
+using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -39,13 +40,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             OptimizeStarDetectionCommand = new RelayCommand(OptimizeStarDetection);
         }
 
-        private void OptimizeStarDetection(object obj) {
+        private void OptimizeStarDetection() {
             // Delegates to the shared launcher set by HocusFocusPlugin. Null-safe so the command is a no-op
             // when no plugin instance has been constructed (e.g. a unit test constructing this VM directly).
             HocusFocusPlugin.LaunchStarDetectionOptimizer?.Invoke();
         }
 
-        private void ChooseIntermediatePathDiag(object obj) {
+        private void ChooseIntermediatePathDiag() {
             using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
                 dialog.SelectedPath = StarDetectionOptions.IntermediateSavePath;
 

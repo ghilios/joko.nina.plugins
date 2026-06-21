@@ -58,6 +58,8 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
+using AsyncRelayCommand = CommunityToolkit.Mvvm.Input.AsyncRelayCommand;
 using static NINA.Joko.Plugins.HocusFocus.Inspection.SensorModel;
 using DrawingColor = System.Drawing.Color;
 using Logger = NINA.Core.Utility.Logger;
@@ -170,14 +172,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["InspectorSVG"];
             ImageGeometry.Freeze();
 
-            RunAutoFocusAnalysisCommand = new AsyncCommand<bool>(() => AnalyzeAutoFocusImpl(true), canExecute: (o) => !AnalysisRunning() && CameraInfo.Connected && FocuserInfo.Connected);
-            RunExposureAnalysisCommand = new AsyncCommand<bool>(AnalyzeExposure, canExecute: (o) => !AnalysisRunning() && CameraInfo.Connected);
-            RerunSavedAutoFocusAnalysisCommand = new AsyncCommand<bool>(AnalyzeSavedAutoFocusRun, canExecute: (o) => !AnalysisRunning());
-            ClearAnalysesCommand = new RelayCommand(ClearAnalyses, canExecute: (o) => !AnalysisRunning());
+            RunAutoFocusAnalysisCommand = new AsyncRelayCommand(() => AnalyzeAutoFocusImpl(true), canExecute: () => !AnalysisRunning() && CameraInfo.Connected && FocuserInfo.Connected);
+            RunExposureAnalysisCommand = new AsyncRelayCommand(AnalyzeExposure, canExecute: () => !AnalysisRunning() && CameraInfo.Connected);
+            RerunSavedAutoFocusAnalysisCommand = new AsyncRelayCommand(AnalyzeSavedAutoFocusRun, canExecute: () => !AnalysisRunning());
+            ClearAnalysesCommand = new RelayCommand(ClearAnalyses, canExecute: () => !AnalysisRunning());
             CancelAnalyzeCommand = new RelayCommand(CancelAnalyze);
-            SlewToZenithEastCommand = new AsyncCommand<bool>(() => SlewToZenith(false), canExecute: (o) => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
-            SlewToZenithWestCommand = new AsyncCommand<bool>(() => SlewToZenith(true), canExecute: (o) => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
-            CancelSlewToZenithCommand = new RelayCommand((o) => slewToZenithCts?.Cancel());
+            SlewToZenithEastCommand = new AsyncRelayCommand(() => SlewToZenith(false), canExecute: () => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
+            SlewToZenithWestCommand = new AsyncRelayCommand(() => SlewToZenith(true), canExecute: () => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
+            CancelSlewToZenithCommand = new RelayCommand(() => slewToZenithCts?.Cancel());
         }
 
         private bool AnalysisRunning() {
@@ -1436,7 +1438,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusCompleted = false;
         }
 
-        private void CancelAnalyze(object o) {
+        private void CancelAnalyze() {
             analyzeCts?.Cancel();
         }
 
@@ -1455,10 +1457,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             slewToZenithCts = localCts;
 
             localTask = Task.Run(async () => {
-                var latitude = Angle.ByDegree(profileService.ActiveProfile.AstrometrySettings.Latitude);
-                var longitude = Angle.ByDegree(profileService.ActiveProfile.AstrometrySettings.Longitude);
+                var astrometry = profileService.ActiveProfile.AstrometrySettings;
+                var latitude = Angle.ByDegree(astrometry.Latitude);
+                var longitude = Angle.ByDegree(astrometry.Longitude);
                 var azimuth = west ? Angle.ByDegree(90) : Angle.ByDegree(270);
-                return await telescopeMediator.SlewToCoordinatesAsync(new TopocentricCoordinates(azimuth, Angle.ByDegree(89), latitude, longitude), localCts.Token);
+                var coordinates = new TopocentricCoordinates(azimuth, Angle.ByDegree(89), latitude, longitude, astrometry.Elevation);
+                return await telescopeMediator.SlewToTopocentricCoordinates(coordinates, localCts.Token);
             }, localCts.Token);
             slewToZenithTask = localTask;
 
@@ -2095,7 +2099,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private void ClearAnalyses(object o) {
+        private void ClearAnalyses() {
             DeactivateAutoFocusAnalysis();
             ResetExposureAnalysis();
             AutoFocusChartActivatedOnce = false;
