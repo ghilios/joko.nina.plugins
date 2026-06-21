@@ -1589,16 +1589,29 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private async Task<IRenderedImage> ReloadSavedFile(
             AutoFocusState state,
             SavedAutoFocusImage savedFile,
+            SemaphoreSlim loadSerializer,
             CancellationToken token) {
             var isBayered = savedFile.IsBayered;
             var bitDepth = savedFile.BitDepth;
 
-            var sw = new Stopwatch();
-            sw.Start();
-            var imageData = await this.imageDataFactory.CreateFromFile(savedFile.Path, bitDepth, isBayered, profileService.ActiveProfile.CameraSettings.RawConverter, token);
-            sw.Stop();
-            Logger.Info($"Load file took {sw.Elapsed}");
-            return await PrepareExposure(state, imageData, token);
+            // Serialize the decode + prepare so only ONE saved frame is being decoded/prepared at a time. The
+            // NINA-core image pipeline (IImageDataFactory.CreateFromFile + IImagingMediator.PrepareImage) is not
+            // safe for concurrent invocation; the live AF path only ever decodes one frame at a time, but replay's
+            // bounded prefetch starts several loads at once. Two concurrent loads could otherwise corrupt/share pixel
+            // data, so two distinct focuser positions occasionally got an identical HFR. Detection (which reads the
+            // already-materialized RawImageData) stays fully parallel, and the prefetch still overlaps this
+            // serialized load with the parallel detection of an already-loaded frame.
+            await loadSerializer.WaitAsync(token);
+            try {
+                var sw = new Stopwatch();
+                sw.Start();
+                var imageData = await this.imageDataFactory.CreateFromFile(savedFile.Path, bitDepth, isBayered, profileService.ActiveProfile.CameraSettings.RawConverter, token);
+                sw.Stop();
+                Logger.Info($"Load file took {sw.Elapsed}");
+                return await PrepareExposure(state, imageData, token);
+            } finally {
+                loadSerializer.Release();
+            }
         }
 
         private async Task<MeasureAndError> AnalyzeSavedFile(
@@ -1688,6 +1701,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // Floor 2: one frame can load while the previous is analyzed; ceiling 4: memory (multi-MB decoded frames) grows linearly with little extra overlap benefit past this.
             var maxPrefetch = Math.Max(2, Math.Min(4, Environment.ProcessorCount));
             var prefetchSemaphore = new SemaphoreSlim(maxPrefetch, maxPrefetch);
+            // Serializes the decode + prepare stage across all in-flight loads (see ReloadSavedFile): the NINA-core
+            // CreateFromFile/PrepareImage pipeline is not safe for concurrent invocation, which the prefetch would
+            // otherwise trigger. Detection stays parallel; only load<->load overlap is removed.
+            var loadSerializer = new SemaphoreSlim(1, 1);
             // Flat list of every post-task spawned, so the finally can wait for ALL of them (each of which releases
             // its slot) before disposing the semaphore — even if the loop is left early via cancellation/exception
             // before a group's combined task is added to focuserPositionTasks. Avoids disposing while a Release is
@@ -1730,7 +1747,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         // Start the load without awaiting it inline so loads overlap each other and analysis. The
                         // returned Task is awaited by the region-analysis tasks below. Any load failure is captured
                         // in loadTask and surfaces when those tasks await it.
-                        var loadTask = ReloadSavedFile(state, savedFile, token);
+                        var loadTask = ReloadSavedFile(state, savedFile, loadSerializer, token);
                         // Source for the replay reuse cache (consumed only when Options.ReuseSavedDetection is on).
                         // Uses the ORIGINAL image/frame numbers from the saved filename (NOT imageState.ImageNumber,
                         // which OnNextImage reassigned as a fresh ordering counter) and the saved file's own folder,
@@ -1820,6 +1837,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 } catch {
                 }
                 prefetchSemaphore.Dispose();
+                loadSerializer.Dispose();
                 await Task.Delay(1000);
                 progress.Report(new ApplicationStatus());
             }
