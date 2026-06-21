@@ -280,7 +280,7 @@ public class StarDetectionOptimizerTests {
     }
 
     [Test]
-    [Timeout(30000)]
+    [CancelAfter(30000)]
     public void Optimize_AllDiscreteVariables_Terminates() {
         // REGRESSION (BLOCKING): an all-Integer/Boolean variable set used to hang forever. With no continuous
         // variables, ContinuousStepsBelowFloor returned false, so Phase-B's loop guard
