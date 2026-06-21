@@ -13,6 +13,7 @@
 using CommunityToolkit.Mvvm.Input;
 using NINA.Core.Model;
 using NINA.Core.Utility;
+using NINA.Core.Utility.Notification;
 using NINA.Equipment.Equipment;
 using NINA.Equipment.Equipment.MyCamera;
 using NINA.Equipment.Equipment.MyFocuser;
@@ -21,6 +22,8 @@ using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Equipment.Model;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.ViewModel;
@@ -29,20 +32,30 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel.Composition;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Logger = NINA.Core.Utility.Logger;
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 
 namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
+    /// <summary>
+    /// The discrete calibration measurement steps. Each step is a single physical screw move followed by one
+    /// measurement, so two changes are never compounded between measurements: the all-inward and per-screw moves
+    /// are each bracketed by an explicit re-baseline. Screw angles are derived from the move relative to the
+    /// re-baseline that immediately precedes it (c→d for screw 1, e→f for screw 2).
+    /// </summary>
     public enum WizardStep {
-        Baseline = 0,
-        AllScrews = 1,
-        Screw1 = 2,
-        Screw2 = 3,
-        Complete = 4
+        Baseline = 0,     // a
+        AllInward = 1,    // b: all screws inward once (curvature/backfocus sign via a→b)
+        ReBaseline1 = 2,  // c: all screws back out once (≈ baseline)
+        Screw1 = 3,       // d: screw 1 inward once (4-screw: + screw 3 outward)
+        ReBaseline2 = 4,  // e: undo the screw-1 move (≈ c)
+        Screw2 = 5,       // f: screw 2 inward once (4-screw: + screw 4 outward)
+        Complete = 6
     }
 
     [PartCreationPolicy(CreationPolicy.Shared)]
@@ -60,16 +73,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private WizardStep currentStep = WizardStep.Baseline;
         private bool isWizardRunning = false;
         private bool isMeasuring = false;
+        private bool isReplaying = false;
         private bool hasWarning = false;
         private string warningText = string.Empty;
         private string statusText = string.Empty;
         private bool hasMeasurementConsistencyWarning = false;
         private string measurementConsistencyWarningText = string.Empty;
-        private (double A, double B) baselineReading;
-        private (double A, double B) screw1Reading;
-        private (double A, double B) screw2Reading;
-        private double baselineCurvatureReading;
-        private double allScrewsCurvatureReading;
+        private bool hasRebaselineDriftWarning = false;
+        private string rebaselineDriftWarningText = string.Empty;
+
+        // One (A, B, mean) tilt-plane reading plus the per-step field-curvature characterization, keyed by step.
+        private readonly Dictionary<WizardStep, StepReading> stepReadings = new Dictionary<WizardStep, StepReading>();
         private CancellationTokenSource measureCts;
 
         private double calibrationAppliedAmount = 1.0;
@@ -77,8 +91,36 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private double calibrationPixelSizeMicrons;
         private double calibrationFocuserStepMicrons;
         private double calibrationScrewRadiusMm;
+        private double lastRawAngleDiff = double.NaN;
+        private double lastMoveMagnitudeRatio = double.NaN;
+
+        // Per-run save state (transient; only populated while saving AF runs for the current calibration run).
+        private bool saveAFRuns;
+        private string runRootFolder;
+        private string metadataPath;
+        private TiltCalibrationMetadata currentMetadata;
 
         private const double MeasurementConsistencyWarningThreshold = 0.02;
+        // A re-baseline that returns close to the prior state drifts ~0; warn once the residual reaches half the
+        // screw-move signal (backlash / uneven undo would corrupt the recovered angle/hardware for that screw).
+        private const double RebaselineDriftWarnThreshold = 0.5;
+
+        // The six measurement steps in capture order.
+        private static readonly WizardStep[] MeasurementSteps = {
+            WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1,
+            WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2
+        };
+
+        private struct StepReading {
+            public double A;
+            public double B;
+            public double Mean;
+            public double TiltAngleDeg;
+            public double DirectionDeg;
+            public double CurvatureRadiusMm;
+            public double CurvatureEffectAtScrewRadiusMicrons;
+            public string SaveFolder;
+        }
 
         [ImportingConstructor]
         public TiltAdapterWizardVM(
@@ -120,6 +162,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             CancelCommand = new RelayCommand(CancelMeasurement, () => IsMeasuring);
             RestartCommand = new RelayCommand(Restart);
             UseMeasuredHardwareCommand = new RelayCommand(UseMeasuredHardware, () => HasMeasuredHardware);
+            BrowseSaveFolderCommand = new RelayCommand(BrowseSaveFolder);
+            ReplayCommand = new AsyncRelayCommand(ReplayAsync, () => !IsWizardRunning && !IsMeasuring);
 
             tiltAdapterOptions.PropertyChanged += (s, e) => {
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)) {
@@ -138,6 +182,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (e.PropertyName == nameof(ITiltAdapterOptions.DeviceName)) {
                     RaisePropertyChanged(nameof(SelectedDevice));
                     RaisePropertyChanged(nameof(IsManualDevice));
+                }
+                if (e.PropertyName == nameof(ITiltAdapterOptions.SaveAFRunsPath)) {
+                    RaisePropertyChanged(nameof(SaveAFRunsPath));
                 }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.AdjustmentType) ||
                     e.PropertyName == nameof(ITiltAdapterOptions.ThreadPitchMicrons) ||
@@ -159,6 +206,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(FocuserStepSizeMicronsValue));
                 RaisePropertyChanged(nameof(SelectedDevice));
                 RaisePropertyChanged(nameof(IsManualDevice));
+                RaisePropertyChanged(nameof(SaveAFRunsPath));
             };
 
             // Re-assert and lock a persisted device preset on load.
@@ -206,11 +254,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public bool IsComplete => currentStep == WizardStep.Complete;
 
         // Steps that end with running the aberration inspector (measurement auto-advances)
-        public bool IsOnMeasurementStep =>
-            currentStep == WizardStep.Baseline ||
-            currentStep == WizardStep.AllScrews ||
-            currentStep == WizardStep.Screw1 ||
-            currentStep == WizardStep.Screw2;
+        public bool IsOnMeasurementStep => MeasurementSteps.Contains(currentStep);
 
         public bool IsCalibrationValid =>
             tiltAdapterOptions.IsCalibrated &&
@@ -334,24 +378,69 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        public bool HasRebaselineDriftWarning {
+            get => hasRebaselineDriftWarning;
+            private set {
+                hasRebaselineDriftWarning = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        public string RebaselineDriftWarningText {
+            get => rebaselineDriftWarningText;
+            private set {
+                rebaselineDriftWarningText = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        // Transient per-run toggle: save each calibration step's AutoFocus sweep so the run can be replayed.
+        // Always starts OFF and must be explicitly enabled before each run (not persisted). The folder is
+        // persisted (SaveAFRunsPath) so the location is reused.
+        public bool SaveAFRuns {
+            get => saveAFRuns;
+            set {
+                if (saveAFRuns != value) {
+                    saveAFRuns = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public string SaveAFRunsPath {
+            get => tiltAdapterOptions.SaveAFRunsPath;
+            set {
+                if (tiltAdapterOptions.SaveAFRunsPath != value) {
+                    tiltAdapterOptions.SaveAFRunsPath = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         public string StepInstructions {
             get {
                 int n = tiltAdapterOptions.ScrewCount;
                 switch (currentStep) {
                     case WizardStep.Baseline:
                         return "Ensure all screws are at their starting position, then click Run Measurement to take a baseline reading.";
-                    case WizardStep.AllScrews:
-                        return n == 3
-                            ? "Identify your screws. Label them 1, 2, and 3. Screw 1 is at the top of the adapter (12 o'clock); the remaining screws are numbered clockwise: Screw 2 at lower-right, Screw 3 at lower-left.\n\nTurn ALL screws INWARD exactly 1 full turn each, then click Run Measurement."
-                            : "Identify your screws. Label them 1, 2, 3, and 4. Screw 1 is at the top-right of the adapter; the remaining screws are numbered clockwise: Screw 2 at lower-right, Screw 3 at lower-left, Screw 4 at upper-left.\n\nTurn ALL screws INWARD exactly 1 full turn each, then click Run Measurement.";
+                    case WizardStep.AllInward:
+                        return "Label your screws 1, 2, and 3 (or 1–4 for a 4-screw adapter) in a consistent clockwise order. " +
+                            "Screw 1 does NOT need to be at any particular clock position — the wizard determines each screw's actual " +
+                            "position from the measurements.\n\nTurn ALL screws INWARD exactly 1 full turn each, then click Run Measurement.";
+                    case WizardStep.ReBaseline1:
+                        return "Turn ALL screws back OUT exactly 1 full turn each, returning to the baseline position, then click Run Measurement.";
                     case WizardStep.Screw1:
                         return n == 3
-                            ? "Turn screws 1, 2, and 3 each back OUT 1 full turn to return to baseline. Then turn screw 1 INWARD exactly 1 full turn, then click Run Measurement."
-                            : "Turn screws 1, 2, 3, and 4 each back OUT 1 full turn to return to baseline. Then turn screw 1 INWARD and screw 3 OUTWARD exactly 1 full turn each, then click Run Measurement.";
+                            ? "Turn screw 1 INWARD exactly 1 full turn, then click Run Measurement."
+                            : "Turn screw 1 INWARD and screw 3 OUTWARD exactly 1 full turn each, then click Run Measurement.";
+                    case WizardStep.ReBaseline2:
+                        return n == 3
+                            ? "Turn screw 1 back OUT exactly 1 full turn, returning to the baseline position, then click Run Measurement."
+                            : "Turn screw 1 back OUT and screw 3 back IN exactly 1 full turn each, returning to the baseline position, then click Run Measurement.";
                     case WizardStep.Screw2:
                         return n == 3
-                            ? "Turn screw 1 back OUT 1 full turn to return to baseline. Then turn screw 2 INWARD exactly 1 full turn, then click Run Measurement."
-                            : "Turn screw 1 back OUT and screw 3 back IN 1 full turn to return to baseline. Then turn screw 2 INWARD and screw 4 OUTWARD exactly 1 full turn each, then click Run Measurement.";
+                            ? "Turn screw 2 INWARD exactly 1 full turn, then click Run Measurement."
+                            : "Turn screw 2 INWARD and screw 4 OUTWARD exactly 1 full turn each, then click Run Measurement.";
                     case WizardStep.Complete:
                         return "Restore all screws to their original position.";
                     default:
@@ -366,6 +455,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public ICommand CancelCommand { get; }
         public ICommand RestartCommand { get; }
         public ICommand UseMeasuredHardwareCommand { get; }
+        public ICommand BrowseSaveFolderCommand { get; }
+        public ICommand ReplayCommand { get; }
 
         // Known amount the user moves each screw during the per-screw calibration steps (full turns
         // for screws, steps for steppers). Defaults to 1.0 to match the "1 full turn" instructions.
@@ -486,9 +577,78 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private Task StartAsync() {
             StatusText = string.Empty;
+            stepReadings.Clear();
+            HasRebaselineDriftWarning = false;
+            RebaselineDriftWarningText = string.Empty;
+            HasWarning = false;
+            WarningText = string.Empty;
+            StepMeasurementSummary.Clear();
+            runRootFolder = null;
+            metadataPath = null;
+            currentMetadata = null;
+
+            if (saveAFRuns) {
+                if (!SetUpSaveRun()) {
+                    // Could not set up the save folder; continue without saving.
+                    SaveAFRuns = false;
+                }
+            }
+
             CurrentStep = WizardStep.Baseline;
             IsWizardRunning = true;
             return Task.CompletedTask;
+        }
+
+        // Creates the per-run root folder and captures the live star-detection settings into the metadata so the
+        // run can be replayed later. Returns false (and warns) if the save folder is unset / cannot be created.
+        private bool SetUpSaveRun() {
+            if (string.IsNullOrWhiteSpace(SaveAFRunsPath)) {
+                Notification.ShowWarning("Choose a folder to save AutoFocus runs, or turn off saving.");
+                return false;
+            }
+            try {
+                runRootFolder = Path.Combine(SaveAFRunsPath, "TiltCalibration_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+                Directory.CreateDirectory(runRootFolder);
+            } catch (Exception ex) {
+                Notification.ShowError($"Could not create the AutoFocus save folder: {ex.Message}");
+                Logger.Error(ex, "Failed to create tilt calibration save folder");
+                return false;
+            }
+            metadataPath = Path.Combine(runRootFolder, "metadata.json");
+            currentMetadata = BuildInitialMetadata();
+            WriteMetadata();
+            return true;
+        }
+
+        private TiltCalibrationMetadata BuildInitialMetadata() {
+            return new TiltCalibrationMetadata {
+                NumberOfScrews = tiltAdapterOptions.ScrewCount,
+                AdjustmentType = IsStepperAdjustment ? "StepperMotors" : "Screws",
+                ScrewThreadPitchMicrons = tiltAdapterOptions.ThreadPitchMicrons,
+                StepperStepSizeMicrons = tiltAdapterOptions.StepperStepSizeMicrons,
+                ScrewRadiusMillimeters = tiltAdapterOptions.ScrewRadiusMillimeters,
+                PixelSizeMicrons = profileService.ActiveProfile.CameraSettings.PixelSize,
+                FocuserStepSizeMicrons = EffectiveFocuserStepMicrons(),
+                CalibrationAppliedAmount = calibrationAppliedAmount,
+                MeasurementAverageCount = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount),
+                OptimizedStarDetectionSettings = CaptureDetectionSettings(),
+                RunStepMapping = new List<TiltRunStepMapping>(),
+                PerStep = new List<TiltPerStepResult>()
+            };
+        }
+
+        // Capture the effective live star-detection params as a snapshot DTO. BuildStarDetectorParams is the same
+        // source the runtime AF detection path uses; the optimization-only J/step args are inert metadata.
+        private static OptimizedStarDetectionSettings CaptureDetectionSettings() {
+            var p = HocusFocusStarDetection.BuildStarDetectorParams(HocusFocusPlugin.StarDetectionOptions);
+            return OptimizedStarDetectionSettings.FromParams(p, runCount: 0, baselineJ: 0.0, finalJ: 0.0,
+                recommendedStepSize: 0, recommendedOffsetSteps: 0);
+        }
+
+        private double EffectiveFocuserStepMicrons() {
+            var v = inspector.InspectorOptions?.MicronsPerFocuserStep ?? -1;
+            if (v > 0) return v;
+            return focuserInfo.StepSize > 0 ? focuserInfo.StepSize : -1;
         }
 
         private async Task RunMeasurementAsync() {
@@ -501,64 +661,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             IsMeasuring = true;
 
             try {
-                bool success = false;
-
-                switch (currentStep) {
-                    case WizardStep.Baseline: {
-                        StepMeasurementSummary.Clear();
-                        var result = await RunAveragedTiltMeasurement(token, "Baseline");
-                        if (result != null) {
-                            baselineReading = result.Value;
-                            baselineCurvatureReading = inspector.TiltModel?.TiltPlaneModel?.MeanFocuserPosition ?? 0.0;
-                            success = true;
-                        }
-                        break;
-                    }
-                    case WizardStep.AllScrews: {
-                        var result = await RunAveragedCurvatureMeasurement(token, AllScrewsDescription);
-                        if (result != null) {
-                            allScrewsCurvatureReading = result.Value;
-                            success = true;
-                        }
-                        break;
-                    }
-                    case WizardStep.Screw1: {
-                        var result = await RunAveragedTiltMeasurement(token, Screw1Description);
-                        if (result != null) {
-                            screw1Reading = result.Value;
-                            success = true;
-                        }
-                        break;
-                    }
-                    case WizardStep.Screw2: {
-                        var result = await RunAveragedTiltMeasurement(token, Screw2Description);
-                        if (result != null) {
-                            screw2Reading = result.Value;
-                            success = true;
-                        }
-                        break;
-                    }
-                }
-
-                if (success) {
-                    NextStep();
-                } else {
-                    StatusText = "Measurement failed.";
-                }
+                await MeasureStep(currentStep, token, fromSaved: false);
             } catch (OperationCanceledException) {
                 StatusText = "Measurement cancelled.";
             } finally {
                 IsMeasuring = false;
             }
         }
-
-        private string AllScrewsDescription => "All screws ↓";
-
-        private string Screw1Description =>
-            tiltAdapterOptions.ScrewCount == 3 ? "Screw 1 ↓" : "Screw 1 ↓, Screw 3 ↑";
-
-        private string Screw2Description =>
-            tiltAdapterOptions.ScrewCount == 3 ? "Screw 2 ↓" : "Screw 2 ↓, Screw 4 ↑";
 
         private async Task RunSavedMeasurementAsync() {
             HasMeasurementConsistencyWarning = false;
@@ -569,49 +678,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var token = measureCts.Token;
 
             try {
-                bool success = false;
-                switch (currentStep) {
-                    case WizardStep.Baseline: {
-                        StepMeasurementSummary.Clear();
-                        var result = await RunAveragedSavedTiltMeasurement(token, "Baseline");
-                        if (result != null) {
-                            baselineReading = result.Value;
-                            baselineCurvatureReading = inspector.TiltModel?.TiltPlaneModel?.MeanFocuserPosition ?? 0.0;
-                            success = true;
-                        }
-                        break;
-                    }
-                    case WizardStep.AllScrews: {
-                        var result = await RunAveragedSavedCurvatureMeasurement(token, AllScrewsDescription);
-                        if (result != null) {
-                            allScrewsCurvatureReading = result.Value;
-                            success = true;
-                        }
-                        break;
-                    }
-                    case WizardStep.Screw1: {
-                        var result = await RunAveragedSavedTiltMeasurement(token, Screw1Description);
-                        if (result != null) {
-                            screw1Reading = result.Value;
-                            success = true;
-                        }
-                        break;
-                    }
-                    case WizardStep.Screw2: {
-                        var result = await RunAveragedSavedTiltMeasurement(token, Screw2Description);
-                        if (result != null) {
-                            screw2Reading = result.Value;
-                            success = true;
-                        }
-                        break;
-                    }
-                }
-
-                if (success) {
-                    NextStep();
-                } else {
-                    StatusText = "Measurement failed.";
-                }
+                await MeasureStep(currentStep, token, fromSaved: true);
             } catch (OperationCanceledException) {
                 StatusText = "Measurement cancelled.";
             } finally {
@@ -619,28 +686,94 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
-        private async Task<(double A, double B)?> RunAveragedSavedTiltMeasurement(CancellationToken token, string stepDescription) {
+        private async Task MeasureStep(WizardStep step, CancellationToken token, bool fromSaved) {
+            if (step == WizardStep.Baseline) {
+                StepMeasurementSummary.Clear();
+            }
+            var reading = await RunAveragedMeasurement(token, step, StepDescription(step), fromSaved);
+            if (reading == null) {
+                StatusText = "Measurement failed.";
+                return;
+            }
+            stepReadings[step] = reading.Value;
+            RecordStepIntoMetadata(step, reading.Value);
+            NextStep();
+        }
+
+        // Description shown on each summary row, reflecting the single move performed for the step.
+        private string StepDescription(WizardStep step) {
+            bool four = tiltAdapterOptions.ScrewCount == 4;
+            switch (step) {
+                case WizardStep.Baseline: return "Baseline";
+                case WizardStep.AllInward: return "All screws ↓";
+                case WizardStep.ReBaseline1: return "Re-baseline (all ↑)";
+                case WizardStep.Screw1: return four ? "Screw 1 ↓, Screw 3 ↑" : "Screw 1 ↓";
+                case WizardStep.ReBaseline2: return four ? "Re-baseline (Screw 1 ↑, Screw 3 ↓)" : "Re-baseline (Screw 1 ↑)";
+                case WizardStep.Screw2: return four ? "Screw 2 ↓, Screw 4 ↑" : "Screw 2 ↓";
+                default: return step.ToString();
+            }
+        }
+
+        private static string StepFolderName(WizardStep step) => $"{(int)step + 1:00}_{step}";
+
+        // Runs the aberration inspector MeasurementAverageCount times, averages the tilt plane, appends summary
+        // rows + the consistency warning, and captures the per-step field-curvature characterization. When saving
+        // (live only), each step's run is redirected into its own folder and the saved location is recorded.
+        private async Task<StepReading?> RunAveragedMeasurement(CancellationToken token, WizardStep step, string stepDescription, bool fromSaved) {
             int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
-            var readings = new List<(double A, double B)>(count);
+            var readings = new List<(double A, double B, double Mean)>(count);
+
+            AutoFocusSaveOverride saveOverride = null;
+            if (!fromSaved && saveAFRuns && !string.IsNullOrEmpty(runRootFolder)) {
+                try {
+                    var perStepDir = Path.Combine(runRootFolder, StepFolderName(step));
+                    Directory.CreateDirectory(perStepDir);
+                    saveOverride = new AutoFocusSaveOverride { Save = true, SavePath = perStepDir };
+                } catch (Exception ex) {
+                    Logger.Error(ex, "Failed to create per-step save folder; continuing without saving this step");
+                }
+            }
 
             for (int i = 0; i < count; i++) {
                 token.ThrowIfCancellationRequested();
                 StatusText = $"Run {i + 1}/{count}...";
-                // IsMeasuring is set via callback after the folder dialog closes so the
-                // chart doesn't appear until the user has confirmed a selection.
-                bool ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true);
+                bool ok;
+                if (fromSaved) {
+                    // IsMeasuring is set via callback after the folder dialog closes so the chart doesn't appear
+                    // until the user has confirmed a selection.
+                    ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true);
+                } else {
+                    ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true, saveOverride);
+                }
                 if (!ok) return null;
                 var m = inspector.TiltModel?.TiltPlaneModel;
                 if (m == null) return null;
-                readings.Add((m.A, m.B));
+                readings.Add((m.A, m.B, m.MeanFocuserPosition));
             }
 
             double avgA = readings.Average(r => r.A);
             double avgB = readings.Average(r => r.B);
+            double avgMean = readings.Average(r => r.Mean);
 
             var latestModel = inspector.TiltModel?.TiltPlaneModel;
+            AppendSummaryRows(readings, stepDescription, latestModel, count, avgA, avgB);
+
+            var reading = new StepReading {
+                A = avgA,
+                B = avgB,
+                Mean = avgMean,
+                TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
+                DirectionDeg = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
+                SaveFolder = (!fromSaved && saveOverride != null) ? inspector.LastSaveFolder : null
+            };
+            PopulateCurvature(ref reading);
+            return reading;
+        }
+
+        private void AppendSummaryRows(List<(double A, double B, double Mean)> readings, string stepDescription,
+            TiltPlaneModel latestModel, int count, double avgA, double avgB) {
             for (int i = 0; i < readings.Count; i++) {
-                var (a, b) = readings[i];
+                var (a, b, _) = readings[i];
                 StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
                     RunNumber = i + 1,
                     Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
@@ -667,51 +800,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         $"Measurements inconsistent: max deviation {maxDev:F4} exceeds {MeasurementConsistencyWarningThreshold:F4}. Consider re-running.";
                 }
             }
-
-            return (avgA, avgB);
         }
 
-        private async Task<double?> RunAveragedSavedCurvatureMeasurement(CancellationToken token, string stepDescription) {
-            int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
-            double sum = 0;
-            var tiltReadings = new List<(double A, double B)>(count);
-
-            for (int i = 0; i < count; i++) {
-                token.ThrowIfCancellationRequested();
-                StatusText = $"Run {i + 1}/{count}...";
-                bool ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true);
-                if (!ok) return null;
-                var plane = inspector.TiltModel?.TiltPlaneModel;
-                if (plane == null) return null;
-                sum += plane.MeanFocuserPosition;
-                tiltReadings.Add((plane.A, plane.B));
+        // Field-curvature characterization for the metadata (req 9), read from the inspector's sensor model when
+        // the sensor curve model is enabled. CurvatureAt takes microns; the screw-radius evaluation point is the
+        // screw distance from the optical center. NaN when the curve model is unavailable.
+        private void PopulateCurvature(ref StepReading reading) {
+            reading.CurvatureRadiusMm = double.NaN;
+            reading.CurvatureEffectAtScrewRadiusMicrons = double.NaN;
+            var aberration = inspector.SensorModel?.SensorModelResult;
+            if (aberration?.Model == null) return;
+            reading.CurvatureRadiusMm = aberration.CurvatureRadiusMillimeters;
+            double radiusMicrons = tiltAdapterOptions.ScrewRadiusMillimeters * 1000.0;
+            if (radiusMicrons > 0) {
+                reading.CurvatureEffectAtScrewRadiusMicrons = aberration.Model.CurvatureAt(radiusMicrons, 0);
             }
-
-            var latestModel = inspector.TiltModel?.TiltPlaneModel;
-            for (int i = 0; i < tiltReadings.Count; i++) {
-                var (a, b) = tiltReadings[i];
-                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
-                    RunNumber = i + 1,
-                    Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
-                    TiltAngleDeg = ComputeTiltAngleDeg(a, b, latestModel),
-                    IsAverage = false,
-                    StepDescription = stepDescription
-                });
-            }
-
-            if (count > 1) {
-                double avgA = tiltReadings.Average(r => r.A);
-                double avgB = tiltReadings.Average(r => r.B);
-                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
-                    RunNumber = 0,
-                    Direction = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
-                    TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
-                    IsAverage = true,
-                    StepDescription = stepDescription
-                });
-            }
-
-            return sum / count;
         }
 
         private double ComputeTiltAngleDeg(double a, double b, TiltPlaneModel model) {
@@ -732,113 +835,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             return Math.Atan(Math.Sqrt(gx * gx + gy * gy)) * 180.0 / Math.PI;
         }
 
-        private async Task<(double A, double B)?> RunAveragedTiltMeasurement(CancellationToken token, string stepDescription = "") {
-            int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
-            var readings = new List<(double A, double B)>(count);
-
-            for (int i = 0; i < count; i++) {
-                token.ThrowIfCancellationRequested();
-                StatusText = $"Run {i + 1}/{count}...";
-                bool ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true);
-                if (!ok) return null;
-                var m = inspector.TiltModel?.TiltPlaneModel;
-                if (m == null) return null;
-                readings.Add((m.A, m.B));
-            }
-
-            double avgA = readings.Average(r => r.A);
-            double avgB = readings.Average(r => r.B);
-
-            var latestModel = inspector.TiltModel?.TiltPlaneModel;
-            for (int i = 0; i < readings.Count; i++) {
-                var (a, b) = readings[i];
-                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
-                    RunNumber = i + 1,
-                    Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
-                    TiltAngleDeg = ComputeTiltAngleDeg(a, b, latestModel),
-                    IsAverage = false,
-                    StepDescription = stepDescription
-                });
-            }
-
-            if (count > 1) {
-                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
-                    RunNumber = 0,
-                    Direction = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
-                    TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
-                    IsAverage = true,
-                    StepDescription = stepDescription
-                });
-
-                double maxDev = readings.Max(r =>
-                    Math.Sqrt(Math.Pow(r.A - avgA, 2) + Math.Pow(r.B - avgB, 2)));
-                if (maxDev > MeasurementConsistencyWarningThreshold) {
-                    HasMeasurementConsistencyWarning = true;
-                    MeasurementConsistencyWarningText =
-                        $"Measurements inconsistent: max deviation {maxDev:F4} exceeds {MeasurementConsistencyWarningThreshold:F4}. Consider re-running.";
-                }
-            }
-
-            return (avgA, avgB);
-        }
-
-        private async Task<double?> RunAveragedCurvatureMeasurement(CancellationToken token, string stepDescription = "") {
-            int count = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
-            double sum = 0;
-            var tiltReadings = new List<(double A, double B)>(count);
-            for (int i = 0; i < count; i++) {
-                token.ThrowIfCancellationRequested();
-                StatusText = $"Run {i + 1}/{count}...";
-                bool ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true);
-                if (!ok) return null;
-                var plane = inspector.TiltModel?.TiltPlaneModel;
-                if (plane == null) return null;
-                sum += plane.MeanFocuserPosition;
-                tiltReadings.Add((plane.A, plane.B));
-            }
-
-            var latestModel = inspector.TiltModel?.TiltPlaneModel;
-            for (int i = 0; i < tiltReadings.Count; i++) {
-                var (a, b) = tiltReadings[i];
-                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
-                    RunNumber = i + 1,
-                    Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
-                    TiltAngleDeg = ComputeTiltAngleDeg(a, b, latestModel),
-                    IsAverage = false,
-                    StepDescription = stepDescription
-                });
-            }
-
-            if (count > 1) {
-                double avgA = tiltReadings.Average(r => r.A);
-                double avgB = tiltReadings.Average(r => r.B);
-                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
-                    RunNumber = 0,
-                    Direction = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
-                    TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
-                    IsAverage = true,
-                    StepDescription = stepDescription
-                });
-            }
-
-            return sum / count;
-        }
-
         private void CancelMeasurement() {
             measureCts?.Cancel();
         }
 
         private void NextStep() {
-            if (currentStep == WizardStep.AllScrews) {
-                CalculateAndSaveCurvatureSign();
-            }
-
             WizardStep next = currentStep + 1;
 
             if (next == WizardStep.Complete) {
-                CalculateAndSaveAngles();
-                CalculateAndSaveHardware();
+                RunCalibrationMath(
+                    tiltAdapterOptions.ScrewCount,
+                    tiltAdapterOptions.ScrewRadiusMillimeters,
+                    profileService.ActiveProfile.CameraSettings.PixelSize,
+                    EffectiveFocuserStepMicrons(),
+                    calibrationAppliedAmount,
+                    IsStepperAdjustment);
                 RebuildDiagram();
+                FinalizeMetadata();
             }
 
             HasMeasurementConsistencyWarning = false;
@@ -851,16 +864,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measureCts?.Cancel();
             IsWizardRunning = false;
             IsMeasuring = false;
-            baselineReading = default;
-            screw1Reading = default;
-            screw2Reading = default;
-            baselineCurvatureReading = 0;
-            allScrewsCurvatureReading = 0;
+            isReplaying = false;
+            SaveAFRuns = false; // saving must be re-enabled explicitly for each run
+            stepReadings.Clear();
             measuredHardwareMicrons = double.NaN;
+            lastRawAngleDiff = double.NaN;
+            lastMoveMagnitudeRatio = double.NaN;
+            runRootFolder = null;
+            metadataPath = null;
+            currentMetadata = null;
             RaiseHardwareSummaryChanged();
             StepMeasurementSummary.Clear();
             HasMeasurementConsistencyWarning = false;
             MeasurementConsistencyWarningText = string.Empty;
+            HasRebaselineDriftWarning = false;
+            RebaselineDriftWarningText = string.Empty;
+            HasWarning = false;
+            WarningText = string.Empty;
             StatusText = string.Empty;
             CurrentStep = WizardStep.Baseline;
         }
@@ -896,47 +916,86 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RaiseHardwareSummaryChanged();
         }
 
-        // Recover thread pitch (µm/turn) or stepper step size (µm/step) from the known per-screw
-        // calibration moves and the measured tilt-plane changes. Stored as the "last measured" value;
-        // the user can copy it into the active saved value via UseMeasuredHardwareCommand.
-        private void CalculateAndSaveHardware() {
+        private void BrowseSaveFolder() {
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
+                if (!string.IsNullOrEmpty(SaveAFRunsPath)) {
+                    dialog.SelectedPath = SaveAFRunsPath;
+                }
+                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK) {
+                    SaveAFRunsPath = dialog.SelectedPath;
+                }
+            }
+        }
+
+        // Runs the full calibration math from the six step readings and writes the results to the options. Shared
+        // by a live run (geometry from the current options/profile) and a replay (geometry from the metadata).
+        private void RunCalibrationMath(int screwCount, double radiusMm, double pixelSize, double fStep,
+            double appliedAmount, bool isStepper) {
+            var a = Reading(WizardStep.Baseline);
+            var b = Reading(WizardStep.AllInward);
+            var c = Reading(WizardStep.ReBaseline1);
+            var d = Reading(WizardStep.Screw1);
+            var e = Reading(WizardStep.ReBaseline2);
+            var f = Reading(WizardStep.Screw2);
+
+            // Curvature (backfocus) sign from baseline (a) → all-inward (b) mean focus.
+            tiltAdapterOptions.ScrewInwardCurvatureSign = TiltCalibrationCalculator.ComputeCurvatureSign(b.Mean, a.Mean);
+
+            // Screw angles from each move relative to its preceding re-baseline (c→d, e→f).
+            double d1A = d.A - c.A, d1B = d.B - c.B;
+            double d2A = f.A - e.A, d2B = f.B - e.B;
+            var (s1, s2, s3, s4, rawDiff) = TiltCalibrationCalculator.ComputeScrewAngles(d1A, d1B, d2A, d2B, screwCount);
+
+            tiltAdapterOptions.Screw1AngleDegrees = s1;
+            tiltAdapterOptions.Screw2AngleDegrees = s2;
+            tiltAdapterOptions.Screw3AngleDegrees = s3;
+            tiltAdapterOptions.Screw4AngleDegrees = s4;
+            if (tiltAdapterOptions.ScrewCount != screwCount) {
+                tiltAdapterOptions.ScrewCount = screwCount; // replaying a run captured with a different screw count
+            }
+            tiltAdapterOptions.CalibratedScrewCount = screwCount;
+            tiltAdapterOptions.IsCalibrated = true;
+
+            lastRawAngleDiff = rawDiff;
+            lastMoveMagnitudeRatio = TiltCalibrationCalculator.MoveMagnitudeRatio(d1A, d1B, d2A, d2B);
+            ValidateCalibrationQuality(rawDiff, lastMoveMagnitudeRatio, screwCount);
+
+            // Recover the adapter hardware (µm/turn or µm/step).
             measuredHardwareMicrons = double.NaN;
-            calibrationScrewRadiusMm = tiltAdapterOptions.ScrewRadiusMillimeters;
-
-            var model = inspector.TiltModel?.TiltPlaneModel;
-            if (model == null) { RaiseHardwareSummaryChanged(); return; }
-
-            double pixelSize = profileService.ActiveProfile.CameraSettings.PixelSize;
-            double fStep = model.FocuserStepSizeMicrons;
-            if (double.IsNaN(fStep) || fStep <= 0) fStep = focuserInfo.StepSize;
+            calibrationScrewRadiusMm = radiusMm;
             calibrationPixelSizeMicrons = pixelSize;
             calibrationFocuserStepMicrons = fStep;
 
-            // The pitch/step recovery math lives in the pure TiltCalibrationCalculator (shared with the validator);
-            // it applies the same guards (radius/applied/pixel/fStep/sensor > 0) and returns NaN otherwise.
-            var inputs = new TiltCalibrationInputs {
-                ScrewCount = tiltAdapterOptions.ScrewCount,
-                Baseline = new TiltGradient(baselineReading.A, baselineReading.B, 0),
-                Screw1 = new TiltGradient(screw1Reading.A, screw1Reading.B, 0),
-                Screw2 = new TiltGradient(screw2Reading.A, screw2Reading.B, 0),
-                ImageWidthPixels = model.ImageSize.Width,
-                ImageHeightPixels = model.ImageSize.Height,
-                PixelSizeMicrons = pixelSize,
-                FocuserStepMicrons = fStep,
-                ScrewRadiusMillimeters = tiltAdapterOptions.ScrewRadiusMillimeters,
-                CalibrationAppliedAmount = calibrationAppliedAmount,
-                IsStepperAdjustment = IsStepperAdjustment
-            };
-            double measured = TiltCalibrationCalculator.RecoverHardwareMicrons(inputs);
-            if (double.IsNaN(measured)) { RaiseHardwareSummaryChanged(); return; }
-
-            measuredHardwareMicrons = measured;
-            if (IsStepperAdjustment) {
-                tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = measured;
-            } else {
-                tiltAdapterOptions.LastMeasuredThreadPitchMicrons = measured;
+            var model = inspector.TiltModel?.TiltPlaneModel;
+            if (model != null) {
+                var inputs = new TiltCalibrationInputs {
+                    ScrewCount = screwCount,
+                    Baseline = new TiltGradient(a.A, a.B, a.Mean),
+                    AllInward = new TiltGradient(b.A, b.B, b.Mean),
+                    ReBaseline1 = new TiltGradient(c.A, c.B, c.Mean),
+                    Screw1 = new TiltGradient(d.A, d.B, d.Mean),
+                    ReBaseline2 = new TiltGradient(e.A, e.B, e.Mean),
+                    Screw2 = new TiltGradient(f.A, f.B, f.Mean),
+                    ImageWidthPixels = model.ImageSize.Width,
+                    ImageHeightPixels = model.ImageSize.Height,
+                    PixelSizeMicrons = pixelSize,
+                    FocuserStepMicrons = fStep,
+                    ScrewRadiusMillimeters = radiusMm,
+                    CalibrationAppliedAmount = appliedAmount,
+                    IsStepperAdjustment = isStepper
+                };
+                double measured = TiltCalibrationCalculator.RecoverHardwareMicrons(inputs);
+                if (!double.IsNaN(measured)) {
+                    measuredHardwareMicrons = measured;
+                    if (isStepper) {
+                        tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = measured;
+                    } else {
+                        tiltAdapterOptions.LastMeasuredThreadPitchMicrons = measured;
+                    }
+                }
             }
 
+            EvaluateRebaselineDrift();
             RaiseHardwareSummaryChanged();
         }
 
@@ -952,40 +1011,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
         }
 
-        private void CalculateAndSaveCurvatureSign() {
-            tiltAdapterOptions.ScrewInwardCurvatureSign = TiltCalibrationCalculator.ComputeCurvatureSign(
-                allScrewsCurvatureReading, baselineCurvatureReading);
-        }
-
-        private void CalculateAndSaveAngles() {
-            // The per-screw angle math (winding detection + constrained equal-spacing fit) lives in the pure
-            // TiltCalibrationCalculator, shared with the headless validator so the two can never drift.
-            double d1A = screw1Reading.A - baselineReading.A;
-            double d1B = screw1Reading.B - baselineReading.B;
-            double d2A = screw2Reading.A - baselineReading.A;
-            double d2B = screw2Reading.B - baselineReading.B;
-
-            var (s1, s2, s3, s4, rawDiff) = TiltCalibrationCalculator.ComputeScrewAngles(
-                d1A, d1B, d2A, d2B, tiltAdapterOptions.ScrewCount);
-
-            tiltAdapterOptions.Screw1AngleDegrees = s1;
-            tiltAdapterOptions.Screw2AngleDegrees = s2;
-            tiltAdapterOptions.Screw3AngleDegrees = s3;
-            tiltAdapterOptions.Screw4AngleDegrees = s4;
-            tiltAdapterOptions.CalibratedScrewCount = tiltAdapterOptions.ScrewCount;
-            tiltAdapterOptions.IsCalibrated = true;
-            var magnitudeRatio = TiltCalibrationCalculator.MoveMagnitudeRatio(d1A, d1B, d2A, d2B);
-            ValidateCalibrationQuality(rawDiff, magnitudeRatio);
-        }
-
         // Two single-screw turns of the same amount should produce gradient changes that are ~equal in magnitude
         // and the correct angular distance apart. A bad angle gap OR very unequal magnitudes (uneven turning /
         // backlash) means the recovered geometry/hardware is unreliable — warn so the user recalibrates.
         private const double MagnitudeRatioWarnThreshold = 1.5; // larger move > 1.5x smaller => suspect
 
-        private void ValidateCalibrationQuality(double rawDiff, double magnitudeRatio) {
-            int n = tiltAdapterOptions.ScrewCount;
-            double expected = n == 3 ? 120.0 : 90.0;
+        private void ValidateCalibrationQuality(double rawDiff, double magnitudeRatio, int screwCount) {
+            double expected = screwCount == 3 ? 120.0 : 90.0;
             // Fold the diff so it is in [0, 180] — both CW and CCW gaps compare to the same expected value.
             double foldedDiff = rawDiff <= 180.0 ? rawDiff : 360.0 - rawDiff;
             double deviation = Math.Abs(foldedDiff - expected);
@@ -1005,6 +1037,219 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 parts.Add($"the two screw turns produced very unequal tilt changes ({magnitudeRatio:F1}× apart) — turn each screw the same amount");
             }
             WarningText = string.Join("; ", parts) + ". Consider recalibrating.";
+        }
+
+        // Re-baseline drift: each re-baseline (c, e) should return close to the prior state. A large residual
+        // relative to the subsequent screw move means backlash / an uneven undo contaminated the calibration.
+        private void EvaluateRebaselineDrift() {
+            var a = Reading(WizardStep.Baseline);
+            var c = Reading(WizardStep.ReBaseline1);
+            var d = Reading(WizardStep.Screw1);
+            var e = Reading(WizardStep.ReBaseline2);
+            var f = Reading(WizardStep.Screw2);
+
+            double drift1 = TiltCalibrationCalculator.RebaselineDriftRatio(c.A - a.A, c.B - a.B, d.A - c.A, d.B - c.B);
+            double drift2 = TiltCalibrationCalculator.RebaselineDriftRatio(e.A - c.A, e.B - c.B, f.A - e.A, f.B - e.B);
+
+            var parts = new List<string>(2);
+            if (!double.IsNaN(drift1) && drift1 > RebaselineDriftWarnThreshold) {
+                parts.Add($"re-baseline 1 drifted {drift1 * 100.0:F0}% of the screw-1 move");
+            }
+            if (!double.IsNaN(drift2) && drift2 > RebaselineDriftWarnThreshold) {
+                parts.Add($"re-baseline 2 drifted {drift2 * 100.0:F0}% of the screw-2 move");
+            }
+            HasRebaselineDriftWarning = parts.Count > 0;
+            RebaselineDriftWarningText = parts.Count == 0
+                ? string.Empty
+                : "Re-baseline drift detected: " + string.Join("; ", parts) +
+                    ". The undo between moves left residual tilt (backlash or an uneven turn); consider recalibrating.";
+        }
+
+        private StepReading Reading(WizardStep step) =>
+            stepReadings.TryGetValue(step, out var r) ? r : default;
+
+        // ---- Replay -----------------------------------------------------------------------------------------
+
+        // Replays a saved calibration run from a folder: reads metadata.json, applies its star-detection settings
+        // transiently (restored afterward), re-analyzes each step from its saved frames, and recomputes the
+        // calibration. The user's profile star-detection settings are restored in the finally block.
+        private async Task ReplayAsync() {
+            string folder;
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
+                if (!string.IsNullOrEmpty(SaveAFRunsPath)) {
+                    dialog.SelectedPath = SaveAFRunsPath;
+                }
+                if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) {
+                    return;
+                }
+                folder = dialog.SelectedPath;
+            }
+
+            var metadataFile = Path.Combine(folder, "metadata.json");
+            if (!File.Exists(metadataFile)) {
+                Notification.ShowError("No metadata.json found in the selected folder.");
+                return;
+            }
+
+            TiltCalibrationMetadata metadata;
+            try {
+                metadata = TiltCalibrationMetadata.Deserialize(File.ReadAllText(metadataFile));
+                metadata.Validate();
+            } catch (Exception ex) {
+                Notification.ShowError($"Could not read metadata.json: {ex.Message}");
+                Logger.Error(ex, "Failed to read tilt calibration metadata for replay");
+                return;
+            }
+
+            var byStep = (metadata.RunStepMapping ?? new List<TiltRunStepMapping>())
+                .GroupBy(m => m.Step, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Last().Folder, StringComparer.OrdinalIgnoreCase);
+            foreach (var step in MeasurementSteps) {
+                if (!byStep.ContainsKey(step.ToString())) {
+                    Notification.ShowError($"metadata.json has no saved folder for step '{step}'. Cannot replay.");
+                    return;
+                }
+            }
+
+            measureCts?.Dispose();
+            measureCts = new CancellationTokenSource();
+            var token = measureCts.Token;
+
+            var opts = HocusFocusPlugin.StarDetectionOptions;
+            var savedUseOptimized = opts.UseOptimizedSettings;
+            var savedUseAdvanced = opts.UseAdvanced;
+            var savedDto = opts.GetOptimizedSettings();
+
+            isReplaying = true;
+            IsWizardRunning = true;
+            IsMeasuring = true;
+            stepReadings.Clear();
+            StepMeasurementSummary.Clear();
+            HasMeasurementConsistencyWarning = false;
+            MeasurementConsistencyWarningText = string.Empty;
+            HasRebaselineDriftWarning = false;
+            RebaselineDriftWarningText = string.Empty;
+            HasWarning = false;
+            WarningText = string.Empty;
+            StatusText = string.Empty;
+
+            try {
+                if (metadata.OptimizedStarDetectionSettings != null) {
+                    opts.ApplyOptimizedSettings(metadata.OptimizedStarDetectionSettings);
+                }
+
+                foreach (var step in MeasurementSteps) {
+                    token.ThrowIfCancellationRequested();
+                    StatusText = $"Replaying {step}...";
+                    bool ok = await inspector.AnalyzeAutoFocusFromSavedPath(byStep[step.ToString()], token);
+                    if (!ok) {
+                        StatusText = $"Replay failed at {step}.";
+                        return;
+                    }
+                    var m = inspector.TiltModel?.TiltPlaneModel;
+                    if (m == null) {
+                        StatusText = $"Replay produced no tilt model at {step}.";
+                        return;
+                    }
+                    var reading = new StepReading {
+                        A = m.A,
+                        B = m.B,
+                        Mean = m.MeanFocuserPosition,
+                        TiltAngleDeg = ComputeTiltAngleDeg(m.A, m.B, m),
+                        DirectionDeg = NormalizeAngle(Math.Atan2(m.A, -m.B) * 180.0 / Math.PI)
+                    };
+                    PopulateCurvature(ref reading);
+                    stepReadings[step] = reading;
+                    StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                        RunNumber = 0,
+                        Direction = reading.DirectionDeg,
+                        TiltAngleDeg = reading.TiltAngleDeg,
+                        IsAverage = false,
+                        StepDescription = StepDescription(step)
+                    });
+                }
+
+                calibrationAppliedAmount = metadata.CalibrationAppliedAmount;
+                RaisePropertyChanged(nameof(CalibrationAppliedAmount));
+                RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
+                RunCalibrationMath(
+                    metadata.NumberOfScrews,
+                    metadata.ScrewRadiusMillimeters,
+                    metadata.PixelSizeMicrons,
+                    metadata.FocuserStepSizeMicrons,
+                    metadata.CalibrationAppliedAmount,
+                    metadata.IsStepperAdjustment);
+                RebuildDiagram();
+                StatusText = "Replay complete.";
+                CurrentStep = WizardStep.Complete;
+            } catch (OperationCanceledException) {
+                StatusText = "Replay cancelled.";
+            } catch (Exception ex) {
+                Notification.ShowError($"Replay failed: {ex.Message}");
+                Logger.Error(ex, "Tilt calibration replay failed");
+            } finally {
+                // Restore the user's star-detection settings (the profile auto-saves, so this must be explicit).
+                if (savedDto != null) {
+                    opts.ApplyOptimizedSettings(savedDto);
+                    opts.UseOptimizedSettings = savedUseOptimized;
+                    opts.UseAdvanced = savedUseAdvanced;
+                } else {
+                    opts.ClearOptimizedSettings();
+                    opts.UseAdvanced = savedUseAdvanced;
+                    opts.UseOptimizedSettings = savedUseOptimized;
+                }
+                isReplaying = false;
+                IsMeasuring = false;
+            }
+        }
+
+        // ---- Metadata ---------------------------------------------------------------------------------------
+
+        private void RecordStepIntoMetadata(WizardStep step, StepReading reading) {
+            if (!saveAFRuns || currentMetadata == null) return;
+            string stepName = step.ToString();
+
+            currentMetadata.RunStepMapping.RemoveAll(m => string.Equals(m.Step, stepName, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(reading.SaveFolder)) {
+                currentMetadata.RunStepMapping.Add(new TiltRunStepMapping { Step = stepName, Folder = reading.SaveFolder });
+            }
+
+            currentMetadata.PerStep.RemoveAll(p => string.Equals(p.Step, stepName, StringComparison.OrdinalIgnoreCase));
+            currentMetadata.PerStep.Add(new TiltPerStepResult {
+                Step = stepName,
+                TiltPlaneA = reading.A,
+                TiltPlaneB = reading.B,
+                MeanFocuserPosition = reading.Mean,
+                TiltAngleDeg = reading.TiltAngleDeg,
+                DirectionDeg = reading.DirectionDeg,
+                CurvatureRadiusMillimeters = reading.CurvatureRadiusMm,
+                CurvatureEffectMicronsAtScrewRadius = reading.CurvatureEffectAtScrewRadiusMicrons
+            });
+            WriteMetadata();
+        }
+
+        private void FinalizeMetadata() {
+            if (!saveAFRuns || currentMetadata == null) return;
+            currentMetadata.Calibration = new TiltCalibrationResultRecord {
+                Screw1AngleDegrees = tiltAdapterOptions.Screw1AngleDegrees,
+                Screw2AngleDegrees = tiltAdapterOptions.Screw2AngleDegrees,
+                Screw3AngleDegrees = tiltAdapterOptions.Screw3AngleDegrees,
+                Screw4AngleDegrees = tiltAdapterOptions.Screw4AngleDegrees,
+                CurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign,
+                MeasuredHardwareMicrons = measuredHardwareMicrons,
+                RawAngleDiffDegrees = lastRawAngleDiff,
+                MoveMagnitudeRatio = lastMoveMagnitudeRatio
+            };
+            WriteMetadata();
+        }
+
+        private void WriteMetadata() {
+            if (currentMetadata == null || string.IsNullOrEmpty(metadataPath)) return;
+            try {
+                File.WriteAllText(metadataPath, currentMetadata.Serialize());
+            } catch (Exception ex) {
+                Logger.Error(ex, "Failed to write tilt calibration metadata");
+            }
         }
 
         private void RebuildDiagram() {
@@ -1052,6 +1297,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ((AsyncRelayCommand)UseSavedAFCommand).NotifyCanExecuteChanged();
             ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
             ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)ReplayCommand).NotifyCanExecuteChanged();
         }
 
         private static double NormalizeAngle(double deg) => ((deg % 360) + 360) % 360;

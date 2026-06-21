@@ -62,6 +62,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             lastMeasuredThreadPitchMicrons = optionsAccessor.GetValueDouble(nameof(LastMeasuredThreadPitchMicrons), -1.0);
             lastMeasuredStepperStepSizeMicrons = optionsAccessor.GetValueDouble(nameof(LastMeasuredStepperStepSizeMicrons), -1.0);
             deviceName = optionsAccessor.GetValueString(nameof(DeviceName), TiltAdapterDevicePreset.ManualName);
+            saveAFRunsPath = optionsAccessor.GetValueString(nameof(SaveAFRunsPath), string.Empty);
         }
 
         private int screwCount;
@@ -267,6 +268,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (deviceName != value) {
                     deviceName = value;
                     optionsAccessor.SetValueString(nameof(DeviceName), deviceName);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private string saveAFRunsPath;
+
+        public string SaveAFRunsPath {
+            get => saveAFRunsPath;
+            set {
+                var newValue = value ?? string.Empty;
+                if (saveAFRunsPath != newValue) {
+                    saveAFRunsPath = newValue;
+                    optionsAccessor.SetValueString(nameof(SaveAFRunsPath), saveAFRunsPath);
                     RaisePropertyChanged();
                 }
             }

@@ -194,8 +194,27 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private CancellationTokenSource analyzeCts;
         private Task<bool> analyzeTask;
 
-        public async Task<bool> AnalyzeAutoFocus(CancellationToken token, bool captureCameraBlock = false) {
-            var task = AnalyzeAutoFocusImpl(captureCameraBlock);
+        // Folder of the most recent AutoFocus run (the engine's timestamped attempt root, == result.SaveFolder).
+        // Set after a successful run that saved frames; null/empty when the last run did not save. The Tilt
+        // Adapter Wizard reads this to record each calibration step's saved location for later replay.
+        public string LastSaveFolder { get; private set; }
+
+        public async Task<bool> AnalyzeAutoFocus(CancellationToken token, bool captureCameraBlock = false, AutoFocusSaveOverride saveOverride = null) {
+            var task = AnalyzeAutoFocusImpl(captureCameraBlock, saveOverride);
+            token.Register(() => analyzeCts?.Cancel());
+            return await task;
+        }
+
+        /// <summary>
+        /// Re-analyzes a saved AutoFocus attempt from an explicit folder path (no folder-picker dialog), for
+        /// replaying a saved calibration step. The folder should be the engine's attempt root (the level that
+        /// contains a single <c>attempt*</c> subfolder), i.e. <see cref="LastSaveFolder"/> from the original run.
+        /// </summary>
+        public async Task<bool> AnalyzeAutoFocusFromSavedPath(string folderPath, CancellationToken token) {
+            if (string.IsNullOrEmpty(folderPath)) {
+                return false;
+            }
+            var task = AnalyzeAutoFocusFromSavedImpl(folderPath);
             token.Register(() => analyzeCts?.Cancel());
             return await task;
         }
@@ -295,7 +314,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private async Task<bool> AnalyzeAutoFocusImpl(bool captureCameraBlock) {
+        private async Task<bool> AnalyzeAutoFocusImpl(bool captureCameraBlock, AutoFocusSaveOverride saveOverride = null) {
             var localAnalyzeTask = analyzeTask;
             if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
                 Notification.ShowError("Analysis still in progress");
@@ -314,6 +333,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                     var autoFocusEngine = autoFocusEngineFactory.Create();
                     var options = GetAutoFocusEngineOptions(autoFocusEngine);
+                    if (saveOverride != null) {
+                        options.Save = saveOverride.Save;
+                        options.SavePath = saveOverride.SavePath;
+                        if (options.Save) {
+                            // Mirror GetAutoFocusEngineOptions: keep exposures so the run can be re-analyzed later.
+                            options.PreserveExposures = true;
+                        }
+                    }
                     var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                     var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
                     var imagingFilter = GetImagingFilter();
@@ -328,12 +355,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     ActivateAutoFocusChart();
                     ResetErrors();
                     ResetExposureAnalysis();
+                    LastSaveFolder = null;
                     var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
                     if (result == null) {
                         InspectorErrorText = "AutoFocus Analysis Failed";
                         DeactivateAutoFocusAnalysis();
                         return false;
                     }
+                    LastSaveFolder = result.SaveFolder;
 
                     var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token);
                     if (!autoFocusAnalysisResult) {

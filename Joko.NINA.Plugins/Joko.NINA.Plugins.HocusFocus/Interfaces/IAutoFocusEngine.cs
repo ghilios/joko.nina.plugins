@@ -47,6 +47,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public bool IsBayered { get; set; }
     }
 
+    /// <summary>
+    /// Optional per-run override of where (and whether) an AutoFocus run's frames are saved, letting a caller
+    /// (e.g. the Tilt Adapter Wizard) redirect saves into a specific per-step folder without touching the user's
+    /// AutoFocusOptions. When applied, the engine still creates its usual timestamped attempt folder under
+    /// <see cref="SavePath"/>; read it back from <see cref="AutoFocusResult.SaveFolder"/>.
+    /// </summary>
+    public class AutoFocusSaveOverride {
+        public bool Save { get; set; }
+        public string SavePath { get; set; }
+    }
+
     public class AutoFocusEngineOptions {
         public bool DebayerImage { get; set; }
         public int NumberOfAFStars { get; set; }

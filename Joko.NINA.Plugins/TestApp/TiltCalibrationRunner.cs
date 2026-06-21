@@ -39,8 +39,9 @@ using Logger = NINA.Core.Utility.Logger;
 namespace TestApp {
 
     /// <summary>
-    /// Headless validator for the Tilt Adapter Wizard's calibration. Given a dataset folder containing the 4
-    /// saved AF runs the wizard consumes in sequence (Baseline → AllScrews → Screw1 → Screw2), it measures each
+    /// Headless validator for the Tilt Adapter Wizard's calibration. Given a dataset folder containing the 6
+    /// saved AF runs the wizard consumes in sequence (Baseline → AllInward → ReBaseline1 → Screw1 → ReBaseline2 →
+    /// Screw2), it measures each
     /// run's tilt plane, runs the SAME pure <see cref="TiltCalibrationCalculator"/> the live wizard uses, and
     /// reports the computed per-screw position angles + recovered hardware (thread pitch / step size) against
     /// ground-truth metadata stored in a per-dataset JSON file. It can also run (and persist) the star-detection
@@ -57,18 +58,15 @@ namespace TestApp {
     /// </summary>
     internal static class TiltCalibrationRunner {
 
-        // The 4 wizard measurement steps, in capture order. Same for 3- and 4-screw adapters.
-        private static readonly string[] StepOrder = { "Baseline", "AllScrews", "Screw1", "Screw2" };
+        // The 6 wizard measurement steps, in capture order. Same for 3- and 4-screw adapters. Shared with the
+        // live wizard via TiltCalibrationMetadata so a wizard-saved run replays both in-app and headlessly.
+        private static readonly string[] StepOrder = TiltCalibrationMetadata.StepOrder;
 
         // Sigma rejections matching the wizard's RunEvaluationLoader / the optimize harness (HocusFocusDetectionParams defaults).
         private const double HighSigmaOutlierRejection = 4.0;
         private const double LowSigmaOutlierRejection = 3.0;
 
-        private static readonly JsonSerializerSettings MetadataJsonSettings = new JsonSerializerSettings {
-            ContractResolver = new CamelCasePropertyNamesContractResolver(),
-            Formatting = Formatting.Indented,
-            NullValueHandling = NullValueHandling.Include
-        };
+        private static readonly JsonSerializerSettings MetadataJsonSettings = TiltCalibrationMetadata.JsonSettings;
 
         public static async Task Run(string[] args) {
             try {
@@ -121,7 +119,12 @@ namespace TestApp {
 
             var datasetName = new DirectoryInfo(datasetDir).Name;
             var parentDir = Directory.GetParent(datasetDir)?.FullName ?? datasetDir;
-            var metadataPath = Path.Combine(parentDir, datasetName + ".tilt.json");
+            // A live wizard run drops its metadata.json into the run root; prefer it so a saved run replays
+            // directly. Otherwise fall back to the validation-dataset convention (<parent>/<name>.tilt.json).
+            var wizardMetadataPath = Path.Combine(datasetDir, "metadata.json");
+            var metadataPath = File.Exists(wizardMetadataPath)
+                ? wizardMetadataPath
+                : Path.Combine(parentDir, datasetName + ".tilt.json");
 
             Console.WriteLine($"Dataset: {datasetDir}");
             Console.WriteLine($"Metadata: {metadataPath}");
@@ -140,7 +143,7 @@ namespace TestApp {
                 return;
             }
 
-            var metadata = JsonConvert.DeserializeObject<TiltMetadata>(File.ReadAllText(metadataPath), MetadataJsonSettings)
+            var metadata = JsonConvert.DeserializeObject<TiltCalibrationMetadata>(File.ReadAllText(metadataPath), MetadataJsonSettings)
                 ?? throw new InvalidOperationException($"Could not parse metadata file {metadataPath}");
             metadata.Validate();
 
@@ -200,8 +203,10 @@ namespace TestApp {
             var inputs = new TiltCalibrationInputs {
                 ScrewCount = metadata.NumberOfScrews,
                 Baseline = byStep["Baseline"].Gradient,
-                AllScrews = byStep["AllScrews"].Gradient,
+                AllInward = byStep["AllInward"].Gradient,
+                ReBaseline1 = byStep["ReBaseline1"].Gradient,
                 Screw1 = byStep["Screw1"].Gradient,
+                ReBaseline2 = byStep["ReBaseline2"].Gradient,
                 Screw2 = byStep["Screw2"].Gradient,
                 ImageWidthPixels = imageSize.Width,
                 ImageHeightPixels = imageSize.Height,
@@ -225,7 +230,7 @@ namespace TestApp {
             public List<(int Focuser, string Path)> Frames;
         }
 
-        private static List<RunStep> MapRunsToSteps(TiltMetadata metadata, List<string> runFolders, string datasetDir) {
+        private static List<RunStep> MapRunsToSteps(TiltCalibrationMetadata metadata, List<string> runFolders, string datasetDir) {
             // Build the ordered (step, folder) list.
             List<(string Step, string Folder)> ordered;
             if (metadata.RunStepMapping != null && metadata.RunStepMapping.Count > 0) {
@@ -281,7 +286,7 @@ namespace TestApp {
         // ---- Optimization (resolve detection params) ------------------------------------------------------
 
         private static async Task<(StarDetectorParams Params, string Source)> ResolveDetectionParamsAsync(
-            TiltMetadata metadata, string metadataPath, string outDir, bool reoptimize, int? maxEvals,
+            TiltCalibrationMetadata metadata, string metadataPath, string outDir, bool reoptimize, int? maxEvals,
             List<RunStep> orderedRuns, ProfileService profileService, StarDetectionOptions starDetectionOptions,
             AutoFocusOptions afOptions, AlglibAPI alglibAPI, double pixelScale) {
 
@@ -548,7 +553,7 @@ namespace TestApp {
         // ---- Reporting -------------------------------------------------------------------------------------
 
         private static void WriteReport(
-            string outDir, TiltMetadata metadata, string optimizationSource, List<StepResult> perStep,
+            string outDir, TiltCalibrationMetadata metadata, string optimizationSource, List<StepResult> perStep,
             TiltCalibrationInputs inputs, TiltCalibrationResult calibration) {
 
             bool isStepper = inputs.IsStepperAdjustment;
@@ -662,7 +667,7 @@ namespace TestApp {
         // ---- Metadata --------------------------------------------------------------------------------------
 
         private static void WriteMetadataTemplate(string metadataPath, string outDir, List<string> runFolders) {
-            var template = new TiltMetadata {
+            var template = new TiltCalibrationMetadata {
                 NumberOfScrews = 3,
                 ScrewThreadPitchMicrons = 0,
                 ScrewRadiusMillimeters = 0,
@@ -673,7 +678,7 @@ namespace TestApp {
                 CalibrationAppliedAmount = 1.0,
                 AdjustmentType = "Screws",
                 StepperStepSizeMicrons = -1,
-                RunStepMapping = runFolders.Select((f, i) => new RunStepMap {
+                RunStepMapping = runFolders.Select((f, i) => new TiltRunStepMapping {
                     Step = i < StepOrder.Length ? StepOrder[i] : $"Extra{i}",
                     Folder = Path.GetFileName(f)
                 }).ToList(),
@@ -685,7 +690,7 @@ namespace TestApp {
 
         private static void PrintUsage() {
             Console.Error.WriteLine("Usage: TestApp tilt --dataset <folder> [--profile-id <guid>] [--out <dir>] [--reoptimize] [--max-evals <int>]");
-            Console.Error.WriteLine("  --dataset    (required) folder containing the 4 AF runs (Baseline, AllScrews, Screw1, Screw2).");
+            Console.Error.WriteLine("  --dataset    (required) folder containing the 6 AF runs (Baseline, AllInward, ReBaseline1, Screw1, ReBaseline2, Screw2).");
             Console.Error.WriteLine("  --profile-id (default active) NINA profile id (settings + focal length).");
             Console.Error.WriteLine("  --out        (default %LOCALAPPDATA%\\NINA\\Logs\\hf-diag\\tilt\\<timestamp>) output directory.");
             Console.Error.WriteLine("  --reoptimize force re-running star-detection optimization and overwrite the stored settings in metadata.");
@@ -694,35 +699,5 @@ namespace TestApp {
         }
 
         private static string F(double d) => double.IsNaN(d) ? "NaN" : d.ToString("0.####", CultureInfo.InvariantCulture);
-
-        public sealed class RunStepMap {
-            public string Step { get; set; }
-            public string Folder { get; set; }
-        }
-
-        public sealed class TiltMetadata {
-            public int NumberOfScrews { get; set; }
-            public double ScrewThreadPitchMicrons { get; set; }
-            public double ScrewRadiusMillimeters { get; set; }
-            public double PixelSizeMicrons { get; set; }
-            public double FocuserStepSizeMicrons { get; set; }
-            public double ExpectedPositionAngleScrew1Deg { get; set; }
-            public bool DefocusAwareDetectionNeeded { get; set; }
-            public double CalibrationAppliedAmount { get; set; } = 1.0;
-            public string AdjustmentType { get; set; } = "Screws";
-            public double StepperStepSizeMicrons { get; set; } = -1;
-            public List<RunStepMap> RunStepMapping { get; set; }
-            public OptimizedStarDetectionSettings OptimizedStarDetectionSettings { get; set; }
-
-            public void Validate() {
-                if (NumberOfScrews != 3 && NumberOfScrews != 4) {
-                    throw new InvalidOperationException($"numberOfScrews must be 3 or 4 (was {NumberOfScrews}).");
-                }
-                if (PixelSizeMicrons <= 0) throw new InvalidOperationException("pixelSizeMicrons must be > 0.");
-                if (FocuserStepSizeMicrons <= 0) throw new InvalidOperationException("focuserStepSizeMicrons must be > 0.");
-                if (ScrewRadiusMillimeters <= 0) throw new InvalidOperationException("screwRadiusMillimeters must be > 0.");
-                if (CalibrationAppliedAmount <= 0) throw new InvalidOperationException("calibrationAppliedAmount must be > 0.");
-            }
-        }
     }
 }

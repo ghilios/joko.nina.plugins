@@ -1112,5 +1112,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             RaiseAllPropertiesChanged(); // refresh UI bindings for all live advanced props
         }
 
+        /// <summary>Clears any stored optimized-settings snapshot (and its persisted JSON), leaving the options with
+        /// no optimized settings. Used to undo a transient <see cref="ApplyOptimizedSettings"/> (e.g. after a tilt
+        /// calibration replay) for a profile that had none to begin with. Does not change the Use* flags.</summary>
+        public void ClearOptimizedSettings() {
+            optimizedSettings = null;
+            optionsAccessor.SetValueString(OptimizedSettingsJsonKey, "");
+            RaisePropertyChanged(nameof(HasOptimizedSettings));
+            ConfigureSimpleSettings();
+            RaiseAllPropertiesChanged();
+        }
+
     }
 }

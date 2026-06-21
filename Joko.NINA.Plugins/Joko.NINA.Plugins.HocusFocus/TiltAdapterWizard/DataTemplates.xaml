@@ -301,6 +301,40 @@
                         <TextBox MinWidth="60" Text="{Binding FocuserStepSizeMicronsValue, UpdateSourceTrigger=LostFocus}" />
                     </UniformGrid>
 
+                    <!--  Save AutoFocus runs (opt-in per run; folder persisted for reuse, toggle resets each run)  -->
+                    <CheckBox
+                        Margin="0,10,0,0"
+                        Content="Save AutoFocus runs (for replay)"
+                        IsChecked="{Binding SaveAFRuns}"
+                        ToolTip="Save each calibration step's AutoFocus sweep into a per-run folder with a metadata.json so the run can be replayed later. Off by default; enable before each run." />
+                    <Grid Margin="0,4,0,0" HorizontalAlignment="Stretch">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SaveAFRuns}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            Grid.Column="0"
+                            VerticalAlignment="Center"
+                            Text="{Binding SaveAFRunsPath, UpdateSourceTrigger=LostFocus}"
+                            ToolTip="Folder where calibration runs are saved. A TiltCalibration_&lt;timestamp&gt; subfolder is created per run." />
+                        <Button Grid.Column="1" Margin="6,0,0,0" Command="{Binding BrowseSaveFolderCommand}">
+                            <TextBlock
+                                Margin="10,3,10,3"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Browse…" />
+                        </Button>
+                    </Grid>
+
                     <Button
                         Margin="0,8,0,2"
                         HorizontalAlignment="Left"
@@ -309,6 +343,17 @@
                             Margin="10,5,10,5"
                             Foreground="{StaticResource ButtonForegroundBrush}"
                             Text="Start Calibration" />
+                    </Button>
+
+                    <Button
+                        Margin="0,2,0,2"
+                        HorizontalAlignment="Left"
+                        Command="{Binding ReplayCommand}"
+                        ToolTip="Replay a saved calibration run from a folder containing metadata.json. Uses the run's stored star-detection settings and restores your settings afterward.">
+                        <TextBlock
+                            Margin="10,5,10,5"
+                            Foreground="{StaticResource ButtonForegroundBrush}"
+                            Text="Replay Saved Run…" />
                     </Button>
 
                     <TextBlock Margin="0,10,0,0" Text="No calibration saved.">
@@ -660,6 +705,28 @@
                             </Style>
                         </Border.Style>
                         <TextBlock Text="{Binding WarningText}" TextWrapping="Wrap" />
+                    </Border>
+
+                    <!--  Re-baseline drift warning (an undo between moves left residual tilt)  -->
+                    <Border
+                        Margin="0,5"
+                        Padding="5"
+                        BorderBrush="{StaticResource NotificationErrorBrush}"
+                        BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasRebaselineDriftWarning}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock
+                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Text="{Binding RebaselineDriftWarningText}"
+                            TextWrapping="Wrap" />
                     </Border>
 
                     <Grid Margin="0,5,0,5" HorizontalAlignment="Stretch">

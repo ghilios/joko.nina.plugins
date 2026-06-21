@@ -32,13 +32,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double MeanFocuserPosition { get; }
     }
 
-    /// <summary>Geometry + per-step readings needed to calibrate a tilt adapter from a sequence of measurements.</summary>
+    /// <summary>Geometry + per-step readings needed to calibrate a tilt adapter from a sequence of measurements.
+    /// The discrete 6-step flow measures: Baseline (a), AllInward (b), ReBaseline1 (c), Screw1 (d), ReBaseline2 (e),
+    /// Screw2 (f). Each screw's angle/hardware is derived from the move relative to the re-baseline that immediately
+    /// precedes it (c→d for screw 1, e→f for screw 2), so a single physical move is isolated per measurement pair.
+    /// </summary>
     public sealed class TiltCalibrationInputs {
         public int ScrewCount { get; set; }                 // 3 or 4
-        public TiltGradient Baseline { get; set; }
-        public TiltGradient AllScrews { get; set; }         // for the curvature (backfocus) sign
-        public TiltGradient Screw1 { get; set; }
-        public TiltGradient Screw2 { get; set; }
+        public TiltGradient Baseline { get; set; }          // a
+        public TiltGradient AllInward { get; set; }         // b: all screws inward once; for the curvature (backfocus) sign (a→b)
+        public TiltGradient ReBaseline1 { get; set; }       // c: all screws back out once (≈ baseline); reference for screw 1
+        public TiltGradient Screw1 { get; set; }            // d: screw 1 inward once (4-screw: + screw 3 outward)
+        public TiltGradient ReBaseline2 { get; set; }       // e: undo the screw-1 move (≈ c); reference for screw 2
+        public TiltGradient Screw2 { get; set; }            // f: screw 2 inward once (4-screw: + screw 4 outward)
         public double ImageWidthPixels { get; set; }
         public double ImageHeightPixels { get; set; }
         public double PixelSizeMicrons { get; set; }
@@ -153,10 +159,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             double radiusMicrons = radiusMm * 1000.0;
             int n = inputs.ScrewCount;
 
-            double d1A = inputs.Screw1.A - inputs.Baseline.A;
-            double d1B = inputs.Screw1.B - inputs.Baseline.B;
-            double d2A = inputs.Screw2.A - inputs.Baseline.A;
-            double d2B = inputs.Screw2.B - inputs.Baseline.B;
+            // Each screw move is measured relative to the re-baseline that immediately precedes it (c→d, e→f),
+            // isolating a single physical move per pair.
+            double d1A = inputs.Screw1.A - inputs.ReBaseline1.A;
+            double d1B = inputs.Screw1.B - inputs.ReBaseline1.B;
+            double d2A = inputs.Screw2.A - inputs.ReBaseline2.A;
+            double d2B = inputs.Screw2.B - inputs.ReBaseline2.B;
 
             var (g1x, g1y) = TiltScrewGeometry.PlaneGradientToPhysical(d1A, d1B, fStep, sensorW, sensorH);
             var (g2x, g2y) = TiltScrewGeometry.PlaneGradientToPhysical(d2A, d2B, fStep, sensorW, sensorH);
@@ -170,12 +178,27 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             return measured;
         }
 
+        /// <summary>
+        /// Drift of a re-baseline relative to its reference, as a fraction of the subsequent screw-move magnitude.
+        /// A good re-baseline returns close to the prior state, so this ratio is near 0; a large value means the
+        /// undo/redo left residual tilt (backlash or an uneven turn) comparable to the screw-move signal, so the
+        /// recovered angle/hardware for that screw is unreliable. Returns NaN when the screw-move magnitude is 0.
+        /// </summary>
+        public static double RebaselineDriftRatio(double driftA, double driftB, double moveA, double moveB) {
+            double moveMag = Math.Sqrt(moveA * moveA + moveB * moveB);
+            if (moveMag <= 0) {
+                return double.NaN;
+            }
+            double driftMag = Math.Sqrt(driftA * driftA + driftB * driftB);
+            return driftMag / moveMag;
+        }
+
         /// <summary>Runs the full calibration: screw angles, curvature sign, and recovered hardware.</summary>
         public static TiltCalibrationResult Calibrate(TiltCalibrationInputs inputs) {
-            double d1A = inputs.Screw1.A - inputs.Baseline.A;
-            double d1B = inputs.Screw1.B - inputs.Baseline.B;
-            double d2A = inputs.Screw2.A - inputs.Baseline.A;
-            double d2B = inputs.Screw2.B - inputs.Baseline.B;
+            double d1A = inputs.Screw1.A - inputs.ReBaseline1.A;
+            double d1B = inputs.Screw1.B - inputs.ReBaseline1.B;
+            double d2A = inputs.Screw2.A - inputs.ReBaseline2.A;
+            double d2B = inputs.Screw2.B - inputs.ReBaseline2.B;
 
             var (s1, s2, s3, s4, rawDiff) = ComputeScrewAngles(d1A, d1B, d2A, d2B, inputs.ScrewCount);
 
@@ -187,7 +210,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 CalibratedScrewCount = inputs.ScrewCount,
                 IsCalibrated = true,
                 RawAngleDiffDegrees = rawDiff,
-                CurvatureSign = ComputeCurvatureSign(inputs.AllScrews.MeanFocuserPosition, inputs.Baseline.MeanFocuserPosition),
+                CurvatureSign = ComputeCurvatureSign(inputs.AllInward.MeanFocuserPosition, inputs.Baseline.MeanFocuserPosition),
                 MeasuredHardwareMicrons = RecoverHardwareMicrons(inputs),
                 Screw1DirectionDegrees = NormalizeAngle(Math.Atan2(d1A, -d1B) * 180.0 / Math.PI),
                 Screw2DirectionDegrees = NormalizeAngle(Math.Atan2(d2A, -d2B) * 180.0 / Math.PI),
