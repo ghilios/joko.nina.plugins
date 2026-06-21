@@ -3,14 +3,15 @@
 The [Tilt & Aberration Inspector](tilt-aberration-inspector.md) turns a focus sweep into numbers for
 tilt, field curvature, and backfocus. Those numbers come from fitting a surface to where best focus
 falls across the sensor. This page covers that surface: the two models the inspector fits, how the
-per-star measurements that feed them are gathered, the weighted fit itself, how outliers are detected
+measurements that feed them are gathered, the weighted fit itself, how outliers are detected
 and dropped, and the features that keep the result trustworthy.
 
-It is the modeling detail behind the inspector. The settings that switch these behaviors on and off
-live on that page (see [Inspector options](tilt-aberration-inspector.md#inspector-options)). The
-per-star focus curves the surface model consumes are fit with the hyperbola family described in
-[Hyperbolic Curve Fitting](hyperbola-fitting.md), and the per-region best-focus positions and their
-uncertainties come from the same machinery as a normal [Autofocus](autofocus.md) run.
+This is the math companion to that inspector page, which covers the panel, its readouts, and the
+[options](tilt-aberration-inspector.md#inspector-options) that choose which model runs and tune it.
+Both models are built from focus curves measured by the same engine as a normal
+[Autofocus](autofocus.md) run. The tilt plane uses one best-focus position per region (the center and
+four corners); the sensor surface model uses one per star, each fit with the hyperbola family from
+[Hyperbolic Curve Fitting](hyperbola-fitting.md).
 
 Throughout, \(x\) and \(y\) are sensor positions in microns measured from the image center, and \(z\)
 is the focuser position (in microns) at which that point of the sensor reaches best focus.
@@ -39,9 +40,9 @@ gradient is tilt; a center-to-corner bowl is curvature. The models below separat
 
 ## The tilt plane
 
-The center and four corner regions each yield an estimated best-focus position. The four corners are
-fed to an ordinary-least-squares fit of a plane, over normalized image coordinates that run from
-\(-0.5\) to \(+0.5\) on each axis:
+The center and four corner regions each yield an estimated best-focus position. The center is held
+back for the backfocus comparison below; the four corners are fed to an ordinary-least-squares fit of
+a plane, over normalized image coordinates that run from \(-0.5\) to \(+0.5\) on each axis:
 
 \[
 \text{Focus}(x, y) = A\,x + B\,y + C .
@@ -107,8 +108,9 @@ property of the corrector and focal ratio).*
 
 Each data point in the surface fit is one star's best focus. Getting there takes three steps.
 
-**Per-star focus curves.** Every star detected across the sweep is matched into a track, and its
-HFR-versus-focuser-position points are fit with a [hyperbola](hyperbola-fitting.md). The fit gives the
+**Per-star focus curves.** Every star is tracked across the sweep (the cross-frame matching is
+described under registration below), and its HFR-versus-focuser-position points are fit with a
+[hyperbola](hyperbola-fitting.md). The fit gives the
 star's best-focus position and its standard error \(\sigma\) (how sharply that position is pinned
 down). A star whose curve fit explains less than \(R^2 = 0.90\) of its own variation, or fails to fit
 at all, is discarded rather than contributing a noisy point.
@@ -144,8 +146,8 @@ sum of squared residuals
 \]
 
 which is the \(\chi^2\) of the fit when \(w_i = 1/\sigma_i\). The model is linear in every parameter
-except the center \((X_0, Y_0)\), and its gradient is supplied analytically rather than estimated by
-finite differences, which makes the fit faster and more stable. The same per-point weight is applied
+except the center \((X_0, Y_0)\), and the model's gradient is supplied analytically rather than
+estimated by finite differences, which makes the fit faster and more stable. The same per-point weight is applied
 to the residuals and to the gradient, so the optimizer's step stays consistent with what it is
 minimizing.
 
@@ -196,7 +198,7 @@ failure mode of clipping on the standard deviation.
 
 ## What makes the fit robust
 
-Several smaller features, taken together, keep the result stable run to run.
+A few additional safeguards keep the result stable from run to run.
 
 - **Inverse-variance weighting** lets confident stars carry the fit and noisy ones step aside, with
   median imputation so a missing uncertainty neither dominates nor disappears.
@@ -214,7 +216,7 @@ Several smaller features, taken together, keep the result stable run to run.
 
 ## Fit-quality metrics
 
-Four numbers describe how well the surface fit the points and how precisely it pinned the parameters.
+Four numbers describe how well the surface fits the points and how precisely it pins the parameters.
 
 | Metric | What it measures |
 |---|---|
