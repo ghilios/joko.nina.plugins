@@ -11,21 +11,17 @@ reference page if you want the full detail.
 ## 1. Tell NINA about your rig
 
 Several Hocus Focus features derive their starting points from your image scale, so it is worth getting
-two numbers right first. Both live on NINA's **Options → Equipment** screen:
+two things right first: your **pixel scale** and how far your **focuser moves per step**.
 
-- **Pixel size** (microns) — on the **Camera** tab. Usually filled in by the camera driver; confirm it
-  matches your sensor.
-- **Focal length** (mm) — on the **Telescope** tab. Together with pixel size this gives your pixel
-  scale (arcsec/px), which the detector and the Simple-mode [Pixel Scale
+- **Pixel size** (microns) — NINA's **Options → Equipment → Camera** tab. Usually filled in by the
+  camera driver; confirm it matches your sensor.
+- **Focal length** (mm) — NINA's **Options → Equipment → Telescope** tab. Together with pixel size this
+  gives your pixel scale (arcsec/px), which the detector and the Simple-mode [Pixel Scale
   preset](settings/advanced-debug.md#pixel-scale) use.
-- **Auto Focus Step Size** — on the **Focuser** tab. This is how far the focuser moves between autofocus
-  data points; the [Optimization Wizard](optimization/index.md) can later recommend a better value for
-  your rig (see [Step-size recommendation](optimization/step-size.md)).
-
-!!! tip "Tilt-adapter users"
-    The [Tilt Adapter Wizard](overview/tilt-aberration-inspector.md#guiding-tilt-adapter-screw-adjustments)
-    surfaces editable pixel-size and focuser fields too, and uses *Microns per Focuser Step* to report
-    physical adjustments — but the values above are the canonical place to set them.
+- **Focuser step size** — set **Microns per Focuser Step** in the
+  [Aberration Inspector options](overview/tilt-aberration-inspector.md#inspector-options) (the inspector
+  panel, not the main Options page). This tells the inspector how far the focuser moves per step, in
+  microns, so it can report tilt and backfocus adjustments in microns rather than bare focuser steps.
 
 ## 2. Switch NINA over to Hocus Focus
 
