@@ -194,13 +194,32 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private CancellationTokenSource analyzeCts;
         private Task<bool> analyzeTask;
 
-        public async Task<bool> AnalyzeAutoFocus(CancellationToken token, bool captureCameraBlock = false) {
-            var task = AnalyzeAutoFocusImpl(captureCameraBlock);
+        // Folder of the most recent AutoFocus run (the engine's timestamped attempt root, == result.SaveFolder).
+        // Set after a successful run that saved frames; null/empty when the last run did not save. The Tilt
+        // Adapter Wizard reads this to record each calibration step's saved location for later replay.
+        public string LastSaveFolder { get; private set; }
+
+        public async Task<bool> AnalyzeAutoFocus(CancellationToken token, bool captureCameraBlock = false, AutoFocusSaveOverride saveOverride = null) {
+            var task = AnalyzeAutoFocusImpl(captureCameraBlock, saveOverride);
             token.Register(() => analyzeCts?.Cancel());
             return await task;
         }
 
-        public async Task<bool> AnalyzeAutoFocusFromSaved(CancellationToken token, Action onFolderSelected = null) {
+        /// <summary>
+        /// Re-analyzes a saved AutoFocus attempt from an explicit folder path (no folder-picker dialog), for
+        /// replaying a saved calibration step. The folder should be the engine's attempt root (the level that
+        /// contains a single <c>attempt*</c> subfolder), i.e. <see cref="LastSaveFolder"/> from the original run.
+        /// </summary>
+        public async Task<bool> AnalyzeAutoFocusFromSavedPath(string folderPath, CancellationToken token) {
+            if (string.IsNullOrEmpty(folderPath)) {
+                return false;
+            }
+            var task = AnalyzeAutoFocusFromSavedImpl(folderPath);
+            token.Register(() => analyzeCts?.Cancel());
+            return await task;
+        }
+
+        public async Task<bool> AnalyzeAutoFocusFromSaved(CancellationToken token, Action onFolderSelected = null, AutoFocusSaveOverride saveOverride = null) {
             string folderPath;
             using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
                 if (!String.IsNullOrEmpty(autoFocusOptions.LastSelectedLoadPath)) {
@@ -213,12 +232,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusOptions.LastSelectedLoadPath = folderPath;
             }
             onFolderSelected?.Invoke();
-            var task = AnalyzeAutoFocusFromSavedImpl(folderPath);
+            var task = AnalyzeAutoFocusFromSavedImpl(folderPath, saveOverride);
             token.Register(() => analyzeCts?.Cancel());
             return await task;
         }
 
-        private async Task<bool> AnalyzeAutoFocusFromSavedImpl(string folderPath) {
+        private async Task<bool> AnalyzeAutoFocusFromSavedImpl(string folderPath, AutoFocusSaveOverride saveOverride = null) {
             var localAnalyzeTask = analyzeTask;
             if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
                 Notification.ShowError("Analysis still in progress");
@@ -241,7 +260,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             Logger.Info($"Rerunning auto focus attempt from {folderPath}");
+            bool suppressAuxiliaryFiles = saveOverride?.SuppressAuxiliaryFiles == true;
             localAnalyzeTask = Task.Run(async () => {
+                // A rerun re-analyzes existing frames and never captures, so the engine cannot write raw frames to a
+                // new location. Leave the engine save OFF (no annotated/JSON artifacts) and, on success, copy the
+                // source raw frames into the requested per-step folder so the calibration run stays replayable.
                 var options = GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt);
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                 var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
@@ -257,6 +280,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ResetErrors();
                 ResetExposureAnalysis();
 
+                LastSaveFolder = null;
                 var result = await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
                 if (result == null) {
                     InspectorErrorText = "AutoFocus Analysis Failed";
@@ -264,12 +288,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return false;
                 }
 
-                var analysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token, true);
+                var analysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token, forRerun: true, suppressRegisteredImages: suppressAuxiliaryFiles);
                 if (!analysisResult) {
                     Notification.ShowError("AutoFocus Analysis Failed");
                     InspectorErrorText = "AutoFocus Analysis Failed";
                     DeactivateAutoFocusAnalysis();
                     return false;
+                }
+                if (saveOverride?.Save == true && !string.IsNullOrEmpty(saveOverride.SavePath)) {
+                    LastSaveFolder = CopySavedFramesForReplay(savedAttempt, saveOverride.SavePath);
                 }
                 ActivateTiltMeasurement();
                 return true;
@@ -295,7 +322,37 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private async Task<bool> AnalyzeAutoFocusImpl(bool captureCameraBlock) {
+        // Copies a saved attempt's raw exposure frames into a fresh AutoFocus_<ts>/attempt01 folder under
+        // <savePathRoot>, returning that AutoFocus_<ts> folder (the level a replay points at). Used by the Tilt
+        // Adapter Wizard so re-analyzing a saved run still produces a self-contained, replayable per-step folder.
+        // Best-effort: the tilt measurement has already succeeded by the time this runs, so any copy failure is
+        // logged and yields a null result (this step simply won't be replayable) rather than failing the step.
+        private static string CopySavedFramesForReplay(SavedAutoFocusAttempt savedAttempt, string savePathRoot) {
+            try {
+                var runFolder = Path.Combine(savePathRoot, $"AutoFocus_{DateTime.Now:yyyyMMdd_HHmmss}");
+                var attemptFolder = Path.Combine(runFolder, "attempt01");
+                Directory.CreateDirectory(attemptFolder);
+                int copied = 0;
+                foreach (var img in savedAttempt.SavedImages) {
+                    if (string.IsNullOrEmpty(img.Path) || !File.Exists(img.Path)) {
+                        continue;
+                    }
+                    var dest = Path.Combine(attemptFolder, Path.GetFileName(img.Path));
+                    File.Copy(img.Path, dest, overwrite: true);
+                    copied++;
+                }
+                if (copied == 0) {
+                    Logger.Warning($"No source frames could be copied to {runFolder}; this calibration step will not be replayable.");
+                    return null;
+                }
+                return runFolder;
+            } catch (Exception ex) {
+                Logger.Error(ex, "Failed to copy saved frames for replay; this calibration step will not be replayable");
+                return null;
+            }
+        }
+
+        private async Task<bool> AnalyzeAutoFocusImpl(bool captureCameraBlock, AutoFocusSaveOverride saveOverride = null) {
             var localAnalyzeTask = analyzeTask;
             if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
                 Notification.ShowError("Analysis still in progress");
@@ -306,6 +363,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var localAnalyzeCts = new CancellationTokenSource();
             analyzeCts = localAnalyzeCts;
 
+            bool suppressAuxiliaryFiles = saveOverride?.SuppressAuxiliaryFiles == true;
             localAnalyzeTask = Task.Run(async () => {
                 try {
                     if (captureCameraBlock) {
@@ -314,6 +372,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                     var autoFocusEngine = autoFocusEngineFactory.Create();
                     var options = GetAutoFocusEngineOptions(autoFocusEngine);
+                    if (saveOverride != null) {
+                        options.Save = saveOverride.Save;
+                        options.SavePath = saveOverride.SavePath;
+                        if (options.Save) {
+                            // Mirror GetAutoFocusEngineOptions: keep exposures so the run can be re-analyzed later.
+                            options.PreserveExposures = true;
+                            // A saved calibration run keeps only the raw frames — no per-region annotated TIFFs /
+                            // detection-result JSONs (and, below, no registered/alignment images).
+                            options.SaveExposuresOnly = suppressAuxiliaryFiles;
+                        }
+                    }
                     var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                     var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
                     var imagingFilter = GetImagingFilter();
@@ -328,14 +397,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     ActivateAutoFocusChart();
                     ResetErrors();
                     ResetExposureAnalysis();
+                    LastSaveFolder = null;
                     var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
                     if (result == null) {
                         InspectorErrorText = "AutoFocus Analysis Failed";
                         DeactivateAutoFocusAnalysis();
                         return false;
                     }
+                    LastSaveFolder = result.SaveFolder;
 
-                    var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token);
+                    var autoFocusAnalysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token, suppressRegisteredImages: suppressAuxiliaryFiles);
                     if (!autoFocusAnalysisResult) {
                         InspectorErrorText = "AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.";
                         Notification.ShowError("AutoFocus Analysis Failed. View saved AF report in the AutoFocus tab.");
@@ -396,7 +467,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusResult result,
             bool sensorCurveModelEnabled,
             CancellationToken ct,
-            bool forRerun = false) {
+            bool forRerun = false,
+            bool suppressRegisteredImages = false) {
             if (result == null || !result.Succeeded) {
                 Logger.Error("Inspection analysis failed, due to failed AutoFocus");
                 return false;
@@ -429,7 +501,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     progress,
                     ct: ct);
 
-                if ((!forRerun) || (inspectorOptions.SaveImagesOnReruns)) {
+                if (!suppressRegisteredImages && ((!forRerun) || (inspectorOptions.SaveImagesOnReruns))) {
                     if (!String.IsNullOrEmpty(result.SaveFolder)) {
                         await SaveRegisteredImages(result.SaveFolder,
                             SensorModel.SensorModelResult.RegisteredStars,

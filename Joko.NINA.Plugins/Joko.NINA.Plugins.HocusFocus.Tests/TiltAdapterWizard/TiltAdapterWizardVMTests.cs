@@ -103,6 +103,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
+        public void SaveAFRuns_DefaultsOff_AndResetsOnRestart() {
+            // Saving must be explicitly enabled for each run, so it defaults off and Restart clears it.
+            var (vm, _, _, _) = Build();
+            Assert.That(vm.SaveAFRuns, Is.False);
+            vm.SaveAFRuns = true;
+            vm.RestartCommand.Execute(null);
+            Assert.That(vm.SaveAFRuns, Is.False);
+        }
+
+        [Test]
+        public void SaveAFRunsPath_WritesThroughToOptions() {
+            var (vm, options, _, _) = Build();
+            vm.SaveAFRunsPath = @"C:\temp\tilt";
+            options.Received().SaveAFRunsPath = @"C:\temp\tilt";
+        }
+
+        [Test]
+        public void BaselineInstructions_DoNotRequireAFixedScrewPosition() {
+            // Req 1: screw 1 no longer needs to be at any particular clock position.
+            var (vm, _, _, _) = Build();
+            Assert.That(vm.StepInstructions, Does.Not.Contain("12 o'clock"));
+        }
+
+        [Test]
         public void StepInstructions_DiffersByScrewCountAtAllScrewsStep() {
             var (vm3, _, _, _) = Build(screwCount: 3);
             var (vm4, _, _, _) = Build(screwCount: 4);

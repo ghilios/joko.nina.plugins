@@ -45,5 +45,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Selected device preset name ("Manual" = user-editable hardware fields). Choosing a preset
         // pre-fills and locks the hardware fields. See TiltAdapterDevicePreset.
         string DeviceName { get; set; }
+
+        // Folder the wizard saves each calibration run's AutoFocus sweeps into when saving is enabled.
+        // Persisted (independent of AutoFocusOptions.SavePath) so the location is reused; "" = unset.
+        // NOTE: whether saving is ON is a transient per-run toggle on the VM, not persisted here.
+        string SaveAFRunsPath { get; set; }
     }
 }

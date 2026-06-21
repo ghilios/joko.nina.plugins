@@ -111,7 +111,7 @@ public class TiltCalibrationCalculatorTests {
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
             Baseline = new TiltGradient(0, 0, 1000),
-            AllScrews = new TiltGradient(0, 0, 1000),
+            AllInward = new TiltGradient(0, 0, 1000),
             Screw1 = SingleScrewReading(0, pitch, 3),
             Screw2 = SingleScrewReading(120, pitch, 3),
             ImageWidthPixels = ImgW,
@@ -132,7 +132,7 @@ public class TiltCalibrationCalculatorTests {
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
             Baseline = new TiltGradient(0, 0, 0),
-            AllScrews = new TiltGradient(0, 0, 0),
+            AllInward = new TiltGradient(0, 0, 0),
             Screw1 = SingleScrewReading(0, axial, 3),
             Screw2 = SingleScrewReading(120, axial, 3),
             ImageWidthPixels = ImgW,
@@ -152,7 +152,7 @@ public class TiltCalibrationCalculatorTests {
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
             Baseline = new TiltGradient(0, 0, 0),
-            AllScrews = new TiltGradient(0, 0, 0),
+            AllInward = new TiltGradient(0, 0, 0),
             Screw1 = SingleScrewReading(0, 400, 3),
             Screw2 = SingleScrewReading(120, 400, 3),
             ImageWidthPixels = ImgW,
@@ -183,7 +183,7 @@ public class TiltCalibrationCalculatorTests {
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
             Baseline = new TiltGradient(0, 0, 0),
-            AllScrews = new TiltGradient(0, 0, 0),
+            AllInward = new TiltGradient(0, 0, 0),
             Screw1 = SingleScrewReading(0, 200, 3),
             Screw2 = SingleScrewReading(120, 400, 3),
             ImageWidthPixels = ImgW,
@@ -196,13 +196,64 @@ public class TiltCalibrationCalculatorTests {
         Assert.That(TiltCalibrationCalculator.Calibrate(inputs).MoveMagnitudeRatio, Is.EqualTo(2.0).Within(1e-6));
     }
 
+    private static TiltGradient Plus(TiltGradient a, TiltGradient b) =>
+        new TiltGradient(a.A + b.A, a.B + b.B, a.MeanFocuserPosition + b.MeanFocuserPosition);
+
+    [Test]
+    public void Calibrate_DerivesScrewDeltasFromReBaselineNotBaseline() {
+        // The screw moves are measured against the re-baseline that precedes them (c→d, e→f), so a drifted
+        // re-baseline (offset from the original baseline) must NOT contaminate the recovered angles: the single
+        // screw move is added on top of the re-baseline reading and the delta isolates it.
+        const double pitch = 400.0;
+        var reBaseline1 = new TiltGradient(12.0, -7.0, 1000);  // c drifted from baseline a
+        var reBaseline2 = new TiltGradient(-4.0, 9.0, 1000);   // e drifted from c
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            Baseline = new TiltGradient(0, 0, 1000),
+            AllInward = new TiltGradient(0, 0, 1075),
+            ReBaseline1 = reBaseline1,
+            Screw1 = Plus(reBaseline1, SingleScrewReading(0, pitch, 3)),
+            ReBaseline2 = reBaseline2,
+            Screw2 = Plus(reBaseline2, SingleScrewReading(120, pitch, 3)),
+            ImageWidthPixels = ImgW,
+            ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize,
+            FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm,
+            CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false
+        };
+        var r = TiltCalibrationCalculator.Calibrate(inputs);
+        Assert.Multiple(() => {
+            Assert.That(r.Screw1AngleDegrees, Is.EqualTo(0).Within(1e-4));
+            Assert.That(r.Screw2AngleDegrees, Is.EqualTo(120).Within(1e-4));
+            Assert.That(r.Screw3AngleDegrees, Is.EqualTo(240).Within(1e-4));
+            Assert.That(r.MeasuredHardwareMicrons, Is.EqualTo(pitch).Within(1e-3));
+            Assert.That(r.CurvatureSign, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void RebaselineDriftRatio_ZeroWhenNoDrift_GrowsWithDrift() {
+        Assert.Multiple(() => {
+            // No drift relative to a move of magnitude 10 -> 0.
+            Assert.That(TiltCalibrationCalculator.RebaselineDriftRatio(0, 0, 0, 10), Is.EqualTo(0.0).Within(1e-9));
+            // Drift magnitude 5 vs move magnitude 10 -> 0.5.
+            Assert.That(TiltCalibrationCalculator.RebaselineDriftRatio(3, 4, 0, 10), Is.EqualTo(0.5).Within(1e-9));
+            // Drift equal to the move -> 1.
+            Assert.That(TiltCalibrationCalculator.RebaselineDriftRatio(0, 10, 10, 0), Is.EqualTo(1.0).Within(1e-9));
+            // Zero move magnitude -> NaN.
+            Assert.That(double.IsNaN(TiltCalibrationCalculator.RebaselineDriftRatio(1, 1, 0, 0)), Is.True);
+        });
+    }
+
     [Test]
     public void Calibrate_EndToEnd_ThreeScrew_RecoversAnglesPitchAndSign() {
         const double pitch = 400.0;
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
             Baseline = new TiltGradient(0, 0, 1000),
-            AllScrews = new TiltGradient(0, 0, 1075), // all-screws-inward raised mean focus -> +1
+            AllInward = new TiltGradient(0, 0, 1075), // all-screws-inward raised mean focus -> +1
             Screw1 = SingleScrewReading(0, pitch, 3, 1000),
             Screw2 = SingleScrewReading(120, pitch, 3, 1000),
             ImageWidthPixels = ImgW,

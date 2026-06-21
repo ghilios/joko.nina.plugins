@@ -1,0 +1,126 @@
+#region "copyright"
+
+/*
+    Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using System;
+using System.Collections.Generic;
+
+namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
+
+    /// <summary>One entry of the run → wizard-step folder map. The folder is the AutoFocus attempt root
+    /// (== <c>InspectorVM.LastSaveFolder</c>) that a replay/validation run loads.</summary>
+    public sealed class TiltRunStepMapping {
+        public string Step { get; set; }
+        public string Folder { get; set; }
+    }
+
+    /// <summary>
+    /// Per-step measured tilt-plane and field-curvature characterization (req 9), recorded for every measured
+    /// step. The tilt plane is the focus surface gradient: <c>plane = A·x + B·y</c> in focuser steps per
+    /// normalized image coordinate (range [-0.5, 0.5]). Curvature fields require the sensor curve model to be
+    /// enabled; they carry NaN otherwise.
+    /// </summary>
+    public sealed class TiltPerStepResult {
+        public string Step { get; set; }
+        public double TiltPlaneA { get; set; }
+        public double TiltPlaneB { get; set; }
+        public double MeanFocuserPosition { get; set; }
+        public double TiltAngleDeg { get; set; }
+        public double DirectionDeg { get; set; }
+        public double CurvatureRadiusMillimeters { get; set; } = double.NaN;
+        public double CurvatureEffectMicronsAtScrewRadius { get; set; } = double.NaN;
+    }
+
+    /// <summary>The computed calibration result stored for reference (the wizard/validator re-derive this from
+    /// the per-step readings via the shared <see cref="TiltCalibrationCalculator"/>).</summary>
+    public sealed class TiltCalibrationResultRecord {
+        public double Screw1AngleDegrees { get; set; }
+        public double Screw2AngleDegrees { get; set; }
+        public double Screw3AngleDegrees { get; set; }
+        public double Screw4AngleDegrees { get; set; }
+        public int CurvatureSign { get; set; }
+        public double MeasuredHardwareMicrons { get; set; }
+        public double RawAngleDiffDegrees { get; set; }
+        public double MoveMagnitudeRatio { get; set; }
+    }
+
+    /// <summary>
+    /// Serialization unit for a saved Tilt Adapter calibration run, shared by the live wizard (writer + replay)
+    /// and the headless <c>TestApp tilt</c> validator so a wizard-saved run replays both in-app and offline.
+    /// Holds the calibration settings, the star-detection settings used (so replay reproduces detection without
+    /// mutating the profile), the run → step folder map, and the per-step / final results. The validator-only
+    /// ground-truth fields are optional and omitted by the wizard.
+    /// </summary>
+    public sealed class TiltCalibrationMetadata {
+
+        public const int CurrentSchemaVersion = 1;
+
+        /// <summary>The six discrete measurement steps, in capture order. Same for 3- and 4-screw adapters.</summary>
+        public static readonly string[] StepOrder = {
+            "Baseline", "AllInward", "ReBaseline1", "Screw1", "ReBaseline2", "Screw2"
+        };
+
+        public static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings {
+            ContractResolver = new CamelCasePropertyNamesContractResolver(),
+            Formatting = Formatting.Indented,
+            NullValueHandling = NullValueHandling.Include
+        };
+
+        public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+
+        // ---- Calibration settings (req 3) ----
+        public int NumberOfScrews { get; set; }
+        public string AdjustmentType { get; set; } = "Screws";       // "Screws" | "StepperMotors"
+        public double ScrewThreadPitchMicrons { get; set; } = -1;     // µm/turn (screws)
+        public double StepperStepSizeMicrons { get; set; } = -1;      // µm/step (steppers)
+        public double ScrewRadiusMillimeters { get; set; }
+        public double PixelSizeMicrons { get; set; }
+        public double FocuserStepSizeMicrons { get; set; }
+        public double CalibrationAppliedAmount { get; set; } = 1.0;   // turns/steps applied per screw step
+        public int MeasurementAverageCount { get; set; } = 1;
+
+        // ---- Replay payload ----
+        public List<TiltRunStepMapping> RunStepMapping { get; set; }
+        public OptimizedStarDetectionSettings OptimizedStarDetectionSettings { get; set; }
+
+        // ---- Results ----
+        public List<TiltPerStepResult> PerStep { get; set; }
+        public TiltCalibrationResultRecord Calibration { get; set; }
+
+        // ---- Optional validator-only ground truth (omitted by the wizard) ----
+        // NaN = not provided (a wizard-written file): the headless validator then reports the screw-1 angle as
+        // "n/a" instead of failing it against a bogus 0° expectation.
+        public double ExpectedPositionAngleScrew1Deg { get; set; } = double.NaN;
+        public bool DefocusAwareDetectionNeeded { get; set; }
+
+        [JsonIgnore]
+        public bool IsStepperAdjustment =>
+            string.Equals(AdjustmentType, "StepperMotors", StringComparison.OrdinalIgnoreCase);
+
+        public string Serialize() => JsonConvert.SerializeObject(this, JsonSettings);
+
+        public static TiltCalibrationMetadata Deserialize(string json) =>
+            JsonConvert.DeserializeObject<TiltCalibrationMetadata>(json, JsonSettings);
+
+        public void Validate() {
+            if (NumberOfScrews != 3 && NumberOfScrews != 4) {
+                throw new InvalidOperationException($"numberOfScrews must be 3 or 4 (was {NumberOfScrews}).");
+            }
+            if (PixelSizeMicrons <= 0) throw new InvalidOperationException("pixelSizeMicrons must be > 0.");
+            if (FocuserStepSizeMicrons <= 0) throw new InvalidOperationException("focuserStepSizeMicrons must be > 0.");
+            if (ScrewRadiusMillimeters <= 0) throw new InvalidOperationException("screwRadiusMillimeters must be > 0.");
+            if (CalibrationAppliedAmount <= 0) throw new InvalidOperationException("calibrationAppliedAmount must be > 0.");
+        }
+    }
+}

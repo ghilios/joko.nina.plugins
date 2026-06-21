@@ -47,6 +47,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public bool IsBayered { get; set; }
     }
 
+    /// <summary>
+    /// Optional per-run override of where (and whether) an AutoFocus run's frames are saved, letting a caller
+    /// (e.g. the Tilt Adapter Wizard) redirect saves into a specific per-step folder without touching the user's
+    /// AutoFocusOptions. When applied, the engine still creates its usual timestamped attempt folder under
+    /// <see cref="SavePath"/>; read it back from <see cref="AutoFocusResult.SaveFolder"/>.
+    /// </summary>
+    public class AutoFocusSaveOverride {
+        public bool Save { get; set; }
+        public string SavePath { get; set; }
+
+        // When true, suppress the auxiliary artifacts a normal inspection run writes — the registered/annotated
+        // alignment images and the star-detection intermediate files — so a saved calibration run keeps only the
+        // raw frames needed for replay.
+        public bool SuppressAuxiliaryFiles { get; set; }
+    }
+
     public class AutoFocusEngineOptions {
         public bool DebayerImage { get; set; }
         public int NumberOfAFStars { get; set; }
@@ -71,6 +87,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public FitRejectionCriterion FitRejectionCriterion { get; set; }
         public double ReducedChiSquaredRejectionThreshold { get; set; }
         public bool PreserveExposures { get; set; }
+
+        // When true, a saving run writes ONLY the raw exposure frames — the per-region annotated TIFFs and
+        // star-detection result JSONs are skipped. Used by the Tilt Adapter Wizard so a saved calibration run is
+        // a compact, replayable set of raw frames with no auxiliary artifacts.
+        public bool SaveExposuresOnly { get; set; }
 
         // When replaying a saved auto-focus run, reuse the per-region star-detection JSON saved alongside each
         // exposure instead of re-running detection — but ONLY when the saved result's detector version and
