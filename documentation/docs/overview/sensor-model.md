@@ -120,12 +120,25 @@ down). A star whose curve fit explains less than \(R^2 = 0.90\) of its own varia
 at all, is discarded rather than contributing a noisy point.
 
 **Cross-frame registration.** Stars drift in pixel position from frame to frame as the image breathes
-through focus, so they must be matched before they can be tracked. The frame with the most detected
-stars is the reference; every other frame is aligned to it (a RANSAC-estimated similarity transform by
-default, or an affine transform when **Use Affine Alignment** is on), and stars are matched by nearest
-neighbor with a small search radius. A star must be matched in **at least five frames** to be fit, so
-its focus curve has enough points to be meaningful. Aligning every frame to a dense reference is what
-keeps matching reliable at the defocused ends of the sweep, where stars are bloated and sparse.
+through focus, so they have to be matched into tracks before any star's curve can be fit. Matching
+itself is done with a k-d tree of nearest neighbors: the stars of a reference frame seed a registry,
+and each other frame's stars are matched to it by nearest neighbor within a search radius. The
+reference is the frame with the most detected stars, which is the sharpest frame near best focus.
+
+Two registration approaches are available, set by **Use RANSAC** (on by default) under
+[Inspector options](tilt-aberration-inspector.md#inspector-options):
+
+- **Nearest-neighbor only** (RANSAC off). Stars are matched directly in their original pixel
+  positions, using a wide search radius so the frame-to-frame drift still falls inside it.
+- **RANSAC alignment first** (RANSAC on). Every frame is first transformed onto the reference frame by
+  a RANSAC-estimated transform (a similarity transform by default, or an affine one when **Use Affine
+  Alignment** is on), so matching stars land almost on top of each other. The nearest-neighbor match
+  then runs with a much tighter search radius. This is what keeps matching reliable at the defocused
+  ends of the sweep, where stars are bloated and sparse; it falls back to the wider radius if any frame
+  fails to align.
+
+A star must be matched in **at least five frames** to be fit, so its focus curve has enough points to
+be meaningful.
 
 **Building the points.** Each surviving star contributes one data point: its sensor position in
 microns, \(\bigl((\text{pixel} - \tfrac{W}{2})\cdot p,\ (\text{pixel} - \tfrac{H}{2})\cdot p\bigr)\)
