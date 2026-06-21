@@ -301,13 +301,32 @@
                         <TextBox MinWidth="60" Text="{Binding FocuserStepSizeMicronsValue, UpdateSourceTrigger=LostFocus}" />
                     </UniformGrid>
 
-                    <!--  Save AutoFocus runs (opt-in per run; folder persisted for reuse, toggle resets each run)  -->
+                    <!--  Calibrate + Replay side by side  -->
+                    <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                        <Button Command="{Binding StartCommand}">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Calibrate" />
+                        </Button>
+                        <Button
+                            Margin="6,0,0,0"
+                            Command="{Binding ReplayCommand}"
+                            ToolTip="Replay a saved calibration run from a folder containing metadata.json. Uses the run's stored star-detection settings and restores your settings afterward.">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Replay" />
+                        </Button>
+                    </StackPanel>
+
+                    <!--  Save calibration for replay (opt-in per run; folder persisted for reuse, toggle resets each run)  -->
                     <StackPanel
-                        Margin="0,10,0,0"
+                        Margin="0,8,0,0"
                         Orientation="Horizontal"
                         ToolTip="Save each calibration step's AutoFocus sweep into a per-run folder with a metadata.json so the run can be replayed later. Off by default; enable before each run.">
                         <CheckBox VerticalAlignment="Center" IsChecked="{Binding SaveAFRuns}" Checked="SaveAFRuns_Checked" />
-                        <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" Text="Save AutoFocus runs (for replay)" />
+                        <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" Text="Save Calibration for Replay" />
                     </StackPanel>
                     <Grid Margin="0,4,0,0" HorizontalAlignment="Stretch">
                         <Grid.Style>
@@ -336,27 +355,6 @@
                                 Text="Browse…" />
                         </Button>
                     </Grid>
-
-                    <Button
-                        Margin="0,8,0,2"
-                        HorizontalAlignment="Left"
-                        Command="{Binding StartCommand}">
-                        <TextBlock
-                            Margin="10,5,10,5"
-                            Foreground="{StaticResource ButtonForegroundBrush}"
-                            Text="Start Calibration" />
-                    </Button>
-
-                    <Button
-                        Margin="0,2,0,2"
-                        HorizontalAlignment="Left"
-                        Command="{Binding ReplayCommand}"
-                        ToolTip="Replay a saved calibration run from a folder containing metadata.json. Uses the run's stored star-detection settings and restores your settings afterward.">
-                        <TextBlock
-                            Margin="10,5,10,5"
-                            Foreground="{StaticResource ButtonForegroundBrush}"
-                            Text="Replay" />
-                    </Button>
 
                     <TextBlock Margin="0,10,0,0" Text="No calibration saved.">
                         <TextBlock.Style>
