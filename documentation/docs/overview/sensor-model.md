@@ -9,8 +9,8 @@ and dropped, and the features that keep the result trustworthy.
 This is the math companion to that inspector page, which covers the panel, its readouts, and the
 [options](tilt-aberration-inspector.md#inspector-options) that choose which model runs and tune it.
 Both models are built from focus curves measured by the same engine as a normal
-[Autofocus](autofocus.md) run. The tilt plane uses one best-focus position per region (the center and
-four corners); the sensor surface model uses one per star, each fit with the hyperbola family from
+[Autofocus](autofocus.md) run. The 4-corners model uses one best-focus position per region (the center
+and four corners); the sensor surface model uses one per star, each fit with the hyperbola family from
 [Hyperbolic Curve Fitting](hyperbola-fitting.md).
 
 Throughout, \(x\) and \(y\) are sensor positions in microns measured from the image center, and \(z\)
@@ -20,19 +20,19 @@ is the focuser position (in microns) at which that point of the sensor reaches b
 
 The inspector fits the focus surface at two levels of detail.
 
-- The **tilt plane** is the simple model, always computed. It measures best focus at the center and
-  the four corners, then reads tilt from how the corners differ and backfocus from how the corners sit
-  relative to the center. It is cheap and needs only those five focus curves, but it cannot tell field
-  curvature apart from backfocus, and it says nothing about sensor centering.
+- The **4-corners model** is the simpler of the two, always computed. It measures best focus at the
+  center and the four corners, then reads tilt from how the corners differ and backfocus from how the
+  corners sit relative to the center. It is cheap and needs only those five focus curves, but it cannot
+  tell field curvature apart from backfocus, and it says nothing about sensor centering.
 - The **sensor surface model** (the **Sensor Curve Model** option) is the rigorous model. It fits a
   focus curve for *every* matched star across the frame, then fits a tilted paraboloid through all of
   those best-focus positions. That extra data lets it separate tilt, field curvature, and centering,
   and put an uncertainty on each result. It is also more demanding: it needs many well-fit stars, so it
   is more sensitive to measurement error and does not always succeed.
 
-The two are not rivals. The plane is the linear part of the paraboloid: drop the curvature terms from
-the surface model and a tilt plane is what remains. The plane is enough for a quick
-corner-versus-center check. The surface model is what you want when you intend to correct the sensor
+The two are not rivals. The 4-corners model captures only the linear part of the focus surface: drop
+the curvature terms from the paraboloid and you are left with the same kind of tilt plane. It is
+enough for a quick corner-versus-center check. The surface model is what you want when you intend to correct the sensor
 physically: a successful fit measures tilt and backfocus independently, with field curvature separated
 from both, so you can address each one systematically (tilt with the adapter screws, backfocus and
 curvature with spacing).
@@ -42,7 +42,7 @@ curvature with spacing).
 *Best focus is reached at a different focuser position across the sensor. A smooth left-to-right
 gradient is tilt; a center-to-corner bowl is curvature. The models below separate the two.*
 
-## The tilt plane
+## 4-Corners Model
 
 The center and four corner regions each yield an estimated best-focus position. The center is held
 back for the backfocus comparison below; the four corners are fed to an ordinary-least-squares fit of
@@ -60,8 +60,8 @@ Focuser Step* is set). There is no outlier rejection here, because there are onl
 **Backfocus** is read off the same regions rather than the plane: it is the mean of the four corner
 best-focus positions minus the center position, converted to microns with *Microns per Focuser Step*,
 and compared against the critical focus zone. A positive value means the corners focus past the
-center, a sign the sensor sits too far from the corrector. The screw-by-screw guidance built from the
-tilt plane is covered under
+center, a sign the sensor sits too far from the corrector. The screw-by-screw guidance built from this
+plane is covered under
 [Guiding tilt-adapter screw adjustments](tilt-aberration-inspector.md#guiding-tilt-adapter-screw-adjustments).
 
 ## The sensor surface model
@@ -123,7 +123,8 @@ at all, is discarded rather than contributing a noisy point.
 through focus, so they have to be matched into tracks before any star's curve can be fit. Matching
 itself is done with a k-d tree of nearest neighbors: the stars of a reference frame seed a registry,
 and each other frame's stars are matched to it by nearest neighbor within a search radius. The
-reference is the frame with the most detected stars, which is the sharpest frame near best focus.
+reference is the frame with the most detected stars, so the registry and the frame alignment have as
+many anchor stars as possible to match against.
 
 Two registration approaches are available, set by **Use RANSAC** (on by default) under
 [Inspector options](tilt-aberration-inspector.md#inspector-options):
