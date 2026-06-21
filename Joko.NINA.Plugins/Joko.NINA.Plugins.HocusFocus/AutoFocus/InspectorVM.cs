@@ -261,19 +261,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             Logger.Info($"Rerunning auto focus attempt from {folderPath}");
             bool suppressAuxiliaryFiles = saveOverride?.SuppressAuxiliaryFiles == true;
-            bool savedSaveIntermediateImages = starDetectionOptions.SaveIntermediateImages;
-            if (suppressAuxiliaryFiles) {
-                starDetectionOptions.SaveIntermediateImages = false;
-            }
             localAnalyzeTask = Task.Run(async () => {
+                // A rerun re-analyzes existing frames and never captures, so the engine cannot write raw frames to a
+                // new location. Leave the engine save OFF (no annotated/JSON artifacts) and, on success, copy the
+                // source raw frames into the requested per-step folder so the calibration run stays replayable.
                 var options = GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt);
-                if (saveOverride != null) {
-                    options.Save = saveOverride.Save;
-                    options.SavePath = saveOverride.SavePath;
-                    if (options.Save) {
-                        options.PreserveExposures = true;
-                    }
-                }
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                 var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
 
@@ -295,7 +287,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     DeactivateAutoFocusAnalysis();
                     return false;
                 }
-                LastSaveFolder = result.SaveFolder;
 
                 var analysisResult = await AnalyzeAutoFocusResult(options, result, sensorCurveModelEnabled: sensorCurveModelEnabled, ct: localAnalyzeCts.Token, forRerun: true, suppressRegisteredImages: suppressAuxiliaryFiles);
                 if (!analysisResult) {
@@ -303,6 +294,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     InspectorErrorText = "AutoFocus Analysis Failed";
                     DeactivateAutoFocusAnalysis();
                     return false;
+                }
+                if (saveOverride?.Save == true && !string.IsNullOrEmpty(saveOverride.SavePath)) {
+                    LastSaveFolder = CopySavedFramesForReplay(savedAttempt, saveOverride.SavePath);
                 }
                 ActivateTiltMeasurement();
                 return true;
@@ -324,11 +318,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 DeactivateAutoFocusAnalysis();
                 return false;
             } finally {
-                if (suppressAuxiliaryFiles) {
-                    starDetectionOptions.SaveIntermediateImages = savedSaveIntermediateImages;
-                }
                 RaisePropertyChanged(nameof(IsAnalysisRunning));
             }
+        }
+
+        // Copies a saved attempt's raw exposure frames into a fresh AutoFocus_<ts>/attempt01 folder under
+        // <savePathRoot>, returning that AutoFocus_<ts> folder (the level a replay points at). Used by the Tilt
+        // Adapter Wizard so re-analyzing a saved run still produces a self-contained, replayable per-step folder.
+        private static string CopySavedFramesForReplay(SavedAutoFocusAttempt savedAttempt, string savePathRoot) {
+            var runFolder = Path.Combine(savePathRoot, $"AutoFocus_{DateTime.Now:yyyyMMdd_HHmmss}");
+            var attemptFolder = Path.Combine(runFolder, "attempt01");
+            Directory.CreateDirectory(attemptFolder);
+            foreach (var img in savedAttempt.SavedImages) {
+                if (string.IsNullOrEmpty(img.Path) || !File.Exists(img.Path)) {
+                    continue;
+                }
+                var dest = Path.Combine(attemptFolder, Path.GetFileName(img.Path));
+                File.Copy(img.Path, dest, overwrite: true);
+            }
+            return runFolder;
         }
 
         private async Task<bool> AnalyzeAutoFocusImpl(bool captureCameraBlock, AutoFocusSaveOverride saveOverride = null) {
@@ -343,7 +351,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             analyzeCts = localAnalyzeCts;
 
             bool suppressAuxiliaryFiles = saveOverride?.SuppressAuxiliaryFiles == true;
-            bool savedSaveIntermediateImages = starDetectionOptions.SaveIntermediateImages;
             localAnalyzeTask = Task.Run(async () => {
                 try {
                     if (captureCameraBlock) {
@@ -358,12 +365,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         if (options.Save) {
                             // Mirror GetAutoFocusEngineOptions: keep exposures so the run can be re-analyzed later.
                             options.PreserveExposures = true;
+                            // A saved calibration run keeps only the raw frames — no per-region annotated TIFFs /
+                            // detection-result JSONs (and, below, no registered/alignment images).
+                            options.SaveExposuresOnly = suppressAuxiliaryFiles;
                         }
-                    }
-                    if (suppressAuxiliaryFiles) {
-                        // A saved calibration run keeps only the raw frames — suppress star-detection intermediate
-                        // files (restored in the finally) and, below, the registered/annotated alignment images.
-                        starDetectionOptions.SaveIntermediateImages = false;
                     }
                     var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                     var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
@@ -407,9 +412,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Notification.ShowInformation("Aberration Inspection Complete");
                     return true;
                 } finally {
-                    if (suppressAuxiliaryFiles) {
-                        starDetectionOptions.SaveIntermediateImages = savedSaveIntermediateImages;
-                    }
                     if (captureCameraBlock) {
                         this.cameraMediator.ReleaseCaptureBlock(this);
                     }

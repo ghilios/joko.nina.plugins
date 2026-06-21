@@ -605,7 +605,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     analysisResult = hfAnalysisResult;
                 }
 
-                if (!string.IsNullOrWhiteSpace(state.SaveFolder)) {
+                if (!state.Options.SaveExposuresOnly && !string.IsNullOrWhiteSpace(state.SaveFolder)) {
                     var saveAttemptFolder = GetSaveAttemptFolder(state, imageState.AttemptNumber, imageState.FinalValidation);
                     var resultFileName = BuildStarDetectionResultFileName(imageState.ImageNumber, imageState.FrameNumber, regionState.RegionIndex);
                     var resultTargetPath = Path.Combine(saveAttemptFolder, resultFileName);
