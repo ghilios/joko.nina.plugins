@@ -20,18 +20,22 @@ is the focuser position (in microns) at which that point of the sensor reaches b
 
 The inspector fits the focus surface at two levels of detail.
 
-- The **tilt plane** is always computed. It runs a focus curve at the center and the four corners and
-  fits a flat plane through the corner best-focus positions. It is cheap, needs only five regions, and
-  answers "which corner is off, and by how much."
-- The **sensor surface model** (the **Sensor Curve Model** option) is the richer fit. It fits a focus
-  curve for *every* matched star across the frame, then fits a tilted paraboloid through all of those
-  best-focus positions. That extra data lets it separate tilt from curvature, estimate centering
-  error, and put an uncertainty on each result.
+- The **tilt plane** is the simple model, always computed. It measures best focus at the center and
+  the four corners, then reads tilt from how the corners differ and backfocus from how the corners sit
+  relative to the center. It is cheap and needs only those five focus curves, but it cannot tell field
+  curvature apart from backfocus, and it says nothing about sensor centering.
+- The **sensor surface model** (the **Sensor Curve Model** option) is the rigorous model. It fits a
+  focus curve for *every* matched star across the frame, then fits a tilted paraboloid through all of
+  those best-focus positions. That extra data lets it separate tilt, field curvature, and centering,
+  and put an uncertainty on each result. It is also more demanding: it needs many well-fit stars, so it
+  is more sensitive to measurement error and does not always succeed.
 
-The two are not rivals. The plane is the linear part of the paraboloid: if you drop the curvature
-terms from the surface model you are left with a tilt plane. The surface model is what you enable when
-you intend to physically correct tilt or want curvature and centering numbers; the plane is enough for
-a quick corner-versus-center check.
+The two are not rivals. The plane is the linear part of the paraboloid: drop the curvature terms from
+the surface model and a tilt plane is what remains. The plane is enough for a quick
+corner-versus-center check. The surface model is what you want when you intend to correct the sensor
+physically: a successful fit measures tilt and backfocus independently, with field curvature separated
+from both, so you can address each one systematically (tilt with the adapter screws, backfocus and
+curvature with spacing).
 
 ![Best-focus offset across the sensor, decomposed into a tilt plane, field curvature, and their sum](../assets/figures/tilt-heatmap.png){ width=560 }
 
