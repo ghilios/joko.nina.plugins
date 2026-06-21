@@ -312,11 +312,20 @@
                         <Button
                             Margin="6,0,0,0"
                             Command="{Binding ReplayCommand}"
-                            ToolTip="Replay a saved calibration run from a folder containing metadata.json. Uses the run's stored star-detection settings and restores your settings afterward.">
+                            ToolTip="Replay a saved calibration run from a folder containing metadata.json. Uses the run's stored star-detection and tilt-calibration settings (restoring your settings afterward).">
                             <TextBlock
                                 Margin="10,5,10,5"
                                 Foreground="{StaticResource ButtonForegroundBrush}"
                                 Text="Replay" />
+                        </Button>
+                        <Button
+                            Margin="6,0,0,0"
+                            Command="{Binding ReplayCurrentSettingsCommand}"
+                            ToolTip="Replay a saved calibration run using your CURRENT star-detection and tilt-calibration settings instead of the ones stored in metadata.json. Your profile settings are left unchanged.">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Replay Current Settings" />
                         </Button>
                     </StackPanel>
 
