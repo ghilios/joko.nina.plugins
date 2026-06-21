@@ -81,6 +81,14 @@ through the per-star best-focus positions.
     matched star) and needs enough matched stars to be meaningful, so leave it off for a quick tilt
     check.
 
+!!! note "Frame alignment is robust to heavy defocus"
+    Matching stars across frames is hardest at the defocused extremes of the sweep, where stars are
+    bloated and sparse. The matcher chains alignment through neighboring frames and retries against a
+    denser reference rather than giving up, so the "*N frames failed to align*" condition is now rare.
+    If you still hit it, collect more stars on the weak frames — a wider exposure or the
+    [donut-recovery settings](../settings/acceptance-gates.md#recover-out-of-focus-donut-stars) — and
+    re-run.
+
 ## Guiding tilt-adapter screw adjustments
 
 A measured tilt plane tells you which corners need to move and by how much, but turning a screw moves
@@ -133,6 +141,51 @@ flags inconsistent repeats so you can re-run.
     flatten genuine **field curvature** (the bowl/dome residual after the plane is removed); that is
     an optical property of your flattener/corrector and focal ratio. Use the *Tilt effect* and
     *Curvature effect* numbers to tell which problem dominates before reaching for the screwdriver.
+
+### Absolute screw-turn (or stepper-step) guidance
+
+The calibration above tells the inspector *which* screws to move and the focus deviation to remove.
+To turn that into a concrete instruction — *"turn this screw inward ¼ turn"* rather than a number of
+focuser steps — the wizard needs the adapter's **physical hardware model**:
+
+| Hardware field | Meaning |
+|---|---|
+| **Adjustment Type** | Whether the adapter is adjusted by **Screws** (reported in turns) or **Stepper Motors** (reported in steps). |
+| **Thread Pitch** | Axial microns the sensor moves per full screw turn — used when Adjustment Type is Screws. |
+| **Stepper Step Size** | Axial microns per stepper step — used when Adjustment Type is Stepper Motors. |
+| **Screw Radius** | Distance of each screw from the sensor center, in millimeters; converts a tilt *angle* into an axial movement at the screw. |
+
+**Device presets.** Rather than entering those numbers by hand, pick your adapter from the **Device**
+list. Choosing a preset pre-fills and locks the hardware fields to the manufacturer's values; the
+**"Manual"** entry leaves every field editable for an adapter that is not in the list. (The built-in
+list grows over time; if yours is missing, use Manual and enter its thread pitch and screw radius.)
+
+!!! note "The wizard cross-checks the hardware values it measures"
+    A calibration run also *measures* an effective thread pitch / stepper step size from how far the
+    sensor actually moved. The wizard remembers the last measured value and **warns you if it diverges
+    from the configured value**, which usually means the wrong preset is selected or a number was
+    mistyped. Without a valid hardware model, adjustments are still reported in focuser steps (and, if
+    *Microns per Focuser Step* is set, in microns) — you just do not get the turn/step figure.
+
+### Saving and replaying a calibration run
+
+Calibration involves several focus sweeps, which are expensive to repeat. Turn on **"Save Calibration
+for Replay"** and the wizard writes each step's autofocus run (plus a `metadata.json`) into the folder
+you choose, so a calibration can be re-analyzed later without going back to the telescope. Two replay
+buttons sit next to **Calibrate**:
+
+- **Replay** — re-runs the analysis on a saved folder using the **settings stored in that run's
+  `metadata.json`** (your current profile settings are restored afterward), reproducing the original
+  calibration exactly.
+- **Replay Current Settings** — re-runs the same saved frames with your **current** star-detection and
+  tilt-calibration settings instead, so you can see how a settings change (for example, after running
+  the [Optimization Wizard](../optimization/index.md)) would have affected the result. Your profile
+  settings are left unchanged.
+
+!!! tip "Tuning detection against a saved calibration"
+    Replay-current is the daytime tuning loop for the inspector: save a calibration once at the scope,
+    then iterate on detection settings indoors and replay to compare — the same idea as
+    [replaying an autofocus run](autofocus.md).
 
 ## Inspector options
 

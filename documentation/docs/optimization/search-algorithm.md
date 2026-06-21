@@ -21,13 +21,16 @@ This page describes *how* the search moves. The score it maximizes is on
 
 The whole search is built around three properties that the design relies on.
 
-- **Deterministic.** There is no random number generator. The seed is read from your current
-  settings, axes are visited in a fixed curated order, and the two probe directions are always tried
-  `+` then `−`. Detection and the curve fit are themselves deterministic, so the same inputs always
-  produce the same optimized result.
-- **Never-regress.** Your current settings are the initial *incumbent* and the floor: only
-  **strictly-improving** moves are ever accepted (ties move nothing). The optimized result can never
-  score worse than the settings you started with. The worst case is "no change."
+- **Deterministic.** There is no random number generator. The seed is read from a fixed starting
+  vector — by default the **default** detection parameters, or your **current** settings when you
+  choose *"Start from my current settings"* — axes are visited in a fixed curated order, and the two
+  probe directions are always tried `+` then `−`. Detection and the curve fit are themselves
+  deterministic, so the same inputs always produce the same optimized result.
+- **Never-regress.** The seed is the initial *incumbent* and the floor: only **strictly-improving**
+  moves are ever accepted (ties move nothing), so the optimized result can never score worse than the
+  seed. The wizard layers one more guarantee on top: it compares the result against your **current**
+  settings and will not hand back anything worse than them — the worst case is "no change." (When you
+  start from current settings, the two floors coincide.)
 - **Memoized.** Every candidate is keyed on `StarDetector.ComputeCacheKey`. A point the search
   revisits is served from a cache and never re-invokes the (expensive) evaluator. The evaluation
   budget counts only cache *misses*.
@@ -43,9 +46,10 @@ The run proceeds in two phases after the seed is scored.
 
 ### Seed
 
-Each variable is read from your current parameters and quantized to a legal value (integers rounded,
-booleans thresholded at 0.5). That vector is evaluated once. Its score, \(J_{\text{seed}}\), is both
-the starting incumbent and the never-regress floor.
+Each variable is read from the seed parameters — the default settings, or your current settings if you
+chose to start from them — and quantized to a legal value (integers rounded, booleans thresholded at
+0.5). That vector is evaluated once. Its score, \(J_{\text{seed}}\), is both the starting incumbent and
+the never-regress floor.
 
 ### Phase A — coarse grid
 
@@ -111,9 +115,11 @@ Two hard stops bound the work:
 
 - **The step floor** ends each compass stage once every continuous step is below its floor (and an
   all-discrete subset ends as soon as a sweep finds nothing).
-- **The evaluation budget**, `MaxEvaluations = 400` (overridable in the harness via `--max-evals`),
-  caps the number of *distinct* candidate evaluations. The search never starts an evaluation past the
-  cap. Because of memoization, revisited candidates do not count against it.
+- **The evaluation budget**, `MaxEvaluations = 250` by default (raised to **400** when *Recover
+  out-of-focus donut stars* is enabled, since that unlocks extra defocus axes to explore; overridable
+  in the harness via `--max-evals`), caps the number of *distinct* candidate evaluations. The search
+  never starts an evaluation past the cap. Because of memoization, revisited candidates do not count
+  against it.
 
 ## What a single evaluation costs
 

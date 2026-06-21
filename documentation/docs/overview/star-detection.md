@@ -150,8 +150,11 @@ so the metrics panel tells you exactly *why* candidates are being dropped:
 The fill-ratio idea behind *too distorted*: a round disk fills about \( \pi/4 \approx 0.79 \) of its
 bounding box, while a streak (a satellite trail or merged pair) fills far less. The *defocus-aware gates*
 option (opt-in) relaxes the distortion and centering gates for large candidates so bloated donut stars near
-the sweep extremes are not thrown away; with it off, detection is unchanged. Full per-gate detail lives in
-[Acceptance Gates](../settings/acceptance-gates.md).
+the sweep extremes are not thrown away; with it off, detection is unchanged. For telescopes with a central
+obstruction, the separate opt-in
+[Recover Out-of-Focus Donut Stars](../settings/acceptance-gates.md#recover-out-of-focus-donut-stars) group
+goes further — reconnecting fragmented hollow rings and treating them like filled disks so they survive at
+all. Full per-gate detail lives in [Acceptance Gates](../settings/acceptance-gates.md).
 
 !!! note "Saturated stars are kept, not rejected"
     A partially-saturated star (background + peak at or above the saturation threshold) is **not** rejected.

@@ -35,7 +35,7 @@ Hocus Focus exposes "simpler configuration, with an advanced mode for fine tunin
 
 | Level | Who it's for | What you do |
 |---|---|---|
-| **Simple** | Most users | Accept the heuristic defaults / Simple-mode presets and let the detector adapt to your image scale. |
+| **Simple** | Most users | Accept the Simple-mode preset defaults and let the detector adapt to your image scale. |
 | **Advanced** | Tuners | Open Advanced settings to hand-tune individual detection, gating, and PSF parameters. |
 | **Optimization Wizard** | Anyone chasing the lowest HFR scatter | Let the optimizer search the parameter space against an objective function using your own saved AF runs. |
 

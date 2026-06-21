@@ -2,7 +2,7 @@
 
 Two unrelated artifacts pollute star measurements: single bright **hot pixels** that masquerade as tiny stars, and **saturated** (clipped) cores that flatten the bright peak of an otherwise good star. Hocus Focus handles them up front in the detection pipeline — hot pixels are cleaned out of the source image before star structures are found, and saturated pixels are masked out of the PSF fit so they do not bias the fitted profile.
 
-These options live in the **Advanced** star-detection settings. In Simple mode they are derived from the noise preset (see [Heuristic Defaults](../analysis/heuristic-defaults.md)).
+These options live in the **Advanced** star-detection settings. In Simple mode they are derived from the noise preset.
 
 ## Settings at a glance
 
@@ -73,7 +73,7 @@ This setting only takes effect when **Use Hotpixel Thresholding** is on. A pixel
 so at the 0.1% default a pixel must exceed its local median by one part in a thousand of the full ADU range to be treated as a defect. Lower values are more aggressive (more pixels replaced, risking real star cores); higher values are more permissive (only the most extreme outliers are touched).
 
 !!! tip "When this helps"
-    Leave the default unless you have a specific reason. **Lower** the threshold if obvious hot pixels are surviving and being detected as stars; **raise** it if the filter is clipping the bright cores of real, well-sampled stars. The 0.1% default was chosen from a dedicated analysis of full-well fractions — see [Heuristic Defaults](../analysis/heuristic-defaults.md) for the reasoning behind this value.
+    Leave the default unless you have a specific reason. **Lower** the threshold if obvious hot pixels are surviving and being detected as stars; **raise** it if the filter is clipping the bright cores of real, well-sampled stars. The 0.1% default was chosen from a dedicated analysis of full-well fractions and works across a wide range of sensors and exposures.
 
 !!! warning
     The threshold is a fraction of full well, not an absolute ADU count. Setting it too low on a high-bit-depth sensor can replace the peak pixels of sharp, in-focus stars and bias HFR low.

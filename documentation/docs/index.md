@@ -7,6 +7,11 @@ between the corrector/flattener and the sensor) and sensor-tilt errors. It fits 
 you swap in just the star detector or just the annotator without taking both; and builds a full sensor
 tilt-and-curvature model so you can quantify and correct aberrations across the field.
 
+!!! tip "New here? Start with the Quick Start"
+    The **[Quick Start](quick-start.md)** walks you from a fresh install through setting up detection,
+    autofocus, and annotation, optimizing star detection, and checking your rig for tilt and backfocus
+    errors — linking to the deeper reference pages as you go.
+
 ![Star field with accepted stars circled in green and rejected detections in pink, each accepted star labeled with its measured HFR](assets/figures/annotation-overlay.png){ width=620 }
 
 *Hocus Focus star detection: accepted stars (green) carry an HFR label, while rejected candidates (pink) are marked by the gate that excluded them.*
@@ -40,14 +45,14 @@ and Auto Focus dropdowns.
 
 ## How this documentation is organized
 
+- **[Quick Start](quick-start.md)** — the recommended first-run path: set up detection, autofocus, and
+  annotation, optimize, then check for tilt and backfocus.
 - **[Overview](overview/index.md)** — a tour of star detection, annotation, autofocus, and the tilt /
   aberration inspector, with the concepts and figures behind each.
 - **[Star Detection Settings](settings/index.md)** — a complete reference for every star-detection
   setting: what it does, when it helps, and when it can hurt.
 - **[Star Detection Optimization](optimization/index.md)** — a technical deep-dive into the optimization
   approach: the objective function, the search algorithm, and how each setting factors in.
-- **[Heuristic Defaults Analysis](analysis/heuristic-defaults.md)** — which settings can be derived
-  heuristically rather than tuned empirically.
 
 ## License and source
 

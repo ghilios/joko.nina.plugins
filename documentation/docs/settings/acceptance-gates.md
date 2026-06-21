@@ -17,7 +17,7 @@ This page documents the gates exposed as **Advanced** star-detection options. Th
 `StarBackgroundBoxExpansion` is not itself a gate, but it controls the local-background estimate that several gates depend on, so it is documented here too. The **Defocus-Aware Gates** group relaxes the distortion and centering gates for heavily out-of-focus frames; it is covered in its own section at the end.
 
 !!! note
-    These settings live under **Advanced** star detection. In **Simple** mode they are derived for you from the noise level, pixel scale, and focus-range presets (see [Heuristic defaults](../analysis/heuristic-defaults.md)), and the values below are what those presets resolve to. If you have run the [Optimization Wizard](../optimization/index.md), a curated subset of these gates is what it tunes.
+    These settings live under **Advanced** star detection. In **Simple** mode they are derived for you from the noise level, pixel scale, and focus-range presets, and the values below are what those presets resolve to. If you have run the [Optimization Wizard](../optimization/index.md), a curated subset of these gates is what it tunes.
 
 ## Summary
 
@@ -133,7 +133,7 @@ This is the first gate applied. It removes tiny detections — single hot pixels
 *Candidates smaller than the minimum box size on either side are rejected as Too Small.*
 
 !!! tip "Starting point"
-    From your rig: `MinStarBoundingBoxSize ≈ max(3, round(2–3 × FWHM_px))`, where `FWHM_px = FWHM_arcsec / pixelScale` ([reasoning](../analysis/heuristic-defaults.md)). This is just a starting point the Simple presets and the optimizer refine.
+    From your rig: `MinStarBoundingBoxSize ≈ max(3, round(2–3 × FWHM_px))`, where `FWHM_px = FWHM_arcsec / pixelScale`. This is just a starting point the Simple presets and the optimizer refine.
 
 !!! tip "When to adjust"
     Increase it at very long focal lengths, where the plate scale spreads real stars over many pixels and small structures are almost always artifacts. Lower it for wide-field, undersampled rigs where genuine stars occupy only a few pixels — too high a value there will silently drop real stars (and inflate the **Too Small** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)). The Simple-mode presets already nudge this down for wide-field and up for long focal length.
@@ -226,6 +226,76 @@ This is the lowest the effective fill-ratio threshold can ever drop to, expresse
 **Default:** 2.0 — **Range:** 1–10
 
 The most the centering tolerance can be multiplied by for the largest candidates. A value of 1 is a no-op (centering stays strict); 2 doubles the centered acceptance sub-box for fully-defocused donuts. The effective tolerance is always capped at 1.0 (the whole bounding box), so very large factors saturate rather than overshoot.
+
+---
+
+## Recover Out-of-Focus Donut Stars
+
+A second, **separate** opt-in feature aimed at the same problem the Defocus-Aware Gates address —
+heavily defocused stars — but from the structure/shape side rather than by loosening thresholds. It is
+a single **master toggle**, *Defocus-Aware Donut Detection*, that is **off by default**; when off,
+detection is bit-identical to having the feature absent. It also appears on the
+[Optimization Wizard](../optimization/index.md)'s start page as **"Recover out-of-focus donut stars."**
+
+> MASTER toggle for defocus-aware donut detection. When ON, out-of-focus DONUT stars (heavily defocused stars that appear as hollow rings) are recovered: a morphological close reconnects fragmented rings and an annularity test lets a hollow ring pass the distortion gate like a filled disk (detection-only — it never changes HFR). It also unlocks the optimizer to tune ALL defocus-aware settings and to enable diffraction-spike / saturated-bloom suppression. Recommended for telescopes with a central obstruction (Newtonians/SCTs); leave OFF for refractors. Off by default; when OFF, detection is exactly as before.
+
+**What it does.** A heavily defocused star with a central obstruction breaks up into a fragmented
+hollow ring. Two things go wrong: the arcs of the ring are detected as several tiny structures (each
+dropped as **Too Small**), and even when the ring is whole its hollow center gives it a low fill ratio
+that the strict Max Distortion gate rejects. This feature fixes both — a morphological **close**
+reconnects the ring arcs into one candidate, and an **annularity** test recognizes a genuine hollow
+ring and lets it through the distortion gate as if its hole were filled. The recovery is
+**detection-only**: it changes which candidates survive, never the measured HFR, flux, or center.
+
+!!! tip "Which donut feature do I need?"
+    - If donuts are **rejected** as **Too Distorted** or **Not Centered**, the
+      [Defocus-Aware Gates](#defocus-aware-gates) above relax those gates for large candidates.
+    - If donuts never form a candidate at all (fragmented into **Too Small** pieces, or erased before
+      candidate formation), this **Donut Detection** group reconnects them — and the
+      [Defocus-Aware Structure](structure-detection.md#defocus-aware-structure) option keeps very large
+      donuts from being wiped out by background removal in the first place.
+    - The three features are complementary; the optimizer can enable and tune them together once the
+      master toggle is on.
+
+These five settings live under **Advanced** star detection, and the four numeric knobs below take
+effect **only while the master toggle is on**.
+
+| Setting | Default | Range | Effect |
+|---|---|---|---|
+| Defocus-Aware Donut Detection | Off | on/off | Master toggle for the whole group; off ⇒ detection bit-identical |
+| Donut Morph Close Size | 5 | 1–25 px | Kernel diameter that reconnects fragmented ring arcs into one candidate (1 = no close) |
+| Donut Min Annularity Hole Fraction | 0.15 | 0.02–0.6 | Minimum enclosed dark center (fraction of box area) for a hollow ring to be treated like a filled disk by the distortion gate |
+| Donut Max Streak Eccentricity | 1.0 | 0.8–1.0 | Rejects very linear candidates (diffraction spikes, trails) at/above this eccentricity; 1.0 = off |
+| Donut Saturation Bloom Radius | 0.0 | 0–100 px | Rejects candidates whose center lies within this many pixels of a saturated star (bloom fragments); 0 = off |
+
+### Donut Morph Close Size
+
+> Only used while Defocus-Aware Donut Detection is on. Diameter (px) of the morphological-close kernel that reconnects fragmented donut-ring arcs into one candidate (the dominant cause of donuts being dropped as 'too small'). 1 means no close. Keep it smaller than the gap between a bright star's diffraction spikes so it doesn't bridge them. EARLY-stage setting. Default 5.
+
+**Default:** 5 px — **Range:** 1–25. This is an **EARLY**-stage parameter (it changes candidate
+formation). Raise it if donut arcs are still detected as separate fragments; keep it below the spacing
+of a bright star's diffraction spikes so the close does not bridge them into one blob.
+
+### Donut Min Annularity Hole Fraction
+
+> Only used while Defocus-Aware Donut Detection is on. Minimum size of a candidate's enclosed dark center (as a fraction of its bounding-box area) for it to count as a donut whose hole is filled for the distortion test — so a hollow ring is judged like a filled disk. This is detection-only and never changes the measured HFR/flux/center. Lower it to accept thinner rings; raise it to be stricter. Default 0.15.
+
+**Default:** 0.15 — **Range:** 0.02–0.6. Lower it to accept thinner rings (smaller holes); raise it to
+be stricter about what counts as a true donut.
+
+### Donut Max Streak Eccentricity
+
+> Only used while Defocus-Aware Donut Detection is on. Rejects very LINEAR candidates (diffraction spikes from a bright star, or satellite/aircraft trails) when their elongation (eccentricity) meets or exceeds this value. 1.0 means OFF (a perfect line has eccentricity 1.0, so nothing is rejected); lower it toward 0.95 to enable. Round donuts measure well below this, so they are never affected. Default 1.0 (OFF — the optimizer enables it when you label false detections).
+
+**Default:** 1.0 (off) — **Range:** 0.8–1.0. A spike-suppression guard: lower it toward 0.95 to reject
+diffraction spikes and trails. Round donuts sit well below this, so they are unaffected.
+
+### Donut Saturation Bloom Radius
+
+> Only used while Defocus-Aware Donut Detection is on. Rejects candidates whose center lies within this many pixels of a saturated star, removing the bloom/halo fragments around a bright saturated star while keeping the star itself. 0 means OFF. Default 0.
+
+**Default:** 0 (off) — **Range:** 0–100 px. Raise it to clear the bloom/halo fragments that ring a
+bright saturated star while keeping the star itself.
 
 !!! note
     Related rejection reasons — **Contaminated** (one-sided neighbor light) and the saturation handling — are covered on the [Contamination](contamination.md) and [Hot pixels & saturation](hotpixel-saturation.md) pages. For how the optimizer searches over these gates, see [Search variables](../optimization/search-variables.md).

@@ -38,7 +38,7 @@ In `BuildStarDetectorParams` this maps straight to `StarDetectorParams.Structure
     **Raise it** when real stars are missing entirely because they are large on the sensor — long focal lengths, big pixels, or frames taken well away from focus, where stars spread over many pixels and get swept up with the background. The Simple-mode presets already do this for you: *Wide Range* focus and *Long Focal Length* each add a layer, while *Wide Field* pixel scale removes one. **Leave it at the default** for typical sampling near focus. **Lowering it can hurt** by erasing genuine large stars; raising it too far **lets nebulosity and gradients leak in** as false candidates, since less background is removed. As you adjust, watch the **Total detected** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) and confirm real stars stop being missing entirely.
 
 !!! tip "Starting point"
-    Pick \(L\) so \(2^{L}\) is a few × your star size in pixels: \(L \approx \mathrm{clamp}(\mathrm{round}(\log_2(3\text{–}4 \times \mathrm{FWHM\_px})),\ 1,\ 8)\), where \(\mathrm{FWHM\_px} = \mathrm{FWHM\_arcsec} / \mathrm{pixelScale}\) is known from your rig (see [Heuristic defaults](../analysis/heuristic-defaults.md)). This is just a starting point the optimizer and Simple presets refine.
+    Pick \(L\) so \(2^{L}\) is a few × your star size in pixels: \(L \approx \mathrm{clamp}(\mathrm{round}(\log_2(3\text{–}4 \times \mathrm{FWHM\_px})),\ 1,\ 8)\), where \(\mathrm{FWHM\_px} = \mathrm{FWHM\_arcsec} / \mathrm{pixelScale}\) is known from your rig. This is just a starting point the optimizer and Simple presets refine.
 
 ## Defocus-Aware Structure
 
@@ -54,7 +54,7 @@ When this is **off**, the effective layer count is exactly `StructureLayers`, so
 *A heavily defocused star becomes a large hollow donut — exactly the structure that aggressive background removal can erase before it is ever evaluated.*
 
 !!! tip "When to adjust"
-    **Enable it** only when collecting autofocus frames far from focus *and* you observe donut stars missing **entirely** (no candidate at all), not merely rejected by a gate. Pair it with a **Structure Layer Boost above 0** — on its own, with boost at 0, it changes nothing. If the donuts are present but rejected with a reason (TooDistorted / NotCentered), the fix is the **Defocus-Aware Gates** on the [Acceptance Gates](acceptance-gates.md) page, not this. **Leave it off** for normal near-focus imaging; it adds nothing there and only widens what counts as a star.
+    **Enable it** only when collecting autofocus frames far from focus *and* you observe donut stars missing **entirely** (no candidate at all), not merely rejected by a gate. Pair it with a **Structure Layer Boost above 0** — on its own, with boost at 0, it changes nothing. If the donuts are present but rejected with a reason (TooDistorted / NotCentered), the fix is the **Defocus-Aware Gates** on the [Acceptance Gates](acceptance-gates.md) page, not this; if the donuts fragment into small arcs (rejected as **Too Small**), reach for the [Recover Out-of-Focus Donut Stars](acceptance-gates.md#recover-out-of-focus-donut-stars) group, which reconnects the ring. **Leave it off** for normal near-focus imaging; it adds nothing there and only widens what counts as a star.
 
 ## Structure Layer Boost
 

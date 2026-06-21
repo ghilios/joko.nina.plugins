@@ -4,8 +4,9 @@ The Star Detection Optimization Wizard does not chase "more stars" or "lower HFR
 single composite score \(J \in [0, 1]\) that captures what actually matters for autofocus: **how repeatable
 the best-focus position is**, backed up by a healthy star count and a clean curve fit. Every candidate set of
 detection settings is reduced to this one number, the search keeps whatever scores highest, and the result is
-guaranteed never to be worse than your current settings (the seed is the starting incumbent and only
-strictly-improving moves are accepted).
+guaranteed never to be worse than your current settings — only strictly-improving moves are accepted above the
+seed, and the wizard additionally refuses to return anything that scores below your current settings (see
+[Search algorithm](search-algorithm.md#three-guarantees)).
 
 This page documents the exact objective: every sub-score, every constant, and how they combine. The values
 here are taken directly from `OptimizationObjective.cs` (`ObjectiveConstants`); they are tunable in code but
@@ -42,6 +43,14 @@ term and the denominator term are dropped (the weights always renormalize to sum
 | Label | \(W_\ell\) | 0.25 | Matching your hand-labeled stars (only when labels exist) |
 
 Focus carries the largest weight because focus repeatability is the whole point of the exercise.
+
+!!! note "The aberration-inspection objective reweights these"
+    The weights above are the default, autofocus-tuned objective. When you select **"Optimize for
+    Aberration Inspection"** on the wizard's start page, the optimizer swaps in a star-count-favoring
+    objective (`ObjectiveConstants.ForAberrationInspection`) that recovers far more stars across the
+    frame — what a [tilt / curvature model](../overview/tilt-aberration-inspector.md) needs — while a
+    fit guard tied to your current settings' \(\sigma_{\text{focus}}\) keeps the focus curve usable.
+    The structure of the score (the sub-scores below) is unchanged; only the weighting differs.
 
 ### Hard floor: every frame must keep stars
 

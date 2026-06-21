@@ -9,7 +9,7 @@ Before Hocus Focus can find and measure stars, it has to decide what is *signal*
 A key idea runs through all of these: Hocus Focus keeps **two images**. A *structure-detection image* is used to find where the candidate stars are, and a *measurement image* is used to measure each star's centroid, flux, HFR, and PSF. By default the noise reduction is applied **only** to the structure-detection image, so candidate-finding is robust to noise while the measurements stay on the sharp, unblurred pixels.
 
 !!! note
-    These are **Advanced** settings. In Simple mode they are derived for you from the **Noise Level**, **Pixel Scale**, and **Focus Range** presets (see [Heuristic Defaults](../analysis/heuristic-defaults.md)), so you normally never touch them directly. Switch on Advanced mode to expose them.
+    These are **Advanced** settings. In Simple mode they are derived for you from the **Noise Level**, **Pixel Scale**, and **Focus Range** presets, so you normally never touch them directly. Switch on Advanced mode to expose them.
 
 ## Summary
 
@@ -119,7 +119,7 @@ This value is the spacing of the sampling grid, in pixels, that Hocus Focus walk
     Leave it at **1.0** if you are correctly sampled or oversampled — finer sampling buys nothing there and only costs time. Lower it (toward **0.5** or below) for **undersampled** rigs — wide-field setups with large pixels and short focal lengths — where stars span only a few pixels; the Wide-field pixel-scale preset sets it to 0.5 for you. Going below the default on a well-sampled rig wastes computation without improving accuracy.
 
 !!! tip "Starting point"
-    From your rig's FWHM in pixels (\(\text{FWHM}_{px} = \text{FWHM}_{arcsec} / \text{pixelScale}\)): use **1.0** if \(\text{FWHM}_{px} \gtrsim 3\), ramp toward **0.5** as \(\text{FWHM}_{px} \to 1.5\), and go below 0.5 if \(\text{FWHM}_{px} < 1\). This is just a starting point the optimizer and Simple presets refine — see [Heuristic Defaults](../analysis/heuristic-defaults.md).
+    From your rig's FWHM in pixels (\(\text{FWHM}_{px} = \text{FWHM}_{arcsec} / \text{pixelScale}\)): use **1.0** if \(\text{FWHM}_{px} \gtrsim 3\), ramp toward **0.5** as \(\text{FWHM}_{px} \to 1.5\), and go below 0.5 if \(\text{FWHM}_{px} < 1\). This is just a starting point the optimizer and Simple presets refine.
 
 !!! warning
     Finer sub-pixel sampling improves accuracy but does not create resolution that the optics did not capture. For a severely undersampled rig, also consider enabling [PSF pixel integration](psf-modeling.md), which reduces PSF bias at very small FWHM.

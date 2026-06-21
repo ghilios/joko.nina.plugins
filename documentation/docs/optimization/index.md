@@ -28,25 +28,41 @@ reproducible and the optimizer can be exercised without launching NINA.
 
 The high-level loop is simple:
 
-1. **Seed from your current settings.** The optimizer starts at the parameters your profile uses
-   today (built through the autofocus detection path, with PSF modeling off and the full-frame region
-   set) and records that seed's score. Because only strictly-improving moves are ever accepted, the
-   result can **never be worse than where you started**.
+1. **Seed from the defaults, measure against your current settings.** The optimizer starts its search
+   from the **fully-default** detection parameters (built through the autofocus detection path, with
+   PSF modeling off and the full-frame region set) rather than from your current settings, so a search
+   that has drifted into a poor corner is not anchored there. Improvement is always reported **relative
+   to your current settings** — the "before" number you see is what your rig does today. If you would
+   rather refine your current setup in place, enable **"Start from my current settings"** on the start
+   page to seed from those instead. Either way the wizard **never hands back a result worse than your
+   current settings**: if the search cannot beat them, it returns them unchanged.
 2. **Search.** A staged compass/pattern search explores a curated set of detection parameters,
    evaluating each candidate against your saved runs.
 3. **Apply the best.** On confirm, the winning parameters are written into the live properties and a
-   recommended autofocus step size is offered alongside them.
+   recommended autofocus step size is offered alongside them. From the summary you can press
+   **"Continue optimizing"** to run another pass seeded from the result so far (up to three passes
+   total; the summary then shows the full Current → R1 → R2 → R3 trajectory).
 
 Optionally, you can label a handful of hard frames (missed stars, false positives) to add a
 **recall/precision** term to the score (recall = the fraction of real stars recovered; precision = the
 fraction of accepted detections that are real) — decisive for dim or bloated, out-of-focus "donut"
 stars that the raw star count barely reflects.
 
+!!! note "Two start-page objectives: autofocus vs aberration inspection"
+    By default the wizard optimizes for **autofocus repeatability** (the objective below). Turning on
+    **"Optimize for Aberration Inspection"** instead reweights the objective toward **recovering many
+    more stars across the whole frame** — what the [tilt / curvature
+    model](../overview/tilt-aberration-inspector.md) needs — while a fit guard keeps the focus curve
+    usable. The **"Recover out-of-focus donut stars"** toggle (the
+    [donut-detection master switch](../settings/acceptance-gates.md#recover-out-of-focus-donut-stars))
+    is also on the start page; enabling it lets the optimizer tune the defocus-aware settings and uses
+    a larger evaluation budget, since it has more knobs to explore.
+
 ![Staged compass/pattern search trajectory on a 2D objective surface](../assets/figures/compass-search.png){ width=620 }
 
-*The search begins at your current settings (the seed) and walks the parameter space one
-coordinate move at a time, accepting only moves that improve the score and refining its step size as
-it homes in on a maximum.*
+*The search begins at the seed (the default settings, or your current settings if you choose) and walks
+the parameter space one coordinate move at a time, accepting only moves that improve the score and
+refining its step size as it homes in on a maximum.*
 
 ## How a candidate is scored
 
