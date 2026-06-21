@@ -143,19 +143,19 @@ rather than the fit; it is covered alongside the full weighting in
 The same winning fit also drives the wizard's **step-size recommendation**, which is reported (and
 applied on confirm) but is *not* part of the score. The idea is to size the auto-focus step so a sweep
 lands roughly 3–4 measurement points on each side of focus inside the "focus-sensitive" band, the
-region where HFR climbs from its minimum to about twice the minimum, which carries the most slope and
+region where HFR climbs from its minimum to about three times the minimum, which carries the most slope and
 therefore the most information.
 
-![Step size derived from the half-width where HFR reaches twice the minimum, targeting about 3.5 points per side](../assets/figures/step-size.png){ width=620 }
+![Step size derived from the half-width where HFR reaches three times the minimum, targeting about 3.5 points per side](../assets/figures/step-size.png){ width=620 }
 
 *The wizard reads the half-width \(W\) (the offset from best focus at which the fitted HFR reaches
-\(2 \times\) the minimum HFR, averaged over the two sides) and recommends a step of \(W / 3.5\), so
+\(3 \times\) the minimum HFR, averaged over the two sides) and recommends a step of \(W / 3.5\), so
 the focus-sensitive band holds about 3–4 points per side. The recommendation defaults to 4 offset
 steps per side and is clamped to at least 1 (and to the focuser's limits when known).*
 
 !!! tip "When this helps"
     A degenerate or near-flat fit (no finite minimum, non-positive minimum HFR, or a curve that never
-    reaches twice the minimum within the search budget) yields no usable half-width; the wizard then
+    reaches three times the minimum within the search budget) yields no usable half-width; the wizard then
     leaves your current step size unchanged rather than guessing. Trust the recommendation most when
     the fit is clean and the V-curve is well-formed, exactly the runs where the optimizer also scores
     high.

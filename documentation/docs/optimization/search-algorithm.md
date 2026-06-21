@@ -174,7 +174,7 @@ so the speedup is free. Measured end to end, the early/late split plus bounded p
 
 The recommended auto-focus step size is **derived from the winning fit, not searched** — it is not one
 of the optimizer's variables. From the fitted curve, the recommender finds the focus-sensitive
-half-width \(W\): the offset from best focus at which the modeled HFR reaches twice the minimum HFR
+half-width \(W\): the offset from best focus at which the modeled HFR reaches three times the minimum HFR
 (averaged over the two sides to handle an asymmetric model). It then sets the step to
 \(W / 3.5\), so a sweep lands roughly 3–4 measurement points per side inside the band where the curve
 carries the most slope, with a default of 4 offset steps per side. The result is clamped to at least

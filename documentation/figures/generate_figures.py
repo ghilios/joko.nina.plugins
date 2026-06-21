@@ -661,15 +661,20 @@ def fig_compass_search(out_dir):
 
 
 def fig_step_size(out_dir):
-    xmin, a, b, c = 5000.0, 3.0, 300.0, 1.5
+    # _hyperbola(x) = c + a*sqrt(1 + ((x-xmin)/b)^2), so its minimum (best-focus HFR) is c + a.
+    # Use a minimum HFR of 3, and a curve width (b) that puts the 3x-min crossing comfortably in view.
+    xmin, a, c, b = 5000.0, 1.5, 1.5, 110.0
+    min_hfr = c + a  # 3.0
     x = np.linspace(4200, 5800, 400)
     y = _hyperbola(x, xmin, a, b, c)
-    two_min = 2 * c
+    target = 3.0 * min_hfr  # 3 × min HFR == 9
     fig, ax = plt.subplots(figsize=(7.2, 4.2))
     ax.plot(x, y, color=ACCENT, lw=2)
-    ax.axhline(two_min, color=WARN, ls="--", lw=1, label="2 × min HFR")
-    # find half-width where HFR == 2*min
-    right = x[np.argmin(np.abs(y[x > xmin] - two_min)) + np.sum(x <= xmin)]
+    ax.axhline(min_hfr, color="0.5", ls=":", lw=1, label="min HFR")
+    ax.axhline(target, color=WARN, ls="--", lw=1, label="3 × min HFR")
+    # find half-width where HFR == 3*min
+    right_mask = x > xmin
+    right = x[right_mask][np.argmin(np.abs(y[right_mask] - target))]
     hw = right - xmin
     step = hw / 3.5
     for k in range(-3, 4):

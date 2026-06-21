@@ -26,7 +26,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>
         /// The modeled focus-sensitive half-width: the offset from best focus at which the fitted HFR reaches
-        /// twice the minimum HFR (averaged over the two sides). <see cref="double.NaN"/> for a degenerate fit.
+        /// three times the minimum HFR (averaged over the two sides). <see cref="double.NaN"/> for a degenerate fit.
         /// </summary>
         public double HalfWidth { get; set; }
     }
@@ -34,11 +34,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// <summary>
     /// Recommends an auto-focus step size from a winning hyperbolic fit. The idea: size the step so a focus sweep
     /// lands ~3-4 measurement points on each side of focus inside the "focus-sensitive" region — the band where
-    /// HFR climbs from its minimum to roughly twice the minimum, which is where the curve carries the most slope
-    /// (and thus the most information). The half-width W of that band is read directly off the fitted model, and
-    /// the step is W / 3.5 (so the band holds ~3-4 points per side).
+    /// HFR climbs from its minimum to roughly three times the minimum, which is where the curve carries the most
+    /// slope (and thus the most information). The half-width W of that band is read directly off the fitted model,
+    /// and the step is W / 3.5 (so the band holds ~3-4 points per side).
     /// </summary>
     public static class StepSizeRecommender {
+        // The focus-sensitive band runs from the minimum HFR up to this multiple of it; its half-width sets the step.
+        private const double HfrThresholdMultiple = 3.0;
+
         // Targeted points per side within the focus-sensitive band [x0, x0 + W]: W / PointsPerSide steps.
         private const double PointsPerSide = 3.5;
 
@@ -67,9 +70,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             var fitting = bestFit.Fitting;
-            var target = 2.0 * minHfr;
+            var target = HfrThresholdMultiple * minHfr;
 
-            // Search outward from x0 in both directions for the offset where HFR == 2*minHfr.
+            // Search outward from x0 in both directions for the offset where HFR == HfrThresholdMultiple*minHfr.
             var searchSpan = SearchSpan(bestFit);
             var rightW = FindHalfWidth(fitting, x0, +1.0, target, searchSpan);
             var leftW = FindHalfWidth(fitting, x0, -1.0, target, searchSpan);
@@ -155,7 +158,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
                 prevOffset = offset;
             }
-            return double.NaN; // never reached 2*min within the budget (near-flat / degenerate)
+            return double.NaN; // never reached 3*min within the budget (near-flat / degenerate)
         }
 
         private static double Bisect(Func<double, double> fitting, double x0, double direction, double target, double lo, double hi) {

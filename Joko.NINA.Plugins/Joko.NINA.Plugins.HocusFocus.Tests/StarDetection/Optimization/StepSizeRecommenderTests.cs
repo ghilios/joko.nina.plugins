@@ -24,12 +24,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.Optimization;
 [TestFixture]
 public class StepSizeRecommenderTests {
 
-    // Symmetric hyperbola hfr(pos) = sqrt(a^2 + ((pos - p0)/b)^2). The offset W where hfr == 2*minHfr (== 2a)
-    // satisfies 4a^2 = a^2 + (W/b)^2 => W = b*sqrt(3)*a. With a=1.5, b=8 => W = 8*sqrt(3)*1.5 ~= 20.78.
+    // Symmetric hyperbola hfr(pos) = sqrt(a^2 + ((pos - p0)/b)^2). The offset W where hfr == 3*minHfr (== 3a)
+    // satisfies 9a^2 = a^2 + (W/b)^2 => W = b*sqrt(8)*a. With a=1.5, b=8 => W = 8*sqrt(8)*1.5 ~= 33.94.
     private const double A = 1.5;
     private const double B = 8.0;
     private const int P0 = 10000;
-    private static double ExpectedHalfWidth => B * Math.Sqrt(3.0) * A; // ~20.78
+    private static double ExpectedHalfWidth => B * Math.Sqrt(8.0) * A; // ~33.94
 
     private static AlglibHyperbolicFitting FitCleanHyperbola() {
         var alglib = new AlglibAPI();
@@ -50,9 +50,9 @@ public class StepSizeRecommenderTests {
         var fit = FitCleanHyperbola();
         var rec = StepSizeRecommender.Recommend(fit, currentStepSize: 100);
 
-        var expectedStep = (int)Math.Round(ExpectedHalfWidth / 3.5); // ~6
+        var expectedStep = (int)Math.Round(ExpectedHalfWidth / 3.5); // ~10
         Assert.Multiple(() => {
-            Assert.That(rec.HalfWidth, Is.EqualTo(ExpectedHalfWidth).Within(2.0), "modeled 2x-min-HFR half-width");
+            Assert.That(rec.HalfWidth, Is.EqualTo(ExpectedHalfWidth).Within(2.0), "modeled 3x-min-HFR half-width");
             Assert.That(rec.StepSize, Is.EqualTo(expectedStep).Within(1), "step size ~= round(W / 3.5) so the sweep has ~3-4 points/side");
             Assert.That(rec.OffsetSteps, Is.EqualTo(4));
         });

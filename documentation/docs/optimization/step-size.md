@@ -12,21 +12,21 @@ the suggestion reflects detection settings that have already been tuned for your
 ## The focus-sensitive band
 
 Far from focus the HFR curve is steep and almost linear; near the minimum it flattens. The band that matters
-for pinning the minimum is where HFR climbs from its minimum value up to roughly twice that minimum. The
+for pinning the minimum is where HFR climbs from its minimum value up to roughly three times that minimum. The
 recommender measures the half-width of that band:
 
 \[
-\text{HFR}(p_{\text{focus}} \pm \text{halfWidth}) \;=\; 2 \cdot \text{HFR}_{\min}
+\text{HFR}(p_{\text{focus}} \pm \text{halfWidth}) \;=\; 3 \cdot \text{HFR}_{\min}
 \]
 
 Starting from the fitted best-focus position, it searches **outward in both directions** for the offset at
-which the fitted HFR reaches \(2 \times \text{HFR}_{\min}\): a coarse outward walk brackets the target, then a
+which the fitted HFR reaches \(3 \times \text{HFR}_{\min}\): a coarse outward walk brackets the target, then a
 bisection refines it to high precision. The search is bounded (at most a few times the sampled focuser span)
 so a flat or degenerate fit cannot send it off to infinity. The left and right offsets are **averaged** so an
 asymmetric model still yields a single half-width.
 
-![Step size derived from the 2x-minimum-HFR half-width with about 3.5 points per side](../assets/figures/step-size.png){ width=620 }
-*The shaded band spans the region where HFR is below twice its minimum. The recommended step (green lines)
+![Step size derived from the 3x-minimum-HFR half-width with about 3.5 points per side](../assets/figures/step-size.png){ width=620 }
+*The shaded band spans the region where HFR is below three times its minimum. The recommended step (green lines)
 divides each side of that band into roughly 3–4 measurement points.*
 
 ## From half-width to step size
