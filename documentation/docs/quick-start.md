@@ -34,7 +34,7 @@ Turn on the parts you want. Go to **Options → Imaging → Image Options** and,
 
 !!! note "Some features need both"
     The autofocus engine and the Aberration Inspector require Hocus Focus to be selected for **both**
-    Auto Focus **and** Star Detection. You can otherwise mix and match — e.g. keep only the detector.
+    Auto Focus **and** Star Detection. You can otherwise mix and match, for example keeping only the detector.
 
 ## 3. Optimize star detection
 
@@ -52,34 +52,34 @@ You will choose **what to optimize for** on the start page:
 
 The wizard searches from the default settings and reports its improvement **relative to your current
 settings**; it will never hand back a result worse than what you have today. You can feed it a
-[saved autofocus run](overview/autofocus.md) (recommended — see step 6) or run a fresh one. After it
+[saved autofocus run](overview/autofocus.md) (recommended; see step 6) or run a fresh one. After it
 finishes you can **Continue optimizing** for another pass or accept the result.
 
 → Full detail: [Star Detection Optimization](optimization/index.md).
 
 ## 4. Check for tilt and backfocus
 
-Open the **Aberration Inspector** dockable panel and run a **Detailed Analysis** — it performs an
+Open the **Aberration Inspector** dockable panel and run a **Detailed Analysis**. It performs an
 autofocus across the center and corners of the sensor at once and reports **tilt**, **backfocus** (the
 center-to-corner offset), and **field curvature**. A lighter **Simple Analysis** takes a single
 exposure to show an FWHM contour map and an eccentricity vector field for a quick look.
 
 Enable **Sensor Curve Model** if you want curvature and centering numbers (not just a corner-vs-center
-tilt plane) — for example when you intend to physically correct tilt.
+tilt plane), for example when you intend to physically correct tilt.
 
 → Full detail: [Tilt &amp; Aberration Inspector](overview/tilt-aberration-inspector.md).
 
 ## 5. If you have a tilt adapter, calibrate it
 
-The inspector can turn its tilt measurement into **concrete screw-turn (or stepper-step) guidance** —
+The inspector can turn its tilt measurement into **concrete screw-turn (or stepper-step) guidance**,
 but only after the **Tilt Adapter Wizard** has learned where each screw sits relative to your sensor and
 how far a turn moves it.
 
 1. Pick your adapter from the **Device** preset list (or **Manual** to enter the
    [hardware values](overview/tilt-aberration-inspector.md#absolute-screw-turn-or-stepper-step-guidance)
    yourself: thread pitch, screw radius, screw count).
-2. Run the guided **calibration loop** — a baseline measurement, then turning the screws by a known
-   amount while the wizard re-measures — to map the screws into image space.
+2. Run the guided **calibration loop** (a baseline measurement, then turning the screws by a known
+   amount while the wizard re-measures) to map the screws into image space.
 
 Once calibrated, the inspector's adjustment chart tells you exactly which screw to turn and by how much.
 
@@ -93,11 +93,11 @@ indoors as many times as you like with different settings.
 1. **Save a run.** On the **Auto Focus** options page, turn on **Save** and set a **Save Path**. Every
    autofocus run then writes its images, star-detection results, and annotated frames to that folder.
 2. **Replay it.** Point the [Optimization Wizard](optimization/index.md) (or the Aberration Inspector's
-   **Replay** button) at a saved run. The engine re-fits the curve from the saved frames — deterministically,
-   so a re-fit reproduces the same per-position HFR every time — letting you compare settings without
-   touching the telescope.
+   **Replay** button) at a saved run. The engine re-fits the curve from the saved frames
+   deterministically, so a re-fit reproduces the same per-position HFR every time. That lets you compare
+   settings without touching the telescope.
 
 This replay loop is the fastest way to tune detection: optimize, label any missed or false stars,
-re-optimize, and repeat — all from your desk.
+re-optimize, and repeat, all from your desk.
 
 → Full detail: [Autofocus](overview/autofocus.md) and [Star Detection Optimization](optimization/index.md).

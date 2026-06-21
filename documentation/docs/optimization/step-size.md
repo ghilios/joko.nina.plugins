@@ -50,7 +50,7 @@ that many points on each side of the estimated minimum lands neatly inside the f
 !!! tip "How to use the recommendation"
     Treat it as a starting point for the autofocus **Step Size** on the same rig and filter. Because the band
     width depends on focal ratio, pixel scale, and the focuser's steps-per-unit-travel, the right step differs
-    between setups — which is exactly why deriving it from a measured curve beats a fixed guess. The step size
+    between setups, which is exactly why deriving it from a measured curve beats a fixed guess. The step size
     also feeds back into the objective: \(S_{\text{focus}}\) normalizes focus uncertainty by the step size, so
     a well-chosen step makes the optimization's focus score meaningful (see
     [The objective function](objective-function.md) and [AF-curve fitting](af-curve-fitting.md)).

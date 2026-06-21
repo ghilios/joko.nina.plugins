@@ -11,7 +11,7 @@ tilt-and-curvature model so you can quantify and correct aberrations across the 
 !!! tip "New here? Start with the Quick Start"
     The **[Quick Start](quick-start.md)** walks you from a fresh install through setting up detection,
     autofocus, and annotation, optimizing star detection, and checking your rig for tilt and backfocus
-    errors — linking to the deeper reference pages as you go.
+    errors, linking to the deeper reference pages as you go.
 
 ![Star field with accepted stars circled in green and rejected detections in pink, each accepted star labeled with its measured HFR](assets/figures/annotation-overlay.png){ width=620 }
 
@@ -31,7 +31,7 @@ tilt-and-curvature model so you can quantify and correct aberrations across the 
   eccentricity vector fields.
 
 !!! note "Mix and match"
-    You can use the new star detector or the new annotator independently — keep whichever you like.
+    You can use the new star detector or the new annotator independently; keep whichever you like.
     To enable the autofocus and aberration-inspector features, Hocus Focus must be selected for both
     Auto Focus and Star Detection.
 

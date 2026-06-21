@@ -15,19 +15,19 @@ test fires and whether a flagged star is thrown out or merely marked.
 | Reject Contaminated Stars | On | On / Off | On removes flagged stars from the result; Off keeps them and only marks them. |
 
 These are Advanced-mode options. In Simple mode the preset derivation never overrides them,
-so they keep whatever value you (or a reset) last set — i.e. the defaults above.
+so they keep whatever value you (or a reset) last set, i.e. the defaults above.
 
 ## How the gradient-robust test works
 
 For each candidate the detector samples the pixels in a ring (the **background annulus**)
 around the star and fits a robust background **plane** \( b_0 + b_1\,dx + b_2\,dy \) to them
 by iteratively reweighted least squares (Huber weighting). That plane is the key idea: a
-smooth one-sided gradient — the limb of a galaxy, a nebula edge, vignetting — is absorbed
+smooth one-sided gradient (the limb of a galaxy, a nebula edge, vignetting) is absorbed
 into \(b_1\) and \(b_2\) and **subtracted away**, so it cannot masquerade as contamination.
 
 The fitted plane is then evaluated per pixel and doubles as the **local background** used for
 the star's centroid, flux, HFR, and PSF, so a gradient no longer biases any measurement. On a
-flat field the plane simply equals the annulus level and nothing changes.
+flat field the plane equals the annulus level and nothing changes.
 
 After subtracting the plane, the residuals are binned into 8 octants around the star. The
 detector computes the median residual in each octant and its standard error
@@ -40,13 +40,13 @@ flagged when **any single octant** shows a one-sided **positive** excess:
 \]
 
 Two design choices make this specific to real contaminants. The test is **one-sided and
-positive** — a contaminant only *adds* light — so an edge-clip *deficit* on one side never
+positive** (a contaminant only *adds* light), so an edge-clip *deficit* on one side never
 trips it. And it acts **per octant**, so the localized glow of a neighbor is caught while the
 smooth, all-around gradient (already removed by the plane) is ignored. An octant needs at
 least 8 residual pixels to be considered.
 
 ![Star with a background annulus that is brighter on one side because of a nearby neighbor](../assets/figures/contamination-annulus.png){ width=620 }
-*One octant of the background annulus is brighter than the robust plane predicts — the
+*One octant of the background annulus is brighter than the robust plane predicts, the
 signature of a nearby star. The plane fit removes any smooth gradient first, so only this
 localized, one-sided excess remains to trip the test.*
 
@@ -69,14 +69,14 @@ Sets how large the one-sided asymmetry must be, in sigma, before a star is flagg
 clamped to 0, and 0 disables the test entirely)
 
 Because the threshold is in multiples of each star's *own* annulus scatter, it adapts
-automatically to bright and faint stars and to noisy versus clean frames — the σ is measured
+automatically to bright and faint stars and to noisy versus clean frames: the σ is measured
 per star, not assumed globally.
 
 !!! tip "When to adjust"
 
     - **Lower it (e.g. 3–4)** when you image dense fields, clusters, or galaxy/nebula regions
       where close pairs are common and you want HFR and PSF statistics scrubbed of every
-      contaminated star. More stars get flagged — watch the **Contaminated** rejection count in
+      contaminated star. More stars get flagged. Watch the **Contaminated** rejection count in
       the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)
       climb as you lower it (or, with rejection off, the contaminated annotation count).
     - **Leave it at 5** for typical wide-to-medium fields. This is the validated default and
@@ -84,7 +84,7 @@ per star, not assumed globally.
     - **Raise it (e.g. 8–12)** in sparse fields if you find the test is flagging real,
       isolated stars and you want only the most blatant contaminants caught.
     - **Set it to 0** to switch the flagging decision off completely. The plane is still fit
-      and still used as the local background, so measurements stay gradient-corrected — you
+      and still used as the local background, so measurements stay gradient-corrected. You
       only lose the contamination flag itself.
     - **Can hurt when** set too low on star-poor frames: over-flagging combined with
       rejection (below) can thin out your usable star list and weaken the focus measurement.
@@ -102,7 +102,7 @@ Decides whether a flagged star is removed from the result or kept and only marke
 
 When **on**, a flagged star is dropped via the `Contaminated` rejection gate and never enters
 the HFR/PSF aggregation. When **off**, the same star stays in the detected set carrying its
-"contamination suspected" marker — useful for inspection and for the labeling/diagnostic
+"contamination suspected" marker, useful for inspection and for the labeling/diagnostic
 tools, which keep flagged stars so they can be analyzed.
 
 !!! tip "When to adjust"
@@ -113,7 +113,7 @@ tools, which keep flagged stars so they can be analyzed.
       [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel),
       whereas with reject off the same stars stay accepted and show only the flagged/contaminated
       annotation.
-    - **Turn it off** when you want to *see* which stars are suspect rather than lose them —
+    - **Turn it off** when you want to *see* which stars are suspect rather than lose them,
       for example while diagnosing why a frame is short on stars, or when feeding frames to
       the review/diagnostic tooling. It is also the safe choice in very sparse fields where
       you cannot afford to drop borderline stars.
@@ -124,5 +124,5 @@ tools, which keep flagged stars so they can be analyzed.
 !!! warning "Not a substitute for clean candidate selection"
 
     This test runs on stars that already passed the other acceptance gates; it specifically
-    targets *one-sided* background excess. Broad problems — saturation, distortion, hot
-    pixels — are handled by their own settings, not here.
+    targets *one-sided* background excess. Broad problems (saturation, distortion, hot
+    pixels) are handled by their own settings, not here.

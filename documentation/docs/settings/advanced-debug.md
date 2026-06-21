@@ -24,7 +24,7 @@ used when tuning detection.
 !!! note "Simple Mode vs. Advanced Mode"
 
     With **Advanced Mode** off (the default), the four advanced groups are computed for you every time a
-    Simple preset changes — you never edit individual knobs. The settings on the rest of this section's
+    Simple preset changes; you never edit individual knobs. The settings on the rest of this section's
     pages only become directly editable once you turn **Advanced Mode** on.
 
 ## Advanced Mode
@@ -44,8 +44,8 @@ values become a starting point you can tune freely.
 
 !!! tip "When this helps"
 
-    Leave Advanced Mode off and use the presets unless you have a specific reason to override a single knob —
-    the presets already cover noisy sensors, focal length, and wide focus sweeps. Turn it on only when you
+    Leave Advanced Mode off and use the presets unless you have a specific reason to override a single knob.
+    The presets already cover noisy sensors, focal length, and wide focus sweeps. Turn it on only when you
     are deliberately tuning detection against your own data and understand what each knob does.
 
 ## Simple-Mode presets
@@ -74,7 +74,7 @@ How each value maps:
 | High | On | 6 | On | ×1.0 |
 
 (Noise-reduction radius: base radius 3/5; +1 is added whenever Hotpixel Thresholding is enabled (the
-default), so the applied radius is 4/6 — None stays 0 because filtering is off.)
+default), so the applied radius is 4/6 (None stays 0 because filtering is off).)
 
 The *sensitivity scale* compensates for how the noise σ is measured per preset, so that the same effective
 threshold is preserved across presets. It feeds into the derived **Brightness Sensitivity** described below.
@@ -143,9 +143,9 @@ more sensitive to compensate.
 
 The derivations stack: Noise Level sets the blur and the sensitivity scale; Pixel Scale and Focus Range then
 adjust the structure-layer count, minimum box size, sub-pixel sampling, and brightness threshold on top of
-that. The presets also fix several knobs that are not exposed as preset dropdowns — for example Star Peak
+that. The presets also fix several knobs that are not exposed as preset dropdowns (for example Star Peak
 Response, Max Distortion, Star Center Tolerance, the PSF fit type (Moffat 4.0) and resolution, and the
-hotpixel threshold — to their standard Simple-Mode values. Those individual settings are documented on the
+hotpixel threshold) to their standard Simple-Mode values. Those individual settings are documented on the
 other pages in this section; in Simple Mode you do not edit them directly.
 
 ## Use Optimized Settings
@@ -167,7 +167,7 @@ off reverts to the pure preset derivation.
 
 !!! tip "When this helps"
 
-    Enable this after running the optimization wizard against your own autofocus runs — it lets the tuned
+    Enable this after running the optimization wizard against your own autofocus runs. It lets the tuned
     result drive live detection while you stay in Simple Mode. See the
     [optimization overview](../optimization/index.md) for how the snapshot is produced.
 
@@ -197,7 +197,7 @@ or each star's own measured HFR.
 
 !!! tip "When this helps"
 
-    Leave on **Median** for almost all cases — it is robust without tuning. Use **Mean + Outlier Detection**
+    Leave on **Median** for almost all cases; it is robust without tuning. Use **Mean + Outlier Detection**
     only if you specifically want a mean-based aggregate with an explicit, MAD-based outlier cut (e.g. when
     comparing against tooling that reports a mean). On sparse fields the mean can be noisier than the median.
 
@@ -246,7 +246,7 @@ Writes a file for each step of the detection pipeline so you can inspect exactly
 - **Default:** Off
 - **Range:** On / Off
 
-This option is **not persisted** — it always starts off when the plugin loads, so a forgotten toggle never
+This option is **not persisted**: it always starts off when the plugin loads, so a forgotten toggle never
 keeps spamming files across sessions. Use it for a focused debugging run and turn it back off.
 
 ## Intermediate Path
@@ -274,5 +274,5 @@ usually faster than the intermediate files:
 
 ![Annotated star field with accepted stars circled green and rejected stars circled pink, each labeled with its HFR](../assets/figures/annotation-overlay.png){ width=620 }
 
-*Accepted stars (green) and rejected stars (pink) with per-star HFR labels — the same accept/reject logic the
-debug files record step by step.*
+*Accepted stars (green) and rejected stars (pink) with per-star HFR labels, showing the same accept/reject
+logic the debug files record step by step.*

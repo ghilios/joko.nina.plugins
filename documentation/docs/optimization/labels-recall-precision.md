@@ -1,6 +1,6 @@
 # Labels: Recall and Precision
 
-The objective's [star-count term](objective-function.md) is a *proxy* for good detection — it rewards keeping
+The objective's [star-count term](objective-function.md) is a *proxy* for good detection. It rewards keeping
 enough stars on every frame, but it cannot tell a real faint star from a noise blob, or know that a particular
 accepted "star" is actually a hot column. When you want the optimizer to chase **measured** detection quality
 instead of a proxy, you give it ground truth: hand-drawn **labels**. With labels present, the objective gains a
@@ -39,7 +39,7 @@ S_{\text{label}} = 0.5 \cdot \text{recall} + 0.5 \cdot \text{precision}
 \]
 
 This term enters the per-run objective with weight \(W_\ell = 0.25\) (the weights renormalize so they still sum
-to 1), and **only** when at least one label exists for the run — otherwise it is dropped entirely. See
+to 1), and **only** when at least one label exists for the run. Otherwise it is dropped entirely. See
 [The objective function](objective-function.md) for how it folds into \(J_{\text{run}}\).
 
 !!! note "Why boxes, not points"
@@ -59,7 +59,7 @@ and re-optimize so the new term pushes the search toward your judgment.
    stars and suppress your false positives score higher.
 
 !!! tip "When labels are worth the effort"
-    Reach for labels when the proxy terms have plateaued but you can still *see* problems — faint companions
+    Reach for labels when the proxy terms have plateaued but you can still *see* problems: faint companions
     being dropped, or a hot column repeatedly accepted as a star. A handful of well-chosen boxes on the
     hardest frames is usually enough to break the tie. For routine tuning, the label-free objective already
     produces good settings.

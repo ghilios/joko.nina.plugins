@@ -3,8 +3,9 @@
 The **Aberration Inspector** is a dockable panel that drives an auto-focus run (or a single snapshot)
 and turns the result into a quantitative picture of how your sensor sits in the optical train. It
 answers the questions a single center-of-frame focus number cannot: *Is one corner sharper than the
-other? Is the field bowed? Is my backfocus (the spacing between the corrector/flattener and the sensor) distance right?* And, when paired with a tilt-adapter
-calibration, it translates those numbers into concrete screw-turn guidance.
+other? Is the field bowed? Is my backfocus right?* Backfocus is the spacing between the
+corrector/flattener and the sensor. And, when paired with a tilt-adapter calibration, the inspector
+translates those numbers into concrete screw-turn guidance.
 
 ## Sensor tilt, in one paragraph
 
@@ -37,7 +38,7 @@ field curvature." The panel reports, among others:
 | **AutoFocus offset** | "The number of focuser steps between the AutoFocus position and the Sensor Mean Focuser Position." |
 
 A lighter-weight **Simple Analysis** "[takes] a single exposure to produce a FWHM contour map and
-Eccentricity vector field" — useful for a quick look at off-axis aberrations without a full sweep.
+Eccentricity vector field," useful for a quick look at off-axis aberrations without a full sweep.
 
 ![Corner PSFs showing off-axis aberration](../assets/figures/aberration-corners.png){ width=620 }
 
@@ -47,8 +48,8 @@ Simple Analysis make this pattern visible at a glance.*
 ## How it measures it
 
 The Detailed Analysis fits a focus curve **per region** rather than just at the center. Internally it
-evaluates the full field plus five named regions — center, top-left, top-right, bottom-left, and
-bottom-right — and records each region's estimated best-focus position and its goodness-of-fit
+evaluates the full field plus five named regions (center, top-left, top-right, bottom-left, and
+bottom-right) and records each region's estimated best-focus position and its goodness-of-fit
 (\(R^2\)).
 
 ### The tilt plane
@@ -62,8 +63,8 @@ normalized image coordinates that run from \(-0.5\) to \(+0.5\) on each axis:
 
 \(A\) and \(B\) are the tilt slopes in the horizontal and vertical directions (in focuser steps per
 normalized image unit), and \(C\) is the mean focus plane. Each corner's **Adjustment Required** is
-simply its best-focus position minus the mean, reported in focuser steps and — if you have set
-*Microns per Focuser Step* — in microns.
+its best-focus position minus the mean, reported in focuser steps (and in microns, if you have set
+*Microns per Focuser Step*).
 
 ### The full sensor surface (optional)
 
@@ -85,15 +86,15 @@ through the per-star best-focus positions.
     Matching stars across frames is hardest at the defocused extremes of the sweep, where stars are
     bloated and sparse. The matcher chains alignment through neighboring frames and retries against a
     denser reference rather than giving up, so the "*N frames failed to align*" condition is now rare.
-    If you still hit it, collect more stars on the weak frames — a wider exposure or the
-    [donut-recovery settings](../settings/acceptance-gates.md#recover-out-of-focus-donut-stars) — and
+    If you still hit it, collect more stars on the weak frames (a wider exposure, or the
+    [donut-recovery settings](../settings/acceptance-gates.md#recover-out-of-focus-donut-stars)) and
     re-run.
 
 ## Guiding tilt-adapter screw adjustments
 
 A measured tilt plane tells you which corners need to move and by how much, but turning a screw moves
-the sensor along that screw's own axis — so the inspector must know **where each screw sits relative
-to the sensor**. That mapping is established once by the **Tilt Adapter Wizard**.
+the sensor along that screw's own axis. The inspector must therefore know **where each screw sits
+relative to the sensor**. That mapping is established once by the **Tilt Adapter Wizard**.
 
 ### The screw-angle convention
 
@@ -105,17 +106,17 @@ stores one angle per screw (`Screw1AngleDegrees` … `Screw4AngleDegrees`).
     A star diagonal, a mirror, or a rotator can flip the sensor's orientation inside the camera body.
     As the wizard's own code comments note, "image mirroring causes screws numbered clockwise on the
     physical adapter to appear counter-clockwise in the sensor image." The wizard therefore **derives
-    the winding direction from the actual measurements** rather than assuming clockwise — so do not
+    the winding direction from the actual measurements** rather than assuming clockwise. Do not
     reason about screw numbers from the physical adapter; trust the calibrated image-space angles.
 
 ### 3-screw vs 4-screw adapters
 
 The adapter type is set by **Screw Count** (default `3`).
 
-- **3-screw adapter** — screws are independent and spaced about `120°` apart. The wizard labels
+- **3-screw adapter**: screws are independent and spaced about `120°` apart. The wizard labels
   Screw 1 at the top (12 o'clock) and numbers the rest clockwise, then solves for the three angles
   with an equal-spacing constraint, splitting measurement error evenly between them.
-- **4-screw adapter** — screws are spaced about `90°` apart and **opposite screws are mechanically
+- **4-screw adapter**: screws are spaced about `90°` apart and **opposite screws are mechanically
   coupled**, so adjustments are made in pairs (turn one in while the opposite turns out). The wizard
   exploits this: "opposite screws are always 180° apart regardless of mirroring," so it measures two
   screws and places the other two 180° across.
@@ -126,7 +127,7 @@ The wizard establishes the screw-to-tilt mapping empirically. You take a **basel
 then follow on-screen instructions to turn screws by a known amount (the wizard prompts, e.g., "turn
 ALL screws INWARD exactly 1 full turn each," then per-screw steps), re-measuring after each. From the
 change in the tilt vector \((\Delta A, \Delta B)\) it computes each screw's angle and the sign of its
-effect (`ScrewInwardCurvatureSign` — whether turning a screw inward pushes that side away from or
+effect (`ScrewInwardCurvatureSign`: whether turning a screw inward pushes that side away from or
 toward the telescope). To average out seeing, set **Measurement Average Count** above 1; the wizard
 flags inconsistent repeats so you can re-run.
 
@@ -137,7 +138,7 @@ flags inconsistent repeats so you can re-run.
     focuser's reported step size when available.
 
 !!! tip "Tilt vs. curvature: which can a tilt adapter fix?"
-    A tilt adapter corrects the **linear** part of the focus surface — the tilt plane. It cannot
+    A tilt adapter corrects the **linear** part of the focus surface, the tilt plane. It cannot
     flatten genuine **field curvature** (the bowl/dome residual after the plane is removed); that is
     an optical property of your flattener/corrector and focal ratio. Use the *Tilt effect* and
     *Curvature effect* numbers to tell which problem dominates before reaching for the screwdriver.
@@ -145,14 +146,14 @@ flags inconsistent repeats so you can re-run.
 ### Absolute screw-turn (or stepper-step) guidance
 
 The calibration above tells the inspector *which* screws to move and the focus deviation to remove.
-To turn that into a concrete instruction — *"turn this screw inward ¼ turn"* rather than a number of
-focuser steps — the wizard needs the adapter's **physical hardware model**:
+To turn that into a concrete instruction (*"turn this screw inward ¼ turn"* rather than a number of
+focuser steps), the wizard needs the adapter's **physical hardware model**:
 
 | Hardware field | Meaning |
 |---|---|
 | **Adjustment Type** | Whether the adapter is adjusted by **Screws** (reported in turns) or **Stepper Motors** (reported in steps). |
-| **Thread Pitch** | Axial microns the sensor moves per full screw turn — used when Adjustment Type is Screws. |
-| **Stepper Step Size** | Axial microns per stepper step — used when Adjustment Type is Stepper Motors. |
+| **Thread Pitch** | Axial microns the sensor moves per full screw turn; used when Adjustment Type is Screws. |
+| **Stepper Step Size** | Axial microns per stepper step; used when Adjustment Type is Stepper Motors. |
 | **Screw Radius** | Distance of each screw from the sensor center, in millimeters; converts a tilt *angle* into an axial movement at the screw. |
 
 **Device presets.** Rather than entering those numbers by hand, pick your adapter from the **Device**
@@ -165,7 +166,7 @@ list grows over time; if yours is missing, use Manual and enter its thread pitch
     sensor actually moved. The wizard remembers the last measured value and **warns you if it diverges
     from the configured value**, which usually means the wrong preset is selected or a number was
     mistyped. Without a valid hardware model, adjustments are still reported in focuser steps (and, if
-    *Microns per Focuser Step* is set, in microns) — you just do not get the turn/step figure.
+    *Microns per Focuser Step* is set, in microns); you just do not get the turn/step figure.
 
 ### Saving and replaying a calibration run
 
@@ -174,17 +175,17 @@ for Replay"** and the wizard writes each step's autofocus run (plus a `metadata.
 you choose, so a calibration can be re-analyzed later without going back to the telescope. Two replay
 buttons sit next to **Calibrate**:
 
-- **Replay** — re-runs the analysis on a saved folder using the **settings stored in that run's
+- **Replay**: re-runs the analysis on a saved folder using the **settings stored in that run's
   `metadata.json`** (your current profile settings are restored afterward), reproducing the original
   calibration exactly.
-- **Replay Current Settings** — re-runs the same saved frames with your **current** star-detection and
+- **Replay Current Settings**: re-runs the same saved frames with your **current** star-detection and
   tilt-calibration settings instead, so you can see how a settings change (for example, after running
   the [Optimization Wizard](../optimization/index.md)) would have affected the result. Your profile
   settings are left unchanged.
 
 !!! tip "Tuning detection against a saved calibration"
     Replay-current is the daytime tuning loop for the inspector: save a calibration once at the scope,
-    then iterate on detection settings indoors and replay to compare — the same idea as
+    then iterate on detection settings indoors and replay to compare. It is the same idea as
     [replaying an autofocus run](autofocus.md).
 
 ## Inspector options
@@ -223,7 +224,7 @@ from the option definitions; descriptions quote the in-app tooltips where one ex
 
 !!! tip "When Sensor ROI / Corners ROI help"
     Reach for **Sensor ROI** when your flattener cannot deliver a flat field all the way to the sensor
-    edges — restricting analysis to the well-corrected center keeps a bad corner from polluting the
+    edges. Restricting analysis to the well-corrected center keeps a bad corner from polluting the
     tilt fit. Use **Corners ROI** when you want the corner regions sampled closer to the actual
     corners than the default outer one-ninth of the frame.
 
@@ -233,5 +234,5 @@ The **Run Aberration Inspector** sequence instruction performs a Detailed Analys
 validates that the camera and focuser are connected before running and fails the instruction if the
 analysis does not complete. Its estimated duration is built from the configured step count, exposure
 time, and a focuser settle allowance (the focuser-settle setting plus two seconds), scaled by the
-number of auto-focus attempts and capped to guard against unreasonable estimates — so a long sequence
+number of auto-focus attempts and capped to guard against unreasonable estimates, so a long sequence
 plan can budget time for the run.

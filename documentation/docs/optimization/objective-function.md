@@ -4,7 +4,7 @@ The Star Detection Optimization Wizard does not chase "more stars" or "lower HFR
 single composite score \(J \in [0, 1]\) that captures what actually matters for autofocus: **how repeatable
 the best-focus position is**, backed up by a healthy star count and a clean curve fit. Every candidate set of
 detection settings is reduced to this one number, the search keeps whatever scores highest, and the result is
-guaranteed never to be worse than your current settings — only strictly-improving moves are accepted above the
+guaranteed never to be worse than your current settings. Only strictly-improving moves are accepted above the
 seed, and the wizard additionally refuses to return anything that scores below your current settings (see
 [Search algorithm](search-algorithm.md#three-guarantees)).
 
@@ -57,8 +57,8 @@ Focus carries the largest weight because focus repeatability is the whole point 
 Before any of the weighted math, two hard constraints can force \(J_{\text{run}} = 0\):
 
 - **Starved frames.** If more than \(\text{MaxFramesBelowHardFloor} = 0\) frames have fewer than
-  \(N_{\text{hard}} = 3\) accepted stars, the run scores zero. In other words, **every** frame in the sweep —
-  including the most defocused extremes — must hold at least 3 stars. A setting that loses the curve at the
+  \(N_{\text{hard}} = 3\) accepted stars, the run scores zero. In other words, **every** frame in the sweep
+  (including the most defocused extremes) must hold at least 3 stars. A setting that loses the curve at the
   ends is rejected outright.
 - **Unusable focus uncertainty.** If the fit produces no finite \(\sigma_{\text{focus}}\) and no finite
   leave-one-out fallback, the run scores zero.
@@ -105,7 +105,7 @@ S_{\text{stars}} = 0.6 \cdot \operatorname{clip}\!\left(\frac{n_{\min}}{N_{\text
 where \(\operatorname{clip}(\cdot)\) clamps to \([0, 1]\), \(n_{\min}\) is the smallest per-frame accepted-star
 count, and \(n_{\text{med}}\) is the median. The minimum term saturates at 8 stars on the worst frame; the
 median term saturates at 20. The 0.6 weighting on the minimum means a single starved frame hurts more than a
-merely thin median — the curve is weakest at the defocused extremes, so those are protected first.
+merely thin median, because the curve is weakest at the defocused extremes, so those are protected first.
 
 ![S_stars piecewise from minimum and median star counts](../assets/figures/objective-sstars.png){ width=620 }
 *\(S_{\text{stars}}\) rises with the minimum-frame count (knee at \(N_{\text{floor}} = 8\)) and the median
@@ -153,7 +153,7 @@ Recall and precision are scored by **box containment** of accepted-star centers:
 - **Recall** = the fraction of your "missed" boxes (stars that should have been detected, plus any
   "wrongly-rejected" boxes you flagged) that now contain at least one accepted star. An empty set scores 1.0.
 - **Precision** = the fraction of your "should-reject" boxes (an accepted star you judged spurious) that now
-  contain **no** accepted star — i.e. the bad detection has been excluded. An empty set scores 1.0.
+  contain **no** accepted star, i.e. the bad detection has been excluded. An empty set scores 1.0.
 
 See [Labels: recall and precision](labels-recall-precision.md) for the labeling loop and how each box maps to
 a sub-score.
