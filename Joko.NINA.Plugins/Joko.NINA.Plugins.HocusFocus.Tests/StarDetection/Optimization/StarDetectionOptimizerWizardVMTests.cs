@@ -999,6 +999,88 @@ public class StarDetectionOptimizerWizardVMTests {
         });
     }
 
+    // ---- Stars per frame (per-run star-count trajectory) ------------------------------------------------
+
+    [Test]
+    public void FrameStarCountTrajectory_RendersCountsAndNetDelta() {
+        var single = new FrameStarCountTrajectory { FocuserPosition = 100, Stages = new[] { 52 } };
+        var rising = new FrameStarCountTrajectory { FocuserPosition = 200, Stages = new[] { 52, 61, 78 } };
+        var falling = new FrameStarCountTrajectory { FocuserPosition = 300, Stages = new[] { 80, 74 } };
+        Assert.Multiple(() => {
+            Assert.That(single.CountsText, Is.EqualTo("52"));
+            Assert.That(single.HasDelta, Is.False);
+            Assert.That(single.DeltaText, Is.Empty);
+
+            Assert.That(rising.CountsText, Is.EqualTo("52→61→78"));
+            Assert.That(rising.HasDelta, Is.True);
+            Assert.That(rising.Delta, Is.EqualTo(26));
+            Assert.That(rising.DeltaText, Is.EqualTo("+26"));
+
+            Assert.That(falling.DeltaText, Is.EqualTo("-6"));
+        });
+    }
+
+    [Test]
+    public void BeforeAnyRun_NoStarsPerFrame() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.That(vm.HasStarsPerFrame, Is.False);
+    }
+
+    [Test]
+    public async Task OptimizedVariant_StarsPerFrame_ShowsCurrentToOptimizedTrajectory() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+        vm.IsOptimizedVariant = true; // ensure the Optimized variant is selected
+
+        Assert.Multiple(() => {
+            Assert.That(vm.IsOptimizedVariant, Is.True);
+            Assert.That(vm.HasStarsPerFrame, Is.True);
+            Assert.That(vm.StarsPerFrameLabel, Does.Contain("current"));
+            foreach (var r in vm.StarsPerFrame) {
+                Assert.That(r.Stages.Count, Is.EqualTo(vm.RoundsCompleted + 1), "current + one round");
+                Assert.That(r.CountsText, Does.Contain("→"));
+            }
+        });
+    }
+
+    [Test]
+    public async Task Continue_ExtendsStarsPerFrameTrajectory() {
+        var loader = new RecordingLoader();
+        var vm = NewVM(loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\cont-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null); // chain -> [current, r1, r2]
+
+        Assert.Multiple(() => {
+            Assert.That(vm.IsOptimizedVariant, Is.True);
+            Assert.That(vm.HasStarsPerFrame, Is.True);
+            foreach (var r in vm.StarsPerFrame) {
+                Assert.That(r.Stages.Count, Is.EqualTo(vm.RoundsCompleted + 1), "current + each round");
+            }
+        });
+    }
+
+    [Test]
+    public async Task CurrentVariant_StarsPerFrame_ShowsCountsOnly_NoDelta() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+        vm.IsCurrentVariant = true;
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasStarsPerFrame, Is.True, "Current variant shows the per-frame counts");
+            foreach (var r in vm.StarsPerFrame) {
+                Assert.That(r.Stages.Count, Is.EqualTo(1), "a single (current) stage");
+                Assert.That(r.HasDelta, Is.False);
+                Assert.That(r.DeltaText, Is.Empty);
+            }
+        });
+    }
+
     // ---- Source mode + summary UX (starry-hopper PR1) ---------------------------------------------------
 
     // ---- Start validation (starry-hopper) ---------------------------------------------------------------

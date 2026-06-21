@@ -362,6 +362,46 @@
                             <TextBlock Text="{Binding RunDurationText, Mode=OneWay}" />
                         </StackPanel>
 
+                        <!--  Stars per frame: accepted-star count at each focuser position and how it moved across the
+                              optimization passes (current → optimized, and current → R1 → R2 after Continue). A wrapping
+                              row of compact cells in the main results flow (NOT the gray feedback panel). Shown for the
+                              Optimized variant (with a net delta) and the Current variant (counts only).  -->
+                        <StackPanel Margin="0,8,0,0"
+                                    Visibility="{Binding HasStarsPerFrame, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <TextBlock Margin="0,0,0,4" FontWeight="Bold" Text="{Binding StarsPerFrameLabel, Mode=OneWay}" />
+                            <ItemsControl ItemsSource="{Binding StarsPerFrame}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border
+                                            Margin="0,0,6,6"
+                                            Padding="6,3"
+                                            BorderBrush="{StaticResource BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="3">
+                                            <StackPanel>
+                                                <TextBlock
+                                                    HorizontalAlignment="Center"
+                                                    FontSize="10"
+                                                    Foreground="{StaticResource SecondaryBrush}"
+                                                    Text="{Binding FocuserPosition}" />
+                                                <TextBlock HorizontalAlignment="Center" Text="{Binding CountsText}" />
+                                                <TextBlock
+                                                    HorizontalAlignment="Center"
+                                                    FontWeight="Bold"
+                                                    Text="{Binding DeltaText}"
+                                                    Visibility="{Binding HasDelta, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+
                         <!--  Auto-focus block: the recommended step size / offset steps PLUS the toggle that applies
                               them on Accept, grouped so the toggle's purpose is obvious.  -->
                         <TextBlock Margin="0,8,0,2" FontWeight="Bold" Text="Auto-focus settings" />

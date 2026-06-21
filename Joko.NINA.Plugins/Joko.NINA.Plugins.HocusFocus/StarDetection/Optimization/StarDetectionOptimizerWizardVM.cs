@@ -709,6 +709,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private const int MaxOptimizationRounds = 3;
         private readonly List<StarDetectorParams> optimizedChain = new List<StarDetectorParams>();
         private readonly List<double> optimizedRoundJ = new List<double>();
+        // The Optimized variant's curve per round [round1, round2, …] (parallel to the chain's non-baseline stages),
+        // retained so the per-frame "Stars per frame" trajectory can show counts across each pass. The latest one is
+        // also held in optimizedCurve for the chart; this list is the only place earlier rounds' curves survive.
+        private readonly List<OptimizationCurve> optimizedRoundCurves = new List<OptimizationCurve>();
 
         /// <summary>Number of optimization passes that have produced the current Optimized variant (1 after the
         /// initial optimize; up to <see cref="MaxOptimizationRounds"/> after Continue). 0 when no optimization ran.</summary>
@@ -843,6 +847,49 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// re-run prompt, the star-count comparison, or the label→gate breakdown.</summary>
         public bool ShowFeedbackPanel => ShowReoptimizePrompt || HasStarCountChanges || HasRecommendation;
 
+        /// <summary>Per-frame (per focuser position) accepted-star count and how it moved across the optimization
+        /// passes, shown in the main results flow (NOT the feedback panel). For the Optimized variant the stages are
+        /// [current, round1, round2, …] (the full Continue path); for the Current variant it is the single current
+        /// count; empty for the Feedback variant (its own <see cref="StarCountChanges"/> panel covers that view).</summary>
+        public IReadOnlyList<FrameStarCountTrajectory> StarsPerFrame {
+            get {
+                if (selectedVariant == OptimizationVariant.Optimized && currentCurve != null && optimizedRoundCurves.Count > 0) {
+                    var stages = new List<OptimizationCurve> { currentCurve }; // stage 0 = current settings
+                    stages.AddRange(optimizedRoundCurves);                      // then each optimization round
+                    return BuildStarCountTrajectories(stages);
+                }
+                if (selectedVariant == OptimizationVariant.Current && currentCurve != null) {
+                    return BuildStarCountTrajectories(new[] { currentCurve });  // counts only (single stage)
+                }
+                return Array.Empty<FrameStarCountTrajectory>();
+            }
+        }
+
+        public bool HasStarsPerFrame => StarsPerFrame.Count > 0;
+
+        /// <summary>Heading for the Stars-per-frame section: the Optimized variant shows a current→optimized change,
+        /// the Current variant just the per-frame counts.</summary>
+        public string StarsPerFrameLabel =>
+            selectedVariant == OptimizationVariant.Optimized ? "Stars per frame (current → optimized)" : "Stars per frame";
+
+        /// <summary>Builds per-position star-count trajectories across an ordered list of stage curves (each detects
+        /// the SAME frames, so positions line up). Each row carries that position's summed accepted-star count at
+        /// every stage (missing → 0). Curves that lack per-frame arrays contribute an empty stage.</summary>
+        private static IReadOnlyList<FrameStarCountTrajectory> BuildStarCountTrajectories(IReadOnlyList<OptimizationCurve> stageCurves) {
+            var byStage = stageCurves
+                .Select(c => (c?.FrameStarCounts != null && c.FrameFocuserPositions != null)
+                    ? SumStarCountsByPosition(c.FrameFocuserPositions, c.FrameStarCounts)
+                    : new Dictionary<int, int>())
+                .ToList();
+            var positions = byStage.SelectMany(d => d.Keys).Distinct().OrderBy(p => p).ToList();
+            var rows = new List<FrameStarCountTrajectory>(positions.Count);
+            foreach (var pos in positions) {
+                var stages = byStage.Select(d => d.TryGetValue(pos, out var v) ? v : 0).ToList();
+                rows.Add(new FrameStarCountTrajectory { FocuserPosition = pos, Stages = stages });
+            }
+            return rows;
+        }
+
         /// <summary>Builds the per-position accepted-star-count change between two variants' representative-run frames
         /// (positions match because both detect the SAME frames). Returns empty when either side lacks counts.</summary>
         private static IReadOnlyList<FrameStarCountChange> BuildStarCountChanges(OptimizationCurve baseline, OptimizationCurve feedback) {
@@ -915,6 +962,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(StarCountChanges));
             RaisePropertyChanged(nameof(HasStarCountChanges));
             RaisePropertyChanged(nameof(StarCountChangeBaselineLabel));
+            RaisePropertyChanged(nameof(StarsPerFrame));
+            RaisePropertyChanged(nameof(HasStarsPerFrame));
+            RaisePropertyChanged(nameof(StarsPerFrameLabel));
             RaisePropertyChanged(nameof(ShowReoptimizePrompt));
             RaisePropertyChanged(nameof(ShowFeedbackPanel));
             RaisePropertyChanged(nameof(CanContinueOptimization));
@@ -933,6 +983,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             currentCurve = optimizedCurve = feedbackCurve = null;
             optimizedChain.Clear();
             optimizedRoundJ.Clear();
+            optimizedRoundCurves.Clear();
             selectedVariant = OptimizationVariant.Current;
             OptimizerImprovedOverCurrent = false;
             RaiseSelectedVariantDependents();
@@ -1270,6 +1321,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     optimizedChain.Add(optimizeResult.BestParams);
                     optimizedRoundJ.Clear();
                     optimizedRoundJ.Add(optimizeResult.BestJ);
+                    optimizedRoundCurves.Clear();
+                    optimizedRoundCurves.Add(built.OptimizedCurve); // round-1 curve (stage 0 = currentCurve, the baseline)
                     // Only PRESENT the optimized result as the recommendation when it strictly beats the user's
                     // current settings. The search seeds from the default params and guarantees ">= seed", NOT
                     // ">= current"; on a saturated/easy run it can converge to a local optimum worse than a well-tuned
@@ -2090,6 +2143,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 optimizedCurve = built.OptimizedCurve;
                 optimizedChain.Add(optimizeResult.BestParams);
                 optimizedRoundJ.Add(optimizeResult.BestJ);
+                optimizedRoundCurves.Add(built.OptimizedCurve); // retain this round's curve for the per-frame trajectory
                 OptimizerImprovedOverCurrent = optimizeResult.BestJ > currentBaselineJ + ImprovementEpsilon;
                 selectedVariant = OptimizationVariant.Optimized;
                 RaiseSelectedVariantDependents();
