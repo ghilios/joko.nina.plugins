@@ -449,6 +449,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Pixel scale of the image given for star detection
         public double PixelScale { get; set; } = 1.0d;
 
+        // How per-star HFR is aggregated (and whether an extra HFR-outlier rejection pass runs). Carried on the params
+        // bundle — rather than read from the live options at the detect site — so a replay that supplies a capture-time
+        // options override reproduces the original run's aggregation/outlier behavior. Affects detection output, so it
+        // is included in the cache key by ToCanonicalCacheString (not denylisted).
+        public MeasurementAverageEnum MeasurementAverage { get; set; } = MeasurementAverageEnum.Median;
+
         // Controls inner parallelism for per-star evaluation. 0 or negative = auto (Environment.ProcessorCount);
         // 1 = sequential kill-switch; >1 = that many (clamped by ParallelExecution governor).
         // This is an internal knob — it is not exposed in the options UI and is not persisted.

@@ -30,6 +30,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
             options.PSFFitType = StarDetectorPSFFitType.Gaussian;
             options.DefocusAwareDonutDetection = true;
             options.DonutMorphCloseSize = 7;
+            options.MeasurementAverage = MeasurementAverageEnum.MeanOutliers;
             return options;
         }
 
@@ -55,6 +56,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                 Assert.That(snapshot.PSFFitType, Is.EqualTo(StarDetectorPSFFitType.Gaussian));
                 Assert.That(snapshot.DefocusAwareDonutDetection, Is.True);
                 Assert.That(snapshot.DonutMorphCloseSize, Is.EqualTo(7));
+                Assert.That(snapshot.MeasurementAverage, Is.EqualTo(MeasurementAverageEnum.MeanOutliers));
             });
         }
 
@@ -75,6 +77,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                 Assert.That(fromSnapshot.MaxDistortion, Is.EqualTo(fromOptions.MaxDistortion));
                 Assert.That(fromSnapshot.StructureLayers, Is.EqualTo(fromOptions.StructureLayers));
                 Assert.That(fromSnapshot.MinHFR, Is.EqualTo(fromOptions.MinHFR));
+                // The capture-time HFR-aggregation/outlier mode must flow through the override params (it is read at
+                // the detect site from detectorParams, not the live options).
+                Assert.That(fromSnapshot.MeasurementAverage, Is.EqualTo(MeasurementAverageEnum.MeanOutliers));
+                Assert.That(fromSnapshot.MeasurementAverage, Is.EqualTo(fromOptions.MeasurementAverage));
             });
         }
     }

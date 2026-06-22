@@ -889,6 +889,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // metadata (or non-interactive), this returns current-settings options and no prompt is shown.
                 var resolution = await AutoFocusReplayCoordinator.ResolveAsync(
                     windowServiceFactory,
+                    applicationDispatcher,
                     profileService,
                     savedAttempt.FolderPath,
                     IsInteractive,

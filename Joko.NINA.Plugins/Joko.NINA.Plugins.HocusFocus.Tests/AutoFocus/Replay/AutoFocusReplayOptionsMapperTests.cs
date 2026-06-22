@@ -64,12 +64,25 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
         }
 
         [Test]
-        public void CaptureThenApply_RoundTripsMappedSubset() {
+        public void CaptureThenApply_RoundTripsEveryMappedField() {
+            // Distinct, non-default values for every field Capture/Apply enumerate, so a field added to one method but
+            // not the other (breaking capture-time replay fidelity) fails this test.
             var source = new AutoFocusEngineOptions() {
                 DebayerImage = true,
                 NumberOfAFStars = 21,
+                TotalNumberOfAttempts = 4,
+                ValidateHfrImprovement = true,
                 AutoFocusMethod = AFMethodEnum.STARHFR,
+                AutoFocusCurveFitting = AFCurveFittingEnum.TRENDHYPERBOLIC,
+                AutoFocusInitialOffsetSteps = 9,
+                FramesPerPoint = 3,
+                HFRImprovementThreshold = 0.17,
+                FocuserOffset = -4,
+                MaxOutlierRejections = 2,
+                OutlierRejectionConfidence = 0.93,
+                WeightedHyperbolicFitEnabled = true,
                 HyperbolicFitModel = HyperbolicFitModel.UnevenBlend,
+                FitRejectionCriterion = FitRejectionCriterion.ReducedChiSquared,
                 ReducedChiSquaredRejectionThreshold = 2.7
             };
             var snapshot = AutoFocusReplayOptionsMapper.Capture(source);
@@ -77,8 +90,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
             AutoFocusReplayOptionsMapper.Apply(target, snapshot);
 
             Assert.Multiple(() => {
+                Assert.That(target.DebayerImage, Is.EqualTo(true));
                 Assert.That(target.NumberOfAFStars, Is.EqualTo(21));
+                Assert.That(target.TotalNumberOfAttempts, Is.EqualTo(4));
+                Assert.That(target.ValidateHfrImprovement, Is.EqualTo(true));
+                Assert.That(target.AutoFocusMethod, Is.EqualTo(AFMethodEnum.STARHFR));
+                Assert.That(target.AutoFocusCurveFitting, Is.EqualTo(AFCurveFittingEnum.TRENDHYPERBOLIC));
+                Assert.That(target.AutoFocusInitialOffsetSteps, Is.EqualTo(9));
+                Assert.That(target.FramesPerPoint, Is.EqualTo(3));
+                Assert.That(target.HFRImprovementThreshold, Is.EqualTo(0.17));
+                Assert.That(target.FocuserOffset, Is.EqualTo(-4));
+                Assert.That(target.MaxOutlierRejections, Is.EqualTo(2));
+                Assert.That(target.OutlierRejectionConfidence, Is.EqualTo(0.93));
+                Assert.That(target.WeightedHyperbolicFitEnabled, Is.EqualTo(true));
                 Assert.That(target.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.UnevenBlend));
+                Assert.That(target.FitRejectionCriterion, Is.EqualTo(FitRejectionCriterion.ReducedChiSquared));
                 Assert.That(target.ReducedChiSquaredRejectionThreshold, Is.EqualTo(2.7));
             });
         }

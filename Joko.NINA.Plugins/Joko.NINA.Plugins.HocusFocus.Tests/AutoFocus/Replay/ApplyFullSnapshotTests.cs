@@ -1,4 +1,5 @@
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
@@ -87,6 +88,46 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                 // The optimized values are reflected in the effective knobs.
                 Assert.That(target.BrightnessSensitivity, Is.EqualTo(3.5));
                 Assert.That(target.MaxDistortion, Is.EqualTo(0.55));
+            });
+        }
+
+        [Test]
+        public void ApplyFullSnapshot_RestoresSimplePresetMode() {
+            // Source: Simple mode, no optimized layer, with non-default presets so the derived knobs differ from
+            // defaults. (In Simple mode the advanced knobs are recomputed from the presets, so we capture the
+            // effective derived values to compare against.)
+            var source = NewOptions();
+            source.Simple_NoiseLevel = NoiseLevelEnum.High;
+            source.Simple_PixelScale = PixelScaleEnum.WideField;
+            source.Simple_FocusRange = FocusRangeEnum.WideRange;
+            var expectedStructureLayers = source.StructureLayers;
+            var expectedBrightness = source.BrightnessSensitivity;
+
+            var snapshot = StarDetectionSettingsSnapshot.FromOptions(source);
+            Assert.Multiple(() => {
+                Assert.That(snapshot.UseAdvanced, Is.False);
+                Assert.That(snapshot.UseOptimizedSettings, Is.False);
+                Assert.That(snapshot.HasOptimizedSettings, Is.False);
+            });
+
+            // Target starts in Advanced mode with a deliberately different knob; option (c) must put it back to Simple.
+            var target = NewOptions();
+            target.UseAdvanced = true;
+            target.StructureLayers = 9;
+
+            target.ApplyFullSnapshot(snapshot);
+
+            Assert.Multiple(() => {
+                Assert.That(target.UseAdvanced, Is.False);
+                Assert.That(target.UseOptimizedSettings, Is.False);
+                Assert.That(target.HasOptimizedSettings, Is.False);
+                Assert.That(target.Simple_NoiseLevel, Is.EqualTo(NoiseLevelEnum.High));
+                Assert.That(target.Simple_PixelScale, Is.EqualTo(PixelScaleEnum.WideField));
+                Assert.That(target.Simple_FocusRange, Is.EqualTo(FocusRangeEnum.WideRange));
+                // The captured (preset-derived) knob values win over both the fresh preset baseline and the target's
+                // prior Advanced value.
+                Assert.That(target.StructureLayers, Is.EqualTo(expectedStructureLayers));
+                Assert.That(target.BrightnessSensitivity, Is.EqualTo(expectedBrightness));
             });
         }
     }

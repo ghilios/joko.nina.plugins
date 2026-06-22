@@ -36,6 +36,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         /// </summary>
         public static async Task<ReplayOptionsResolution> ResolveAsync(
             IWindowServiceFactory windowServiceFactory,
+            IApplicationDispatcher applicationDispatcher,
             IProfileService profileService,
             string runFolderPath,
             bool isInteractive,
@@ -60,8 +61,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
             }
 
             var choice = await ReplaySettingsPrompt.ShowAsync(windowServiceFactory, metadata);
-            return AutoFocusReplayOptionsMapper.BuildReplayOptions(
-                choice, buildBaseOptions, metadata, () => ApplyToProfile(profileService, metadata));
+            // ApplyToProfile (option c) raises INPC for the bound Options UI and must run on the UI thread. The AF-pane
+            // replay runs on a background Task.Run, so marshal the mutation via the dispatcher (a synchronous Send with
+            // a same-context fast path, so it is free when already on the UI thread, e.g. the Inspector path).
+            void applyToProfile() {
+                if (applicationDispatcher != null) {
+                    applicationDispatcher.DispatchSynchronizationContext(() => ApplyToProfile(profileService, metadata));
+                } else {
+                    ApplyToProfile(profileService, metadata);
+                }
+            }
+            return AutoFocusReplayOptionsMapper.BuildReplayOptions(choice, buildBaseOptions, metadata, applyToProfile);
         }
 
         /// <summary>

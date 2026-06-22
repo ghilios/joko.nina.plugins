@@ -133,9 +133,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
                     var options = buildBaseOptions();
                     Apply(options, metadata.AutoFocus);
                     options.StarDetectionOptionsOverride = metadata.StarDetection;
+                    // The override is only consumed by the engine's explicit-region detection path, so option (b) MUST
+                    // replay through regions. Runs this feature writes always carry >= 1 region; default to the full
+                    // frame if a metadata.json somehow has none, so the capture-time detection settings are never
+                    // silently ignored.
+                    var captureRegions = (metadata.Regions?.Regions != null && metadata.Regions.Regions.Count > 0)
+                        ? metadata.Regions.Regions
+                        : new List<StarDetectionRegion>() { StarDetectionRegion.Full };
                     return new ReplayOptionsResolution() {
                         Options = options,
-                        CaptureTimeRegions = metadata.Regions?.Regions,
+                        CaptureTimeRegions = captureRegions,
                         SensorCurveModelEnabled = metadata.Regions?.SensorCurveModelEnabled
                     };
                 }

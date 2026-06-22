@@ -5,6 +5,7 @@ using NINA.Core.Enum;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NUnit.Framework;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
@@ -19,7 +20,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                 PluginVersion = "3.0.0.99",
                 StarDetectorVersion = 1,
                 StarDetection = new StarDetectionSettingsSnapshot() {
-                    UseAdvanced = true,
+                    UseAdvanced = false,
+                    UseOptimizedSettings = true,
                     BrightnessSensitivity = 7.25,
                     StructureLayers = 5,
                     MaxDistortion = 0.42,
@@ -30,7 +32,26 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                     MeasurementAverage = MeasurementAverageEnum.MeanOutliers,
                     DefocusAwareDonutDetection = true,
                     DonutMorphCloseSize = 7,
-                    SaturationThreshold = 0.95
+                    SaturationThreshold = 0.95,
+                    // Nested curated DTO — the most TypeNameHandling-fragile part of the round-trip.
+                    OptimizedSettings = new OptimizedStarDetectionSettings() {
+                        BrightnessSensitivity = 7.25,
+                        StarClippingMultiplier = 2.0,
+                        NoiseClippingMultiplier = 4.0,
+                        StarPeakResponse = 0.8,
+                        MaxDistortion = 0.42,
+                        MinHFR = 1.1,
+                        StarCenterTolerance = 0.4,
+                        StructureLayers = 5,
+                        NoiseReductionRadius = 4,
+                        MinStarBoundingBoxSize = 5,
+                        HotpixelThresholdingEnabled = true,
+                        HotpixelThreshold = 0.002,
+                        DefocusAwareDonutDetection = true,
+                        DonutMorphCloseSize = 7,
+                        RunCount = 3,
+                        FinalJ = 0.87
+                    }
                 },
                 AutoFocus = new AutoFocusOptionsSnapshot() {
                     DebayerImage = true,
@@ -100,6 +121,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                 Assert.That(restored.StarDetection.MeasurementAverage, Is.EqualTo(MeasurementAverageEnum.MeanOutliers));
                 Assert.That(restored.StarDetection.DefocusAwareDonutDetection, Is.True);
                 Assert.That(restored.StarDetection.DonutMorphCloseSize, Is.EqualTo(7));
+
+                // Nested optimized-settings layer round-trips field-for-field (no TypeNameHandling needed).
+                Assert.That(restored.StarDetection.UseOptimizedSettings, Is.True);
+                Assert.That(restored.StarDetection.HasOptimizedSettings, Is.True);
+                Assert.That(restored.StarDetection.OptimizedSettings, Is.Not.Null);
+                Assert.That(restored.StarDetection.OptimizedSettings.BrightnessSensitivity, Is.EqualTo(7.25));
+                Assert.That(restored.StarDetection.OptimizedSettings.DefocusAwareDonutDetection, Is.True);
+                Assert.That(restored.StarDetection.OptimizedSettings.DonutMorphCloseSize, Is.EqualTo(7));
+                Assert.That(restored.StarDetection.OptimizedSettings.RunCount, Is.EqualTo(3));
+                Assert.That(restored.StarDetection.OptimizedSettings.FinalJ, Is.EqualTo(0.87));
 
                 // AutoFocus snapshot
                 Assert.That(restored.AutoFocus.NumberOfAFStars, Is.EqualTo(42));
@@ -193,6 +224,60 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
             } finally {
                 Directory.Delete(runRoot, recursive: true);
             }
+        }
+
+        [Test]
+        public void TryLoad_ReturnsFalseWithError_WhenSchemaNewerThanSupported() {
+            var runRoot = Path.Combine(Path.GetTempPath(), "HFReplayTest_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(runRoot);
+            try {
+                var future = BuildPopulated();
+                future.SchemaVersion = AutoFocusReplayMetadata.CurrentSchemaVersion + 1;
+                File.WriteAllText(Path.Combine(runRoot, "metadata.json"), future.Serialize());
+
+                var ok = AutoFocusReplayMetadata.TryLoad(runRoot, out var metadata, out var error);
+
+                Assert.Multiple(() => {
+                    Assert.That(ok, Is.False);
+                    Assert.That(error, Is.Not.Null);
+                    Assert.That(metadata, Is.Null);
+                });
+            } finally {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+
+        [Test]
+        public void Validate_Throws_WhenSchemaVersionNonPositive() {
+            var metadata = BuildPopulated();
+            metadata.SchemaVersion = 0;
+            Assert.Throws<InvalidOperationException>(() => metadata.Validate());
+        }
+
+        [Test]
+        public void Serialize_EmitsStandardJson_ForMissingResultValues() {
+            // A failed/incomplete fit leaves the result-summary doubles null; they must serialize as JSON null, never
+            // as the non-standard NaN/Infinity literals.
+            var metadata = BuildPopulated();
+            metadata.Results = new List<ReplayRegionResultSummary>() {
+                new ReplayRegionResultSummary() {
+                    RegionIndex = 0,
+                    EstimatedFinalFocuserPosition = null,
+                    EstimatedFinalHFR = null,
+                    FinalHFR = null,
+                    InitialHFR = null,
+                    RSquared = null,
+                    SelectedHyperbolicFitModel = null
+                }
+            };
+
+            var json = metadata.Serialize();
+            Assert.That(json, Does.Not.Contain("NaN"));
+            Assert.That(json, Does.Not.Contain("Infinity"));
+
+            var restored = AutoFocusReplayMetadata.Deserialize(json);
+            Assert.That(restored.Results[0].RSquared, Is.Null);
+            Assert.That(restored.Results[0].EstimatedFinalHFR, Is.Null);
         }
     }
 }

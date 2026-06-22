@@ -590,6 +590,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     // carries a detached snapshot; params are built from it instead of the live detector options. The
                     // overload delegates to the no-override path when it is null (live capture / "use current settings").
                     var starDetectorParams = hfStarDetection.GetStarDetectorParams(image, regionState.Region, true, state.Options.StarDetectionOptionsOverride);
+                    // Review-Frames runs request PSF modeling (which GetStarDetectorParams forces off for auto-focus) so
+                    // the review can show PSF-derived per-star properties. The region==null path lifts this via the
+                    // modelPSFForAutoFocus Detect overload; do the equivalent here so a capture-time replay routed
+                    // through the explicit-region path (option b) keeps PSF data in the review. Detection HFR is unaffected.
+                    if (state.Options.ModelPSF) {
+                        starDetectorParams.ModelPSF = true;
+                    }
 
                     // Replay reuse cache (Task 8, default OFF): when replaying a saved run and the option is on, reuse
                     // the saved per-region detection JSON in place of re-running the (expensive) Detect — but ONLY when
@@ -1982,11 +1989,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var results = state.FocusRegionStates.Select(rs => new ReplayRegionResultSummary() {
                     RegionIndex = rs.RegionIndex,
-                    EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X ?? double.NaN,
-                    EstimatedFinalHFR = rs.FinalFocusPoint?.Y ?? double.NaN,
+                    EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X,
+                    EstimatedFinalHFR = rs.FinalFocusPoint?.Y,
                     FinalHFR = rs.FinalHFR?.Measure,
                     InitialHFR = rs.InitialHFR?.Measure,
-                    RSquared = rs.Fittings?.HyperbolicFitting?.RSquared ?? double.NaN,
+                    RSquared = rs.Fittings?.HyperbolicFitting?.RSquared,
                     SelectedHyperbolicFitModel = rs.Fittings?.SelectedHyperbolicFitModel
                 }).ToList();
 

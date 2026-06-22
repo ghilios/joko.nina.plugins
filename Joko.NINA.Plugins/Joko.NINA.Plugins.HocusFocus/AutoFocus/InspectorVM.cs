@@ -1102,6 +1102,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // thread (the modal and any profile update raise INPC). No metadata ⇒ current behavior; cancel ⇒ abort.
             var resolution = await AutoFocusReplayCoordinator.ResolveAsync(
                 windowServiceFactory,
+                applicationDispatcher,
                 profileService,
                 savedAttempt.FolderPath,
                 isInteractive: true,

@@ -177,14 +177,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         public List<StarDetectionRegion> Regions { get; set; }
     }
 
-    /// <summary>Informational per-region result summary captured at the run.</summary>
+    /// <summary>Informational per-region result summary captured at the run. The doubles are nullable so an absent
+    /// value serializes as JSON <c>null</c> rather than a non-standard <c>NaN</c> literal (a failed/incomplete fit has
+    /// no final point or R²).</summary>
     public sealed class ReplayRegionResultSummary {
         public int RegionIndex { get; set; }
-        public double EstimatedFinalFocuserPosition { get; set; }
-        public double EstimatedFinalHFR { get; set; }
+        public double? EstimatedFinalFocuserPosition { get; set; }
+        public double? EstimatedFinalHFR { get; set; }
         public double? FinalHFR { get; set; }
         public double? InitialHFR { get; set; }
-        public double RSquared { get; set; }
+        public double? RSquared { get; set; }
         public HyperbolicFitModel? SelectedHyperbolicFitModel { get; set; }
     }
 }

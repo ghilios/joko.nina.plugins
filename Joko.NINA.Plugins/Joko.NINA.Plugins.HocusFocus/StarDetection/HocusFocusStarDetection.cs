@@ -352,7 +352,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 PSFPixelIntegration = options.PSFPixelIntegration,
                 // Internal parallelism knob — 0 = auto (Environment.ProcessorCount via ParallelExecution governor).
                 // Not exposed in the options UI; callers may override after BuildStarDetectorParams returns.
-                MaxStarEvaluationParallelism = 0
+                MaxStarEvaluationParallelism = 0,
+                // Carried on the params so the detect site uses the options actually in play (live or a replay override).
+                MeasurementAverage = options.MeasurementAverage
             };
         }
 
@@ -411,7 +413,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 HotpixelThreshold = 0.001d,
                 SaturationThreshold = 0.99d,
                 PSFPixelIntegration = false,
-                MaxStarEvaluationParallelism = 0
+                MaxStarEvaluationParallelism = 0,
+                // Matches StarDetectionOptions.ResetDefaults (Median); kept in lockstep by
+                // BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild.
+                MeasurementAverage = MeasurementAverageEnum.Median
             };
         }
 
@@ -513,7 +518,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 FocuserPosition = focuserMediator.GetInfo().Position,
                 PixelSize = pixelSize,
                 PixelScale = detectorParams.PixelScale,
-                MeasurementAverage = this.starDetectionOptions.MeasurementAverage,
+                MeasurementAverage = detectorParams.MeasurementAverage,
                 DetectorVersion = StarDetector.StarDetectorVersion,
                 CacheKey = StarDetector.ComputeCacheKey(detectorParams)
             };
@@ -548,7 +553,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 FocuserPosition = context.FocuserPosition,
                 PixelSize = context.PixelSize,
                 PixelScale = detectorParams.PixelScale,
-                MeasurementAverage = this.starDetectionOptions.MeasurementAverage,
+                MeasurementAverage = detectorParams.MeasurementAverage,
                 DetectorVersion = StarDetector.StarDetectorVersion,
                 CacheKey = StarDetector.ComputeCacheKey(detectorParams)
             };
@@ -580,7 +585,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
 
-            if (starList.Count > 1 && this.starDetectionOptions.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
+            if (starList.Count > 1 && detectorParams.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
                 int countBefore = starList.Count;
 
                 // Now that we have a properly filtered star list, let's compute stats and further filter out from the average
@@ -641,7 +646,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // TODO: Consider whether to remove the ordering to get reproducibility between runs
             result.StarList = starList.Select(s => ToDetectedStar(s)).OrderBy(s => s.Position.Y * imageSize.Width + s.Position.X).ToList();
             if (starList.Count > 1) {
-                if (this.starDetectionOptions.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
+                if (detectorParams.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
                     result.AverageHFR = starList.Average(s => s.HFR);
                     var hfrVariance = starList.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (starList.Count - 1);
                     result.HFRStdDev = Math.Sqrt(hfrVariance);
