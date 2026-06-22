@@ -234,7 +234,7 @@
                                     <!-- HFR label, constant on-screen size, just above the box. -->
                                     <TextBlock Text="{Binding HfrText}"
                                                HorizontalAlignment="Left" VerticalAlignment="Top"
-                                               FontSize="10" Background="#80000000" Padding="2,0"
+                                               FontSize="10" Background="#40000000" Padding="2,0"
                                                IsHitTestVisible="False" RenderTransformOrigin="0,0"
                                                Foreground="{Binding DataContext.HfrBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
                                         <TextBlock.RenderTransform>
@@ -248,7 +248,7 @@
                                     <!-- Registration-id label below the box (shown only when Show registration is on). -->
                                     <TextBlock Text="{Binding RegistrationIdText}"
                                                HorizontalAlignment="Left" VerticalAlignment="Top"
-                                               FontSize="10" Background="#80000000" Padding="2,0"
+                                               FontSize="10" Background="#40000000" Padding="2,0"
                                                IsHitTestVisible="False" RenderTransformOrigin="0,0"
                                                Foreground="{Binding DataContext.RegistrationBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                Visibility="{Binding DataContext.ShowRegistration, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
@@ -283,7 +283,7 @@
                             <DataTemplate>
                                 <TextBlock Text="{Binding FocusOffsetText}"
                                            HorizontalAlignment="Left" VerticalAlignment="Top"
-                                           FontSize="10" Background="#80000000" Padding="2,0"
+                                           FontSize="10" Background="#40000000" Padding="2,0"
                                            IsHitTestVisible="False" RenderTransformOrigin="0,0"
                                            Foreground="{Binding DataContext.FocusOffsetBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                            Visibility="{Binding HasFocusOffset, Converter={StaticResource BoolToVis}}">

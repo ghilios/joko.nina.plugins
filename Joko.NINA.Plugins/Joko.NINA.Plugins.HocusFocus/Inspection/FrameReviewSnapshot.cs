@@ -186,8 +186,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     if (matched == null || matched.Count == 0) {
                         continue;
                     }
+                    // Display points only: one detection per focuser position, so there is no sample spread to show.
+                    // Zero error (the chart draws plain markers, no error bars); the per-star fit computes its own
+                    // weights independently in SensorModel.FitImages.
                     var points = matched
-                        .Select(m => new ScatterErrorPoint(m.FocuserPosition, m.Star.HFR, 0.0, SensorModel.EstimateHfrStdDev(m.Star)))
+                        .Select(m => new ScatterErrorPoint(m.FocuserPosition, m.Star.HFR, 0.0, 0.0))
                         .ToList();
                     double? offset = null;
                     if (rs.Fitting != null && meanBestFocus.HasValue) {

@@ -12,6 +12,7 @@
 
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
+using OxyPlot;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
@@ -56,9 +57,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public bool CanShowFocusGraph { get; init; }
     }
 
+    /// <summary>A fitted focus graph for a registered star WITH an accepted hyperbolic fit: the cross-frame scatter
+    /// plus the fitted curve and its best-focus minimum. Rendered with plain markers (no error bars — each point is a
+    /// single detection, so there is no sample spread to draw).</summary>
+    public sealed class FrameReviewFocusGraph {
+        public string Label { get; init; }
+        public IReadOnlyList<ScatterErrorPoint> Points { get; init; }
+        public AlglibHyperbolicFitting Fit { get; init; }
+        public Func<double, double> Fitting => Fit?.Fitting;
+        public DataPoint Minimum => Fit?.Minimum ?? default;
+    }
+
     /// <summary>A points-only focus graph for a registered star that has NO accepted hyperbolic fit: just the
-    /// cross-frame (focuser position, HFR) scatter, so the user can see why the fit failed. Rendered by a dedicated
-    /// DataTemplate (no fitted-curve / minimum annotations, which would require a non-null fit).</summary>
+    /// cross-frame (focuser position, HFR) scatter, so the user can see why the fit failed (no curve/minimum).</summary>
     public sealed class FrameReviewScatterGraph {
         public string Label { get; init; }
         public IReadOnlyList<ScatterErrorPoint> Points { get; init; }
@@ -68,8 +79,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
     /// Read-only viewer VM for the Aberration Inspector "Review Frames" dialog. Steps through the captured frames,
     /// overlaying each accepted star's bounding box (colored by registration/fit state), HFR, optional registration
     /// id + path, and optional best-focus offset; and shows a per-star focus graph on hover. Reuses the unit-tested
-    /// <see cref="StarReviewViewport"/> zoom/pan math, the <see cref="StarReviewLegendEntry"/> legend-row type, and the
-    /// <see cref="OptimizationCurve"/> OxyPlot chart for the hover graph. Disposing releases the retained bitmaps.
+    /// <see cref="StarReviewViewport"/> zoom/pan math and the <see cref="StarReviewLegendEntry"/> legend-row type;
+    /// the hover graph uses <see cref="FrameReviewFocusGraph"/> / <see cref="FrameReviewScatterGraph"/> OxyPlot charts.
+    /// Disposing releases the retained bitmaps.
     /// </summary>
     public sealed class FrameReviewVM : BaseINPC, IDisposable {
 
@@ -231,7 +243,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         // ---- hover focus graph ----------------------------------------------------------------------------
 
-        // Either an OptimizationCurve (fitted: points + curve + minimum) or a FrameReviewScatterGraph (no fit:
+        // Either a FrameReviewFocusGraph (fitted: points + curve + minimum) or a FrameReviewScatterGraph (no fit:
         // cross-frame points only). The hover overlay's ContentControl resolves the right DataTemplate by type.
         private object hoverContent;
         public object HoverContent {
@@ -280,7 +292,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             hoverRegistrationId = registrationId;
             HoverHeaderText = $"Star {registrationId}";
             if (curve.Fit != null) {
-                HoverContent = new OptimizationCurve {
+                HoverContent = new FrameReviewFocusGraph {
                     Label = $"Star {registrationId}",
                     Points = curve.Points,
                     Fit = curve.Fit,

@@ -587,7 +587,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         // on a detected star (mean brightness above background, with a shot-noise-like denominator). This
         // makes the previously no-op WeightedHyperbolicFitEnabled meaningful. It does not affect the
         // best-focus standard error, which is self-calibrated from the fit residuals.
-        internal static double EstimateHfrStdDev(HocusFocusDetectedStar star) {
+        private static double EstimateHfrStdDev(HocusFocusDetectedStar star) {
             var signal = star.AverageBrightness - star.Background;
             var noise = Math.Sqrt(Math.Max(star.AverageBrightness, 1.0));
             var snr = signal > 0 ? signal / noise : 0.0;
