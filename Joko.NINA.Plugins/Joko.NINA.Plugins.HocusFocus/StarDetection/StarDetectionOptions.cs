@@ -1113,28 +1113,47 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
-        /// Overwrites every advanced star-detection knob from <paramref name="source"/>, persisting them to the
-        /// profile. Used by AutoFocus replay's "update profile to capture-time settings" option (c). Forces
-        /// <see cref="UseAdvanced"/> = true FIRST so the Simple-mode <c>ConfigureSimpleSettings</c> recompute is
-        /// short-circuited and cannot clobber the values being applied, and clears the curated optimized layer
-        /// (<see cref="UseOptimizedSettings"/> = false) since a full snapshot supersedes it. The local
-        /// <see cref="IntermediateSavePath"/> / <see cref="SaveIntermediateImages"/> are intentionally NOT copied —
-        /// they are machine-local and detection-irrelevant for replay.
+        /// Restores the full star-detection configuration from <paramref name="source"/> — used by AutoFocus replay's
+        /// "update profile to capture-time settings" option (c). Faithfully reproduces the captured MODE, not just the
+        /// effective values: the optimized-settings snapshot, the Simple/Advanced flag, the "Use Optimized Settings"
+        /// flag, the Simple-mode presets, and every advanced knob. The local <see cref="IntermediateSavePath"/> /
+        /// <see cref="SaveIntermediateImages"/> are intentionally NOT copied — they are machine-local and
+        /// detection-irrelevant for replay.
         /// </summary>
         public void ApplyFullSnapshot(IStarDetectionOptions source) {
             if (source == null) {
                 throw new ArgumentNullException(nameof(source));
             }
 
-            // Order matters: advanced mode first (so the PropertyChanged handler returns early for every assignment
-            // below), then drop the optimized layer, then copy the knobs.
-            UseAdvanced = true;
-            UseOptimizedSettings = false;
+            // 1) Restore the curated optimized-settings snapshot storage (or clear it). ApplyOptimizedSettings flips
+            //    UseAdvanced/UseOptimizedSettings and recomputes the live knobs — all overridden below.
+            var optimized = source.GetOptimizedSettings();
+            if (optimized != null) {
+                ApplyOptimizedSettings(optimized);
+            } else {
+                ClearOptimizedSettings();
+            }
 
-            ModelPSF = source.ModelPSF;
+            // 2) Restore the Simple-mode presets and the exact mode flags. In Simple mode these trigger the recompute;
+            //    that is fine — step 3 overwrites every knob afterward.
             Simple_NoiseLevel = source.Simple_NoiseLevel;
             Simple_PixelScale = source.Simple_PixelScale;
             Simple_FocusRange = source.Simple_FocusRange;
+            UseOptimizedSettings = source.UseOptimizedSettings;
+            UseAdvanced = source.UseAdvanced;
+
+            // 3) Copy every knob verbatim LAST. Setting these non-"Simple" properties does NOT re-trigger the
+            //    Simple-mode recompute (only Simple_*/UseAdvanced/UseOptimizedSettings do), so the captured resolved
+            //    values stick exactly in either mode — and they already equal what the recompute would produce.
+            ApplyKnobs(source);
+
+            RaiseAllPropertiesChanged();
+        }
+
+        // Copies every advanced knob (not the Simple_* presets, the mode flags, or the machine-local intermediate-save
+        // settings) from a source. Used as the final step of ApplyFullSnapshot.
+        private void ApplyKnobs(IStarDetectionOptions source) {
+            ModelPSF = source.ModelPSF;
             HotpixelFiltering = source.HotpixelFiltering;
             HotpixelThresholdingEnabled = source.HotpixelThresholdingEnabled;
             UseAutoFocusCrop = source.UseAutoFocusCrop;
@@ -1176,8 +1195,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             SaturationThreshold = source.SaturationThreshold;
             MeasurementAverage = source.MeasurementAverage;
             PSFPixelIntegration = source.PSFPixelIntegration;
-
-            RaiseAllPropertiesChanged();
         }
 
         /// <summary>Clears any stored optimized-settings snapshot (and its persisted JSON), leaving the options with

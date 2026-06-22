@@ -1,5 +1,6 @@
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -13,9 +14,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
         private static StarDetectionOptions NewOptions() =>
             new StarDetectionOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
 
+        private static OptimizedStarDetectionSettings SampleOptimized() => new OptimizedStarDetectionSettings() {
+            BrightnessSensitivity = 3.5,
+            StarClippingMultiplier = 2.0,
+            NoiseClippingMultiplier = 4.0,
+            StarPeakResponse = 0.7,
+            MaxDistortion = 0.55,
+            MinHFR = 1.3,
+            StarCenterTolerance = 0.4,
+            StructureLayers = 5,
+            NoiseReductionRadius = 3,
+            MinStarBoundingBoxSize = 5,
+            HotpixelThresholdingEnabled = true,
+            HotpixelThreshold = 0.002
+        };
+
         [Test]
-        public void ApplyFullSnapshot_FromSimpleMode_ForcesAdvancedAndDoesNotClobber() {
-            // Source: a configured advanced options object captured into a snapshot.
+        public void ApplyFullSnapshot_RestoresAdvancedModeVerbatim() {
+            // Source: a configured ADVANCED options object captured into a snapshot.
             var source = NewOptions();
             source.UseAdvanced = true;
             source.BrightnessSensitivity = 9.1;
@@ -31,13 +47,46 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
             target.ApplyFullSnapshot(snapshot);
 
             Assert.Multiple(() => {
-                // UseAdvanced is forced true first so the Simple-mode recompute cannot clobber the applied values.
                 Assert.That(target.UseAdvanced, Is.True);
                 Assert.That(target.BrightnessSensitivity, Is.EqualTo(9.1));
                 Assert.That(target.StructureLayers, Is.EqualTo(6));
                 Assert.That(target.MaxDistortion, Is.EqualTo(0.33));
                 Assert.That(target.MinHFR, Is.EqualTo(1.05));
                 Assert.That(target.UseOptimizedSettings, Is.False);
+            });
+        }
+
+        [Test]
+        public void ApplyFullSnapshot_RestoresSimpleOptimizedMode() {
+            // Source: Simple mode with an optimized snapshot applied (UseAdvanced off, Use Optimized on).
+            var source = NewOptions();
+            source.ApplyOptimizedSettings(SampleOptimized());
+            Assert.Multiple(() => {
+                Assert.That(source.UseAdvanced, Is.False);
+                Assert.That(source.UseOptimizedSettings, Is.True);
+                Assert.That(source.HasOptimizedSettings, Is.True);
+            });
+
+            var snapshot = StarDetectionSettingsSnapshot.FromOptions(source);
+            Assert.Multiple(() => {
+                Assert.That(snapshot.UseAdvanced, Is.False);
+                Assert.That(snapshot.UseOptimizedSettings, Is.True);
+                Assert.That(snapshot.HasOptimizedSettings, Is.True);
+            });
+
+            // Target starts in Advanced mode; option (c) must put it back to Simple + Optimized.
+            var target = NewOptions();
+            target.UseAdvanced = true;
+
+            target.ApplyFullSnapshot(snapshot);
+
+            Assert.Multiple(() => {
+                Assert.That(target.UseAdvanced, Is.False);
+                Assert.That(target.UseOptimizedSettings, Is.True);
+                Assert.That(target.HasOptimizedSettings, Is.True);
+                // The optimized values are reflected in the effective knobs.
+                Assert.That(target.BrightnessSensitivity, Is.EqualTo(3.5));
+                Assert.That(target.MaxDistortion, Is.EqualTo(0.55));
             });
         }
     }

@@ -27,12 +27,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
     ///   2. the <c>StarDetectionOptionsOverride</c> the auto-focus engine consumes to replay a saved run with its
     ///      capture-time detection settings WITHOUT mutating the live profile singleton.
     /// <para>
-    /// <see cref="UseAdvanced"/> is always true: a snapshot stores the already-resolved advanced values (reading a
-    /// live options object's interface getters returns the effective configuration regardless of its Simple/Advanced
-    /// mode), and the snapshot has no recompute logic, so its getters return exactly what was stored — sidestepping
-    /// the Simple-mode caveat entirely. The override flows only through
-    /// <see cref="HocusFocusStarDetection.BuildStarDetectorParams(IStarDetectionOptions)"/>, which reads these
-    /// getters, so replayed detection is faithful to capture time.
+    /// The snapshot stores the already-resolved advanced knob values (reading a live options object's interface
+    /// getters returns the effective configuration regardless of its Simple/Advanced mode), and it has no recompute
+    /// logic, so its getters return exactly what was stored. For the replay OVERRIDE (option b) only those resolved
+    /// knobs matter (<see cref="HocusFocusStarDetection.BuildStarDetectorParams(IStarDetectionOptions)"/> reads the
+    /// knobs, never the mode flags). For "update profile" (option c) the mode is restored faithfully, so the snapshot
+    /// ALSO records the real <see cref="UseAdvanced"/>/<see cref="UseOptimizedSettings"/> flags and the curated
+    /// <see cref="OptimizedSettings"/> snapshot.
     /// </para>
     /// </summary>
     public sealed class StarDetectionSettingsSnapshot : IStarDetectionOptions {
@@ -85,23 +86,26 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         public MeasurementAverageEnum MeasurementAverage { get; set; }
         public bool PSFPixelIntegration { get; set; }
 
-        // A flat snapshot has no separate optimized-settings layer — its values are already fully resolved.
-        [JsonIgnore]
-        public bool HasOptimizedSettings => false;
-
         public bool UseOptimizedSettings { get; set; }
 
-        public OptimizedStarDetectionSettings GetOptimizedSettings() => null;
+        /// <summary>The curated optimized-settings snapshot the run had stored (null if none). Recorded so "update
+        /// profile" (option c) can restore the optimized layer + Simple-mode + the "Use Optimized Settings" toggle.</summary>
+        public OptimizedStarDetectionSettings OptimizedSettings { get; set; }
 
-        public void ApplyOptimizedSettings(OptimizedStarDetectionSettings settings) {
-            // No-op: a flat snapshot stores fully-resolved values and has no optimized layer to apply.
-        }
+        [JsonIgnore]
+        public bool HasOptimizedSettings => OptimizedSettings != null;
+
+        public OptimizedStarDetectionSettings GetOptimizedSettings() => OptimizedSettings?.Clone();
+
+        public void ApplyOptimizedSettings(OptimizedStarDetectionSettings settings) => OptimizedSettings = settings?.Clone();
 
         /// <summary>Captures the fully-resolved effective configuration of a live options object into a flat,
-        /// profile-detached snapshot.</summary>
+        /// profile-detached snapshot, including the real mode flags and the optimized-settings snapshot so the
+        /// capture-time mode can be restored.</summary>
         public static StarDetectionSettingsSnapshot FromOptions(IStarDetectionOptions o) {
             return new StarDetectionSettingsSnapshot() {
-                UseAdvanced = true,
+                UseAdvanced = o.UseAdvanced,
+                OptimizedSettings = o.GetOptimizedSettings(),
                 ModelPSF = o.ModelPSF,
                 Simple_NoiseLevel = o.Simple_NoiseLevel,
                 Simple_PixelScale = o.Simple_PixelScale,
