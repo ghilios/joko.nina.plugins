@@ -1549,9 +1549,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 } catch (Exception ex) {
                     Logger.Warning($"Failure during post AF actions. {ex.Message}");
                 } finally {
-                    progress.Report(new ApplicationStatus() { Status = string.Empty });
+                    // Clear the (static) in-progress guard FIRST and unconditionally. If anything below this throws,
+                    // the flag stays set and EVERY future AutoFocus across the whole app is rejected with "Another
+                    // AutoFocus is already in progress" until NINA is restarted. progress is optional (the Star
+                    // Detection Optimizer's live attempt passes null), so report through it defensively.
                     AutoFocusInProgress = false;
+                    progress?.Report(new ApplicationStatus() { Status = string.Empty });
                 }
+            }
+
+            if (autoFocusState == null) {
+                // InitializeState never produced state (cancelled, timed out, or an equipment error already logged
+                // above). There is nothing to build a result from; return null like the in-progress guard does,
+                // rather than dereferencing a null state below.
+                return null;
             }
 
             return new AutoFocusResult() {
