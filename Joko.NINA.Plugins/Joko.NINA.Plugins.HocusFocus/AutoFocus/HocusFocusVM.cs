@@ -853,10 +853,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
                 AutoFocusInProgress = true;
 
-                // Reprocessing a saved run never keeps frames for review (it does not subscribe to per-frame events),
-                // so make sure a stale "true" from a prior live run can't trigger a snapshot build at its completion.
-                frameReviewRequestedForRun = false;
-
                 loadSavedAutoFocusRunCts?.Cancel();
                 loadSavedAutoFocusRunCts = new CancellationTokenSource();
                 var autoFocusEngine = autoFocusEngineFactory.Create();
@@ -875,6 +871,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
+                autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
                 autoFocusEngine.Completed += AutoFocusEngine_CompletedNoReport;
 
                 var filterInfo = filterWheelMediator.GetInfo();
@@ -884,8 +881,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 var options = autoFocusEngine.GetOptions(savedAttempt);
+
+                // Replay is an interactive pane action, so it supports Review Frames on the same terms as a live run:
+                // keep frames when interactive + the toggle is on, forcing the engine to retain each reloaded exposure.
+                frameReviewRequestedForRun = IsInteractive && autoFocusOptions.KeepFramesForReview;
+                if (frameReviewRequestedForRun) {
+                    options.PreserveExposures = true;
+                }
+
                 var result = await autoFocusEngine.Rerun(options, savedAttempt, imagingFilter, loadSavedAutoFocusRunCts.Token, this.progress);
                 if (result != null) {
+                    // The reprocess path wires Completed -> CompletedNoReport (no report handler), so build the review
+                    // snapshot here once the replay has finished and every reloaded frame has been collected.
+                    BuildFrameReviewSnapshotIfRequested();
                     InitialFocuserPosition = result.InitialFocuserPosition;
                     return result.Succeeded;
                 }
