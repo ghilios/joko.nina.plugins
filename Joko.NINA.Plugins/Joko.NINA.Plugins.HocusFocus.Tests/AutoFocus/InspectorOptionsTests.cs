@@ -48,6 +48,7 @@ public class InspectorOptionsTests {
             Assert.That(options.UseRANSAC, Is.True);
             Assert.That(options.SaveImagesOnReruns, Is.False);
             Assert.That(options.SaveAlignmentImages, Is.False);
+            Assert.That(options.FrameReviewEnabled, Is.False);
             Assert.That(options.MaxStarsPerRegion, Is.EqualTo(-1));
             Assert.That(options.InterpolationEnabled, Is.False);
         });
@@ -80,6 +81,7 @@ public class InspectorOptionsTests {
         options.UseRANSAC = false;
         options.SaveImagesOnReruns = true;
         options.SaveAlignmentImages = true;
+        options.FrameReviewEnabled = true;
         options.MaxStarsPerRegion = 50;
 
         Assert.Multiple(() => {
@@ -107,6 +109,7 @@ public class InspectorOptionsTests {
             Assert.That(store.Snapshot[nameof(InspectorOptions.UseRANSAC)], Is.False);
             Assert.That(store.Snapshot[nameof(InspectorOptions.SaveImagesOnReruns)], Is.True);
             Assert.That(store.Snapshot[nameof(InspectorOptions.SaveAlignmentImages)], Is.True);
+            Assert.That(store.Snapshot[nameof(InspectorOptions.FrameReviewEnabled)], Is.True);
             Assert.That(store.Snapshot[nameof(InspectorOptions.MaxStarsPerRegion)], Is.EqualTo(50));
         });
     }
@@ -179,6 +182,7 @@ public class InspectorOptionsTests {
     [TestCase(nameof(InspectorOptions.MicronsPerFocuserStep), 2.5)]
     [TestCase(nameof(InspectorOptions.SensorROI), 0.6)]
     [TestCase(nameof(InspectorOptions.UseRANSAC), false)]
+    [TestCase(nameof(InspectorOptions.FrameReviewEnabled), true)]
     [TestCase(nameof(InspectorOptions.MaxStarsPerRegion), 30)]
     public void Setter_RaisesPropertyChanged(string propertyName, object newValue) {
         var (options, _, _) = Build();

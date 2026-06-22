@@ -109,6 +109,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public Brush Brush { get; set; }
         public string Caption { get; set; }
         public bool Dashed { get; set; }
+
+        /// <summary>Whether the feature this row describes is currently active. False ⇒ the row is shown greyed (a
+        /// toggle controlling the feature is off). Defaults true so existing consumers (the Star Review wizard) are
+        /// unaffected.</summary>
+        public bool Enabled { get; set; } = true;
     }
 
     /// <summary>The kind of detector box (if any) found under a click point by <see cref="StarReviewVM.HitTestCandidate(IEnumerable{Rect}, IEnumerable{Rect}, double, double)"/>.</summary>

@@ -19,6 +19,7 @@ using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
+using NINA.Core.Utility.WindowService;
 using NINA.Equipment.Equipment;
 using NINA.Equipment.Equipment.MyCamera;
 using NINA.Equipment.Equipment.MyFocuser;
@@ -33,6 +34,7 @@ using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Scottplot;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
@@ -92,6 +94,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IApplicationDispatcher applicationDispatcher;
         private readonly IProgress<ApplicationStatus> progress;
         private readonly ITiltAdapterOptions tiltAdapterOptions;
+
+        // WindowServiceFactory is not a MEF export (NINA exposes the concrete type with a default ctor only), so it
+        // is instantiated directly here, mirroring HocusFocusPlugin — used to show the modal Review Frames dialog.
+        private readonly IWindowServiceFactory windowServiceFactory = new WindowServiceFactory();
 
         [ImportingConstructor]
         public InspectorVM(
@@ -180,6 +186,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SlewToZenithEastCommand = new AsyncRelayCommand(() => SlewToZenith(false), canExecute: () => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
             SlewToZenithWestCommand = new AsyncRelayCommand(() => SlewToZenith(true), canExecute: () => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
             CancelSlewToZenithCommand = new RelayCommand(() => slewToZenithCts?.Cancel());
+            ReviewFramesCommand = new RelayCommand(ShowFrameReview, canExecute: () => ReviewFramesAvailable);
         }
 
         private bool AnalysisRunning() {
@@ -511,6 +518,23 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             SensorModel.ReferenceImage,
                             inspectorOptions.SaveAlignmentImages);
                     }
+                }
+
+                // Build the Review Frames snapshot from the same full-sensor detections and registration just computed.
+                // UpdateModel has already applied the alignment transforms, so Position/OriginalPosition/BoundingBox are
+                // final. Runs after the sweep completes (no concurrent SubMeasurementPointCompleted adds), but copy the
+                // list under the lock to stay consistent with the rest of the class.
+                if (frameReviewRequestedForRun) {
+                    List<SensorDetectedStars> framesForReview;
+                    lock (fullSensorDetectedStarsLock) {
+                        framesForReview = FullSensorDetectedStars.ToList();
+                    }
+                    reviewSnapshot = FrameReviewSnapshotBuilder.Build(
+                        framesForReview,
+                        SensorModel.SensorModelResult.RegisteredStars,
+                        SensorModel.ReferenceImage,
+                        inspectorOptions.UseRANSAC);
+                    NotifyReviewFramesAvailabilityChanged();
                 }
             }
 
@@ -1003,7 +1027,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (inspectorOptions.DetailedAnalysisExposureSeconds > 0) {
                 options.OverrideAutoFocusExposureTime = TimeSpan.FromSeconds(inspectorOptions.DetailedAnalysisExposureSeconds);
             }
-            if (options.Save) {
+            // Freeze the frame-review decision at run start (atomically with the retention decision). Review needs the
+            // per-frame images retained, which the engine only does when PreserveExposures is on; force it on for review
+            // even on non-saving runs. Applies to all run/rerun paths since they all build options through here.
+            frameReviewRequestedForRun = inspectorOptions.FrameReviewEnabled && inspectorOptions.SensorCurveModelEnabled;
+            if (options.Save || frameReviewRequestedForRun) {
                 options.PreserveExposures = true;
             }
             return options;
@@ -1422,6 +1450,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             lock (fullSensorDetectedStarsLock) {
                 FullSensorDetectedStars.Clear();
             }
+            ClearReviewSnapshot();
             ClearPlots();
         }
 
@@ -1489,8 +1518,64 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public ICommand SlewToZenithWestCommand { get; private set; }
         public ICommand CancelSlewToZenithCommand { get; private set; }
 
+        // RelayCommand (not ICommand) so we can call NotifyCanExecuteChanged when the snapshot becomes (un)available.
+        public RelayCommand ReviewFramesCommand { get; private set; }
+
         private readonly object fullSensorDetectedStarsLock = new object();
         private readonly List<SensorDetectedStars> FullSensorDetectedStars = new List<SensorDetectedStars>();
+
+        // The immutable per-frame review data built at the end of a sensor-model run when "Keep frames for Review" was
+        // on. Null until a qualifying run completes; cleared at run start and on Clear Analyses. frameReviewRequestedForRun
+        // freezes the toggle's value at run start (when PreserveExposures is decided) so a mid-run toggle change can't
+        // desync image retention from the snapshot build.
+        private FrameReviewSnapshot reviewSnapshot;
+        private bool frameReviewRequestedForRun;
+
+        /// <summary>Whether a completed sensor-model run produced reviewable frames (drives the "Review Frames" button).</summary>
+        public bool ReviewFramesAvailable => reviewSnapshot?.Frames.Count > 0;
+
+        // Raise the availability binding + re-evaluate the command, marshaled to the UI thread (the snapshot is built /
+        // cleared on the analysis background task). DispatchSynchronizationContext is a synchronous Send with a
+        // same-context fast path, so it is safe to call from either thread.
+        private void NotifyReviewFramesAvailabilityChanged() {
+            applicationDispatcher.DispatchSynchronizationContext(() => {
+                RaisePropertyChanged(nameof(ReviewFramesAvailable));
+                ReviewFramesCommand.NotifyCanExecuteChanged();
+            });
+        }
+
+        private void ClearReviewSnapshot() {
+            reviewSnapshot = null;
+            NotifyReviewFramesAvailabilityChanged();
+        }
+
+        // Shows the modal Review Frames dialog, mirroring HocusFocusPlugin.OptimizeStarDetection: the VM is presented in
+        // a ContentPresenter resolved by the implicit DataType DataTemplate for FrameReviewVM, and is disposed when the
+        // window closes (releasing the retained frame bitmaps).
+        private void ShowFrameReview() {
+            var snapshot = reviewSnapshot;
+            if (snapshot == null || snapshot.Frames.Count == 0) {
+                return;
+            }
+
+            var vm = new FrameReviewVM(snapshot);
+            var windowService = windowServiceFactory.Create();
+
+            void onRequestClose(object s, EventArgs e) {
+                _ = windowService.Close();
+            }
+
+            EventHandler onClosed = null;
+            onClosed = (s, e) => {
+                windowService.OnClosed -= onClosed;
+                vm.RequestClose -= onRequestClose;
+                vm.Dispose();
+            };
+            windowService.OnClosed += onClosed;
+            vm.RequestClose += onRequestClose;
+
+            windowService.ShowDialog(vm, "Review Frames", ResizeMode.CanResize, WindowStyle.SingleBorderWindow);
+        }
         public AsyncObservableCollection<ScatterErrorPoint>[] RegionFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint>[] RegionPlotFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint> RegionFinalFocusPoints { get; private set; }
@@ -2109,6 +2194,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusCompleted = false;
             ResetErrors();
             RebuildTiltGuidance();
+            ClearReviewSnapshot();
         }
 
         private void ActivateAutoFocusChart() {

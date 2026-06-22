@@ -208,6 +208,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public PSFModel PSF { get; set; }
         public float NormalisedBrightness { get; set; }
         public Accord.Point OriginalPosition { get; set; }
+
+        // The detector's bounding box BEFORE any registration/alignment transform overwrites BoundingBox. Captured
+        // alongside OriginalPosition so the Review Frames overlay can draw boxes in the raw frame's own coordinates
+        // (the displayed image is the raw frame; the aligned BoundingBox would be offset on non-reference frames).
+        public System.Drawing.Rectangle OriginalBoundingBox { get; set; }
+
         public bool StarContaminationSuspected { get; set; }
 
         public override string ToString() {

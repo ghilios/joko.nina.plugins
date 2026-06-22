@@ -405,6 +405,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                                                                     .Select((star, index) => ((HocusFocusDetectedStar)star, index))) {
                         star.NormalisedBrightness = (float)((star.AverageBrightness - imageMinBrightness) / (imageMaxBrightness - imageMinBrightness));
                         star.OriginalPosition = star.Position;
+                        star.OriginalBoundingBox = star.BoundingBox;
                     }
                 }
                 stopwatch.RecordEntry("normalise brightness");
@@ -722,6 +723,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         discardedFlags[registeredStarIndex] = true;
                         return;
                     }
+
+                    // Retain the accepted per-star fit on the registered star so the Review Frames UI can show this
+                    // star's focus curve / R² / best focus. Each Parallel.For iteration writes a distinct registeredStar,
+                    // and this array is the one returned to (and surfaced by) SensorModelResult.RegisteredStars.
+                    registeredStar.Fitting = fitting;
 
                     rejectedCounts[registeredStarIndex] = rejectedCount;
                     var dataPointX = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
@@ -1314,7 +1320,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public class RegisteredStar {
             public double RegistrationX { get; set; } = double.NaN;
             public double RegistrationY { get; set; } = double.NaN;
-            public HyperbolicFittingAlglib Fitting { get; set; }
+
+            // The accepted per-star hyperbolic focus fit (set by FitImages only when the star solved AND passed the
+            // per-star R² gate, i.e. it contributed to the surface fit). Non-null ⇔ "matched with a successful fit".
+            // Carries the curve function, minimum (best focus), and R² for the Review Frames focus-graph overlay; its
+            // Fitting closure captures only a double[] so it is safe to retain after the run's heavy data is freed.
+            public AlglibHyperbolicFitting Fitting { get; set; }
             public List<MatchedStar> MatchedStars { get; private set; } = new List<MatchedStar>();
 
             public override string ToString() {
