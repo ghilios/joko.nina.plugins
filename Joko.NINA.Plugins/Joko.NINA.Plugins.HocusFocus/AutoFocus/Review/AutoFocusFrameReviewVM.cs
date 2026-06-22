@@ -92,6 +92,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
         private AutoFocusFrameReviewSnapshot snapshot;
         private readonly IStarAnnotatorOptions annotatorOptions;
         private readonly MeasurementAverageEnum measurementAverage;
+        private readonly bool psfAvailable;
 
         public event EventHandler RequestClose;
         public event EventHandler FitRequested;
@@ -109,7 +110,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             this.snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
             this.annotatorOptions = annotatorOptions ?? throw new ArgumentNullException(nameof(annotatorOptions));
             this.measurementAverage = measurementAverage;
-            this.showAnnotationType = annotatorOptions.ShowAnnotationType; // review-local seed; not written back
+
+            // PSF fitting is intentionally disabled during auto-focus, so the PSF-derived annotation options (FWHM,
+            // eccentricity, PSF rotation/background/peak, Moffat beta) have no data and would always render blank. Only
+            // offer the options that AF actually produces, and seed the selection from the configured Star Annotator
+            // option — falling back to HFR when that configured option is a (now-unavailable) PSF property.
+            this.psfAvailable = snapshot.Frames.Any(f => f.Stars.Any(s => s.HasPsf));
+            AvailableAnnotationTypes = Enum.GetValues<ShowAnnotationTypeEnum>()
+                .Where(t => psfAvailable || !RequiresPsf(t))
+                .ToList();
+            var configured = annotatorOptions.ShowAnnotationType;
+            this.showAnnotationType = AvailableAnnotationTypes.Contains(configured) ? configured : ShowAnnotationTypeEnum.HFR;
+
             Viewport = new StarReviewViewport();
 
             annotatorOptions.PropertyChanged += AnnotatorOptions_PropertyChanged;
@@ -151,6 +163,24 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
         public bool ShowStarCenter => annotatorOptions.ShowStarCenter;
 
         // ---- per-star text selection (review-local) -------------------------------------------------------
+
+        /// <summary>The annotation-text options offered in the review. PSF-derived properties are excluded when the run
+        /// has no PSF fits (auto-focus disables PSF fitting), so the combo never offers options that render blank.</summary>
+        public IReadOnlyList<ShowAnnotationTypeEnum> AvailableAnnotationTypes { get; }
+
+        /// <summary>Whether an annotation type needs a PSF fit (everything except None/HFR/Background, which read fields
+        /// the detector always populates). Mirrors the PSF-null guards in <see cref="AutoFocusAnnotationText"/>.</summary>
+        private static bool RequiresPsf(ShowAnnotationTypeEnum t) =>
+            t != ShowAnnotationTypeEnum.None && t != ShowAnnotationTypeEnum.HFR && t != ShowAnnotationTypeEnum.Background;
+
+        /// <summary>The star-bounds shape to draw. Falls back from PSF to Box when the run has no PSF fits (so the
+        /// configured PSF bounds don't silently render nothing during auto-focus).</summary>
+        private StarBoundsTypeEnum EffectiveBoundsType {
+            get {
+                var configured = annotatorOptions.StarBoundsType;
+                return (!psfAvailable && configured == StarBoundsTypeEnum.PSF) ? StarBoundsTypeEnum.Box : configured;
+            }
+        }
 
         private ShowAnnotationTypeEnum showAnnotationType;
         public ShowAnnotationTypeEnum ShowAnnotationType {
@@ -241,7 +271,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
 
         private IReadOnlyList<StarReviewLegendEntry> BuildLegend() {
             var entries = new List<StarReviewLegendEntry> {
-                new() { Brush = StarBoundsBrush, Caption = $"Star bounds ({annotatorOptions.StarBoundsType})", Enabled = annotatorOptions.ShowStarBounds },
+                new() { Brush = StarBoundsBrush, Caption = $"Star bounds ({EffectiveBoundsType})", Enabled = annotatorOptions.ShowStarBounds },
                 new() { Brush = AnnotationBrush, Caption = "Star annotation text", Enabled = ShowAnnotationType != ShowAnnotationTypeEnum.None },
                 new() { Brush = StarCenterBrush, Caption = "Star center", Enabled = annotatorOptions.ShowStarCenter },
             };
@@ -326,7 +356,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             if (frame == null) {
                 return;
             }
-            var boundsType = annotatorOptions.StarBoundsType;
+            var boundsType = EffectiveBoundsType;
             foreach (var s in frame.Stars) {
                 Markers.Add(BuildMarker(s, boundsType));
             }

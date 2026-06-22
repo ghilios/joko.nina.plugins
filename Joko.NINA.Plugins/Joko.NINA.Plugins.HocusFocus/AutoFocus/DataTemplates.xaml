@@ -91,7 +91,9 @@
     <!--  The manual AutoFocus "Review Frames" window content. Implicit DataType template so the WindowService's
           ContentPresenter resolves it by VM type (same mechanism as the Aberration Inspector's Review Frames).  -->
     <DataTemplate DataType="{x:Type afreview:AutoFocusFrameReviewVM}">
-        <afreview:AutoFocusFrameReviewControl MinWidth="1280" MinHeight="860" />
+        <!--  No fixed min size: the control sizes its host window to fit the screen on load (see code-behind), and the
+              layout shrinks the image column first so the legend stays visible when the window is made smaller.  -->
+        <afreview:AutoFocusFrameReviewControl />
     </DataTemplate>
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">

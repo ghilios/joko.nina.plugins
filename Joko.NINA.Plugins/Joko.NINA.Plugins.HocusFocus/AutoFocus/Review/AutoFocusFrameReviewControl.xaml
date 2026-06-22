@@ -3,8 +3,6 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:hfconverters="clr-namespace:NINA.Joko.Plugins.HocusFocus.Converters"
-    xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
-    xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
     Background="#FF1E2125">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
@@ -51,11 +49,18 @@
             <Button DockPanel.Dock="Left" Content="Next ▶" Command="{Binding NextCommand}" />
             <TextBlock DockPanel.Dock="Left" Margin="16,0,6,0" Text="Show:" />
             <ComboBox DockPanel.Dock="Left" Width="150" VerticalAlignment="Center"
-                      ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:ShowAnnotationTypeEnum}}}"
+                      Foreground="White" Background="#FF2A2F36" BorderBrush="#FF3F4958"
+                      ItemsSource="{Binding AvailableAnnotationTypes}"
                       SelectedItem="{Binding ShowAnnotationType}">
+                <ComboBox.ItemContainerStyle>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Background" Value="#FF2A2F36" />
+                        <Setter Property="Foreground" Value="White" />
+                    </Style>
+                </ComboBox.ItemContainerStyle>
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
-                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                        <TextBlock Foreground="White" Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>

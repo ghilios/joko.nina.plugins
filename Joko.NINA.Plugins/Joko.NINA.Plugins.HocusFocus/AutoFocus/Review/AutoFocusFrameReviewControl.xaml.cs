@@ -30,11 +30,41 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
         private bool panning;
         private System.Windows.Point lastPanScreen;
         private bool hasFitOnce;
+        private bool windowSized;
 
         public AutoFocusFrameReviewControl() {
             InitializeComponent();
             DataContextChanged += OnDataContextChanged;
             KeyDown += OnKeyDown;
+            Loaded += OnLoaded;
+        }
+
+        // Size the host window to FIT the screen on first load (clamped to the work area, centered), with a small
+        // minimum so it can be shrunk freely. The WindowService opens the window sized-to-content, which — without this —
+        // would honor whatever large size the content asks for and open off-screen on smaller displays. A small Min lets
+        // the layout redistribute (the image column shrinks first, so the right-hand legend stays visible).
+        private void OnLoaded(object sender, RoutedEventArgs e) {
+            if (windowSized) {
+                return;
+            }
+            var window = Window.GetWindow(this);
+            if (window == null) {
+                return;
+            }
+            windowSized = true;
+
+            var work = SystemParameters.WorkArea; // device-independent pixels, excludes the taskbar
+            const double desiredWidth = 1100.0;
+            const double desiredHeight = 720.0;
+            const double margin = 40.0; // leave a little breathing room around the window
+
+            window.SizeToContent = SizeToContent.Manual;
+            window.MinWidth = Math.Min(640.0, work.Width);
+            window.MinHeight = Math.Min(440.0, work.Height);
+            window.Width = Math.Min(desiredWidth, Math.Max(window.MinWidth, work.Width - margin));
+            window.Height = Math.Min(desiredHeight, Math.Max(window.MinHeight, work.Height - margin));
+            window.Left = work.Left + (work.Width - window.Width) / 2.0;
+            window.Top = work.Top + (work.Height - window.Height) / 2.0;
         }
 
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e) {
