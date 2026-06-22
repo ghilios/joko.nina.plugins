@@ -303,10 +303,14 @@
             </Border>
 
             <!-- Hover focus-graph overlay: a fixed corner panel (sibling of the clipped image Border, so it is not
-                 clipped). Shows the hovered registered+fitted star's focus curve, R², and best focus. -->
+                 clipped). Shows the hovered registered+fitted star's focus curve, R², and best focus. IsHitTestVisible
+                 is false so the panel never steals the mouse from the canvas underneath — otherwise, when the panel
+                 appears under the cursor (hovering a star in that corner), the canvas would fire MouseLeave, the hover
+                 would clear, the panel would hide, and it would flicker on/off. -->
             <Border Grid.Row="0" Grid.Column="0"
                     HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10"
                     Width="360" Background="#E6202429" BorderBrush="#FF3F4958" BorderThickness="1" CornerRadius="4"
+                    IsHitTestVisible="False"
                     Visibility="{Binding ShowHover, Converter={StaticResource BoolToVis}}">
                 <StackPanel Margin="8">
                     <TextBlock FontWeight="SemiBold" Text="{Binding HoverHeaderText}" />
