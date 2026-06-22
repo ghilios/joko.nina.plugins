@@ -35,6 +35,7 @@ public class AutoFocusOptionsTests {
             Assert.That(options.HFRImprovementThreshold, Is.EqualTo(0.15));
             Assert.That(options.SavePath, Is.EqualTo(""));
             Assert.That(options.Save, Is.False);
+            Assert.That(options.KeepFramesForReview, Is.False);
             Assert.That(options.LastSelectedLoadPath, Is.EqualTo(""));
             Assert.That(options.FocuserOffset, Is.EqualTo(0));
             Assert.That(options.MaxOutlierRejections, Is.EqualTo(1));
@@ -58,6 +59,7 @@ public class AutoFocusOptionsTests {
         options.HFRImprovementThreshold = 0.25;
         options.SavePath = @"C:\AF";
         options.Save = true;
+        options.KeepFramesForReview = true;
         options.LastSelectedLoadPath = @"C:\AF\last";
         options.FocuserOffset = -10;
         options.MaxOutlierRejections = 3;
@@ -77,6 +79,7 @@ public class AutoFocusOptionsTests {
             Assert.That(store.Snapshot["HFRImprovementThreshold"], Is.EqualTo(0.25));
             Assert.That(store.Snapshot["SavePath"], Is.EqualTo(@"C:\AF"));
             Assert.That(store.Snapshot["Save"], Is.True);
+            Assert.That(store.Snapshot[nameof(AutoFocusOptions.KeepFramesForReview)], Is.True);
             Assert.That(store.Snapshot["LastSelectedLoadPath"], Is.EqualTo(@"C:\AF\last"));
             Assert.That(store.Snapshot["FocuserOffset"], Is.EqualTo(-10));
             Assert.That(store.Snapshot[nameof(AutoFocusOptions.MaxOutlierRejections)], Is.EqualTo(3));
@@ -92,6 +95,7 @@ public class AutoFocusOptionsTests {
         options.FastFocusModeEnabled = true;
         options.HFRImprovementThreshold = 0.99;
         options.Save = true;
+        options.KeepFramesForReview = true;
         options.MaxOutlierRejections = 4;
 
         options.ResetDefaults();
@@ -101,6 +105,7 @@ public class AutoFocusOptionsTests {
             Assert.That(options.FastFocusModeEnabled, Is.False);
             Assert.That(options.HFRImprovementThreshold, Is.EqualTo(0.15));
             Assert.That(options.Save, Is.False);
+            Assert.That(options.KeepFramesForReview, Is.False);
             Assert.That(options.MaxOutlierRejections, Is.EqualTo(1));
             Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.90));
             Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
@@ -115,6 +120,7 @@ public class AutoFocusOptionsTests {
     [TestCase(nameof(AutoFocusOptions.ValidateHfrImprovement), false)]
     [TestCase(nameof(AutoFocusOptions.HFRImprovementThreshold), 0.5)]
     [TestCase(nameof(AutoFocusOptions.Save), true)]
+    [TestCase(nameof(AutoFocusOptions.KeepFramesForReview), true)]
     [TestCase(nameof(AutoFocusOptions.SavePath), "x")]
     [TestCase(nameof(AutoFocusOptions.LastSelectedLoadPath), "y")]
     [TestCase(nameof(AutoFocusOptions.FocuserOffset), 5)]

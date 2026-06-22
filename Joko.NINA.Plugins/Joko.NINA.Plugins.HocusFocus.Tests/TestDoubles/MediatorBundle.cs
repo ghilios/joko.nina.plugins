@@ -96,6 +96,7 @@ internal sealed class MediatorBundle {
             filterWheelMediator: FilterWheelMediator,
             applicationStatusMediator: ApplicationStatusMediator,
             starDetectionSelector: StarDetectionSelector,
-            alglibAPI: AlglibAPI);
+            alglibAPI: AlglibAPI,
+            applicationDispatcher: ApplicationDispatcher);
     }
 }

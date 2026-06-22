@@ -34,6 +34,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IStarDetectionOptions starDetectionOptions;
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
         private readonly IAlglibAPI alglibAPI;
+        private readonly IApplicationDispatcher applicationDispatcher;
 
         [ImportingConstructor]
         public HocusFocusVMFactory(
@@ -41,7 +42,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IFocuserMediator focuserMediator,
             IFilterWheelMediator filterWheelMediator,
             IApplicationStatusMediator applicationStatusMediator,
-            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector) : this(profileService, focuserMediator, filterWheelMediator, applicationStatusMediator, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.AutoFocusEngineFactory, starDetectionSelector, HocusFocusPlugin.AlglibAPI) {
+            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector) : this(profileService, focuserMediator, filterWheelMediator, applicationStatusMediator, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.AutoFocusEngineFactory, starDetectionSelector, HocusFocusPlugin.AlglibAPI, HocusFocusPlugin.ApplicationDispatcher) {
         }
 
         public HocusFocusVMFactory(
@@ -53,7 +54,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IStarDetectionOptions starDetectionOptions,
             IAutoFocusEngineFactory autoFocusEngineFactory,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
-            IAlglibAPI alglibAPI) {
+            IAlglibAPI alglibAPI,
+            IApplicationDispatcher applicationDispatcher) {
             this.profileService = profileService;
             this.focuserMediator = focuserMediator;
             this.filterWheelMediator = filterWheelMediator;
@@ -63,6 +65,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.autoFocusEngineFactory = autoFocusEngineFactory;
             this.starDetectionSelector = starDetectionSelector;
             this.alglibAPI = alglibAPI;
+            this.applicationDispatcher = applicationDispatcher;
         }
 
         public string Name => "Hocus Focus";
@@ -70,7 +73,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public string ContentId => this.GetType().FullName;
 
         public IAutoFocusVM Create() {
-            return new HocusFocusVM(profileService, focuserMediator, autoFocusEngineFactory, autoFocusOptions, starDetectionOptions, filterWheelMediator, applicationStatusMediator, starDetectionSelector, alglibAPI);
+            return new HocusFocusVM(profileService, focuserMediator, autoFocusEngineFactory, autoFocusOptions, starDetectionOptions, filterWheelMediator, applicationStatusMediator, starDetectionSelector, alglibAPI, applicationDispatcher);
         }
     }
 }

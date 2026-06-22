@@ -33,7 +33,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 filterWheelMediator: Substitute.For<IFilterWheelMediator>(),
                 applicationStatusMediator: Substitute.For<IApplicationStatusMediator>(),
                 starDetectionSelector: Substitute.For<IPluggableBehaviorSelector<IStarDetection>>(),
-                alglibAPI: alglibAPI ?? new AlglibAPI());
+                alglibAPI: alglibAPI ?? new AlglibAPI(),
+                applicationDispatcher: new NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles.SynchronousApplicationDispatcher());
         }
 
         [Test]

@@ -54,6 +54,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         public int AutoFocusTimeoutSeconds { get; set; }
         public string SavePath { get; set; }
         public bool Save { get; set; }
+        public bool KeepFramesForReview { get; set; }
         public string LastSelectedLoadPath { get; set; }
         public int FocuserOffset { get; set; }
         public int MaxOutlierRejections { get; set; }
