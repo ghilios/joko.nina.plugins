@@ -551,6 +551,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 frameReviewRequestedForRun = IsInteractive && autoFocusOptions.KeepFramesForReview;
                 if (frameReviewRequestedForRun) {
                     options.PreserveExposures = true;
+                    // Model PSFs during this review run iff PSF modeling is enabled in the star-detection options, so
+                    // the review can show the PSF-derived per-star properties (AF normally skips PSF fitting for speed).
+                    options.ModelPSF = starDetectionOptions.ModelPSF;
                 }
                 var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
                 if (result == null || !result.Succeeded) {
@@ -883,10 +886,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var options = autoFocusEngine.GetOptions(savedAttempt);
 
                 // Replay is an interactive pane action, so it supports Review Frames on the same terms as a live run:
-                // keep frames when interactive + the toggle is on, forcing the engine to retain each reloaded exposure.
+                // keep frames when interactive + the toggle is on, forcing the engine to retain each reloaded exposure,
+                // and model PSFs (when enabled in star-detection options) so PSF properties are available in the review.
                 frameReviewRequestedForRun = IsInteractive && autoFocusOptions.KeepFramesForReview;
                 if (frameReviewRequestedForRun) {
                     options.PreserveExposures = true;
+                    options.ModelPSF = starDetectionOptions.ModelPSF;
                 }
 
                 var result = await autoFocusEngine.Rerun(options, savedAttempt, imagingFilter, loadSavedAutoFocusRunCts.Token, this.progress);

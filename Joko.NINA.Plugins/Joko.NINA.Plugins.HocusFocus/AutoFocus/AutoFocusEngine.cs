@@ -578,7 +578,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         analysisParams.InnerCropRatio = profileService.ActiveProfile.FocuserSettings.AutoFocusInnerCropRatio;
                         analysisParams.OuterCropRatio = profileService.ActiveProfile.FocuserSettings.AutoFocusOuterCropRatio;
                     }
-                    analysisResult = await starDetection.Detect(image, pixelFormat, analysisParams, progress: null, token);
+                    // For a Review-Frames run, model PSFs (auto-focus normally skips them) so the review shows the
+                    // PSF-derived per-star properties — detection is otherwise identical, so the HFR curve is unaffected.
+                    if (state.Options.ModelPSF && starDetection is IHocusFocusStarDetection hfReviewDetection) {
+                        analysisResult = await hfReviewDetection.Detect(image, pixelFormat, analysisParams, null, token, modelPSFForAutoFocus: true);
+                    } else {
+                        analysisResult = await starDetection.Detect(image, pixelFormat, analysisParams, progress: null, token);
+                    }
                 } else {
                     var hfStarDetection = (IHocusFocusStarDetection)starDetection;
                     var hfParams = hfStarDetection.ToHocusFocusParams(analysisParams);
