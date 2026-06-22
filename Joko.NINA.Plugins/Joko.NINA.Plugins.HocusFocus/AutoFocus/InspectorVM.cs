@@ -279,6 +279,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // Headless (Tilt Adapter Wizard) replay: when a capture-time detection snapshot is supplied, replay
                 // uses it without mutating the profile; null = current settings. Never prompts from this path.
                 options.StarDetectionOptionsOverride = starDetectionOptionsOverride;
+                // This path re-analyzes existing frames and manages its own replayable copy via CopySavedFramesForReplay;
+                // keep the engine save OFF so it neither writes auxiliary artifacts nor a replay metadata.json into the
+                // global save path during tilt calibration replay.
+                options.Save = false;
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                 var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
 

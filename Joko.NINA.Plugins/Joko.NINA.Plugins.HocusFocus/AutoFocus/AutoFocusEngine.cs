@@ -1593,8 +1593,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public Task<AutoFocusResult> Run(AutoFocusEngineOptions options, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
-            // Live capture: a replay metadata.json may be written when this run completes (see WriteReplayMetadata).
-            options.IsLiveCapture = true;
             return RunImpl(options, imagingFilter, null, token, progress);
         }
 
@@ -1606,8 +1604,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (!(selectedDetector is HocusFocusStarDetection)) {
                 throw new ArgumentException($"Hocus Focus must be used as the star detector to auto focus with specific regions");
             }
-            // Live capture: a replay metadata.json may be written when this run completes (see WriteReplayMetadata).
-            options.IsLiveCapture = true;
             return RunImpl(options, imagingFilter, regions, token, progress);
         }
 
@@ -1673,6 +1669,32 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 throw new ArgumentException($"Hocus Focus must be used as the star detector to auto focus with specific regions");
             }
             return RerunImpl(options, savedAttempt, imagingFilter, regions, token, progress);
+        }
+
+        /// <summary>
+        /// Copies a reloaded run's original raw frame into the current save folder's attempt directory (preserving the
+        /// original metadata-encoded filename) so a saving reprocess yields a complete, replayable run — the reload
+        /// path itself never re-saves raw frames. No-op when the run is not saving. Best-effort: a copy failure is
+        /// logged and never fails the run (the reprocess result is still valid; that run just won't be replayable).
+        /// </summary>
+        private void MaybeCopyReplayFrame(AutoFocusState state, SavedAutoFocusImage savedFile, int attemptNumber, bool finalValidation) {
+            if (string.IsNullOrWhiteSpace(state.SaveFolder)) {
+                return;
+            }
+            try {
+                if (string.IsNullOrEmpty(savedFile.Path) || !File.Exists(savedFile.Path)) {
+                    return;
+                }
+                var destFolder = GetSaveAttemptFolder(state, attemptNumber, finalValidation);
+                var dest = Path.Combine(destFolder, Path.GetFileName(savedFile.Path));
+                // Defensive: never copy a file onto itself (would not happen — the save folder is a fresh AutoFocus_<ts>).
+                if (string.Equals(Path.GetFullPath(dest), Path.GetFullPath(savedFile.Path), StringComparison.OrdinalIgnoreCase)) {
+                    return;
+                }
+                File.Copy(savedFile.Path, dest, overwrite: true);
+            } catch (Exception e) {
+                Logger.Warning($"Failed to copy raw frame for replay ({savedFile.Path}): {e.Message}");
+            }
         }
 
         private void InitializeSave(AutoFocusState autoFocusState) {
@@ -1806,6 +1828,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         var singleFilePostTask = Task.Run(async () => {
                             try {
                                 await Task.WhenAll(singleFileAnalysisTasks);
+                                // After the frame has been loaded + analyzed (so the source file is no longer open for
+                                // decode), copy the original raw frame into this run's save folder so a saving reprocess
+                                // produces a self-contained, independently-replayable run (the reload path does not
+                                // otherwise re-save raw frames). No-op when not saving.
+                                MaybeCopyReplayFrame(state, savedFile, imageState.AttemptNumber, imageState.FinalValidation);
                                 var incrementedCompletedCount = Interlocked.Increment(ref completedCount);
                                 progress.Report(new ApplicationStatus() {
                                     Status = "Data Points",
@@ -1914,17 +1941,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         /// <summary>
-        /// Writes the replay <c>metadata.json</c> (capture-time star-detection + AutoFocus settings, region geometry,
-        /// and a result summary) to the run's save folder. Gated to LIVE captures only — a replay must never overwrite
-        /// the original capture-time metadata, and InitializeSave creates a SaveFolder on the replay path too. Only
-        /// meaningful for STARHFR (contrast detection has no star detector to snapshot). Never throws / never fails
-        /// the run.
+        /// Writes the replay <c>metadata.json</c> (the star-detection + AutoFocus settings used, region geometry, and
+        /// a result summary) to the run's save folder. Written for any run that produced a complete, replayable saved
+        /// folder — both live captures and saving reprocesses (a saving reprocess re-saves the raw frames, see
+        /// RerunImpl). Only meaningful for STARHFR (contrast detection has no star detector to snapshot). Captures the
+        /// capture-time override when one was used (option b), otherwise the live detector's options. Never throws /
+        /// never fails the run.
         /// </summary>
         private void WriteReplayMetadata(AutoFocusState state) {
             try {
-                if (!state.Options.IsLiveCapture) {
-                    return;
-                }
                 if (string.IsNullOrWhiteSpace(state.SaveFolder)) {
                     return;
                 }
@@ -1932,29 +1957,36 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return;
                 }
 
+                // Capture the settings ACTUALLY used: the capture-time override when replaying with it (option b),
+                // otherwise the live detector's options (live capture, or replay with current/updated settings).
                 var detector = starDetectionSelector.GetBehavior() as IHocusFocusStarDetection;
-                var sdOptions = detector?.StarDetectionOptions;
+                var sdOptions = state.Options.StarDetectionOptionsOverride ?? detector?.StarDetectionOptions;
                 if (sdOptions == null) {
                     // Not the Hocus Focus detector (or no options) — nothing meaningful to snapshot for replay.
                     return;
                 }
 
                 var focuserSettings = profileService.ActiveProfile.FocuserSettings;
-                // Explicit regions ⇒ an Aberration Inspector run; an AF-pane run passes no regions (single null region).
-                var isInspectorRun = state.FocusRegions.Count > 0;
+                // >1 explicit region ⇒ an Aberration Inspector run (its region grid is always >= 6); an AF-pane run
+                // uses no regions (live) or a single captured region (a capture-time replay routed through regions).
+                var isInspectorRun = state.FocusRegions.Count > 1;
+                var explicitRegions = state.FocusRegionStates.Select(rs => rs.Region).Where(r => r != null).ToList();
 
                 List<StarDetectionRegion> regions;
-                if (isInspectorRun) {
-                    regions = state.FocusRegionStates.Select(rs => rs.Region).Where(r => r != null).ToList();
+                if (explicitRegions.Count > 0) {
+                    // Inspector run, or any capture-time replay routed through the explicit-region path — store the
+                    // regions actually used (they already encode the capture-time ROI).
+                    regions = explicitRegions;
                 } else {
-                    // AF pane: persist the single region the run actually used, derived from the crop ROI so an
-                    // in-memory replay can reproduce the ROI through the explicit-region path without the profile.
-                    var afRegion = StarDetectionRegion.FromStarDetectionParams(new StarDetectionParams() {
-                        UseROI = focuserSettings.AutoFocusInnerCropRatio < 1.0,
-                        InnerCropRatio = focuserSettings.AutoFocusInnerCropRatio,
-                        OuterCropRatio = focuserSettings.AutoFocusOuterCropRatio
-                    });
-                    regions = new List<StarDetectionRegion>() { afRegion };
+                    // AF pane with no explicit region: derive the single region from the crop ROI actually in effect,
+                    // so an in-memory replay can reproduce that ROI through the explicit-region path.
+                    regions = new List<StarDetectionRegion>() {
+                        StarDetectionRegion.FromStarDetectionParams(new StarDetectionParams() {
+                            UseROI = focuserSettings.AutoFocusInnerCropRatio < 1.0,
+                            InnerCropRatio = focuserSettings.AutoFocusInnerCropRatio,
+                            OuterCropRatio = focuserSettings.AutoFocusOuterCropRatio
+                        })
+                    };
                 }
 
                 var inspectorOptions = HocusFocusPlugin.InspectorOptions;

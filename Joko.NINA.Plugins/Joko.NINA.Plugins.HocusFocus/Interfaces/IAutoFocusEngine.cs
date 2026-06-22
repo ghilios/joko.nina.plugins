@@ -108,11 +108,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // detection, so a stale or unreadable cache can never produce a wrong measurement.
         public bool ReuseSavedDetection { get; set; } = false;
 
-        // True only for a LIVE capture (Run / RunWithRegions); false for a replay (Rerun / RerunWithRegions). Gates
-        // writing the replay metadata.json — a replay must never overwrite the original capture-time metadata, and
-        // InitializeSave runs on both paths so SaveFolder presence alone cannot distinguish them.
-        public bool IsLiveCapture { get; set; } = false;
-
         // When non-null, the engine builds star-detector params from THIS options snapshot (via
         // HocusFocusStarDetection.BuildStarDetectorParams) instead of the live detector's injected options — letting
         // a saved run replay with its capture-time detection settings WITHOUT mutating HocusFocusPlugin
