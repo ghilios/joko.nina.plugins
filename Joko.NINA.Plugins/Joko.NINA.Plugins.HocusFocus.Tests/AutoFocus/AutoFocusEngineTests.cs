@@ -265,6 +265,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             });
         }
 
+        [Test]
+        public async Task Run_WithNullProgress_ClearsStaticInProgressGuard_EvenWhenAutoFocusFails() {
+            // Regression: the Star Detection Optimizer's live attempt calls Run with a null progress. RunImpl's
+            // finally used to call progress.Report(...) BEFORE clearing the static AutoFocusInProgress guard, so a
+            // null progress threw an NRE that skipped the reset. The static flag stuck true and bricked every
+            // subsequent AutoFocus ("Another AutoFocus is already in progress") app-wide until NINA was restarted.
+            var engine = Build();
+            Assume.That(engine.AutoFocusInProgress, Is.False, "static guard should start clear");
+
+            try {
+                await engine.Run(new AutoFocusEngineOptions { AutoFocusTimeout = TimeSpan.FromMinutes(1) }, imagingFilter: null, token: default, progress: null);
+            } catch {
+                // AutoFocus fails fast on the all-mocked equipment; we only care that the guard is released.
+            }
+
+            Assert.That(engine.AutoFocusInProgress, Is.False, "AutoFocusInProgress must be cleared even when the run fails with a null progress");
+        }
+
         private sealed class TempDir : IDisposable {
             public string Path { get; }
             public TempDir() {

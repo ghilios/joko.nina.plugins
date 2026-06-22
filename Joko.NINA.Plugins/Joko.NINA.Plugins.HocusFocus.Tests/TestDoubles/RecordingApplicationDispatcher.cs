@@ -1,0 +1,27 @@
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using System;
+
+namespace NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles {
+
+    /// <summary>
+    /// Runs dispatched actions inline (like <see cref="SynchronousApplicationDispatcher"/>) but counts how many times
+    /// <c>DispatchSynchronizationContext</c> was invoked, so tests can assert that a code path actually marshals UI work
+    /// through the dispatcher instead of touching commands/collections directly on the calling thread.
+    /// </summary>
+    internal sealed class RecordingApplicationDispatcher : IApplicationDispatcher {
+
+        public int DispatchCount { get; private set; }
+
+        public void DispatchSynchronizationContext(Action action) {
+            DispatchCount++;
+            action();
+        }
+
+        public T DispatchSynchronizationContext<T>(Func<T> func) {
+            DispatchCount++;
+            return func();
+        }
+
+        public T GetResource<T>(string name, T fallback) => fallback;
+    }
+}

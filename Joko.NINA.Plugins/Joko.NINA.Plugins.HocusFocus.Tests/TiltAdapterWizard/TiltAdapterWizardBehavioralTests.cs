@@ -23,6 +23,7 @@ public class TiltAdapterWizardBehavioralTests {
             cameraMediator: bundle.CameraMediator,
             focuserMediator: bundle.FocuserMediator,
             inspector: inspector,
+            applicationDispatcher: bundle.ApplicationDispatcher,
             tiltAdapterOptions: bundle.TiltAdapterOptions);
         return (vm, bundle);
     }

@@ -65,6 +65,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private readonly ITiltAdapterOptions tiltAdapterOptions;
         private readonly InspectorVM inspector;
+        private readonly IApplicationDispatcher applicationDispatcher;
         private readonly IProgress<ApplicationStatus> progress;
 
         private CameraInfo cameraInfo = DeviceInfo.CreateDefaultInstance<CameraInfo>();
@@ -130,7 +131,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             IFocuserMediator focuserMediator,
             InspectorVM inspector)
             : this(profileService, applicationStatusMediator, cameraMediator, focuserMediator, inspector,
-                   HocusFocusPlugin.TiltAdapterOptions) { }
+                   HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.TiltAdapterOptions) { }
 
         public TiltAdapterWizardVM(
             IProfileService profileService,
@@ -138,10 +139,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ICameraMediator cameraMediator,
             IFocuserMediator focuserMediator,
             InspectorVM inspector,
+            IApplicationDispatcher applicationDispatcher,
             ITiltAdapterOptions tiltAdapterOptions)
             : base(profileService) {
             this.inspector = inspector;
             this.tiltAdapterOptions = tiltAdapterOptions;
+            this.applicationDispatcher = applicationDispatcher;
             this.progress = ProgressFactory.Create(applicationStatusMediator, "Tilt Adapter Wizard");
 
             this.Title = "Tilt Adapter Wizard";
@@ -166,7 +169,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ReplayCommand = new AsyncRelayCommand(() => ReplayAsync(useMetadataSettings: true), () => !IsWizardRunning && !IsMeasuring);
             ReplayCurrentSettingsCommand = new AsyncRelayCommand(() => ReplayAsync(useMetadataSettings: false), () => !IsWizardRunning && !IsMeasuring);
 
-            tiltAdapterOptions.PropertyChanged += (s, e) => {
+            tiltAdapterOptions.PropertyChanged += (s, e) => OnUIThread(() => {
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)) {
                     RaisePropertyChanged(nameof(HasCurvatureCalibration));
                     RaisePropertyChanged(nameof(CurvatureSignDescription));
@@ -200,15 +203,15 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     RaisePropertyChanged(nameof(ScrewRadiusMillimetersValue));
                     RaiseHardwareSummaryChanged();
                 }
-            };
+            });
 
-            profileService.ProfileChanged += (s, e) => {
+            profileService.ProfileChanged += (s, e) => OnUIThread(() => {
                 RaisePropertyChanged(nameof(PixelSizeMicronsValue));
                 RaisePropertyChanged(nameof(FocuserStepSizeMicronsValue));
                 RaisePropertyChanged(nameof(SelectedDevice));
                 RaisePropertyChanged(nameof(IsManualDevice));
                 RaisePropertyChanged(nameof(SaveAFRunsPath));
-            };
+            });
 
             // Re-assert and lock a persisted device preset on load.
             ApplyDevice(tiltAdapterOptions.DeviceName);
@@ -220,8 +223,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         private void OnSummaryCollectionChanged(object sender, NotifyCollectionChangedEventArgs e) {
-            RaisePropertyChanged(nameof(HasMeasurementFeedback));
-            RaisePropertyChanged(nameof(HasMeasurementResults));
+            OnUIThread(() => {
+                RaisePropertyChanged(nameof(HasMeasurementFeedback));
+                RaisePropertyChanged(nameof(HasMeasurementResults));
+            });
         }
 
         public ITiltAdapterOptions TiltAdapterOptions => tiltAdapterOptions;
@@ -1050,7 +1055,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RaisePropertyChanged(nameof(CalibrationFocuserStepDisplay));
             RaisePropertyChanged(nameof(CalibrationScrewRadiusDisplay));
             RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
-            ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
+            OnUIThread(() => ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged());
         }
 
         // Two single-screw turns of the same amount should produce gradient changes that are ~equal in magnitude
@@ -1369,14 +1374,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        // CanExecuteChanged on WPF commands and ObservableCollection mutations must touch UI-owned objects on the
+        // UI thread. DispatchSynchronizationContext is a synchronous Send with a same-context fast path, so calling
+        // this from the UI thread is free and calling it from a DeviceMediator background broadcast marshals safely.
+        private void OnUIThread(Action action) => applicationDispatcher.DispatchSynchronizationContext(action);
+
         private void NotifyCommandsCanExecuteChanged() {
-            ((AsyncRelayCommand)StartCommand).NotifyCanExecuteChanged();
-            ((AsyncRelayCommand)RunMeasurementCommand).NotifyCanExecuteChanged();
-            ((AsyncRelayCommand)UseSavedAFCommand).NotifyCanExecuteChanged();
-            ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
-            ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
-            ((AsyncRelayCommand)ReplayCommand).NotifyCanExecuteChanged();
-            ((AsyncRelayCommand)ReplayCurrentSettingsCommand).NotifyCanExecuteChanged();
+            OnUIThread(() => {
+                ((AsyncRelayCommand)StartCommand).NotifyCanExecuteChanged();
+                ((AsyncRelayCommand)RunMeasurementCommand).NotifyCanExecuteChanged();
+                ((AsyncRelayCommand)UseSavedAFCommand).NotifyCanExecuteChanged();
+                ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
+                ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
+                ((AsyncRelayCommand)ReplayCommand).NotifyCanExecuteChanged();
+                ((AsyncRelayCommand)ReplayCurrentSettingsCommand).NotifyCanExecuteChanged();
+            });
         }
 
         private static double NormalizeAngle(double deg) => ((deg % 360) + 360) % 360;
