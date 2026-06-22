@@ -21,33 +21,46 @@ using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
-    /// <summary>One drawable accepted-star marker for the Frame Review overlay, in image-pixel coords. Box geometry is
-    /// the detector's real bounding box (TOP-LEFT + size, for the Canvas.Left/Top binding); the two labels are the HFR
-    /// (above the box) and the registration id (below). The optional arrow runs from the raw detection
-    /// (<see cref="ArrowStartX"/>,<see cref="ArrowStartY"/>) to the registered target
-    /// (<see cref="ArrowEndX"/>,<see cref="ArrowEndY"/>); <see cref="ArrowHead"/> is a precomputed triangle at the
-    /// target so the XAML needs no rotation math.</summary>
+    /// <summary>One drawable accepted-star marker for the Frame Review overlay, in the frame's RAW image coords. The
+    /// box (<see cref="BoxX"/>/<see cref="BoxY"/> top-left + size) is drawn in <see cref="BoxBrush"/> (green/red/grey by
+    /// registration state). The cyan registration marker sits at the raw centroid (<see cref="CenterX"/>/<see
+    /// cref="CenterY"/>); the orange registration line runs to the aligned target (<see cref="TargetX"/>/<see
+    /// cref="TargetY"/>). Label/line/offset visibility is gated by the VM toggles at the layer level, and per-marker by
+    /// <see cref="HasRegistrationId"/>/<see cref="HasRegistrationLine"/>/<see cref="HasFocusOffset"/>.</summary>
     public sealed class FrameReviewMarker {
         public double BoxX { get; init; }
         public double BoxY { get; init; }
         public double BoxWidth { get; init; }
         public double BoxHeight { get; init; }
+        public Brush BoxBrush { get; init; }
+
         public string HfrText { get; init; }
+
+        public double CenterX { get; init; }
+        public double CenterY { get; init; }
+        public double TargetX { get; init; }
+        public double TargetY { get; init; }
+
+        public bool HasRegistrationId { get; init; }
         public string RegistrationIdText { get; init; }
-        public bool HasArrow { get; init; }
-        public double ArrowStartX { get; init; }
-        public double ArrowStartY { get; init; }
-        public double ArrowEndX { get; init; }
-        public double ArrowEndY { get; init; }
-        public PointCollection ArrowHead { get; init; }
+        public bool HasRegistrationLine { get; init; }
+
+        public string FocusOffsetText { get; init; }
+        public bool HasFocusOffset { get; init; }
+
+        /// <summary>Registration id (for the hover focus-graph lookup); null when unmatched.</summary>
+        public int? RegistrationId { get; init; }
+
+        /// <summary>True when this star has an accepted focus fit, so hovering it can show a focus graph.</summary>
+        public bool CanShowFocusGraph { get; init; }
     }
 
     /// <summary>
-    /// Read-only viewer VM for the Aberration Inspector "Review Frames" dialog — a stripped fork of
-    /// <see cref="StarReviewVM"/> with all labeling/undo removed. Steps through the captured frames one at a time,
-    /// overlaying each accepted star's bounding box, its HFR + registration-id labels, and (when RANSAC alignment was
-    /// on) a registration arrow to its target. Reuses the unit-tested <see cref="StarReviewViewport"/> zoom/pan math
-    /// and the <see cref="StarReviewLegendEntry"/> legend-row type. Disposing releases the retained frame bitmaps.
+    /// Read-only viewer VM for the Aberration Inspector "Review Frames" dialog. Steps through the captured frames,
+    /// overlaying each accepted star's bounding box (colored by registration/fit state), HFR, optional registration
+    /// id + path, and optional best-focus offset; and shows a per-star focus graph on hover. Reuses the unit-tested
+    /// <see cref="StarReviewViewport"/> zoom/pan math, the <see cref="StarReviewLegendEntry"/> legend-row type, and the
+    /// <see cref="OptimizationCurve"/> OxyPlot chart for the hover graph. Disposing releases the retained bitmaps.
     /// </summary>
     public sealed class FrameReviewVM : BaseINPC, IDisposable {
 
@@ -57,28 +70,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             return b;
         }
 
-        /// <summary>Accepted-star bounding-box stroke (green) — matches StarReview's accepted color.</summary>
+        /// <summary>Accepted star WITH an accepted focus fit (green) — contributed to the model.</summary>
         public Brush AcceptedBrush { get; } = FrozenBrush(Color.FromRgb(0x00, 0xFF, 0x00));
 
-        /// <summary>Registration-id label color (cyan).</summary>
+        /// <summary>Registered star with NO successful focus fit (red).</summary>
+        public Brush RegisteredNoFitBrush { get; } = FrozenBrush(Color.FromRgb(0xFF, 0x52, 0x52));
+
+        /// <summary>Accepted but unregistered star (grey).</summary>
+        public Brush UnregisteredBrush { get; } = FrozenBrush(Color.FromRgb(0x9E, 0x9E, 0x9E));
+
+        /// <summary>Registration id label + center marker (cyan).</summary>
         public Brush RegistrationBrush { get; } = FrozenBrush(Color.FromRgb(0x00, 0xE5, 0xFF));
 
-        /// <summary>HFR label color (yellow).</summary>
+        /// <summary>HFR label (yellow).</summary>
         public Brush HfrBrush { get; } = FrozenBrush(Color.FromRgb(0xFF, 0xD7, 0x00));
 
-        /// <summary>Registration-arrow color (orange).</summary>
-        public Brush ArrowBrush { get; } = FrozenBrush(Color.FromRgb(0xFF, 0x8C, 0x00));
+        /// <summary>Registration path line + target marker (orange).</summary>
+        public Brush RegistrationTargetBrush { get; } = FrozenBrush(Color.FromRgb(0xFF, 0x8C, 0x00));
+
+        /// <summary>Best-focus offset label (violet).</summary>
+        public Brush FocusOffsetBrush { get; } = FrozenBrush(Color.FromRgb(0xE0, 0x40, 0xFB));
 
         private FrameReviewSnapshot snapshot;
 
-        /// <summary>Raised when the VM's Close command asks the host to dismiss the dialog.</summary>
         public event EventHandler RequestClose;
-
-        /// <summary>Raised when the view should re-fit the image to the viewport (Fit button / new frame load).</summary>
         public event EventHandler FitRequested;
 
         public StarReviewViewport Viewport { get; }
-        public IReadOnlyList<StarReviewLegendEntry> LegendEntries { get; }
         public ObservableCollection<FrameReviewMarker> Markers { get; } = new();
 
         public RelayCommand PrevCommand { get; }
@@ -89,7 +107,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public FrameReviewVM(FrameReviewSnapshot snapshot) {
             this.snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
             Viewport = new StarReviewViewport();
-            LegendEntries = BuildLegend();
+            legendEntries = BuildLegend();
 
             PrevCommand = new RelayCommand(Prev, () => CurrentIndex > 0);
             NextCommand = new RelayCommand(Next, () => CurrentIndex < FrameCount - 1);
@@ -101,6 +119,36 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         }
 
         private int FrameCount => snapshot?.Frames.Count ?? 0;
+
+        // ---- toggles --------------------------------------------------------------------------------------
+
+        private bool showRegistration;
+        /// <summary>Show registration ids + path (cyan center marker + orange line/target). Off by default.</summary>
+        public bool ShowRegistration {
+            get => showRegistration;
+            set {
+                if (showRegistration != value) {
+                    showRegistration = value;
+                    RaisePropertyChanged();
+                    RebuildLegend();
+                }
+            }
+        }
+
+        private bool showFocusOffset;
+        /// <summary>Show each fitted star's best-focus offset from the field mean. Off by default.</summary>
+        public bool ShowFocusOffset {
+            get => showFocusOffset;
+            set {
+                if (showFocusOffset != value) {
+                    showFocusOffset = value;
+                    RaisePropertyChanged();
+                    RebuildLegend();
+                }
+            }
+        }
+
+        // ---- navigation / current frame -------------------------------------------------------------------
 
         private int currentIndex;
         public int CurrentIndex {
@@ -158,25 +206,108 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         public bool ShowTransform => !string.IsNullOrEmpty(TransformText);
 
-        // All markers live inside a canvas whose RenderTransform scales everything (including stroke width and text),
-        // so bind these INVERSELY to the current scale to keep stroke/text/labels a roughly constant on-screen size.
-        // Clamped to MinScale so they never blow up at extreme zoom-out. (Copied from StarReviewVM.)
+        // ---- inverse-zoom overlay bindings ----------------------------------------------------------------
+
         public double MarkerStrokeThickness => 1.5 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
         public double MarkerTextScale => 1.0 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
-
-        // HFR label one text-height ABOVE the box top (≈15 px on screen at any zoom); reg-id label a small gap BELOW
-        // the box (the per-marker BoxHeight translate puts it at the box bottom; this adds the gap).
         public double HfrLabelOffset => -15.0 * MarkerTextScale;
         public double RegistrationLabelOffset => 3.0 * MarkerTextScale;
 
-        /// <summary>Re-raises the zoom-dependent overlay bindings. The view calls this after any viewport change
-        /// (wheel-zoom, fit, pan) so stroke widths + label sizes track the current scale.</summary>
         public void NotifyViewportChanged() {
             RaisePropertyChanged(nameof(MarkerStrokeThickness));
             RaisePropertyChanged(nameof(MarkerTextScale));
             RaisePropertyChanged(nameof(HfrLabelOffset));
             RaisePropertyChanged(nameof(RegistrationLabelOffset));
         }
+
+        // ---- hover focus graph ----------------------------------------------------------------------------
+
+        private OptimizationCurve hoverCurve;
+        public OptimizationCurve HoverCurve {
+            get => hoverCurve;
+            private set { hoverCurve = value; RaisePropertyChanged(); }
+        }
+
+        private bool showHover;
+        public bool ShowHover {
+            get => showHover;
+            private set { if (showHover != value) { showHover = value; RaisePropertyChanged(); } }
+        }
+
+        private string hoverHeaderText;
+        public string HoverHeaderText {
+            get => hoverHeaderText;
+            private set { hoverHeaderText = value; RaisePropertyChanged(); }
+        }
+
+        private string hoverRSquaredText;
+        public string HoverRSquaredText {
+            get => hoverRSquaredText;
+            private set { hoverRSquaredText = value; RaisePropertyChanged(); }
+        }
+
+        private string hoverOptimalFocusText;
+        public string HoverOptimalFocusText {
+            get => hoverOptimalFocusText;
+            private set { hoverOptimalFocusText = value; RaisePropertyChanged(); }
+        }
+
+        private int? hoverRegistrationId;
+
+        /// <summary>Show the focus graph for the registered star with the given id (no-op if already shown / no curve).</summary>
+        public void SetHover(int registrationId) {
+            if (hoverRegistrationId == registrationId && ShowHover) {
+                return;
+            }
+            if (snapshot?.FocusCurvesByRegistrationId == null ||
+                !snapshot.FocusCurvesByRegistrationId.TryGetValue(registrationId, out var curve)) {
+                ClearHover();
+                return;
+            }
+            hoverRegistrationId = registrationId;
+            HoverCurve = new OptimizationCurve {
+                Label = $"Star {registrationId}",
+                Points = curve.Points,
+                Fit = curve.Fit,
+            };
+            HoverHeaderText = $"Star {registrationId}";
+            HoverRSquaredText = $"R²: {curve.RSquared:0.###}";
+            var offset = curve.OffsetFromMean ?? 0.0;
+            HoverOptimalFocusText = $"Best focus: {curve.BestFocus:0}  (Δ field {offset:+0.#;-0.#;0})";
+            ShowHover = true;
+        }
+
+        public void ClearHover() {
+            hoverRegistrationId = null;
+            ShowHover = false;
+            HoverCurve = null;
+        }
+
+        // ---- legend ---------------------------------------------------------------------------------------
+
+        private IReadOnlyList<StarReviewLegendEntry> legendEntries;
+        public IReadOnlyList<StarReviewLegendEntry> LegendEntries {
+            get => legendEntries;
+            private set { legendEntries = value; RaisePropertyChanged(); }
+        }
+
+        private void RebuildLegend() {
+            LegendEntries = BuildLegend();
+        }
+
+        private IReadOnlyList<StarReviewLegendEntry> BuildLegend() {
+            return new List<StarReviewLegendEntry> {
+                new() { Brush = AcceptedBrush, Caption = "Accepted (focus fit)", Dashed = false },
+                new() { Brush = RegisteredNoFitBrush, Caption = "Registered, no focus fit", Dashed = false },
+                new() { Brush = UnregisteredBrush, Caption = "Not registered", Dashed = false },
+                new() { Brush = HfrBrush, Caption = "HFR", Dashed = false },
+                new() { Brush = RegistrationBrush, Caption = "Registration ID & marker", Dashed = false, Enabled = ShowRegistration },
+                new() { Brush = RegistrationTargetBrush, Caption = "Registration target (aligned)", Dashed = false, Enabled = ShowRegistration },
+                new() { Brush = FocusOffsetBrush, Caption = "Best-focus offset from field mean", Dashed = false, Enabled = ShowFocusOffset },
+            };
+        }
+
+        // ---- frame loading --------------------------------------------------------------------------------
 
         private void Prev() {
             if (CurrentIndex > 0) {
@@ -193,8 +324,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         }
 
         private void LoadCurrent(bool fit) {
-            var frames = snapshot?.Frames;
+            ClearHover();
             Markers.Clear();
+            var frames = snapshot?.Frames;
             if (frames == null || frames.Count == 0) {
                 FrameImage = null;
                 FrameHeader = string.Empty;
@@ -224,65 +356,39 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             }
         }
 
-        private static FrameReviewMarker BuildMarker(FrameReviewStar s) {
+        private FrameReviewMarker BuildMarker(FrameReviewStar s) {
+            var boxBrush = s.RegistrationState switch {
+                FrameReviewRegistrationState.MatchedWithFit => AcceptedBrush,
+                FrameReviewRegistrationState.MatchedNoFit => RegisteredNoFitBrush,
+                _ => UnregisteredBrush,
+            };
             return new FrameReviewMarker {
                 BoxX = s.BoxX,
                 BoxY = s.BoxY,
                 BoxWidth = s.BoxWidth,
                 BoxHeight = s.BoxHeight,
+                BoxBrush = boxBrush,
                 HfrText = FormatHfr(s.Hfr),
+                CenterX = s.CenterX,
+                CenterY = s.CenterY,
+                TargetX = s.TargetX,
+                TargetY = s.TargetY,
+                HasRegistrationId = s.RegistrationId != null,
                 RegistrationIdText = s.RegistrationId?.ToString() ?? "—",
-                HasArrow = s.HasArrow,
-                ArrowStartX = s.OriginalX,
-                ArrowStartY = s.OriginalY,
-                ArrowEndX = s.CenterX,
-                ArrowEndY = s.CenterY,
-                ArrowHead = s.HasArrow ? BuildArrowHead(s.OriginalX, s.OriginalY, s.CenterX, s.CenterY) : null,
+                HasRegistrationLine = s.HasRegistrationLine,
+                FocusOffsetText = FormatOffset(s.FocusOffsetFromMean),
+                HasFocusOffset = s.FocusOffsetFromMean.HasValue,
+                RegistrationId = s.RegistrationId,
+                CanShowFocusGraph = s.RegistrationState == FrameReviewRegistrationState.MatchedWithFit && s.RegistrationId != null,
             };
         }
 
         private static string FormatHfr(double hfr) => double.IsNaN(hfr) || hfr <= 0.0 ? "—" : hfr.ToString("F2");
 
-        // A small filled triangle at the arrow's target end, precomputed in image coords so the XAML needs no rotation
-        // math. Sized in image pixels (scales with the line under zoom — acceptable for a diagnostic overlay).
-        private static PointCollection BuildArrowHead(double sx, double sy, double ex, double ey) {
-            const double headLen = 8.0;
-            const double headWidth = 5.0;
-            var dx = ex - sx;
-            var dy = ey - sy;
-            var len = Math.Sqrt(dx * dx + dy * dy);
-            if (len < 1e-6) {
-                return new PointCollection();
-            }
-            var ux = dx / len;
-            var uy = dy / len;        // unit direction (start -> end)
-            var px = -uy;
-            var py = ux;              // unit perpendicular
-            var baseX = ex - ux * headLen;
-            var baseY = ey - uy * headLen;
-            var pc = new PointCollection {
-                new System.Windows.Point(ex, ey),                                         // tip
-                new System.Windows.Point(baseX + px * headWidth, baseY + py * headWidth),  // base corner 1
-                new System.Windows.Point(baseX - px * headWidth, baseY - py * headWidth),  // base corner 2
-            };
-            pc.Freeze();
-            return pc;
-        }
-
-        private IReadOnlyList<StarReviewLegendEntry> BuildLegend() {
-            var entries = new List<StarReviewLegendEntry> {
-                new() { Brush = AcceptedBrush, Caption = "Accepted star", Dashed = false },
-                new() { Brush = RegistrationBrush, Caption = "Registration ID (— = unmatched)", Dashed = false },
-                new() { Brush = HfrBrush, Caption = "HFR", Dashed = false },
-            };
-            // The arrow only appears when RANSAC alignment was on, so only show its legend row then.
-            if (snapshot?.RansacEnabled == true) {
-                entries.Add(new StarReviewLegendEntry { Brush = ArrowBrush, Caption = "Registration arrow (to target)", Dashed = false });
-            }
-            return entries;
-        }
+        private static string FormatOffset(double? offset) => offset.HasValue ? offset.Value.ToString("+0;-0;0") : string.Empty;
 
         public void Dispose() {
+            ClearHover();
             Markers.Clear();
             FrameImage = null;
             snapshot = null;

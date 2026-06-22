@@ -187,15 +187,53 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         private void ViewportCanvas_MouseMove(object sender, MouseEventArgs e) {
             var vm = Vm;
-            if (vm == null || !panning) {
+            if (vm == null) {
+                return;
+            }
+            if (panning) {
+                var screen = ScreenPoint(e);
+                var dx = screen.X - lastPanScreen.X;
+                var dy = screen.Y - lastPanScreen.Y;
+                lastPanScreen = screen;
+                vm.Viewport.PanBy(dx, dy);
+                ApplyViewport();
+                return;
+            }
+            UpdateHover(e);
+        }
+
+        // Show the focus graph for the registered+fitted star under the cursor (smallest box wins); clear it otherwise.
+        // Boxes are in raw image coords (matching the displayed raw frame), so the cursor maps via the viewport directly.
+        private void UpdateHover(MouseEventArgs e) {
+            var vm = Vm;
+            if (vm == null) {
                 return;
             }
             var screen = ScreenPoint(e);
-            var dx = screen.X - lastPanScreen.X;
-            var dy = screen.Y - lastPanScreen.Y;
-            lastPanScreen = screen;
-            vm.Viewport.PanBy(dx, dy);
-            ApplyViewport();
+            var (imgX, imgY) = vm.Viewport.ScreenToImage(screen.X, screen.Y);
+            FrameReviewMarker best = null;
+            double bestArea = double.MaxValue;
+            foreach (var m in vm.Markers) {
+                if (!m.CanShowFocusGraph || m.RegistrationId == null) {
+                    continue;
+                }
+                if (imgX >= m.BoxX && imgY >= m.BoxY && imgX <= m.BoxX + m.BoxWidth && imgY <= m.BoxY + m.BoxHeight) {
+                    var area = m.BoxWidth * m.BoxHeight;
+                    if (area < bestArea) {
+                        bestArea = area;
+                        best = m;
+                    }
+                }
+            }
+            if (best != null) {
+                vm.SetHover(best.RegistrationId.Value);
+            } else {
+                vm.ClearHover();
+            }
+        }
+
+        private void ViewportCanvas_MouseLeave(object sender, MouseEventArgs e) {
+            Vm?.ClearHover();
         }
 
         private void ViewportCanvas_SizeChanged(object sender, SizeChangedEventArgs e) {

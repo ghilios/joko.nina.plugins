@@ -28,13 +28,25 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <DockPanel Grid.Row="0" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
-            <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Text="{Binding FrameHeader}" />
-            <TextBlock DockPanel.Dock="Right" Text="{Binding PositionLabel}" />
-        </DockPanel>
+        <!-- Summary header (above the image): focuser position, frame index, detected-star count, reference note,
+             and the registration transform. -->
+        <Border Grid.Row="0" Grid.Column="0" Margin="0,0,0,6" Padding="8,5" CornerRadius="3" Background="#FF262B31">
+            <StackPanel>
+                <DockPanel LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Text="{Binding FrameHeader}" />
+                    <TextBlock DockPanel.Dock="Left" Margin="16,0,0,0" Foreground="#FFB0B6BD" Text="{Binding DetectedCountText}" />
+                    <TextBlock DockPanel.Dock="Left" Margin="16,0,0,0" Foreground="#FF7FD4FF" FontWeight="SemiBold"
+                               Text="{Binding ReferenceNote}"
+                               Visibility="{Binding ShowReferenceNote, Converter={StaticResource BoolToVis}}" />
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding PositionLabel}" />
+                </DockPanel>
+                <TextBlock Margin="0,3,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
+                           Text="{Binding TransformText}"
+                           Visibility="{Binding ShowTransform, Converter={StaticResource BoolToVis}}" />
+            </StackPanel>
+        </Border>
 
-        <!-- Toolbar: navigation + close (read-only — no labeling). -->
+        <!-- Toolbar: navigation + close (read-only). -->
         <DockPanel Grid.Row="1" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
             <Button DockPanel.Dock="Left" Content="Fit" Command="{Binding FitCommand}" Margin="0,0,4,0" />
             <Button DockPanel.Dock="Left" Content="◀ Prev" Command="{Binding PrevCommand}" />
@@ -42,7 +54,7 @@
             <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" />
         </DockPanel>
 
-        <!-- Image + scrollbars: the image Border sits at (0,0); scrollbars appear only when zoomed beyond fit. -->
+        <!-- Image + scrollbars. -->
         <Grid Grid.Row="2" Grid.Column="0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -53,140 +65,186 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- Image + overlays. The Image and all marker layers share one transform (zoom/pan) so markers stay
-                 pinned to image pixels. Mouse events are handled in code-behind against the viewport. -->
             <Border Grid.Row="0" Grid.Column="0" ClipToBounds="True" Background="Black" BorderBrush="#FF3F4958" BorderThickness="1">
-                <Grid>
-                    <Canvas x:Name="ViewportCanvas"
-                            Background="Transparent"
-                            MouseWheel="ViewportCanvas_MouseWheel"
-                            MouseRightButtonDown="ViewportCanvas_MouseRightButtonDown"
-                            MouseRightButtonUp="ViewportCanvas_MouseRightButtonUp"
-                            MouseMove="ViewportCanvas_MouseMove"
-                            SizeChanged="ViewportCanvas_SizeChanged">
-                        <Canvas.RenderTransform>
-                            <TransformGroup>
-                                <ScaleTransform x:Name="ContentScale" ScaleX="1" ScaleY="1" />
-                                <TranslateTransform x:Name="ContentTranslate" X="0" Y="0" />
-                            </TransformGroup>
-                        </Canvas.RenderTransform>
+                <Canvas x:Name="ViewportCanvas"
+                        Background="Transparent"
+                        MouseWheel="ViewportCanvas_MouseWheel"
+                        MouseRightButtonDown="ViewportCanvas_MouseRightButtonDown"
+                        MouseRightButtonUp="ViewportCanvas_MouseRightButtonUp"
+                        MouseMove="ViewportCanvas_MouseMove"
+                        MouseLeave="ViewportCanvas_MouseLeave"
+                        SizeChanged="ViewportCanvas_SizeChanged">
+                    <Canvas.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform x:Name="ContentScale" ScaleX="1" ScaleY="1" />
+                            <TranslateTransform x:Name="ContentTranslate" X="0" Y="0" />
+                        </TransformGroup>
+                    </Canvas.RenderTransform>
 
-                        <!-- Background frame (image-pixel coords; the canvas transform handles zoom/pan). -->
-                        <Image x:Name="FrameImageControl"
-                               Source="{Binding FrameImage}"
-                               Canvas.Left="0" Canvas.Top="0"
-                               Stretch="None"
-                               RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                    <!-- Background frame (raw image-pixel coords; the canvas transform handles zoom/pan). -->
+                    <Image x:Name="FrameImageControl"
+                           Source="{Binding FrameImage}"
+                           Canvas.Left="0" Canvas.Top="0"
+                           Stretch="None"
+                           RenderOptions.BitmapScalingMode="NearestNeighbor" />
 
-                        <!-- Registration arrows: each from a star's raw detection (start) to its registered target
-                             (end), with a precomputed arrowhead triangle. Drawn under the boxes. Container sits at the
-                             canvas origin so the absolute image-pixel coords place the line/arrowhead directly. -->
-                        <ItemsControl ItemsSource="{Binding Markers}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Canvas Visibility="{Binding HasArrow, Converter={StaticResource BoolToVis}}" IsHitTestVisible="False">
-                                        <Line X1="{Binding ArrowStartX}" Y1="{Binding ArrowStartY}"
-                                              X2="{Binding ArrowEndX}" Y2="{Binding ArrowEndY}"
-                                              Stroke="{Binding DataContext.ArrowBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                              StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
-                                        <Polygon Points="{Binding ArrowHead}"
-                                                 Fill="{Binding DataContext.ArrowBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
-                                    </Canvas>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                    <!-- Registration overlay (gated by Show registration): cyan center "+" + orange line + orange
+                         target "+". Reg-id label lives in the box layer below. Container at canvas origin so absolute
+                         image coords place the markers directly. -->
+                    <ItemsControl ItemsSource="{Binding Markers}"
+                                  Visibility="{Binding ShowRegistration, Converter={StaticResource BoolToVis}}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Canvas IsHitTestVisible="False">
+                                    <!-- Orange registration line: raw center -> aligned target. -->
+                                    <Line X1="{Binding CenterX}" Y1="{Binding CenterY}" X2="{Binding TargetX}" Y2="{Binding TargetY}"
+                                          Stroke="{Binding DataContext.RegistrationTargetBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                          StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                          Visibility="{Binding HasRegistrationLine, Converter={StaticResource BoolToVis}}" />
+                                    <!-- Cyan "+" at the star's raw detected center (registered stars). -->
+                                    <Path Data="M -4,0 L 4,0 M 0,-4 L 0,4" StrokeThickness="1.5"
+                                          Stroke="{Binding DataContext.RegistrationBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                          Visibility="{Binding HasRegistrationId, Converter={StaticResource BoolToVis}}">
+                                        <Path.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                                <TranslateTransform X="{Binding CenterX}" Y="{Binding CenterY}" />
+                                            </TransformGroup>
+                                        </Path.RenderTransform>
+                                    </Path>
+                                    <!-- Orange "+" at the registration target (aligned position). -->
+                                    <Path Data="M -4,0 L 4,0 M 0,-4 L 0,4" StrokeThickness="1.5"
+                                          Stroke="{Binding DataContext.RegistrationTargetBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                          Visibility="{Binding HasRegistrationLine, Converter={StaticResource BoolToVis}}">
+                                        <Path.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                                <TranslateTransform X="{Binding TargetX}" Y="{Binding TargetY}" />
+                                            </TransformGroup>
+                                        </Path.RenderTransform>
+                                    </Path>
+                                </Canvas>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
 
-                        <!-- Accepted stars: the detector's real bounding box (green) + HFR label (yellow, above) +
-                             registration-id label (cyan, below). All labels keep a constant on-screen size via the
-                             inverse-zoom ScaleTransform. -->
-                        <ItemsControl ItemsSource="{Binding Markers}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemContainerStyle>
-                                <Style TargetType="ContentPresenter">
-                                    <Setter Property="Canvas.Left" Value="{Binding BoxX}" />
-                                    <Setter Property="Canvas.Top" Value="{Binding BoxY}" />
-                                </Style>
-                            </ItemsControl.ItemContainerStyle>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid>
-                                        <Rectangle Width="{Binding BoxWidth}" Height="{Binding BoxHeight}"
-                                                   HorizontalAlignment="Left" VerticalAlignment="Top"
-                                                   IsHitTestVisible="False"
-                                                   Stroke="{Binding DataContext.AcceptedBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                   StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
-                                        <!-- HFR label: anchored at the box top-left, constant on-screen size, lifted up
-                                             one text-height so it sits just ABOVE the box. -->
-                                        <TextBlock Text="{Binding HfrText}"
-                                                   HorizontalAlignment="Left" VerticalAlignment="Top"
-                                                   FontSize="10" Background="#B0000000" Padding="2,0"
-                                                   IsHitTestVisible="False" RenderTransformOrigin="0,0"
-                                                   Foreground="{Binding DataContext.HfrBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
-                                            <TextBlock.RenderTransform>
-                                                <TransformGroup>
-                                                    <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                                    ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
-                                                    <TranslateTransform Y="{Binding DataContext.HfrLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
-                                                </TransformGroup>
-                                            </TextBlock.RenderTransform>
-                                        </TextBlock>
-                                        <!-- Registration-id label: anchored at the box top-left, dropped to the box
-                                             bottom (per-marker BoxHeight) plus a small constant gap, BELOW the box. -->
-                                        <TextBlock Text="{Binding RegistrationIdText}"
-                                                   HorizontalAlignment="Left" VerticalAlignment="Top"
-                                                   FontSize="10" Background="#B0000000" Padding="2,0"
-                                                   IsHitTestVisible="False" RenderTransformOrigin="0,0"
-                                                   Foreground="{Binding DataContext.RegistrationBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
-                                            <TextBlock.RenderTransform>
-                                                <TransformGroup>
-                                                    <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                                    ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
-                                                    <TranslateTransform Y="{Binding BoxHeight}" />
-                                                    <TranslateTransform Y="{Binding DataContext.RegistrationLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
-                                                </TransformGroup>
-                                            </TextBlock.RenderTransform>
-                                        </TextBlock>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </Canvas>
-
-                    <!-- HUD: detected-star count, reference-frame note, and the alignment transform. A sibling of the
-                         zoomed canvas (NOT inside its RenderTransform), so it stays a fixed size pinned to the top-left
-                         corner regardless of zoom/pan. -->
-                    <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6"
-                            Background="#B0000000" Padding="6,4" CornerRadius="3" IsHitTestVisible="False">
-                        <StackPanel>
-                            <TextBlock Text="{Binding DetectedCountText}" Foreground="White" FontSize="12" FontWeight="SemiBold" />
-                            <TextBlock Margin="0,2,0,0" Text="{Binding ReferenceNote}" Foreground="#FFB0B6BD" FontSize="12"
-                                       Visibility="{Binding ShowReferenceNote, Converter={StaticResource BoolToVis}}" />
-                            <TextBlock Margin="0,2,0,0" Text="{Binding TransformText}" Foreground="#FFB0B6BD" FontSize="11" TextWrapping="Wrap" MaxWidth="360"
-                                       Visibility="{Binding ShowTransform, Converter={StaticResource BoolToVis}}" />
-                        </StackPanel>
-                    </Border>
-                </Grid>
+                    <!-- Accepted-star boxes (colored by registration/fit state) + HFR (above) + reg-id (below, gated) +
+                         best-focus offset (right, gated). -->
+                    <ItemsControl ItemsSource="{Binding Markers}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding BoxX}" />
+                                <Setter Property="Canvas.Top" Value="{Binding BoxY}" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Rectangle Width="{Binding BoxWidth}" Height="{Binding BoxHeight}"
+                                               HorizontalAlignment="Left" VerticalAlignment="Top"
+                                               IsHitTestVisible="False"
+                                               Stroke="{Binding BoxBrush}"
+                                               StrokeThickness="{Binding DataContext.MarkerStrokeThickness, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                    <!-- HFR label, constant on-screen size, just above the box. -->
+                                    <TextBlock Text="{Binding HfrText}"
+                                               HorizontalAlignment="Left" VerticalAlignment="Top"
+                                               FontSize="10" Background="#B0000000" Padding="2,0"
+                                               IsHitTestVisible="False" RenderTransformOrigin="0,0"
+                                               Foreground="{Binding DataContext.HfrBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
+                                        <TextBlock.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                                <TranslateTransform Y="{Binding DataContext.HfrLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                            </TransformGroup>
+                                        </TextBlock.RenderTransform>
+                                    </TextBlock>
+                                    <!-- Registration-id label below the box (shown only when Show registration is on). -->
+                                    <TextBlock Text="{Binding RegistrationIdText}"
+                                               HorizontalAlignment="Left" VerticalAlignment="Top"
+                                               FontSize="10" Background="#B0000000" Padding="2,0"
+                                               IsHitTestVisible="False" RenderTransformOrigin="0,0"
+                                               Foreground="{Binding DataContext.RegistrationBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                               Visibility="{Binding DataContext.ShowRegistration, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                                <TranslateTransform Y="{Binding BoxHeight}" />
+                                                <TranslateTransform Y="{Binding DataContext.RegistrationLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                            </TransformGroup>
+                                        </TextBlock.RenderTransform>
+                                    </TextBlock>
+                                    <!-- Best-focus offset label to the right of the box (shown only when its toggle is on;
+                                         empty for non-fitted stars so nothing is drawn). -->
+                                    <TextBlock Text="{Binding FocusOffsetText}"
+                                               HorizontalAlignment="Left" VerticalAlignment="Top"
+                                               FontSize="10" Background="#B0000000" Padding="2,0"
+                                               IsHitTestVisible="False" RenderTransformOrigin="0,0"
+                                               Foreground="{Binding DataContext.FocusOffsetBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                               Visibility="{Binding DataContext.ShowFocusOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock.RenderTransform>
+                                            <TransformGroup>
+                                                <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                                <TranslateTransform X="{Binding BoxWidth}" />
+                                                <TranslateTransform X="{Binding DataContext.RegistrationLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                            </TransformGroup>
+                                        </TextBlock.RenderTransform>
+                                    </TextBlock>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Canvas>
             </Border>
 
-            <!-- Scrollbars: driven from code-behind (UpdateScrollBars); the Scroll handlers map value -> viewport offset. -->
+            <!-- Hover focus-graph overlay: a fixed corner panel (sibling of the clipped image Border, so it is not
+                 clipped). Shows the hovered registered+fitted star's focus curve, R², and best focus. -->
+            <Border Grid.Row="0" Grid.Column="0"
+                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10"
+                    Width="360" Background="#E6202429" BorderBrush="#FF3F4958" BorderThickness="1" CornerRadius="4"
+                    Visibility="{Binding ShowHover, Converter={StaticResource BoolToVis}}">
+                <StackPanel Margin="8">
+                    <TextBlock FontWeight="SemiBold" Text="{Binding HoverHeaderText}" />
+                    <Border Height="220" Margin="0,4,0,0">
+                        <ContentControl Content="{Binding HoverCurve}" />
+                    </Border>
+                    <TextBlock Margin="0,4,0,0" Foreground="#FFB0B6BD" Text="{Binding HoverRSquaredText}" />
+                    <TextBlock Foreground="#FFB0B6BD" Text="{Binding HoverOptimalFocusText}" />
+                </StackPanel>
+            </Border>
+
             <ScrollBar x:Name="VScroll" Grid.Row="0" Grid.Column="1" Orientation="Vertical"
                        Visibility="Collapsed" Scroll="VScroll_Scroll" />
             <ScrollBar x:Name="HScroll" Grid.Row="1" Grid.Column="0" Orientation="Horizontal"
                        Visibility="Collapsed" Scroll="HScroll_Scroll" />
         </Grid>
 
-        <!-- Color legend (right column), generated from the VM's single color source so it tracks the overlays. -->
-        <StackPanel Grid.Row="0" Grid.RowSpan="3" Grid.Column="1" Width="230" Margin="12,0,0,0">
+        <!-- Right column: legend (disabled rows greyed) + toggles + help. -->
+        <StackPanel Grid.Row="0" Grid.RowSpan="3" Grid.Column="1" Width="240" Margin="12,0,0,0">
             <TextBlock FontWeight="Bold" Margin="0,0,0,6" Text="Legend" />
             <ItemsControl ItemsSource="{Binding LegendEntries}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Enabled}" Value="False">
+                                            <Setter Property="Opacity" Value="0.4" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
                             <Rectangle Width="20" Height="12" Margin="0,0,8,0" VerticalAlignment="Center"
                                        Fill="Transparent" Stroke="{Binding Brush}" StrokeThickness="2">
                                 <Rectangle.Style>
@@ -199,18 +257,24 @@
                                     </Style>
                                 </Rectangle.Style>
                             </Rectangle>
-                            <!-- Explicit Foreground: the control's implicit white-TextBlock style does not reach
-                                 TextBlocks generated inside this ItemTemplate, so they'd render dark-on-dark. -->
-                            <TextBlock Width="190" VerticalAlignment="Center" Foreground="{StaticResource Fg}"
+                            <TextBlock Width="200" VerticalAlignment="Center" Foreground="{StaticResource Fg}"
                                        Text="{Binding Caption}" TextWrapping="Wrap" />
                         </StackPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
+            <Separator Margin="0,12,0,8" />
+            <CheckBox IsChecked="{Binding ShowRegistration}" VerticalAlignment="Center">
+                <TextBlock Text="Show registration" VerticalAlignment="Center" />
+            </CheckBox>
+            <CheckBox Margin="0,6,0,0" IsChecked="{Binding ShowFocusOffset}" VerticalAlignment="Center">
+                <TextBlock Text="Show optimal-focus offset" VerticalAlignment="Center" />
+            </CheckBox>
+
             <Separator Margin="0,12,0,0" />
             <TextBlock Margin="0,8,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
-                       Text="Read-only diagnostic view. Step through every frame and zoom into regions to see how many stars were detected, their HFRs, and how each frame registered to the reference." />
+                       Text="Read-only diagnostic view. Box color shows each star's registration + focus-fit state. Hover a green (fitted) star to see its focus curve, R², and best focus." />
             <TextBlock Margin="0,8,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
                        Text="Wheel to zoom, right-drag to pan, Fit to reset. ◀ ▶ or Prev/Next to change frames." />
         </StackPanel>

@@ -11,19 +11,35 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.Utility;
+using OxyPlot.Series;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Media.Imaging;
 
 namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
+    /// <summary>The registration + focus-fit status of an accepted star, which drives its overlay box color.</summary>
+    public enum FrameReviewRegistrationState {
+        /// <summary>Accepted but never matched into a registered star (no cross-frame registration).</summary>
+        Unmatched,
+
+        /// <summary>Matched/registered, but it produced no accepted per-star focus fit (too few points, failed solve,
+        /// or below the per-star R² gate), so it did not contribute to the sensor model.</summary>
+        MatchedNoFit,
+
+        /// <summary>Matched/registered with an accepted per-star focus fit (contributed to the model).</summary>
+        MatchedWithFit
+    }
+
     /// <summary>
-    /// One accepted star in a reviewable frame, captured as PRIMITIVES (image-pixel coordinates) so the snapshot is
-    /// immutable against later mutation of the source <see cref="HocusFocusDetectedStar"/> (whose Position/BoundingBox
-    /// the registration pass overwrites in place). <see cref="CenterX"/>/<see cref="CenterY"/> are the detector's
-    /// (possibly aligned) Position; <see cref="BoxX"/>/<see cref="BoxY"/> are the bounding-box TOP-LEFT (for the
-    /// overlay's Canvas.Left/Top binding); <see cref="OriginalX"/>/<see cref="OriginalY"/> are the raw pre-alignment
-    /// detection position (the arrow start).
+    /// One accepted star in a reviewable frame, captured as PRIMITIVES in the frame's RAW (pre-alignment) coordinates,
+    /// so the overlay sits on the displayed raw image and the snapshot is immutable against later mutation of the
+    /// source <see cref="HocusFocusDetectedStar"/>. <see cref="CenterX"/>/<see cref="CenterY"/> are the raw detected
+    /// centroid (the cyan registration marker); <see cref="BoxX"/>/<see cref="BoxY"/> are the raw bounding-box
+    /// top-left; <see cref="TargetX"/>/<see cref="TargetY"/> are the star's ALIGNED (reference-frame) position — the
+    /// registration target the orange line/marker points to.
     /// </summary>
     public sealed class FrameReviewStar {
         public double CenterX { get; init; }
@@ -34,33 +50,34 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public double BoxHeight { get; init; }
         public double Hfr { get; init; }
 
-        /// <summary>The index into the run's RegisteredStars array for the physical star this maps to (stable across
-        /// frames), or null when this star was not matched into any registered star.</summary>
+        /// <summary>The index into the run's RegisteredStars for the physical star this maps to, or null if unmatched.</summary>
         public int? RegistrationId { get; init; }
 
-        public double OriginalX { get; init; }
-        public double OriginalY { get; init; }
+        public FrameReviewRegistrationState RegistrationState { get; init; }
 
-        /// <summary>Whether to draw a registration arrow from (OriginalX,OriginalY) to (CenterX,CenterY): true only
-        /// when RANSAC alignment was on, this is not the reference frame, and the position actually moved.</summary>
-        public bool HasArrow { get; init; }
+        public double TargetX { get; init; }
+        public double TargetY { get; init; }
+
+        /// <summary>Whether to draw the registration line (center → target): true only when RANSAC alignment was on,
+        /// this is not the reference frame, the star is matched, and its aligned position actually moved.</summary>
+        public bool HasRegistrationLine { get; init; }
+
+        /// <summary>Signed offset (focuser steps) of this star's best focus from the field-mean best focus over all
+        /// fitted stars; null when the star has no accepted focus fit.</summary>
+        public double? FocusOffsetFromMean { get; init; }
     }
 
     /// <summary>
-    /// One reviewable frame: its image (a frozen, display-ready <see cref="BitmapSource"/> the engine already held),
-    /// the accepted stars overlaid on it, and the registration metadata. Holds only the bitmap reference + primitives,
-    /// so disposing/mutating the source data after the snapshot is built does not affect it.
+    /// One reviewable frame: its frozen raw <see cref="BitmapSource"/>, the accepted stars overlaid on it, and the
+    /// registration metadata. Holds only the bitmap reference + primitives.
     /// </summary>
     public sealed class FrameReviewFrame {
-        /// <summary>The frame's original index in the per-run detected-stars list (== the registration ReferenceImage
-        /// index space), preserved even though <see cref="FrameReviewSnapshot.Frames"/> is ordered by focuser position.</summary>
         public int ImageIndex { get; init; }
-
         public double FocuserPosition { get; init; }
         public bool IsReference { get; init; }
 
-        /// <summary>The alignment transform's human-readable scale/rotation/translation, or "" for the reference frame
-        /// and when RANSAC alignment was off (no meaningful transform).</summary>
+        /// <summary>The alignment transform's human-readable scale/rotation/translation (with a degree symbol), or ""
+        /// for the reference frame and when RANSAC alignment was off.</summary>
         public string TransformText { get; init; }
 
         public int DetectedStarCount { get; init; }
@@ -68,23 +85,58 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public IReadOnlyList<FrameReviewStar> Stars { get; init; }
     }
 
-    /// <summary>An immutable, render-ready description of a completed sensor-model run's per-frame detections and
-    /// cross-frame registration, built once at the end of analysis and consumed by the Review Frames window.</summary>
+    /// <summary>
+    /// Per-registered-star focus-curve data for the Review Frames hover graph (one per physical star, shared across
+    /// frames). Disposal-safe: <see cref="Points"/> are value structs and <see cref="Fit"/>'s curve closure captures
+    /// only a <c>double[]</c> solution, so it survives the disposal of the run's heavy data.
+    /// </summary>
+    public sealed class FrameReviewFocusCurve {
+        public int RegistrationId { get; init; }
+        public AlglibHyperbolicFitting Fit { get; init; }
+        public IReadOnlyList<ScatterErrorPoint> Points { get; init; }
+        public double RSquared { get; init; }
+
+        /// <summary>Focuser position at best focus (the fit minimum's X).</summary>
+        public double BestFocus { get; init; }
+
+        public double? OffsetFromMean { get; init; }
+    }
+
+    /// <summary>An immutable, render-ready description of a completed sensor-model run's per-frame detections,
+    /// cross-frame registration, and per-star focus fits, built once at the end of analysis.</summary>
     public sealed class FrameReviewSnapshot {
         public bool RansacEnabled { get; init; }
         public int ReferenceImageIndex { get; init; }
         public IReadOnlyList<FrameReviewFrame> Frames { get; init; }
+
+        /// <summary>Per-registered-star focus curves, keyed by registration id (only stars with an accepted fit).</summary>
+        public IReadOnlyDictionary<int, FrameReviewFocusCurve> FocusCurvesByRegistrationId { get; init; }
+    }
+
+    /// <summary>Formats a registration transform like <c>Matrix3x2.ToFullString</c> but with a "°" degree symbol, for
+    /// the Review Frames header. Kept separate so the shared <c>ToFullString</c> (used by diagnostic image annotations)
+    /// is not perturbed.</summary>
+    public static class FrameReviewTransformFormatter {
+        public static string Format(Matrix3x2 t) {
+            if (t == null) {
+                return string.Empty;
+            }
+            var scaleX = Math.Sqrt(t.M11 * t.M11 + t.M21 * t.M21);
+            var scaleY = Math.Sqrt(t.M12 * t.M12 + t.M22 * t.M22);
+            var rotationDegrees = Math.Atan2(t.M21, t.M11) * 180.0 / Math.PI;
+            return $"Scale(x,y):({scaleX:0.###},{scaleY:0.###}), rotation:{rotationDegrees:0.###}°, translation(x,y):{t.M31:0.###},{t.M32:0.###}";
+        }
     }
 
     /// <summary>
     /// Builds a <see cref="FrameReviewSnapshot"/> from the full-sensor per-frame detections and the cross-frame
-    /// registration the Sensor Curve Model already computed. Pure (no WPF/UI besides carrying the frozen bitmaps), so
-    /// it is unit-tested directly.
+    /// registration + per-star fits the Sensor Curve Model already computed. Pure (no WPF/UI besides carrying the
+    /// frozen bitmaps), so it is unit-tested directly.
     ///
     /// <para>The registration identifier is recovered by reference identity: each <see cref="SensorModel.MatchedStar"/>
     /// in <c>registeredStars[i].MatchedStars</c> carries the SAME <see cref="HocusFocusDetectedStar"/> object that
-    /// lives in the frame's <c>StarList</c> (see <c>SensorModel.MatchStarsUsingKdTree</c>), so a reference-equality
-    /// dictionary maps each accepted star to its registered-star index <c>i</c>.</para>
+    /// lives in the frame's <c>StarList</c>, so a reference-equality dictionary maps each accepted star to its
+    /// registered-star index <c>i</c>.</para>
     /// </summary>
     public static class FrameReviewSnapshotBuilder {
 
@@ -94,8 +146,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             int referenceImageIndex,
             bool ransacEnabled) {
 
-            // Reference-identity map: each accepted star object -> its registered-star index. MatchedStar.Star is the
-            // SAME object reference as the frame's StarList entry, so reference equality recovers the registration id.
+            // Reference-identity map: each accepted star object -> its registered-star index.
             var idByStar = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
             if (registeredStars != null) {
                 for (int i = 0; i < registeredStars.Count; i++) {
@@ -107,6 +158,40 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         if (ms?.Star != null && !idByStar.ContainsKey(ms.Star)) {
                             idByStar[ms.Star] = i;
                         }
+                    }
+                }
+            }
+
+            // Per-registered-star focus curves + the field-mean best-focus offset. Only stars with an accepted fit
+            // (RegisteredStar.Fitting != null) have a curve; the offset is each fitted star's best focus minus the
+            // mean best focus across all fitted stars.
+            var focusCurves = new Dictionary<int, FrameReviewFocusCurve>();
+            var offsetByRegId = new Dictionary<int, double>();
+            if (registeredStars != null) {
+                var fittedIds = new List<int>();
+                for (int i = 0; i < registeredStars.Count; i++) {
+                    if (registeredStars[i]?.Fitting != null) {
+                        fittedIds.Add(i);
+                    }
+                }
+                if (fittedIds.Count > 0) {
+                    var meanBestFocus = fittedIds.Average(i => registeredStars[i].Fitting.Minimum.X);
+                    foreach (var i in fittedIds) {
+                        var rs = registeredStars[i];
+                        var bestFocus = rs.Fitting.Minimum.X;
+                        var offset = bestFocus - meanBestFocus;
+                        offsetByRegId[i] = offset;
+                        var points = (rs.MatchedStars ?? new List<SensorModel.MatchedStar>())
+                            .Select(m => new ScatterErrorPoint(m.FocuserPosition, m.Star.HFR, 0.0, SensorModel.EstimateHfrStdDev(m.Star)))
+                            .ToList();
+                        focusCurves[i] = new FrameReviewFocusCurve {
+                            RegistrationId = i,
+                            Fit = rs.Fitting,
+                            Points = points,
+                            RSquared = rs.Fitting.RSquared,
+                            BestFocus = bestFocus,
+                            OffsetFromMean = offset,
+                        };
                     }
                 }
             }
@@ -126,14 +211,33 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 if (starList != null) {
                     foreach (var detected in starList) {
                         var hf = detected as HocusFocusDetectedStar;
-                        double centerX = detected.Position.X;
-                        double centerY = detected.Position.Y;
-                        double originalX = hf?.OriginalPosition.X ?? centerX;
-                        double originalY = hf?.OriginalPosition.Y ?? centerY;
-                        var box = detected.BoundingBox;
+                        // Raw center + raw bounding box so the overlay sits on the displayed (raw) frame.
+                        double centerX = hf?.OriginalPosition.X ?? detected.Position.X;
+                        double centerY = hf?.OriginalPosition.Y ?? detected.Position.Y;
+                        var box = hf != null ? hf.OriginalBoundingBox : detected.BoundingBox;
+                        // Aligned (reference-frame) position = the registration target.
+                        double targetX = detected.Position.X;
+                        double targetY = detected.Position.Y;
+
                         int? registrationId = idByStar.TryGetValue(detected, out var id) ? id : (int?)null;
-                        // Arrows only make sense for a registered (aligned) non-reference frame whose position moved.
-                        bool hasArrow = ransacEnabled && !isReference && (centerX != originalX || centerY != originalY);
+                        FrameReviewRegistrationState state;
+                        if (registrationId == null) {
+                            state = FrameReviewRegistrationState.Unmatched;
+                        } else if (registeredStars != null && registeredStars[registrationId.Value]?.Fitting != null) {
+                            state = FrameReviewRegistrationState.MatchedWithFit;
+                        } else {
+                            state = FrameReviewRegistrationState.MatchedNoFit;
+                        }
+
+                        double? focusOffset = (registrationId != null && offsetByRegId.TryGetValue(registrationId.Value, out var off))
+                            ? off
+                            : (double?)null;
+
+                        // The line is only meaningful for a registered star on an aligned (RANSAC) non-reference frame
+                        // whose aligned position differs from its raw position.
+                        bool hasRegistrationLine = ransacEnabled && !isReference && registrationId != null
+                            && (targetX != centerX || targetY != centerY);
+
                         stars.Add(new FrameReviewStar {
                             CenterX = centerX,
                             CenterY = centerY,
@@ -143,18 +247,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                             BoxHeight = box.Height,
                             Hfr = detected.HFR,
                             RegistrationId = registrationId,
-                            OriginalX = originalX,
-                            OriginalY = originalY,
-                            HasArrow = hasArrow,
+                            RegistrationState = state,
+                            TargetX = targetX,
+                            TargetY = targetY,
+                            HasRegistrationLine = hasRegistrationLine,
+                            FocusOffsetFromMean = focusOffset,
                         });
                     }
                 }
 
-                // The reference frame keeps the identity transform, and a non-RANSAC run never aligns — neither has a
-                // meaningful transform to show.
                 var transformText = (!isReference && ransacEnabled && sds.AlignmentTransform != null)
-                    ? sds.AlignmentTransform.ToFullString()
-                    : "";
+                    ? FrameReviewTransformFormatter.Format(sds.AlignmentTransform)
+                    : string.Empty;
 
                 frames.Add(new FrameReviewFrame {
                     ImageIndex = imageIndex,
@@ -173,6 +277,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 RansacEnabled = ransacEnabled,
                 ReferenceImageIndex = referenceImageIndex,
                 Frames = ordered,
+                FocusCurvesByRegistrationId = focusCurves,
             };
         }
     }

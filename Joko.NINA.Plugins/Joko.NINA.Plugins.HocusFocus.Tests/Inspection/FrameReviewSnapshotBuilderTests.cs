@@ -1,7 +1,9 @@
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.Tests.Synthetic;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NSubstitute;
 using NUnit.Framework;
@@ -14,6 +16,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
 
     [TestFixture]
     public class FrameReviewSnapshotBuilderTests {
+
+        private IAlglibAPI alglibAPI;
+
+        [SetUp]
+        public void SetUp() {
+            alglibAPI = new AlglibAPI();
+        }
 
         // ---- helpers ------------------------------------------------------------------------------------
 
@@ -33,12 +42,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
             double hfr = 2.0,
             double posX = 10, double posY = 20,
             double? origX = null, double? origY = null,
-            int boxX = 8, int boxY = 18, int boxW = 5, int boxH = 7) {
+            int boxX = 8, int boxY = 18, int boxW = 5, int boxH = 7,
+            int? origBoxX = null, int? origBoxY = null, int? origBoxW = null, int? origBoxH = null) {
             return new HocusFocusDetectedStar {
                 HFR = hfr,
                 Position = new Accord.Point((float)posX, (float)posY),
                 OriginalPosition = new Accord.Point((float)(origX ?? posX), (float)(origY ?? posY)),
                 BoundingBox = new System.Drawing.Rectangle(boxX, boxY, boxW, boxH),
+                OriginalBoundingBox = new System.Drawing.Rectangle(origBoxX ?? boxX, origBoxY ?? boxY, origBoxW ?? boxW, origBoxH ?? boxH),
             };
         }
 
@@ -58,25 +69,38 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         }
 
         private static SensorModel.RegisteredStar MakeRegistered(params (HocusFocusDetectedStar star, int imageIndex)[] matches) {
-            var rs = new SensorModel.RegisteredStar();
+            return MakeFittedRegistered(null, matches);
+        }
+
+        private static SensorModel.RegisteredStar MakeFittedRegistered(AlglibHyperbolicFitting fit, params (HocusFocusDetectedStar star, int imageIndex)[] matches) {
+            var rs = new SensorModel.RegisteredStar { Fitting = fit };
             foreach (var (star, imageIndex) in matches) {
                 rs.MatchedStars.Add(new SensorModel.MatchedStar { Star = star, ImageIndex = imageIndex, FocuserPosition = imageIndex });
             }
             return rs;
         }
 
+        // A genuine, solved symmetric-hyperbola fit whose best focus is approximately x0.
+        private AlglibHyperbolicFitting MakeFit(double x0) {
+            var points = SyntheticFocusCurveSamples.SymmetricHyperbolaPoints(
+                x0: x0, y0: 0.0, a: 2.0, b: 80.0, xStart: x0 - 400, xStep: 20, count: 41, errorY: 1.0);
+            var fit = HyperbolicFittingAlglib.Create(alglibAPI, points, useWeights: false);
+            fit.HuberIrlsEnabled = false;
+            Assert.That(fit.Solve(), Is.True);
+            return fit;
+        }
+
         // ---- tests --------------------------------------------------------------------------------------
 
         [Test]
         public void Build_MapsSamePhysicalStarToSameRegistrationIdAcrossFrames() {
-            var a0 = MakeStar(posX: 10, posY: 10); // physical star A in frame 0
-            var a1 = MakeStar(posX: 11, posY: 10); // physical star A in frame 1
-            var b0 = MakeStar(posX: 50, posY: 50); // physical star B in frame 0
+            var a0 = MakeStar(posX: 10, posY: 10);
+            var a1 = MakeStar(posX: 11, posY: 10);
+            var b0 = MakeStar(posX: 50, posY: 50);
 
             var frame0 = MakeFrame(100, new[] { a0, b0 }, MakeImage());
             var frame1 = MakeFrame(200, new[] { a1 }, MakeImage());
 
-            // registeredStars[0] = physical star A (matched in frames 0 and 1); [1] = physical star B (frame 0 only)
             var registered = new[] {
                 MakeRegistered((a0, 0), (a1, 1)),
                 MakeRegistered((b0, 0)),
@@ -92,13 +116,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
 
             Assert.Multiple(() => {
                 Assert.That(a0Star.RegistrationId, Is.EqualTo(0));
-                Assert.That(a1Star.RegistrationId, Is.EqualTo(0)); // same physical star → same id across frames
+                Assert.That(a1Star.RegistrationId, Is.EqualTo(0));
                 Assert.That(b0Star.RegistrationId, Is.EqualTo(1));
             });
         }
 
         [Test]
-        public void Build_UnmatchedStar_HasNullRegistrationId() {
+        public void Build_UnmatchedStar_HasNullRegistrationIdAndUnmatchedState() {
             var matched = MakeStar(posX: 10);
             var unmatched = MakeStar(posX: 99);
             var frame = MakeFrame(100, new[] { matched, unmatched }, MakeImage());
@@ -107,12 +131,96 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
             var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, registered, referenceImageIndex: 0, ransacEnabled: true);
 
             var unmatchedStar = snapshot.Frames.Single().Stars.Single(s => s.CenterX == 99);
-            Assert.That(unmatchedStar.RegistrationId, Is.Null);
+            Assert.Multiple(() => {
+                Assert.That(unmatchedStar.RegistrationId, Is.Null);
+                Assert.That(unmatchedStar.RegistrationState, Is.EqualTo(FrameReviewRegistrationState.Unmatched));
+                Assert.That(unmatchedStar.FocusOffsetFromMean, Is.Null);
+            });
         }
 
         [Test]
-        public void Build_RansacOff_NoArrowsEvenWhenPositionMoved() {
-            // Position differs from OriginalPosition, alignment set — but RANSAC off → no arrows, empty transform.
+        public void Build_RegistrationState_MapsUnmatchedNoFitAndWithFit() {
+            var unmatched = MakeStar(posX: 10);
+            var noFit = MakeStar(posX: 20);
+            var withFit = MakeStar(posX: 30);
+            var frame = MakeFrame(100, new[] { unmatched, noFit, withFit }, MakeImage());
+            var registered = new[] {
+                MakeRegistered((noFit, 0)),                 // matched, no fit
+                MakeFittedRegistered(MakeFit(5000), (withFit, 0)), // matched, with fit
+            };
+
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, registered, referenceImageIndex: 0, ransacEnabled: true);
+            var stars = snapshot.Frames.Single().Stars;
+
+            Assert.Multiple(() => {
+                Assert.That(stars.Single(s => s.CenterX == 10).RegistrationState, Is.EqualTo(FrameReviewRegistrationState.Unmatched));
+                Assert.That(stars.Single(s => s.CenterX == 20).RegistrationState, Is.EqualTo(FrameReviewRegistrationState.MatchedNoFit));
+                Assert.That(stars.Single(s => s.CenterX == 30).RegistrationState, Is.EqualTo(FrameReviewRegistrationState.MatchedWithFit));
+                // No-fit star has no focus offset; with-fit star does.
+                Assert.That(stars.Single(s => s.CenterX == 20).FocusOffsetFromMean, Is.Null);
+                Assert.That(stars.Single(s => s.CenterX == 30).FocusOffsetFromMean, Is.Not.Null);
+            });
+        }
+
+        [Test]
+        public void Build_FocusOffsetFromMean_IsSignedAndSumsToZero() {
+            var starLow = MakeStar(posX: 10);
+            var starHigh = MakeStar(posX: 20);
+            var frame = MakeFrame(100, new[] { starLow, starHigh }, MakeImage());
+            var registered = new[] {
+                MakeFittedRegistered(MakeFit(5000), (starLow, 0)),  // lower best-focus
+                MakeFittedRegistered(MakeFit(5080), (starHigh, 0)), // higher best-focus
+            };
+
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, registered, referenceImageIndex: 0, ransacEnabled: true);
+            var stars = snapshot.Frames.Single().Stars;
+            var low = stars.Single(s => s.CenterX == 10).FocusOffsetFromMean.Value;
+            var high = stars.Single(s => s.CenterX == 20).FocusOffsetFromMean.Value;
+
+            Assert.Multiple(() => {
+                Assert.That(low, Is.LessThan(0.0));            // below the field mean
+                Assert.That(high, Is.GreaterThan(0.0));         // above the field mean
+                Assert.That(low + high, Is.EqualTo(0.0).Within(1e-6)); // two stars → offsets are equal and opposite
+            });
+        }
+
+        [Test]
+        public void Build_FocusOffsetFromMean_SingleFittedStarIsZero() {
+            var star = MakeStar(posX: 10);
+            var frame = MakeFrame(100, new[] { star }, MakeImage());
+            var registered = new[] { MakeFittedRegistered(MakeFit(5000), (star, 0)) };
+
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, registered, referenceImageIndex: 0, ransacEnabled: true);
+
+            Assert.That(snapshot.Frames.Single().Stars.Single().FocusOffsetFromMean.Value, Is.EqualTo(0.0).Within(1e-9));
+        }
+
+        [Test]
+        public void Build_FocusCurves_PopulatedForFittedStarsOnly() {
+            var withFit = MakeStar(posX: 30);
+            var noFit = MakeStar(posX: 20);
+            var frame = MakeFrame(100, new[] { noFit, withFit }, MakeImage());
+            var fit = MakeFit(5000);
+            var registered = new[] {
+                MakeRegistered((noFit, 0)),
+                MakeFittedRegistered(fit, (withFit, 0), (withFit, 1)),
+            };
+
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, registered, referenceImageIndex: 0, ransacEnabled: true);
+
+            Assert.Multiple(() => {
+                Assert.That(snapshot.FocusCurvesByRegistrationId.ContainsKey(0), Is.False); // no-fit star
+                Assert.That(snapshot.FocusCurvesByRegistrationId.ContainsKey(1), Is.True);
+                var curve = snapshot.FocusCurvesByRegistrationId[1];
+                Assert.That(curve.Fit, Is.SameAs(fit));
+                Assert.That(curve.Points.Count, Is.EqualTo(2)); // one per matched star
+                Assert.That(curve.RSquared, Is.EqualTo(fit.RSquared));
+                Assert.That(curve.BestFocus, Is.EqualTo(fit.Minimum.X));
+            });
+        }
+
+        [Test]
+        public void Build_RansacOff_NoRegistrationLineEvenWhenPositionMoved() {
             var star = MakeStar(posX: 30, posY: 30, origX: 10, origY: 10);
             var refFrame = MakeFrame(100, new[] { MakeStar() }, MakeImage());
             var movedFrame = MakeFrame(200, new[] { star }, MakeImage(), alignment: Matrix3x2.Identity, hasBeenAligned: true);
@@ -121,59 +229,63 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
 
             Assert.Multiple(() => {
                 Assert.That(snapshot.RansacEnabled, Is.False);
-                Assert.That(snapshot.Frames.SelectMany(f => f.Stars).Any(s => s.HasArrow), Is.False);
+                Assert.That(snapshot.Frames.SelectMany(f => f.Stars).Any(s => s.HasRegistrationLine), Is.False);
                 Assert.That(snapshot.Frames.All(f => f.TransformText == ""), Is.True);
             });
         }
 
         [Test]
-        public void Build_ReferenceFrame_IsFlaggedWithNoArrowsAndEmptyTransform() {
-            var star = MakeStar(posX: 10, posY: 10); // reference frame: Position == OriginalPosition
+        public void Build_ReferenceFrame_IsFlaggedWithNoLineAndEmptyTransform() {
+            var star = MakeStar(posX: 10, posY: 10);
             var refFrame = MakeFrame(100, new[] { star }, MakeImage());
-            var otherFrame = MakeFrame(200, new[] { MakeStar(posX: 33, posY: 33, origX: 10, origY: 10) }, MakeImage(), alignment: Matrix3x2.Identity, hasBeenAligned: true);
+            var otherStar = MakeStar(posX: 33, posY: 33, origX: 10, origY: 10);
+            var otherFrame = MakeFrame(200, new[] { otherStar }, MakeImage(), alignment: Matrix3x2.Identity, hasBeenAligned: true);
+            var registered = new[] { MakeRegistered((star, 0), (otherStar, 1)) };
 
-            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { refFrame, otherFrame }, new SensorModel.RegisteredStar[0], referenceImageIndex: 0, ransacEnabled: true);
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { refFrame, otherFrame }, registered, referenceImageIndex: 0, ransacEnabled: true);
 
             var reference = snapshot.Frames.Single(f => f.ImageIndex == 0);
             Assert.Multiple(() => {
                 Assert.That(reference.IsReference, Is.True);
                 Assert.That(reference.TransformText, Is.EqualTo(""));
-                Assert.That(reference.Stars.Any(s => s.HasArrow), Is.False);
+                Assert.That(reference.Stars.Any(s => s.HasRegistrationLine), Is.False);
                 Assert.That(snapshot.Frames.Single(f => f.ImageIndex == 1).IsReference, Is.False);
             });
         }
 
         [Test]
-        public void Build_NonReferenceAlignedFrame_HasArrowFromOriginalToPosition() {
+        public void Build_NonReferenceAlignedFrame_HasLineFromRawCenterToAlignedTarget() {
             var star = MakeStar(posX: 33, posY: 44, origX: 10, origY: 12);
             var refFrame = MakeFrame(100, new[] { MakeStar() }, MakeImage());
             var movedFrame = MakeFrame(200, new[] { star }, MakeImage(), alignment: Matrix3x2.Identity, hasBeenAligned: true);
+            var registered = new[] { MakeRegistered((star, 1)) };
 
-            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { refFrame, movedFrame }, new SensorModel.RegisteredStar[0], referenceImageIndex: 0, ransacEnabled: true);
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { refFrame, movedFrame }, registered, referenceImageIndex: 0, ransacEnabled: true);
 
             var moved = snapshot.Frames.Single(f => f.ImageIndex == 1).Stars.Single();
             Assert.Multiple(() => {
-                Assert.That(moved.HasArrow, Is.True);
-                Assert.That(moved.OriginalX, Is.EqualTo(10));
-                Assert.That(moved.OriginalY, Is.EqualTo(12));
-                Assert.That(moved.CenterX, Is.EqualTo(33));
-                Assert.That(moved.CenterY, Is.EqualTo(44));
+                Assert.That(moved.HasRegistrationLine, Is.True);
+                Assert.That(moved.CenterX, Is.EqualTo(10)); // raw detected center
+                Assert.That(moved.CenterY, Is.EqualTo(12));
+                Assert.That(moved.TargetX, Is.EqualTo(33)); // aligned position = registration target
+                Assert.That(moved.TargetY, Is.EqualTo(44));
             });
         }
 
         [Test]
-        public void Build_NonReferenceFrame_StarNotMoved_HasNoArrow() {
-            var star = MakeStar(posX: 10, posY: 10); // Position == OriginalPosition (failed/identity alignment)
+        public void Build_NonReferenceFrame_StarNotMoved_HasNoLine() {
+            var star = MakeStar(posX: 10, posY: 10);
             var refFrame = MakeFrame(100, new[] { MakeStar() }, MakeImage());
             var frame = MakeFrame(200, new[] { star }, MakeImage(), hasBeenAligned: false);
+            var registered = new[] { MakeRegistered((star, 1)) };
 
-            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { refFrame, frame }, new SensorModel.RegisteredStar[0], referenceImageIndex: 0, ransacEnabled: true);
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { refFrame, frame }, registered, referenceImageIndex: 0, ransacEnabled: true);
 
-            Assert.That(snapshot.Frames.Single(f => f.ImageIndex == 1).Stars.Single().HasArrow, Is.False);
+            Assert.That(snapshot.Frames.Single(f => f.ImageIndex == 1).Stars.Single().HasRegistrationLine, Is.False);
         }
 
         [Test]
-        public void Build_NonReferenceAlignedFrame_TransformTextFromAlignment() {
+        public void Build_NonReferenceAlignedFrame_TransformTextUsesDegreeSymbol() {
             var transform = new Matrix3x2(1, 0, 0, 1, 5, 7);
             var refFrame = MakeFrame(100, new[] { MakeStar() }, MakeImage());
             var movedFrame = MakeFrame(200, new[] { MakeStar(posX: 15, origX: 10) }, MakeImage(), alignment: transform, hasBeenAligned: true);
@@ -182,8 +294,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
 
             var moved = snapshot.Frames.Single(f => f.ImageIndex == 1);
             Assert.Multiple(() => {
-                Assert.That(moved.TransformText, Is.EqualTo(transform.ToFullString()));
-                Assert.That(moved.TransformText, Is.Not.Empty);
+                Assert.That(moved.TransformText, Is.EqualTo(FrameReviewTransformFormatter.Format(transform)));
+                Assert.That(moved.TransformText, Does.Contain("°"));
+                Assert.That(moved.TransformText, Does.Not.Contain("deg"));
             });
         }
 
@@ -199,7 +312,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
 
             Assert.Multiple(() => {
                 Assert.That(snapshot.Frames.Count, Is.EqualTo(1));
-                Assert.That(snapshot.Frames.Single().ImageIndex, Is.EqualTo(2)); // original index preserved
+                Assert.That(snapshot.Frames.Single().ImageIndex, Is.EqualTo(2));
             });
         }
 
@@ -225,10 +338,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
             var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, new SensorModel.RegisteredStar[0], referenceImageIndex: 0, ransacEnabled: true);
             var captured = snapshot.Frames.Single().Stars.Single();
 
-            // Mutate the source star the way the registration/alignment pass would, after the snapshot is built.
             star.Position = new Accord.Point(999, 888);
             star.HFR = 99;
             star.BoundingBox = new System.Drawing.Rectangle(1, 2, 3, 4);
+            star.OriginalPosition = new Accord.Point(777, 666);
+            star.OriginalBoundingBox = new System.Drawing.Rectangle(11, 12, 13, 14);
 
             Assert.Multiple(() => {
                 Assert.That(captured.CenterX, Is.EqualTo(10));
@@ -240,23 +354,27 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         }
 
         [Test]
-        public void Build_CopiesStarPrimitivesAndBoxTopLeft() {
-            var star = MakeStar(hfr: 3.5, posX: 12.0, posY: 24.0, origX: 11.0, origY: 23.0, boxX: 9, boxY: 21, boxW: 6, boxH: 8);
+        public void Build_UsesRawCoordinates_NotAlignedBoxOrCenter() {
+            // Position/BoundingBox are the (aligned) values; OriginalPosition/OriginalBoundingBox are the raw values.
+            var star = MakeStar(hfr: 3.5,
+                posX: 12.0, posY: 24.0, origX: 11.0, origY: 23.0,
+                boxX: 50, boxY: 60, boxW: 6, boxH: 8,
+                origBoxX: 9, origBoxY: 21, origBoxW: 6, origBoxH: 8);
             var frame = MakeFrame(100, new[] { star }, MakeImage());
 
             var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, new SensorModel.RegisteredStar[0], referenceImageIndex: 0, ransacEnabled: true);
             var s = snapshot.Frames.Single().Stars.Single();
 
             Assert.Multiple(() => {
-                Assert.That(s.CenterX, Is.EqualTo(12.0));
-                Assert.That(s.CenterY, Is.EqualTo(24.0));
-                Assert.That(s.OriginalX, Is.EqualTo(11.0));
-                Assert.That(s.OriginalY, Is.EqualTo(23.0));
-                Assert.That(s.Hfr, Is.EqualTo(3.5));
-                Assert.That(s.BoxX, Is.EqualTo(9));
+                Assert.That(s.CenterX, Is.EqualTo(11.0)); // raw center, NOT aligned 12.0
+                Assert.That(s.CenterY, Is.EqualTo(23.0));
+                Assert.That(s.BoxX, Is.EqualTo(9));        // raw box top-left, NOT aligned 50
                 Assert.That(s.BoxY, Is.EqualTo(21));
                 Assert.That(s.BoxWidth, Is.EqualTo(6));
                 Assert.That(s.BoxHeight, Is.EqualTo(8));
+                Assert.That(s.TargetX, Is.EqualTo(12.0));  // aligned position = target
+                Assert.That(s.TargetY, Is.EqualTo(24.0));
+                Assert.That(s.Hfr, Is.EqualTo(3.5));
             });
         }
 
@@ -288,7 +406,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         [Test]
         public void Build_EmptyInput_ProducesEmptySnapshot() {
             var snapshot = FrameReviewSnapshotBuilder.Build(new SensorDetectedStars[0], new SensorModel.RegisteredStar[0], referenceImageIndex: 0, ransacEnabled: true);
-            Assert.That(snapshot.Frames, Is.Empty);
+            Assert.Multiple(() => {
+                Assert.That(snapshot.Frames, Is.Empty);
+                Assert.That(snapshot.FocusCurvesByRegistrationId, Is.Empty);
+            });
         }
     }
 }
