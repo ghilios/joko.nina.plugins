@@ -24,6 +24,7 @@ using NINA.Equipment.Model;
 using NINA.Image.FileFormat;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
@@ -588,7 +589,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 } else {
                     var hfStarDetection = (IHocusFocusStarDetection)starDetection;
                     var hfParams = hfStarDetection.ToHocusFocusParams(analysisParams);
-                    var starDetectorParams = hfStarDetection.GetStarDetectorParams(image, regionState.Region, true);
+                    // When replaying with capture-time settings (option b), state.Options.StarDetectionOptionsOverride
+                    // carries a detached snapshot; params are built from it instead of the live detector options. The
+                    // overload delegates to the no-override path when it is null (live capture / "use current settings").
+                    var starDetectorParams = hfStarDetection.GetStarDetectorParams(image, regionState.Region, true, state.Options.StarDetectionOptionsOverride);
 
                     // Replay reuse cache (Task 8, default OFF): when replaying a saved run and the option is on, reuse
                     // the saved per-region detection JSON in place of re-running the (expensive) Detect — but ONLY when
@@ -1589,6 +1593,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public Task<AutoFocusResult> Run(AutoFocusEngineOptions options, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            // Live capture: a replay metadata.json may be written when this run completes (see WriteReplayMetadata).
+            options.IsLiveCapture = true;
             return RunImpl(options, imagingFilter, null, token, progress);
         }
 
@@ -1600,6 +1606,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (!(selectedDetector is HocusFocusStarDetection)) {
                 throw new ArgumentException($"Hocus Focus must be used as the star detector to auto focus with specific regions");
             }
+            // Live capture: a replay metadata.json may be written when this run completes (see WriteReplayMetadata).
+            options.IsLiveCapture = true;
             return RunImpl(options, imagingFilter, regions, token, progress);
         }
 
@@ -1905,10 +1913,88 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             });
         }
 
+        /// <summary>
+        /// Writes the replay <c>metadata.json</c> (capture-time star-detection + AutoFocus settings, region geometry,
+        /// and a result summary) to the run's save folder. Gated to LIVE captures only — a replay must never overwrite
+        /// the original capture-time metadata, and InitializeSave creates a SaveFolder on the replay path too. Only
+        /// meaningful for STARHFR (contrast detection has no star detector to snapshot). Never throws / never fails
+        /// the run.
+        /// </summary>
+        private void WriteReplayMetadata(AutoFocusState state) {
+            try {
+                if (!state.Options.IsLiveCapture) {
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(state.SaveFolder)) {
+                    return;
+                }
+                if (state.Options.AutoFocusMethod != AFMethodEnum.STARHFR) {
+                    return;
+                }
+
+                var detector = starDetectionSelector.GetBehavior() as IHocusFocusStarDetection;
+                var sdOptions = detector?.StarDetectionOptions;
+                if (sdOptions == null) {
+                    // Not the Hocus Focus detector (or no options) — nothing meaningful to snapshot for replay.
+                    return;
+                }
+
+                var focuserSettings = profileService.ActiveProfile.FocuserSettings;
+                // Explicit regions ⇒ an Aberration Inspector run; an AF-pane run passes no regions (single null region).
+                var isInspectorRun = state.FocusRegions.Count > 0;
+
+                List<StarDetectionRegion> regions;
+                if (isInspectorRun) {
+                    regions = state.FocusRegionStates.Select(rs => rs.Region).Where(r => r != null).ToList();
+                } else {
+                    // AF pane: persist the single region the run actually used, derived from the crop ROI so an
+                    // in-memory replay can reproduce the ROI through the explicit-region path without the profile.
+                    var afRegion = StarDetectionRegion.FromStarDetectionParams(new StarDetectionParams() {
+                        UseROI = focuserSettings.AutoFocusInnerCropRatio < 1.0,
+                        InnerCropRatio = focuserSettings.AutoFocusInnerCropRatio,
+                        OuterCropRatio = focuserSettings.AutoFocusOuterCropRatio
+                    });
+                    regions = new List<StarDetectionRegion>() { afRegion };
+                }
+
+                var inspectorOptions = HocusFocusPlugin.InspectorOptions;
+                var regionGeometry = new ReplayRegionGeometry() {
+                    AutoFocusInnerCropRatio = focuserSettings.AutoFocusInnerCropRatio,
+                    AutoFocusOuterCropRatio = focuserSettings.AutoFocusOuterCropRatio,
+                    IsInspectorRun = isInspectorRun,
+                    SensorROI = inspectorOptions?.SensorROI ?? 0.0,
+                    CornersROI = inspectorOptions?.CornersROI ?? 0.0,
+                    SensorCurveModelEnabled = inspectorOptions?.SensorCurveModelEnabled ?? false,
+                    Regions = regions
+                };
+
+                var results = state.FocusRegionStates.Select(rs => new ReplayRegionResultSummary() {
+                    RegionIndex = rs.RegionIndex,
+                    EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X ?? double.NaN,
+                    EstimatedFinalHFR = rs.FinalFocusPoint?.Y ?? double.NaN,
+                    FinalHFR = rs.FinalHFR?.Measure,
+                    InitialHFR = rs.InitialHFR?.Measure,
+                    RSquared = rs.Fittings?.HyperbolicFitting?.RSquared ?? double.NaN,
+                    SelectedHyperbolicFitModel = rs.Fittings?.SelectedHyperbolicFitModel
+                }).ToList();
+
+                var pluginVersion = typeof(AutoFocusEngine).Assembly.GetName().Version?.ToString();
+                var metadata = AutoFocusReplayMetadataBuilder.Build(
+                    sdOptions, state.Options, regionGeometry, results, DateTime.UtcNow, pluginVersion, StarDetector.StarDetectorVersion);
+
+                var metadataPath = Path.Combine(state.SaveFolder, "metadata.json");
+                File.WriteAllText(metadataPath, metadata.Serialize());
+                Logger.Info($"Wrote AutoFocus replay metadata to {metadataPath}");
+            } catch (Exception e) {
+                Logger.Warning($"Failed to write AutoFocus replay metadata.json: {e.Message}");
+            }
+        }
+
         private void OnCompleted(
             AutoFocusState state,
             double temperature,
             TimeSpan duration) {
+            WriteReplayMetadata(state);
             var initialFocuserPosition = state.InitialFocuserPosition;
             var filter = state.AutoFocusFilter?.Name ?? string.Empty;
             var iteration = state.AttemptNumber;

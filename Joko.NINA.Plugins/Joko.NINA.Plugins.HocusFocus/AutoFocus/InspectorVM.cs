@@ -29,6 +29,7 @@ using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Equipment.Model;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Controls;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -219,11 +220,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// replaying a saved calibration step. The folder should be the engine's attempt root (the level that
         /// contains a single <c>attempt*</c> subfolder), i.e. <see cref="LastSaveFolder"/> from the original run.
         /// </summary>
-        public async Task<bool> AnalyzeAutoFocusFromSavedPath(string folderPath, CancellationToken token) {
+        public async Task<bool> AnalyzeAutoFocusFromSavedPath(string folderPath, CancellationToken token, IStarDetectionOptions starDetectionOptionsOverride = null) {
             if (string.IsNullOrEmpty(folderPath)) {
                 return false;
             }
-            var task = AnalyzeAutoFocusFromSavedImpl(folderPath);
+            var task = AnalyzeAutoFocusFromSavedImpl(folderPath, starDetectionOptionsOverride: starDetectionOptionsOverride);
             token.Register(() => analyzeCts?.Cancel());
             return await task;
         }
@@ -246,7 +247,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return await task;
         }
 
-        private async Task<bool> AnalyzeAutoFocusFromSavedImpl(string folderPath, AutoFocusSaveOverride saveOverride = null) {
+        private async Task<bool> AnalyzeAutoFocusFromSavedImpl(string folderPath, AutoFocusSaveOverride saveOverride = null, IStarDetectionOptions starDetectionOptionsOverride = null) {
             var localAnalyzeTask = analyzeTask;
             if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
                 Notification.ShowError("Analysis still in progress");
@@ -275,6 +276,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // new location. Leave the engine save OFF (no annotated/JSON artifacts) and, on success, copy the
                 // source raw frames into the requested per-step folder so the calibration run stays replayable.
                 var options = GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt);
+                // Headless (Tilt Adapter Wizard) replay: when a capture-time detection snapshot is supplied, replay
+                // uses it without mutating the profile; null = current settings. Never prompts from this path.
+                options.StarDetectionOptionsOverride = starDetectionOptionsOverride;
                 var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
                 var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
 
@@ -1088,11 +1092,27 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             Logger.Info($"Rerunning auto focus attempt from {selectedPath}");
+
+            // If the saved run has a metadata.json, prompt for how to replay (current settings / the run's
+            // capture-time settings in memory / update the profile to the captured settings). Resolved on the UI
+            // thread (the modal and any profile update raise INPC). No metadata ⇒ current behavior; cancel ⇒ abort.
+            var resolution = await AutoFocusReplayCoordinator.ResolveAsync(
+                windowServiceFactory,
+                profileService,
+                savedAttempt.FolderPath,
+                isInteractive: true,
+                () => GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt));
+            if (resolution.Cancelled) {
+                return false;
+            }
+
             string outputFolder = null;
             localAnalyzeTask = Task.Run(async () => {
-                var options = GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt);
-                var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
-                var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
+                var options = resolution.Options;
+                // Option (b) replays with the run's capture-time settings: use its captured sensor-curve flag + regions
+                // (which honor the captured ROI through the explicit-region path) instead of the current Inspector ones.
+                var sensorCurveModelEnabled = resolution.SensorCurveModelEnabled ?? inspectorOptions.SensorCurveModelEnabled;
+                var regions = resolution.CaptureTimeRegions ?? GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;

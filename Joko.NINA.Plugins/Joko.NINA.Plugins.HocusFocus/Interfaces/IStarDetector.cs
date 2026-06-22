@@ -160,6 +160,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public StarDetectionRegion(RatioRect outerBoundary, int index = 0) : this(outerBoundary, null, index) {
         }
 
+        // Marked so Newtonsoft can deserialize this type (it has two parameterized constructors and otherwise cannot
+        // choose one). Used by AutoFocus replay metadata.json round-tripping; param names match the property names.
+        [Newtonsoft.Json.JsonConstructor]
         public StarDetectionRegion(RatioRect outerBoundary, RatioRect innerCropBoundary, int index = 0) {
             if (outerBoundary == null) {
                 throw new ArgumentException("outerBoundary cannot be null", "outerBoundary");

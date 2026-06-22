@@ -1112,6 +1112,74 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             RaiseAllPropertiesChanged(); // refresh UI bindings for all live advanced props
         }
 
+        /// <summary>
+        /// Overwrites every advanced star-detection knob from <paramref name="source"/>, persisting them to the
+        /// profile. Used by AutoFocus replay's "update profile to capture-time settings" option (c). Forces
+        /// <see cref="UseAdvanced"/> = true FIRST so the Simple-mode <c>ConfigureSimpleSettings</c> recompute is
+        /// short-circuited and cannot clobber the values being applied, and clears the curated optimized layer
+        /// (<see cref="UseOptimizedSettings"/> = false) since a full snapshot supersedes it. The local
+        /// <see cref="IntermediateSavePath"/> / <see cref="SaveIntermediateImages"/> are intentionally NOT copied —
+        /// they are machine-local and detection-irrelevant for replay.
+        /// </summary>
+        public void ApplyFullSnapshot(IStarDetectionOptions source) {
+            if (source == null) {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            // Order matters: advanced mode first (so the PropertyChanged handler returns early for every assignment
+            // below), then drop the optimized layer, then copy the knobs.
+            UseAdvanced = true;
+            UseOptimizedSettings = false;
+
+            ModelPSF = source.ModelPSF;
+            Simple_NoiseLevel = source.Simple_NoiseLevel;
+            Simple_PixelScale = source.Simple_PixelScale;
+            Simple_FocusRange = source.Simple_FocusRange;
+            HotpixelFiltering = source.HotpixelFiltering;
+            HotpixelThresholdingEnabled = source.HotpixelThresholdingEnabled;
+            UseAutoFocusCrop = source.UseAutoFocusCrop;
+            StarMeasurementNoiseReductionEnabled = source.StarMeasurementNoiseReductionEnabled;
+            NoiseReductionRadius = source.NoiseReductionRadius;
+            NoiseClippingMultiplier = source.NoiseClippingMultiplier;
+            StarClippingMultiplier = source.StarClippingMultiplier;
+            ContaminationSensitivity = source.ContaminationSensitivity;
+            RejectContaminatedStars = source.RejectContaminatedStars;
+            StructureLayers = source.StructureLayers;
+            DefocusAwareStructure = source.DefocusAwareStructure;
+            StructureLayerBoost = source.StructureLayerBoost;
+            BrightnessSensitivity = source.BrightnessSensitivity;
+            StarPeakResponse = source.StarPeakResponse;
+            MaxDistortion = source.MaxDistortion;
+            DefocusAwareGates = source.DefocusAwareGates;
+            DefocusDistortionSizeReference = source.DefocusDistortionSizeReference;
+            DefocusDistortionMinFactor = source.DefocusDistortionMinFactor;
+            DefocusCenteringToleranceFactor = source.DefocusCenteringToleranceFactor;
+            DefocusAwareDonutDetection = source.DefocusAwareDonutDetection;
+            DonutMorphCloseSize = source.DonutMorphCloseSize;
+            DonutMinAnnularityHoleFraction = source.DonutMinAnnularityHoleFraction;
+            DonutMaxStreakEccentricity = source.DonutMaxStreakEccentricity;
+            DonutSaturationBloomRadius = source.DonutSaturationBloomRadius;
+            StarCenterTolerance = source.StarCenterTolerance;
+            StarBackgroundBoxExpansion = source.StarBackgroundBoxExpansion;
+            MinStarBoundingBoxSize = source.MinStarBoundingBoxSize;
+            MinHFR = source.MinHFR;
+            StructureDilationSize = source.StructureDilationSize;
+            StructureDilationCount = source.StructureDilationCount;
+            PixelSampleSize = source.PixelSampleSize;
+            DebugMode = source.DebugMode;
+            PSFParallelPartitionSize = source.PSFParallelPartitionSize;
+            PSFFitType = source.PSFFitType;
+            PSFResolution = source.PSFResolution;
+            PSFFitThreshold = source.PSFFitThreshold;
+            UsePSFAbsoluteDeviation = source.UsePSFAbsoluteDeviation;
+            HotpixelThreshold = source.HotpixelThreshold;
+            SaturationThreshold = source.SaturationThreshold;
+            MeasurementAverage = source.MeasurementAverage;
+            PSFPixelIntegration = source.PSFPixelIntegration;
+
+            RaiseAllPropertiesChanged();
+        }
+
         /// <summary>Clears any stored optimized-settings snapshot (and its persisted JSON), leaving the options with
         /// no optimized settings. Used to undo a transient <see cref="ApplyOptimizedSettings"/> (e.g. after a tilt
         /// calibration replay) for a profile that had none to begin with. Does not change the Use* flags.</summary>

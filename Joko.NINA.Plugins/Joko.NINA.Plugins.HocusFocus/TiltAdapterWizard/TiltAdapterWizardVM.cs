@@ -21,6 +21,7 @@ using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Equipment.Model;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
@@ -1172,14 +1173,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measureCts = new CancellationTokenSource();
             var token = measureCts.Token;
 
-            // Only override (and therefore snapshot/restore) the profile's star-detection settings when replaying
-            // with the run's stored settings. "Replay Current Settings" leaves the profile untouched.
-            var opts = HocusFocusPlugin.StarDetectionOptions;
-            bool overrideDetection = useMetadataSettings && metadata.OptimizedStarDetectionSettings != null;
-            var savedUseOptimized = opts.UseOptimizedSettings;
-            var savedUseAdvanced = opts.UseAdvanced;
-            var savedDto = opts.GetOptimizedSettings();
-
             isReplaying = true;
             IsWizardRunning = true;
             IsMeasuring = true;
@@ -1195,14 +1188,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             bool completed = false;
             try {
-                if (overrideDetection) {
-                    opts.ApplyOptimizedSettings(metadata.OptimizedStarDetectionSettings);
-                }
-
                 foreach (var step in MeasurementSteps) {
                     token.ThrowIfCancellationRequested();
                     StatusText = $"Replaying {step}...";
-                    bool ok = await inspector.AnalyzeAutoFocusFromSavedPath(byStep[step.ToString()], token);
+                    // No-mutation replay: when using the run's stored settings, pass a detached capture-time
+                    // star-detection snapshot as an override so the profile is never modified (and never needs
+                    // restoring). "Replay Current Settings" passes null and uses the current profile settings.
+                    var detectionOverride = useMetadataSettings
+                        ? BuildTiltReplayDetectionOverride(byStep[step.ToString()], metadata)
+                        : null;
+                    bool ok = await inspector.AnalyzeAutoFocusFromSavedPath(byStep[step.ToString()], token, detectionOverride);
                     if (!ok) {
                         StatusText = $"Replay failed at {step}.";
                         Notification.ShowError($"Replay failed at step '{step}'. The saved frames could not be analyzed.");
@@ -1263,19 +1258,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 Notification.ShowError($"Replay failed: {ex.Message}");
                 Logger.Error(ex, "Tilt calibration replay failed");
             } finally {
-                // Restore the user's star-detection settings only if we overrode them (the profile auto-saves, so
-                // this must be explicit). "Replay Current Settings" never touched them.
-                if (overrideDetection) {
-                    if (savedDto != null) {
-                        opts.ApplyOptimizedSettings(savedDto);
-                        opts.UseOptimizedSettings = savedUseOptimized;
-                        opts.UseAdvanced = savedUseAdvanced;
-                    } else {
-                        opts.ClearOptimizedSettings();
-                        opts.UseAdvanced = savedUseAdvanced;
-                        opts.UseOptimizedSettings = savedUseOptimized;
-                    }
-                }
+                // No profile mutation to undo: capture-time detection settings are passed to the replay as an
+                // in-memory override (see BuildTiltReplayDetectionOverride), so the user's profile is never touched.
                 isReplaying = false;
                 IsMeasuring = false;
                 // A successful replay ends on the Complete panel (like a live run); a failed/cancelled replay
@@ -1284,6 +1268,55 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     IsWizardRunning = false;
                 }
             }
+        }
+
+        /// <summary>
+        /// Builds a detached, in-memory capture-time star-detection snapshot for the no-mutation tilt replay. Prefers
+        /// the full per-step replay <c>metadata.json</c> (runs captured after that feature shipped); falls back, for
+        /// older tilt runs, to overlaying the curated <see cref="OptimizedStarDetectionSettings"/> onto a snapshot of
+        /// the current options — reproducing the legacy "apply optimized settings" behavior without mutating the
+        /// profile. Returns null when there is nothing to override (the replay then uses current settings).
+        /// </summary>
+        private static IStarDetectionOptions BuildTiltReplayDetectionOverride(string stepFolder, TiltCalibrationMetadata tiltMetadata) {
+            if (AutoFocusReplayMetadata.TryLoad(stepFolder, out var replayMetadata, out _) && replayMetadata.StarDetection != null) {
+                return replayMetadata.StarDetection;
+            }
+            var optimized = tiltMetadata?.OptimizedStarDetectionSettings;
+            if (optimized == null) {
+                return null;
+            }
+            var snapshot = StarDetectionSettingsSnapshot.FromOptions(HocusFocusPlugin.StarDetectionOptions);
+            OverlayOptimizedSettings(snapshot, optimized);
+            return snapshot;
+        }
+
+        // Overlays the curated optimized-settings subset onto a snapshot, mirroring
+        // StarDetectionOptions.ApplyOptimizedSnapshotToLiveProperties (the curated knobs win; the rest keep the
+        // snapshot's current-options values).
+        private static void OverlayOptimizedSettings(StarDetectionSettingsSnapshot snapshot, OptimizedStarDetectionSettings s) {
+            snapshot.BrightnessSensitivity = s.BrightnessSensitivity;
+            snapshot.StarClippingMultiplier = s.StarClippingMultiplier;
+            snapshot.NoiseClippingMultiplier = s.NoiseClippingMultiplier;
+            snapshot.StarPeakResponse = s.StarPeakResponse;
+            snapshot.MaxDistortion = s.MaxDistortion;
+            snapshot.MinHFR = s.MinHFR;
+            snapshot.StarCenterTolerance = s.StarCenterTolerance;
+            snapshot.StructureLayers = s.StructureLayers;
+            snapshot.NoiseReductionRadius = s.NoiseReductionRadius;
+            snapshot.MinStarBoundingBoxSize = s.MinStarBoundingBoxSize;
+            snapshot.HotpixelThresholdingEnabled = s.HotpixelThresholdingEnabled;
+            snapshot.HotpixelThreshold = s.HotpixelThreshold;
+            snapshot.DefocusAwareGates = s.DefocusAwareGates;
+            snapshot.DefocusDistortionSizeReference = s.DefocusDistortionSizeReference;
+            snapshot.DefocusDistortionMinFactor = s.DefocusDistortionMinFactor;
+            snapshot.DefocusCenteringToleranceFactor = s.DefocusCenteringToleranceFactor;
+            snapshot.DefocusAwareStructure = s.DefocusAwareStructure;
+            snapshot.StructureLayerBoost = s.StructureLayerBoost;
+            snapshot.DefocusAwareDonutDetection = s.DefocusAwareDonutDetection;
+            snapshot.DonutMorphCloseSize = s.DonutMorphCloseSize;
+            snapshot.DonutMinAnnularityHoleFraction = s.DonutMinAnnularityHoleFraction;
+            snapshot.DonutMaxStreakEccentricity = s.DonutMaxStreakEccentricity;
+            snapshot.DonutSaturationBloomRadius = s.DonutSaturationBloomRadius;
         }
 
         // ---- Metadata ---------------------------------------------------------------------------------------
