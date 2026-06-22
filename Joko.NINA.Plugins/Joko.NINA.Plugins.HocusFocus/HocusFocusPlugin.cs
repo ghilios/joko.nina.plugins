@@ -79,8 +79,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
             IImageDataFactory imageDataFactory,
             IImageSaveMediator imageSaveMediator,
             IOptionsVM options,
-            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
-            IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector) {
+            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector) {
             this.profileService = profileService;
             this.cameraMediator = cameraMediator;
             this.focuserMediator = focuserMediator;
@@ -121,7 +120,6 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     imagingMediator,
                     imageDataFactory,
                     starDetectionSelector,
-                    starAnnotatorSelector,
                     AutoFocusOptions,
                     AlglibAPI);
             }

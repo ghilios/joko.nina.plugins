@@ -57,7 +57,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IImagingMediator imagingMediator;
         private readonly IImageDataFactory imageDataFactory;
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
-        private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IAlglibAPI alglibAPI;
 
@@ -70,7 +69,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IImagingMediator imagingMediator,
             IImageDataFactory imageDataFactory,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
-            IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IAutoFocusOptions autoFocusOptions,
             IAlglibAPI alglibAPI) {
             this.profileService = profileService;
@@ -81,7 +79,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.guiderMediator = guiderMediator;
             this.imageDataFactory = imageDataFactory;
             this.starDetectionSelector = starDetectionSelector;
-            this.starAnnotatorSelector = starAnnotatorSelector;
             this.autoFocusOptions = autoFocusOptions;
             this.alglibAPI = alglibAPI;
         }
@@ -625,26 +622,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     // safe today because nothing reads this file back yet.
                     File.WriteAllText(resultTargetPath, StarDetectionResultCacheSerializer.Serialize(analysisResult));
 
-                    var annotatedFileName = $"{imageState.ImageNumber:00}_Frame{imageState.FrameNumber:00}_Region{regionState.RegionIndex:00}_annotated.tiff";
-                    var annotatedTargetPath = Path.Combine(saveAttemptFolder, annotatedFileName);
-                    var annotator = starAnnotatorSelector.GetBehavior();
-                    var annotatedImage = await annotator.GetAnnotatedImage(analysisParams, analysisResult, image.Image);
-
-                    // If this is null, then we didn't subsample the image. Thus we can crop the annotated image and save only the relevant part
-                    if (!IsSubSampleEnabled(state)) {
-                        var starDetectionRegion = regionState.Region ?? StarDetectionRegion.FromStarDetectionParams(analysisParams);
-                        if (!starDetectionRegion.IsFull()) {
-                            var imageSize = new System.Drawing.Size(width: image.RawImageData.Properties.Width, height: image.RawImageData.Properties.Height);
-                            var cropRect = starDetectionRegion.OuterBoundary.ToInt32Rect(imageSize);
-                            annotatedImage = new CroppedBitmap(annotatedImage, cropRect);
-                        }
-                    }
-
-                    using (var fileStream = new FileStream(annotatedTargetPath, FileMode.Create)) {
-                        var encoder = new TiffBitmapEncoder();
-                        encoder.Frames.Add(BitmapFrame.Create(annotatedImage));
-                        encoder.Save(fileStream);
-                    }
+                    // Per-region annotated TIFFs are no longer written: the "Review Frames" feature re-renders the
+                    // annotator overlays live (from raw frames + capture-time settings on replay), so a baked-in
+                    // annotated image is redundant — and rendering/encoding it per frame was a needless cost.
                 }
 
                 imageState.SetStarDetectionResult(regionState.RegionIndex, analysisResult);
