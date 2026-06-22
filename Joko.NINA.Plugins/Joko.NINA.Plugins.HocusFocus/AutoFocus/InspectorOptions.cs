@@ -73,6 +73,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             astigmaticCurvatureEnabled = optionsAccessor.GetValueBoolean(nameof(AstigmaticCurvatureEnabled), false);
             saveImagesOnReruns = optionsAccessor.GetValueBoolean(nameof(SaveImagesOnReruns), false);
             saveAlignmentImages = optionsAccessor.GetValueBoolean(nameof(SaveAlignmentImages), false);
+            frameReviewEnabled = optionsAccessor.GetValueBoolean(nameof(FrameReviewEnabled), false);
             maxStarsPerRegion = optionsAccessor.GetValueInt32(nameof(MaxStarsPerRegion), -1);
             acceptableRSquaredMin = optionsAccessor.GetValueDouble(nameof(AcceptableRSquaredMin), SensorAberrationCalculator.DefaultAcceptableRSquaredMin);
         }
@@ -102,6 +103,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             useRANSAC = true;
             useAffineAlignment = false;
             astigmaticCurvatureEnabled = false;
+            FrameReviewEnabled = false;
             AcceptableRSquaredMin = SensorAberrationCalculator.DefaultAcceptableRSquaredMin;
         }
 
@@ -485,6 +487,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (saveAlignmentImages != value) {
                     saveAlignmentImages = value;
                     optionsAccessor.SetValueBoolean(nameof(SaveAlignmentImages), saveAlignmentImages);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool frameReviewEnabled = false;
+
+        public bool FrameReviewEnabled {
+            get => frameReviewEnabled;
+            set {
+                if (frameReviewEnabled != value) {
+                    frameReviewEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(FrameReviewEnabled), frameReviewEnabled);
                     RaisePropertyChanged();
                 }
             }

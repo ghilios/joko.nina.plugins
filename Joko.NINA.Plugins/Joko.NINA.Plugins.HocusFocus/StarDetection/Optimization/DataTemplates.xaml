@@ -89,6 +89,12 @@
         </oxy:Plot>
     </DataTemplate>
 
+    <!--  The Aberration Inspector "Review Frames" window content. Implicit DataType template so the WindowService's
+          ContentPresenter resolves it by VM type (same mechanism as the wizard below).  -->
+    <DataTemplate DataType="{x:Type review:FrameReviewVM}">
+        <review:FrameReviewControl />
+    </DataTemplate>
+
     <!--  The wizard window content. Implicit DataType template so the WindowService's ContentPresenter resolves it by VM type.  -->
     <DataTemplate DataType="{x:Type local:StarDetectionOptimizerWizardVM}">
         <!--  Width/height grow for the Review step (it embeds a full interactive image viewer); the other steps keep
