@@ -234,7 +234,7 @@
                                     <!-- HFR label, constant on-screen size, just above the box. -->
                                     <TextBlock Text="{Binding HfrText}"
                                                HorizontalAlignment="Left" VerticalAlignment="Top"
-                                               FontSize="10" Background="#B0000000" Padding="2,0"
+                                               FontSize="10" Background="#80000000" Padding="2,0"
                                                IsHitTestVisible="False" RenderTransformOrigin="0,0"
                                                Foreground="{Binding DataContext.HfrBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
                                         <TextBlock.RenderTransform>
@@ -248,7 +248,7 @@
                                     <!-- Registration-id label below the box (shown only when Show registration is on). -->
                                     <TextBlock Text="{Binding RegistrationIdText}"
                                                HorizontalAlignment="Left" VerticalAlignment="Top"
-                                               FontSize="10" Background="#B0000000" Padding="2,0"
+                                               FontSize="10" Background="#80000000" Padding="2,0"
                                                IsHitTestVisible="False" RenderTransformOrigin="0,0"
                                                Foreground="{Binding DataContext.RegistrationBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                Visibility="{Binding DataContext.ShowRegistration, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
@@ -261,24 +261,41 @@
                                             </TransformGroup>
                                         </TextBlock.RenderTransform>
                                     </TextBlock>
-                                    <!-- Best-focus offset label to the right of the box (shown only when its toggle is on;
-                                         empty for non-fitted stars so nothing is drawn). -->
-                                    <TextBlock Text="{Binding FocusOffsetText}"
-                                               HorizontalAlignment="Left" VerticalAlignment="Top"
-                                               FontSize="10" Background="#B0000000" Padding="2,0"
-                                               IsHitTestVisible="False" RenderTransformOrigin="0,0"
-                                               Foreground="{Binding DataContext.FocusOffsetBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                               Visibility="{Binding DataContext.ShowFocusOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource BoolToVis}}">
-                                        <TextBlock.RenderTransform>
-                                            <TransformGroup>
-                                                <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                                ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
-                                                <TranslateTransform X="{Binding BoxWidth}" />
-                                                <TranslateTransform X="{Binding DataContext.RegistrationLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
-                                            </TransformGroup>
-                                        </TextBlock.RenderTransform>
-                                    </TextBlock>
                                 </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Best-focus offset overlay (gated by Show optimal-focus offset). Per-item visibility on
+                         HasFocusOffset so registered-but-unfitted stars draw nothing (no empty label box). -->
+                    <ItemsControl ItemsSource="{Binding Markers}"
+                                  Visibility="{Binding ShowFocusOffset, Converter={StaticResource BoolToVis}}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding BoxX}" />
+                                <Setter Property="Canvas.Top" Value="{Binding BoxY}" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding FocusOffsetText}"
+                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           FontSize="10" Background="#80000000" Padding="2,0"
+                                           IsHitTestVisible="False" RenderTransformOrigin="0,0"
+                                           Foreground="{Binding DataContext.FocusOffsetBrush, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                           Visibility="{Binding HasFocusOffset, Converter={StaticResource BoolToVis}}">
+                                    <TextBlock.RenderTransform>
+                                        <TransformGroup>
+                                            <ScaleTransform ScaleX="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                            ScaleY="{Binding DataContext.MarkerTextScale, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                            <TranslateTransform X="{Binding BoxWidth}" />
+                                            <TranslateTransform X="{Binding DataContext.RegistrationLabelOffset, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                        </TransformGroup>
+                                    </TextBlock.RenderTransform>
+                                </TextBlock>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -293,8 +310,8 @@
                     Visibility="{Binding ShowHover, Converter={StaticResource BoolToVis}}">
                 <StackPanel Margin="8">
                     <TextBlock FontWeight="SemiBold" Text="{Binding HoverHeaderText}" />
-                    <Border Height="220" Margin="0,4,0,0">
-                        <ContentControl Content="{Binding HoverCurve}" />
+                    <Border Height="250" Margin="0,4,0,0">
+                        <ContentControl Content="{Binding HoverContent}" />
                     </Border>
                     <TextBlock Margin="0,4,0,0" Foreground="#FFB0B6BD" Text="{Binding HoverRSquaredText}" />
                     <TextBlock Foreground="#FFB0B6BD" Text="{Binding HoverOptimalFocusText}" />

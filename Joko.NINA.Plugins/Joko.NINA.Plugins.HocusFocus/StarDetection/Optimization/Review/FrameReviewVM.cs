@@ -12,6 +12,7 @@
 
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
+using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -53,6 +54,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         /// <summary>True when this star has an accepted focus fit, so hovering it can show a focus graph.</summary>
         public bool CanShowFocusGraph { get; init; }
+    }
+
+    /// <summary>A points-only focus graph for a registered star that has NO accepted hyperbolic fit: just the
+    /// cross-frame (focuser position, HFR) scatter, so the user can see why the fit failed. Rendered by a dedicated
+    /// DataTemplate (no fitted-curve / minimum annotations, which would require a non-null fit).</summary>
+    public sealed class FrameReviewScatterGraph {
+        public string Label { get; init; }
+        public IReadOnlyList<ScatterErrorPoint> Points { get; init; }
     }
 
     /// <summary>
@@ -222,10 +231,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         // ---- hover focus graph ----------------------------------------------------------------------------
 
-        private OptimizationCurve hoverCurve;
-        public OptimizationCurve HoverCurve {
-            get => hoverCurve;
-            private set { hoverCurve = value; RaisePropertyChanged(); }
+        // Either an OptimizationCurve (fitted: points + curve + minimum) or a FrameReviewScatterGraph (no fit:
+        // cross-frame points only). The hover overlay's ContentControl resolves the right DataTemplate by type.
+        private object hoverContent;
+        public object HoverContent {
+            get => hoverContent;
+            private set { hoverContent = value; RaisePropertyChanged(); }
         }
 
         private bool showHover;
@@ -254,7 +265,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         private int? hoverRegistrationId;
 
-        /// <summary>Show the focus graph for the registered star with the given id (no-op if already shown / no curve).</summary>
+        /// <summary>Show the focus graph for the registered star with the given id (no-op if already shown / no curve).
+        /// Fitted stars show the curve + R² + best focus; registered-but-unfitted stars show their cross-frame
+        /// points only (so the user can see why the fit failed).</summary>
         public void SetHover(int registrationId) {
             if (hoverRegistrationId == registrationId && ShowHover) {
                 return;
@@ -265,22 +278,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 return;
             }
             hoverRegistrationId = registrationId;
-            HoverCurve = new OptimizationCurve {
-                Label = $"Star {registrationId}",
-                Points = curve.Points,
-                Fit = curve.Fit,
-            };
             HoverHeaderText = $"Star {registrationId}";
-            HoverRSquaredText = $"R²: {curve.RSquared:0.###}";
-            var offset = curve.OffsetFromMean ?? 0.0;
-            HoverOptimalFocusText = $"Best focus: {curve.BestFocus:0}  (Δ field {offset:+0.#;-0.#;0})";
+            if (curve.Fit != null) {
+                HoverContent = new OptimizationCurve {
+                    Label = $"Star {registrationId}",
+                    Points = curve.Points,
+                    Fit = curve.Fit,
+                };
+                HoverRSquaredText = $"R²: {curve.RSquared:0.###}";
+                var offset = curve.OffsetFromMean ?? 0.0;
+                HoverOptimalFocusText = $"Best focus: {curve.BestFocus:0}  (Δ field {offset:+0.#;-0.#;0})";
+            } else {
+                HoverContent = new FrameReviewScatterGraph {
+                    Label = $"Star {registrationId}",
+                    Points = curve.Points,
+                };
+                HoverRSquaredText = "No accepted focus fit";
+                HoverOptimalFocusText = $"{curve.Points.Count} detection(s) across frames";
+            }
             ShowHover = true;
         }
 
         public void ClearHover() {
             hoverRegistrationId = null;
             ShowHover = false;
-            HoverCurve = null;
+            HoverContent = null;
         }
 
         // ---- legend ---------------------------------------------------------------------------------------
@@ -379,7 +401,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 FocusOffsetText = FormatOffset(s.FocusOffsetFromMean),
                 HasFocusOffset = s.FocusOffsetFromMean.HasValue,
                 RegistrationId = s.RegistrationId,
-                CanShowFocusGraph = s.RegistrationState == FrameReviewRegistrationState.MatchedWithFit && s.RegistrationId != null,
+                // Any matched star with a focus curve can be hovered: fitted stars show the curve, registered-but-
+                // unfitted stars show their cross-frame points only.
+                CanShowFocusGraph = s.RegistrationId != null
+                    && snapshot?.FocusCurvesByRegistrationId != null
+                    && snapshot.FocusCurvesByRegistrationId.ContainsKey(s.RegistrationId.Value),
             };
         }
 

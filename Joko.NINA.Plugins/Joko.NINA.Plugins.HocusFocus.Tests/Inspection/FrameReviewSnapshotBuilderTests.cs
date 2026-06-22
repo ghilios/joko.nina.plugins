@@ -196,7 +196,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         }
 
         [Test]
-        public void Build_FocusCurves_PopulatedForFittedStarsOnly() {
+        public void Build_FocusCurves_PopulatedForAllMatchedStars_FitWhenAvailable() {
             var withFit = MakeStar(posX: 30);
             var noFit = MakeStar(posX: 20);
             var frame = MakeFrame(100, new[] { noFit, withFit }, MakeImage());
@@ -209,7 +209,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
             var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, registered, referenceImageIndex: 0, ransacEnabled: true);
 
             Assert.Multiple(() => {
-                Assert.That(snapshot.FocusCurvesByRegistrationId.ContainsKey(0), Is.False); // no-fit star
+                // The registered-but-unfitted star now gets a points-only curve (no Fit) so its cross-frame points
+                // can be shown on hover.
+                Assert.That(snapshot.FocusCurvesByRegistrationId.ContainsKey(0), Is.True);
+                var noFitCurve = snapshot.FocusCurvesByRegistrationId[0];
+                Assert.That(noFitCurve.Fit, Is.Null);
+                Assert.That(noFitCurve.Points.Count, Is.EqualTo(1));
+                Assert.That(noFitCurve.OffsetFromMean, Is.Null);
+
                 Assert.That(snapshot.FocusCurvesByRegistrationId.ContainsKey(1), Is.True);
                 var curve = snapshot.FocusCurvesByRegistrationId[1];
                 Assert.That(curve.Fit, Is.SameAs(fit));

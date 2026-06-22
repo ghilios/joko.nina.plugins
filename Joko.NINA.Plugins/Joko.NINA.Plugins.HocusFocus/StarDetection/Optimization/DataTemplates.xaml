@@ -89,6 +89,54 @@
         </oxy:Plot>
     </DataTemplate>
 
+    <!--  Points-only focus graph for a registered star with NO accepted fit (Review Frames hover). Same axes/scatter
+          as the OptimizationCurve chart but no fitted-curve/minimum annotations (which require a non-null fit).  -->
+    <DataTemplate DataType="{x:Type review:FrameReviewScatterGraph}">
+        <oxy:Plot
+            MinHeight="240"
+            Background="{StaticResource BackgroundBrush}"
+            PlotAreaBackground="{StaticResource BackgroundBrush}"
+            PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
+            TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+            <oxy:Plot.Axes>
+                <oxy:LinearAxis
+                    AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                    IsPanEnabled="False"
+                    IsZoomEnabled="False"
+                    MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
+                    MajorGridlineStyle="LongDash"
+                    MaximumPadding="0.1"
+                    MinimumPadding="0.1"
+                    Position="Left"
+                    TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                    TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
+                    Title="HFR" />
+                <oxy:LinearAxis
+                    AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                    IsPanEnabled="False"
+                    IsZoomEnabled="False"
+                    MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
+                    MajorGridlineStyle="LongDash"
+                    MaximumPadding="0.1"
+                    MinimumPadding="0.1"
+                    Position="Bottom"
+                    TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                    TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
+                    Title="Focuser position" />
+            </oxy:Plot.Axes>
+            <oxy:Plot.Series>
+                <oxy:ScatterErrorSeries
+                    ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
+                    ErrorBarStopWidth="2"
+                    ErrorBarStrokeThickness="2"
+                    ItemsSource="{Binding Points}"
+                    MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                    MarkerType="Circle"
+                    TrackerFormatString="Focuser: {2:0}, HFR: {4:0.000}" />
+            </oxy:Plot.Series>
+        </oxy:Plot>
+    </DataTemplate>
+
     <!--  The Aberration Inspector "Review Frames" window content. Implicit DataType template so the WindowService's
           ContentPresenter resolves it by VM type (same mechanism as the wizard below).  -->
     <DataTemplate DataType="{x:Type review:FrameReviewVM}">

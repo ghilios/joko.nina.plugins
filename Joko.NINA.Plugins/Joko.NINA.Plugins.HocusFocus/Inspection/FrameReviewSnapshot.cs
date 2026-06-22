@@ -124,7 +124,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var scaleX = Math.Sqrt(t.M11 * t.M11 + t.M21 * t.M21);
             var scaleY = Math.Sqrt(t.M12 * t.M12 + t.M22 * t.M22);
             var rotationDegrees = Math.Atan2(t.M21, t.M11) * 180.0 / Math.PI;
-            return $"Scale(x,y):({scaleX:0.###},{scaleY:0.###}), rotation:{rotationDegrees:0.###}°, translation(x,y):{t.M31:0.###},{t.M32:0.###}";
+            return $"Scale(x,y): ({scaleX:0.###},{scaleY:0.###}), rotation: {rotationDegrees:0.###}°, translation(x,y): {t.M31:0.###},{t.M32:0.###}";
         }
     }
 
@@ -168,31 +168,40 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var focusCurves = new Dictionary<int, FrameReviewFocusCurve>();
             var offsetByRegId = new Dictionary<int, double>();
             if (registeredStars != null) {
-                var fittedIds = new List<int>();
+                // Field-mean best focus over the FITTED stars only (drives the offset-from-mean label).
+                var fittedBestFoci = new List<double>();
                 for (int i = 0; i < registeredStars.Count; i++) {
                     if (registeredStars[i]?.Fitting != null) {
-                        fittedIds.Add(i);
+                        fittedBestFoci.Add(registeredStars[i].Fitting.Minimum.X);
                     }
                 }
-                if (fittedIds.Count > 0) {
-                    var meanBestFocus = fittedIds.Average(i => registeredStars[i].Fitting.Minimum.X);
-                    foreach (var i in fittedIds) {
-                        var rs = registeredStars[i];
-                        var bestFocus = rs.Fitting.Minimum.X;
-                        var offset = bestFocus - meanBestFocus;
-                        offsetByRegId[i] = offset;
-                        var points = (rs.MatchedStars ?? new List<SensorModel.MatchedStar>())
-                            .Select(m => new ScatterErrorPoint(m.FocuserPosition, m.Star.HFR, 0.0, SensorModel.EstimateHfrStdDev(m.Star)))
-                            .ToList();
-                        focusCurves[i] = new FrameReviewFocusCurve {
-                            RegistrationId = i,
-                            Fit = rs.Fitting,
-                            Points = points,
-                            RSquared = rs.Fitting.RSquared,
-                            BestFocus = bestFocus,
-                            OffsetFromMean = offset,
-                        };
+                double? meanBestFocus = fittedBestFoci.Count > 0 ? fittedBestFoci.Average() : (double?)null;
+
+                // Build a focus curve for EVERY matched star, so a registered-but-unfitted star still shows how its
+                // detections look across the other frames on hover. Fitted stars additionally carry the curve, R²,
+                // best focus, and the offset from the field mean.
+                for (int i = 0; i < registeredStars.Count; i++) {
+                    var rs = registeredStars[i];
+                    var matched = rs?.MatchedStars;
+                    if (matched == null || matched.Count == 0) {
+                        continue;
                     }
+                    var points = matched
+                        .Select(m => new ScatterErrorPoint(m.FocuserPosition, m.Star.HFR, 0.0, SensorModel.EstimateHfrStdDev(m.Star)))
+                        .ToList();
+                    double? offset = null;
+                    if (rs.Fitting != null && meanBestFocus.HasValue) {
+                        offset = rs.Fitting.Minimum.X - meanBestFocus.Value;
+                        offsetByRegId[i] = offset.Value;
+                    }
+                    focusCurves[i] = new FrameReviewFocusCurve {
+                        RegistrationId = i,
+                        Fit = rs.Fitting,
+                        Points = points,
+                        RSquared = rs.Fitting?.RSquared ?? double.NaN,
+                        BestFocus = rs.Fitting?.Minimum.X ?? double.NaN,
+                        OffsetFromMean = offset,
+                    };
                 }
             }
 
