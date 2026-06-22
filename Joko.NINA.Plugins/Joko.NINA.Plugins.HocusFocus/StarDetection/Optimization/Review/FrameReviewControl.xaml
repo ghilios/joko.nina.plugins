@@ -7,6 +7,84 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <SolidColorBrush x:Key="Fg" Color="White" />
 
+        <!-- NINA's default toggle (StandardCheckBox) hard-codes the OFF label to {StaticResource PrimaryBrush},
+             which is too dark on this panel and CANNOT be overridden from the consumer (StaticResource is baked
+             into NINA's parsed style). So we keep NINA's exact toggle look but re-template it locally, pointing
+             ONLY the OFF text at a light brush; the remaining theme brushes use DynamicResource so the switch
+             still matches the active theme. (Mirrors StarReviewControl's HF_ReviewToggle.) -->
+        <SolidColorBrush x:Key="HF_ToggleOffText" Color="#FFD8DCE0" />
+        <Style x:Key="HF_ReviewToggle" TargetType="{x:Type CheckBox}">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Width" Value="65" />
+            <Setter Property="Height" Value="25" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Border
+                                x:Name="SwitchTrack"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="12.5" />
+                            <Grid>
+                                <TextBlock
+                                    x:Name="OnText"
+                                    Margin="8,0,0,0"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    FontWeight="Bold"
+                                    Foreground="{StaticResource HF_ToggleOffText}"
+                                    Text="ON"
+                                    Visibility="Collapsed" />
+                                <TextBlock
+                                    x:Name="OffText"
+                                    Margin="0,0,8,0"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    Foreground="{StaticResource HF_ToggleOffText}"
+                                    Text="OFF"
+                                    Visibility="Visible" />
+                            </Grid>
+                            <Ellipse
+                                x:Name="SwitchThumb"
+                                Width="21"
+                                Height="21"
+                                Margin="2"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                Fill="{DynamicResource SecondaryBackgroundBrush}"
+                                RenderTransformOrigin="0.5,0.5">
+                                <Ellipse.RenderTransform>
+                                    <TranslateTransform x:Name="ThumbTransform" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}" />
+                                <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
+                                <Setter TargetName="OnText" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="OffText" Property="Visibility" Value="Collapsed" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="False">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="Transparent" />
+                                <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Left" />
+                                <Setter TargetName="OnText" Property="Visibility" Value="Collapsed" />
+                                <Setter TargetName="OffText" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="SwitchTrack" Property="Opacity" Value="0.4" />
+                                <Setter TargetName="SwitchThumb" Property="Opacity" Value="0.4" />
+                                <Setter TargetName="OnText" Property="Opacity" Value="0.4" />
+                                <Setter TargetName="OffText" Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="Button">
             <Setter Property="Margin" Value="4,0" />
             <Setter Property="Padding" Value="10,4" />
@@ -265,12 +343,14 @@
             </ItemsControl>
 
             <Separator Margin="0,12,0,8" />
-            <CheckBox IsChecked="{Binding ShowRegistration}" VerticalAlignment="Center">
-                <TextBlock Text="Show registration" VerticalAlignment="Center" />
-            </CheckBox>
-            <CheckBox Margin="0,6,0,0" IsChecked="{Binding ShowFocusOffset}" VerticalAlignment="Center">
-                <TextBlock Text="Show optimal-focus offset" VerticalAlignment="Center" />
-            </CheckBox>
+            <StackPanel Orientation="Horizontal">
+                <CheckBox Style="{StaticResource HF_ReviewToggle}" IsChecked="{Binding ShowRegistration}" VerticalAlignment="Center" />
+                <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="Show registration" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <CheckBox Style="{StaticResource HF_ReviewToggle}" IsChecked="{Binding ShowFocusOffset}" VerticalAlignment="Center" />
+                <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="Show optimal-focus offset" />
+            </StackPanel>
 
             <Separator Margin="0,12,0,0" />
             <TextBlock Margin="0,8,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
