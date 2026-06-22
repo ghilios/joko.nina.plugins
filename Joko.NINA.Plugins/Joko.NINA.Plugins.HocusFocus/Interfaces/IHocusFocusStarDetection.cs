@@ -17,6 +17,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Media;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
@@ -31,6 +32,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public interface IHocusFocusStarDetection : IStarDetection {
 
         HocusFocusDetectionParams ToHocusFocusParams(StarDetectionParams p);
+
+        /// <summary>
+        /// Same as <see cref="IStarDetection.Detect(IRenderedImage, PixelFormat, StarDetectionParams, IProgress{ApplicationStatus}, CancellationToken)"/>,
+        /// but when <paramref name="modelPSFForAutoFocus"/> is true the auto-focus PSF-off override is lifted so PSFs
+        /// are modeled (per the star-detection options) during an auto-focus run — used by the manual AF "Review Frames"
+        /// feature so the review can show PSF-derived per-star properties. Detection is otherwise identical, so the AF
+        /// HFR curve is unaffected.
+        /// </summary>
+        Task<StarDetectionResult> Detect(IRenderedImage image, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token, bool modelPSFForAutoFocus);
 
         StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus);
 

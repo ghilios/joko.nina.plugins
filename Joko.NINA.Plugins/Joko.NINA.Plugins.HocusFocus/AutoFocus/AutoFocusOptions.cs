@@ -61,6 +61,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             hfrImprovementThreshold = optionsAccessor.GetValueDouble("HFRImprovementThreshold", 0.15);
             savePath = optionsAccessor.GetValueString("SavePath", "");
             save = optionsAccessor.GetValueBoolean("Save", false);
+            keepFramesForReview = optionsAccessor.GetValueBoolean(nameof(KeepFramesForReview), false);
             lastSelectedLoadPath = optionsAccessor.GetValueString("LastSelectedLoadPath", "");
             focuserOffset = optionsAccessor.GetValueInt32("FocuserOffset", 0);
             maxOutlierRejections = optionsAccessor.GetValueInt32(nameof(MaxOutlierRejections), 1);
@@ -84,6 +85,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             HFRImprovementThreshold = 0.15;
             SavePath = "";
             Save = false;
+            KeepFramesForReview = false;
             LastSelectedLoadPath = "";
             FocuserOffset = 0;
             MaxOutlierRejections = 1;
@@ -269,6 +271,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (save != value) {
                     save = value;
                     optionsAccessor.SetValueBoolean(nameof(Save), save);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool keepFramesForReview;
+
+        public bool KeepFramesForReview {
+            get => keepFramesForReview;
+            set {
+                if (keepFramesForReview != value) {
+                    keepFramesForReview = value;
+                    optionsAccessor.SetValueBoolean(nameof(KeepFramesForReview), keepFramesForReview);
                     RaisePropertyChanged();
                 }
             }

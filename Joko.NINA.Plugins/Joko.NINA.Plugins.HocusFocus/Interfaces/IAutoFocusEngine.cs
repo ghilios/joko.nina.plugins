@@ -88,6 +88,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double ReducedChiSquaredRejectionThreshold { get; set; }
         public bool PreserveExposures { get; set; }
 
+        // When true, PSFs are modeled during this auto-focus run (auto-focus normally skips PSF fitting for speed).
+        // Set by the manual AF "Review Frames" feature — only when frame review is requested AND PSF modeling is
+        // enabled in the star-detection options — so the review can show PSF-derived per-star properties. Modeling
+        // PSFs only adds per-star PSF data; it does not change the detected stars or HFR, so the AF curve is unaffected.
+        public bool ModelPSF { get; set; }
+
         // When true, a saving run writes ONLY the raw exposure frames — the per-region annotated TIFFs and
         // star-detection result JSONs are skipped. Used by the Tilt Adapter Wizard so a saved calibration run is
         // a compact, replayable set of raw frames with no auxiliary artifacts.

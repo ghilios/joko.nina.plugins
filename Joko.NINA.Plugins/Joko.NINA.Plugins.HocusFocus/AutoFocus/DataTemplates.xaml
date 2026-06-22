@@ -7,6 +7,7 @@
     xmlns:hfenum="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
     xmlns:hfrules="clr-namespace:NINA.Joko.Plugins.HocusFocus.ValidationRules"
     xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus"
+    xmlns:afreview="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus.Review"
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
     xmlns:oxy="clr-namespace:OxyPlot.Wpf;assembly=OxyPlot.Contrib.Wpf"
@@ -87,8 +88,16 @@
     <TextBlock x:Key="SDR_BloomSuppressed_Tooltip" Text="Candidates rejected because they fell within the saturation bloom radius of a bright saturated star (halo/bloom fragments). Only active when Defocus-Aware Donut Detection and a bloom radius are enabled." />
     <TextBlock x:Key="SDR_RelaxationAdmitted_Tooltip" Text="Accepted stars that were admitted only because a defocus-aware gate (distortion and/or centering) relaxed its threshold — they would have failed the strict gate. Always zero when the defocus-aware gates are off. Large near-focus values can indicate the relaxation is admitting junk blobs." />
 
+    <!--  The manual AutoFocus "Review Frames" window content. Implicit DataType template so the WindowService's
+          ContentPresenter resolves it by VM type (same mechanism as the Aberration Inspector's Review Frames).  -->
+    <DataTemplate DataType="{x:Type afreview:AutoFocusFrameReviewVM}">
+        <!--  No fixed min size: the control sizes its host window to fit the screen on load (see code-behind), and the
+              layout shrinks the image column first so the legend stays visible when the window is made smaller.  -->
+        <afreview:AutoFocusFrameReviewControl />
+    </DataTemplate>
+
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
-        <Grid>
+        <Grid local:InteractiveHostBehavior.HostInteractive="True">
             <Grid.RowDefinitions>
                 <RowDefinition MinHeight="150" />
                 <RowDefinition Height="Auto" />
@@ -608,6 +617,35 @@
                 Command="{Binding LoadSavedAutoFocusRunCommand}"
                 IsEnabled="{Binding AutoFocusInProgress, Converter={StaticResource InverseBooleanConverter}}"
                 ToolTip="Reprocesses AutoFocus images saved by having Save enabled in Hocus Focus -&gt; Auto Focus Options. This produces an auto focus curve using whatever the current star detection and fit settings are" />
+            <StackPanel
+                Grid.Row="3"
+                Margin="0,15,10,5"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Orientation="Horizontal">
+                <Button
+                    Height="25"
+                    Padding="5,0,5,0"
+                    VerticalAlignment="Center"
+                    Command="{Binding ReviewFramesCommand}"
+                    IsEnabled="{Binding ReviewFramesAvailable}"
+                    ToolTip="Open the Review Frames window to inspect each frame of the last auto-focus run started from this pane (a live run or a Reprocess Saved Run) — its detected stars with the Hocus Focus Star Annotator's bounds, per-star text, rejection-reason and ROI boxes, plus per-frame HFR statistics. Enabled after such a run completes with &quot;Keep frames for review&quot; turned on.">
+                    <TextBlock Margin="5,0,5,0" Text="Review Frames" />
+                </Button>
+                <StackPanel
+                    Margin="12,0,0,0"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    ToolTip="When on, the per-frame images from an auto-focus run started here in the AutoFocus pane — a live run or a Reprocess Saved Run — are kept in memory so the &quot;Review Frames&quot; button can show each frame with its detected stars and HFRs. Only applies to runs from this pane — auto-focus during an imaging sequence never keeps frames (it would use too much memory). The frames are released when you start a new run or close the review window. Off by default; saved in your profile.">
+                    <CheckBox
+                        VerticalAlignment="Center"
+                        IsChecked="{Binding AutoFocusOptions.KeepFramesForReview}" />
+                    <TextBlock
+                        Margin="5,0,0,0"
+                        VerticalAlignment="Center"
+                        Text="Keep frames for review" />
+                </StackPanel>
+            </StackPanel>
         </Grid>
     </DataTemplate>
     <DataTemplate DataType="{x:Type local:HocusFocusVM}">

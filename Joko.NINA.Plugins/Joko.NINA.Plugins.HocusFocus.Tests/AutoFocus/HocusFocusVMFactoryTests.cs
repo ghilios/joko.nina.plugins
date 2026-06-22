@@ -25,7 +25,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 starDetectionOptions: Substitute.For<IStarDetectionOptions>(),
                 autoFocusEngineFactory: Substitute.For<IAutoFocusEngineFactory>(),
                 starDetectionSelector: Substitute.For<IPluggableBehaviorSelector<IStarDetection>>(),
-                alglibAPI: Substitute.For<IAlglibAPI>());
+                alglibAPI: Substitute.For<IAlglibAPI>(),
+                applicationDispatcher: Substitute.For<IApplicationDispatcher>());
         }
 
         [Test]

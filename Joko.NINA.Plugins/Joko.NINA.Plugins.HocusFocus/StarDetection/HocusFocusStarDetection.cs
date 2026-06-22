@@ -253,7 +253,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             ImageStatisticsVM = imageStatisticsVM;
         }
 
-        public async Task<StarDetectionResult> Detect(IRenderedImage image, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+        public Task<StarDetectionResult> Detect(IRenderedImage image, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            return Detect(image, pf, p, progress, token, modelPSFForAutoFocus: false);
+        }
+
+        public async Task<StarDetectionResult> Detect(IRenderedImage image, PixelFormat pf, StarDetectionParams p, IProgress<ApplicationStatus> progress, CancellationToken token, bool modelPSFForAutoFocus) {
             var selectedAutoFocusBehavior = profileService.ActiveProfile.ApplicationSettings.SelectedPluggableBehaviors.Where(k => k.Key == typeof(IAutoFocusVMFactory).FullName).ToList();
             var ninaStockAutoFocus = selectedAutoFocusBehavior.Count == 0 || selectedAutoFocusBehavior.First().Value == "NINA";
             var isNinaAutoFocus = ninaStockAutoFocus && p.IsAutoFocus;
@@ -263,6 +267,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             var starDetectionRegion = StarDetectionRegion.FromStarDetectionParams(p);
             var detectorParams = GetStarDetectorParams(image, starDetectionRegion, p.IsAutoFocus);
+            // GetStarDetectorParams forces ModelPSF off for auto-focus (speed); lift that for a Review-Frames run so the
+            // per-star PSF properties are populated, honoring the star-detection options' PSF setting + fit type.
+            if (modelPSFForAutoFocus) {
+                detectorParams.ModelPSF = starDetectionOptions.ModelPSF;
+            }
             var hocusFocusParams = ToHocusFocusParams(p);
 
             var detectionResult = await Detect(image, hocusFocusParams, detectorParams, progress, token);
