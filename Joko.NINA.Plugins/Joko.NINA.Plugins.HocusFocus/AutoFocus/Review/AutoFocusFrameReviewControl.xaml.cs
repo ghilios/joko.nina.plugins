@@ -65,6 +65,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             window.Height = Math.Min(desiredHeight, Math.Max(window.MinHeight, work.Height - margin));
             window.Left = work.Left + (work.Width - window.Width) / 2.0;
             window.Top = work.Top + (work.Height - window.Height) / 2.0;
+
+            // The initial auto-fit (ViewportCanvas_SizeChanged) ran against the pre-resize canvas size, so suppress it
+            // and re-fit against the FINAL window size once the resize layout pass has settled (DispatcherPriority.Loaded
+            // runs after layout). Without this the image stays fit to the smaller starting size.
+            hasFitOnce = true;
+            Dispatcher.BeginInvoke(
+                new Action(() => OnFitRequested(this, EventArgs.Empty)),
+                System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e) {

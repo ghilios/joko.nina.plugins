@@ -42,28 +42,11 @@
             </DockPanel>
         </Border>
 
-        <!-- Toolbar: navigation + per-star text selector + close. -->
+        <!-- Toolbar: navigation + close. (The per-star text + star-bounds selectors live under the legend.) -->
         <DockPanel Grid.Row="1" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
             <Button DockPanel.Dock="Left" Content="Fit" Command="{Binding FitCommand}" Margin="0,0,4,0" />
             <Button DockPanel.Dock="Left" Content="◀ Prev" Command="{Binding PrevCommand}" />
             <Button DockPanel.Dock="Left" Content="Next ▶" Command="{Binding NextCommand}" />
-            <TextBlock DockPanel.Dock="Left" Margin="16,0,6,0" Text="Show:" />
-            <ComboBox DockPanel.Dock="Left" Width="150" VerticalAlignment="Center"
-                      Foreground="White" Background="#FF2A2F36" BorderBrush="#FF3F4958"
-                      ItemsSource="{Binding AvailableAnnotationTypes}"
-                      SelectedItem="{Binding ShowAnnotationType}">
-                <ComboBox.ItemContainerStyle>
-                    <Style TargetType="ComboBoxItem">
-                        <Setter Property="Background" Value="#FF2A2F36" />
-                        <Setter Property="Foreground" Value="White" />
-                    </Style>
-                </ComboBox.ItemContainerStyle>
-                <ComboBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Foreground="White" Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
             <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" />
         </DockPanel>
 
@@ -251,8 +234,11 @@
                        Visibility="Collapsed" Scroll="HScroll_Scroll" />
         </Grid>
 
-        <!-- Right column: legend (disabled rows greyed) + help. -->
-        <StackPanel Grid.Row="0" Grid.RowSpan="3" Grid.Column="1" Width="240" Margin="12,0,0,0">
+        <!-- Right column: legend (disabled rows greyed) + per-star text / star-bounds selectors + help. Scrollable so
+             it never clips on a short window. -->
+        <ScrollViewer Grid.Row="0" Grid.RowSpan="3" Grid.Column="1" Width="240" Margin="12,0,0,0"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel>
             <TextBlock FontWeight="Bold" Margin="0,0,0,6" Text="Legend" />
             <ItemsControl ItemsSource="{Binding LegendEntries}">
                 <ItemsControl.ItemTemplate>
@@ -276,11 +262,49 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
+            <Separator Margin="0,12,0,8" />
+            <TextBlock Text="Per-star text" />
+            <ComboBox Margin="0,3,0,0" HorizontalAlignment="Left" Width="200"
+                      Foreground="Black" Background="White" BorderBrush="#FF3F4958"
+                      ItemsSource="{Binding AvailableAnnotationTypes}"
+                      SelectedItem="{Binding ShowAnnotationType}">
+                <ComboBox.ItemContainerStyle>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Background" Value="White" />
+                        <Setter Property="Foreground" Value="Black" />
+                    </Style>
+                </ComboBox.ItemContainerStyle>
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Foreground="Black" Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock Margin="0,10,0,0" Text="Star bounds" />
+            <ComboBox Margin="0,3,0,0" HorizontalAlignment="Left" Width="200"
+                      Foreground="Black" Background="White" BorderBrush="#FF3F4958"
+                      ItemsSource="{Binding AvailableBoundsTypes}"
+                      SelectedItem="{Binding StarBoundsType}">
+                <ComboBox.ItemContainerStyle>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Background" Value="White" />
+                        <Setter Property="Foreground" Value="Black" />
+                    </Style>
+                </ComboBox.ItemContainerStyle>
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Foreground="Black" Text="{Binding}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
             <Separator Margin="0,12,0,0" />
             <TextBlock Margin="0,8,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
-                       Text="Read-only review of every frame from the auto-focus run. Star bounds, the per-star text (selected above), the star-center crosshair, the rejection-reason boxes, and the ROI all follow your Hocus Focus Star Annotator settings." />
+                       Text="Read-only review of every frame from the auto-focus run. Star bounds, the per-star text, the star-center crosshair, the rejection-reason boxes, and the ROI all follow your Hocus Focus Star Annotator settings. (PSF-based options are unavailable because auto-focus does not fit PSFs.)" />
             <TextBlock Margin="0,8,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
                        Text="Wheel to zoom, right-drag to pan, Fit to reset. ◀ ▶ or Prev/Next to change frames." />
         </StackPanel>
+        </ScrollViewer>
     </Grid>
 </UserControl>

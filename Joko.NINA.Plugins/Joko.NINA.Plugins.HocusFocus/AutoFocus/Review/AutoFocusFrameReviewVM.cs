@@ -122,6 +122,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             var configured = annotatorOptions.ShowAnnotationType;
             this.showAnnotationType = AvailableAnnotationTypes.Contains(configured) ? configured : ShowAnnotationTypeEnum.HFR;
 
+            // Star-bounds shapes: PSF bounds need a PSF fit (unavailable during auto-focus), so offer only the shapes
+            // that can actually draw. Review-local, seeded from the configured annotator option (PSF -> Box fallback).
+            AvailableBoundsTypes = Enum.GetValues<StarBoundsTypeEnum>()
+                .Where(t => psfAvailable || t != StarBoundsTypeEnum.PSF)
+                .ToList();
+            var configuredBounds = annotatorOptions.StarBoundsType;
+            this.starBoundsType = AvailableBoundsTypes.Contains(configuredBounds) ? configuredBounds : StarBoundsTypeEnum.Box;
+
             Viewport = new StarReviewViewport();
 
             annotatorOptions.PropertyChanged += AnnotatorOptions_PropertyChanged;
@@ -173,12 +181,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
         private static bool RequiresPsf(ShowAnnotationTypeEnum t) =>
             t != ShowAnnotationTypeEnum.None && t != ShowAnnotationTypeEnum.HFR && t != ShowAnnotationTypeEnum.Background;
 
-        /// <summary>The star-bounds shape to draw. Falls back from PSF to Box when the run has no PSF fits (so the
-        /// configured PSF bounds don't silently render nothing during auto-focus).</summary>
-        private StarBoundsTypeEnum EffectiveBoundsType {
-            get {
-                var configured = annotatorOptions.StarBoundsType;
-                return (!psfAvailable && configured == StarBoundsTypeEnum.PSF) ? StarBoundsTypeEnum.Box : configured;
+        /// <summary>The star-bounds shapes offered in the review (PSF excluded when there are no PSF fits).</summary>
+        public IReadOnlyList<StarBoundsTypeEnum> AvailableBoundsTypes { get; }
+
+        /// <summary>Review-local star-bounds shape (Box/Ellipse/PSF), seeded from the annotator option. Changing it
+        /// re-renders the overlay without touching the saved Star Annotator setting.</summary>
+        private StarBoundsTypeEnum starBoundsType;
+        public StarBoundsTypeEnum StarBoundsType {
+            get => starBoundsType;
+            set {
+                if (starBoundsType != value) {
+                    starBoundsType = value;
+                    RaisePropertyChanged();
+                    RebuildCurrentFrameOverlays();
+                    RebuildLegend();
+                }
             }
         }
 
@@ -271,7 +288,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
 
         private IReadOnlyList<StarReviewLegendEntry> BuildLegend() {
             var entries = new List<StarReviewLegendEntry> {
-                new() { Brush = StarBoundsBrush, Caption = $"Star bounds ({EffectiveBoundsType})", Enabled = annotatorOptions.ShowStarBounds },
+                new() { Brush = StarBoundsBrush, Caption = $"Star bounds ({StarBoundsType})", Enabled = annotatorOptions.ShowStarBounds },
                 new() { Brush = AnnotationBrush, Caption = "Star annotation text", Enabled = ShowAnnotationType != ShowAnnotationTypeEnum.None },
                 new() { Brush = StarCenterBrush, Caption = "Star center", Enabled = annotatorOptions.ShowStarCenter },
             };
@@ -356,7 +373,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             if (frame == null) {
                 return;
             }
-            var boundsType = EffectiveBoundsType;
+            var boundsType = StarBoundsType;
             foreach (var s in frame.Stars) {
                 Markers.Add(BuildMarker(s, boundsType));
             }
