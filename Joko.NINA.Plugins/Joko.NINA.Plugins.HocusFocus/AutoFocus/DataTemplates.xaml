@@ -622,7 +622,6 @@
                 CancelCommand="{Binding CancelLoadSavedAutoFocusRunCommand}"
                 CancelToolTip="{ns:Loc LblCancel}"
                 Command="{Binding LoadSavedAutoFocusRunCommand}"
-                IsEnabled="{Binding AutoFocusInProgress, Converter={StaticResource InverseBooleanConverter}}"
                 ToolTip="Reprocesses AutoFocus images saved by having Save enabled in Hocus Focus -&gt; Auto Focus Options. This produces an auto focus curve using whatever the current star detection and fit settings are" />
             <StackPanel
                 Grid.Row="3"

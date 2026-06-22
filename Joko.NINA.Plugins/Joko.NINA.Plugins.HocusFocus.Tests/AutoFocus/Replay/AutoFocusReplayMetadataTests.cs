@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using NINA.Core.Enum;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -137,6 +138,61 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
             var metadata = BuildPopulated();
             metadata.AutoFocus = null;
             Assert.Throws<InvalidOperationException>(() => metadata.Validate());
+        }
+
+        [Test]
+        public void TryLoad_FindsMetadataInParentRunRoot_WhenGivenAttemptFolder() {
+            // metadata.json lives at the run root, but LoadSavedAutoFocusAttempt hands callers the attempt subfolder.
+            var runRoot = Path.Combine(Path.GetTempPath(), "HFReplayTest_" + Guid.NewGuid().ToString("N"));
+            var attemptFolder = Path.Combine(runRoot, "attempt01");
+            Directory.CreateDirectory(attemptFolder);
+            try {
+                File.WriteAllText(Path.Combine(runRoot, "metadata.json"), BuildPopulated().Serialize());
+
+                var ok = AutoFocusReplayMetadata.TryLoad(attemptFolder, out var metadata, out var error);
+
+                Assert.Multiple(() => {
+                    Assert.That(ok, Is.True);
+                    Assert.That(error, Is.Null);
+                    Assert.That(metadata, Is.Not.Null);
+                    Assert.That(metadata.AutoFocus.NumberOfAFStars, Is.EqualTo(42));
+                });
+            } finally {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+
+        [Test]
+        public void TryLoad_ReturnsFalseWithoutError_WhenMetadataAbsent() {
+            var runRoot = Path.Combine(Path.GetTempPath(), "HFReplayTest_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(runRoot);
+            try {
+                var ok = AutoFocusReplayMetadata.TryLoad(runRoot, out var metadata, out var error);
+                Assert.Multiple(() => {
+                    Assert.That(ok, Is.False);
+                    Assert.That(error, Is.Null);
+                    Assert.That(metadata, Is.Null);
+                });
+            } finally {
+                Directory.Delete(runRoot, recursive: true);
+            }
+        }
+
+        [Test]
+        public void TryLoad_ReturnsFalseWithError_WhenMetadataCorrupt() {
+            var runRoot = Path.Combine(Path.GetTempPath(), "HFReplayTest_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(runRoot);
+            try {
+                File.WriteAllText(Path.Combine(runRoot, "metadata.json"), "{ not valid json ");
+                var ok = AutoFocusReplayMetadata.TryLoad(runRoot, out var metadata, out var error);
+                Assert.Multiple(() => {
+                    Assert.That(ok, Is.False);
+                    Assert.That(error, Is.Not.Null);
+                    Assert.That(metadata, Is.Null);
+                });
+            } finally {
+                Directory.Delete(runRoot, recursive: true);
+            }
         }
     }
 }

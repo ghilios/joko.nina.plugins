@@ -64,10 +64,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         public static AutoFocusReplayMetadata Deserialize(string json) => JsonConvert.DeserializeObject<AutoFocusReplayMetadata>(json, JsonSettings);
 
         /// <summary>
-        /// Attempts to load + validate the <c>metadata.json</c> in a saved run's folder. Returns false when the file
-        /// is absent (with <paramref name="error"/> null — the caller should silently keep current behavior) or when
-        /// it is unreadable / fails validation / has a newer schema (with <paramref name="error"/> set — the caller
-        /// should warn and fall back). Never throws.
+        /// Attempts to load + validate the <c>metadata.json</c> for a saved run. The caller may pass either the run
+        /// root (where metadata.json lives) or a saved ATTEMPT subfolder (LoadSavedAutoFocusAttempt resolves
+        /// FolderPath to e.g. <c>AutoFocus_&lt;ts&gt;/attempt01</c>), so the folder and its parent run root are both
+        /// checked. Returns false when the file is absent (with <paramref name="error"/> null — the caller should
+        /// silently keep current behavior) or when it is unreadable / fails validation / has a newer schema (with
+        /// <paramref name="error"/> set — the caller should warn and fall back). Never throws.
         /// </summary>
         public static bool TryLoad(string runFolderPath, out AutoFocusReplayMetadata metadata, out string error) {
             metadata = null;
@@ -75,8 +77,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
             if (string.IsNullOrWhiteSpace(runFolderPath)) {
                 return false;
             }
-            var path = Path.Combine(runFolderPath, "metadata.json");
-            if (!File.Exists(path)) {
+            var path = ResolveMetadataPath(runFolderPath);
+            if (path == null) {
                 return false;
             }
             try {
@@ -94,6 +96,27 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
                 error = e.Message;
                 return false;
             }
+        }
+
+        /// <summary>Returns the path to metadata.json in <paramref name="folder"/> or, failing that, its parent run
+        /// root (the folder may be a saved attempt subfolder). Null when neither has one.</summary>
+        private static string ResolveMetadataPath(string folder) {
+            var direct = Path.Combine(folder, "metadata.json");
+            if (File.Exists(direct)) {
+                return direct;
+            }
+            try {
+                var parent = Directory.GetParent(folder)?.FullName;
+                if (!string.IsNullOrEmpty(parent)) {
+                    var parentPath = Path.Combine(parent, "metadata.json");
+                    if (File.Exists(parentPath)) {
+                        return parentPath;
+                    }
+                }
+            } catch {
+                // Malformed path — treat as "no metadata".
+            }
+            return null;
         }
 
         public void Validate() {
