@@ -101,6 +101,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <oxy:Plot
                 Background="{StaticResource BackgroundBrush}"
@@ -616,13 +617,22 @@
                 IsEnabled="{Binding AutoFocusInProgress, Converter={StaticResource InverseBooleanConverter}}"
                 ToolTip="Reprocesses AutoFocus images saved by having Save enabled in Hocus Focus -&gt; Auto Focus Options. This produces an auto focus curve using whatever the current star detection and fit settings are" />
             <StackPanel
-                Grid.Row="3"
-                Margin="0,15,10,5"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Bottom"
+                Grid.Row="4"
+                Margin="10,0,10,8"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
                 Orientation="Horizontal">
+                <Button
+                    Height="25"
+                    Padding="5,0,5,0"
+                    VerticalAlignment="Center"
+                    Command="{Binding ReviewFramesCommand}"
+                    IsEnabled="{Binding ReviewFramesAvailable}"
+                    ToolTip="Open the Review Frames window to inspect each frame of the last manual auto-focus run — its detected stars with the Hocus Focus Star Annotator's bounds, per-star text, rejection-reason and ROI boxes, plus per-frame HFR statistics. Enabled after an interactive run from this pane completes with &quot;Keep frames for review&quot; turned on.">
+                    <TextBlock Margin="5,0,5,0" Text="Review Frames" />
+                </Button>
                 <StackPanel
-                    Margin="0,0,12,0"
+                    Margin="12,0,0,0"
                     VerticalAlignment="Center"
                     Orientation="Horizontal"
                     ToolTip="When on, the per-frame images from a MANUAL auto-focus run started here in the AutoFocus pane are kept in memory so the &quot;Review Frames&quot; button can show each frame with its detected stars and HFRs. Only applies to interactive runs from this pane — auto-focus during an imaging sequence never keeps frames (it would use too much memory). The frames are released when you start a new run or close the review window. Off by default; saved in your profile.">
@@ -634,15 +644,6 @@
                         VerticalAlignment="Center"
                         Text="Keep frames for review" />
                 </StackPanel>
-                <Button
-                    Height="25"
-                    Padding="5,0,5,0"
-                    VerticalAlignment="Bottom"
-                    Command="{Binding ReviewFramesCommand}"
-                    IsEnabled="{Binding ReviewFramesAvailable}"
-                    ToolTip="Open the Review Frames window to inspect each frame of the last manual auto-focus run — its detected stars with the Hocus Focus Star Annotator's bounds, per-star text, rejection-reason and ROI boxes, plus per-frame HFR statistics. Enabled after an interactive run from this pane completes with &quot;Keep frames for review&quot; turned on.">
-                    <TextBlock Margin="5,0,5,0" Text="Review Frames" />
-                </Button>
             </StackPanel>
         </Grid>
     </DataTemplate>
