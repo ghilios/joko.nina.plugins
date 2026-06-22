@@ -355,7 +355,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             FrameHeader = $"Focuser position: {frame.FocuserPosition:0}";
             DetectedCountText = $"Detected stars: {frame.DetectedStarCount}";
             var (center, deviation) = StarReviewHfrStats.Compute(frame.Stars.Select(s => s.Hfr), measurementAverage);
-            StatsText = StarReviewHfrStats.FormatStats(center, deviation, frame.DetectedStarCount, measurementAverage);
+            // Omit the "(n=…)" count — the detected-star count is already shown separately in the header.
+            StatsText = StarReviewHfrStats.FormatStats(center, deviation, frame.DetectedStarCount, measurementAverage, includeCount: false);
 
             RebuildCurrentFrameOverlays();
 

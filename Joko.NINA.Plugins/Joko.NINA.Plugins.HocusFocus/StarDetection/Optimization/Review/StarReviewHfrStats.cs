@@ -69,7 +69,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// (n=42)". The "± deviation" term is omitted when the deviation is undefined (a single star), and an empty
         /// string is returned when there are no valid stars (the overlay hides itself).
         /// </summary>
-        public static string FormatStats(double center, double deviation, int starCount, MeasurementAverageEnum mode) {
+        public static string FormatStats(double center, double deviation, int starCount, MeasurementAverageEnum mode, bool includeCount = true) {
             if (starCount <= 0 || double.IsNaN(center)) {
                 return string.Empty;
             }
@@ -78,7 +78,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             var dev = double.IsNaN(deviation)
                 ? string.Empty
                 : " ± " + deviation.ToString("F2", CultureInfo.InvariantCulture);
-            return $"{label}: {c}{dev}  (n={starCount})";
+            var count = includeCount ? $"  (n={starCount})" : string.Empty;
+            return $"{label}: {c}{dev}{count}";
         }
     }
 }

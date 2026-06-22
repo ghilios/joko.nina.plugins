@@ -103,7 +103,6 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <oxy:Plot
                 Background="{StaticResource BackgroundBrush}"
@@ -619,10 +618,10 @@
                 IsEnabled="{Binding AutoFocusInProgress, Converter={StaticResource InverseBooleanConverter}}"
                 ToolTip="Reprocesses AutoFocus images saved by having Save enabled in Hocus Focus -&gt; Auto Focus Options. This produces an auto focus curve using whatever the current star detection and fit settings are" />
             <StackPanel
-                Grid.Row="4"
-                Margin="10,0,10,8"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
+                Grid.Row="3"
+                Margin="0,15,10,5"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
                 Orientation="Horizontal">
                 <Button
                     Height="25"
