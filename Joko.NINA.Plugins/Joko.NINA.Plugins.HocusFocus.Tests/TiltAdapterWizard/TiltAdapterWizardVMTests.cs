@@ -43,7 +43,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 tiltAdapterOptions: Substitute.For<ITiltAdapterOptions>());
         }
 
-        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options, ICameraMediator camera, IFocuserMediator focuser) Build(int screwCount = 3) {
+        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options, ICameraMediator camera, IFocuserMediator focuser) Build(int screwCount = 3, IApplicationDispatcher dispatcher = null) {
             var profileService = Substitute.For<IProfileService>();
             var camera = Substitute.For<ICameraMediator>();
             var focuser = Substitute.For<IFocuserMediator>();
@@ -57,6 +57,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 cameraMediator: camera,
                 focuserMediator: focuser,
                 inspector: inspector,
+                applicationDispatcher: dispatcher ?? new SynchronousApplicationDispatcher(),
                 tiltAdapterOptions: options);
             return (vm, options, camera, focuser);
         }
@@ -153,6 +154,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(vm.AreDevicesConnected, Is.True);
                 Assert.That(vm.ConnectionWarningText, Is.Empty);
             });
+        }
+
+        [Test]
+        public void UpdateDeviceInfo_FromBackgroundThread_MarshalsCommandNotificationsThroughDispatcher() {
+            // Reported crash: DeviceMediator.Broadcast pushes device info on a background thread, and the
+            // CameraInfo/FocuserInfo setters raised CanExecuteChanged on WPF commands off the UI thread
+            // ("The calling thread cannot access this object because a different thread owns it."). The command
+            // notifications must now flow through the dispatcher so they are marshaled to the UI thread.
+            var dispatcher = new RecordingApplicationDispatcher();
+            var (vm, _, _, _) = Build(dispatcher: dispatcher);
+            var before = dispatcher.DispatchCount;
+
+            Task.Run(() => {
+                vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
+                vm.UpdateDeviceInfo(new FocuserInfo { Connected = true });
+            }).GetAwaiter().GetResult();
+
+            Assert.That(dispatcher.DispatchCount - before, Is.GreaterThanOrEqualTo(2));
         }
 
         [Test]
