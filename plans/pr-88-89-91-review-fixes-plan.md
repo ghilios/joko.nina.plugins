@@ -12,12 +12,17 @@
 
 ## ⏱ EXECUTION STATUS (updated 2026-06-23)
 
-**PR A (Phases 1–6): ✅ COMPLETE — opened as [PR #93](https://github.com/ghilios/hocus-focus/pull/93) into `develop` (NOT yet merged).**
+**PR A (Phases 1–6): ✅ COMPLETE & MERGED — [PR #93](https://github.com/ghilios/hocus-focus/pull/93) merged into `develop` (merge commit `e82c982`).**
 - Branch `ghilios/pr-88-89-91-review-fixes` from `develop`@`47fd93d`; 23 code/test commits + this plan doc.
 - Suite: **1455 pass / 0 fail** (was 1436). New tests: F09 retention truth-table, F35/F37 snapshot boundaries, F11 atomic-claim + leak-window regression, F12/13/14 dispatcher fallback, F15/F16 marshaling, F17 static-guard reset.
 - Each phase ran implementer → spec review → code-quality review, plus a final holistic cross-phase pass. One real regression was caught & fixed mid-review: the F11 atomic claim first re-introduced a guard-leak/brick window (a throw from `OnStarted()` or the `CancellationTokenSource` ctor between the claim and the releasing `try` would permanently disable all AutoFocus) → fixed with an outer `try/finally` + fail-first test `Run_WhenStartedSubscriberThrows_StillReleasesGuard`.
 
-**PR B (Phase 7): ⏳ NOT STARTED — gated on PR #93 merging into `develop`.** When ready: `/clear`, then `git checkout develop && git pull && git checkout -b ghilios/frame-review-dedup-refactor`, then execute Phase 7. **Before executing Phase 7, read "⚠ POST-PR-A CORRECTIONS FOR PHASE 7" at the top of the Phase 7 section — several of its before/after snippets are now stale because PR A changed the same code.**
+**PR B (Phase 7): ✅ COMPLETE — opened as [PR #94](https://github.com/ghilios/hocus-focus/pull/94) into `develop` (NOT yet merged/verified live).**
+- Branch `ghilios/frame-review-dedup-refactor` from merged `develop`@`e82c982`; 7 commits (F07/F20, F25, F24, F08, F23, F28, + the rerun-path `progress?.Report` follow-up).
+- Suite: **1460 pass / 0 fail** (was 1455; +5 new tests: `HocusFocusVMInteractiveTests` ×2, `FrameReviewVMBaseTests` ×3). Each task ran implementer → spec review → code-quality review, plus a final holistic cross-task pass (READY TO MERGE, zero cross-task findings).
+- **F07 fork resolved to F20:** the preferred F07 ("delete `InteractiveHostBehavior`, mark the pane VM at its dockable construction") was infeasible — `HocusFocusVM` is not a `[Export(typeof(IDockableVM))]` and both pane + sequencer share the one `HocusFocusVMFactory.Create()`, so the visual-tree DataTemplate is the only pane discriminator. Per maintainer decision, kept + hardened `InteractiveHostBehavior` (DataContextChanged tracking) and made `IsInteractive`'s setter private + `MarkInteractive()`/`MarkNonInteractive()`.
+- **F23 scoped** to the two read-only review VMs; `StarReviewVM` (editable labeling VM) deliberately left out of scope.
+- The "⚠ POST-PR-A CORRECTIONS FOR PHASE 7" snippets below were applied; two additional plan-snippet bugs were corrected during execution: (1) the TDD test's `GetSetMethod(nonPublic:true)` → `nonPublic:false`; (2) F08's `base.FindName("ViewportCanvas")` override would collide with the x:Name field (used distinct `*Part` accessors instead) and the `ICommand` interface members need explicit implementation (the VMs expose `RelayCommand`). The test project links the new types via its existing `<ProjectReference>` (no `<Compile>` links needed, contrary to the F23 task note).
 
 **Build/test in this WSL checkout:** `dotnet` is NOT on PATH — use `"/mnt/c/Program Files/dotnet/dotnet.exe"` everywhere a task says `dotnet` (e.g. `"/mnt/c/Program Files/dotnet/dotnet.exe" test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo`). Commit with the privacy email per the convention below.
 
@@ -1924,7 +1929,7 @@ Steps:
 
 ---
 
-## Phase 7 (separate follow-up PR): De-duplication & altitude refactor — ⏳ NOT STARTED (gated on PR #93 merge)
+## Phase 7 (separate follow-up PR): De-duplication & altitude refactor — ✅ COMPLETE (PR #94)
 
 > **🚦 GATE: do not begin this phase until PR A (Phases 1–6) has been merged into `develop`.**
 >
