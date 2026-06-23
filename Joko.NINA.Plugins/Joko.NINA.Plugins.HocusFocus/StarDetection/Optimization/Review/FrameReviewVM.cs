@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Core.Utility;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Review;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
 using OxyPlot;
 using OxyPlot.Series;
@@ -83,7 +84,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
     /// the hover graph uses <see cref="FrameReviewFocusGraph"/> / <see cref="FrameReviewScatterGraph"/> OxyPlot charts.
     /// Disposing releases the retained bitmaps.
     /// </summary>
-    public sealed class FrameReviewVM : BaseINPC, IDisposable {
+    public sealed class FrameReviewVM : BaseINPC, IReviewDialogViewModel {
 
         private static SolidColorBrush FrozenBrush(Color c) {
             var b = new SolidColorBrush(c);

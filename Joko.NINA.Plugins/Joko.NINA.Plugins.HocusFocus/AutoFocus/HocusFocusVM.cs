@@ -838,31 +838,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             var vm = new AutoFocusFrameReviewVM(snapshot, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.ApplicationDispatcher, starDetectionOptions.MeasurementAverage);
-            var windowService = windowServiceFactory.Create();
-
-            void onRequestClose(object s, EventArgs e) {
-                _ = windowService.Close();
-            }
-
-            EventHandler onClosed = null;
-            onClosed = (s, e) => {
-                windowService.OnClosed -= onClosed;
-                vm.RequestClose -= onRequestClose;
-                vm.Dispose();
-                // vm.Dispose() only nulls the child VM's copy; the pane VM still holds the snapshot's
-                // frozen bitmaps (F04) and any source IRenderedImage buffers (F06). Release them here so
-                // "released when you ... close the review window" is honored without waiting for the next
-                // run (which uses a different VM for sequence-driven AF anyway).
+            ReviewDialogHost.Show(windowServiceFactory, vm, "Review Frames", () => {
+                // vm.Dispose() only nulls the child VM's copy; the pane VM still holds the snapshot's frozen bitmaps
+                // (F04) and source IRenderedImage buffers (F06). Release them on close so "released when you close the
+                // review window" is honored without waiting for the next run.
                 lock (frameReviewLock) {
                     reviewFrames.Clear();
                 }
                 reviewSnapshot = null;
                 NotifyReviewFramesAvailabilityChanged();
-            };
-            windowService.OnClosed += onClosed;
-            vm.RequestClose += onRequestClose;
-
-            windowService.ShowDialog(vm, "Review Frames", System.Windows.ResizeMode.CanResize, System.Windows.WindowStyle.SingleBorderWindow);
+            });
         }
 
         private void AutoFocusEngine_InitialHFRCalculated(object sender, AutoFocusInitialHFRCalculatedEventArgs e) {

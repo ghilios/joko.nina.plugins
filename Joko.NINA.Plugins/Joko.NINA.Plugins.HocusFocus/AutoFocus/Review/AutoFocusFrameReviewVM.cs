@@ -81,7 +81,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
     /// and <see cref="StarReviewLegendEntry"/> for the legend. The per-star text selection is review-local (initialized
     /// from the annotator setting, not written back). Disposing releases the retained bitmaps.
     /// </summary>
-    public sealed class AutoFocusFrameReviewVM : BaseINPC, IDisposable {
+    public sealed class AutoFocusFrameReviewVM : BaseINPC, IReviewDialogViewModel {
 
         private static SolidColorBrush FrozenBrush(Color c) {
             var b = new SolidColorBrush(c);
