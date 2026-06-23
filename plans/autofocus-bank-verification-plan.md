@@ -2,119 +2,100 @@
 
 ## Context
 
-We lowered the default `NoiseClippingMultiplier` 4→2 (recall fix from the golden-set audit) and need a robust,
-**repeatable, regression-comparable** verification of optimization, autofocus, and sensor-modeling performance
-across a whole bank of saved AF runs — not just the single cwhite run. The output is a timestamped report that
-future runs can be diffed against, so detector/optimizer changes can be regression-checked over time.
+We lowered the default `NoiseClippingMultiplier` 4→2 (recall fix from the golden-set audit). We now need a
+robust, **repeatable, regression-comparable** verification of **optimization, autofocus, and sensor modeling**
+(NOT tilt calibration) across the whole bank of saved AF runs, producing a timestamped report future runs can be
+diffed against.
 
-Bank root: **`D:\Autofocus Bank`** (memory: attempt01-anchored runs; some have Panos labels). Runs are
-discovered with the existing `OptimizationRunDiscovery` (attempt-anchored, ≥3 focuser positions). Reuse the
-golden method in `.claude/docs/golden-star-set.md` and the harnesses in `tools/golden/` + `TestApp`.
+Bank root: **`D:\Autofocus Bank`**. Runs discovered with `OptimizationRunDiscovery` (attempt-anchored, ≥3
+focuser positions). Each run is treated as its **own optical train** — optimize/evaluate **per run**, never
+jointly. Camera/pixel-scale read per-run from the FITS header (the bank mixes setups).
 
-This is a **build-the-harness-then-run** plan; it is sizable (golden generation across the bank is the costly
-part, but goldens are cached as sidecars so it is one-time per run).
+The harness was **validated end-to-end on the cwhite run** (see `D:\Tilt Calibration Bank\cwhite\verification_*.{md,json}`);
+this plan is the full-bank generalization with the dry-run learnings baked in.
 
-## Step 1 — Bank cleanup (idempotent, careful)
+## Validated harness (concrete commands)
 
-For each discovered run folder, **keep**: the AF sweep frame images (`0Y_FrameXX_..._Focuser####.fits/.xisf`),
-the `autofocus_report_Region*.json` (run config + region geometry — needed for per-region scoring and step
-size), any existing `labels/`, and our generated `*.golden.json` / `run_meta.json`. **Delete** stale clutter:
-`*_star_detection_result*.json`, annotated/diagnostic PNGs (`*annotated*.png`, contamination/optimize/eval
-outputs), and stray harness output dirs. Implement as a dry-run-first cleanup (`--apply` to actually delete),
-logging every removal, so it is safe and repeatable. (Note: the spec says "keep only the run images"; we retain
-the small `autofocus_report_Region*.json` because per-region scoring + step size need them — call this out so it
-can be tightened if undesired.)
+| Output | Tool (validated) |
+|---|---|
+| Per-frame precision/recall vs golden (shared by AF + sensor model — report once per config) | `TestApp golden eval --match centroid --match-radius 12 [--params default \| --opt-results <dir>]` |
+| Autofocus fit tightness (σ_focus, R², reduced-χ²) | `TestApp optimize` (optimized configs); `optimize --max-evals 0` for the as-default config's seed σ_focus |
+| Sensor-model fit tightness (paraboloid R², RMS µm, reduced-χ², stars-in-model, tilt θ, framesAligned) | `TestApp inspect-align --opt-results <dir>` (extended this session to inject settings + report the SensorModel fit) |
+| Golden reference (cached per image) | `tools/golden/`: `snr_ref.py` (SNR + `--donut` matched filter + sat masking) → `qa_montage.py` + `qa_workflow.js` (LLM QA) → `build_goldens.py` |
 
-## Step 2 — Golden set per image (established approach, cached)
+Small harness additions still needed for a clean full run: a `--params default` selector on `inspect-align`
+(so the as-default config's sensor model runs without relying on the live profile — today it has `--opt-results`/
+`--noise-clip` only), and the `bank-clean` / `bank-donut-meta` / `bank-verify` orchestrators below.
 
-For every frame in every run, produce the detector-independent reference and store it as the per-image
-`<image>.golden.json` sidecar (so it is never recomputed):
-1. `tools/golden/snr_ref.py` — SNR/connected-component reference (+ `--donut` matched filter + saturation
-   masking for defocused/spiked frames) on the linear FITS.
-2. `tools/golden/qa_montage.py` + `qa_workflow.js` — LLM montage QA (confirm/reject candidates).
-3. `tools/golden/build_goldens.py` — write QA-confirmed candidates with SNR confidence tiers.
-Driver: a bank-walker that runs this per run, skipping runs that already have complete sidecars (idempotent).
-Cost note: log per-run candidate/QA counts; this is the expensive one-time step.
+## Step 1 — Bank cleanup (idempotent, dry-run-first)
 
-## Step 3 — Per-run donut metadata (persisted, computed once)
+Per run folder, **keep** the AF frame images, `autofocus_report_Region*.json` (run config + region geometry +
+step size), `labels/`, and our `*.golden.json` / `run_meta.json`. **Delete** stale clutter:
+`*_star_detection_result*.json`, annotated/diagnostic PNGs, stray `optimize`/`eval`/`contamination` outputs and
+`optimized_settings.json` handoffs (regenerated per config). `TestApp bank-clean --runs "D:\Autofocus Bank"`
+lists first; `--apply` deletes, logging every removal. (cwhite had nothing stale — common for fresh runs.)
 
-For each run, inspect the **most-defocused frames** (min/max focuser) for donuts and decide whether
-donut-aware detection should be used. Heuristic: run `snr_ref --donut` + compare donut-matched local-maxima
-count / ring-eccentricity / extreme-frame HFR against thresholds (and/or a small LLM montage check on the
-extreme frames). Write a persisted `run_meta.json` in the run folder:
-`{ donutAware: bool, reason, extremeFocusers:[...], donutRadiiPx, detectedAtUtc }`. Subsequent verification
-runs READ this file instead of recomputing. Include a `--refresh` to recompute.
+## Step 2 — Golden set per image (established approach, cached, parallelized)
 
-## Step 4 — Verification matrix per run (two configs)
+For every frame in every run, write the per-image `<image>.golden.json` sidecar once (skip runs already
+complete — idempotent). Pipeline: `snr_ref.py` (per-run camera params from the FITS header; `--donut`+sat-mask
+on defocused runs) → montage QA → `build_goldens.py` (SNR→confidence tiers). **This is the long pole** — drive
+the QA fan-out with a `Workflow` over (run × montage) so the bank's montages QA concurrently; commit sidecars as
+each run completes. Goldens are detector-independent, so they only regenerate if the *reference method* changes.
 
-For each run, run **two configs** and collect the same metrics:
-- **Config A — donut-aware OFF:** `TestApp optimize` from **default settings** (no `--donut`) → `optimized_settings.json`.
-- **Config B — donut-aware ON:** `TestApp optimize --donut` (only meaningfully different for runs flagged
-  `donutAware=true`; still run for all so the report is uniform).
+## Step 3 — Per-run donut metadata (persisted; refined heuristic)
 
-For each config, with its optimized settings, run BOTH:
-1. **Autofocus** — the AF HFR-vs-focuser curve fit (global/AF region) → **fit tightness**: σ_focus, R²,
-   reduced-χ², LOO std (the optimizer/`af-fit` harness already computes these).
-2. **Sensor modeling** — the multi-region tilt/sensor-curve fit (the 6-region layout) → **fit tightness**:
-   per-region focus-position uncertainty + tilt-plane residual / sensor-model fit-quality metrics.
+For each run, decide whether donut-aware detection is warranted and persist `run_meta.json`
+(`{donutAware, reason, extremeFocusers, donutSignal, detectedAtUtc}`); later runs read it (`--refresh` to recompute).
+**Refined rule (from the dry-run):** the donut/peak local-maxima fraction alone over-flags mildly-defocused runs
+(cwhite frac≈1.5 but donuts were marginal). Require **both** a high donut fraction **and** heavy defocus on the
+extreme frames (e.g., extreme-frame median HFR above a threshold and/or donut bbox size large) before setting
+`donutAware=true`. `TestApp bank-donut-meta --runs "D:\Autofocus Bank"`.
 
-**Precision/recall** of detected stars per frame (vs the golden) is **identical for AF and sensor modeling**
-(same detection), so compute it once per config via `golden eval` and report it once.
+## Step 4 — Verification matrix per run (THREE configs)
 
-Report per run × config: per-frame precision/recall (+ overall + per-region + per-SNR-tier), AF fit tightness,
-sensor-model fit tightness, and the chosen optimized knob values.
+The dry-run showed the **optimizer trades recall for σ_focus** (it kept NC=2.0 but raised `BrightnessSensitivity`
+~16, so optimized recall 0.15–0.18 was *below* the plain NC=2.0 default ~0.46), and that the **best config
+differs by operation** (donut-aware tightened AF + raised recall, but loosened the sensor-model paraboloid fit).
+So report **three** configs per run:
+
+- **C0 — as-default** (shipped NC=2.0, no optimization): the honest recall reference. AF σ_focus via
+  `optimize --max-evals 0` (seed = default); precision/recall via `golden eval --params default`; sensor model
+  via `inspect-align --params default`.
+- **A — optimized, donut OFF:** `optimize` → `golden eval --opt-results A` + `inspect-align --opt-results A`.
+- **B — optimized, donut ON:** `optimize --donut` → `golden eval --opt-results B` + `inspect-align --opt-results B`.
+
+Per run × config record: optimized knobs (esp. NoiseClip + Sensitivity), **precision/recall** (overall +
+per-region + per-SNR-tier, computed once — identical for AF and sensor modeling), **AF fit** (σ_focus, R²,
+reduced-χ²), **sensor-model fit** (paraboloid R², RMS µm, reduced-χ², stars-in-model, tilt θ, **framesAligned**;
+expect a couple of extreme-defocus frames not to align). Do not pick a global winner — surface the per-operation
+tradeoff.
 
 ## Step 5 — Summary report (timestamped, regression-ready)
 
-Aggregate all runs × both configs into one machine- + human-readable report (JSON + a Markdown summary),
-written to a **timestamped file in the bank root** (`D:\Autofocus Bank\verification_<UTC-timestamp>.{json,md}`).
-Include: per-run rows (recall@SNR≥12, precision, AF σ_focus, sensor-model residual, donutAware flag, optimized
-knobs) for both configs, plus bank-level aggregates and a header recording the detector version / commit so a
-future run can be diffed against this baseline for regression.
+Aggregate all runs × 3 configs into JSON + a Markdown summary, written to a **timestamped file at the bank
+root** (`D:\Autofocus Bank\verification_<UTC>.{json,md}`). Header records the **detector commit/version** and the
+NoiseClip default so a future run can be diffed against this baseline. Per-run rows for all three configs +
+bank-level aggregates (median recall@SNR≥12, median AF σ_focus, median sensor R², donutAware count, % runs where
+donut-aware helped AF vs hurt sensor fit). Mirror the cwhite report schema (`afbank-verify/1`).
 
-## New tooling needed (reuse first)
+## Orchestration / scale
 
-- **Reuse:** `OptimizationRunDiscovery`, `TestApp optimize` (`--donut`, `--inspection`, `--per-run`),
-  `TestApp golden eval`, `tools/golden/*` (reference + QA + build), `TestApp af-fit`/`focus-sweep` (AF fit),
-  `TestApp tilt` / `InspectorVM` sensor model.
-- **Build:**
-  1. `TestApp bank-clean` (Step 1, dry-run + `--apply`).
-  2. A bank golden driver (Step 2) — orchestrates the python + QA workflow per run, idempotent.
-  3. `TestApp bank-donut-meta` (Step 3) — donut decision + `run_meta.json`.
-  4. ~~A headless sensor-model fit-quality evaluator~~ **DONE (dry-run):** `TestApp inspect-align` was extended to
-     inject settings (`--opt-results <dir>` overlays an `optimized_settings.json` incl. defocus fields; plus
-     `--noise-clip` / `--defocus-donut|gates|structure`) and to report the real `SensorModel` paraboloid fit:
-     GoodnessOfFit R², RMS µm, reduced-χ², stars-in-model, tilt θ. AF fit tightness comes from `optimize`
-     (σ_focus/R²/reduced-χ²) at the optimized settings.
-  5. `TestApp bank-verify` (Steps 4–5) — the orchestrator producing the timestamped report.
-- Add per-region **HFR-scatter** to `golden eval`'s report (started in the B-phase-2 cost gate) since it is a
-  useful fit-quality covariate.
+- `TestApp bank-verify --runs "D:\Autofocus Bank" --out <bankroot>` drives Steps 4–5 per run (clean/golden/meta
+  assumed done). Golden generation (Step 2) is the costly one-time stage — parallelize via `Workflow` and cache.
+- Per-run, not joint (mixed optical trains). Read camera/pixel-scale per run from the FITS header so `snr_ref`
+  donut radii / saturation level and detection PixelScale are correct.
+- Determinism: two `bank-verify` runs on an unchanged bank + fixed goldens must produce identical metrics so
+  future diffs reflect real changes only (optimizer search is seeded/deterministic; confirm).
 
 ## Verification of the harness itself
-- Idempotency: re-running cleanup/golden/donut-meta on an already-processed run is a no-op (sidecars/meta reused).
-- Spot-check one run end-to-end (cwhite + mufti) and confirm the report numbers match the manual audit
-  (recall@SNR≥12, σ_focus). Full `dotnet test` green for any new TestApp code.
-- Confirm two consecutive `bank-verify` runs on an unchanged bank produce identical metrics (determinism), so
-  future diffs reflect real changes only.
-
-## Dry-run validation (cwhite, 1 run — done before the full bank)
-
-Ran every step on the single cwhite run (report: `D:\Tilt Calibration Bank\cwhite\verification_<ts>.{md,json}`).
-Confirmed the flow works end-to-end and surfaced refinements for the full run:
-- **The best config differs by operation** (the verification's whole point): donut-aware ON gave tighter AF
-  (σ_focus 1.69 vs 1.87) + higher recall, but donut OFF gave a tighter *sensor-model* fit (R² 0.9984 vs 0.9933,
-  RMS 0.71 vs 0.83 µm) — the extra faint donut stars add paraboloid scatter. Report both; don't pick globally.
-- **Refine the donut heuristic:** the frac≥1.0 rule over-flagged mildly-defocused cwhite as donutAware. Gate it
-  additionally on extreme-frame HFR / donut size so only genuinely heavy-donut runs get `donutAware=true`.
-- **Add a fixed-default config to the matrix:** the optimizer kept NC=2.0 but raised `BrightnessSensitivity`~16
-  (it optimizes σ_focus, not recall), so optimized recall (0.15–0.18) was *below* the plain NC=2.0 default
-  (~0.46). Reporting the as-default config alongside the two optimized ones makes the recall picture honest.
-- Sensor model aligned 7/9 frames (2 extreme-defocus frames don't align — expected); use a per-config
-  `framesAligned` field in the report.
+- Idempotency: re-running clean/golden/donut-meta on a processed run is a no-op (sidecars/meta reused).
+- Spot-check: cwhite numbers reproduce the dry-run report; a heavy-donut run (e.g., a mufti run) flags
+  `donutAware=true` and shows donut-aware helping recall/AF.
+- Full `dotnet test` green for the new `--params default` on inspect-align + the bank orchestrators.
 
 ## Notes / decisions to confirm before executing
-- Cleanup aggressiveness (keep vs delete `autofocus_report_Region*.json`) — default: keep.
-- Golden cost across the full bank may be large; consider running it run-by-run and committing sidecars as they
-  complete. Goldens are detector-independent so they only need regenerating if the *reference method* changes.
-- "Donut-aware ON" pairs with the lowered NoiseClip default (both levers) for the defocused frames, per the
-  golden-audit donut finding.
+- Cleanup aggressiveness (keep vs delete `autofocus_report_Region*.json`) — default: keep (needed for region
+  geometry + step size).
+- Golden cost across the full bank is large; run run-by-run, commit sidecars as they complete.
+- "Donut-aware ON" pairs with the lowered NoiseClip default (both levers) on genuinely defocused runs.
