@@ -419,6 +419,7 @@ public class StarDetectionOptionsTests {
             Assert.That(fromDefault.SaturationThreshold, Is.EqualTo(fromOptions.SaturationThreshold));
             Assert.That(fromDefault.PSFPixelIntegration, Is.EqualTo(fromOptions.PSFPixelIntegration));
             Assert.That(fromDefault.MaxStarEvaluationParallelism, Is.EqualTo(fromOptions.MaxStarEvaluationParallelism));
+            Assert.That(fromDefault.MeasurementAverage, Is.EqualTo(fromOptions.MeasurementAverage));
         });
     }
 

@@ -1112,6 +1112,91 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             RaiseAllPropertiesChanged(); // refresh UI bindings for all live advanced props
         }
 
+        /// <summary>
+        /// Restores the full star-detection configuration from <paramref name="source"/> — used by AutoFocus replay's
+        /// "update profile to capture-time settings" option (c). Faithfully reproduces the captured MODE, not just the
+        /// effective values: the optimized-settings snapshot, the Simple/Advanced flag, the "Use Optimized Settings"
+        /// flag, the Simple-mode presets, and every advanced knob. The local <see cref="IntermediateSavePath"/> /
+        /// <see cref="SaveIntermediateImages"/> are intentionally NOT copied — they are machine-local and
+        /// detection-irrelevant for replay.
+        /// </summary>
+        public void ApplyFullSnapshot(IStarDetectionOptions source) {
+            if (source == null) {
+                throw new ArgumentNullException(nameof(source));
+            }
+
+            // 1) Restore the curated optimized-settings snapshot storage (or clear it). ApplyOptimizedSettings flips
+            //    UseAdvanced/UseOptimizedSettings and recomputes the live knobs — all overridden below.
+            var optimized = source.GetOptimizedSettings();
+            if (optimized != null) {
+                ApplyOptimizedSettings(optimized);
+            } else {
+                ClearOptimizedSettings();
+            }
+
+            // 2) Restore the Simple-mode presets and the exact mode flags. In Simple mode these trigger the recompute;
+            //    that is fine — step 3 overwrites every knob afterward.
+            Simple_NoiseLevel = source.Simple_NoiseLevel;
+            Simple_PixelScale = source.Simple_PixelScale;
+            Simple_FocusRange = source.Simple_FocusRange;
+            UseOptimizedSettings = source.UseOptimizedSettings;
+            UseAdvanced = source.UseAdvanced;
+
+            // 3) Copy every knob verbatim LAST. Setting these non-"Simple" properties does NOT re-trigger the
+            //    Simple-mode recompute (only Simple_*/UseAdvanced/UseOptimizedSettings do), so the captured resolved
+            //    values stick exactly in either mode — and they already equal what the recompute would produce.
+            ApplyKnobs(source);
+
+            RaiseAllPropertiesChanged();
+        }
+
+        // Copies every advanced knob (not the Simple_* presets, the mode flags, or the machine-local intermediate-save
+        // settings) from a source. Used as the final step of ApplyFullSnapshot.
+        private void ApplyKnobs(IStarDetectionOptions source) {
+            ModelPSF = source.ModelPSF;
+            HotpixelFiltering = source.HotpixelFiltering;
+            HotpixelThresholdingEnabled = source.HotpixelThresholdingEnabled;
+            UseAutoFocusCrop = source.UseAutoFocusCrop;
+            StarMeasurementNoiseReductionEnabled = source.StarMeasurementNoiseReductionEnabled;
+            NoiseReductionRadius = source.NoiseReductionRadius;
+            NoiseClippingMultiplier = source.NoiseClippingMultiplier;
+            StarClippingMultiplier = source.StarClippingMultiplier;
+            ContaminationSensitivity = source.ContaminationSensitivity;
+            RejectContaminatedStars = source.RejectContaminatedStars;
+            StructureLayers = source.StructureLayers;
+            DefocusAwareStructure = source.DefocusAwareStructure;
+            StructureLayerBoost = source.StructureLayerBoost;
+            BrightnessSensitivity = source.BrightnessSensitivity;
+            StarPeakResponse = source.StarPeakResponse;
+            MaxDistortion = source.MaxDistortion;
+            DefocusAwareGates = source.DefocusAwareGates;
+            DefocusDistortionSizeReference = source.DefocusDistortionSizeReference;
+            DefocusDistortionMinFactor = source.DefocusDistortionMinFactor;
+            DefocusCenteringToleranceFactor = source.DefocusCenteringToleranceFactor;
+            DefocusAwareDonutDetection = source.DefocusAwareDonutDetection;
+            DonutMorphCloseSize = source.DonutMorphCloseSize;
+            DonutMinAnnularityHoleFraction = source.DonutMinAnnularityHoleFraction;
+            DonutMaxStreakEccentricity = source.DonutMaxStreakEccentricity;
+            DonutSaturationBloomRadius = source.DonutSaturationBloomRadius;
+            StarCenterTolerance = source.StarCenterTolerance;
+            StarBackgroundBoxExpansion = source.StarBackgroundBoxExpansion;
+            MinStarBoundingBoxSize = source.MinStarBoundingBoxSize;
+            MinHFR = source.MinHFR;
+            StructureDilationSize = source.StructureDilationSize;
+            StructureDilationCount = source.StructureDilationCount;
+            PixelSampleSize = source.PixelSampleSize;
+            DebugMode = source.DebugMode;
+            PSFParallelPartitionSize = source.PSFParallelPartitionSize;
+            PSFFitType = source.PSFFitType;
+            PSFResolution = source.PSFResolution;
+            PSFFitThreshold = source.PSFFitThreshold;
+            UsePSFAbsoluteDeviation = source.UsePSFAbsoluteDeviation;
+            HotpixelThreshold = source.HotpixelThreshold;
+            SaturationThreshold = source.SaturationThreshold;
+            MeasurementAverage = source.MeasurementAverage;
+            PSFPixelIntegration = source.PSFPixelIntegration;
+        }
+
         /// <summary>Clears any stored optimized-settings snapshot (and its persisted JSON), leaving the options with
         /// no optimized settings. Used to undo a transient <see cref="ApplyOptimizedSettings"/> (e.g. after a tilt
         /// calibration replay) for a profile that had none to begin with. Does not change the Use* flags.</summary>

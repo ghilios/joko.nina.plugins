@@ -1,0 +1,141 @@
+<UserControl
+    x:Class="NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay.ReplaySettingsPromptControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="#FF1E2125">
+    <UserControl.Resources>
+        <SolidColorBrush x:Key="Fg" Color="White" />
+        <SolidColorBrush x:Key="FgDim" Color="#FFB8BEC6" />
+
+        <!-- Self-contained "choice card" button so the dialog reads clearly regardless of the active NINA theme. -->
+        <Style x:Key="ChoiceButton" TargetType="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            x:Name="CardBorder"
+                            Background="#FF2A2F36"
+                            BorderBrush="#FF3E4650"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Stretch" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="CardBorder" Property="Background" Value="#FF34404C" />
+                                <Setter TargetName="CardBorder" Property="BorderBrush" Value="#FF5A86C0" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="CardBorder" Property="Background" Value="#FF2C3742" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Width="520" Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock
+            Grid.Row="0"
+            FontSize="16"
+            FontWeight="Bold"
+            Foreground="{StaticResource Fg}"
+            Text="Replay Saved AutoFocus Run" />
+
+        <TextBlock
+            Grid.Row="1"
+            Margin="0,4,0,0"
+            Foreground="{StaticResource FgDim}"
+            Text="{Binding CaptureSummary}"
+            TextWrapping="Wrap" />
+
+        <TextBlock
+            Grid.Row="2"
+            Margin="0,10,0,12"
+            Foreground="{StaticResource FgDim}"
+            Text="This run was saved with the detection and AutoFocus settings used at capture time. Choose how to replay it:"
+            TextWrapping="Wrap" />
+
+        <!--  (a) current settings  -->
+        <Button
+            Grid.Row="3"
+            Command="{Binding UseCurrentCommand}"
+            Style="{StaticResource ChoiceButton}">
+            <StackPanel>
+                <TextBlock
+                    FontWeight="Bold"
+                    Foreground="{StaticResource Fg}"
+                    Text="Use current settings" />
+                <TextBlock
+                    Margin="0,3,0,0"
+                    Foreground="{StaticResource FgDim}"
+                    Text="Replay using your current profile's detection and AutoFocus settings."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </Button>
+
+        <!--  (b) capture-time settings, in memory  -->
+        <Button
+            Grid.Row="4"
+            Command="{Binding UseCaptureInMemoryCommand}"
+            Style="{StaticResource ChoiceButton}">
+            <StackPanel>
+                <TextBlock
+                    FontWeight="Bold"
+                    Foreground="{StaticResource Fg}"
+                    Text="Use the captured settings (don't change my profile)" />
+                <TextBlock
+                    Margin="0,3,0,0"
+                    Foreground="{StaticResource FgDim}"
+                    Text="Replay using the settings from when this run was captured, held in memory only. Your profile settings are left untouched."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </Button>
+
+        <!--  (c) update profile  -->
+        <Button
+            Grid.Row="5"
+            Command="{Binding UpdateProfileCommand}"
+            Style="{StaticResource ChoiceButton}">
+            <StackPanel>
+                <TextBlock
+                    FontWeight="Bold"
+                    Foreground="{StaticResource Fg}"
+                    Text="Update my profile to the captured settings" />
+                <TextBlock
+                    Margin="0,3,0,0"
+                    Foreground="{StaticResource FgDim}"
+                    Text="Overwrite your current profile's detection, AutoFocus, and ROI settings with the captured ones, then replay."
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </Button>
+
+        <StackPanel
+            Grid.Row="6"
+            Margin="0,6,0,0"
+            HorizontalAlignment="Right"
+            Orientation="Horizontal">
+            <Button
+                MinWidth="90"
+                Padding="12,6"
+                Command="{Binding CloseCommand}"
+                Content="Cancel" />
+        </StackPanel>
+    </Grid>
+</UserControl>

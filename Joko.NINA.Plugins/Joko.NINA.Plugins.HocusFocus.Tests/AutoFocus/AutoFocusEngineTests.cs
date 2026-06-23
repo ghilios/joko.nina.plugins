@@ -34,7 +34,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 imagingMediator: Substitute.For<IImagingMediator>(),
                 imageDataFactory: Substitute.For<IImageDataFactory>(),
                 starDetectionSelector: starDetectionSelector ?? Substitute.For<IPluggableBehaviorSelector<IStarDetection>>(),
-                starAnnotatorSelector: Substitute.For<IPluggableBehaviorSelector<IStarAnnotator>>(),
                 autoFocusOptions: autoFocusOptions ?? Substitute.For<IAutoFocusOptions>(),
                 alglibAPI: new AlglibAPI());
         }

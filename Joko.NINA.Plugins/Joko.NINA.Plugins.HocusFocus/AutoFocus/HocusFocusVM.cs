@@ -22,6 +22,7 @@ using NINA.Core.Utility.WindowService;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Review;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
@@ -883,7 +884,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     imagingFilter = profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.Where(x => x.Position == filterInfo.SelectedFilter.Position).FirstOrDefault();
                 }
 
-                var options = autoFocusEngine.GetOptions(savedAttempt);
+                // If the saved run has a metadata.json, prompt (when interactive) for whether to replay with current
+                // settings, the run's capture-time settings in memory, or after updating the profile. With no
+                // metadata (or non-interactive), this returns current-settings options and no prompt is shown.
+                var resolution = await AutoFocusReplayCoordinator.ResolveAsync(
+                    windowServiceFactory,
+                    applicationDispatcher,
+                    profileService,
+                    savedAttempt.FolderPath,
+                    IsInteractive,
+                    () => autoFocusEngine.GetOptions(savedAttempt));
+                if (resolution.Cancelled) {
+                    return false;
+                }
+                var options = resolution.Options;
 
                 // Replay is an interactive pane action, so it supports Review Frames on the same terms as a live run:
                 // keep frames when interactive + the toggle is on, forcing the engine to retain each reloaded exposure,
@@ -894,7 +908,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     options.ModelPSF = starDetectionOptions.ModelPSF;
                 }
 
-                var result = await autoFocusEngine.Rerun(options, savedAttempt, imagingFilter, loadSavedAutoFocusRunCts.Token, this.progress);
+                // Option (b) supplies the run's capture-time regions so its ROI is honored through the explicit-region
+                // path (the engine consumes the star-detection override there) without mutating the profile. Otherwise
+                // use the legacy single-region path, which reads the (current or just-updated) profile crop ROI.
+                var result = (resolution.CaptureTimeRegions != null && resolution.CaptureTimeRegions.Count > 0)
+                    ? await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, resolution.CaptureTimeRegions, loadSavedAutoFocusRunCts.Token, this.progress)
+                    : await autoFocusEngine.Rerun(options, savedAttempt, imagingFilter, loadSavedAutoFocusRunCts.Token, this.progress);
                 if (result != null) {
                     // The reprocess path wires Completed -> CompletedNoReport (no report handler), so build the review
                     // snapshot here once the replay has finished and every reloaded frame has been collected.

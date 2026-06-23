@@ -29,7 +29,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IImagingMediator imagingMediator;
         private readonly IImageDataFactory imageDataFactory;
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
-        private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IAlglibAPI alglibAPI;
 
@@ -42,7 +41,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IImagingMediator imagingMediator,
             IImageDataFactory imageDataFactory,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
-            IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IAutoFocusOptions autoFocusOptions,
             IAlglibAPI alglibAPI) {
             this.profileService = profileService;
@@ -53,7 +51,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.guiderMediator = guiderMediator;
             this.imageDataFactory = imageDataFactory;
             this.starDetectionSelector = starDetectionSelector;
-            this.starAnnotatorSelector = starAnnotatorSelector;
             this.autoFocusOptions = autoFocusOptions;
             this.alglibAPI = alglibAPI;
         }
@@ -68,7 +65,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 imagingMediator,
                 imageDataFactory,
                 starDetectionSelector,
-                starAnnotatorSelector,
                 autoFocusOptions,
                 alglibAPI);
         }

@@ -8,6 +8,7 @@
     xmlns:hfrules="clr-namespace:NINA.Joko.Plugins.HocusFocus.ValidationRules"
     xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus"
     xmlns:afreview="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus.Review"
+    xmlns:replay="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay"
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
     xmlns:oxy="clr-namespace:OxyPlot.Wpf;assembly=OxyPlot.Contrib.Wpf"
@@ -94,6 +95,12 @@
         <!--  No fixed min size: the control sizes its host window to fit the screen on load (see code-behind), and the
               layout shrinks the image column first so the legend stays visible when the window is made smaller.  -->
         <afreview:AutoFocusFrameReviewControl />
+    </DataTemplate>
+
+    <!--  The replay-settings prompt (use current / use captured in-memory / update profile) shown when replaying a
+          saved run that has a metadata.json. Implicit DataType template resolved by the WindowService, same as above.  -->
+    <DataTemplate DataType="{x:Type replay:ReplaySettingsPromptVM}">
+        <replay:ReplaySettingsPromptControl />
     </DataTemplate>
 
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
@@ -615,7 +622,6 @@
                 CancelCommand="{Binding CancelLoadSavedAutoFocusRunCommand}"
                 CancelToolTip="{ns:Loc LblCancel}"
                 Command="{Binding LoadSavedAutoFocusRunCommand}"
-                IsEnabled="{Binding AutoFocusInProgress, Converter={StaticResource InverseBooleanConverter}}"
                 ToolTip="Reprocesses AutoFocus images saved by having Save enabled in Hocus Focus -&gt; Auto Focus Options. This produces an auto focus curve using whatever the current star detection and fit settings are" />
             <StackPanel
                 Grid.Row="3"

@@ -44,6 +44,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus);
 
+        /// <summary>
+        /// Like <see cref="GetStarDetectorParams(IRenderedImage, StarDetectionRegion, bool)"/>, but builds the
+        /// option-derived params from <paramref name="optionsOverride"/> instead of the detector's injected options
+        /// (and never touches them). Used by auto-focus replay to reproduce a saved run's capture-time detection
+        /// settings without mutating the live profile.
+        /// </summary>
+        StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus, IStarDetectionOptions optionsOverride);
+
+        /// <summary>The detector's injected star-detection options (read-only). Used to snapshot the settings in
+        /// effect when an auto-focus run is captured.</summary>
+        IStarDetectionOptions StarDetectionOptions { get; }
+
         /// <summary>The Optimization Wizard's seed: fully-default detector params with the same image-context +
         /// auto-focus overrides as <see cref="GetStarDetectorParams"/>. Read-only with respect to options.</summary>
         StarDetectorParams GetDefaultStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus);
