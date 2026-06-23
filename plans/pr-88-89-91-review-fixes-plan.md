@@ -10,6 +10,19 @@
 
 ---
 
+## ⏱ EXECUTION STATUS (updated 2026-06-23)
+
+**PR A (Phases 1–6): ✅ COMPLETE — opened as [PR #93](https://github.com/ghilios/hocus-focus/pull/93) into `develop` (NOT yet merged).**
+- Branch `ghilios/pr-88-89-91-review-fixes` from `develop`@`47fd93d`; 23 code/test commits + this plan doc.
+- Suite: **1455 pass / 0 fail** (was 1436). New tests: F09 retention truth-table, F35/F37 snapshot boundaries, F11 atomic-claim + leak-window regression, F12/13/14 dispatcher fallback, F15/F16 marshaling, F17 static-guard reset.
+- Each phase ran implementer → spec review → code-quality review, plus a final holistic cross-phase pass. One real regression was caught & fixed mid-review: the F11 atomic claim first re-introduced a guard-leak/brick window (a throw from `OnStarted()` or the `CancellationTokenSource` ctor between the claim and the releasing `try` would permanently disable all AutoFocus) → fixed with an outer `try/finally` + fail-first test `Run_WhenStartedSubscriberThrows_StillReleasesGuard`.
+
+**PR B (Phase 7): ⏳ NOT STARTED — gated on PR #93 merging into `develop`.** When ready: `/clear`, then `git checkout develop && git pull && git checkout -b ghilios/frame-review-dedup-refactor`, then execute Phase 7. **Before executing Phase 7, read "⚠ POST-PR-A CORRECTIONS FOR PHASE 7" at the top of the Phase 7 section — several of its before/after snippets are now stale because PR A changed the same code.**
+
+**Build/test in this WSL checkout:** `dotnet` is NOT on PATH — use `"/mnt/c/Program Files/dotnet/dotnet.exe"` everywhere a task says `dotnet` (e.g. `"/mnt/c/Program Files/dotnet/dotnet.exe" test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo`). Commit with the privacy email per the convention below.
+
+---
+
 ## Background & scope
 
 These three PRs were merged to `develop` without a pre-merge review. A 10-angle multi-agent review (correctness × 5, cleanup × 3, altitude, conventions) over the merged diffs produced 60 candidates → 39 deduped → **37 verified** (CONFIRMED or PLAUSIBLE; nothing REFUTED survived). Of those, **35 are fixed by this plan**; **F02 and F03 were reviewed and cancelled as by-design** (see Phase 3, Tasks 1–3) — the Review Frames window is meant to show *all* detected-star annotations even when the live-image Show-Annotations toggle is off or the live annotator caps the displayed stars.
@@ -70,7 +83,7 @@ Several files are touched by more than one phase. Within PR A, apply phases in n
 
 ---
 
-## Phase 1: Correctness fixes (behavior-wrong bugs)
+## Phase 1: Correctness fixes (behavior-wrong bugs) — ✅ COMPLETE (PR #93)
 
 ### Task 1: Null-safe progress reporting in AF retry catch blocks (F01)
 
@@ -408,7 +421,7 @@ These are two pure-logic fixes in the same `Build` method, so they are grouped i
 
 ---
 
-## Phase 2: Memory & run-lifecycle (frame retention release)
+## Phase 2: Memory & run-lifecycle (frame retention release) — ✅ COMPLETE (PR #93)
 
 This phase makes the "Review Frames" feature actually release the retained per-frame bitmaps and raw `IRenderedImage` buffers when promised, removes redundant retention, and tightens the snapshot field's threading contract. Several tasks edit `AutoFocus/HocusFocusVM.cs` (shared with other phases — see notes).
 
@@ -677,7 +690,7 @@ This is modal window-lifecycle plumbing plus tooltip wording, neither of which i
 
 ---
 
-## Phase 3: AutoFocus Review annotator fidelity & UI consistency
+## Phase 3: AutoFocus Review annotator fidelity & UI consistency — ✅ COMPLETE (PR #93)
 
 ### Task 1: ~~Honor the annotator master `ShowAnnotations` flag~~ — CANCELLED (F02, by-design)
 
@@ -990,7 +1003,7 @@ XAML-only; verified manually (no XAML rendering test harness).
 
 ---
 
-## Phase 4: Thread-safety & dispatcher hardening
+## Phase 4: Thread-safety & dispatcher hardening — ✅ COMPLETE (PR #93)
 
 > **⚠ Shared-file note:** `AutoFocus/AutoFocusEngine.cs` is also edited by Phase 1 (F01 — the `progress?.Report` null-conditional fix at ~1208/1213). The edit here (Task 1, the `AutoFocusInProgress` guard at ~1493/1503/1516/1553) touches a different region of the same file; sequence Phase 1 and Phase 4 so both land without textual conflict (they do not overlap, but the assembler should rebase one onto the other rather than apply both diffs blind).
 > **⚠ Shared-file note:** `Utility/ApplicationDispatcher.cs` is consumed by many phases (every `OnUIThread`/`DispatchSynchronizationContext` caller). Task 2 rewrites its `DispatchSynchronizationContext` bodies. No other phase in this plan edits this file's source, but its behavioral change (real inline fast-path + null/shutdown guards) affects every caller, so land Task 2 before any phase that adds new dispatcher call sites.
@@ -1523,7 +1536,7 @@ to:
 
 ---
 
-## Phase 5: Review-viewer control lifecycle (initial fit & unsubscribe)
+## Phase 5: Review-viewer control lifecycle (initial fit & unsubscribe) — ✅ COMPLETE (PR #93)
 
 ### Task 1: F19 — Set `hasFitOnce` only after a fit actually succeeds (AutoFocus viewer)
 
@@ -1807,7 +1820,7 @@ These are dispatcher/visual-tree lifecycle concerns (event subscription across `
 
 ---
 
-## Phase 6: Test hardening
+## Phase 6: Test hardening — ✅ COMPLETE (PR #93)
 
 ### Task 1: Make the AutoFocusInProgress static guard deterministic in the regression test (F17)
 
@@ -1911,7 +1924,7 @@ Steps:
 
 ---
 
-## Phase 7 (separate follow-up PR): De-duplication & altitude refactor
+## Phase 7 (separate follow-up PR): De-duplication & altitude refactor — ⏳ NOT STARTED (gated on PR #93 merge)
 
 > **🚦 GATE: do not begin this phase until PR A (Phases 1–6) has been merged into `develop`.**
 >
@@ -1924,6 +1937,34 @@ Steps:
 > - F07 changes how `IsInteractive` is set; F20 only applies **if the team decides to keep** `InteractiveHostBehavior`. F07 and F20 are alternatives — implement F07 (preferred: explicit flag) and, if `InteractiveHostBehavior` is retained as a fallback, also do F20. The tasks below are ordered so F07 lands first and F20 is conditional.
 >
 > ⚠ **shared-file note (for the assembler):** This phase edits `AutoFocus/HocusFocusVM.cs`, `AutoFocus/InspectorVM.cs`, `AutoFocus/DataTemplates.xaml`, `AutoFocus/InteractiveHostBehavior.cs`, `AutoFocus/Review/AutoFocusFrameReviewControl.xaml.cs`, `AutoFocus/Review/AutoFocusFrameReviewVM.cs`, `StarDetection/Optimization/Review/FrameReviewControl.xaml.cs`, and `StarDetection/Optimization/Review/FrameReviewVM.cs` — all of which Phases 1–6 also touch. Because this is a separate later PR, no in-PR sequencing is needed, but the merge of this PR must be rebased on the merged Phases 1–6.
+
+---
+
+### ⚠ POST-PR-A CORRECTIONS FOR PHASE 7 (read first — PR A changed code these tasks edit)
+
+PR A (#93) already modified several files Phase 7 refactors. The task before/after snippets in this phase were written against pre-PR-A `develop`; apply these corrections when you execute:
+
+- **Global:** locate code by content, not line number — every Phase 7 line number has shifted. `AutoFocusEngine.AutoFocusInProgress` is now **getter-only** (F11) with static `TryClaimAutoFocusInProgress()` / `ReleaseAutoFocusInProgress()` / `ResetAutoFocusInProgressForTests()`; there is no setter. (The separate `HocusFocusVM.AutoFocusInProgress` *instance* property is unchanged.)
+
+- **Task 3 (F24 `ReviewDialogHost`):**
+  - The `AutoFocusFrameReviewVM` constructor now takes an `IApplicationDispatcher` (added by Phase 3 / F26). Use the 4-arg form in the extracted `ShowFrameReview`: `new AutoFocusFrameReviewVM(snapshot, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.ApplicationDispatcher, starDetectionOptions.MeasurementAverage)`.
+  - Both `onClosed` handlers now clear the pane's own snapshot (PR A added these via F04/F06/F36): `HocusFocusVM` runs `vm.Dispose();` then `lock (frameReviewLock) { reviewFrames.Clear(); } reviewSnapshot = null; NotifyReviewFramesAvailabilityChanged();`; `InspectorVM` runs `vm.Dispose();` then `ClearReviewSnapshot();`. These per-VM clears MUST be preserved — implement `ReviewDialogHost.Show(..., Action onClosed = null)` and have each call site pass its clear lambda (invoked inside the helper's `onClosed`, after `vm.Dispose()` to match the current order).
+
+- **Task 4 (F08 `ReviewViewportHostBase`) — IMPORTANT:**
+  - The base's fit logic MUST use the **F19-corrected** semantics from PR A, NOT the unconditional latch sketched in the Task 4 code below. Implement `bool TryFit()` (returns `false` on the early-exit guards, `true` after `FitTo`+`ApplyViewport`); `OnFitRequested` delegates to it; `ViewportCanvas_SizeChanged` does `if (!hasFitOnce && TryFit()) { hasFitOnce = true; }` (latch only on a *successful* fit). This is what now lives in `AutoFocusFrameReviewControl.xaml.cs`.
+  - This unification also **fixes the Inspector `FrameReviewControl.xaml.cs`**, which still carries the pre-F19 buggy `hasFitOnce = true; OnFitRequested(...)` unconditional latch (F19 was scoped to only the AF control in PR A). Confirm both controls inherit the `TryFit` behavior from the base.
+  - Carry **F34** (PR A) into the base: the base ctor should wire `Unloaded += OnUnloaded` and unsubscribe `FitRequested` there, in addition to the `OnDataContextChanged` subscribe/unsubscribe. The AF subclass's `OnLoaded` window-sizing must use the F19 deferred-fit form `Dispatcher.BeginInvoke(new Action(() => { if (TryFit()) { hasFitOnce = true; } }), ...)` — NOT `hasFitOnce = true;` followed by an unconditional fit.
+
+- **Task 5 (F23 `FrameReviewVMBase`):**
+  - Both review VM constructors now end with `LoadCurrent(fit: false)` (F33, PR A) — the base/migration must use `fit: false`, not `fit: true`.
+  - **F34** (PR A) nulls `FitRequested`/`RequestClose` in each VM's `Dispose`. Since F23 moves those events ONTO the base, a subclass cannot null an inherited event — give the base a `protected void DetachReviewEvents() { FitRequested = null; RequestClose = null; }` (or null them in a base disposal hook) and call it from each subclass `Dispose`.
+  - `AutoFocusFrameReviewVM` also gained an `IApplicationDispatcher` field + ctor param + the static `OverlayAffectingProperties` HashSet + the filtered/marshaled `AnnotatorOptions_PropertyChanged` (Phase 3). Keep these subclass-specific — do not lift them into the base.
+
+- **Task 6 (F28 symmetric handler detach):** the `StartAutoFocus` and `LoadSavedAutoFocusRun` `finally` blocks now read `} finally { ReleaseUnsnapshottedReviewFrames(); AutoFocusInProgress = false; }` (F22 added the `ReleaseUnsnapshottedReviewFrames()` call). Preserve that call when inserting the symmetric `-=` detaches. The `AutoFocusInProgress` here is the `HocusFocusVM` *instance* property (unchanged by F11).
+
+- **Task 1 (F07/F20):** unaffected in substance by PR A (PR A did not touch `IsInteractive` / `InteractiveHostBehavior`), but line numbers shifted — locate by content.
+
+- **Bonus follow-up (out of original scope, surfaced in PR A review):** `RunAutoFocus`'s rerun path has 3 more non-null-safe `progress.Report(...)` sites outside F01's retry-catch scope; null-guard them in PR B if `progress` can be null on that path.
 
 ---
 
