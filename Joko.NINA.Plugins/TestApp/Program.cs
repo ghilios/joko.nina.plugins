@@ -177,6 +177,22 @@ namespace TestApp {
                 return;
             }
 
+            // Golden-set audit tools: `TestApp golden tiles --runs <dir> ...` renders MTF-stretched tiles for
+            // visual golden-set authoring (no detection); `TestApp golden eval --runs <dir> ...` runs the real
+            // detector and scores precision/recall against the visual golden.json. See .claude/docs/golden-star-set.md.
+            if (args.Length > 0 && args[0].Equals("golden", StringComparison.OrdinalIgnoreCase)) {
+                var sub = args.Length > 1 ? args[1] : "";
+                if (sub.Equals("tiles", StringComparison.OrdinalIgnoreCase)) {
+                    await GoldenRunner.Run(args);
+                } else if (sub.Equals("eval", StringComparison.OrdinalIgnoreCase)) {
+                    await GoldenEvalRunner.Run(args);
+                } else {
+                    Console.Error.WriteLine("Usage: TestApp golden tiles|eval --runs <dir> ...");
+                    Environment.ExitCode = 2;
+                }
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&
