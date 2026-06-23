@@ -546,6 +546,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public async Task<AutoFocusReport> StartAutoFocus(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            IAutoFocusEngine autoFocusEngine = null;
             try {
                 if (AutoFocusInProgress) {
                     Notification.ShowError("Another AutoFocus is already in progress");
@@ -553,7 +554,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
                 AutoFocusInProgress = true;
 
-                var autoFocusEngine = autoFocusEngineFactory.Create();
+                autoFocusEngine = autoFocusEngineFactory.Create();
                 autoFocusEngine.Started += AutoFocusEngine_AutoFocusStarted;
                 autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
@@ -571,6 +572,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 InitialFocuserPosition = result.InitialFocuserPosition;
                 return LastReport;
             } finally {
+                // Detach the per-run engine handlers symmetrically. Correctness doesn't depend on it today (the factory
+                // returns a fresh engine each run), but it makes the subscribe/unsubscribe contract explicit and guards
+                // against any future engine reuse leaking handlers across runs. (F28)
+                if (autoFocusEngine != null) {
+                    autoFocusEngine.Started -= AutoFocusEngine_AutoFocusStarted;
+                    autoFocusEngine.InitialHFRCalculated -= AutoFocusEngine_InitialHFRCalculated;
+                    autoFocusEngine.IterationFailed -= AutoFocusEngine_IterationFailed;
+                    autoFocusEngine.MeasurementPointCompleted -= AutoFocusEngine_MeasurementPointCompleted;
+                    autoFocusEngine.SubMeasurementPointCompleted -= AutoFocusEngine_SubMeasurementPointCompleted;
+                    autoFocusEngine.Completed -= AutoFocusEngine_Completed;
+                    autoFocusEngine.Failed -= AutoFocusEngine_Failed;
+                }
                 // A successful run already moved frames into the snapshot (and cleared reviewFrames); this
                 // covers cancellation / null-init paths where Completed/Failed never fired, so captured
                 // exposures aren't pinned until the next run. (F22)
@@ -885,6 +898,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private CancellationTokenSource loadSavedAutoFocusRunCts;
 
         private async Task<bool> LoadSavedAutoFocusRun(string selectedPath) {
+            IAutoFocusEngine autoFocusEngine = null;
             try {
                 if (AutoFocusInProgress) {
                     Notification.ShowError("Another AutoFocus is already in progress");
@@ -894,7 +908,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 loadSavedAutoFocusRunCts?.Cancel();
                 loadSavedAutoFocusRunCts = new CancellationTokenSource();
-                var autoFocusEngine = autoFocusEngineFactory.Create();
+                autoFocusEngine = autoFocusEngineFactory.Create();
                 SavedAutoFocusAttempt savedAttempt;
 
                 try {
@@ -959,6 +973,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Failed reprocessing saved AF", e);
                 return false;
             } finally {
+                // Detach the per-run engine handlers symmetrically (F28). This path wires Completed ->
+                // AutoFocusEngine_CompletedNoReport and does not subscribe Failed, so the -= list mirrors that exactly.
+                if (autoFocusEngine != null) {
+                    autoFocusEngine.Started -= AutoFocusEngine_AutoFocusStarted;
+                    autoFocusEngine.InitialHFRCalculated -= AutoFocusEngine_InitialHFRCalculated;
+                    autoFocusEngine.IterationFailed -= AutoFocusEngine_IterationFailed;
+                    autoFocusEngine.MeasurementPointCompleted -= AutoFocusEngine_MeasurementPointCompleted;
+                    autoFocusEngine.SubMeasurementPointCompleted -= AutoFocusEngine_SubMeasurementPointCompleted;
+                    autoFocusEngine.Completed -= AutoFocusEngine_CompletedNoReport;
+                }
                 ReleaseUnsnapshottedReviewFrames();
                 AutoFocusInProgress = false;
             }
