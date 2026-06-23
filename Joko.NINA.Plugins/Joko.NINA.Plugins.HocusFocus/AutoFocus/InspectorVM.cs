@@ -511,40 +511,46 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 var finalFocuserPosition = result.RegionResults[0].EstimatedFinalFocuserPosition;
-                await SensorModel.UpdateModel(
-                    FullSensorDetectedStars,
-                    fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio,
-                    focuserSizeMicrons: focuserSizeMicrons,
-                    finalFocusPosition: finalFocuserPosition,
-                    stepSize: result.StepSize,
-                    progress,
-                    ct: ct);
+                try {
+                    await SensorModel.UpdateModel(
+                        FullSensorDetectedStars,
+                        fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio,
+                        focuserSizeMicrons: focuserSizeMicrons,
+                        finalFocusPosition: finalFocuserPosition,
+                        stepSize: result.StepSize,
+                        progress,
+                        ct: ct);
 
-                if (!suppressRegisteredImages && ((!forRerun) || (inspectorOptions.SaveImagesOnReruns))) {
-                    if (!String.IsNullOrEmpty(result.SaveFolder)) {
-                        await SaveRegisteredImages(result.SaveFolder,
-                            SensorModel.SensorModelResult.RegisteredStars,
-                            SensorModel.TrianglesByImage,
-                            SensorModel.ReferenceImage,
-                            inspectorOptions.SaveAlignmentImages);
+                    if (!suppressRegisteredImages && ((!forRerun) || (inspectorOptions.SaveImagesOnReruns))) {
+                        if (!String.IsNullOrEmpty(result.SaveFolder)) {
+                            await SaveRegisteredImages(result.SaveFolder,
+                                SensorModel.SensorModelResult.RegisteredStars,
+                                SensorModel.TrianglesByImage,
+                                SensorModel.ReferenceImage,
+                                inspectorOptions.SaveAlignmentImages);
+                        }
                     }
-                }
-
-                // Build the Review Frames snapshot from the same full-sensor detections and registration just computed.
-                // UpdateModel has already applied the alignment transforms, so Position/OriginalPosition/BoundingBox are
-                // final. Runs after the sweep completes (no concurrent SubMeasurementPointCompleted adds), but copy the
-                // list under the lock to stay consistent with the rest of the class.
-                if (frameReviewRequestedForRun) {
-                    List<SensorDetectedStars> framesForReview;
-                    lock (fullSensorDetectedStarsLock) {
-                        framesForReview = FullSensorDetectedStars.ToList();
+                } finally {
+                    // Build the Review Frames snapshot even if UpdateModel threw (failed/poor fit): the per-frame
+                    // detections + bitmaps are exactly what the user needs to "see why the fit looks wrong". The
+                    // builder handles a null/partial registration result gracefully. Don't let snapshot-build errors
+                    // mask the original UpdateModel exception. Skip on cancellation.
+                    if (frameReviewRequestedForRun && !ct.IsCancellationRequested) {
+                        try {
+                            List<SensorDetectedStars> framesForReview;
+                            lock (fullSensorDetectedStarsLock) {
+                                framesForReview = FullSensorDetectedStars.ToList();
+                            }
+                            reviewSnapshot = FrameReviewSnapshotBuilder.Build(
+                                framesForReview,
+                                SensorModel.SensorModelResult?.RegisteredStars,
+                                SensorModel.ReferenceImage,
+                                inspectorOptions.UseRANSAC);
+                            NotifyReviewFramesAvailabilityChanged();
+                        } catch (Exception snapEx) {
+                            Logger.Warning($"Failed to build Review Frames snapshot after model fit: {snapEx.Message}");
+                        }
                     }
-                    reviewSnapshot = FrameReviewSnapshotBuilder.Build(
-                        framesForReview,
-                        SensorModel.SensorModelResult.RegisteredStars,
-                        SensorModel.ReferenceImage,
-                        inspectorOptions.UseRANSAC);
-                    NotifyReviewFramesAvailabilityChanged();
                 }
             }
 
