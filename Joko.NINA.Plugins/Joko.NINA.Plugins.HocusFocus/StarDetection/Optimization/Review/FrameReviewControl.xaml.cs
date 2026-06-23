@@ -35,6 +35,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             InitializeComponent();
             DataContextChanged += OnDataContextChanged;
             KeyDown += OnKeyDown;
+            Unloaded += OnUnloaded;
+        }
+
+        // Detach the VM->control FitRequested edge when the control leaves the visual tree, so a long-lived host
+        // that re-uses this control across DataContexts (or tears down without a DataContext swap) cannot leak the
+        // control through the VM's event. The modal case is unaffected (it unloads on close).
+        private void OnUnloaded(object sender, RoutedEventArgs e) {
+            if (Vm != null) {
+                Vm.FitRequested -= OnFitRequested;
+            }
         }
 
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e) {

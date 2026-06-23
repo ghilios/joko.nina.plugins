@@ -37,6 +37,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             DataContextChanged += OnDataContextChanged;
             KeyDown += OnKeyDown;
             Loaded += OnLoaded;
+            Unloaded += OnUnloaded;
+        }
+
+        // Detach the VM->control FitRequested edge when the control leaves the visual tree, so a long-lived host
+        // that re-uses this control across DataContexts (or tears down without a DataContext swap) cannot leak the
+        // control through the VM's event. The modal case is unaffected (it unloads on close).
+        private void OnUnloaded(object sender, RoutedEventArgs e) {
+            if (Vm != null) {
+                Vm.FitRequested -= OnFitRequested;
+            }
         }
 
         // Size the host window to FIT the screen on first load (clamped to the work area, centered), with a small

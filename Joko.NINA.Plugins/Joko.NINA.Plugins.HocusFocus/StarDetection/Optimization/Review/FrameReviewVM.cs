@@ -136,7 +136,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
 
             CurrentIndex = 0;
-            LoadCurrent(fit: true);
+            // No fit here: FitRequested has zero subscribers at construction time (the control subscribes in
+            // OnDataContextChanged, after the ctor returns). The initial fit is driven by the control's first
+            // layout (Loaded/SizeChanged). Passing fit:false makes that contract explicit.
+            LoadCurrent(fit: false);
         }
 
         private int FrameCount => snapshot?.Frames.Count ?? 0;
@@ -430,6 +433,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             Markers.Clear();
             FrameImage = null;
             snapshot = null;
+            FitRequested = null;
+            RequestClose = null;
         }
     }
 }
