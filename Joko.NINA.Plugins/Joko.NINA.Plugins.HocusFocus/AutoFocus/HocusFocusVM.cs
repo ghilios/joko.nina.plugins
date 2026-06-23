@@ -563,6 +563,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 InitialFocuserPosition = result.InitialFocuserPosition;
                 return LastReport;
             } finally {
+                // A successful run already moved frames into the snapshot (and cleared reviewFrames); this
+                // covers cancellation / null-init paths where Completed/Failed never fired, so captured
+                // exposures aren't pinned until the next run. (F22)
+                ReleaseUnsnapshottedReviewFrames();
                 AutoFocusInProgress = false;
             }
         }
@@ -787,6 +791,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             NotifyReviewFramesAvailabilityChanged();
         }
 
+        // Release any per-frame images accumulated this run when no snapshot was built (cancellation, or a
+        // run that returned without firing Completed/Failed). Safe to call unconditionally — it is a no-op
+        // when nothing was retained. (F22)
+        private void ReleaseUnsnapshottedReviewFrames() {
+            lock (frameReviewLock) {
+                reviewFrames.Clear();
+            }
+        }
+
         // Raise the availability binding + re-evaluate the command, marshaled to the UI thread (the snapshot is built /
         // cleared on the engine's background task). DispatchSynchronizationContext is a synchronous Send with a
         // same-context fast path, so it is safe to call from either thread.
@@ -934,6 +947,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Failed reprocessing saved AF", e);
                 return false;
             } finally {
+                ReleaseUnsnapshottedReviewFrames();
                 AutoFocusInProgress = false;
             }
         }
