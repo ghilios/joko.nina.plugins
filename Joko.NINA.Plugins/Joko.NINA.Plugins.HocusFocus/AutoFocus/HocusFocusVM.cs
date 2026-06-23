@@ -778,6 +778,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 framesForReview = reviewFrames
                     .Select(f => (f.FocuserPosition, f.Result, f.Image))
                     .ToList();
+                // The snapshot captures only each frame's display BitmapSource; once built, the source
+                // IRenderedImage buffers (raw 16-bit pixels + statistics) are no longer needed, so drop
+                // our references here instead of keeping them pinned until the next run (F05).
+                reviewFrames.Clear();
             }
             reviewSnapshot = AutoFocusFrameReviewSnapshotBuilder.Build(framesForReview);
             NotifyReviewFramesAvailabilityChanged();
