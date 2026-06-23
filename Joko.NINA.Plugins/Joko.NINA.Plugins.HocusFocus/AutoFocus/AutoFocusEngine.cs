@@ -1205,12 +1205,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         // Allow retries for too many failed points retries
                         Logger.Error($"Too many failed points ({e.NumFailures})");
                         Notification.ShowWarning(Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"]);
-                        progress.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
+                        progress?.Report(new ApplicationStatus() { Status = Loc.Instance["LblAutoFocusNotEnoughtSpreadedPoints"] });
                     } catch (InitialHFRFailedException) {
                         // Allow retries for initial HFR failed
                         Logger.Error($"Initial HFR calculation failed");
                         Notification.ShowWarning("Calculating initial HFR failed");
-                        progress.Report(new ApplicationStatus() { Status = "Calculating initial HFR failed" });
+                        progress?.Report(new ApplicationStatus() { Status = "Calculating initial HFR failed" });
                     }
 
                     var duration = stopWatch.Elapsed;
