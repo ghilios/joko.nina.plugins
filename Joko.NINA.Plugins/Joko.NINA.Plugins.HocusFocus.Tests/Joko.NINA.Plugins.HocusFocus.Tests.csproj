@@ -22,6 +22,8 @@
   <ItemGroup>
     <Compile Include="..\TestApp\StarReview\StarReviewQueue.cs" Link="StarReview\StarReviewQueue.cs" />
     <Compile Include="..\TestApp\OptimizationRunDiscovery.cs" Link="StarReview\OptimizationRunDiscovery.cs" />
+    <Compile Include="..\TestApp\GoldenStarSet.cs" Link="Golden\GoldenStarSet.cs" />
+    <Compile Include="..\TestApp\GoldenGeometry.cs" Link="Golden\GoldenGeometry.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -75,10 +75,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
         internal static StarDetectorParams MismatchPathParams() => new StarDetectorParams {
             // The F4 mismatch path: a noise-reduction radius is set but measurement noise reduction is off,
-            // so the structure copy is blurred while the sharp srcImage is what gets measured. All other
-            // values stay at class defaults so this test tracks the default knob recalibration.
+            // so the structure copy is blurred while the sharp srcImage is what gets measured. NoiseClippingMultiplier
+            // is pinned to the pre-audit default (4.0) so this F4 mismatch-path test stays calibrated; the
+            // golden-set recall audit lowered the production default to 2.0 separately.
             StarMeasurementNoiseReductionEnabled = false,
             NoiseReductionRadius = 3,
+            NoiseClippingMultiplier = 4.0,
         };
 
         [Test]

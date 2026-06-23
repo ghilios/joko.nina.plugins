@@ -141,7 +141,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     NoiseReductionRadius = 5;
                     break;
             }
-            NoiseClippingMultiplier = 4; // structure-map path: σ_structure is unchanged by F4, so no rescale
+            NoiseClippingMultiplier = 2.0; // structure-map binarize threshold: lowered 4→2 per the golden-set recall
+                                           // audit — candidate formation was the recall bottleneck (~79% of real
+                                           // stars never formed a candidate at 4σ). See docs/star-detection-golden-audit-cwhite-results.md
             StarClippingMultiplier = 2.0; // uniform honest τ level, chosen empirically (F3) — see docs/sigma-consistency-f3-results.md
             StructureLayers = 4;
             BrightnessSensitivity = 10.0 * sensitivityScale;
@@ -209,7 +211,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             useAutoFocusCrop = optionsAccessor.GetValueBoolean("UseAutoFocusCrop", true);
             starMeasurementNoiseReductionEnabled = optionsAccessor.GetValueBoolean(nameof(StarMeasurementNoiseReductionEnabled), false);
             noiseReductionRadius = optionsAccessor.GetValueInt32("NoiseReductionRadius", 3);
-            noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 4.0);
+            noiseClippingMultiplier = optionsAccessor.GetValueDouble("NoiseClippingMultiplier", 2.0);
             starClippingMultiplier = optionsAccessor.GetValueDouble("StarClippingMultiplier", 2.0);
             contaminationSensitivity = optionsAccessor.GetValueDouble("ContaminationSensitivity", 5.0);
             rejectContaminatedStars = optionsAccessor.GetValueBoolean("RejectContaminatedStars", true);
@@ -277,7 +279,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             UseAutoFocusCrop = true;
             StarMeasurementNoiseReductionEnabled = false;
             NoiseReductionRadius = 3;
-            NoiseClippingMultiplier = 4.0;
+            NoiseClippingMultiplier = 2.0; // lowered 4→2 per the golden-set recall audit (candidate-formation bottleneck)
             StarClippingMultiplier = 2.0;
             ContaminationSensitivity = 5.0;
             RejectContaminatedStars = true;

@@ -244,8 +244,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int NoiseReductionRadius { get; set; } = 3;
 
         // Number of noise standard deviations above the median to binarize the structure map containing star candidates. Increasing this is useful for noisy images to reduce
-        // spurious detected stars in combination with light noise reduction
-        public double NoiseClippingMultiplier { get; set; } = 4.0;
+        // spurious detected stars in combination with light noise reduction. Default lowered 4.0→2.0 per the
+        // golden-set recall audit: at 4σ ~79% of real stars never formed a candidate; 2σ ~triples recall@SNR≥12
+        // at stable best-focus and only modest HFR scatter. See docs/star-detection-golden-audit-cwhite-results.md.
+        public double NoiseClippingMultiplier { get; set; } = 2.0;
 
         // Number of measurement-image noise standard deviations above the local background median to filter star
         // candidate pixels out from star consideration and HFR analysis. σ is measured on the image actually

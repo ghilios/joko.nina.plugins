@@ -24,6 +24,7 @@ Detailed conventions live in `.claude/docs/`. Read the matching file when a task
 | XAML/WPF, value converters, validation rules | `.claude/docs/wpf-xaml.md` |
 | Star detector internals: contamination test, local background plane, `StarDetectorMetrics` | `.claude/docs/star-detection-internals.md` |
 | Running TestApp diagnostics/optimizer (`contamination`/`optimize`/`review`/`diagnose-labels`) | `.claude/docs/testapp-cli.md` |
+| Auditing star-detection recall/precision against an **independent reference** (SNR detector + LLM montage QA; why pure-vision fails); `TestApp golden tiles`/`golden eval`; the per-image `golden.json` format | `.claude/docs/golden-star-set.md` |
 | Sensor tilt, tilt adapters, aberration inspector, screw orientation | `.claude/docs/tilt-domain.md` |
 | Editing the user-facing MkDocs manual (`documentation/docs/`) | `.claude/docs/documentation-style.md` |
 | Capturing real NINA/HocusFocus screenshots for the manual via the Windows MCP (capture pipeline, annotate helper, NINA navigation map) | `.claude/docs/nina-mcp-screenshots.md` |
@@ -46,6 +47,24 @@ This project separates **design specs** from **implementation plans**, and they 
 - **Never leave a spec or plan only in chat, in another directory, or in a scratch file** — write it to the correct folder, regardless of size or how it was produced (planning mode, brainstorming, ad-hoc requests, etc.).
 - **Clear your Claude Code context (`/clear`) before executing a plan** to avoid stale planning context affecting implementation.
 - The user will explicitly say when a plan is ready to execute.
+
+## Golden Star Sets (precision/recall audits)
+
+To audit how well the star detector finds real stars on a given optical train (e.g., before tilt-adapter
+calibration), build a **detector-independent reference star set** and score HocusFocus against it. Full process,
+the critical "pure-vision doesn't work" lesson, and commands are in `.claude/docs/golden-star-set.md`. Durable points:
+
+- **Do NOT build the reference by pure LLM vision** (de-novo star marking on tiles). It fails on faint subs:
+  subagents see a ~256px thumbnail → ~15–170px localization, inconsistent, and over-marks noise. Use the LLM for
+  *classification* (confirm a candidate crop), not *localization*.
+- **Working method:** an independent SNR/connected-component reference detector (code, on the linear FITS — it
+  has different blind spots than HF, so its finds that HF rejects = HF's recall gaps) → LLM **montage QA**
+  (per-candidate crop confirm/reject, robust classification) → golden = QA-confirmed candidates with **SNR as the
+  confidence tier**. Caveat: per-pixel-SNR under-counts heavily-defocused donuts (add a matched filter for those).
+- The golden is stored **per image** as `<imageFileName>.golden.json` beside the FITS (`GoldenFrame`:
+  `imageFile`, `focuserPosition`, `stars[]` of `{x,y,w,h,confidence}`). Scored with `TestApp golden eval
+  --match centroid --match-radius ~12` (recall/precision overall + per-region + per-SNR-tier + FN gate
+  attribution). Keep the reference **out of the optimizer** (held-out) so the audit stays honest.
 
 ## Git Workflow
 

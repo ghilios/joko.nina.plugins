@@ -14,9 +14,12 @@ using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Utility;
 using NINA.Image.Interfaces;
+using Newtonsoft.Json;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile;
 using OpenCvSharp;
@@ -97,6 +100,9 @@ namespace TestApp {
             // is irrelevant to star positions/counts (it only feeds PSF), so leave the default.
             var detectorParams = HocusFocusStarDetection.BuildStarDetectorParams(starDetectionOptions);
             detectorParams.ModelPSF = false;
+            // Optional settings injection so the sensor model can be evaluated at a chosen config (e.g. optimized
+            // settings from `optimize`) instead of the live profile — mirrors golden eval's overlay.
+            ApplySettingsOverrides(detectorParams, args);
             Console.WriteLine($"Detection: Sensitivity={detectorParams.Sensitivity.ToString("G6", CultureInfo.InvariantCulture)}, " +
                 $"StarClippingMultiplier={detectorParams.StarClippingMultiplier.ToString("G6", CultureInfo.InvariantCulture)}, " +
                 $"DefocusAwareDonutDetection={starDetectionOptions.DefocusAwareDonutDetection}, " +
@@ -132,8 +138,9 @@ namespace TestApp {
             };
 
             Console.WriteLine("Running RegisterStarsAndFit (RANSAC alignment + fit) ...");
+            SensorParaboloidModel sensorFit = null;
             try {
-                sensorModel.RegisterStarsAndFit(frames, imageSize, focuserSizeMicrons, finalFocusPosition, pixelSize,
+                (sensorFit, _) = sensorModel.RegisterStarsAndFit(frames, imageSize, focuserSizeMicrons, finalFocusPosition, pixelSize,
                     progress: new Progress<ApplicationStatus>(), stepSize: stepSize, ct: CancellationToken.None);
             } catch (Exception ex) {
                 // The paraboloid fit (after alignment) can throw on degenerate synthetic inputs; the alignment
@@ -161,9 +168,57 @@ namespace TestApp {
             if (messages.Count == 0) Line("  (none — all frames aligned cleanly)");
             foreach (var m in messages) Line($"  - {m}");
 
+            Line();
+            Line("================ SENSOR MODEL FIT ================");
+            if (sensorFit != null) {
+                Line($"StarsInModel:     {sensorFit.StarsInModel}");
+                Line($"GoodnessOfFit R²: {sensorFit.GoodnessOfFit:F4}");
+                Line($"RMSError (µm):    {sensorFit.RMSErrorMicrons:F3}");
+                Line($"ReducedChiSquared:{sensorFit.ReducedChiSquared:F3}");
+                Line($"Tilt θ (deg):     {sensorFit.Theta * 180.0 / Math.PI:F3}");
+                Line($"Curvature K:      {sensorFit.K:E3}");
+            } else {
+                Line("  (no fit — RegisterStarsAndFit did not produce a model)");
+            }
+
             var outPath = Path.Combine(outDir, "inspect_align.txt");
             File.WriteAllText(outPath, sb.ToString());
             Console.WriteLine($"\nWrote {outPath}");
+        }
+
+        /// <summary>Optional detector-param overrides so the sensor model can be evaluated at a chosen settings
+        /// config (mirrors golden eval): --opt-results &lt;dir&gt; overlays an optimized_settings.json (all fields incl.
+        /// the v2 defocus-aware ones, AND-gated by the master); plus generic --noise-clip / --defocus-* toggles.</summary>
+        private static void ApplySettingsOverrides(StarDetectorParams p, string[] args) {
+            var optResults = DiagnosticUtil.GetArg(args, "--opt-results");
+            if (!string.IsNullOrWhiteSpace(optResults)) {
+                var path = Path.Combine(optResults, "optimized_settings.json");
+                if (File.Exists(path)) {
+                    var s = JsonConvert.DeserializeObject<OptimizedStarDetectionSettings>(File.ReadAllText(path));
+                    p.Sensitivity = s.BrightnessSensitivity; p.StarClippingMultiplier = s.StarClippingMultiplier;
+                    p.NoiseClippingMultiplier = s.NoiseClippingMultiplier; p.PeakResponse = s.StarPeakResponse;
+                    p.MaxDistortion = s.MaxDistortion; p.MinHFR = s.MinHFR; p.StarCenterTolerance = s.StarCenterTolerance;
+                    p.StructureLayers = s.StructureLayers; p.NoiseReductionRadius = s.NoiseReductionRadius;
+                    p.MinimumStarBoundingBoxSize = s.MinStarBoundingBoxSize; p.HotpixelThresholdingEnabled = s.HotpixelThresholdingEnabled;
+                    p.HotpixelThreshold = s.HotpixelThreshold;
+                    var master = s.DefocusAwareDonutDetection;
+                    p.DefocusAwareDonutDetection = master;
+                    p.DefocusAwareDistortion = s.DefocusAwareGates && master; p.DefocusAwareCentering = s.DefocusAwareGates && master;
+                    p.DefocusAwareStructure = s.DefocusAwareStructure && master; p.StructureLayerBoost = s.StructureLayerBoost;
+                    p.DefocusDistortionSizeReference = s.DefocusDistortionSizeReference; p.DefocusDistortionMinFactor = s.DefocusDistortionMinFactor;
+                    p.DefocusCenteringToleranceFactor = s.DefocusCenteringToleranceFactor; p.DonutMorphCloseSize = s.DonutMorphCloseSize;
+                    p.DonutMinAnnularityHoleFraction = s.DonutMinAnnularityHoleFraction; p.DonutMaxStreakEccentricity = s.DonutMaxStreakEccentricity;
+                    p.DonutSaturationBloomRadius = s.DonutSaturationBloomRadius;
+                    Console.WriteLine($"Applied optimized settings from {path}");
+                } else {
+                    Console.WriteLine($"WARNING: --opt-results given but {path} not found; using profile settings.");
+                }
+            }
+            var nc = DiagnosticUtil.GetArg(args, "--noise-clip");
+            if (nc != null && double.TryParse(nc, NumberStyles.Float, CultureInfo.InvariantCulture, out var ncv)) { p.NoiseClippingMultiplier = ncv; }
+            if (DiagnosticUtil.HasFlag(args, "--defocus-donut")) { p.DefocusAwareDonutDetection = true; }
+            if (DiagnosticUtil.HasFlag(args, "--defocus-gates")) { p.DefocusAwareDistortion = true; p.DefocusAwareCentering = true; }
+            if (DiagnosticUtil.HasFlag(args, "--defocus-structure")) { p.DefocusAwareStructure = true; if (p.StructureLayerBoost <= 0) p.StructureLayerBoost = 2; }
         }
     }
 }

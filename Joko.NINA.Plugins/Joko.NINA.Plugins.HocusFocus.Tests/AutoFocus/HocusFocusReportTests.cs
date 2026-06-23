@@ -88,7 +88,7 @@ public class StarDetectorParamsTests {
             Assert.That(p.HotpixelThresholdingEnabled, Is.True);
             Assert.That(p.HotpixelThreshold, Is.EqualTo(0.001));
             Assert.That(p.NoiseReductionRadius, Is.EqualTo(3));
-            Assert.That(p.NoiseClippingMultiplier, Is.EqualTo(4.0));
+            Assert.That(p.NoiseClippingMultiplier, Is.EqualTo(2.0)); // lowered 4→2 per golden-set recall audit
             // F4 recalibration: σ is now measured on the image actually sampled; the σ-multiple knob 10.0→2.0
             // (BrightnessSensitivity) remains the F4 recalibration. StarClippingMultiplier is 2.0 as the uniform
             // empirical τ level (F3, gate-only) — see docs/sigma-consistency-f3-results.md.
