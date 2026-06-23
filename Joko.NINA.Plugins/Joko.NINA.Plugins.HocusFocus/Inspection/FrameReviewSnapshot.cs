@@ -210,6 +210,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
             var frames = new List<FrameReviewFrame>();
             var frameCount = allDetectedStars?.Count ?? 0;
+            // If the reference frame's image was dropped, no surviving frame is the reference; in that case the
+            // alignment is relative to a frame the user can't see, so suppress registration lines/transform text
+            // rather than rendering survivors as if aligned against a present reference (F37).
+            bool referenceSurvives = referenceImageIndex >= 0 && referenceImageIndex < frameCount
+                && allDetectedStars[referenceImageIndex]?.Image?.Image != null;
             for (int imageIndex = 0; imageIndex < frameCount; imageIndex++) {
                 var sds = allDetectedStars[imageIndex];
                 var bitmap = sds?.Image?.Image;
@@ -246,9 +251,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                             : (double?)null;
 
                         // The line is only meaningful for a registered star on an aligned (RANSAC) non-reference frame
-                        // whose aligned position differs from its raw position.
-                        bool hasRegistrationLine = ransacEnabled && !isReference && registrationId != null
-                            && (targetX != centerX || targetY != centerY);
+                        // whose aligned position differs from its raw position. Use a tolerance (not exact !=) so a
+                        // genuinely-registered star whose alignment maps it to a near-identical position still draws.
+                        const double registrationLineEpsilon = 1e-6;
+                        bool hasRegistrationLine = ransacEnabled && referenceSurvives && !isReference && registrationId != null
+                            && (Math.Abs(targetX - centerX) + Math.Abs(targetY - centerY) > registrationLineEpsilon);
 
                         stars.Add(new FrameReviewStar {
                             CenterX = centerX,
@@ -268,7 +275,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     }
                 }
 
-                var transformText = (!isReference && ransacEnabled && sds.AlignmentTransform != null)
+                var transformText = (referenceSurvives && !isReference && ransacEnabled && sds.AlignmentTransform != null)
                     ? FrameReviewTransformFormatter.Format(sds.AlignmentTransform)
                     : string.Empty;
 

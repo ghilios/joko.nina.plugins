@@ -7,6 +7,7 @@ using NINA.Joko.Plugins.HocusFocus.Tests.Synthetic;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NSubstitute;
 using NUnit.Framework;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Media;
@@ -416,6 +417,42 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
             Assert.Multiple(() => {
                 Assert.That(snapshot.Frames, Is.Empty);
                 Assert.That(snapshot.FocusCurvesByRegistrationId, Is.Empty);
+            });
+        }
+
+        // F35: a registered star whose aligned position differs by less than a float ULP must still draw its line.
+        [Test]
+        public void Build_NonReferenceAlignedFrame_SubUlpMovement_StillHasLine() {
+            float rawX = 1000f;
+            float alignedX = MathF.BitIncrement(rawX); // differs by 1 ULP, > 0 but tiny
+            var star = MakeStar(posX: alignedX, posY: 44, origX: rawX, origY: 44);
+            var refFrame = MakeFrame(100, new[] { MakeStar() }, MakeImage());
+            var movedFrame = MakeFrame(200, new[] { star }, MakeImage(), alignment: Matrix3x2.Identity, hasBeenAligned: true);
+            var registered = new[] { MakeRegistered((star, 1)) };
+
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { refFrame, movedFrame }, registered, referenceImageIndex: 0, ransacEnabled: true);
+
+            Assert.That(snapshot.Frames.Single(f => f.ImageIndex == 1).Stars.Single().HasRegistrationLine, Is.True);
+        }
+
+        // F37: when the reference frame's image was dropped, a surviving aligned frame must NOT be rendered as if it
+        // were registered against a present reference. The surviving star is genuinely moved and carries a transform,
+        // so the OLD code (no referenceSurvives guard) would draw a registration line and show transform text; the
+        // fix suppresses both because the reference the alignment is relative to is no longer visible.
+        [Test]
+        public void Build_DroppedReferenceImage_FlagsSurvivingReferenceCandidate() {
+            var refStar = MakeStar(posX: 10, posY: 10);
+            var droppedRefFrame = MakeFrame(100, new[] { refStar }, null); // reference image not retained -> dropped
+            var otherStar = MakeStar(posX: 33, posY: 44, origX: 10, origY: 12); // aligned away from raw -> would draw a line
+            var otherFrame = MakeFrame(200, new[] { otherStar }, MakeImage(), alignment: Matrix3x2.Identity, hasBeenAligned: true);
+            var registered = new[] { MakeRegistered((refStar, 0), (otherStar, 1)) };
+
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { droppedRefFrame, otherFrame }, registered, referenceImageIndex: 0, ransacEnabled: true);
+
+            Assert.Multiple(() => {
+                Assert.That(snapshot.Frames.Count, Is.EqualTo(1));
+                Assert.That(snapshot.Frames.Single().Stars.Any(s => s.HasRegistrationLine), Is.False);
+                Assert.That(snapshot.Frames.Single().TransformText, Is.EqualTo(""));
             });
         }
     }
