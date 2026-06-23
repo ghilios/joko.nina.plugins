@@ -1513,76 +1513,89 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return null;
             }
 
-            Logger.Trace("Starting Autofocus");
-            OnStarted();
-
-            var timeoutCts = new CancellationTokenSource(options.AutoFocusTimeout);
-            bool tempComp = false;
-            bool guidingStopped = false;
-            bool completed = false;
-            AutoFocusState autoFocusState = null;
+            // Once the claim succeeds, EVERY subsequent path must release the static guard, otherwise the flag stays
+            // set and EVERY future AutoFocus across the whole app is rejected until NINA restarts (the F11 leak). The
+            // statements between the claim and the inner try below are throw-prone (OnStarted() raises the Started
+            // event synchronously into subscribers that do real work; the CancellationTokenSource ctor throws for an
+            // out-of-range AutoFocusTimeout), so the release lives in this OUTER finally rather than the inner one.
             try {
-                if (focuserMediator.GetInfo().TempCompAvailable && focuserMediator.GetInfo().TempComp) {
-                    tempComp = true;
-                    focuserMediator.ToggleTempComp(false);
-                }
+                Logger.Trace("Starting Autofocus");
+                OnStarted();
 
-                if (profileService.ActiveProfile.FocuserSettings.AutoFocusDisableGuiding) {
-                    guidingStopped = await this.guiderMediator.StopGuiding(token);
-                }
-
-                var autofocusCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
-                autoFocusState = await InitializeState(options, imagingFilter, regions, autofocusCts.Token, progress);
-                completed = await RunAutoFocus(autoFocusState, StartBlindFocusPoints, autofocusCts.Token, progress);
-            } catch (OperationCanceledException) {
-                if (timeoutCts.IsCancellationRequested) {
-                    Notification.ShowWarning($"AutoFocus timed out after {options.AutoFocusTimeout}");
-                    Logger.Warning($"AutoFocus timed out after {options.AutoFocusTimeout}");
-                } else {
-                    Logger.Warning("AutoFocus cancelled");
-                }
-            } catch (Exception ex) {
-                Notification.ShowError($"Auto Focus Failure. {ex.Message}");
-                Logger.Error("Failure during AutoFocus", ex);
-            } finally {
+                var timeoutCts = new CancellationTokenSource(options.AutoFocusTimeout);
+                bool tempComp = false;
+                bool guidingStopped = false;
+                bool completed = false;
+                AutoFocusState autoFocusState = null;
                 try {
-                    await PerformPostAutoFocusActions(
-                        successfulAutoFocus: completed, initialFocusPosition: autoFocusState?.InitialFocuserPosition, imagingFilter: imagingFilter, restoreTempComp: tempComp,
-                        restoreGuiding: guidingStopped, progress: progress);
+                    if (focuserMediator.GetInfo().TempCompAvailable && focuserMediator.GetInfo().TempComp) {
+                        tempComp = true;
+                        focuserMediator.ToggleTempComp(false);
+                    }
+
+                    if (profileService.ActiveProfile.FocuserSettings.AutoFocusDisableGuiding) {
+                        guidingStopped = await this.guiderMediator.StopGuiding(token);
+                    }
+
+                    var autofocusCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+                    autoFocusState = await InitializeState(options, imagingFilter, regions, autofocusCts.Token, progress);
+                    completed = await RunAutoFocus(autoFocusState, StartBlindFocusPoints, autofocusCts.Token, progress);
+                } catch (OperationCanceledException) {
+                    if (timeoutCts.IsCancellationRequested) {
+                        Notification.ShowWarning($"AutoFocus timed out after {options.AutoFocusTimeout}");
+                        Logger.Warning($"AutoFocus timed out after {options.AutoFocusTimeout}");
+                    } else {
+                        Logger.Warning("AutoFocus cancelled");
+                    }
                 } catch (Exception ex) {
-                    Logger.Warning($"Failure during post AF actions. {ex.Message}");
+                    Notification.ShowError($"Auto Focus Failure. {ex.Message}");
+                    Logger.Error("Failure during AutoFocus", ex);
                 } finally {
-                    // Clear the (static) in-progress guard FIRST and unconditionally. If anything below this throws,
-                    // the flag stays set and EVERY future AutoFocus across the whole app is rejected with "Another
-                    // AutoFocus is already in progress" until NINA is restarted. progress is optional (the Star
-                    // Detection Optimizer's live attempt passes null), so report through it defensively.
-                    ReleaseAutoFocusInProgress();
-                    progress?.Report(new ApplicationStatus() { Status = string.Empty });
+                    try {
+                        await PerformPostAutoFocusActions(
+                            successfulAutoFocus: completed, initialFocusPosition: autoFocusState?.InitialFocuserPosition, imagingFilter: imagingFilter, restoreTempComp: tempComp,
+                            restoreGuiding: guidingStopped, progress: progress);
+                    } catch (Exception ex) {
+                        Logger.Warning($"Failure during post AF actions. {ex.Message}");
+                    } finally {
+                        // progress is optional (the Star Detection Optimizer's live attempt passes null), so report
+                        // through it defensively. The static in-progress guard is released in the OUTER finally below
+                        // so that a throw from OnStarted() or the CancellationTokenSource ctor above this inner try
+                        // cannot leak it.
+                        progress?.Report(new ApplicationStatus() { Status = string.Empty });
+                    }
                 }
-            }
 
-            if (autoFocusState == null) {
-                // InitializeState never produced state (cancelled, timed out, or an equipment error already logged
-                // above). There is nothing to build a result from; return null like the in-progress guard does,
-                // rather than dereferencing a null state below.
-                return null;
-            }
+                if (autoFocusState == null) {
+                    // InitializeState never produced state (cancelled, timed out, or an equipment error already logged
+                    // above). There is nothing to build a result from; return null like the in-progress guard does,
+                    // rather than dereferencing a null state below.
+                    return null;
+                }
 
-            return new AutoFocusResult() {
-                Succeeded = completed,
-                InitialFocuserPosition = autoFocusState.InitialFocuserPosition,
-                ImageSize = autoFocusState.ImageSize,
-                StepSize = autoFocusState.Options.AutoFocusStepSize,
-                RegionResults = autoFocusState.FocusRegionStates.Select(rs => new AutoFocusRegionResult() {
-                    RegionIndex = rs.RegionIndex,
-                    Region = rs.Region,
-                    EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X ?? double.NaN,
-                    EstimatedFinalHFR = rs.FinalFocusPoint?.Y ?? double.NaN,
-                    Fittings = rs.Fittings,
-                    RejectedPoints = rs.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
-                }).OrderBy(r => r.RegionIndex).ToArray(),
-                SaveFolder = autoFocusState.SaveFolder
-            };
+                return new AutoFocusResult() {
+                    Succeeded = completed,
+                    InitialFocuserPosition = autoFocusState.InitialFocuserPosition,
+                    ImageSize = autoFocusState.ImageSize,
+                    StepSize = autoFocusState.Options.AutoFocusStepSize,
+                    RegionResults = autoFocusState.FocusRegionStates.Select(rs => new AutoFocusRegionResult() {
+                        RegionIndex = rs.RegionIndex,
+                        Region = rs.Region,
+                        EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X ?? double.NaN,
+                        EstimatedFinalHFR = rs.FinalFocusPoint?.Y ?? double.NaN,
+                        Fittings = rs.Fittings,
+                        RejectedPoints = rs.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
+                    }).OrderBy(r => r.RegionIndex).ToArray(),
+                    SaveFolder = autoFocusState.SaveFolder
+                };
+            } finally {
+                // Release the static guard on EVERY path after a successful claim — including a throw from OnStarted()
+                // or the CancellationTokenSource construction above the inner try, and the normal return paths above.
+                // Releasing here (after all inner cleanup) holds the guard until the run is fully torn down and can
+                // never leak (the F11 leak-window fix). A bare finally does not swallow the in-flight exception or
+                // alter the returned value.
+                ReleaseAutoFocusInProgress();
+            }
         }
 
         public Task<AutoFocusResult> Run(AutoFocusEngineOptions options, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {

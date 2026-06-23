@@ -270,16 +270,55 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             // finally used to call progress.Report(...) BEFORE clearing the static AutoFocusInProgress guard, so a
             // null progress threw an NRE that skipped the reset. The static flag stuck true and bricked every
             // subsequent AutoFocus ("Another AutoFocus is already in progress") app-wide until NINA was restarted.
-            var engine = Build();
-            Assume.That(engine.AutoFocusInProgress, Is.False, "static guard should start clear");
-
+            AutoFocusEngine.ResetAutoFocusInProgressForTests();
             try {
-                await engine.Run(new AutoFocusEngineOptions { AutoFocusTimeout = TimeSpan.FromMinutes(1) }, imagingFilter: null, token: default, progress: null);
-            } catch {
-                // AutoFocus fails fast on the all-mocked equipment; we only care that the guard is released.
-            }
+                var engine = Build();
+                Assume.That(engine.AutoFocusInProgress, Is.False, "static guard should start clear");
 
-            Assert.That(engine.AutoFocusInProgress, Is.False, "AutoFocusInProgress must be cleared even when the run fails with a null progress");
+                try {
+                    await engine.Run(new AutoFocusEngineOptions { AutoFocusTimeout = TimeSpan.FromMinutes(1) }, imagingFilter: null, token: default, progress: null);
+                } catch {
+                    // AutoFocus fails fast on the all-mocked equipment; we only care that the guard is released.
+                }
+
+                Assert.That(engine.AutoFocusInProgress, Is.False, "AutoFocusInProgress must be cleared even when the run fails with a null progress");
+            } finally {
+                AutoFocusEngine.ResetAutoFocusInProgressForTests();
+            }
+        }
+
+        [Test]
+        public async Task Run_WhenStartedSubscriberThrows_StillReleasesGuard() {
+            // F11 leak-window regression: RunImpl claims the static AutoFocusInProgress guard at the gate, then calls
+            // OnStarted() (which raises the public Started event synchronously into subscribers) BEFORE the inner
+            // try/finally. If a Started subscriber throws, the buggy code left the guard claimed forever, bricking
+            // every subsequent AutoFocus app-wide until NINA restarted. The release now lives in an outer finally
+            // that covers OnStarted(), so the guard must be released even when a Started subscriber throws.
+            AutoFocusEngine.ResetAutoFocusInProgressForTests();
+            try {
+                var engine = Build();
+                Assume.That(engine.AutoFocusInProgress, Is.False, "static guard should start clear");
+
+                var subscriberThrew = false;
+                engine.Started += (sender, args) => {
+                    subscriberThrew = true;
+                    throw new InvalidOperationException("Started subscriber failure");
+                };
+
+                try {
+                    await engine.Run(new AutoFocusEngineOptions { AutoFocusTimeout = TimeSpan.FromMinutes(1) }, imagingFilter: null, token: default, progress: null);
+                } catch {
+                    // The throwing Started subscriber surfaces here; we only care that the guard is released.
+                }
+
+                Assert.Multiple(() => {
+                    Assert.That(subscriberThrew, Is.True, "the throwing Started subscriber must have run (OnStarted reached)");
+                    Assert.That(engine.AutoFocusInProgress, Is.False, "AutoFocusInProgress must be released even when a Started subscriber throws");
+                    Assert.That(AutoFocusEngine.TryClaimAutoFocusInProgress(), Is.True, "the guard must be claimable again after the leaked-throw path");
+                });
+            } finally {
+                AutoFocusEngine.ResetAutoFocusInProgressForTests();
+            }
         }
 
         [Test]
