@@ -21,6 +21,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
     [TestFixture]
     public class AutoFocusEngineTests {
 
+        [SetUp]
+        public void ResetStaticGuardBefore() {
+            // AutoFocusInProgress is a process-wide static; reset it so each test starts from a known state
+            // regardless of execution order (F17).
+            AutoFocusEngine.ResetAutoFocusInProgressForTests();
+        }
+
+        [TearDown]
+        public void ResetStaticGuardAfter() {
+            // Never leak the in-progress static to a later test if this one threw between claim and release.
+            AutoFocusEngine.ResetAutoFocusInProgressForTests();
+        }
+
         private static AutoFocusEngine Build(
             IProfileService profileService = null,
             IAutoFocusOptions autoFocusOptions = null,
@@ -273,7 +286,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             AutoFocusEngine.ResetAutoFocusInProgressForTests();
             try {
                 var engine = Build();
-                Assume.That(engine.AutoFocusInProgress, Is.False, "static guard should start clear");
+                Assert.That(engine.AutoFocusInProgress, Is.False, "static guard must start clear (reset in SetUp)");
 
                 try {
                     await engine.Run(new AutoFocusEngineOptions { AutoFocusTimeout = TimeSpan.FromMinutes(1) }, imagingFilter: null, token: default, progress: null);
@@ -288,6 +301,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
         }
 
         [Test]
+        public void StaticGuard_IsResetBetweenTests_NotLeakedFromPriorRun() {
+            // Simulate a prior test that left the process-wide guard set (e.g. threw between claim and release).
+            // SetUp must have already cleared it; assert deterministically rather than going Inconclusive (F17).
+            var engine = Build();
+            Assert.That(engine.AutoFocusInProgress, Is.False, "SetUp must reset the static guard before each test");
+
+            // F11 replaced the writable property with Interlocked claim/release helpers; claim to flip the guard true.
+            Assert.That(AutoFocusEngine.TryClaimAutoFocusInProgress(), Is.True, "guard should be claimable after the SetUp reset");
+            Assert.That(engine.AutoFocusInProgress, Is.True, "the claimed guard reads true through the public getter");
+            // TearDown resets it so this claim cannot leak into a sibling test.
+        }
+
+        [Test]
         public async Task Run_WhenStartedSubscriberThrows_StillReleasesGuard() {
             // F11 leak-window regression: RunImpl claims the static AutoFocusInProgress guard at the gate, then calls
             // OnStarted() (which raises the public Started event synchronously into subscribers) BEFORE the inner
@@ -297,7 +323,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             AutoFocusEngine.ResetAutoFocusInProgressForTests();
             try {
                 var engine = Build();
-                Assume.That(engine.AutoFocusInProgress, Is.False, "static guard should start clear");
+                Assert.That(engine.AutoFocusInProgress, Is.False, "static guard must start clear (reset in SetUp)");
 
                 var subscriberThrew = false;
                 engine.Started += (sender, args) => {
