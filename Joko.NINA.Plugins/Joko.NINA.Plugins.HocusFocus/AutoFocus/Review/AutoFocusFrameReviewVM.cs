@@ -91,6 +91,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
 
         private AutoFocusFrameReviewSnapshot snapshot;
         private readonly IStarAnnotatorOptions annotatorOptions;
+        private readonly IApplicationDispatcher applicationDispatcher;
         private readonly MeasurementAverageEnum measurementAverage;
         private readonly bool psfAvailable;
 
@@ -106,9 +107,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
         public RelayCommand FitCommand { get; }
         public RelayCommand CloseCommand { get; }
 
-        public AutoFocusFrameReviewVM(AutoFocusFrameReviewSnapshot snapshot, IStarAnnotatorOptions annotatorOptions, MeasurementAverageEnum measurementAverage) {
+        public AutoFocusFrameReviewVM(AutoFocusFrameReviewSnapshot snapshot, IStarAnnotatorOptions annotatorOptions, IApplicationDispatcher applicationDispatcher, MeasurementAverageEnum measurementAverage) {
             this.snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
             this.annotatorOptions = annotatorOptions ?? throw new ArgumentNullException(nameof(annotatorOptions));
+            this.applicationDispatcher = applicationDispatcher ?? throw new ArgumentNullException(nameof(applicationDispatcher));
             this.measurementAverage = measurementAverage;
 
             // PSF fitting is intentionally disabled during auto-focus, so the PSF-derived annotation options (FWHM,
@@ -146,12 +148,40 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
 
         private int FrameCount => snapshot?.Frames.Count ?? 0;
 
-        // Changing any annotator color/show-flag/bounds-type re-renders the overlays + legend live (same UX as the
-        // image annotator, which also re-annotates on option change).
+        // Overlay-affecting annotator properties: a change to any of these re-renders the overlays + legend live
+        // (same UX as the image annotator). Properties the review does not render are ignored to avoid wasted rebuilds.
+        private static readonly HashSet<string> OverlayAffectingProperties = new() {
+            nameof(IStarAnnotatorOptions.ShowAnnotations),
+            nameof(IStarAnnotatorOptions.ShowStarBounds),
+            nameof(IStarAnnotatorOptions.StarBoundsType),
+            nameof(IStarAnnotatorOptions.StarBoundsColor),
+            nameof(IStarAnnotatorOptions.ShowStarCenter),
+            nameof(IStarAnnotatorOptions.StarCenterColor),
+            nameof(IStarAnnotatorOptions.ShowAnnotationType),
+            nameof(IStarAnnotatorOptions.AnnotationColor),
+            nameof(IStarAnnotatorOptions.ShowROI),
+            nameof(IStarAnnotatorOptions.ROIColor),
+            nameof(IStarAnnotatorOptions.ShowTooDistorted), nameof(IStarAnnotatorOptions.TooDistortedColor),
+            nameof(IStarAnnotatorOptions.ShowDegenerate), nameof(IStarAnnotatorOptions.DegenerateColor),
+            nameof(IStarAnnotatorOptions.ShowSaturated), nameof(IStarAnnotatorOptions.SaturatedColor),
+            nameof(IStarAnnotatorOptions.ShowLowSensitivity), nameof(IStarAnnotatorOptions.LowSensitivityColor),
+            nameof(IStarAnnotatorOptions.ShowNotCentered), nameof(IStarAnnotatorOptions.NotCenteredColor),
+            nameof(IStarAnnotatorOptions.ShowTooFlat), nameof(IStarAnnotatorOptions.TooFlatColor),
+            nameof(IStarAnnotatorOptions.ShowContaminated), nameof(IStarAnnotatorOptions.ContaminatedColor),
+        };
+
+        // Changing an overlay-affecting annotator property re-renders the overlays + legend live. Treat a null/empty
+        // PropertyName as "rebuild all". The body is marshaled to the UI thread because the shared annotator options
+        // object could raise PropertyChanged off the UI thread, and the rebuild mutates the bound ObservableCollections.
         private void AnnotatorOptions_PropertyChanged(object sender, PropertyChangedEventArgs e) {
-            RaiseAnnotatorVisualsChanged();
-            RebuildCurrentFrameOverlays();
-            RebuildLegend();
+            if (!string.IsNullOrEmpty(e.PropertyName) && !OverlayAffectingProperties.Contains(e.PropertyName)) {
+                return;
+            }
+            applicationDispatcher.DispatchSynchronizationContext(() => {
+                RaiseAnnotatorVisualsChanged();
+                RebuildCurrentFrameOverlays();
+                RebuildLegend();
+            });
         }
 
         private void RaiseAnnotatorVisualsChanged() {
@@ -295,7 +325,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             foreach (var r in Reasons()) {
                 entries.Add(new StarReviewLegendEntry { Brush = FrozenBrush(r.Color), Caption = r.Caption, Enabled = r.Show });
             }
-            entries.Add(new StarReviewLegendEntry { Brush = FrozenBrush(annotatorOptions.ROIColor), Caption = "Detection ROI", Enabled = annotatorOptions.ShowROI });
+            // ROI is drawn whenever the region is not full (annotator ignores ShowROI), i.e. whenever the
+            // current frame actually has ROI rects.
+            var roiActive = CurrentFrame?.RoiRects.Count > 0;
+            entries.Add(new StarReviewLegendEntry { Brush = FrozenBrush(annotatorOptions.ROIColor), Caption = "Detection ROI", Enabled = roiActive });
             return entries;
         }
 
@@ -387,11 +420,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
                     RectOverlays.Add(ToOverlay(rect, brush));
                 }
             }
-            if (annotatorOptions.ShowROI) {
-                var roiBrush = FrozenBrush(annotatorOptions.ROIColor);
-                foreach (var rect in frame.RoiRects) {
-                    RectOverlays.Add(ToOverlay(rect, roiBrush));
-                }
+            // The annotator draws the ROI whenever the detection region is not full and never reads ShowROI
+            // (HocusFocusStarAnnotator.cs). frame.RoiRects is already empty for a full-frame region,
+            // so drawing it unconditionally matches the annotated image.
+            var roiBrush = FrozenBrush(annotatorOptions.ROIColor);
+            foreach (var rect in frame.RoiRects) {
+                RectOverlays.Add(ToOverlay(rect, roiBrush));
             }
         }
 
