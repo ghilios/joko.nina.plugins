@@ -202,7 +202,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             UpdateHover(e);
         }
 
-        // Show the focus graph for the registered+fitted star under the cursor (smallest box wins); clear it otherwise.
+        // Show the focus graph for any matched star under the cursor (smallest box wins); a no-fit star shows
+        // "No accepted focus fit". Clear it when no matched star is under the cursor.
         // Boxes are in raw image coords (matching the displayed raw frame), so the cursor maps via the viewport directly.
         private void UpdateHover(MouseEventArgs e) {
             var vm = Vm;
