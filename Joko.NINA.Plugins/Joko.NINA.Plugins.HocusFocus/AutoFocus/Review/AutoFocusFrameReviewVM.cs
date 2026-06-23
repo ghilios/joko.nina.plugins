@@ -81,7 +81,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
     /// and <see cref="StarReviewLegendEntry"/> for the legend. The per-star text selection is review-local (initialized
     /// from the annotator setting, not written back). Disposing releases the retained bitmaps.
     /// </summary>
-    public sealed class AutoFocusFrameReviewVM : BaseINPC, IReviewDialogViewModel {
+    public sealed class AutoFocusFrameReviewVM : BaseINPC, IReviewDialogViewModel, IViewportHostViewModel {
 
         private static SolidColorBrush FrozenBrush(Color c) {
             var b = new SolidColorBrush(c);
@@ -106,6 +106,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
         public RelayCommand NextCommand { get; }
         public RelayCommand FitCommand { get; }
         public RelayCommand CloseCommand { get; }
+
+        // The public PrevCommand/NextCommand are RelayCommand; expose them as ICommand for the viewport host (F08).
+        System.Windows.Input.ICommand IViewportHostViewModel.PrevCommand => PrevCommand;
+        System.Windows.Input.ICommand IViewportHostViewModel.NextCommand => NextCommand;
 
         public AutoFocusFrameReviewVM(AutoFocusFrameReviewSnapshot snapshot, IStarAnnotatorOptions annotatorOptions, IApplicationDispatcher applicationDispatcher, MeasurementAverageEnum measurementAverage) {
             this.snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));

@@ -11,212 +11,45 @@
 #endregion "copyright"
 
 using System;
-using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
     /// <summary>
-    /// Read-only fork of <see cref="StarReviewControl"/> for the Aberration Inspector "Review Frames" dialog: an
-    /// MTF-stretched frame in a zoom/pan canvas with accepted-star boxes, HFR + registration-id labels, and
-    /// registration arrows. Binds to a <see cref="FrameReviewVM"/>. Only the viewport plumbing (zoom/pan/fit/scroll)
-    /// is kept from StarReviewControl — all labeling/drag/undo input is dropped.
+    /// Read-only viewer for the Aberration Inspector "Review Frames" dialog. Shares all zoom/pan/fit/scroll plumbing
+    /// with the AutoFocus review control via <see cref="ReviewViewportHostBase"/>; adds only the hover focus-graph.
     /// </summary>
-    public partial class FrameReviewControl : UserControl {
+    public partial class FrameReviewControl : ReviewViewportHostBase {
 
-        private FrameReviewVM Vm => DataContext as FrameReviewVM;
+        private FrameReviewVM HoverVm => DataContext as FrameReviewVM;
 
-        private bool panning;
-        private System.Windows.Point lastPanScreen;
-        private bool hasFitOnce;
+        protected override Canvas ViewportCanvasPart => ViewportCanvas;
+        protected override ScrollBar HScrollPart => HScroll;
+        protected override ScrollBar VScrollPart => VScroll;
+        protected override ScaleTransform ContentScalePart => ContentScale;
+        protected override TranslateTransform ContentTranslatePart => ContentTranslate;
+        protected override IViewportHostViewModel Vm => DataContext as IViewportHostViewModel;
 
         public FrameReviewControl() {
             InitializeComponent();
-            DataContextChanged += OnDataContextChanged;
-            KeyDown += OnKeyDown;
-            Unloaded += OnUnloaded;
         }
 
-        // Detach the VM->control FitRequested edge when the control leaves the visual tree, so a long-lived host
-        // that re-uses this control across DataContexts (or tears down without a DataContext swap) cannot leak the
-        // control through the VM's event. The modal case is unaffected (it unloads on close).
-        private void OnUnloaded(object sender, RoutedEventArgs e) {
-            if (Vm != null) {
-                Vm.FitRequested -= OnFitRequested;
-            }
-        }
-
-        private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e) {
-            if (e.OldValue is FrameReviewVM oldVm) {
-                oldVm.FitRequested -= OnFitRequested;
-            }
-            if (e.NewValue is FrameReviewVM newVm) {
-                newVm.FitRequested += OnFitRequested;
-            }
-        }
-
-        private void OnKeyDown(object sender, KeyEventArgs e) {
-            var vm = Vm;
-            if (vm == null) {
-                return;
-            }
-            switch (e.Key) {
-                case Key.Left:
-                    if (vm.PrevCommand.CanExecute(null)) {
-                        vm.PrevCommand.Execute(null);
-                    }
-                    e.Handled = true;
-                    break;
-                case Key.Right:
-                    if (vm.NextCommand.CanExecute(null)) {
-                        vm.NextCommand.Execute(null);
-                    }
-                    e.Handled = true;
-                    break;
-                case Key.F:
-                    OnFitRequested(this, EventArgs.Empty);
-                    e.Handled = true;
-                    break;
-            }
-        }
-
-        private void OnFitRequested(object sender, EventArgs e) {
-            var vm = Vm;
-            if (vm == null || ViewportCanvas.ActualWidth <= 0 || vm.ImageWidth <= 0) {
-                return;
-            }
-            // Collapse the scrollbars and force a layout pass FIRST so the fit is measured against the final
-            // (scrollbar-free) viewport — otherwise the image lands off-center until a second Fit (see StarReviewControl).
-            HScroll.Visibility = Visibility.Collapsed;
-            VScroll.Visibility = Visibility.Collapsed;
-            ViewportCanvas.UpdateLayout();
-            if (ViewportCanvas.ActualWidth <= 0 || ViewportCanvas.ActualHeight <= 0) {
-                return;
-            }
-            vm.Viewport.FitTo(ViewportCanvas.ActualWidth, ViewportCanvas.ActualHeight, vm.ImageWidth, vm.ImageHeight);
-            ApplyViewport();
-        }
-
-        private void ApplyViewport() {
-            var vm = Vm;
-            if (vm == null) {
-                return;
-            }
-            vm.Viewport.ClampToBounds(ViewportCanvas.ActualWidth, ViewportCanvas.ActualHeight, vm.ImageWidth, vm.ImageHeight);
-            ContentScale.ScaleX = vm.Viewport.Scale;
-            ContentScale.ScaleY = vm.Viewport.Scale;
-            ContentTranslate.X = vm.Viewport.OffsetX;
-            ContentTranslate.Y = vm.Viewport.OffsetY;
-            UpdateScrollBars();
-            // Markers scale with the canvas transform, so refresh the zoom-inverse stroke/label sizes after any change.
-            vm.NotifyViewportChanged();
-        }
-
-        private bool suppressScrollEvents;
-
-        private void UpdateScrollBars() {
-            var vm = Vm;
-            if (vm == null) {
-                return;
-            }
-            suppressScrollEvents = true;
-            try {
-                UpdateScrollBar(HScroll, ViewportCanvas.ActualWidth, vm.ImageWidth * vm.Viewport.Scale, -vm.Viewport.OffsetX);
-                UpdateScrollBar(VScroll, ViewportCanvas.ActualHeight, vm.ImageHeight * vm.Viewport.Scale, -vm.Viewport.OffsetY);
-            } finally {
-                suppressScrollEvents = false;
-            }
-        }
-
-        private static void UpdateScrollBar(System.Windows.Controls.Primitives.ScrollBar bar, double viewport, double content, double scrollPos) {
-            var scrollable = content - viewport;
-            if (scrollable > 0.5 && viewport > 0) {
-                bar.Visibility = Visibility.Visible;
-                bar.Minimum = 0;
-                bar.Maximum = scrollable;
-                bar.ViewportSize = viewport;
-                bar.LargeChange = viewport * 0.9;
-                bar.SmallChange = Math.Max(1.0, viewport * 0.1);
-                bar.Value = Math.Min(Math.Max(scrollPos, 0.0), scrollable);
-            } else {
-                bar.Visibility = Visibility.Collapsed;
-                bar.Value = 0;
-            }
-        }
-
-        private void HScroll_Scroll(object sender, System.Windows.Controls.Primitives.ScrollEventArgs e) {
-            var vm = Vm;
-            if (vm == null || suppressScrollEvents) {
-                return;
-            }
-            vm.Viewport.Set(vm.Viewport.Scale, -e.NewValue, vm.Viewport.OffsetY);
-            ApplyViewport();
-        }
-
-        private void VScroll_Scroll(object sender, System.Windows.Controls.Primitives.ScrollEventArgs e) {
-            var vm = Vm;
-            if (vm == null || suppressScrollEvents) {
-                return;
-            }
-            vm.Viewport.Set(vm.Viewport.Scale, vm.Viewport.OffsetX, -e.NewValue);
-            ApplyViewport();
-        }
-
-        // The canvas RenderTransform maps image space -> screen space, so a mouse position taken relative to the
-        // canvas's PARENT (the Border) is in screen space.
-        private System.Windows.Point ScreenPoint(MouseEventArgs e) {
-            var parent = (UIElement)ViewportCanvas.Parent;
-            return e.GetPosition(parent);
-        }
-
-        private void ViewportCanvas_MouseWheel(object sender, MouseWheelEventArgs e) {
-            var vm = Vm;
-            if (vm == null) {
-                return;
-            }
-            var anchor = ScreenPoint(e);
-            var factor = e.Delta > 0 ? 1.2 : 1.0 / 1.2;
-            vm.Viewport.ZoomAt(factor, anchor.X, anchor.Y);
-            ApplyViewport();
-            e.Handled = true;
-        }
-
-        private void ViewportCanvas_MouseRightButtonDown(object sender, MouseButtonEventArgs e) {
-            panning = true;
-            lastPanScreen = ScreenPoint(e);
-            ViewportCanvas.CaptureMouse();
-            e.Handled = true;
-        }
-
-        private void ViewportCanvas_MouseRightButtonUp(object sender, MouseButtonEventArgs e) {
-            panning = false;
-            ViewportCanvas.ReleaseMouseCapture();
-            e.Handled = true;
-        }
-
-        private void ViewportCanvas_MouseMove(object sender, MouseEventArgs e) {
-            var vm = Vm;
-            if (vm == null) {
-                return;
-            }
-            if (panning) {
-                var screen = ScreenPoint(e);
-                var dx = screen.X - lastPanScreen.X;
-                var dy = screen.Y - lastPanScreen.Y;
-                lastPanScreen = screen;
-                vm.Viewport.PanBy(dx, dy);
-                ApplyViewport();
+        // Pan via the base; otherwise update the hover focus graph (inspector-only). Wired in XAML as
+        // MouseMove="ViewportCanvas_MouseMove" — virtual dispatch routes to this override.
+        protected override void ViewportCanvas_MouseMove(object sender, MouseEventArgs e) {
+            if (TryPan(e)) {
                 return;
             }
             UpdateHover(e);
         }
 
-        // Show the focus graph for any matched star under the cursor (smallest box wins); a no-fit star shows
-        // "No accepted focus fit". Clear it when no matched star is under the cursor.
+        // Show the focus graph for any matched star under the cursor (smallest box wins); clear it otherwise.
         // Boxes are in raw image coords (matching the displayed raw frame), so the cursor maps via the viewport directly.
         private void UpdateHover(MouseEventArgs e) {
-            var vm = Vm;
+            var vm = HoverVm;
             if (vm == null) {
                 return;
             }
@@ -243,19 +76,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             }
         }
 
-        private void ViewportCanvas_MouseLeave(object sender, MouseEventArgs e) {
-            Vm?.ClearHover();
-        }
-
-        private void ViewportCanvas_SizeChanged(object sender, SizeChangedEventArgs e) {
-            // Re-fit only on the first meaningful size (initial layout); afterwards keep the user's zoom/pan.
-            if (hasFitOnce) {
-                return;
-            }
-            if (ViewportCanvas.ActualWidth > 0 && Vm?.ImageWidth > 0) {
-                hasFitOnce = true;
-                OnFitRequested(this, EventArgs.Empty);
-            }
-        }
+        private void ViewportCanvas_MouseLeave(object sender, MouseEventArgs e) => HoverVm?.ClearHover();
     }
 }

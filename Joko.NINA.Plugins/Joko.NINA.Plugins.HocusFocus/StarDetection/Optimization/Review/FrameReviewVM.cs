@@ -84,7 +84,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
     /// the hover graph uses <see cref="FrameReviewFocusGraph"/> / <see cref="FrameReviewScatterGraph"/> OxyPlot charts.
     /// Disposing releases the retained bitmaps.
     /// </summary>
-    public sealed class FrameReviewVM : BaseINPC, IReviewDialogViewModel {
+    public sealed class FrameReviewVM : BaseINPC, IReviewDialogViewModel, IViewportHostViewModel {
 
         private static SolidColorBrush FrozenBrush(Color c) {
             var b = new SolidColorBrush(c);
@@ -125,6 +125,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public RelayCommand NextCommand { get; }
         public RelayCommand FitCommand { get; }
         public RelayCommand CloseCommand { get; }
+
+        // The public PrevCommand/NextCommand are RelayCommand; expose them as ICommand for the viewport host (F08).
+        System.Windows.Input.ICommand IViewportHostViewModel.PrevCommand => PrevCommand;
+        System.Windows.Input.ICommand IViewportHostViewModel.NextCommand => NextCommand;
 
         public FrameReviewVM(FrameReviewSnapshot snapshot) {
             this.snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
