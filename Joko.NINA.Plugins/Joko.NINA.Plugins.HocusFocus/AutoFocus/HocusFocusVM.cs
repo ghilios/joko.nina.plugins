@@ -532,6 +532,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             PlotFinalFocusPointWithError.Add(new ScatterErrorPoint(minimum.X, minimum.Y, errorX, 0.0));
         }
 
+        // Single source for the interactive frame-review retention policy used by BOTH StartAutoFocus and
+        // LoadSavedAutoFocusRun: retain per-frame images for review only when this VM is interactive (pane) AND the
+        // persisted "Keep frames for review" toggle is on. When retaining, force the engine to preserve exposures and
+        // model PSFs (iff PSF modeling is enabled in star-detection options) so the review can show PSF-derived
+        // per-star properties (AF normally skips PSF fitting for speed). Sets frameReviewRequestedForRun as a side effect.
+        private void ApplyFrameReviewOptions(AutoFocusEngineOptions options) {
+            frameReviewRequestedForRun = IsInteractive && autoFocusOptions.KeepFramesForReview;
+            if (frameReviewRequestedForRun) {
+                options.PreserveExposures = true;
+                options.ModelPSF = starDetectionOptions.ModelPSF;
+            }
+        }
+
         public async Task<AutoFocusReport> StartAutoFocus(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
             try {
                 if (AutoFocusInProgress) {
@@ -550,16 +563,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
                 var options = autoFocusEngine.GetOptions();
 
-                // Retain per-frame images for review ONLY for an interactive run started from the AF pane AND with the
-                // persisted "Keep frames for review" toggle on. Frozen here (at run start, where PreserveExposures is
-                // decided) so a sequence-triggered run — whose VM is never marked interactive — never retains frames.
-                frameReviewRequestedForRun = IsInteractive && autoFocusOptions.KeepFramesForReview;
-                if (frameReviewRequestedForRun) {
-                    options.PreserveExposures = true;
-                    // Model PSFs during this review run iff PSF modeling is enabled in the star-detection options, so
-                    // the review can show the PSF-derived per-star properties (AF normally skips PSF fitting for speed).
-                    options.ModelPSF = starDetectionOptions.ModelPSF;
-                }
+                ApplyFrameReviewOptions(options);
                 var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
                 if (result == null || !result.Succeeded) {
                     return null;
@@ -945,14 +949,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
                 var options = resolution.Options;
 
-                // Replay is an interactive pane action, so it supports Review Frames on the same terms as a live run:
-                // keep frames when interactive + the toggle is on, forcing the engine to retain each reloaded exposure,
-                // and model PSFs (when enabled in star-detection options) so PSF properties are available in the review.
-                frameReviewRequestedForRun = IsInteractive && autoFocusOptions.KeepFramesForReview;
-                if (frameReviewRequestedForRun) {
-                    options.PreserveExposures = true;
-                    options.ModelPSF = starDetectionOptions.ModelPSF;
-                }
+                // Replay is an interactive pane action, so it supports Review Frames on the same terms as a live run.
+                ApplyFrameReviewOptions(options);
 
                 // Option (b) supplies the run's capture-time regions so its ROI is honored through the explicit-region
                 // path (the engine consumes the star-detection override there) without mutating the profile. Otherwise
