@@ -87,7 +87,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly List<(double FocuserPosition, HocusFocusStarDetectionResult Result, IRenderedImage Image)> reviewFrames
             = new List<(double, HocusFocusStarDetectionResult, IRenderedImage)>();
         private bool frameReviewRequestedForRun;
-        private AutoFocusFrameReviewSnapshot reviewSnapshot;
+        // Written on the engine's background completion thread (BuildFrameReviewSnapshotIfRequested) and on the
+        // close handler, read on the UI thread (ReviewFramesAvailable / ShowFrameReview). Reference reads are
+        // atomic; volatile (plus the blocking Send in NotifyReviewFramesAvailabilityChanged) establishes the
+        // happens-before so UI reads see the built snapshot rather than a stale reference. (F21)
+        private volatile AutoFocusFrameReviewSnapshot reviewSnapshot;
 
         public static readonly string ReportDirectory = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "AutoFocus");
 
