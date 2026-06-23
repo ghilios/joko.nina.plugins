@@ -160,6 +160,30 @@ namespace TestApp {
                 return;
             }
 
+            // AF-bank verification orchestrators (Steps 1-5 of plans/autofocus-bank-verification-plan.md):
+            //   bank-clean    — idempotent dry-run-first cleanup of stale per-config clutter in each run folder.
+            //   export-linear — write linear mono-FITS sidecars (NINA loader: XISF + debayer) so the golden
+            //                   reference detector can read every run, not just the mono-FITS ones.
+            //   bank-donut-meta — per-run donut-aware decision -> run_meta.json (refined heuristic).
+            //   bank-verify   — per run x config {C0 as-default, A optimized, B optimized+donut} metrics ->
+            //                   timestamped verification_<UTC>.{json,md} at the bank root.
+            if (args.Length > 0 && args[0].Equals("bank-clean", StringComparison.OrdinalIgnoreCase)) {
+                BankCleanRunner.Run(args);
+                return;
+            }
+            if (args.Length > 0 && args[0].Equals("export-linear", StringComparison.OrdinalIgnoreCase)) {
+                await ExportLinearRunner.Run(args);
+                return;
+            }
+            if (args.Length > 0 && args[0].Equals("bank-donut-meta", StringComparison.OrdinalIgnoreCase)) {
+                await BankDonutMetaRunner.Run(args);
+                return;
+            }
+            if (args.Length > 0 && args[0].Equals("bank-verify", StringComparison.OrdinalIgnoreCase)) {
+                await BankVerifyRunner.Run(args);
+                return;
+            }
+
             // Headless aberration-inspector alignment reproducer: `TestApp inspect-align --runs <folder> ...`.
             // Drives the real SensorModel.RegisterStarsAndFit RANSAC alignment and reports the reference frame,
             // per-frame triangle counts, frames aligned, and every registration warning.
