@@ -81,9 +81,11 @@ future run can be diffed against this baseline for regression.
   1. `TestApp bank-clean` (Step 1, dry-run + `--apply`).
   2. A bank golden driver (Step 2) — orchestrates the python + QA workflow per run, idempotent.
   3. `TestApp bank-donut-meta` (Step 3) — donut decision + `run_meta.json`.
-  4. A headless **sensor-model fit-quality** evaluator if one does not already exist (Step 4.2): drive
-     `SensorModel`/`InspectorVM` region fit on a run with given settings and emit per-region fit tightness.
-     (AF fit tightness already exists via `af-fit`/optimizer; confirm it can run at supplied optimized settings.)
+  4. ~~A headless sensor-model fit-quality evaluator~~ **DONE (dry-run):** `TestApp inspect-align` was extended to
+     inject settings (`--opt-results <dir>` overlays an `optimized_settings.json` incl. defocus fields; plus
+     `--noise-clip` / `--defocus-donut|gates|structure`) and to report the real `SensorModel` paraboloid fit:
+     GoodnessOfFit R², RMS µm, reduced-χ², stars-in-model, tilt θ. AF fit tightness comes from `optimize`
+     (σ_focus/R²/reduced-χ²) at the optimized settings.
   5. `TestApp bank-verify` (Steps 4–5) — the orchestrator producing the timestamped report.
 - Add per-region **HFR-scatter** to `golden eval`'s report (started in the B-phase-2 cost gate) since it is a
   useful fit-quality covariate.
@@ -94,6 +96,21 @@ future run can be diffed against this baseline for regression.
   (recall@SNR≥12, σ_focus). Full `dotnet test` green for any new TestApp code.
 - Confirm two consecutive `bank-verify` runs on an unchanged bank produce identical metrics (determinism), so
   future diffs reflect real changes only.
+
+## Dry-run validation (cwhite, 1 run — done before the full bank)
+
+Ran every step on the single cwhite run (report: `D:\Tilt Calibration Bank\cwhite\verification_<ts>.{md,json}`).
+Confirmed the flow works end-to-end and surfaced refinements for the full run:
+- **The best config differs by operation** (the verification's whole point): donut-aware ON gave tighter AF
+  (σ_focus 1.69 vs 1.87) + higher recall, but donut OFF gave a tighter *sensor-model* fit (R² 0.9984 vs 0.9933,
+  RMS 0.71 vs 0.83 µm) — the extra faint donut stars add paraboloid scatter. Report both; don't pick globally.
+- **Refine the donut heuristic:** the frac≥1.0 rule over-flagged mildly-defocused cwhite as donutAware. Gate it
+  additionally on extreme-frame HFR / donut size so only genuinely heavy-donut runs get `donutAware=true`.
+- **Add a fixed-default config to the matrix:** the optimizer kept NC=2.0 but raised `BrightnessSensitivity`~16
+  (it optimizes σ_focus, not recall), so optimized recall (0.15–0.18) was *below* the plain NC=2.0 default
+  (~0.46). Reporting the as-default config alongside the two optimized ones makes the recall picture honest.
+- Sensor model aligned 7/9 frames (2 extreme-defocus frames don't align — expected); use a per-config
+  `framesAligned` field in the report.
 
 ## Notes / decisions to confirm before executing
 - Cleanup aggressiveness (keep vs delete `autofocus_report_Region*.json`) — default: keep.
