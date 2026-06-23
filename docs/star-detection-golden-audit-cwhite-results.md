@@ -201,6 +201,34 @@ spiked star, scored against an SNR+matched-filter reference (donut detection + s
 - **Faint pure-ring donuts are SNR-limited**, not a tractable detector deficiency on a single sub — don't chase
   them; they carry little usable HFR signal when that defocused.
 
+## Cost gate (B-phase-2 Step 1): does lowering NC hurt focus accuracy?
+
+Per region, per NC, the HFR-vs-focuser curve was rebuilt from detected stars (per-frame median HFR), parabola-
+fit for best-focus position + R², with star count and HFR scatter at the near-focus frame (`tools/golden/cost_gate.py`):
+
+| Region | NC=4 (default) stars/focus/R² | NC=2.0 | NC=1.5 |
+|---|---|---|---|
+| Global | 119 / 2719 / 0.96 | 327 / 2718 / 0.93 | 479 / 2718 / 0.96 |
+| Center | 18 / 2706 / 0.93 | 55 / 2706 / 0.98 | 68 / 2704 / 0.97 |
+| Corner-TL | 4 / (no fit) | 21 / 2697 / 0.99 | 31 / 2665 / 0.91 |
+| Corner-TR | 3 / 2730 | 12 / 2729 / 0.98 | 12 / 2734 / 0.97 |
+| Corner-BL | 6 / 2680 | 19 / 2678 / 0.94 | 32 / 2693 / 0.92 |
+| Corner-BR | 4 / 2721 | 11 / 2713 / 0.87 | 20 / 2723 / 0.99 |
+
+HFR scatter @ near-focus stayed ~0.25–0.41 px across all NC (corners rise only ~0.1 px).
+
+**Verdict — the gate passes at NC≈2.0:**
+- **Yield gain where it matters:** corners go from 3–6 stars (too few to fit; Corner-TL couldn't fit at all at
+  default) to 11–21 — the direct robustness win for tilt modeling.
+- **Best-focus position is stable** (no systematic shift with NC: global 2719→2718, center 2706→2706); corners
+  *stabilize* because they finally have enough stars.
+- **Curve R² stays high** (~0.93–0.99) — no fit degradation; **HFR scatter rises only ~0.1 px** in corners.
+- NC=1.5 adds more stars but slightly more corner scatter ⇒ **recommended setpoint NC≈2.0**.
+
+Caveat: this uses a parabola-fit proxy on median HFR, not HocusFocus's hyperbola + leave-one-out σ_focus. The
+position-stability/R² signal is solid; the production change should still be confirmed against the real af-fit /
+optimizer harness (σ_focus, across the bank) per the B-phase-2 plan before re-defaulting NC.
+
 ## Tooling produced (reusable)
 
 - `TestApp golden tiles` / `golden eval` (+ `GoldenStarSet.cs`, `GoldenGeometry.cs`, unit tests) — render tiles
