@@ -375,7 +375,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 HotpixelFiltering = true,
                 HotpixelThresholdingEnabled = true,
                 NoiseReductionRadius = 3,
-                NoiseClippingMultiplier = 4.0,
+                NoiseClippingMultiplier = 2.0, // lowered 4→2 per the golden-set recall audit (candidate-formation bottleneck)
                 StarClippingMultiplier = 2.0,
                 ContaminationSensitivity = 5.0,
                 RejectContaminatedStars = true,

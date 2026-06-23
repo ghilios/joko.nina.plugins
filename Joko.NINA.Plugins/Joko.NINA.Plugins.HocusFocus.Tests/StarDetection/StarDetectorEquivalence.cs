@@ -92,6 +92,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         /// </summary>
         public static StarDetectorParams StandardParams() => new StarDetectorParams {
             ModelPSF = false,
+            // Pinned to the pre-audit default (4.0) so the determinism/equivalence + donut-logic tests keep their
+            // calibrated scenario and baked golden signatures, decoupled from the production default that the
+            // golden-set recall audit lowered to 2.0 (docs/star-detection-golden-audit-cwhite-results.md).
+            NoiseClippingMultiplier = 4.0,
         };
 
         /// <summary>
