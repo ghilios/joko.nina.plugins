@@ -856,11 +856,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             // Drop any frames/snapshot from a prior run (a new run supersedes the previous review). frameReviewRequestedForRun
             // is NOT reset here — it is set per-entry-path (StartAutoFocus / LoadSavedAutoFocusRun) before Run() raises Started.
+            var hadReviewState = reviewSnapshot != null || frameReviewRequestedForRun;
             lock (frameReviewLock) {
                 reviewFrames.Clear();
             }
             reviewSnapshot = null;
-            NotifyReviewFramesAvailabilityChanged();
+            // Only marshal to the UI thread when availability could actually change. On the common non-review end
+            // path (sequence-triggered transient VM bound to no UI) the clear is a no-op, so skip the blocking
+            // Send that would otherwise stall the AF worker if the dispatcher is busy. (F27)
+            if (hadReviewState) {
+                NotifyReviewFramesAvailabilityChanged();
+            }
 
             this.focuserMediator.BroadcastAutoFocusRunStarting();
             this.LastAutoFocusPoint = new ReportAutoFocusPoint() {
