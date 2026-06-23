@@ -1490,17 +1490,24 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private static bool autoFocusInProgress = false;
+        // 0 = free, 1 = an AutoFocus is in progress. Static so it is shared across all engine instances and entry
+        // points (manual AF, Inspector analyze, optimizer live attempt). Mutated only via Interlocked so the
+        // check-and-set is atomic and two RunImpl entrants cannot both claim it (F11).
+        private static int autoFocusInProgress = 0;
 
-        public bool AutoFocusInProgress {
-            get => autoFocusInProgress;
-            private set {
-                autoFocusInProgress = value;
-            }
-        }
+        public bool AutoFocusInProgress => Volatile.Read(ref autoFocusInProgress) != 0;
+
+        // Returns true iff this caller transitioned the guard from free->in-progress (i.e. it now owns the run).
+        internal static bool TryClaimAutoFocusInProgress() => Interlocked.CompareExchange(ref autoFocusInProgress, 1, 0) == 0;
+
+        // Releases the guard unconditionally (idempotent).
+        internal static void ReleaseAutoFocusInProgress() => Interlocked.Exchange(ref autoFocusInProgress, 0);
+
+        // Test hook: force the process-wide guard back to free so a leaked flag cannot pollute other tests.
+        internal static void ResetAutoFocusInProgressForTests() => Interlocked.Exchange(ref autoFocusInProgress, 0);
 
         private async Task<AutoFocusResult> RunImpl(AutoFocusEngineOptions options, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress) {
-            if (AutoFocusInProgress) {
+            if (!TryClaimAutoFocusInProgress()) {
                 Notification.ShowError("Another AutoFocus is already in progress");
                 Logger.Error("Another AutoFocus is already in progress");
                 return null;
@@ -1513,7 +1520,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             bool tempComp = false;
             bool guidingStopped = false;
             bool completed = false;
-            AutoFocusInProgress = true;
             AutoFocusState autoFocusState = null;
             try {
                 if (focuserMediator.GetInfo().TempCompAvailable && focuserMediator.GetInfo().TempComp) {
@@ -1550,7 +1556,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     // the flag stays set and EVERY future AutoFocus across the whole app is rejected with "Another
                     // AutoFocus is already in progress" until NINA is restarted. progress is optional (the Star
                     // Detection Optimizer's live attempt passes null), so report through it defensively.
-                    AutoFocusInProgress = false;
+                    ReleaseAutoFocusInProgress();
                     progress?.Report(new ApplicationStatus() { Status = string.Empty });
                 }
             }

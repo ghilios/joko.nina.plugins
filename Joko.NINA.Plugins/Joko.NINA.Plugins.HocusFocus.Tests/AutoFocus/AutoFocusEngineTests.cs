@@ -282,6 +282,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             Assert.That(engine.AutoFocusInProgress, Is.False, "AutoFocusInProgress must be cleared even when the run fails with a null progress");
         }
 
+        [Test]
+        public void TryClaimAutoFocusInProgress_SecondClaimantIsRejectedUntilReleased() {
+            // F11: the static AutoFocusInProgress guard must be claimed atomically so two RunImpl entrants
+            // (e.g. a manual AF and the optimizer's live attempt) cannot both pass the gate and drive the focuser.
+            AutoFocusEngine.ResetAutoFocusInProgressForTests();
+            try {
+                Assert.That(AutoFocusEngine.TryClaimAutoFocusInProgress(), Is.True, "first claim should succeed");
+                Assert.That(AutoFocusEngine.TryClaimAutoFocusInProgress(), Is.False, "second claim must be rejected while held");
+
+                AutoFocusEngine.ReleaseAutoFocusInProgress();
+                Assert.That(AutoFocusEngine.TryClaimAutoFocusInProgress(), Is.True, "claim should succeed again after release");
+            } finally {
+                AutoFocusEngine.ResetAutoFocusInProgressForTests();
+            }
+        }
+
         private sealed class TempDir : IDisposable {
             public string Path { get; }
             public TempDir() {
