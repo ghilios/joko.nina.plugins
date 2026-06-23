@@ -740,19 +740,29 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private bool isInteractive;
 
         /// <summary>
-        /// True only for the VM instance hosted in the AutoFocus pane (set by InteractiveHostBehavior when the pane
-        /// DataTemplate loads). Sequence-triggered AF runs construct their own transient VM via the factory, which is
-        /// never rendered through the pane template, so it stays false — gating frame retention to interactive runs.
+        /// True only for the VM instance hosted in the AutoFocus pane. Toggled exclusively through
+        /// <see cref="MarkInteractive"/> / <see cref="MarkNonInteractive"/> (called by InteractiveHostBehavior while the
+        /// pane DataTemplate is loaded). Sequence-triggered AF runs construct their own transient VM via the factory,
+        /// which is never rendered through the pane template, so it stays false — gating frame retention to interactive
+        /// runs. No public setter, so the flag can never be flipped from arbitrary binding/code (F07/F20).
         /// </summary>
         public bool IsInteractive {
             get => isInteractive;
-            set {
+            private set {
                 if (isInteractive != value) {
                     isInteractive = value;
                     RaisePropertyChanged();
                 }
             }
         }
+
+        /// <summary>Explicit opt-in: marks THIS VM instance interactive so its runs retain per-frame images for review.
+        /// Called by InteractiveHostBehavior when the pane DataTemplate hosting this VM is loaded (F07/F20).</summary>
+        public void MarkInteractive() => IsInteractive = true;
+
+        /// <summary>Explicit opt-out: reverts the interactive flag when the pane unloads or its DataContext is swapped
+        /// away, so a recycled host never leaves a non-pane VM marked interactive (F20).</summary>
+        public void MarkNonInteractive() => IsInteractive = false;
 
         /// <summary>Exposes the persisted AF options for the pane's "Keep frames for review" toggle binding (mirrors
         /// InspectorVM.InspectorOptions).</summary>
