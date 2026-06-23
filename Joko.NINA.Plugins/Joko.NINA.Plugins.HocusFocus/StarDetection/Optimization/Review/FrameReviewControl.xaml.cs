@@ -35,6 +35,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             InitializeComponent();
             DataContextChanged += OnDataContextChanged;
             KeyDown += OnKeyDown;
+            Unloaded += OnUnloaded;
+        }
+
+        // Detach the VM->control FitRequested edge when the control leaves the visual tree, so a long-lived host
+        // that re-uses this control across DataContexts (or tears down without a DataContext swap) cannot leak the
+        // control through the VM's event. The modal case is unaffected (it unloads on close).
+        private void OnUnloaded(object sender, RoutedEventArgs e) {
+            if (Vm != null) {
+                Vm.FitRequested -= OnFitRequested;
+            }
         }
 
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e) {
@@ -202,7 +212,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             UpdateHover(e);
         }
 
-        // Show the focus graph for the registered+fitted star under the cursor (smallest box wins); clear it otherwise.
+        // Show the focus graph for any matched star under the cursor (smallest box wins); a no-fit star shows
+        // "No accepted focus fit". Clear it when no matched star is under the cursor.
         // Boxes are in raw image coords (matching the displayed raw frame), so the cursor maps via the viewport directly.
         private void UpdateHover(MouseEventArgs e) {
             var vm = Vm;

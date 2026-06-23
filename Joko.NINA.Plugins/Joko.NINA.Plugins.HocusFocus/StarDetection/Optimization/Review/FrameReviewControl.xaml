@@ -375,7 +375,7 @@
 
             <Separator Margin="0,12,0,0" />
             <TextBlock Margin="0,8,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
-                       Text="Read-only diagnostic view. Box color shows each star's registration + focus-fit state. Hover a green (fitted) star to see its focus curve, R², and best focus." />
+                       Text="Read-only diagnostic view. Box color shows each star's registration + focus-fit state. Hover any matched star to see its focus curve, R², and best focus; a no-fit (red) star shows &quot;No accepted focus fit&quot;." />
             <TextBlock Margin="0,8,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
                        Text="Wheel to zoom, right-drag to pan, Fit to reset. ◀ ▶ or Prev/Next to change frames." />
         </StackPanel>

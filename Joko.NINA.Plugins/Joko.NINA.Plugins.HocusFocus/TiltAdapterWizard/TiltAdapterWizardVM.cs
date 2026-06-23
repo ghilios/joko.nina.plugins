@@ -224,11 +224,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         private void OnSummaryCollectionChanged(object sender, NotifyCollectionChangedEventArgs e) {
+            // Mutations are marshaled via AddSummaryRow/ClearSummaryRows, so this handler already runs on the UI
+            // thread; the wrap stays as a defensive no-op fast path (F16).
             OnUIThread(() => {
                 RaisePropertyChanged(nameof(HasMeasurementFeedback));
                 RaisePropertyChanged(nameof(HasMeasurementResults));
             });
         }
+
+        // F16: WPF raises CollectionChanged synchronously at the mutation site, so the .Add/.Clear themselves — not
+        // just the resulting notification — must run on the UI thread. All StepMeasurementSummary mutations go
+        // through these helpers so off-thread callers (e.g. a future ConfigureAwait(false) resume) stay safe.
+        private void AddSummaryRow(TiltMeasurementSummaryRow row) => OnUIThread(() => StepMeasurementSummary.Add(row));
+
+        private void ClearSummaryRows() => OnUIThread(StepMeasurementSummary.Clear);
 
         public ITiltAdapterOptions TiltAdapterOptions => tiltAdapterOptions;
         public InspectorVM Inspector => inspector;
@@ -288,7 +297,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(AreDevicesConnected));
                 RaisePropertyChanged(nameof(ConnectionWarningText));
                 RaisePropertyChanged(nameof(PixelSizeMicronsValue));
-                NotifyCommandsCanExecuteChanged();
+                NotifyCommandsCanExecuteChangedCore();
             }
         }
 
@@ -299,16 +308,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(AreDevicesConnected));
                 RaisePropertyChanged(nameof(ConnectionWarningText));
-                NotifyCommandsCanExecuteChanged();
+                NotifyCommandsCanExecuteChangedCore();
             }
         }
 
         public void UpdateDeviceInfo(CameraInfo deviceInfo) {
-            CameraInfo = deviceInfo;
+            // Marshal the whole update (state mutation + notifications) once at the consumer boundary so individual
+            // setters need not each remember to wrap, and the high-frequency background broadcast is not blocked (F15).
+            OnUIThread(() => CameraInfo = deviceInfo);
         }
 
         public void UpdateDeviceInfo(FocuserInfo deviceInfo) {
-            FocuserInfo = deviceInfo;
+            OnUIThread(() => FocuserInfo = deviceInfo);
         }
 
         public void UpdateEndAutoFocusRun(AutoFocusInfo info) {
@@ -598,7 +609,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RebaselineDriftWarningText = string.Empty;
             HasWarning = false;
             WarningText = string.Empty;
-            StepMeasurementSummary.Clear();
+            ClearSummaryRows();
             runRootFolder = null;
             metadataPath = null;
             currentMetadata = null;
@@ -704,7 +715,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private async Task MeasureStep(WizardStep step, CancellationToken token, bool fromSaved) {
             if (step == WizardStep.Baseline) {
-                StepMeasurementSummary.Clear();
+                ClearSummaryRows();
             }
             var reading = await RunAveragedMeasurement(token, step, StepDescription(step), fromSaved);
             if (reading == null) {
@@ -822,7 +833,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             TiltPlaneModel latestModel, int count, double avgA, double avgB) {
             for (int i = 0; i < readings.Count; i++) {
                 var (a, b, _) = readings[i];
-                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                AddSummaryRow(new TiltMeasurementSummaryRow {
                     RunNumber = i + 1,
                     Direction = NormalizeAngle(Math.Atan2(a, -b) * 180.0 / Math.PI),
                     TiltAngleDeg = ComputeTiltAngleDeg(a, b, latestModel),
@@ -832,7 +843,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
 
             if (count > 1) {
-                StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                AddSummaryRow(new TiltMeasurementSummaryRow {
                     RunNumber = 0,
                     Direction = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
                     TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
@@ -922,7 +933,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             metadataPath = null;
             currentMetadata = null;
             RaiseHardwareSummaryChanged();
-            StepMeasurementSummary.Clear();
+            ClearSummaryRows();
             HasMeasurementConsistencyWarning = false;
             MeasurementConsistencyWarningText = string.Empty;
             HasRebaselineDriftWarning = false;
@@ -1177,7 +1188,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             IsWizardRunning = true;
             IsMeasuring = true;
             stepReadings.Clear();
-            StepMeasurementSummary.Clear();
+            ClearSummaryRows();
             HasMeasurementConsistencyWarning = false;
             MeasurementConsistencyWarningText = string.Empty;
             HasRebaselineDriftWarning = false;
@@ -1218,7 +1229,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     };
                     PopulateCurvature(ref reading);
                     stepReadings[step] = reading;
-                    StepMeasurementSummary.Add(new TiltMeasurementSummaryRow {
+                    AddSummaryRow(new TiltMeasurementSummaryRow {
                         RunNumber = 0,
                         Direction = reading.DirectionDeg,
                         TiltAngleDeg = reading.TiltAngleDeg,
@@ -1412,16 +1423,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // this from the UI thread is free and calling it from a DeviceMediator background broadcast marshals safely.
         private void OnUIThread(Action action) => applicationDispatcher.DispatchSynchronizationContext(action);
 
-        private void NotifyCommandsCanExecuteChanged() {
-            OnUIThread(() => {
-                ((AsyncRelayCommand)StartCommand).NotifyCanExecuteChanged();
-                ((AsyncRelayCommand)RunMeasurementCommand).NotifyCanExecuteChanged();
-                ((AsyncRelayCommand)UseSavedAFCommand).NotifyCanExecuteChanged();
-                ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
-                ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
-                ((AsyncRelayCommand)ReplayCommand).NotifyCanExecuteChanged();
-                ((AsyncRelayCommand)ReplayCurrentSettingsCommand).NotifyCanExecuteChanged();
-            });
+        private void NotifyCommandsCanExecuteChanged() => OnUIThread(NotifyCommandsCanExecuteChangedCore);
+
+        // Raises CanExecuteChanged on every command WITHOUT marshaling. Only call this when already on the UI thread
+        // (e.g. from a setter whose caller already marshaled via OnUIThread, such as UpdateDeviceInfo — F15).
+        private void NotifyCommandsCanExecuteChangedCore() {
+            ((AsyncRelayCommand)StartCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)RunMeasurementCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)UseSavedAFCommand).NotifyCanExecuteChanged();
+            ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
+            ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)ReplayCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)ReplayCurrentSettingsCommand).NotifyCanExecuteChanged();
         }
 
         private static double NormalizeAngle(double deg) => ((deg % 360) + 360) % 360;

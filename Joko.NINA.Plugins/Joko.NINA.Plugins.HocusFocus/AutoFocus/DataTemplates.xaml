@@ -634,7 +634,6 @@
                     Padding="5,0,5,0"
                     VerticalAlignment="Center"
                     Command="{Binding ReviewFramesCommand}"
-                    IsEnabled="{Binding ReviewFramesAvailable}"
                     ToolTip="Open the Review Frames window to inspect each frame of the last auto-focus run started from this pane (a live run or a Reprocess Saved Run) — its detected stars with the Hocus Focus Star Annotator's bounds, per-star text, rejection-reason and ROI boxes, plus per-frame HFR statistics. Enabled after such a run completes with &quot;Keep frames for review&quot; turned on.">
                     <TextBlock Margin="5,0,5,0" Text="Review Frames" />
                 </Button>
@@ -1367,7 +1366,6 @@
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Command="{Binding ReviewFramesCommand}"
-                        IsEnabled="{Binding ReviewFramesAvailable}"
                         ToolTip="Open the Review Frames window to inspect each Sensor Curve Model frame — its detected stars, HFRs, and cross-frame registration (with alignment arrows when RANSAC alignment is on). Enabled after a run completes with &quot;Keep frames for Review&quot; turned on.">
                         <TextBlock
                             Margin="10,5,10,5"
@@ -1381,7 +1379,7 @@
                         Margin="5"
                         VerticalAlignment="Center"
                         Orientation="Horizontal"
-                        ToolTip="When on, the per-frame images from a Sensor Curve Model run are retained in memory so the &quot;Review Frames&quot; button can show each frame with its detected stars, HFRs, and cross-frame registration. Requires the Sensor Curve Model to be enabled. Increases memory use while the run's results are kept (the frames are released when you clear the analysis or start a new run). Off by default.">
+                        ToolTip="When on, the per-frame images from a Sensor Curve Model run are retained in memory so the &quot;Review Frames&quot; button can show each frame with its detected stars, HFRs, and cross-frame registration. Requires the Sensor Curve Model to be enabled. Increases memory use while the run's results are kept (the frames are released when you clear the analysis, start a new run, or close the review window). Off by default.">
                         <CheckBox
                             VerticalAlignment="Center"
                             IsChecked="{Binding InspectorOptions.FrameReviewEnabled}"

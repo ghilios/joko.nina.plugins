@@ -37,6 +37,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             DataContextChanged += OnDataContextChanged;
             KeyDown += OnKeyDown;
             Loaded += OnLoaded;
+            Unloaded += OnUnloaded;
+        }
+
+        // Detach the VM->control FitRequested edge when the control leaves the visual tree, so a long-lived host
+        // that re-uses this control across DataContexts (or tears down without a DataContext swap) cannot leak the
+        // control through the VM's event. The modal case is unaffected (it unloads on close).
+        private void OnUnloaded(object sender, RoutedEventArgs e) {
+            if (Vm != null) {
+                Vm.FitRequested -= OnFitRequested;
+            }
         }
 
         // Size the host window to FIT the screen on first load (clamped to the work area, centered), with a small
@@ -66,12 +76,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             window.Left = work.Left + (work.Width - window.Width) / 2.0;
             window.Top = work.Top + (work.Height - window.Height) / 2.0;
 
-            // The initial auto-fit (ViewportCanvas_SizeChanged) ran against the pre-resize canvas size, so suppress it
-            // and re-fit against the FINAL window size once the resize layout pass has settled (DispatcherPriority.Loaded
-            // runs after layout). Without this the image stays fit to the smaller starting size.
-            hasFitOnce = true;
+            // The initial auto-fit (ViewportCanvas_SizeChanged) ran against the pre-resize canvas size, so re-fit
+            // against the FINAL window size once the resize layout pass has settled (DispatcherPriority.Loaded runs
+            // after layout). Latch hasFitOnce only if that deferred fit actually succeeds; if the canvas still
+            // reports ActualWidth<=0 (or Vm isn't attached yet), leave hasFitOnce false so the SizeChanged auto-fit
+            // can still perform the first real fit. Without this the image could open unfit on slow layout passes.
             Dispatcher.BeginInvoke(
-                new Action(() => OnFitRequested(this, EventArgs.Empty)),
+                new Action(() => { if (TryFit()) { hasFitOnce = true; } }),
                 System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
@@ -110,9 +121,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
         }
 
         private void OnFitRequested(object sender, EventArgs e) {
+            TryFit();
+        }
+
+        // Returns true only when a fit was actually applied (canvas measured and VM ready), so callers can gate
+        // the one-shot hasFitOnce latch on a real fit rather than on a deferred attempt that returned early.
+        private bool TryFit() {
             var vm = Vm;
             if (vm == null || ViewportCanvas.ActualWidth <= 0 || vm.ImageWidth <= 0) {
-                return;
+                return false;
             }
             // Collapse the scrollbars and force a layout pass FIRST so the fit is measured against the final
             // (scrollbar-free) viewport — otherwise the image lands off-center until a second Fit.
@@ -120,10 +137,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             VScroll.Visibility = Visibility.Collapsed;
             ViewportCanvas.UpdateLayout();
             if (ViewportCanvas.ActualWidth <= 0 || ViewportCanvas.ActualHeight <= 0) {
-                return;
+                return false;
             }
             vm.Viewport.FitTo(ViewportCanvas.ActualWidth, ViewportCanvas.ActualHeight, vm.ImageWidth, vm.ImageHeight);
             ApplyViewport();
+            return true;
         }
 
         private void ApplyViewport() {
@@ -241,9 +259,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             if (hasFitOnce) {
                 return;
             }
-            if (ViewportCanvas.ActualWidth > 0 && Vm?.ImageWidth > 0) {
+            // Latch only when a fit actually applies, so a too-early SizeChanged (ActualWidth still settling)
+            // does not permanently suppress the first real fit.
+            if (TryFit()) {
                 hasFitOnce = true;
-                OnFitRequested(this, EventArgs.Empty);
             }
         }
     }

@@ -87,7 +87,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly List<(double FocuserPosition, HocusFocusStarDetectionResult Result, IRenderedImage Image)> reviewFrames
             = new List<(double, HocusFocusStarDetectionResult, IRenderedImage)>();
         private bool frameReviewRequestedForRun;
-        private AutoFocusFrameReviewSnapshot reviewSnapshot;
+        // Written on the engine's background completion thread (BuildFrameReviewSnapshotIfRequested) and on the
+        // close handler, read on the UI thread (ReviewFramesAvailable / ShowFrameReview). Reference reads are
+        // atomic; volatile (plus the blocking Send in NotifyReviewFramesAvailabilityChanged) establishes the
+        // happens-before so UI reads see the built snapshot rather than a stale reference. (F21)
+        private volatile AutoFocusFrameReviewSnapshot reviewSnapshot;
 
         public static readonly string ReportDirectory = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "AutoFocus");
 
@@ -563,6 +567,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 InitialFocuserPosition = result.InitialFocuserPosition;
                 return LastReport;
             } finally {
+                // A successful run already moved frames into the snapshot (and cleared reviewFrames); this
+                // covers cancellation / null-init paths where Completed/Failed never fired, so captured
+                // exposures aren't pinned until the next run. (F22)
+                ReleaseUnsnapshottedReviewFrames();
                 AutoFocusInProgress = false;
             }
         }
@@ -778,9 +786,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 framesForReview = reviewFrames
                     .Select(f => (f.FocuserPosition, f.Result, f.Image))
                     .ToList();
+                // The snapshot captures only each frame's display BitmapSource; once built, the source
+                // IRenderedImage buffers (raw 16-bit pixels + statistics) are no longer needed, so drop
+                // our references here instead of keeping them pinned until the next run (F05).
+                reviewFrames.Clear();
             }
             reviewSnapshot = AutoFocusFrameReviewSnapshotBuilder.Build(framesForReview);
             NotifyReviewFramesAvailabilityChanged();
+        }
+
+        // Release any per-frame images accumulated this run when no snapshot was built (cancellation, or a
+        // run that returned without firing Completed/Failed). Safe to call unconditionally — it is a no-op
+        // when nothing was retained. (F22)
+        private void ReleaseUnsnapshottedReviewFrames() {
+            lock (frameReviewLock) {
+                reviewFrames.Clear();
+            }
         }
 
         // Raise the availability binding + re-evaluate the command, marshaled to the UI thread (the snapshot is built /
@@ -802,7 +823,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return;
             }
 
-            var vm = new AutoFocusFrameReviewVM(snapshot, HocusFocusPlugin.StarAnnotatorOptions, starDetectionOptions.MeasurementAverage);
+            var vm = new AutoFocusFrameReviewVM(snapshot, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.ApplicationDispatcher, starDetectionOptions.MeasurementAverage);
             var windowService = windowServiceFactory.Create();
 
             void onRequestClose(object s, EventArgs e) {
@@ -814,6 +835,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 windowService.OnClosed -= onClosed;
                 vm.RequestClose -= onRequestClose;
                 vm.Dispose();
+                // vm.Dispose() only nulls the child VM's copy; the pane VM still holds the snapshot's
+                // frozen bitmaps (F04) and any source IRenderedImage buffers (F06). Release them here so
+                // "released when you ... close the review window" is honored without waiting for the next
+                // run (which uses a different VM for sequence-driven AF anyway).
+                lock (frameReviewLock) {
+                    reviewFrames.Clear();
+                }
+                reviewSnapshot = null;
+                NotifyReviewFramesAvailabilityChanged();
             };
             windowService.OnClosed += onClosed;
             vm.RequestClose += onRequestClose;
@@ -830,11 +860,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             // Drop any frames/snapshot from a prior run (a new run supersedes the previous review). frameReviewRequestedForRun
             // is NOT reset here — it is set per-entry-path (StartAutoFocus / LoadSavedAutoFocusRun) before Run() raises Started.
+            var hadReviewState = reviewSnapshot != null || frameReviewRequestedForRun;
             lock (frameReviewLock) {
                 reviewFrames.Clear();
             }
             reviewSnapshot = null;
-            NotifyReviewFramesAvailabilityChanged();
+            // Only marshal to the UI thread when availability could actually change. On the common non-review end
+            // path (sequence-triggered transient VM bound to no UI) the clear is a no-op, so skip the blocking
+            // Send that would otherwise stall the AF worker if the dispatcher is busy. (F27)
+            if (hadReviewState) {
+                NotifyReviewFramesAvailabilityChanged();
+            }
 
             this.focuserMediator.BroadcastAutoFocusRunStarting();
             this.LastAutoFocusPoint = new ReportAutoFocusPoint() {
@@ -930,6 +966,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Failed reprocessing saved AF", e);
                 return false;
             } finally {
+                ReleaseUnsnapshottedReviewFrames();
                 AutoFocusInProgress = false;
             }
         }

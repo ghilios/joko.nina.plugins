@@ -16,9 +16,16 @@ using System.Windows.Media;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
     public enum StarBoundsTypeEnum {
+
+        [Description("Ellipse")]
         Ellipse,
+
+        [Description("Box")]
         Box,
+
+        [Description("PSF")]
         PSF
     }
 

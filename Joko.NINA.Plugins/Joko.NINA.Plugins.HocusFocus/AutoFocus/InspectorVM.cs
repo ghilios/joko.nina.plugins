@@ -497,6 +497,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Warning($"{invalidRegionCount} regions failed to produce a focus curve");
             }
 
+            // Resolve the definitive review request from the SAME flag that gates this block (capture-time flag on replay).
+            frameReviewRequestedForRun = IsFrameReviewRequested(inspectorOptions.FrameReviewEnabled, sensorCurveModelEnabled);
             if (sensorCurveModelEnabled) {
                 double focuserSizeMicrons = InspectorOptions.MicronsPerFocuserStep;
                 if (double.IsNaN(focuserSizeMicrons) || focuserSizeMicrons <= 0.0) {
@@ -509,40 +511,46 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
 
                 var finalFocuserPosition = result.RegionResults[0].EstimatedFinalFocuserPosition;
-                await SensorModel.UpdateModel(
-                    FullSensorDetectedStars,
-                    fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio,
-                    focuserSizeMicrons: focuserSizeMicrons,
-                    finalFocusPosition: finalFocuserPosition,
-                    stepSize: result.StepSize,
-                    progress,
-                    ct: ct);
+                try {
+                    await SensorModel.UpdateModel(
+                        FullSensorDetectedStars,
+                        fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio,
+                        focuserSizeMicrons: focuserSizeMicrons,
+                        finalFocusPosition: finalFocuserPosition,
+                        stepSize: result.StepSize,
+                        progress,
+                        ct: ct);
 
-                if (!suppressRegisteredImages && ((!forRerun) || (inspectorOptions.SaveImagesOnReruns))) {
-                    if (!String.IsNullOrEmpty(result.SaveFolder)) {
-                        await SaveRegisteredImages(result.SaveFolder,
-                            SensorModel.SensorModelResult.RegisteredStars,
-                            SensorModel.TrianglesByImage,
-                            SensorModel.ReferenceImage,
-                            inspectorOptions.SaveAlignmentImages);
+                    if (!suppressRegisteredImages && ((!forRerun) || (inspectorOptions.SaveImagesOnReruns))) {
+                        if (!String.IsNullOrEmpty(result.SaveFolder)) {
+                            await SaveRegisteredImages(result.SaveFolder,
+                                SensorModel.SensorModelResult.RegisteredStars,
+                                SensorModel.TrianglesByImage,
+                                SensorModel.ReferenceImage,
+                                inspectorOptions.SaveAlignmentImages);
+                        }
                     }
-                }
-
-                // Build the Review Frames snapshot from the same full-sensor detections and registration just computed.
-                // UpdateModel has already applied the alignment transforms, so Position/OriginalPosition/BoundingBox are
-                // final. Runs after the sweep completes (no concurrent SubMeasurementPointCompleted adds), but copy the
-                // list under the lock to stay consistent with the rest of the class.
-                if (frameReviewRequestedForRun) {
-                    List<SensorDetectedStars> framesForReview;
-                    lock (fullSensorDetectedStarsLock) {
-                        framesForReview = FullSensorDetectedStars.ToList();
+                } finally {
+                    // Build the Review Frames snapshot even if UpdateModel threw (failed/poor fit): the per-frame
+                    // detections + bitmaps are exactly what the user needs to "see why the fit looks wrong". The
+                    // builder handles a null/partial registration result gracefully. Don't let snapshot-build errors
+                    // mask the original UpdateModel exception. Skip on cancellation.
+                    if (frameReviewRequestedForRun && !ct.IsCancellationRequested) {
+                        try {
+                            List<SensorDetectedStars> framesForReview;
+                            lock (fullSensorDetectedStarsLock) {
+                                framesForReview = FullSensorDetectedStars.ToList();
+                            }
+                            reviewSnapshot = FrameReviewSnapshotBuilder.Build(
+                                framesForReview,
+                                SensorModel.SensorModelResult?.RegisteredStars,
+                                SensorModel.ReferenceImage,
+                                inspectorOptions.UseRANSAC);
+                            NotifyReviewFramesAvailabilityChanged();
+                        } catch (Exception snapEx) {
+                            Logger.Warning($"Failed to build Review Frames snapshot after model fit: {snapEx.Message}");
+                        }
                     }
-                    reviewSnapshot = FrameReviewSnapshotBuilder.Build(
-                        framesForReview,
-                        SensorModel.SensorModelResult.RegisteredStars,
-                        SensorModel.ReferenceImage,
-                        inspectorOptions.UseRANSAC);
-                    NotifyReviewFramesAvailabilityChanged();
                 }
             }
 
@@ -1018,6 +1026,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        // Pure retention decision: Review Frames needs both the user toggle on AND the resolved (capture-time on
+        // replay) sensor-curve-model flag that actually gates the snapshot build, so the two never disagree.
+        internal static bool IsFrameReviewRequested(bool frameReviewEnabled, bool resolvedSensorCurveModelEnabled) {
+            return frameReviewEnabled && resolvedSensorCurveModelEnabled;
+        }
+
         private AutoFocusEngineOptions GetAutoFocusEngineOptions(IAutoFocusEngine autoFocusEngine, SavedAutoFocusAttempt savedAutoFocusAttempt = null) {
             var options = autoFocusEngine.GetOptions(savedAutoFocusAttempt);
             if (inspectorOptions.FramesPerPoint > 0) {
@@ -1038,8 +1052,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // Freeze the frame-review decision at run start (atomically with the retention decision). Review needs the
             // per-frame images retained, which the engine only does when PreserveExposures is on; force it on for review
             // even on non-saving runs. Applies to all run/rerun paths since they all build options through here.
-            frameReviewRequestedForRun = inspectorOptions.FrameReviewEnabled && inspectorOptions.SensorCurveModelEnabled;
-            if (options.Save || frameReviewRequestedForRun) {
+            // Force exposure retention whenever review is enabled; the definitive frameReviewRequestedForRun
+            // (which gates the snapshot build) is set in AnalyzeAutoFocusResult from the RESOLVED sensor-curve
+            // flag, because option (b) replay runs with the captured flag, not the live inspectorOptions one.
+            if (options.Save || inspectorOptions.FrameReviewEnabled) {
                 options.PreserveExposures = true;
             }
             return options;
@@ -1595,6 +1611,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 windowService.OnClosed -= onClosed;
                 vm.RequestClose -= onRequestClose;
                 vm.Dispose();
+                // vm.Dispose() only nulls the child VM's copy; InspectorVM still holds the snapshot's frozen
+                // bitmaps. Release them on close so the documented "released when you ... close the review
+                // window" contract holds without waiting for Clear Analyses / the next run. (F36)
+                ClearReviewSnapshot();
             };
             windowService.OnClosed += onClosed;
             vm.RequestClose += onRequestClose;

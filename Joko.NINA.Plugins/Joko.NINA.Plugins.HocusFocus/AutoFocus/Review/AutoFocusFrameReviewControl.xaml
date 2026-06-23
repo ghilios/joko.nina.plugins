@@ -360,7 +360,7 @@
                       SelectedItem="{Binding StarBoundsType}">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
-                        <TextBlock Foreground="Black" Text="{Binding}" />
+                        <TextBlock Foreground="Black" Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
