@@ -1737,7 +1737,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var focuserPositionTasks = new List<Task>();
             int completedCount = 0;
             int totalCount = savedFiles.Count;
-            progress.Report(new ApplicationStatus() {
+            progress?.Report(new ApplicationStatus() {
                 Status = "Data Points",
                 MaxProgress = totalCount,
                 Progress = 0,
@@ -1840,7 +1840,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                                 // otherwise re-save raw frames). No-op when not saving.
                                 MaybeCopyReplayFrame(state, savedFile, imageState.AttemptNumber, imageState.FinalValidation);
                                 var incrementedCompletedCount = Interlocked.Increment(ref completedCount);
-                                progress.Report(new ApplicationStatus() {
+                                progress?.Report(new ApplicationStatus() {
                                     Status = "Data Points",
                                     MaxProgress = totalCount,
                                     Progress = incrementedCompletedCount,
@@ -1897,7 +1897,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 prefetchSemaphore.Dispose();
                 loadSerializer.Dispose();
                 await Task.Delay(1000);
-                progress.Report(new ApplicationStatus());
+                progress?.Report(new ApplicationStatus());
             }
         }
 

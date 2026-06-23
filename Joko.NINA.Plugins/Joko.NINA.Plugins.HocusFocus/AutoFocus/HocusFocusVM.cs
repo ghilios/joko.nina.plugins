@@ -532,7 +532,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             PlotFinalFocusPointWithError.Add(new ScatterErrorPoint(minimum.X, minimum.Y, errorX, 0.0));
         }
 
+        // Single source for the interactive frame-review retention policy used by BOTH StartAutoFocus and
+        // LoadSavedAutoFocusRun: retain per-frame images for review only when this VM is interactive (pane) AND the
+        // persisted "Keep frames for review" toggle is on. When retaining, force the engine to preserve exposures and
+        // model PSFs (iff PSF modeling is enabled in star-detection options) so the review can show PSF-derived
+        // per-star properties (AF normally skips PSF fitting for speed). Sets frameReviewRequestedForRun as a side effect.
+        private void ApplyFrameReviewOptions(AutoFocusEngineOptions options) {
+            frameReviewRequestedForRun = IsInteractive && autoFocusOptions.KeepFramesForReview;
+            if (frameReviewRequestedForRun) {
+                options.PreserveExposures = true;
+                options.ModelPSF = starDetectionOptions.ModelPSF;
+            }
+        }
+
         public async Task<AutoFocusReport> StartAutoFocus(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            IAutoFocusEngine autoFocusEngine = null;
             try {
                 if (AutoFocusInProgress) {
                     Notification.ShowError("Another AutoFocus is already in progress");
@@ -540,7 +554,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
                 AutoFocusInProgress = true;
 
-                var autoFocusEngine = autoFocusEngineFactory.Create();
+                autoFocusEngine = autoFocusEngineFactory.Create();
                 autoFocusEngine.Started += AutoFocusEngine_AutoFocusStarted;
                 autoFocusEngine.InitialHFRCalculated += AutoFocusEngine_InitialHFRCalculated;
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
@@ -550,16 +564,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
                 var options = autoFocusEngine.GetOptions();
 
-                // Retain per-frame images for review ONLY for an interactive run started from the AF pane AND with the
-                // persisted "Keep frames for review" toggle on. Frozen here (at run start, where PreserveExposures is
-                // decided) so a sequence-triggered run — whose VM is never marked interactive — never retains frames.
-                frameReviewRequestedForRun = IsInteractive && autoFocusOptions.KeepFramesForReview;
-                if (frameReviewRequestedForRun) {
-                    options.PreserveExposures = true;
-                    // Model PSFs during this review run iff PSF modeling is enabled in the star-detection options, so
-                    // the review can show the PSF-derived per-star properties (AF normally skips PSF fitting for speed).
-                    options.ModelPSF = starDetectionOptions.ModelPSF;
-                }
+                ApplyFrameReviewOptions(options);
                 var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
                 if (result == null || !result.Succeeded) {
                     return null;
@@ -567,6 +572,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 InitialFocuserPosition = result.InitialFocuserPosition;
                 return LastReport;
             } finally {
+                // Detach the per-run engine handlers symmetrically. Correctness doesn't depend on it today (the factory
+                // returns a fresh engine each run), but it makes the subscribe/unsubscribe contract explicit and guards
+                // against any future engine reuse leaking handlers across runs. (F28)
+                if (autoFocusEngine != null) {
+                    autoFocusEngine.Started -= AutoFocusEngine_AutoFocusStarted;
+                    autoFocusEngine.InitialHFRCalculated -= AutoFocusEngine_InitialHFRCalculated;
+                    autoFocusEngine.IterationFailed -= AutoFocusEngine_IterationFailed;
+                    autoFocusEngine.MeasurementPointCompleted -= AutoFocusEngine_MeasurementPointCompleted;
+                    autoFocusEngine.SubMeasurementPointCompleted -= AutoFocusEngine_SubMeasurementPointCompleted;
+                    autoFocusEngine.Completed -= AutoFocusEngine_Completed;
+                    autoFocusEngine.Failed -= AutoFocusEngine_Failed;
+                }
                 // A successful run already moved frames into the snapshot (and cleared reviewFrames); this
                 // covers cancellation / null-init paths where Completed/Failed never fired, so captured
                 // exposures aren't pinned until the next run. (F22)
@@ -740,19 +757,29 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private bool isInteractive;
 
         /// <summary>
-        /// True only for the VM instance hosted in the AutoFocus pane (set by InteractiveHostBehavior when the pane
-        /// DataTemplate loads). Sequence-triggered AF runs construct their own transient VM via the factory, which is
-        /// never rendered through the pane template, so it stays false — gating frame retention to interactive runs.
+        /// True only for the VM instance hosted in the AutoFocus pane. Toggled exclusively through
+        /// <see cref="MarkInteractive"/> / <see cref="MarkNonInteractive"/> (called by InteractiveHostBehavior while the
+        /// pane DataTemplate is loaded). Sequence-triggered AF runs construct their own transient VM via the factory,
+        /// which is never rendered through the pane template, so it stays false — gating frame retention to interactive
+        /// runs. No public setter, so the flag can never be flipped from arbitrary binding/code (F07/F20).
         /// </summary>
         public bool IsInteractive {
             get => isInteractive;
-            set {
+            private set {
                 if (isInteractive != value) {
                     isInteractive = value;
                     RaisePropertyChanged();
                 }
             }
         }
+
+        /// <summary>Explicit opt-in: marks THIS VM instance interactive so its runs retain per-frame images for review.
+        /// Called by InteractiveHostBehavior when the pane DataTemplate hosting this VM is loaded (F07/F20).</summary>
+        public void MarkInteractive() => IsInteractive = true;
+
+        /// <summary>Explicit opt-out: reverts the interactive flag when the pane unloads or its DataContext is swapped
+        /// away, so a recycled host never leaves a non-pane VM marked interactive (F20).</summary>
+        public void MarkNonInteractive() => IsInteractive = false;
 
         /// <summary>Exposes the persisted AF options for the pane's "Keep frames for review" toggle binding (mirrors
         /// InspectorVM.InspectorOptions).</summary>
@@ -824,31 +851,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             var vm = new AutoFocusFrameReviewVM(snapshot, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.ApplicationDispatcher, starDetectionOptions.MeasurementAverage);
-            var windowService = windowServiceFactory.Create();
-
-            void onRequestClose(object s, EventArgs e) {
-                _ = windowService.Close();
-            }
-
-            EventHandler onClosed = null;
-            onClosed = (s, e) => {
-                windowService.OnClosed -= onClosed;
-                vm.RequestClose -= onRequestClose;
-                vm.Dispose();
-                // vm.Dispose() only nulls the child VM's copy; the pane VM still holds the snapshot's
-                // frozen bitmaps (F04) and any source IRenderedImage buffers (F06). Release them here so
-                // "released when you ... close the review window" is honored without waiting for the next
-                // run (which uses a different VM for sequence-driven AF anyway).
+            ReviewDialogHost.Show(windowServiceFactory, vm, "Review Frames", () => {
+                // vm.Dispose() only nulls the child VM's copy; the pane VM still holds the snapshot's frozen bitmaps
+                // (F04) and source IRenderedImage buffers (F06). Release them on close so "released when you close the
+                // review window" is honored without waiting for the next run.
                 lock (frameReviewLock) {
                     reviewFrames.Clear();
                 }
                 reviewSnapshot = null;
                 NotifyReviewFramesAvailabilityChanged();
-            };
-            windowService.OnClosed += onClosed;
-            vm.RequestClose += onRequestClose;
-
-            windowService.ShowDialog(vm, "Review Frames", System.Windows.ResizeMode.CanResize, System.Windows.WindowStyle.SingleBorderWindow);
+            });
         }
 
         private void AutoFocusEngine_InitialHFRCalculated(object sender, AutoFocusInitialHFRCalculatedEventArgs e) {
@@ -886,6 +898,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private CancellationTokenSource loadSavedAutoFocusRunCts;
 
         private async Task<bool> LoadSavedAutoFocusRun(string selectedPath) {
+            IAutoFocusEngine autoFocusEngine = null;
             try {
                 if (AutoFocusInProgress) {
                     Notification.ShowError("Another AutoFocus is already in progress");
@@ -895,7 +908,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 loadSavedAutoFocusRunCts?.Cancel();
                 loadSavedAutoFocusRunCts = new CancellationTokenSource();
-                var autoFocusEngine = autoFocusEngineFactory.Create();
+                autoFocusEngine = autoFocusEngineFactory.Create();
                 SavedAutoFocusAttempt savedAttempt;
 
                 try {
@@ -935,14 +948,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
                 var options = resolution.Options;
 
-                // Replay is an interactive pane action, so it supports Review Frames on the same terms as a live run:
-                // keep frames when interactive + the toggle is on, forcing the engine to retain each reloaded exposure,
-                // and model PSFs (when enabled in star-detection options) so PSF properties are available in the review.
-                frameReviewRequestedForRun = IsInteractive && autoFocusOptions.KeepFramesForReview;
-                if (frameReviewRequestedForRun) {
-                    options.PreserveExposures = true;
-                    options.ModelPSF = starDetectionOptions.ModelPSF;
-                }
+                // Replay is an interactive pane action, so it supports Review Frames on the same terms as a live run.
+                ApplyFrameReviewOptions(options);
 
                 // Option (b) supplies the run's capture-time regions so its ROI is honored through the explicit-region
                 // path (the engine consumes the star-detection override there) without mutating the profile. Otherwise
@@ -966,6 +973,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Failed reprocessing saved AF", e);
                 return false;
             } finally {
+                // Detach the per-run engine handlers symmetrically (F28). This path wires Completed ->
+                // AutoFocusEngine_CompletedNoReport and does not subscribe Failed, so the -= list mirrors that exactly.
+                if (autoFocusEngine != null) {
+                    autoFocusEngine.Started -= AutoFocusEngine_AutoFocusStarted;
+                    autoFocusEngine.InitialHFRCalculated -= AutoFocusEngine_InitialHFRCalculated;
+                    autoFocusEngine.IterationFailed -= AutoFocusEngine_IterationFailed;
+                    autoFocusEngine.MeasurementPointCompleted -= AutoFocusEngine_MeasurementPointCompleted;
+                    autoFocusEngine.SubMeasurementPointCompleted -= AutoFocusEngine_SubMeasurementPointCompleted;
+                    autoFocusEngine.Completed -= AutoFocusEngine_CompletedNoReport;
+                }
                 ReleaseUnsnapshottedReviewFrames();
                 AutoFocusInProgress = false;
             }

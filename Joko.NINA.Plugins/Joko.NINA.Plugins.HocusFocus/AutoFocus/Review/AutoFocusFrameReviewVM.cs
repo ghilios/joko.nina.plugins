@@ -20,7 +20,6 @@ using System.ComponentModel;
 using System.Linq;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
 
@@ -81,7 +80,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
     /// and <see cref="StarReviewLegendEntry"/> for the legend. The per-star text selection is review-local (initialized
     /// from the annotator setting, not written back). Disposing releases the retained bitmaps.
     /// </summary>
-    public sealed class AutoFocusFrameReviewVM : BaseINPC, IDisposable {
+    public sealed class AutoFocusFrameReviewVM : FrameReviewVMBase<AutoFocusReviewMarker>, IReviewDialogViewModel {
 
         private static SolidColorBrush FrozenBrush(Color c) {
             var b = new SolidColorBrush(c);
@@ -95,20 +94,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
         private readonly MeasurementAverageEnum measurementAverage;
         private readonly bool psfAvailable;
 
-        public event EventHandler RequestClose;
-        public event EventHandler FitRequested;
-
-        public StarReviewViewport Viewport { get; }
-        public ObservableCollection<AutoFocusReviewMarker> Markers { get; } = new();
         public ObservableCollection<AutoFocusReviewRectOverlay> RectOverlays { get; } = new();
 
-        public RelayCommand PrevCommand { get; }
-        public RelayCommand NextCommand { get; }
-        public RelayCommand FitCommand { get; }
-        public RelayCommand CloseCommand { get; }
-
-        public AutoFocusFrameReviewVM(AutoFocusFrameReviewSnapshot snapshot, IStarAnnotatorOptions annotatorOptions, IApplicationDispatcher applicationDispatcher, MeasurementAverageEnum measurementAverage) {
-            this.snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
+        public AutoFocusFrameReviewVM(AutoFocusFrameReviewSnapshot snapshot, IStarAnnotatorOptions annotatorOptions, IApplicationDispatcher applicationDispatcher, MeasurementAverageEnum measurementAverage)
+            : base((snapshot ?? throw new ArgumentNullException(nameof(snapshot))).Frames.Count) {
+            this.snapshot = snapshot;
             this.annotatorOptions = annotatorOptions ?? throw new ArgumentNullException(nameof(annotatorOptions));
             this.applicationDispatcher = applicationDispatcher ?? throw new ArgumentNullException(nameof(applicationDispatcher));
             this.measurementAverage = measurementAverage;
@@ -132,24 +122,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             var configuredBounds = annotatorOptions.StarBoundsType;
             this.starBoundsType = AvailableBoundsTypes.Contains(configuredBounds) ? configuredBounds : StarBoundsTypeEnum.Box;
 
-            Viewport = new StarReviewViewport();
-
             annotatorOptions.PropertyChanged += AnnotatorOptions_PropertyChanged;
 
-            PrevCommand = new RelayCommand(Prev, () => CurrentIndex > 0);
-            NextCommand = new RelayCommand(Next, () => CurrentIndex < FrameCount - 1);
-            FitCommand = new RelayCommand(() => FitRequested?.Invoke(this, EventArgs.Empty));
-            CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
-
-            legendEntries = BuildLegend();
+            RebuildLegend();
             CurrentIndex = 0;
             // No fit here: FitRequested has zero subscribers at construction time (the control subscribes in
             // OnDataContextChanged, after the ctor returns). The initial fit is driven by the control's first
             // layout (Loaded/SizeChanged). Passing fit:false makes that contract explicit.
             LoadCurrent(fit: false);
         }
-
-        private int FrameCount => snapshot?.Frames.Count ?? 0;
 
         // Overlay-affecting annotator properties: a change to any of these re-renders the overlays + legend live
         // (same UX as the image annotator). Properties the review does not render are ignored to avoid wasted rebuilds.
@@ -247,34 +228,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
 
         // ---- navigation / current frame -------------------------------------------------------------------
 
-        private int currentIndex;
-        public int CurrentIndex {
-            get => currentIndex;
-            private set {
-                if (currentIndex != value) {
-                    currentIndex = value;
-                    RaisePropertyChanged();
-                    RaisePropertyChanged(nameof(PositionLabel));
-                }
-            }
-        }
-
-        public string PositionLabel => FrameCount > 0 ? $"{CurrentIndex + 1} / {FrameCount}" : "0 / 0";
-
-        private BitmapSource frameImage;
-        public BitmapSource FrameImage {
-            get => frameImage;
-            private set {
-                frameImage = value;
-                RaisePropertyChanged();
-                RaisePropertyChanged(nameof(ImageWidth));
-                RaisePropertyChanged(nameof(ImageHeight));
-            }
-        }
-
-        public double ImageWidth => frameImage?.PixelWidth ?? 0;
-        public double ImageHeight => frameImage?.PixelHeight ?? 0;
-
         private string frameHeader;
         public string FrameHeader {
             get => frameHeader;
@@ -297,29 +250,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
 
         // ---- inverse-zoom overlay bindings ----------------------------------------------------------------
 
-        public double MarkerStrokeThickness => 1.5 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
-        public double MarkerTextScale => 1.0 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
         public double LabelOffset => -15.0 * MarkerTextScale;
 
-        public void NotifyViewportChanged() {
-            RaisePropertyChanged(nameof(MarkerStrokeThickness));
-            RaisePropertyChanged(nameof(MarkerTextScale));
+        public override void NotifyViewportChanged() {
+            base.NotifyViewportChanged();
             RaisePropertyChanged(nameof(LabelOffset));
         }
 
         // ---- legend ---------------------------------------------------------------------------------------
 
-        private IReadOnlyList<StarReviewLegendEntry> legendEntries;
-        public IReadOnlyList<StarReviewLegendEntry> LegendEntries {
-            get => legendEntries;
-            private set { legendEntries = value; RaisePropertyChanged(); }
-        }
-
-        private void RebuildLegend() {
-            LegendEntries = BuildLegend();
-        }
-
-        private IReadOnlyList<StarReviewLegendEntry> BuildLegend() {
+        protected override IReadOnlyList<StarReviewLegendEntry> BuildLegend() {
             var entries = new List<StarReviewLegendEntry> {
                 new() { Brush = StarBoundsBrush, Caption = $"Star bounds ({StarBoundsType})", Enabled = annotatorOptions.ShowStarBounds },
                 new() { Brush = AnnotationBrush, Caption = "Star annotation text", Enabled = ShowAnnotationType != ShowAnnotationTypeEnum.None },
@@ -349,20 +289,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
 
         // ---- frame loading --------------------------------------------------------------------------------
 
-        private void Prev() {
-            if (CurrentIndex > 0) {
-                CurrentIndex--;
-                LoadCurrent(fit: false);
-            }
-        }
-
-        private void Next() {
-            if (CurrentIndex < FrameCount - 1) {
-                CurrentIndex++;
-                LoadCurrent(fit: false);
-            }
-        }
-
         private AutoFocusReviewFrame CurrentFrame {
             get {
                 var frames = snapshot?.Frames;
@@ -373,17 +299,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             }
         }
 
-        private void LoadCurrent(bool fit) {
+        // The base LoadCurrent already cleared Markers and will fire CanExecute/fit; this only sets the
+        // frame-specific image/header/stats/overlays. CurrentFrame reads CurrentIndex (== index here).
+        protected override void LoadFrame(int index) {
             var frame = CurrentFrame;
             if (frame == null) {
                 FrameImage = null;
                 FrameHeader = string.Empty;
                 DetectedCountText = string.Empty;
                 StatsText = string.Empty;
-                Markers.Clear();
                 RectOverlays.Clear();
-                PrevCommand.NotifyCanExecuteChanged();
-                NextCommand.NotifyCanExecuteChanged();
                 return;
             }
 
@@ -395,12 +320,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             StatsText = StarReviewHfrStats.FormatStats(center, deviation, frame.DetectedStarCount, measurementAverage, includeCount: false);
 
             RebuildCurrentFrameOverlays();
-
-            PrevCommand.NotifyCanExecuteChanged();
-            NextCommand.NotifyCanExecuteChanged();
-            if (fit) {
-                FitRequested?.Invoke(this, EventArgs.Empty);
-            }
         }
 
         private void RebuildCurrentFrameOverlays() {
@@ -484,8 +403,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
             RectOverlays.Clear();
             FrameImage = null;
             snapshot = null;
-            FitRequested = null;
-            RequestClose = null;
+            DetachReviewEvents();
         }
     }
 }

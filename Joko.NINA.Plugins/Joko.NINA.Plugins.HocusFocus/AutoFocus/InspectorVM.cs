@@ -30,6 +30,7 @@ using NINA.Equipment.Model;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Review;
 using NINA.Joko.Plugins.HocusFocus.Controls;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -1599,27 +1600,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return;
             }
 
+            // Release this VM's frozen snapshot bitmaps on close (F36) via the shared host's afterClosed callback.
             var vm = new FrameReviewVM(snapshot);
-            var windowService = windowServiceFactory.Create();
-
-            void onRequestClose(object s, EventArgs e) {
-                _ = windowService.Close();
-            }
-
-            EventHandler onClosed = null;
-            onClosed = (s, e) => {
-                windowService.OnClosed -= onClosed;
-                vm.RequestClose -= onRequestClose;
-                vm.Dispose();
-                // vm.Dispose() only nulls the child VM's copy; InspectorVM still holds the snapshot's frozen
-                // bitmaps. Release them on close so the documented "released when you ... close the review
-                // window" contract holds without waiting for Clear Analyses / the next run. (F36)
-                ClearReviewSnapshot();
-            };
-            windowService.OnClosed += onClosed;
-            vm.RequestClose += onRequestClose;
-
-            windowService.ShowDialog(vm, "Review Frames", ResizeMode.CanResize, WindowStyle.SingleBorderWindow);
+            ReviewDialogHost.Show(windowServiceFactory, vm, "Review Frames", ClearReviewSnapshot);
         }
         public AsyncObservableCollection<ScatterErrorPoint>[] RegionFocusPoints { get; private set; }
         public AsyncObservableCollection<DataPoint>[] RegionPlotFocusPoints { get; private set; }

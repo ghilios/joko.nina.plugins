@@ -21,6 +21,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
     /// ever rendered through the <c>HocusFocusVM_Dockable</c> DataTemplate. Applying
     /// <c>InteractiveHostBehavior.HostInteractive="True"</c> on that template's root sets <see cref="HocusFocusVM.IsInteractive"/>
     /// on the bound VM; a sequence-created VM is never rendered there, so it stays false and never retains frames.
+    /// Tracks Loaded/Unloaded AND DataContextChanged so the marking follows the bound VM through host recycling (F20),
+    /// routing through MarkInteractive()/MarkNonInteractive() rather than a public setter.
     /// </summary>
     public static class InteractiveHostBehavior {
 
@@ -42,12 +44,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if ((bool)e.NewValue) {
                 fe.Loaded += OnLoaded;
                 fe.Unloaded += OnUnloaded;
+                fe.DataContextChanged += OnDataContextChanged;
                 if (fe.IsLoaded) {
                     SetInteractive(fe, true);
                 }
             } else {
                 fe.Loaded -= OnLoaded;
                 fe.Unloaded -= OnUnloaded;
+                fe.DataContextChanged -= OnDataContextChanged;
                 SetInteractive(fe, false);
             }
         }
@@ -64,9 +68,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        // Track DataContext swaps so a recycled host re-marks the newly-bound VM (and un-marks the old one) rather than
+        // relying on Loaded/Unloaded alone (F20): a host that swaps its VM while staying loaded would otherwise leave the
+        // new VM unmarked (pane silently stops retaining frames) or the old VM still marked.
+        private static void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e) {
+            if (e.OldValue is HocusFocusVM oldVm) {
+                oldVm.MarkNonInteractive();
+            }
+            if (sender is FrameworkElement fe && fe.IsLoaded) {
+                SetInteractive(fe, true);
+            }
+        }
+
         private static void SetInteractive(FrameworkElement fe, bool value) {
             if (fe.DataContext is HocusFocusVM vm) {
-                vm.IsInteractive = value;
+                if (value) {
+                    vm.MarkInteractive();
+                } else {
+                    vm.MarkNonInteractive();
+                }
             }
         }
     }

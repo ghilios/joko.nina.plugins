@@ -11,15 +11,14 @@
 #endregion "copyright"
 
 using NINA.Core.Utility;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Review;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
 using OxyPlot;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
@@ -83,7 +82,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
     /// the hover graph uses <see cref="FrameReviewFocusGraph"/> / <see cref="FrameReviewScatterGraph"/> OxyPlot charts.
     /// Disposing releases the retained bitmaps.
     /// </summary>
-    public sealed class FrameReviewVM : BaseINPC, IDisposable {
+    public sealed class FrameReviewVM : FrameReviewVMBase<FrameReviewMarker>, IReviewDialogViewModel {
 
         private static SolidColorBrush FrozenBrush(Color c) {
             var b = new SolidColorBrush(c);
@@ -114,26 +113,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         private FrameReviewSnapshot snapshot;
 
-        public event EventHandler RequestClose;
-        public event EventHandler FitRequested;
-
-        public StarReviewViewport Viewport { get; }
-        public ObservableCollection<FrameReviewMarker> Markers { get; } = new();
-
-        public RelayCommand PrevCommand { get; }
-        public RelayCommand NextCommand { get; }
-        public RelayCommand FitCommand { get; }
-        public RelayCommand CloseCommand { get; }
-
-        public FrameReviewVM(FrameReviewSnapshot snapshot) {
-            this.snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
-            Viewport = new StarReviewViewport();
-            legendEntries = BuildLegend();
-
-            PrevCommand = new RelayCommand(Prev, () => CurrentIndex > 0);
-            NextCommand = new RelayCommand(Next, () => CurrentIndex < FrameCount - 1);
-            FitCommand = new RelayCommand(() => FitRequested?.Invoke(this, EventArgs.Empty));
-            CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
+        public FrameReviewVM(FrameReviewSnapshot snapshot)
+            : base((snapshot ?? throw new ArgumentNullException(nameof(snapshot))).Frames.Count) {
+            this.snapshot = snapshot;
+            RebuildLegend();
 
             CurrentIndex = 0;
             // No fit here: FitRequested has zero subscribers at construction time (the control subscribes in
@@ -141,8 +124,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             // layout (Loaded/SizeChanged). Passing fit:false makes that contract explicit.
             LoadCurrent(fit: false);
         }
-
-        private int FrameCount => snapshot?.Frames.Count ?? 0;
 
         // ---- toggles --------------------------------------------------------------------------------------
 
@@ -174,34 +155,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         // ---- navigation / current frame -------------------------------------------------------------------
 
-        private int currentIndex;
-        public int CurrentIndex {
-            get => currentIndex;
-            private set {
-                if (currentIndex != value) {
-                    currentIndex = value;
-                    RaisePropertyChanged();
-                    RaisePropertyChanged(nameof(PositionLabel));
-                }
-            }
-        }
-
-        public string PositionLabel => FrameCount > 0 ? $"{CurrentIndex + 1} / {FrameCount}" : "0 / 0";
-
-        private BitmapSource frameImage;
-        public BitmapSource FrameImage {
-            get => frameImage;
-            private set {
-                frameImage = value;
-                RaisePropertyChanged();
-                RaisePropertyChanged(nameof(ImageWidth));
-                RaisePropertyChanged(nameof(ImageHeight));
-            }
-        }
-
-        public double ImageWidth => frameImage?.PixelWidth ?? 0;
-        public double ImageHeight => frameImage?.PixelHeight ?? 0;
-
         private string frameHeader;
         public string FrameHeader {
             get => frameHeader;
@@ -232,14 +185,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         // ---- inverse-zoom overlay bindings ----------------------------------------------------------------
 
-        public double MarkerStrokeThickness => 1.5 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
-        public double MarkerTextScale => 1.0 / Math.Max(StarReviewViewport.MinScale, Viewport.Scale);
         public double HfrLabelOffset => -15.0 * MarkerTextScale;
         public double RegistrationLabelOffset => 3.0 * MarkerTextScale;
 
-        public void NotifyViewportChanged() {
-            RaisePropertyChanged(nameof(MarkerStrokeThickness));
-            RaisePropertyChanged(nameof(MarkerTextScale));
+        public override void NotifyViewportChanged() {
+            base.NotifyViewportChanged();
             RaisePropertyChanged(nameof(HfrLabelOffset));
             RaisePropertyChanged(nameof(RegistrationLabelOffset));
         }
@@ -322,17 +272,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         // ---- legend ---------------------------------------------------------------------------------------
 
-        private IReadOnlyList<StarReviewLegendEntry> legendEntries;
-        public IReadOnlyList<StarReviewLegendEntry> LegendEntries {
-            get => legendEntries;
-            private set { legendEntries = value; RaisePropertyChanged(); }
-        }
-
-        private void RebuildLegend() {
-            LegendEntries = BuildLegend();
-        }
-
-        private IReadOnlyList<StarReviewLegendEntry> BuildLegend() {
+        protected override IReadOnlyList<StarReviewLegendEntry> BuildLegend() {
             return new List<StarReviewLegendEntry> {
                 new() { Brush = AcceptedBrush, Caption = "Accepted (focus fit)", Dashed = false },
                 new() { Brush = RegisteredNoFitBrush, Caption = "Registered, no focus fit", Dashed = false },
@@ -346,23 +286,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
         // ---- frame loading --------------------------------------------------------------------------------
 
-        private void Prev() {
-            if (CurrentIndex > 0) {
-                CurrentIndex--;
-                LoadCurrent(fit: false);
-            }
-        }
-
-        private void Next() {
-            if (CurrentIndex < FrameCount - 1) {
-                CurrentIndex++;
-                LoadCurrent(fit: false);
-            }
-        }
-
-        private void LoadCurrent(bool fit) {
+        // The base LoadCurrent already cleared Markers and will fire CanExecute/fit; this only clears the hover and
+        // sets the frame-specific image/headers/markers.
+        protected override void LoadFrame(int index) {
             ClearHover();
-            Markers.Clear();
             var frames = snapshot?.Frames;
             if (frames == null || frames.Count == 0) {
                 FrameImage = null;
@@ -370,12 +297,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 DetectedCountText = string.Empty;
                 ReferenceNote = string.Empty;
                 TransformText = string.Empty;
-                PrevCommand.NotifyCanExecuteChanged();
-                NextCommand.NotifyCanExecuteChanged();
                 return;
             }
 
-            var frame = frames[Math.Min(CurrentIndex, frames.Count - 1)];
+            var frame = frames[Math.Min(index, frames.Count - 1)];
             FrameImage = frame.Image;
             FrameHeader = $"Focuser position: {frame.FocuserPosition:0}";
             DetectedCountText = $"Detected stars: {frame.DetectedStarCount}";
@@ -384,12 +309,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
 
             foreach (var s in frame.Stars) {
                 Markers.Add(BuildMarker(s));
-            }
-
-            PrevCommand.NotifyCanExecuteChanged();
-            NextCommand.NotifyCanExecuteChanged();
-            if (fit) {
-                FitRequested?.Invoke(this, EventArgs.Empty);
             }
         }
 
@@ -433,8 +352,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             Markers.Clear();
             FrameImage = null;
             snapshot = null;
-            FitRequested = null;
-            RequestClose = null;
+            DetachReviewEvents();
         }
     }
 }
