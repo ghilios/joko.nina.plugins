@@ -497,6 +497,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Warning($"{invalidRegionCount} regions failed to produce a focus curve");
             }
 
+            // Resolve the definitive review request from the SAME flag that gates this block (capture-time flag on replay).
+            frameReviewRequestedForRun = IsFrameReviewRequested(inspectorOptions.FrameReviewEnabled, sensorCurveModelEnabled);
             if (sensorCurveModelEnabled) {
                 double focuserSizeMicrons = InspectorOptions.MicronsPerFocuserStep;
                 if (double.IsNaN(focuserSizeMicrons) || focuserSizeMicrons <= 0.0) {
@@ -1018,6 +1020,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        // Pure retention decision: Review Frames needs both the user toggle on AND the resolved (capture-time on
+        // replay) sensor-curve-model flag that actually gates the snapshot build, so the two never disagree.
+        internal static bool IsFrameReviewRequested(bool frameReviewEnabled, bool resolvedSensorCurveModelEnabled) {
+            return frameReviewEnabled && resolvedSensorCurveModelEnabled;
+        }
+
         private AutoFocusEngineOptions GetAutoFocusEngineOptions(IAutoFocusEngine autoFocusEngine, SavedAutoFocusAttempt savedAutoFocusAttempt = null) {
             var options = autoFocusEngine.GetOptions(savedAutoFocusAttempt);
             if (inspectorOptions.FramesPerPoint > 0) {
@@ -1038,8 +1046,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // Freeze the frame-review decision at run start (atomically with the retention decision). Review needs the
             // per-frame images retained, which the engine only does when PreserveExposures is on; force it on for review
             // even on non-saving runs. Applies to all run/rerun paths since they all build options through here.
-            frameReviewRequestedForRun = inspectorOptions.FrameReviewEnabled && inspectorOptions.SensorCurveModelEnabled;
-            if (options.Save || frameReviewRequestedForRun) {
+            // Force exposure retention whenever review is enabled; the definitive frameReviewRequestedForRun
+            // (which gates the snapshot build) is set in AnalyzeAutoFocusResult from the RESOLVED sensor-curve
+            // flag, because option (b) replay runs with the captured flag, not the live inspectorOptions one.
+            if (options.Save || inspectorOptions.FrameReviewEnabled) {
                 options.PreserveExposures = true;
             }
             return options;
