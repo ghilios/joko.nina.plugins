@@ -1611,6 +1611,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 windowService.OnClosed -= onClosed;
                 vm.RequestClose -= onRequestClose;
                 vm.Dispose();
+                // vm.Dispose() only nulls the child VM's copy; InspectorVM still holds the snapshot's frozen
+                // bitmaps. Release them on close so the documented "released when you ... close the review
+                // window" contract holds without waiting for Clear Analyses / the next run. (F36)
+                ClearReviewSnapshot();
             };
             windowService.OnClosed += onClosed;
             vm.RequestClose += onRequestClose;

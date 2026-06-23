@@ -1381,7 +1381,7 @@
                         Margin="5"
                         VerticalAlignment="Center"
                         Orientation="Horizontal"
-                        ToolTip="When on, the per-frame images from a Sensor Curve Model run are retained in memory so the &quot;Review Frames&quot; button can show each frame with its detected stars, HFRs, and cross-frame registration. Requires the Sensor Curve Model to be enabled. Increases memory use while the run's results are kept (the frames are released when you clear the analysis or start a new run). Off by default.">
+                        ToolTip="When on, the per-frame images from a Sensor Curve Model run are retained in memory so the &quot;Review Frames&quot; button can show each frame with its detected stars, HFRs, and cross-frame registration. Requires the Sensor Curve Model to be enabled. Increases memory use while the run's results are kept (the frames are released when you clear the analysis, start a new run, or close the review window). Off by default.">
                         <CheckBox
                             VerticalAlignment="Center"
                             IsChecked="{Binding InspectorOptions.FrameReviewEnabled}"
