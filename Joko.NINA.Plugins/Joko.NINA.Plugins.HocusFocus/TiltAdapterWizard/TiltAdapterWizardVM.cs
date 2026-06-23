@@ -288,7 +288,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(AreDevicesConnected));
                 RaisePropertyChanged(nameof(ConnectionWarningText));
                 RaisePropertyChanged(nameof(PixelSizeMicronsValue));
-                NotifyCommandsCanExecuteChanged();
+                NotifyCommandsCanExecuteChangedCore();
             }
         }
 
@@ -299,16 +299,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(AreDevicesConnected));
                 RaisePropertyChanged(nameof(ConnectionWarningText));
-                NotifyCommandsCanExecuteChanged();
+                NotifyCommandsCanExecuteChangedCore();
             }
         }
 
         public void UpdateDeviceInfo(CameraInfo deviceInfo) {
-            CameraInfo = deviceInfo;
+            // Marshal the whole update (state mutation + notifications) once at the consumer boundary so individual
+            // setters need not each remember to wrap, and the high-frequency background broadcast is not blocked (F15).
+            OnUIThread(() => CameraInfo = deviceInfo);
         }
 
         public void UpdateDeviceInfo(FocuserInfo deviceInfo) {
-            FocuserInfo = deviceInfo;
+            OnUIThread(() => FocuserInfo = deviceInfo);
         }
 
         public void UpdateEndAutoFocusRun(AutoFocusInfo info) {
@@ -1412,16 +1414,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // this from the UI thread is free and calling it from a DeviceMediator background broadcast marshals safely.
         private void OnUIThread(Action action) => applicationDispatcher.DispatchSynchronizationContext(action);
 
-        private void NotifyCommandsCanExecuteChanged() {
-            OnUIThread(() => {
-                ((AsyncRelayCommand)StartCommand).NotifyCanExecuteChanged();
-                ((AsyncRelayCommand)RunMeasurementCommand).NotifyCanExecuteChanged();
-                ((AsyncRelayCommand)UseSavedAFCommand).NotifyCanExecuteChanged();
-                ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
-                ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
-                ((AsyncRelayCommand)ReplayCommand).NotifyCanExecuteChanged();
-                ((AsyncRelayCommand)ReplayCurrentSettingsCommand).NotifyCanExecuteChanged();
-            });
+        private void NotifyCommandsCanExecuteChanged() => OnUIThread(NotifyCommandsCanExecuteChangedCore);
+
+        // Raises CanExecuteChanged on every command WITHOUT marshaling. Only call this when already on the UI thread
+        // (e.g. from a setter whose caller already marshaled via OnUIThread, such as UpdateDeviceInfo — F15).
+        private void NotifyCommandsCanExecuteChangedCore() {
+            ((AsyncRelayCommand)StartCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)RunMeasurementCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)UseSavedAFCommand).NotifyCanExecuteChanged();
+            ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
+            ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)ReplayCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)ReplayCurrentSettingsCommand).NotifyCanExecuteChanged();
         }
 
         private static double NormalizeAngle(double deg) => ((deg % 360) + 360) % 360;

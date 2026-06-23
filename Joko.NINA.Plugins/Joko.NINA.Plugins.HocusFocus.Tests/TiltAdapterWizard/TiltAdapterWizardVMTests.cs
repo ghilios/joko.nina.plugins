@@ -175,6 +175,35 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
+        public void UpdateDeviceInfo_Camera_MarshalsExactlyOnceAtBoundary() {
+            // F15: device-info broadcasts arrive on a background thread; the whole UpdateDeviceInfo body (state
+            // mutation + all command/property notifications) must be marshaled to the UI thread as a single unit,
+            // not via a separate dispatch per notify site.
+            var dispatcher = new RecordingApplicationDispatcher();
+            var (vm, _, _, _) = Build(dispatcher: dispatcher);
+            var before = dispatcher.DispatchCount;
+
+            vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
+
+            Assert.That(dispatcher.DispatchCount - before, Is.EqualTo(1),
+                "UpdateDeviceInfo(CameraInfo) should marshal exactly once at the consumer boundary");
+        }
+
+        [Test]
+        public void RestartCommand_MarshalsStepMeasurementSummaryMutation() {
+            // F16: the StepMeasurementSummary mutation (.Clear here) must itself be marshaled to the UI thread, not
+            // just the change-notification, because WPF raises CollectionChanged synchronously at the mutation site.
+            var dispatcher = new RecordingApplicationDispatcher();
+            var (vm, _, _, _) = Build(dispatcher: dispatcher);
+            var before = dispatcher.DispatchCount;
+
+            vm.RestartCommand.Execute(null);
+
+            Assert.That(dispatcher.DispatchCount, Is.GreaterThan(before),
+                "Restart must marshal the StepMeasurementSummary mutation through the dispatcher");
+        }
+
+        [Test]
         public void IsCalibrationValid_RequiresCalibratedFlagAndMatchingScrewCount() {
             var (vm, options, _, _) = Build(screwCount: 3);
 
