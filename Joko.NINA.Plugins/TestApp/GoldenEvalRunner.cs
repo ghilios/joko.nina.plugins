@@ -148,8 +148,23 @@ namespace TestApp {
             var runOut = Path.Combine(outRoot, OptimizationRunDiscovery.SanitizeForFileName(run.RunId));
             Directory.CreateDirectory(runOut);
 
+            // Optional focuser-position filter (sweep on a single representative frame quickly).
+            var framesArg = DiagnosticUtil.GetArg(args, "--frames");
+            HashSet<int> framesFilter = null;
+            if (!string.IsNullOrWhiteSpace(framesArg)) {
+                framesFilter = new HashSet<int>();
+                foreach (var part in framesArg.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
+                    if (int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v)) {
+                        framesFilter.Add(v);
+                    }
+                }
+            }
+
             var frameEvals = new List<FrameEval>();
             foreach (var frame in run.Frames.OrderBy(f => f.FocuserPosition)) {
+                if (framesFilter != null && !framesFilter.Contains(frame.FocuserPosition)) {
+                    continue;
+                }
                 // Per-image golden sidecar: beside the image, or in --golden dir by image filename.
                 var goldenPath = string.IsNullOrWhiteSpace(goldenDirArg)
                     ? frame.Path
@@ -282,8 +297,37 @@ namespace TestApp {
             }
 
             ApplyDefocusOverrides(p, args, ref sourceLabel);
+            ApplyParamOverrides(p, args, ref sourceLabel);
             p.CollectRejectedCandidateDiagnostics = true;
             return p;
+        }
+
+        /// <summary>Generic detector-param overrides for sweeping the candidate-formation vs late-gate frontier
+        /// (e.g. --noise-clip / --structure-layers / --min-box drive candidate FORMATION; --sensitivity etc. are
+        /// late gates). Applied last, so a flag wins over the mode/snapshot.</summary>
+        private static void ApplyParamOverrides(StarDetectorParams p, string[] args, ref string sourceLabel) {
+            var notes = new List<string>();
+            void Dbl(string name, Action<double> set, string tag) {
+                var s = DiagnosticUtil.GetArg(args, name);
+                if (s != null && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) { set(v); notes.Add($"{tag}={v.ToString(CultureInfo.InvariantCulture)}"); }
+            }
+            void Int(string name, Action<int> set, string tag) {
+                var s = DiagnosticUtil.GetArg(args, name);
+                if (s != null && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v)) { set(v); notes.Add($"{tag}={v}"); }
+            }
+            Dbl("--noise-clip", v => p.NoiseClippingMultiplier = v, "noiseClip");      // structure-map binarize (candidate formation)
+            Int("--structure-layers", v => p.StructureLayers = v, "structLayers");      // wavelet depth (candidate formation)
+            Int("--noise-reduction-radius", v => p.NoiseReductionRadius = v, "nrRadius");
+            Int("--min-box", v => p.MinimumStarBoundingBoxSize = v, "minBox");          // candidate size filter
+            Dbl("--sensitivity", v => p.Sensitivity = v, "sens");                       // late brightness gate
+            Dbl("--star-clip", v => p.StarClippingMultiplier = v, "starClip");
+            Dbl("--peak-response", v => p.PeakResponse = v, "peak");
+            Dbl("--max-distortion", v => p.MaxDistortion = v, "maxDist");
+            Dbl("--min-hfr", v => p.MinHFR = v, "minHFR");
+            Dbl("--star-center-tolerance", v => p.StarCenterTolerance = v, "centerTol");
+            if (notes.Count > 0) {
+                sourceLabel += " +params[" + string.Join(",", notes) + "]";
+            }
         }
 
         /// <summary>Overlays ALL optimized snapshot fields including the v2 defocus-aware ones (the in-tree TestApp

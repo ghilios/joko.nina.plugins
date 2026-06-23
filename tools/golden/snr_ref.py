@@ -51,17 +51,46 @@ def coarse_bg(img, grid=128):
     sig = np.maximum(sig, 1.0)
     return bg, sig
 
-def detect(path, k=5.0, min_area=3, max_area=8000, close=2):
+def matched_filter_donuts(signal, sig, radii, k, minsep=12):
+    """Multi-scale disk matched filter for low-surface-brightness DONUTS, returned as LOCAL MAXIMA of the
+    response (one detection per donut, not a flood of thresholded pixels). For each radius the disk-integrated
+    SNR is mean_in_disk*sqrt(Npix)/sigma; we take the per-pixel MAX response across radii, then keep strict
+    local maxima above k (a donut gives one clean peak; noise gives many small scattered ones that the local-max
+    + separation suppress). Returns list of (cy, cx, response, radius)."""
+    best = np.zeros(signal.shape, dtype=np.float32)
+    bestr = np.zeros(signal.shape, dtype=np.int16)
+    for r in radii:
+        win = 2*r + 1
+        boxmean = ndimage.uniform_filter(signal, size=win, mode='nearest')
+        resp = (boxmean * np.sqrt(win*win) / sig).astype(np.float32)
+        upd = resp > best
+        best = np.where(upd, resp, best)
+        bestr = np.where(upd, r, bestr)
+    localmax = (best == ndimage.maximum_filter(best, size=minsep)) & (best > k)
+    ys, xs = np.nonzero(localmax)
+    return [(int(y), int(x), float(best[y, x]), int(bestr[y, x])) for y, x in zip(ys, xs)]
+
+def saturation_mask(img, sat_level=60000.0, radius=0.0):
+    """Distance-mask around saturated-star cores (the diffraction-spike / bloom region) so the reference does
+    not emit a flood of false candidates along the spikes. radius<=0 disables. Returns bool mask to EXCLUDE."""
+    if radius <= 0:
+        return None
+    sat = img >= sat_level
+    if not sat.any():
+        return None
+    dist = ndimage.distance_transform_edt(~sat)
+    return dist < radius
+
+def detect(path, k=5.0, min_area=3, max_area=20000, close=2, donut=False, donut_radii=(6,10,14,18), donut_k=6.0, sat_radius=0.0):
     img = read_fits(path)
     bg, sig = coarse_bg(img)
     signal = img - bg
+    satmask = saturation_mask(img, radius=sat_radius)
     mask = signal > (k * sig)
     if close > 0:
         mask = ndimage.binary_closing(mask, structure=np.ones((close,close)))
     lbl, n = ndimage.label(mask)
-    if n == 0:
-        return img, bg, sig, []
-    objs = ndimage.find_objects(lbl)
+    objs = ndimage.find_objects(lbl) if n else []
     cands = []
     for i, sl in enumerate(objs, start=1):
         ys, xs = sl
@@ -81,14 +110,27 @@ def detect(path, k=5.0, min_area=3, max_area=8000, close=2):
                       'bx': int(xs.start), 'by': int(ys.start),
                       'bw': int(xs.stop-xs.start), 'bh': int(ys.stop-ys.start),
                       'peak': round(peak,1), 'snr': round(snr,2), 'area': area})
+    if donut:
+        # Add donut local maxima not already covered by a peak candidate (dedup by separation).
+        existing = [(c['x'], c['y']) for c in cands]
+        for (dy, dx, resp, r) in matched_filter_donuts(signal, sig, donut_radii, donut_k):
+            if any((dx-ex)**2 + (dy-ey)**2 <= (r*1.0)**2 for ex, ey in existing):
+                continue
+            cands.append({'x': float(dx), 'y': float(dy), 'bx': dx-r, 'by': dy-r, 'bw': 2*r, 'bh': 2*r,
+                          'peak': 0.0, 'snr': round(resp,2), 'area': int(3.14159*r*r), 'donut': True})
+            existing.append((dx, dy))
+    if satmask is not None:
+        H, W = img.shape
+        cands = [c for c in cands if not satmask[min(H-1, max(0, int(round(c['y'])))), min(W-1, max(0, int(round(c['x']))))]]
     return img, bg, sig, cands
 
 if __name__ == '__main__':
     path = sys.argv[1]
     k = float(sys.argv[2]) if len(sys.argv) > 2 else 5.0
-    img, bg, sig, cands = detect(path, k=k)
     out = sys.argv[3] if len(sys.argv) > 3 else None
-    print(f'image {img.shape} bg~{np.median(bg):.0f} sig~{np.median(sig):.1f} k={k} candidates={len(cands)}')
+    donut = '--donut' in sys.argv
+    img, bg, sig, cands = detect(path, k=k, donut=donut)
+    print(f'image {img.shape} bg~{np.median(bg):.0f} sig~{np.median(sig):.1f} k={k} donut={donut} candidates={len(cands)}')
     if cands:
         snrs = sorted(c['snr'] for c in cands)
         print(f'  SNR min {snrs[0]} median {snrs[len(snrs)//2]} max {snrs[-1]}; area med {sorted(c["area"] for c in cands)[len(cands)//2]}')

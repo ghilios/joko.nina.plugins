@@ -132,23 +132,74 @@ stars are unreachable by any late-gate tuning — only candidate-formation chang
    settings the corners get only ~20–25 stars each across the sweep; `--inspection` ~30–40. Substantially higher,
    robust per-region yield requires improving candidate formation, not more late-gate tuning.
 
+## Candidate-formation sweep (the recall lever)
+
+Sweeping the candidate-formation knobs directly against the golden (via `golden eval --noise-clip /
+--structure-layers / --min-box`, all 9 frames, vs the as-run default) isolates the fix:
+
+| NoiseClippingMultiplier | recall@SNR≥12 | recall@all | precision | NO-CANDIDATE |
+|---|---|---|---|---|
+| 4.0 (default) | 0.189 | 0.073 | 0.85 | 6191 |
+| 2.5 | 0.358 | 0.140 | 0.82 | 4712 |
+| 2.0 | 0.459 | 0.186 | 0.81 | 3556 |
+| 1.5 | **0.596** | 0.263 | 0.80 | 1757 |
+
+- **`NoiseClippingMultiplier` (the structure-map binarize threshold) is THE recall lever.** Lowering it 4→1.5
+  triples recall@SNR≥12 (0.19→0.60) at modest precision cost (0.85→0.80) and collapses `NO CANDIDATE`
+  6191→1757 — i.e., the wavelet structure stage *can* form these candidates; the default 4σ binarize was just
+  too strict. NC=1.5 alone beats the best optimizer combo (0.27) by 2.2×.
+- `StructureLayers` (5/6) and `MinimumStarBoundingBoxSize` (3/2) **do not help** recall (StructureLayers slightly
+  *raises* NO-CANDIDATE; MinBox had no effect in isolation).
+- The optimizer leaves NC at 4.0 because its objective rewards labeled-recall/star-count balanced against
+  σ_focus — not recovery of unlabeled real stars — so it never pushes the binarize threshold down.
+
+## Donut / defocus validation (mufti frame, focuser 2325, heavy donuts + a saturated spiked star)
+
+A separate heavily-defocused frame (same ASI6200MM rig) with obvious donuts and an oversaturated diffraction-
+spiked star, scored against an SNR+matched-filter reference (donut detection + saturation masking):
+
+| Setting | HF accepted | recall@SNR≥12 | NO-CANDIDATE | TooDistorted (rejected) |
+|---|---|---|---|---|
+| default | **7** | 0.007 | 1085 | 191 |
+| defocus-aware (gates+donut+structure) | 84 | 0.114 | 896 | 214 |
+| NC=2.0 alone | 21 | 0.028 | 801 | **436** |
+| **NC=2.0 + defocus-aware** | **161** | **0.157** | 648 | 203 |
+
+- **HF default detects almost nothing on a donut frame (7 stars)** — donuts are either `NO CANDIDATE` or
+  rejected as `TooDistorted` (low fill-ratio rings).
+- **The defocus-aware gates genuinely recover donuts** (7→84, 16×) — they relax `TooDistorted`/centering so
+  rings pass. This validates that HF feature.
+- **For donuts you need BOTH levers:** NC=2.0 alone forms more candidates (NO-CAND 1085→801) but they pile up
+  in `TooDistorted` (191→**436**); NC + defocus-aware together gives the most recovery (161 stars, 22× default)
+  at high precision (0.93).
+- **Faint pure-ring donuts (no core) remain noise-limited** for everyone — HF catches the brighter cored donuts
+  and misses the faint rings; a naive matched filter over-detects them. Honest extreme-defocus donut recall is
+  therefore bounded by SNR, not just by the detector.
+- **HF's precision around the saturated star is excellent** — it rejects the diffraction-spike/bloom fragments
+  (where a naive SNR matched filter floods). HF's problem on defocused frames is purely *recall*, not spike FPs.
+
 ## Recommendations to improve the detector
 
-- **Make candidate formation more sensitive (the actual recall lever).** The wavelet/à-trous structure stage
-  with `StructureLayers=4` + `NoiseClippingMultiplier=4` is the gate that produces the `NO CANDIDATE` misses.
-  Options: lower the structure-map binarize threshold (smaller `NoiseClippingMultiplier`), add/boost structure
-  layers, reduce `MinimumStarBoundingBoxSize`, and/or add a complementary per-pixel-SNR candidate path (like the
-  reference) so faint compact stars that the wavelet residual erases still form candidates. These should be
-  swept on this run and validated against the golden.
-- **Add the structure-stage knobs to the optimizer's search.** Today the optimizer mostly tunes late gates, so
-  it cannot recover `NO CANDIDATE` stars; include candidate-formation params (`NoiseClippingMultiplier`,
-  `StructureLayers`, structure-noise threshold) so it can actually move recall.
-- **For robust tilt calibration now:** prefer the `--inspection` optimized settings (modest recall gain at
-  unchanged precision) and ensure enough stars per corner ROI; if corners are starved, the candidate-formation
-  changes above are required.
-- **Defocus/donut recall** could not be fully quantified here (reference under-counts donuts); add a
-  matched-filter reference pass to audit whether the defocus-aware/donut settings recover the extreme-defocus
-  rings.
+- **Lower `NoiseClippingMultiplier` — this is THE recall lever (confirmed by the sweep).** The structure-map
+  binarize threshold at 4σ is what produces the `NO CANDIDATE` misses. Dropping it to ~**2.0–2.5** roughly
+  doubles–triples recall@SNR≥12 (0.19→0.46–0.36) at small precision cost (~0.85→0.81); 1.5 maximizes recall
+  (0.60) but is the most aggressive. `StructureLayers`/`MinBox` are not useful levers. Recommended production
+  setpoint: **NC≈2.0–2.5**, pending the HFR-scatter check below.
+- **For defocused / donut frames, lower NC AND enable the defocus-aware gates together.** Neither alone is
+  enough: NC forms the donut candidates but they're then rejected as `TooDistorted`; the defocus-aware gates
+  relax that. Combined they gave 22× the donut recall of default at 0.93 precision.
+- **Fix the optimizer so it actually pursues recall.** The candidate-formation knobs are already in its curated
+  set, but the objective leaves `NoiseClippingMultiplier` at 4.0. Either reweight/extend the objective to reward
+  recovery of real (e.g., SNR-reference) stars, or seed/penalize so the search drives the binarize threshold
+  down. Today even `--inspection` (the best objective) only tunes late gates.
+- **Validate the precision/HFR-accuracy cost before shipping (the gating step for a production change).** More
+  (fainter) stars can add HFR scatter that hurts the AF curve / per-region tilt fit. Measure per-region HFR
+  scatter and σ_focus at NC∈{2.5,2.0,1.5} vs default before changing the production default. This is the subject
+  of the B-phase-2 plan (`plans/star-detection-candidate-formation-recall-plan.md`).
+- **For robust tilt calibration *now*:** use NC≈2.0 (+ defocus-aware on defocused sweeps) — far more per-region
+  stars than default at unchanged precision; this most helps the recall-starved corner ROIs.
+- **Faint pure-ring donuts are SNR-limited**, not a tractable detector deficiency on a single sub — don't chase
+  them; they carry little usable HFR signal when that defocused.
 
 ## Tooling produced (reusable)
 
