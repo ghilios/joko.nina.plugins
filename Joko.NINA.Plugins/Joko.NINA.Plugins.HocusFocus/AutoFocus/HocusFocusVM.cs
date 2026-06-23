@@ -831,6 +831,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 windowService.OnClosed -= onClosed;
                 vm.RequestClose -= onRequestClose;
                 vm.Dispose();
+                // vm.Dispose() only nulls the child VM's copy; the pane VM still holds the snapshot's
+                // frozen bitmaps (F04) and any source IRenderedImage buffers (F06). Release them here so
+                // "released when you ... close the review window" is honored without waiting for the next
+                // run (which uses a different VM for sequence-driven AF anyway).
+                lock (frameReviewLock) {
+                    reviewFrames.Clear();
+                }
+                reviewSnapshot = null;
+                NotifyReviewFramesAvailabilityChanged();
             };
             windowService.OnClosed += onClosed;
             vm.RequestClose += onRequestClose;
