@@ -420,12 +420,34 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
             });
         }
 
-        // F35: a registered star whose aligned position differs by less than a float ULP must still draw its line.
+        // F35: the registration line is gated on a tolerance (|Δx|+|Δy| > 1e-6), not exact inequality, so a nonzero
+        // but sub-epsilon alignment residual no longer draws a visually meaningless ~zero-length line. The aligned
+        // position flows in as targetX (= posX) and the raw position as centerX (= origX) with no intervening
+        // transform, so a known delta between those star fields equals |targetX-centerX|+|targetY-centerY| directly.
+        // Small-magnitude coordinates are used because a float cannot represent a nonzero delta below ~6.1e-5 at
+        // coordinate magnitude ~1000.
+
+        // Delta 3e-7 (representable, > 0, < 1e-6): old "!= 0" code drew this; the tolerance suppresses it.
         [Test]
-        public void Build_NonReferenceAlignedFrame_SubUlpMovement_StillHasLine() {
-            float rawX = 1000f;
-            float alignedX = MathF.BitIncrement(rawX); // differs by 1 ULP, > 0 but tiny
-            var star = MakeStar(posX: alignedX, posY: 44, origX: rawX, origY: 44);
+        public void Build_NonReferenceAlignedFrame_SubEpsilonMovement_HasNoLine() {
+            float origin = 0f;
+            float aligned = 3e-7f; // representable, nonzero, |Δ| ≈ 3e-7 < 1e-6
+            var star = MakeStar(posX: aligned, posY: origin, origX: origin, origY: origin);
+            var refFrame = MakeFrame(100, new[] { MakeStar() }, MakeImage());
+            var movedFrame = MakeFrame(200, new[] { star }, MakeImage(), alignment: Matrix3x2.Identity, hasBeenAligned: true);
+            var registered = new[] { MakeRegistered((star, 1)) };
+
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { refFrame, movedFrame }, registered, referenceImageIndex: 0, ransacEnabled: true);
+
+            Assert.That(snapshot.Frames.Single(f => f.ImageIndex == 1).Stars.Single().HasRegistrationLine, Is.False);
+        }
+
+        // Delta 2e-6 (just above the epsilon): the line is drawn.
+        [Test]
+        public void Build_NonReferenceAlignedFrame_AboveEpsilonMovement_HasLine() {
+            float origin = 0f;
+            float aligned = 2e-6f; // |Δ| ≈ 2e-6 > 1e-6
+            var star = MakeStar(posX: aligned, posY: origin, origX: origin, origY: origin);
             var refFrame = MakeFrame(100, new[] { MakeStar() }, MakeImage());
             var movedFrame = MakeFrame(200, new[] { star }, MakeImage(), alignment: Matrix3x2.Identity, hasBeenAligned: true);
             var registered = new[] { MakeRegistered((star, 1)) };
@@ -440,7 +462,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         // so the OLD code (no referenceSurvives guard) would draw a registration line and show transform text; the
         // fix suppresses both because the reference the alignment is relative to is no longer visible.
         [Test]
-        public void Build_DroppedReferenceImage_FlagsSurvivingReferenceCandidate() {
+        public void Build_DroppedReferenceImage_SuppressesLinesAndTransform() {
             var refStar = MakeStar(posX: 10, posY: 10);
             var droppedRefFrame = MakeFrame(100, new[] { refStar }, null); // reference image not retained -> dropped
             var otherStar = MakeStar(posX: 33, posY: 44, origX: 10, origY: 12); // aligned away from raw -> would draw a line

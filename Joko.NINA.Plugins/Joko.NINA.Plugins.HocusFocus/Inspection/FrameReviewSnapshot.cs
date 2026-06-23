@@ -252,7 +252,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                         // The line is only meaningful for a registered star on an aligned (RANSAC) non-reference frame
                         // whose aligned position differs from its raw position. Use a tolerance (not exact !=) so a
-                        // genuinely-registered star whose alignment maps it to a near-identical position still draws.
+                        // star whose alignment maps it back to a near-identical position (sub-pixel float residual)
+                        // does NOT draw a visually meaningless ~zero-length line; only a move whose |Δx|+|Δy| exceeds
+                        // the epsilon is worth annotating.
                         const double registrationLineEpsilon = 1e-6;
                         bool hasRegistrationLine = ransacEnabled && referenceSurvives && !isReference && registrationId != null
                             && (Math.Abs(targetX - centerX) + Math.Abs(targetY - centerY) > registrationLineEpsilon);
