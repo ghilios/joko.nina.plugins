@@ -108,7 +108,7 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <DockPanel Grid.Row="0" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
+        <DockPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" LastChildFill="False" Margin="0,0,0,6">
             <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Text="{Binding FrameHeader}" />
             <TextBlock DockPanel.Dock="Right" Text="{Binding PositionLabel}" />
             <!-- Sensor (image-pixel) coordinates under the cursor, for describing a region precisely. -->
@@ -398,13 +398,13 @@
         </Grid>
 
         <!-- Concise, wrapping interaction instructions (the color key now lives in the legend panel at right) + counts. -->
-        <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,6,0,0">
+        <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,6,0,0">
             <TextBlock Foreground="#FFB0B6BD" Text="{Binding HelpText}" TextWrapping="Wrap" />
             <TextBlock Margin="0,4,0,0" Foreground="#FFB0B6BD" Text="{Binding CountsLabel}" />
         </StackPanel>
 
         <!-- Color legend (right column), generated from the VM's single color source so it tracks the overlays. -->
-        <StackPanel Grid.Row="0" Grid.RowSpan="4" Grid.Column="1" Width="230" Margin="12,0,0,0">
+        <StackPanel Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" VerticalAlignment="Top" Width="230" Margin="12,0,0,0">
             <TextBlock FontWeight="Bold" Margin="0,0,0,6" Text="Legend" />
             <ItemsControl ItemsSource="{Binding LegendEntries}">
                 <ItemsControl.ItemTemplate>

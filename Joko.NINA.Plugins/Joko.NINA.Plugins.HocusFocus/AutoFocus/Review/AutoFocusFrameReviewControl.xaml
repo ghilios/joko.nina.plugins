@@ -110,7 +110,7 @@
         </Grid.RowDefinitions>
 
         <!-- Summary header: focuser position, detected-star count, HFR ± deviation stats, frame index. -->
-        <Border Grid.Row="0" Grid.Column="0" Margin="0,0,0,6" Padding="8,5" CornerRadius="3" Background="#FF262B31">
+        <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,0,6" Padding="8,5" CornerRadius="3" Background="#FF262B31">
             <DockPanel LastChildFill="False">
                 <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Text="{Binding FrameHeader}" />
                 <TextBlock DockPanel.Dock="Left" Margin="16,0,0,0" Foreground="#FFB0B6BD" Text="{Binding DetectedCountText}" />
@@ -315,7 +315,7 @@
 
         <!-- Right column: legend (disabled rows greyed) + per-star text / star-bounds selectors + help. Scrollable so
              it never clips on a short window. -->
-        <ScrollViewer Grid.Row="0" Grid.RowSpan="3" Grid.Column="1" Width="240" Margin="12,0,0,0"
+        <ScrollViewer Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" VerticalAlignment="Top" Width="240" Margin="12,0,0,0"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
             <TextBlock FontWeight="Bold" Margin="0,0,0,6" Text="Legend" />
