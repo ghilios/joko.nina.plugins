@@ -1230,7 +1230,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 int sweepCenter = initialFocusPosition;
                 bool calculatedPointRetryUsed = false;
 
+                // Structural backstop so the retry loop can NEVER run unbounded (defense-in-depth for a hardware loop):
+                // at most TotalNumberOfAttempts attempts plus the single calculated-point retry. The conditions below
+                // already guarantee this — the calculated-point retry fires at most once (calculatedPointRetryUsed is
+                // scoped OUTSIDE this loop and is only ever set true), and the standard reattempt is gated on the
+                // strictly-increasing AttemptNumber — but the cap makes termination independent of those conditions
+                // staying correct. It should never trigger in normal operation.
+                int maxIterations = Math.Max(1, autoFocusState.Options.TotalNumberOfAttempts) + 1;
+                int iteration = 0;
+
                 do {
+                    if (++iteration > maxIterations) {
+                        Logger.Error($"AutoFocus retry loop exceeded its {maxIterations}-iteration backstop; aborting to prevent an infinite loop.");
+                        break;
+                    }
                     await StartInitialFocusPoints(initialFocusPosition, autoFocusState, token, progress);
                     reattempt = false;
 
