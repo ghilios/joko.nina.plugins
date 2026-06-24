@@ -32,6 +32,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             NextCommand = new RelayCommand(Next, () => CurrentIndex < FrameCount - 1);
             FitCommand = new RelayCommand(() => FitRequested?.Invoke(this, EventArgs.Empty));
             CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
+            FramePickerItems = Array.Empty<FramePickerItem>();
         }
 
         public event EventHandler RequestClose;
@@ -58,11 +59,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                     currentIndex = value;
                     RaisePropertyChanged();
                     RaisePropertyChanged(nameof(PositionLabel));
+                    RaisePropertyChanged(nameof(SelectedFrameNumber));
                 }
             }
         }
 
         public string PositionLabel => FrameCount > 0 ? $"{CurrentIndex + 1} / {FrameCount}" : "0 / 0";
+
+        /// <summary>Toolbar frame-picker entries (1-based number + focuser-position label). Populated by the subclass,
+        /// the only place with the per-frame focuser positions.</summary>
+        public IReadOnlyList<FramePickerItem> FramePickerItems { get; protected set; }
+
+        /// <summary>Two-way bound by the toolbar frame picker (1-based, matching <see cref="PositionLabel"/>). Selecting
+        /// a frame jumps to it exactly as Prev/Next do — set the index, then LoadCurrent(fit:false) so zoom/pan is
+        /// preserved. Out-of-range and no-op selections are ignored.</summary>
+        public int SelectedFrameNumber {
+            get => CurrentIndex + 1;
+            set {
+                var index = value - 1;
+                if (index >= 0 && index < FrameCount && index != CurrentIndex) {
+                    CurrentIndex = index;
+                    LoadCurrent(fit: false);
+                }
+            }
+        }
 
         private BitmapSource frameImage;
         public BitmapSource FrameImage {
