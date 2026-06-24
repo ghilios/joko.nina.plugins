@@ -33,9 +33,11 @@ The inspector fits the focus surface at two levels of detail.
 The two are not rivals. The 4-corners model captures only the linear part of the focus surface: drop
 the curvature terms from the paraboloid and you are left with the same kind of tilt plane. It is
 enough for a quick corner-versus-center check. The surface model is what you want when you intend to correct the sensor
-physically: a successful fit measures tilt and backfocus independently, with field curvature separated
-from both, so you can address each one systematically (tilt with the adapter screws, backfocus and
-curvature with spacing).
+physically: a successful fit measures tilt, field curvature, and centering independently, so you can
+address each systematically. Correct tilt with differential screw moves. The wizard reads the field
+curvature as a spacing error and derives a backfocus correction from it, applied by moving all the
+adapter screws together (or adding spacers); the curvature that remains at the optimal spacing is the
+optical residual you can only minimize.
 
 ![Best-focus offset across the sensor, decomposed into a tilt plane, field curvature, and their sum](../assets/figures/tilt-heatmap.png){ width=560 }
 
@@ -285,7 +287,8 @@ The fitted parameters are converted into the quantities the panel displays.
 
 The grading uses the critical focus zone as the yardstick. Tilt is called acceptable when its effect
 is within \(0.25 \times \text{CFZ}\); curvature when its effect is within \(1.5 \times \text{CFZ}\). A
-tilt adapter can remove the planar part (see the
-[Tilt Adapter Wizard](tilt-adapter-wizard.md)); the
-curvature residual is a property of the corrector and focal ratio and is addressed with spacing, not
-screws.
+tilt adapter removes the tilt (linear) part with differential screw moves, and reduces the curvature
+effect by moving all screws together to change the backfocus spacing (see the
+[Tilt Adapter Wizard](tilt-adapter-wizard.md)); the curvature that remains at the optimal spacing is a
+property of the corrector and focal ratio, addressed with a better-matched corrector or stopping down
+rather than the adapter.
