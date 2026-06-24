@@ -14,11 +14,14 @@ Report: `D:\Autofocus Bank\verification_<UTC>.{json,md}` (schema `afbank-verify/
 
 ## Headline — recall vs NC (bank median over 17 runs)
 
-| NC | median recall@SNR≥12 | median precision* | median AF σ_focus | median sensor R² |
-|----|----------------------|-------------------|-------------------|------------------|
-| 2  | **0.870**            | 0.508*            | 10.26             | 0.832            |
-| 3  | 0.831                | 0.598*            | 10.97             | 0.898            |
-| 4  | 0.797                | 0.668*            | 9.55              | 0.769            |
+| NC | median recall@SNR≥12 | median recall@all | median precision* | median AF σ_focus | median sensor R² |
+|----|----------------------|-------------------|-------------------|-------------------|------------------|
+| 2  | **0.870**            | 0.851             | 0.585*            | 10.26             | 0.832            |
+| 3  | 0.831                | 0.798             | 0.694*            | 10.97             | 0.898            |
+| 4  | 0.797                | 0.724             | 0.764*            | 9.55              | 0.769            |
+
+(Numbers from the complete-QA goldens, `verification_20260624T142723Z`. The first pass used a rate-limited partial
+QA; completing it raised precision ~+0.08 at every NC — confirming the artifact direction below.)
 
 **recall@SNR≥12 rises monotonically as NC falls, on every run and at the bank median (4→2 lifts median recall
 0.797 → 0.870).** This reproduces and generalizes the cwhite golden-set audit that motivated 4→2: a lower
@@ -40,15 +43,20 @@ The bank-median precision (0.51 at NC=2) is **deflated by an artifact of the gol
   (`BankVerifyAggregate.RecommendNoiseClip`, which picks the lowest NC clearing a 0.60 precision floor) toward
   NC=4. **The recommender logic is sound; its precision input is unreliable for high-candidate runs.**
 
-Where the golden IS complete, precision holds up at NC=2:
+Even after completing the QA, the deep wide-field runs are only *sampled* (4 montages/frame can't cover a
+60k-candidate uncertain tier), so their precision stays a lower bound. The split at **NC=2** is stark:
 
-| run | golden quality | recall@≥12 NC2→NC4 | precision NC2→NC4 |
-|---|---|---|---|
-| **cwhite_2026** | **complete** (7875 stars, full QA from the dry-run) | 0.459 → 0.189 | **0.811 → 0.849** |
+| golden coverage | runs (precision @ NC=2) | reads as |
+|---|---|---|
+| **well-covered** (small uncertain tier, ~fully QA'd) | cwhite_2026 **0.811**, fmeschia **0.792**, caboose **0.698** | true precision — all well above the 0.60 floor |
+| **under-sampled** (huge uncertain tier) | mccomiskey **0.399**, toml999 **0.443** | lower bound — real faint detections miscounted as FP |
 
-cwhite_2026 — the only run with a fully-QA'd golden — shows NC=2 **more than doubles** recall@≥12 (0.189→0.459)
-at **<5% precision cost** (0.849→0.811, still well above any sane floor). That is the gold-standard data point,
-and it endorses NC=2 unambiguously.
+The bank **median** precision at NC=2 (0.585) is dragged below 0.60 entirely by the under-sampled runs; where the
+golden is reasonably complete, NC=2 precision is 0.70–0.81. And note the recommender's pick **moves toward lower NC
+as the golden gets more complete** — NC=4 (high-tier-only) → NC=3 (complete-QA but deep runs still sampled) → it
+would reach **NC=2** if the deep runs' uncertain tiers could be fully QA'd. The trajectory itself points at 2.
+cwhite_2026 (the most complete golden) shows NC=2 **more than doubles** recall@≥12 (0.189→0.459) at a few-% precision
+cost (0.849→0.811) — the gold-standard data point, and it endorses NC=2 unambiguously.
 
 ## Verdict
 
@@ -63,9 +71,11 @@ and it endorses NC=2 unambiguously.
    *below* 2. So a single global default of 2 is well-centered, but deriving NC per frame from the measured local
    noise floor (σ from `coarse_bg`-style block statistics) during candidate formation could recover a little more
    on the cleanest frames while staying safe on the noisiest. Concrete follow-up, not a regression.
-3. **Ignore the auto-recommender's "NC=4".** `BankVerifyAggregate.RecommendNoiseClip` picks the lowest NC clearing
-   a precision floor; fed the artifact-deflated C0 precision it returns NC=4. The recommender logic is fine; its
-   input isn't. The optimizer's converged NC (point 1c) is the trustworthy machine signal.
+3. **Ignore the auto-recommender's "NC=3".** `BankVerifyAggregate.RecommendNoiseClip` picks the lowest NC clearing
+   a precision floor; fed the still-artifact-deflated bank-median precision it returns NC=3 (it returned NC=4 on the
+   partial goldens — the pick walks toward 2 as the golden completes, which is itself the tell). The recommender
+   logic is fine; its input — a precision *lower bound* on the deep runs — isn't. The optimizer's converged NC
+   (point 1c) and the well-covered runs' precision (0.70–0.81 at NC=2) are the trustworthy signals.
 
 ## Per-run notes
 
