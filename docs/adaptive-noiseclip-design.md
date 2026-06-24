@@ -72,9 +72,13 @@ the block reduction parallelizes trivially.
 
 ### Knobs (options system)
 
-- **`LocallyAdaptiveBinarization`** — `bool`, **opt-in, default OFF**. When OFF, the binarization is the current
-  global scalar, **byte-for-byte identical** (the spatial path is never entered). This mirrors how
-  `DefocusAwareDonutDetection` and `DefocusAwareGates` ship: a master toggle that is bit-identical when off.
+- **`LocallyAdaptiveBinarization`** — `bool`. Default **OFF during development** (so the spatial path is never
+  entered and detection stays **byte-for-byte identical** for the A/B comparison + the bit-identical regression
+  test), then flipped to **default ON after validation** (see the Rollout gate in the Validation plan). This is
+  **not** a permanent opt-in flag like `DefocusAwareDonutDetection` / `DefocusAwareGates`: the intended end state
+  is that locally-adaptive binarization is the standard behavior. The boolean is retained only as a user escape
+  hatch and to keep the bit-identical-vs-legacy regression test runnable; its **default** becomes ON, or the
+  feature is not shipped at all (no permanent default-OFF middle ground).
 - **`AdaptiveNoiseBlockSize`** — `int`, default 128 px (Advanced; `UnitTextBox` + `IntegerRangeRule`). Larger =
   smoother surface (less local adaptivity, cheaper); smaller = more adaptive but noisier surface and risks tracking
   real extended structure into the background. 64–256 is the sane range.
@@ -116,6 +120,18 @@ Reuses the harness this design came from:
    the recall gap that motivated the whole audit, especially toward the field edges.
 4. Confirm AF σ_focus does not regress (more real faint stars should tighten, not loosen, the HFR curve), and that
    the optimizer's curated NC search still behaves (NC should now want to sit *at* 2 even more tightly).
+5. **Rollout gate — flip the default to ON, or drop the feature.** This functionality is meant to land **on by
+   default or not at all** — there is no permanent opt-in state. After steps 1–4, decide:
+   - **Ship (default ON)** iff, at fixed NC = 2 on the AF bank, the flag ON **improves recall@SNR≥12 and does not
+     regress precision** (ideally improves both), with **no AF σ_focus regression** and **no donut-recall
+     regression** (Panos / mufti verified explicitly). On a pass, flip the default to ON in all the seams that
+     define the shipped default — `BuildDefaultStarDetectorParams`, the `StarDetectionOptions` default +
+     `ResetDefaults`, and the `OptionsDataTemplates.xaml` initial value — so a fresh profile gets adaptive
+     binarization out of the box. Keep the boolean as an off-switch + for the bit-identical regression test, but
+     its default is now ON. Update `docs/af-bank-noiseclip-sweep-results.md` with the on-vs-off bank numbers.
+   - **Do not ship** if it fails to clearly improve the bank (e.g. it only trades recall for precision, or it
+     regresses donuts / AF σ): remove the option rather than leave a permanent default-OFF flag. The opt-in/default-
+     OFF state in steps 1–4 exists **only** to make this go/no-go comparison clean — it is not a shipping outcome.
 
 ## Risks & notes
 
@@ -132,6 +148,7 @@ Reuses the harness this design came from:
 ## TL;DR
 
 Keep NC = 2 (the data endorses it). Make the threshold NC scales **spatially adaptive** — robust per-block
-local median + NC·local-σ, upsampled — matching the reference detector that defines our recall target. Ship it as
-an opt-in, bit-identical-when-off flag, and verify on the AF bank that at NC = 2 it lifts recall *and* precision
-together (which no single global NC can do).
+local median + NC·local-σ, upsampled — matching the reference detector that defines our recall target. Build it
+behind a flag that is **default-OFF only during validation** (for the bit-identical A/B comparison); if it lifts
+recall *and* precision at NC = 2 on the AF bank with no AF/donut regression, **flip the default to ON** so it is
+the standard behavior. It lands **on by default or not at all** — no permanent opt-in flag.
