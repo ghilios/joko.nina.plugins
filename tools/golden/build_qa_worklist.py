@@ -18,6 +18,9 @@ def main():
     ap.add_argument('--scratch-root', required=True)
     ap.add_argument('--out', required=True)
     ap.add_argument('--grid', type=int, default=6)
+    ap.add_argument('--max-montages-per-frame', type=int, default=0,
+                    help='cap QA to the first N montages per frame (montages are highest-SNR-first within the '
+                         'uncertain tier, so the first N are the most borderline-real). 0 = no cap.')
     args = ap.parse_args()
     per = args.grid * args.grid
 
@@ -37,7 +40,10 @@ def main():
                 continue
             mi = json.load(open(mi_path))
             c2g = mi.get('cellToGlobal', {})  # { "<to_qa position>": globalSnrIdx }
-            for m, mont in enumerate(mi.get('montages', [])):
+            montages = mi.get('montages', [])
+            if args.max_montages_per_frame > 0:
+                montages = montages[:args.max_montages_per_frame]
+            for m, mont in enumerate(montages):
                 cell_to_global = [c2g.get(str(m * per + j)) for j in range(per)]
                 cell_to_global = [g for g in cell_to_global if g is not None]
                 work.append({'run': entry, 'foc': foc, 'file': mont['file'], 'cellToGlobal': cell_to_global})
