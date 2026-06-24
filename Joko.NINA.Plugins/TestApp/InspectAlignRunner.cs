@@ -51,10 +51,14 @@ namespace TestApp {
         public static async Task Run(string[] args) {
             var runs = DiagnosticUtil.GetArg(args, "--runs");
             if (string.IsNullOrWhiteSpace(runs) || !Directory.Exists(runs)) {
-                Console.Error.WriteLine("Usage: TestApp inspect-align --runs <folder-with-Focuser-frames> [--profile-id <guid>] [--out <dir>]");
+                Console.Error.WriteLine("Usage: TestApp inspect-align --runs <folder-with-Focuser-frames> [--params current|default] [--profile-id <guid>] [--opt-results <dir>] [--noise-clip <v>] [--out <dir>]");
                 Environment.ExitCode = 2;
                 return;
             }
+            // --params default evaluates the sensor model at the SHIPPED detector defaults
+            // (BuildDefaultStarDetectorParams, incl. NoiseClippingMultiplier=2.0), independent of the live profile —
+            // the C0 "as-default" reference in the AF-bank verification. Mirrors golden eval's --params selector.
+            var paramsMode = (DiagnosticUtil.GetArg(args, "--params") ?? "current").Trim().ToLowerInvariant();
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
             var outDir = DiagnosticUtil.GetArg(args, "--out");
             if (string.IsNullOrWhiteSpace(outDir)) {
@@ -98,12 +102,15 @@ namespace TestApp {
             // sensor (region 6 at SensorROI=1.0), ModelPSF OFF (the AF engine sets isAutoFocus=true). NumberOfAFStars
             // trim and contamination rejection follow the profile exactly (StarDetector.Detect applies them). PixelScale
             // is irrelevant to star positions/counts (it only feeds PSF), so leave the default.
-            var detectorParams = HocusFocusStarDetection.BuildStarDetectorParams(starDetectionOptions);
+            var detectorParams = paramsMode == "default"
+                ? HocusFocusStarDetection.BuildDefaultStarDetectorParams()
+                : HocusFocusStarDetection.BuildStarDetectorParams(starDetectionOptions);
             detectorParams.ModelPSF = false;
             // Optional settings injection so the sensor model can be evaluated at a chosen config (e.g. optimized
             // settings from `optimize`) instead of the live profile — mirrors golden eval's overlay.
             ApplySettingsOverrides(detectorParams, args);
-            Console.WriteLine($"Detection: Sensitivity={detectorParams.Sensitivity.ToString("G6", CultureInfo.InvariantCulture)}, " +
+            Console.WriteLine($"Detection: params={paramsMode}, NoiseClip={detectorParams.NoiseClippingMultiplier.ToString("G6", CultureInfo.InvariantCulture)}, " +
+                $"Sensitivity={detectorParams.Sensitivity.ToString("G6", CultureInfo.InvariantCulture)}, " +
                 $"StarClippingMultiplier={detectorParams.StarClippingMultiplier.ToString("G6", CultureInfo.InvariantCulture)}, " +
                 $"DefocusAwareDonutDetection={starDetectionOptions.DefocusAwareDonutDetection}, " +
                 $"RejectContaminatedStars={detectorParams.RejectContaminatedStars}, MaxStarsPerRegion={inspectorOptions.MaxStarsPerRegion}");
