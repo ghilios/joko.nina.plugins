@@ -81,14 +81,14 @@ but only after the **Tilt Adapter Wizard** has learned where each screw sits rel
 how far a turn moves it.
 
 1. Pick your adapter from the **Device** preset list (or **Manual** to enter the
-   [hardware values](overview/tilt-aberration-inspector.md#absolute-screw-turn-or-stepper-step-guidance)
+   [hardware values](overview/tilt-adapter-wizard.md#hardware-model-and-device-presets)
    yourself: thread pitch, screw radius, screw count).
 2. Run the guided **calibration loop** (a baseline measurement, then turning the screws by a known
    amount while the wizard re-measures) to map the screws into image space.
 
 Once calibrated, the inspector's adjustment chart tells you exactly which screw to turn and by how much.
 
-→ Full detail: [Guiding tilt-adapter screw adjustments](overview/tilt-aberration-inspector.md#guiding-tilt-adapter-screw-adjustments).
+→ Full detail: [Tilt Adapter Wizard](overview/tilt-adapter-wizard.md).
 
 ## 6. Pro-tip: save an autofocus run, then replay it to tune during the day
 
