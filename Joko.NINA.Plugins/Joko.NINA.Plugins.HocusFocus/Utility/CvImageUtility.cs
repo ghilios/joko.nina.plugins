@@ -18,6 +18,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using NINA.Core.Enum;
 using NINA.Core.Locale;
 using Accord.Imaging;
@@ -564,6 +565,126 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             }
 
             Cv2.Threshold(src, dst, threshold, 1.0d, ThresholdTypes.Binary);
+        }
+
+        /// <summary>
+        /// A coarse grid of robust per-block local background (block median) and noise (1.4826·MAD, floored)
+        /// statistics. Backs spatially-adaptive structure-map binarization: the local-median + NC·local-σ surface
+        /// is built by upsampling these grids. Stored row-major (length GridRows·GridCols).
+        /// </summary>
+        public sealed class LocalBackgroundGrid {
+            public int GridRows { get; }
+            public int GridCols { get; }
+            public int BlockSize { get; }
+            public float[] Median { get; }
+            public float[] Sigma { get; }
+
+            public LocalBackgroundGrid(int gridRows, int gridCols, int blockSize, float[] median, float[] sigma) {
+                GridRows = gridRows;
+                GridCols = gridCols;
+                BlockSize = blockSize;
+                Median = median;
+                Sigma = sigma;
+            }
+
+            public float MedianAt(int row, int col) => Median[row * GridCols + col];
+
+            public float SigmaAt(int row, int col) => Sigma[row * GridCols + col];
+        }
+
+        private const double MadToSigma = 1.4826d;
+
+        /// <summary>
+        /// Computes, over a coarse grid of square <paramref name="blockSize"/>-px blocks, the robust local background
+        /// (block median) and local noise (1.4826·MAD, floored at <paramref name="sigmaFloor"/>) of a CV_32F image.
+        /// This is the grid reduction behind spatially-adaptive binarization and mirrors the semantics of the
+        /// detector-independent reference detector (tools/golden/snr_ref.py:coarse_bg). The grid is ceil-sized
+        /// (GridRows = ceil(height/blockSize), GridCols = ceil(width/blockSize)); the trailing block in each row and
+        /// column is a partial block computed from only its own pixels, so every pixel contributes to exactly one
+        /// block (no remainder is dropped). The median is the upper-middle order statistic (index count&gt;&gt;1),
+        /// matching <see cref="CalculateStatistics"/>. Pure and deterministic: block results are independent, so the
+        /// parallel reduction cannot affect the output. The upsample to a full-resolution threshold surface is the
+        /// caller's responsibility (bilinear <c>Cv2.Resize</c>).
+        /// </summary>
+        public static LocalBackgroundGrid ComputeLocalBackgroundGrid(Mat image, int blockSize, float sigmaFloor) {
+            if (image == null) {
+                throw new ArgumentNullException(nameof(image));
+            }
+            if (image.Type() != MatType.CV_32F) {
+                throw new ArgumentException("Only CV_32F supported");
+            }
+            if (blockSize <= 0) {
+                throw new ArgumentException("blockSize must be positive", nameof(blockSize));
+            }
+
+            int width = image.Cols;
+            int height = image.Rows;
+            int gridCols = (width + blockSize - 1) / blockSize;
+            int gridRows = (height + blockSize - 1) / blockSize;
+            var median = new float[gridRows * gridCols];
+            var sigma = new float[gridRows * gridCols];
+            IntPtr dataPtr = image.Data;
+            long step = image.Step();
+
+            Parallel.For(0, gridRows, blockRow => {
+                var buf = new float[blockSize * blockSize];
+                var dev = new float[blockSize * blockSize];
+                int y0 = blockRow * blockSize;
+                int y1 = Math.Min(y0 + blockSize, height);
+                for (int blockCol = 0; blockCol < gridCols; ++blockCol) {
+                    int x0 = blockCol * blockSize;
+                    int x1 = Math.Min(x0 + blockSize, width);
+
+                    int count = 0;
+                    unsafe {
+                        var basePtr = (byte*)dataPtr;
+                        for (int y = y0; y < y1; ++y) {
+                            var rowPtr = (float*)(basePtr + (long)y * step);
+                            for (int x = x0; x < x1; ++x) {
+                                buf[count++] = rowPtr[x];
+                            }
+                        }
+                    }
+
+                    Array.Sort(buf, 0, count);
+                    float med = buf[count >> 1];
+                    for (int i = 0; i < count; ++i) {
+                        dev[i] = Math.Abs(buf[i] - med);
+                    }
+                    Array.Sort(dev, 0, count);
+                    float sig = (float)(dev[count >> 1] * MadToSigma);
+                    if (sig < sigmaFloor) {
+                        sig = sigmaFloor;
+                    }
+
+                    int gi = blockRow * gridCols + blockCol;
+                    median[gi] = med;
+                    sigma[gi] = sig;
+                }
+            });
+
+            return new LocalBackgroundGrid(gridRows, gridCols, blockSize, median, sigma);
+        }
+
+        /// <summary>
+        /// Binarizes <paramref name="src"/> against a per-pixel <paramref name="thresholdSurface"/> instead of a
+        /// single scalar: dst(x,y) = src(x,y) &gt; thresholdSurface(x,y) ? 1.0f : 0.0f. This is the spatially-varying
+        /// analogue of <see cref="Binarize(Mat, Mat, double)"/> (same strict-greater, same {0,1} CV_32F output), used
+        /// by the adaptive-binarization path. <paramref name="dst"/> may alias <paramref name="src"/>.
+        /// </summary>
+        public static void BinarizeAdaptive(Mat src, Mat dst, Mat thresholdSurface) {
+            if (src.Type() != MatType.CV_32F) {
+                throw new ArgumentException("Only CV_32F supported");
+            }
+            if (src.Size() != thresholdSurface.Size()) {
+                throw new ArgumentException("thresholdSurface size must match src");
+            }
+
+            // (src - surface) > 0  ⟺  src > surface (strict greater, matching the scalar Binarize). Done via
+            // Subtract + THRESH_BINARY (the same primitive Binarize uses) so the output is {0.0f, 1.0f} CV_32F.
+            // dst may alias src (the in-place detector call), in which case the subtract writes through src.
+            Cv2.Subtract(src, thresholdSurface, dst);
+            Cv2.Threshold(dst, dst, 0.0d, 1.0d, ThresholdTypes.Binary);
         }
 
         public static System.Drawing.Rectangle ToDrawingRectangle(this OpenCvSharp.Rect openCvRect) {

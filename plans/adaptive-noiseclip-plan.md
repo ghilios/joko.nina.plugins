@@ -10,6 +10,84 @@ behind a flag that is bit-identical when off, then — per the design's rollout 
 improves recall AND precision at NC=2 on the AF bank with no AF/donut regression, else drop the feature.** No
 permanent opt-in flag.
 
+## Execution status — HANDOFF (2026-06-24)
+
+**Steps 1–5 are DONE and committed on `ghilios/adaptive-noiseclip`. The feature is fully implemented behind the
+`LocallyAdaptiveBinarization` option (default OFF) and bit-identical when off. Full unit suite green: 1528 passed /
+0 failed (was 1514 before; +14 new tests). Steps 6 (AF-bank validation) and 7 (rollout gate) REMAIN — to be run in
+a fresh session.**
+
+### Build/test cycle on this machine (WSL → Windows) — important
+- There is **no Linux dotnet**; build/test with the **Windows** `dotnet.exe` at `/mnt/c/Program Files/dotnet/dotnet.exe`
+  (v10.0.301). Pass **Windows-style paths** (WSL interop does NOT translate `/mnt/c/...` for a Windows exe).
+- Run the unit suite scoped to the **Tests project** (this is the CLAUDE.md invariant command, and it dodges a
+  TestApp output-DLL lock — see Step 6 note):
+  `"/mnt/c/Program Files/dotnet/dotnet.exe" test 'C:\Users\ghili\src\nina.plugins\Joko.NINA.Plugins\Joko.NINA.Plugins.HocusFocus.Tests\Joko.NINA.Plugins.HocusFocus.Tests.csproj' -c Debug --nologo`
+  (Building the whole `.sln` also builds TestApp, whose post-build copy fails while a TestApp is running — that is the
+  lock, not a code error. TestApp itself compiles clean: `dotnet.exe build TestApp.csproj` shows zero `CS####`,
+  only `MSB3021/3027` copy-lock errors.)
+
+### What was implemented (all behind the flag; OFF ⇒ byte-for-byte legacy)
+- **New options** `LocallyAdaptiveBinarization` (bool, default false) + `AdaptiveNoiseBlockSize` (int, default 128,
+  setter-validated [16,1024]) plumbed everywhere `DonutMorphCloseSize`/`DefocusAwareDonutDetection` live:
+  `StarDetectorParams` (Interfaces/IStarDetector.cs) + both added to `StarDetector.EarlyCacheKeyProperties`;
+  `IStarDetectionOptions`; `StarDetectionOptions` (backing fields, accessors, InitializeOptions, ResetDefaults,
+  ApplyOptimizedSnapshotToLiveProperties, ApplyKnobs); `HocusFocusStarDetection.BuildStarDetectorParams` +
+  `BuildDefaultStarDetectorParams`; `OptimizedStarDetectionSettings` (+ FromParams, inert defaults);
+  `StarDetectionSettingsSnapshot` (+ FromOptions); `OptionsDataTemplates.xaml` (Advanced CheckBox + `UnitTextBox`
+  with `DoubleRangeRule` 64–256 — the codebase uses DoubleRangeRule for ints, not IntegerRangeRule — + two tooltips,
+  grid rows 52/53).
+- **Pure helper** `CvImageUtility.ComputeLocalBackgroundGrid(image, blockSize, sigmaFloor)` → `LocalBackgroundGrid`
+  (per-block median + 1.4826·MAD, σ floored, ceil grid, partial edge blocks, parallel, upper-middle median matching
+  `CalculateStatistics`; matches `snr_ref.coarse_bg`). TDD'd in `Tests/Utility/LocalBackgroundGridTests.cs`.
+- **`CvImageUtility.BinarizeAdaptive(src, dst, surface)`** — per-pixel `src > surface` via Subtract+THRESH_BINARY
+  (strict-greater, {0,1} CV_32F, matches scalar `Binarize`; degenerate-equivalence + per-pixel tests).
+- **Wiring in `StarDetector`** (the binarization seam): when ON, the σ grid is sampled on `noiseReducedImage` INSIDE
+  the existing kappa-sigma background task (before that image is disposed → F4 σ-consistency, same scale as the
+  global σ so NC stays meaningful), the median grid on `structureMap` pre-dilation (mirrors the global median), the
+  two grids are combined `median + NC·σ` at GRID resolution (bilinear upsample is linear, so one `Cv2.Resize`),
+  upsampled, and `BinarizeAdaptive` applied. When OFF, none of this runs — the exact legacy
+  `CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold)` line. Guarded by `StructureNoiseEstimate`
+  (the task now returns kappa-sigma result + optional σ grid). Sigma floor `1e-6f` (numerical only).
+- **TestApp harness parity:** `bank-verify` `--adaptive-binarize` / `--adaptive-block <n>` (applied to C0 BaseDefault
+  next to the NC sweep) + `OverlayOptimized`; `golden eval` `--adaptive-binarize` / `--adaptive-block` in
+  `ApplyParamOverrides` + `OverlayAll`; `InspectAlignRunner.ApplySettingsOverrides` + `OverlayAll`.
+
+### Bit-identical proof (the rollout gate)
+`Tests/StarDetection/StarDetectorEquivalenceTests.cs`: `Detect_AdaptiveBinarizationOff_MatchesLegacyBaseline`
+(flag OFF == committed golden signature) and `Detect_AdaptiveBinarizationOn_RecoversSameStarsOnUniformField`
+(ON path runs end-to-end and recovers the same stars on a uniform field). The pre-existing
+`Detect_SmallField_MatchesGoldenBaseline` (default params = flag OFF) also still passes.
+
+### Step 6 — how to resume (NOT yet run)
+At handoff a prior session's full `bank-verify` (PID 38176, commit `b331479`, opt_A/opt_B, started 08:59) was still
+running and held the TestApp output-DLL lock, so `TestApp.exe` could not be rebuilt the normal way. Either:
+  1. **Wait** for it to finish — done when a new `D:\Autofocus Bank\verification_<UTC>.md` appears (watch the flushed
+     `D:\Autofocus Bank\bank_verify_progress.log`), then build TestApp normally; OR
+  2. **Build TestApp to a separate output dir** to dodge the lock:
+     `"/mnt/c/Program Files/dotnet/dotnet.exe" build 'C:\...\TestApp\TestApp.csproj' -c Debug -o <freshdir>`
+     then run `<freshdir>\TestApp.exe`.
+Then run the OFF-vs-ON comparison at NC=2 (close any running NINA first; watch `<out>/bank_verify_progress.log`;
+~1–2 hr per config, ON slower due to the per-block reduction):
+```
+TestApp bank-verify --runs "D:\Autofocus Bank" --out <scratchOFF> --nc-sweep 2,3,4 --match-radius 12
+TestApp bank-verify --runs "D:\Autofocus Bank" --out <scratchON>  --nc-sweep 2,3,4 --match-radius 12 --adaptive-binarize
+```
+(The latest `D:\Autofocus Bank\verification_*.{json,md}` / `_prior_reports` can serve as the flag-OFF baseline if you
+prefer not to re-run OFF.) Goldens already exist (147 sidecars) — **do NOT regenerate**. Expected at NC=2:
+recall@SNR≥12 up further AND precision held/improved (largest gains on vignetted/gradient frames); no AF σ_focus
+regression; no donut-recall regression — verify Panos + mufti explicitly (donut runs need donut-aware: run them via
+config B, or `--adaptive-binarize` together with `--defocus-donut` on `golden eval` / `inspect-align`).
+
+### Step 7 — where the default flips on a PASS (mechanical)
+Flip false→true in: `StarDetectorParams.LocallyAdaptiveBinarization` initializer (Interfaces/IStarDetector.cs);
+`BuildDefaultStarDetectorParams` (HocusFocusStarDetection.cs); `StarDetectionOptions.InitializeOptions`
+(`GetValueBoolean("LocallyAdaptiveBinarization", false)`) + `ResetDefaults`. The XAML checkbox binds to the option,
+so it needs no separate literal. Keep `AdaptiveNoiseBlockSize`=128. Keep the boolean as an off-switch and KEEP the
+bit-identical test (it pins legacy-OFF). Re-baseline nothing. Update `docs/af-bank-noiseclip-sweep-results.md` with
+the on-vs-off bank numbers. On a FAIL, remove the option entirely and write up why in
+`docs/adaptive-noiseclip-design.md`. Then `superpowers:finishing-a-development-branch` → PR into develop.
+
 ## Project invariants (from CLAUDE.md — do not skip)
 - TDD: write the failing test first for every pure helper; run the full suite after every change:
   `dotnet test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo`.

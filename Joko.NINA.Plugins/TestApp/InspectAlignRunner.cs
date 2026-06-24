@@ -208,6 +208,7 @@ namespace TestApp {
                     p.StructureLayers = s.StructureLayers; p.NoiseReductionRadius = s.NoiseReductionRadius;
                     p.MinimumStarBoundingBoxSize = s.MinStarBoundingBoxSize; p.HotpixelThresholdingEnabled = s.HotpixelThresholdingEnabled;
                     p.HotpixelThreshold = s.HotpixelThreshold;
+                    p.LocallyAdaptiveBinarization = s.LocallyAdaptiveBinarization; p.AdaptiveNoiseBlockSize = s.AdaptiveNoiseBlockSize;
                     var master = s.DefocusAwareDonutDetection;
                     p.DefocusAwareDonutDetection = master;
                     p.DefocusAwareDistortion = s.DefocusAwareGates && master; p.DefocusAwareCentering = s.DefocusAwareGates && master;
@@ -223,6 +224,9 @@ namespace TestApp {
             }
             var nc = DiagnosticUtil.GetArg(args, "--noise-clip");
             if (nc != null && double.TryParse(nc, NumberStyles.Float, CultureInfo.InvariantCulture, out var ncv)) { p.NoiseClippingMultiplier = ncv; }
+            var adaptiveBlock = DiagnosticUtil.GetArg(args, "--adaptive-block");
+            if (adaptiveBlock != null && int.TryParse(adaptiveBlock, NumberStyles.Integer, CultureInfo.InvariantCulture, out var abv)) { p.AdaptiveNoiseBlockSize = abv; }
+            if (DiagnosticUtil.HasFlag(args, "--adaptive-binarize")) { p.LocallyAdaptiveBinarization = true; }
             if (DiagnosticUtil.HasFlag(args, "--defocus-donut")) { p.DefocusAwareDonutDetection = true; }
             if (DiagnosticUtil.HasFlag(args, "--defocus-gates")) { p.DefocusAwareDistortion = true; p.DefocusAwareCentering = true; }
             if (DiagnosticUtil.HasFlag(args, "--defocus-structure")) { p.DefocusAwareStructure = true; if (p.StructureLayerBoost <= 0) p.StructureLayerBoost = 2; }

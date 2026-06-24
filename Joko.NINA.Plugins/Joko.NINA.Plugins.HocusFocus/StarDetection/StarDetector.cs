@@ -99,6 +99,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         //
         // Notes on a few subtle entries:
         //  - NoiseClippingMultiplier: sets the K-σ clip AND the binarize threshold ⇒ changes the candidate set.
+        //  - LocallyAdaptiveBinarization / AdaptiveNoiseBlockSize: swap the scalar binarize threshold for a
+        //    per-block local-median+NC·local-σ surface (and set its granularity) ⇒ change the candidate set.
         //  - StarMeasurementNoiseReductionEnabled / NoiseReductionRadius / Hotpixel*: drive SrcImagePreparation and
         //    the structure-map source, and which of the two noise estimates is computed (measurement vs structure).
         //  - SaturationThreshold: read by EvaluateGlobalMetrics (early) to tally SaturatedPixelCount, so it is early
@@ -121,6 +123,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // EffectiveClipMultiplier; ungated profiles with StarClippingMultiplier <= this cap are unaffected.
         private const double DonutClipMultiplierCap = 2.0;
 
+        // Numerical floor on the per-block local σ used by spatially-adaptive binarization (in normalized image
+        // units). Guards a degenerate dead-flat block from a zero/near-zero local σ; small enough not to suppress
+        // the genuine low-noise local thresholds in clean regions that drive the recall gain.
+        private const float AdaptiveBinarizationSigmaFloor = 1e-6f;
+
+        // Result of the structure-map source noise estimate task: the global kappa-sigma σ used for the scalar
+        // binarize threshold, PLUS (only when LocallyAdaptiveBinarization is on) the per-block local-σ grid sampled
+        // on that SAME noise-reduced source (F4 σ-consistency), captured inside the task before the source is
+        // disposed. SigmaGrid is null on the legacy (flag-off) path.
+        private readonly struct StructureNoiseEstimate {
+            public StructureNoiseEstimate(CvImageUtility.KappaSigmaNoiseEstimateResult noise, CvImageUtility.LocalBackgroundGrid sigmaGrid) {
+                Noise = noise;
+                SigmaGrid = sigmaGrid;
+            }
+
+            public CvImageUtility.KappaSigmaNoiseEstimateResult Noise { get; }
+            public CvImageUtility.LocalBackgroundGrid SigmaGrid { get; }
+        }
+
         private static readonly HashSet<string> EarlyCacheKeyProperties = new HashSet<string>(StringComparer.Ordinal) {
             nameof(StarDetectorParams.HotpixelFiltering),
             nameof(StarDetectorParams.HotpixelThresholdingEnabled),
@@ -129,6 +150,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             nameof(StarDetectorParams.StarMeasurementNoiseReductionEnabled),
             nameof(StarDetectorParams.NoiseReductionRadius),
             nameof(StarDetectorParams.NoiseClippingMultiplier),
+            // Spatially-adaptive binarization: the master flag swaps the scalar threshold for a per-block
+            // local-median+NC·local-σ surface, and the block size sets that surface's granularity — both change
+            // candidate formation, so both MUST be early-keyed.
+            nameof(StarDetectorParams.LocallyAdaptiveBinarization),
+            nameof(StarDetectorParams.AdaptiveNoiseBlockSize),
             nameof(StarDetectorParams.StructureLayers),
             nameof(StarDetectorParams.DefocusAwareStructure),
             nameof(StarDetectorParams.StructureLayerBoost),
@@ -496,9 +522,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         Logger.Trace(ksigmaTraceStructureMap);
                         MaybeSaveIntermediateText(ksigmaTraceStructureMap, p, "02-ksigma-estimate-noise-reduced.txt");
 
+                        // Spatially-adaptive binarization (opt-in): sample the per-block local-σ grid on the SAME
+                        // noise-reduced source the global σ above is computed from (F4 σ-consistency), HERE — before
+                        // the source is disposed below. Null on the legacy path ⇒ bit-identical detection.
+                        CvImageUtility.LocalBackgroundGrid sigmaGrid = null;
+                        if (p.LocallyAdaptiveBinarization) {
+                            sigmaGrid = CvImageUtility.ComputeLocalBackgroundGrid(noiseReducedImage, Math.Max(1, p.AdaptiveNoiseBlockSize), AdaptiveBinarizationSigmaFloor);
+                        }
+
                         noiseReducedImage.Dispose();
                         noiseReducedImage = null;
-                        return result;
+                        return new StructureNoiseEstimate(result, sigmaGrid);
                     });
 
                     // F4 (σ consistency): thresholds applied to the image actually sampled must use that image's σ.
@@ -556,9 +590,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
                     // The difference doesn't seem worth it based on tests done so far
                     var structureMapStats = CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
+                    // Spatially-adaptive binarization (opt-in): sample the per-block local background (median) on the
+                    // SAME structure map the global median above is taken from, and BEFORE the dilation below — so it
+                    // mirrors the scalar path's pre-dilation median. Null on the legacy path ⇒ bit-identical.
+                    CvImageUtility.LocalBackgroundGrid adaptiveMedianGrid = null;
+                    if (p.LocallyAdaptiveBinarization) {
+                        adaptiveMedianGrid = CvImageUtility.ComputeLocalBackgroundGrid(structureMap, Math.Max(1, p.AdaptiveNoiseBlockSize), AdaptiveBinarizationSigmaFloor);
+                    }
                     stopWatch.RecordEntry("BinarizationStatistics");
 
-                    var noiseReducedImageNoise = await noiseReducedNoiseEstimateTask;
+                    var structureNoiseEstimate = await noiseReducedNoiseEstimateTask;
+                    var noiseReducedImageNoise = structureNoiseEstimate.Noise;
                     var measurementImageNoise = measurementNoiseEstimateTask != null
                         ? await measurementNoiseEstimateTask
                         : noiseReducedImageNoise;
@@ -586,8 +628,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                     progress?.Report(new ApplicationStatus() { Status = "Structure Detection" });
 
-                    // Step 7: Binarize foreground structures based on noise estimates
-                    CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
+                    // Step 7: Binarize foreground structures based on noise estimates. Legacy (default): a single
+                    // global scalar threshold. Spatially-adaptive (opt-in): a per-pixel threshold surface
+                    // (local-median + NC·local-σ) upsampled from the coarse grids. The flag-off path is byte-for-byte
+                    // the legacy scalar Binarize.
+                    if (p.LocallyAdaptiveBinarization && adaptiveMedianGrid != null && structureNoiseEstimate.SigmaGrid != null) {
+                        ApplyAdaptiveBinarization(structureMap, adaptiveMedianGrid, structureNoiseEstimate.SigmaGrid, p.NoiseClippingMultiplier);
+                    } else {
+                        CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
+                    }
                     if (p.Region.InnerCropBoundary != null) {
                         var innerRoiRect = new Rect(
                             (int)Math.Floor(srcImage.Cols * p.Region.InnerCropBoundary.StartX),
@@ -813,6 +862,36 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var tcs = new TaskCompletionSource();
             using (ct.Register(() => tcs.SetCanceled(), useSynchronizationContext: false)) {
                 await Task.WhenAny(Task.WhenAll(allTasks), tcs.Task);
+            }
+        }
+
+        /// <summary>
+        /// Builds the spatially-varying binarization threshold surface (local-median + NC·local-σ) from the two
+        /// coarse grids and binarizes <paramref name="structureMap"/> against it in place. The median grid is sampled
+        /// on the structure map (the image actually thresholded) and the σ grid on the noise-reduced source (F4
+        /// σ-consistency); both share the block size, so their grids are congruent. Because bilinear upsampling is
+        /// linear, the (median + NC·σ) combination is formed at GRID resolution and the small result upsampled ONCE
+        /// (equivalent to upsampling each grid then combining, at a fraction of the cost and memory).
+        /// </summary>
+        private static void ApplyAdaptiveBinarization(Mat structureMap, CvImageUtility.LocalBackgroundGrid medianGrid, CvImageUtility.LocalBackgroundGrid sigmaGrid, double noiseClippingMultiplier) {
+            if (medianGrid.GridRows != sigmaGrid.GridRows || medianGrid.GridCols != sigmaGrid.GridCols) {
+                throw new InvalidOperationException(
+                    $"Adaptive binarization grid mismatch: median {medianGrid.GridRows}x{medianGrid.GridCols} vs sigma {sigmaGrid.GridRows}x{sigmaGrid.GridCols}");
+            }
+
+            int rows = medianGrid.GridRows;
+            int cols = medianGrid.GridCols;
+            int n = rows * cols;
+            using (var thresholdGrid = new Mat(rows, cols, MatType.CV_32F))
+            using (var thresholdSurface = new Mat()) {
+                unsafe {
+                    var dst = (float*)thresholdGrid.DataPointer;
+                    for (int i = 0; i < n; ++i) {
+                        dst[i] = (float)(medianGrid.Median[i] + noiseClippingMultiplier * sigmaGrid.Sigma[i]);
+                    }
+                }
+                Cv2.Resize(thresholdGrid, thresholdSurface, new Size(structureMap.Cols, structureMap.Rows), 0, 0, InterpolationFlags.Linear);
+                CvImageUtility.BinarizeAdaptive(structureMap, structureMap, thresholdSurface);
             }
         }
 

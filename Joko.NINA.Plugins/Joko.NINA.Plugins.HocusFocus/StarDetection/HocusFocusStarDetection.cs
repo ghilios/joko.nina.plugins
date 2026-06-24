@@ -331,6 +331,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // (when the master is OFF none of them are consulted ⇒ bit-identical).
                 DefocusAwareDonutDetection = options.DefocusAwareDonutDetection,
                 DonutMorphCloseSize = options.DonutMorphCloseSize,
+                // Spatially-adaptive binarization (independent of the donut master): passed verbatim. When OFF the
+                // detector keeps the legacy scalar binarize threshold ⇒ bit-identical. EARLY param.
+                LocallyAdaptiveBinarization = options.LocallyAdaptiveBinarization,
+                AdaptiveNoiseBlockSize = options.AdaptiveNoiseBlockSize,
                 DonutMinAnnularityHoleFraction = options.DonutMinAnnularityHoleFraction,
                 DonutMaxStreakEccentricity = options.DonutMaxStreakEccentricity,
                 DonutSaturationBloomRadius = options.DonutSaturationBloomRadius,
@@ -394,6 +398,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // StarDetectionOptions.ResetDefaults by BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild.
                 DefocusAwareDonutDetection = false,
                 DonutMorphCloseSize = 5,
+                LocallyAdaptiveBinarization = false,
+                AdaptiveNoiseBlockSize = 128,
                 DonutMinAnnularityHoleFraction = 0.15,
                 DonutMaxStreakEccentricity = 1.0,
                 DonutSaturationBloomRadius = 0.0,

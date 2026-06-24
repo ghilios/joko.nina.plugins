@@ -249,6 +249,25 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // at stable best-focus and only modest HFR scatter. See docs/star-detection-golden-audit-cwhite-results.md.
         public double NoiseClippingMultiplier { get; set; } = 2.0;
 
+        // Spatially-adaptive structure-map binarization (opt-in, default OFF for bit-identical detection). When OFF
+        // the structure map is binarized against the legacy SINGLE global scalar threshold
+        // (global-median + NoiseClippingMultiplier · global-σ), so candidate formation is byte-for-byte legacy.
+        // When ON the scalar is replaced by a spatially-varying threshold surface
+        // (local-median(x,y) + NoiseClippingMultiplier · local-σ(x,y)) computed from robust per-block statistics on
+        // a coarse grid and bilinearly upsampled — making the SAME NoiseClippingMultiplier locally fair (low where
+        // the background is clean, high where it is noisy). local-σ is sampled on the same noise-reduced source the
+        // global σ uses (F4 σ-consistency) and local-median on the structure map actually thresholded; with constant
+        // grids this reduces exactly to the global formula. EARLY param (it changes candidate formation): listed in
+        // StarDetector.EarlyCacheKeyProperties. See docs/adaptive-noiseclip-design.md.
+        public bool LocallyAdaptiveBinarization { get; set; } = false;
+
+        // EARLY adaptive-binarization knob (only when LocallyAdaptiveBinarization is true). Side length (px) of the
+        // square blocks the robust local median/σ surface is estimated on (matches tools/golden/snr_ref.py coarse_bg,
+        // grid 128). Larger ⇒ smoother surface (less local adaptivity, cheaper); smaller ⇒ more adaptive but noisier
+        // and risks tracking real extended structure into the background. Sane range 64–256. EARLY param (changes
+        // candidate formation): listed in StarDetector.EarlyCacheKeyProperties. Ignored entirely when the flag is OFF.
+        public int AdaptiveNoiseBlockSize { get; set; } = 128;
+
         // Number of measurement-image noise standard deviations above the local background median to filter star
         // candidate pixels out from star consideration and HFR analysis. σ is measured on the image actually
         // sampled (F4) and the level + gate-only policy were chosen empirically — see

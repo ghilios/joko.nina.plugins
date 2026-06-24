@@ -53,6 +53,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int StructureLayerBoost { get; set; } = 0;
         public bool DefocusAwareDonutDetection { get; set; } = false;
         public int DonutMorphCloseSize { get; set; } = 5;
+        // Spatially-adaptive binarization (not optimizer-tuned; carried so the headless harness overlays can exercise
+        // it). Inert defaults so an older snapshot missing these keys deserializes to legacy scalar binarization.
+        public bool LocallyAdaptiveBinarization { get; set; } = false;
+        public int AdaptiveNoiseBlockSize { get; set; } = 128;
         public double DonutMinAnnularityHoleFraction { get; set; } = 0.15;
         public double DonutMaxStreakEccentricity { get; set; } = 1.0;
         public double DonutSaturationBloomRadius { get; set; } = 0.0;
@@ -109,6 +113,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 StructureLayerBoost = p.StructureLayerBoost,
                 DefocusAwareDonutDetection = p.DefocusAwareDonutDetection,
                 DonutMorphCloseSize = p.DonutMorphCloseSize,
+                LocallyAdaptiveBinarization = p.LocallyAdaptiveBinarization,
+                AdaptiveNoiseBlockSize = p.AdaptiveNoiseBlockSize,
                 DonutMinAnnularityHoleFraction = p.DonutMinAnnularityHoleFraction,
                 DonutMaxStreakEccentricity = p.DonutMaxStreakEccentricity,
                 DonutSaturationBloomRadius = p.DonutSaturationBloomRadius,
