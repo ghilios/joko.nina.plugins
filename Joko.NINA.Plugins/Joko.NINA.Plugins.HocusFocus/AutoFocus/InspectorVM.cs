@@ -1131,10 +1131,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             string outputFolder = null;
             localAnalyzeTask = Task.Run(async () => {
                 var options = resolution.Options;
-                // Option (b) replays with the run's capture-time settings: use its captured sensor-curve flag + regions
-                // (which honor the captured ROI through the explicit-region path) instead of the current Inspector ones.
-                var sensorCurveModelEnabled = resolution.SensorCurveModelEnabled ?? inspectorOptions.SensorCurveModelEnabled;
-                var regions = resolution.CaptureTimeRegions ?? GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
+                // The regions to analyze (and the sensor-curve-model flag that shapes them) are an Inspector
+                // (application) concern, not a captured one — always use the current Inspector grid so ANY saved run,
+                // including a single-region regular AutoFocus run, is analyzed across the Inspector's regions (a
+                // captured single region would otherwise leave RegionHFRs with one entry and crash the inspector
+                // report). Only the capture-time DETECTION settings (option b) are replayed, via
+                // options.StarDetectionOptionsOverride, which the explicit-region detection path applies regardless of
+                // which regions are used. ROI follows the regions: the Inspector grid uses the app's SensorROI/CornersROI
+                // and the AF region uses the app's crop (see GetAutoFocusRegion).
+                var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
+                var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
@@ -1454,6 +1460,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusCompletedEventArgs e) {
+            // This report assumes the Inspector's fixed region layout (center = 1, corners = 2..5). The reprocess path
+            // now always uses the Inspector grid (>= 6 regions), but guard defensively so a run with fewer regions logs
+            // cleanly instead of throwing an unhandled IndexOutOfRange.
+            if (e.RegionHFRs == null || e.RegionHFRs.Count < 6) {
+                Logger.Warning($"Skipping inspector region report: expected at least 6 regions but got {e.RegionHFRs?.Count ?? 0}. This run is not an Aberration Inspector run.");
+                return;
+            }
             var logReportBuilder = new StringBuilder();
             var centerHFR = e.RegionHFRs[1].EstimatedFinalHFR;
             var centerFocuser = e.RegionHFRs[1].EstimatedFinalFocuserPosition;

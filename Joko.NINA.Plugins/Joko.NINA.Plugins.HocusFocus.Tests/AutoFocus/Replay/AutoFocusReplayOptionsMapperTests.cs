@@ -126,7 +126,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                 Assert.That(result.Options.NumberOfAFStars, Is.EqualTo(7));
                 Assert.That(result.Options.StarDetectionOptionsOverride, Is.Null);
                 Assert.That(result.CaptureTimeRegions, Is.Null);
-                Assert.That(result.SensorCurveModelEnabled, Is.Null);
             });
         }
 
@@ -141,7 +140,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                 Assert.That(result.Options.NumberOfAFStars, Is.EqualTo(33));
                 Assert.That(result.Options.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.SmoothBlend));
                 Assert.That(result.CaptureTimeRegions, Is.SameAs(metadata.Regions.Regions));
-                Assert.That(result.SensorCurveModelEnabled, Is.True);
             });
         }
 
