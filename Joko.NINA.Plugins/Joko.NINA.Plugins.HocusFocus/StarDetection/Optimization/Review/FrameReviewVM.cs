@@ -17,6 +17,7 @@ using OxyPlot;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -116,6 +117,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public FrameReviewVM(FrameReviewSnapshot snapshot)
             : base((snapshot ?? throw new ArgumentNullException(nameof(snapshot))).Frames.Count) {
             this.snapshot = snapshot;
+            FramePickerItems = snapshot.Frames
+                .Select((f, i) => new FramePickerItem(i + 1, $"{i + 1} — {f.FocuserPosition:0}"))
+                .ToList();
             RebuildLegend();
 
             CurrentIndex = 0;
