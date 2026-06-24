@@ -11,8 +11,6 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
-using System;
-using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
@@ -20,9 +18,9 @@ using System.Windows.Media;
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
 
     /// <summary>
-    /// Read-only viewer for the manual AutoFocus "Review Frames" dialog. Shares all zoom/pan/fit/scroll plumbing with
-    /// the Aberration Inspector's review control via <see cref="ReviewViewportHostBase"/>; adds only the first-load
-    /// window sizing. No hover focus graph here.
+    /// Read-only viewer for the manual AutoFocus "Review Frames" dialog. Shares all zoom/pan/fit/scroll plumbing and
+    /// the first-load window sizing with the Aberration Inspector's review control via
+    /// <see cref="ReviewViewportHostBase"/>. No hover focus graph here.
     /// </summary>
     public partial class AutoFocusFrameReviewControl : ReviewViewportHostBase {
 

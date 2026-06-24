@@ -1529,13 +1529,23 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 firstRegionFinalFocusPosition += this.autoFocusOptions.FocuserOffset;
             }
 
-            await focuserMediator.MoveFocuser(firstRegionFinalFocusPosition, token);
-            token.ThrowIfCancellationRequested();
-
-            if (autoFocusState.Options.ValidateHfrImprovement) {
-                Logger.Info($"Validating HFR at final focus position {firstRegionFinalFocusPosition}");
-                await StartAutoFocusPoint(firstRegionFinalFocusPosition, autoFocusState, FinalHFRMeasurementAction, true, token, progress);
+            // Drive the focuser to the calculated point and (when HFR validation is on) capture a final-validation
+            // image there. For an OUT-OF-BOUNDS point the only reason to move is that diagnostic image: clamp the target
+            // to the swept range so an extreme/extrapolated fit center can't drive the focuser to its travel limit, and
+            // skip the move entirely when HFR validation is off (no image to capture) — matching the pre-refactor
+            // behavior of not moving on an out-of-bounds result. In-bounds (success) moves are unchanged.
+            if (!anyRegionOutOfBounds || autoFocusState.Options.ValidateHfrImprovement) {
+                var moveTarget = anyRegionOutOfBounds
+                    ? Math.Min(outOfBoundsMax, Math.Max(outOfBoundsMin, firstRegionFinalFocusPosition))
+                    : firstRegionFinalFocusPosition;
+                await focuserMediator.MoveFocuser(moveTarget, token);
                 token.ThrowIfCancellationRequested();
+
+                if (autoFocusState.Options.ValidateHfrImprovement) {
+                    Logger.Info($"Validating HFR at final focus position {moveTarget}");
+                    await StartAutoFocusPoint(moveTarget, autoFocusState, FinalHFRMeasurementAction, true, token, progress);
+                    token.ThrowIfCancellationRequested();
+                }
             }
 
             await Task.WhenAll(autoFocusState.AnalysisTasks);

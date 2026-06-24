@@ -1123,7 +1123,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 profileService,
                 savedAttempt.FolderPath,
                 isInteractive: true,
-                () => GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt));
+                () => GetAutoFocusEngineOptions(autoFocusEngine, savedAttempt),
+                texts: ReplaySettingsPromptTexts.Inspector);
             if (resolution.Cancelled) {
                 return false;
             }
@@ -1459,12 +1460,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             BackfocusHFR = OuterHFR - InnerHFR;
         }
 
+        // The Inspector region report indexes RegionHFRs[1..5] (center = 1, corners = 2..5), so it needs the full
+        // Inspector grid of at least 6 regions. Extracted + internal so the precondition is unit-testable.
+        internal static bool HasInspectorRegionLayout(int regionCount) => regionCount >= 6;
+
         private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusCompletedEventArgs e) {
-            // This report assumes the Inspector's fixed region layout (center = 1, corners = 2..5). The reprocess path
-            // now always uses the Inspector grid (>= 6 regions), but guard defensively so a run with fewer regions logs
-            // cleanly instead of throwing an unhandled IndexOutOfRange.
-            if (e.RegionHFRs == null || e.RegionHFRs.Count < 6) {
-                Logger.Warning($"Skipping inspector region report: expected at least 6 regions but got {e.RegionHFRs?.Count ?? 0}. This run is not an Aberration Inspector run.");
+            // The reprocess path now always uses the Inspector grid (>= 6 regions), but guard defensively so a run with
+            // fewer regions logs cleanly instead of throwing an unhandled IndexOutOfRange.
+            if (e.RegionHFRs == null || !HasInspectorRegionLayout(e.RegionHFRs.Count)) {
+                Logger.Warning($"Skipping inspector region report: expected the Inspector's >= 6 region grid but got {e.RegionHFRs?.Count ?? 0}. This run is not an Aberration Inspector run.");
                 return;
             }
             var logReportBuilder = new StringBuilder();

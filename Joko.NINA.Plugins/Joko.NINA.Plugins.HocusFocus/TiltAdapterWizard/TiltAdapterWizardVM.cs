@@ -788,10 +788,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
             var reading = await RunAveragedMeasurement(token, step, StepDescription(step), fromSaved);
             if (reading == null) {
-                StatusText = "Measurement failed.";
-                // Offer a clear choice instead of silently leaving the screw-adjustment instruction on screen (which
-                // reads as "re-adjust the screw"). The focuser was left where the last run ended, so re-running
+                // Show the inline failure panel (below) instead of the bare "Measurement failed." status — that left the
+                // screw-adjustment instruction on screen (reads as "re-adjust the screw") and duplicated the panel text
+                // right above the panel. Clear StatusText so the visible post-measurement status line doesn't leak the
+                // stale "Run N/count..." progress text. The focuser was left where the last run ended, so re-running
                 // AutoFocus often succeeds; otherwise the user can return to baseline (see BaselineRecoveryInstructions).
+                StatusText = string.Empty;
                 MeasurementFailureText = "AutoFocus or sensor modeling failed for this step. You can run AutoFocus again, or return the screws to baseline before retrying.";
                 HasMeasurementFailureChoice = true;
                 return;
