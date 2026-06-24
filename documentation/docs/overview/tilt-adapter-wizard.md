@@ -51,11 +51,18 @@ inconsistent repeats so you can re-run.
     are still reported in focuser steps, and the tilt-angle calculation falls back to the connected
     focuser's reported step size when available.
 
-!!! tip "Tilt vs. curvature: which can a tilt adapter fix?"
-    A tilt adapter corrects the **linear** part of the focus surface, the tilt plane. It cannot
-    flatten genuine **field curvature** (the bowl/dome residual after the plane is removed); that is
-    an optical property of your flattener/corrector and focal ratio. Use the *Tilt effect* and
-    *Curvature effect* numbers to tell which problem dominates before reaching for the screwdriver.
+!!! tip "Tilt, backfocus, and curvature: what the screws can fix"
+    The Sensor Model splits the focus surface into two effects. The **Tilt Effect** is the linear
+    plane (one side focuses ahead of the opposite side); you null it by moving the screws
+    *differentially*, reported as the per-screw **Tilt** amount.
+
+    The **Curvature Effect** is the symmetric corners-versus-center bowl. The wizard reads it as a
+    spacing error and derives a **backfocus** correction from it, reported as the per-screw
+    **Backfocus** amount: turn all screws the same way to move the whole sensor along the optical axis
+    (or add spacers for changes beyond the adapter's travel), then re-measure and repeat until the
+    Curvature Effect stops dropping. What remains is the residual curvature of a correctly spaced
+    system, set by your corrector design and focal ratio; the adapter cannot remove it (a
+    better-matched corrector or stopping down does).
 
 ## Hardware model and device presets
 
