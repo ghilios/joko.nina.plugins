@@ -54,6 +54,27 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             new TiltAdapterDevicePreset(
                 "Neumann CTU XT48", isManual: false, screwCount: 3, adjustmentType: TiltAdjustmentType.Screws,
                 threadPitchMicrons: 400, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 44),
+
+            // ASG 78mm series
+            new TiltAdapterDevicePreset(
+                "ASG Photon Cage - 78mm", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.Screws,
+                threadPitchMicrons: 212, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 44),  // 120 TPI (~212 µm/turn)
+
+            // ASG 90mm series
+            new TiltAdapterDevicePreset(
+                "ASG Photon Cage - 90mm", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.Screws,
+                threadPitchMicrons: 212, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 50),  // 120 TPI (~212 µm/turn)
+            new TiltAdapterDevicePreset(
+                "ASG Electronic EAT - 90mm", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.StepperMotors,
+                threadPitchMicrons: -1, stepperStepSizeMicrons: 1.8, screwRadiusMillimeters: 55),
+
+            // ASG ZWO 461 series
+            new TiltAdapterDevicePreset(
+                "ASG Photon Cage - ZWO 461", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.Screws,
+                threadPitchMicrons: 212, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 54),  // 120 TPI (~212 µm/turn)
+            new TiltAdapterDevicePreset(
+                "ASG Electronic EAT - ZWO 461", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.StepperMotors,
+                threadPitchMicrons: -1, stepperStepSizeMicrons: 1.8, screwRadiusMillimeters: 62.75),
         };
 
         public static TiltAdapterDevicePreset ByName(string name) =>
