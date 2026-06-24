@@ -91,5 +91,40 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             };
             Assert.That(() => md.Validate(), Throws.Nothing);
         }
+
+        [Test]
+        public void StepFolder_RelativizesAndResolvesRoundTrip() {
+            // A step folder under the run root is stored relative, then resolves back to the same absolute path.
+            var runRoot = @"C:\TiltCalibration\TiltCalibration_20260621_214304";
+            var absolute = @"C:\TiltCalibration\TiltCalibration_20260621_214304\01_Baseline\AutoFocus_20260621_214312";
+
+            var relative = TiltCalibrationMetadata.ToRelativeStepFolder(runRoot, absolute);
+            Assert.That(relative, Is.EqualTo(@"01_Baseline\AutoFocus_20260621_214312"));
+            Assert.That(TiltCalibrationMetadata.ResolveStepFolder(runRoot, relative), Is.EqualTo(absolute));
+        }
+
+        [Test]
+        public void ResolveStepFolder_RebasesRelativeOntoSelectedRunRoot() {
+            // The whole point: a run captured under one path replays from another — the relative folder follows
+            // the run directory the user actually selected.
+            var resolved = TiltCalibrationMetadata.ResolveStepFolder(
+                @"D:\Moved\TiltCalibration_20260621_214304", @"01_Baseline\AutoFocus_20260621_214312");
+            Assert.That(resolved,
+                Is.EqualTo(@"D:\Moved\TiltCalibration_20260621_214304\01_Baseline\AutoFocus_20260621_214312"));
+        }
+
+        [Test]
+        public void ResolveStepFolder_HonorsLegacyAbsolutePaths() {
+            // Pre-relative files stored absolute capture-machine paths; honor them as-is (no rebasing).
+            var absolute = @"C:\Users\someone\Desktop\runs\01_Baseline\AutoFocus_x";
+            Assert.That(TiltCalibrationMetadata.ResolveStepFolder(@"C:\Elsewhere", absolute), Is.EqualTo(absolute));
+        }
+
+        [Test]
+        public void ToRelativeStepFolder_KeepsAbsoluteWhenNotUnderRunRoot() {
+            // A folder on a different volume can't be made relative; keep it absolute rather than emit "..\..".
+            var other = @"D:\external\01_Baseline\AutoFocus_x";
+            Assert.That(TiltCalibrationMetadata.ToRelativeStepFolder(@"C:\runs\run1", other), Is.EqualTo(other));
+        }
     }
 }

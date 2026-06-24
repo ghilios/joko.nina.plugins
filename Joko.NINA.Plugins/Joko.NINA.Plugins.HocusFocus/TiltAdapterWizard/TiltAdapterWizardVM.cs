@@ -1167,9 +1167,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 return;
             }
 
+            // Resolve each step folder against the run directory the user selected, so a run that was moved or copied
+            // (its stored paths now pointing at the original capture location) still replays. Relative entries (the
+            // current format) rebase onto the selected folder; legacy absolute entries are honored as-is.
             var byStep = (metadata.RunStepMapping ?? new List<TiltRunStepMapping>())
                 .GroupBy(m => m.Step, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.Last().Folder, StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(g => g.Key, g => TiltCalibrationMetadata.ResolveStepFolder(folder, g.Last().Folder), StringComparer.OrdinalIgnoreCase);
             foreach (var step in MeasurementSteps) {
                 if (!byStep.ContainsKey(step.ToString())) {
                     Notification.ShowError($"metadata.json has no saved folder for step '{step}'. Cannot replay.");
@@ -1362,7 +1365,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             currentMetadata.RunStepMapping.RemoveAll(m => string.Equals(m.Step, stepName, StringComparison.OrdinalIgnoreCase));
             if (!string.IsNullOrEmpty(reading.SaveFolder)) {
-                currentMetadata.RunStepMapping.Add(new TiltRunStepMapping { Step = stepName, Folder = reading.SaveFolder });
+                // Store the folder relative to the run root so the saved run replays after being moved/copied.
+                currentMetadata.RunStepMapping.Add(new TiltRunStepMapping {
+                    Step = stepName,
+                    Folder = TiltCalibrationMetadata.ToRelativeStepFolder(runRootFolder, reading.SaveFolder)
+                });
             }
 
             currentMetadata.PerStep.RemoveAll(p => string.Equals(p.Step, stepName, StringComparison.OrdinalIgnoreCase));

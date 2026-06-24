@@ -276,12 +276,10 @@ namespace TestApp {
             return result;
         }
 
-        private static string ResolveFolder(string folder, string datasetDir) {
-            if (Path.IsPathRooted(folder)) {
-                return folder;
-            }
-            return Path.GetFullPath(Path.Combine(datasetDir, folder));
-        }
+        // Shared with the in-app wizard replay so offline and in-app resolution agree (relative entries rebase onto
+        // the dataset dir; legacy absolute entries are honored as-is).
+        private static string ResolveFolder(string folder, string datasetDir) =>
+            TiltCalibrationMetadata.ResolveStepFolder(datasetDir, folder);
 
         // ---- Optimization (resolve detection params) ------------------------------------------------------
 
