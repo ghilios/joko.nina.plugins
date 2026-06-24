@@ -88,6 +88,7 @@ nav:
       - AutoFocus: overview/autofocus.md
       - Hyperbolic Curve Fitting: overview/hyperbola-fitting.md
       - Tilt & Aberration Inspector: overview/tilt-aberration-inspector.md
+      - Tilt Adapter Wizard: overview/tilt-adapter-wizard.md
       - Sensor Model Fitting: overview/sensor-model.md
   - Star Detection Settings:
       - settings/index.md

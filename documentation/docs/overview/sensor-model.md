@@ -62,7 +62,7 @@ best-focus positions minus the center position, converted to microns with *Micro
 and compared against the critical focus zone. A positive value means the corners focus past the
 center, a sign the sensor sits too far from the corrector. The screw-by-screw guidance built from this
 plane is covered under
-[Guiding tilt-adapter screw adjustments](tilt-aberration-inspector.md#guiding-tilt-adapter-screw-adjustments).
+[Guiding tilt-adapter screw adjustments](tilt-adapter-wizard.md).
 
 ## The sensor surface model
 
@@ -285,7 +285,7 @@ The fitted parameters are converted into the quantities the panel displays.
 
 The grading uses the critical focus zone as the yardstick. Tilt is called acceptable when its effect
 is within \(0.25 \times \text{CFZ}\); curvature when its effect is within \(1.5 \times \text{CFZ}\). A
-tilt adapter can remove the planar part (see
-[the inspector page](tilt-aberration-inspector.md#guiding-tilt-adapter-screw-adjustments)); the
+tilt adapter can remove the planar part (see the
+[Tilt Adapter Wizard](tilt-adapter-wizard.md)); the
 curvature residual is a property of the corrector and focal ratio and is addressed with spacing, not
 screws.
