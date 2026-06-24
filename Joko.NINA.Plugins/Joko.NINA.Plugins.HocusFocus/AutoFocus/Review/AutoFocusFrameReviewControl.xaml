@@ -90,8 +90,10 @@
 
         <!-- Self-contained toolbar button: keep Fit/Prev/Next/Close legible on the fixed dark panel regardless of the
              active NINA theme (NINA's themed Button binds to theme brushes and ignores instance colors — same reason
-             the combo uses HF_LightCombo and the replay prompt uses ChoiceButton). -->
-        <Style TargetType="Button">
+             the combo uses HF_LightCombo and the replay prompt uses ChoiceButton). Keyed and applied explicitly per
+             button: an implicit Style here did NOT override NINA's themed Button on some themes (e.g. Classic), so the
+             buttons rendered with the theme's grey background + black text. An explicit Style always wins. -->
+        <Style x:Key="HF_ReviewToolbarButton" TargetType="Button">
             <Setter Property="Margin" Value="4,0" />
             <Setter Property="Padding" Value="10,4" />
             <Setter Property="Foreground" Value="#FFE6E9ED" />
@@ -150,8 +152,8 @@
 
         <!-- Toolbar: navigation + close. (The per-star text + star-bounds selectors live under the legend.) -->
         <DockPanel Grid.Row="1" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
-            <Button DockPanel.Dock="Left" Content="Fit" Command="{Binding FitCommand}" Margin="0,0,4,0" />
-            <Button DockPanel.Dock="Left" Content="◀ Prev" Command="{Binding PrevCommand}" />
+            <Button DockPanel.Dock="Left" Content="Fit" Command="{Binding FitCommand}" Margin="0,0,4,0" Style="{StaticResource HF_ReviewToolbarButton}" />
+            <Button DockPanel.Dock="Left" Content="◀ Prev" Command="{Binding PrevCommand}" Style="{StaticResource HF_ReviewToolbarButton}" />
             <ComboBox DockPanel.Dock="Left" Margin="4,0" VerticalAlignment="Center" MinWidth="96"
                       Style="{StaticResource HF_LightCombo}"
                       ItemsSource="{Binding FramePickerItems}"
@@ -163,8 +165,8 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
-            <Button DockPanel.Dock="Left" Content="Next ▶" Command="{Binding NextCommand}" />
-            <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" />
+            <Button DockPanel.Dock="Left" Content="Next ▶" Command="{Binding NextCommand}" Style="{StaticResource HF_ReviewToolbarButton}" />
+            <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" Style="{StaticResource HF_ReviewToolbarButton}" />
         </DockPanel>
 
         <!-- Image + scrollbars. -->
