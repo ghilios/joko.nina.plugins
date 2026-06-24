@@ -445,6 +445,35 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        // Distinguishes WHY ValidateCalculatedFocusPosition rejected a run so RunAutoFocus can decide whether a
+        // re-centered retry is worthwhile. HfrRegression and FinalPointOutOfBounds are symptoms of a blind sweep
+        // that started far from focus (e.g. a screw adjustment shoved the focuser), which re-centering the sweep on
+        // the just-calculated focus point can fix. The other modes indicate bad data / a bad fit where re-centering
+        // would not help, so they are not retry-eligible.
+        internal enum AutoFocusFailureMode {
+            None,
+            FitQuality,
+            InitialHfrFailed,
+            FinalPointOutOfBounds,
+            HfrRegression,
+            FinalHfrMissing
+        }
+
+        // Decides whether a final-validation failure should trigger the single-shot retry that re-centers the blind
+        // sweep on the just-calculated focus point. Pure so it is unit-testable without a full sweep harness.
+        internal static bool ShouldRetryFromCalculatedPoint(AutoFocusFailureMode mode, int calculatedPoint, int currentSweepCenter, bool calculatedPointRetryUsed) {
+            if (calculatedPointRetryUsed) {
+                return false;
+            }
+            var retryEligibleMode = mode == AutoFocusFailureMode.HfrRegression
+                                 || mode == AutoFocusFailureMode.FinalPointOutOfBounds;
+            if (!retryEligibleMode) {
+                return false;
+            }
+            // Guard a no-op / runaway re-sweep: require a valid point that differs from the center we just swept.
+            return calculatedPoint >= 0 && calculatedPoint != currentSweepCenter;
+        }
+
         private class AutoFocusState {
 
             public AutoFocusState(
@@ -479,6 +508,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             public object StatesLock { get; private set; } = new object();
             public SemaphoreSlim ExposureSemaphore { get; private set; }
             public int InitialFocuserPosition { get; set; }
+
+            // Set by ValidateCalculatedFocusPosition at each failure site so RunAutoFocus can branch on the cause.
+            // LastCalculatedFocusPoint is the pre-offset region-0 fit center captured on a retry-eligible failure, so
+            // a re-centered retry sweeps around the actual estimated focus rather than the contaminated start.
+            public AutoFocusFailureMode LastFailureMode { get; set; } = AutoFocusFailureMode.None;
+            public int LastCalculatedFocusPoint { get; set; } = -1;
+
             public List<Task> InitialHFRTasks { get; private set; } = new List<Task>();
             public List<Task> AnalysisTasks { get; private set; } = new List<Task>();
             public AsyncAutoResetEvent MeasurementCompleteEvent { get; private set; }
@@ -498,6 +534,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             public void OnNextAttempt() {
                 ResetFocusMeasurements();
+                LastFailureMode = AutoFocusFailureMode.None;
+                LastCalculatedFocusPoint = -1;
                 ImageNumber = 0;
                 ++AttemptNumber;
             }
@@ -1185,6 +1223,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusState.InitialFocuserPosition = initialFocusPosition;
                 Logger.Info($"Starting AutoFocus with initial position {initialFocusPosition}");
 
+                // The blind sweep is normally centered on the original starting position. When a final-validation
+                // failure is fixable by re-centering (HFR regression / point outside the swept range) we retry ONCE
+                // centered on the calculated focus point instead — independent of TotalNumberOfAttempts. InitialFocuserPosition
+                // stays the true original so the focuser is restored there if the run ultimately fails.
+                int sweepCenter = initialFocusPosition;
+                bool calculatedPointRetryUsed = false;
+
                 do {
                     await StartInitialFocusPoints(initialFocusPosition, autoFocusState, token, progress);
                     reattempt = false;
@@ -1197,7 +1242,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     bool goodFocusPosition = false;
 
                     try {
-                        await pointGenerationAction(initialFocusPosition, autoFocusState, iterationCts.Token, progress);
+                        await pointGenerationAction(sweepCenter, autoFocusState, iterationCts.Token, progress);
                         token.ThrowIfCancellationRequested();
 
                         goodFocusPosition = await ValidateCalculatedFocusPosition(autoFocusState, iterationCts.Token, progress);
@@ -1217,7 +1262,24 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     if (!goodFocusPosition) {
                         // Ensure we cancel any remaining tasks from this iteration so we can start the next
                         iterationTaskCts.Cancel();
-                        if (autoFocusState.AttemptNumber < autoFocusState.Options.TotalNumberOfAttempts) {
+                        if (ShouldRetryFromCalculatedPoint(autoFocusState.LastFailureMode, autoFocusState.LastCalculatedFocusPoint, sweepCenter, calculatedPointRetryUsed)) {
+                            // The sweep started too far from focus and contaminated the curve. Re-center the next
+                            // sweep on the calculated focus point and re-attempt once (capped independently of the
+                            // normal attempt budget, so it fires even when TotalNumberOfAttempts == 1).
+                            calculatedPointRetryUsed = true;
+                            sweepCenter = autoFocusState.LastCalculatedFocusPoint;
+                            Notification.ShowWarning(Loc.Instance["LblAutoFocusReattempting"]);
+                            Logger.Warning($"AutoFocus failure ({autoFocusState.LastFailureMode}). Re-centering the sweep on the calculated focus point {sweepCenter} and re-attempting once.");
+                            await focuserMediator.MoveFocuser(sweepCenter, token);
+
+                            OnIterationFailed(
+                                state: autoFocusState,
+                                temperature: focuserMediator.GetInfo().Temperature,
+                                duration: stopWatch.Elapsed);
+                            reattempt = true;
+                        } else if (autoFocusState.AttemptNumber < autoFocusState.Options.TotalNumberOfAttempts) {
+                            // Standard reattempt restarts the sweep from the true original starting position.
+                            sweepCenter = initialFocusPosition;
                             Notification.ShowWarning(Loc.Instance["LblAutoFocusReattempting"]);
                             Logger.Warning($"Potentially bad auto-focus. Setting focuser back to {initialFocusPosition} and re-attempting.");
                             await focuserMediator.MoveFocuser(initialFocusPosition, token);
@@ -1348,6 +1410,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             CancellationToken token,
             IProgress<ApplicationStatus> progress) {
             var rSquaredThreshold = profileService.ActiveProfile.FocuserSettings.RSquaredThreshold;
+
+            // When the calculated point falls outside the swept range we DEFER the rejection (rather than returning
+            // immediately) so the focuser still moves there and a final-validation image is captured for diagnosis
+            // before we fail. Recorded here, applied after the move+exposure below.
+            var anyRegionOutOfBounds = false;
+            StarDetectionRegion outOfBoundsRegion = null;
+            int outOfBoundsPosition = 0, outOfBoundsMin = 0, outOfBoundsMax = 0;
+
             if (profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR) {
                 // Evaluate R² for Fittings to be above threshold
                 foreach (var autoFocusRegionState in autoFocusState.FocusRegionStates) {
@@ -1375,6 +1445,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                                     Logger.Error($"Auto Focus Failed! R² (Coefficient of determination) for Hyperbolic Fitting is below threshold. {Math.Round(hyperbolicFitting.RSquared, 2)} / {rSquaredThreshold}; Region: {autoFocusRegionState.Region}");
                                     Notification.ShowError(string.Format(Loc.Instance["LblAutoFocusCurveCorrelationCoefficientLow"], Math.Round(hyperbolicFitting.RSquared, 2), rSquaredThreshold));
                                 }
+                                autoFocusState.LastFailureMode = AutoFocusFailureMode.FitQuality;
                                 return false;
                             }
                         }
@@ -1388,12 +1459,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         if ((fitting == AFCurveFittingEnum.PARABOLIC || fitting == AFCurveFittingEnum.TRENDPARABOLIC) && quadraticBad) {
                             Logger.Error($"Auto Focus Failed! R² (Coefficient of determination) for Parabolic Fitting is below threshold. {Math.Round(fittings.QuadraticFitting.RSquared, 2)} / {rSquaredThreshold}; Region: {autoFocusRegionState.Region}");
                             Notification.ShowError(string.Format(Loc.Instance["LblAutoFocusCurveCorrelationCoefficientLow"], Math.Round(fittings.QuadraticFitting.RSquared, 2), rSquaredThreshold));
+                            autoFocusState.LastFailureMode = AutoFocusFailureMode.FitQuality;
                             return false;
                         }
 
                         if ((fitting == AFCurveFittingEnum.TRENDLINES || fitting == AFCurveFittingEnum.TRENDHYPERBOLIC || fitting == AFCurveFittingEnum.TRENDPARABOLIC) && trendlineBad) {
                             Logger.Error($"Auto Focus Failed! R² (Coefficient of determination) for Trendline Fitting is below threshold. Left: {Math.Round(fittings.TrendlineFitting.LeftTrend.RSquared, 2)} / {rSquaredThreshold}; Right: {Math.Round(fittings.TrendlineFitting.RightTrend.RSquared, 2)} / {rSquaredThreshold}; Region: {autoFocusRegionState.Region}");
                             Notification.ShowError(string.Format(Loc.Instance["LblAutoFocusCurveCorrelationCoefficientLow"], Math.Round(fittings.TrendlineFitting.LeftTrend.RSquared, 2), Math.Round(fittings.TrendlineFitting.RightTrend.RSquared, 2), rSquaredThreshold));
+                            autoFocusState.LastFailureMode = AutoFocusFailureMode.FitQuality;
                             return false;
                         }
                     }
@@ -1408,13 +1481,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     if (finalFocusPosition < 0) {
                         Logger.Error("Fit failed. There likely weren't enough data points with detected stars");
                         Notification.ShowError("Fit failed. There likely weren't enough data points with detected stars");
+                        autoFocusState.LastFailureMode = AutoFocusFailureMode.FitQuality;
                         return false;
                     }
 
                     if (finalFocusPosition < min || finalFocusPosition > max) {
-                        Logger.Error($"Determined focus point position is outside of the overall measurement points of the curve. Fitting is incorrect and autofocus settings are incorrect. FocusPosition {finalFocusPosition}; Min: {min}; Max: {max}; Region: {autoFocusRegionState.Region}");
-                        Notification.ShowError(Loc.Instance["LblAutoFocusPointOutsideOfBounds"]);
-                        return false;
+                        // Defer this rejection until after the final-validation image is captured below. Record the
+                        // first offending region (mirrors the original "first failure wins" ordering) and stop
+                        // checking further regions.
+                        anyRegionOutOfBounds = true;
+                        outOfBoundsRegion = autoFocusRegionState.Region;
+                        outOfBoundsPosition = finalFocusPosition;
+                        outOfBoundsMin = min;
+                        outOfBoundsMax = max;
+                        break;
                     }
                 }
             }
@@ -1423,8 +1503,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (firstRegionFinalFocusPosition < 0) {
                 Logger.Error("Fit failed. There likely weren't enough data points with detected stars");
                 Notification.ShowError("Fit failed. There likely weren't enough data points with detected stars");
+                autoFocusState.LastFailureMode = AutoFocusFailureMode.FitQuality;
                 return false;
             }
+
+            // Region-0 fit center BEFORE the focuser offset is applied — the best estimate of focus, and the center a
+            // re-centered retry should sweep around when this validation fails (see RunAutoFocus).
+            var calculatedFocusPoint = firstRegionFinalFocusPosition;
 
             if (this.autoFocusOptions.FocuserOffset != 0) {
                 Logger.Info($"Applying focuser offset of {this.autoFocusOptions.FocuserOffset} to {firstRegionFinalFocusPosition}");
@@ -1443,17 +1528,30 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             await Task.WhenAll(autoFocusState.AnalysisTasks);
             token.ThrowIfCancellationRequested();
 
+            // Apply the deferred out-of-bounds rejection now that the focuser has moved to the calculated point and
+            // (when HFR validation is on) a final-validation image was captured for diagnosis. Re-centering the sweep
+            // on the calculated point can fix this, so it is retry-eligible.
+            if (anyRegionOutOfBounds) {
+                Logger.Error($"Determined focus point position is outside of the overall measurement points of the curve. Fitting is incorrect and autofocus settings are incorrect. FocusPosition {outOfBoundsPosition}; Min: {outOfBoundsMin}; Max: {outOfBoundsMax}; Region: {outOfBoundsRegion}");
+                Notification.ShowError(Loc.Instance["LblAutoFocusPointOutsideOfBounds"]);
+                autoFocusState.LastFailureMode = AutoFocusFailureMode.FinalPointOutOfBounds;
+                autoFocusState.LastCalculatedFocusPoint = calculatedFocusPoint;
+                return false;
+            }
+
             if (autoFocusState.Options.AutoFocusMethod == AFMethodEnum.STARHFR && autoFocusState.Options.ValidateHfrImprovement) {
                 foreach (var autoFocusRegionState in autoFocusState.FocusRegionStates) {
                     lock (autoFocusRegionState.SubMeasurementsLock) {
                         if (!autoFocusRegionState.FinalHFR.HasValue || autoFocusRegionState.FinalHFR.Value.Measure == 0.0) {
                             Logger.Warning("Failed assessing HFR at the final focus point");
                             Notification.ShowWarning("Failed assessing HFR at the final focus point");
+                            autoFocusState.LastFailureMode = AutoFocusFailureMode.FinalHfrMissing;
                             return false;
                         }
                         if (!autoFocusRegionState.InitialHFR.HasValue || autoFocusRegionState.InitialHFR.Value.Measure == 0.0) {
                             Logger.Warning("Failed assessing HFR at the initial position");
                             Notification.ShowWarning("Failed assessing HFR at the initial position");
+                            autoFocusState.LastFailureMode = AutoFocusFailureMode.InitialHfrFailed;
                             return false;
                         }
 
@@ -1462,6 +1560,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         if (finalHfr > (initialHFR * (1.0 + autoFocusState.Options.HFRImprovementThreshold))) {
                             Logger.Warning($"New focus point HFR {finalHfr} is significantly worse than original HFR {initialHFR}");
                             Notification.ShowWarning(string.Format(Loc.Instance["LblAutoFocusNewWorseThanOriginal"], finalHfr, initialHFR));
+                            autoFocusState.LastFailureMode = AutoFocusFailureMode.HfrRegression;
+                            autoFocusState.LastCalculatedFocusPoint = calculatedFocusPoint;
                             return false;
                         }
                     }
@@ -1954,7 +2054,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// capture-time override when one was used (option b), otherwise the live detector's options. Never throws /
         /// never fails the run.
         /// </summary>
-        private void WriteReplayMetadata(AutoFocusState state) {
+        // Serializes the metadata to <saveFolder>/metadata.json. Isolated + internal so the file-write contract can be
+        // unit-tested without standing up the whole engine.
+        internal static void WriteMetadataFile(string saveFolder, AutoFocusReplayMetadata metadata) {
+            var metadataPath = Path.Combine(saveFolder, "metadata.json");
+            File.WriteAllText(metadataPath, metadata.Serialize());
+            Logger.Info($"Wrote AutoFocus replay metadata to {metadataPath}");
+        }
+
+        private void WriteReplayMetadata(AutoFocusState state, bool succeeded, string failureReason) {
             try {
                 if (string.IsNullOrWhiteSpace(state.SaveFolder)) {
                     return;
@@ -2018,13 +2126,30 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var pluginVersion = typeof(AutoFocusEngine).Assembly.GetName().Version?.ToString();
                 var metadata = AutoFocusReplayMetadataBuilder.Build(
-                    sdOptions, state.Options, regionGeometry, results, DateTime.UtcNow, pluginVersion, StarDetector.StarDetectorVersion);
+                    sdOptions, state.Options, regionGeometry, results, DateTime.UtcNow, pluginVersion, StarDetector.StarDetectorVersion,
+                    succeeded: succeeded, failureReason: failureReason);
 
-                var metadataPath = Path.Combine(state.SaveFolder, "metadata.json");
-                File.WriteAllText(metadataPath, metadata.Serialize());
-                Logger.Info($"Wrote AutoFocus replay metadata to {metadataPath}");
+                WriteMetadataFile(state.SaveFolder, metadata);
             } catch (Exception e) {
                 Logger.Warning($"Failed to write AutoFocus replay metadata.json: {e.Message}");
+            }
+        }
+
+        // Short human-readable reason for the metadata.json failure record, derived from the validation failure mode.
+        private static string FailureReasonText(AutoFocusFailureMode mode) {
+            switch (mode) {
+                case AutoFocusFailureMode.HfrRegression:
+                    return "Final HFR worse than original";
+                case AutoFocusFailureMode.FinalPointOutOfBounds:
+                    return "Calculated focus point outside the swept range";
+                case AutoFocusFailureMode.FitQuality:
+                    return "Fit/data quality rejected (low R²/χ² or insufficient stars)";
+                case AutoFocusFailureMode.InitialHfrFailed:
+                    return "Initial HFR measurement failed";
+                case AutoFocusFailureMode.FinalHfrMissing:
+                    return "Final HFR measurement failed";
+                default:
+                    return "AutoFocus failed";
             }
         }
 
@@ -2032,7 +2157,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusState state,
             double temperature,
             TimeSpan duration) {
-            WriteReplayMetadata(state);
+            WriteReplayMetadata(state, succeeded: true, failureReason: null);
             var initialFocuserPosition = state.InitialFocuserPosition;
             var filter = state.AutoFocusFilter?.Name ?? string.Empty;
             var iteration = state.AttemptNumber;
@@ -2092,6 +2217,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             AutoFocusState state,
             double temperature,
             TimeSpan duration) {
+            // A failed run is still saved with a metadata.json (flagged as failed) so it can be inspected/replayed —
+            // unlike OnIterationFailed, which is a mid-run retry boundary, this is the terminal failure.
+            WriteReplayMetadata(state, succeeded: false, failureReason: FailureReasonText(state.LastFailureMode));
             Failed?.Invoke(this, GetFailedEventArgs(state, temperature, duration));
         }
 

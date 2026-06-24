@@ -296,5 +296,63 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 options.DidNotReceive().ScrewRadiusMillimeters = Arg.Any<double>();
             });
         }
+
+        // --- Failure-choice panel (Change 3) ---
+
+        [Test]
+        public void StepIsAtBaseline_TrueOnlyForBaselineEquivalentSteps() {
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.Baseline), Is.True);
+                Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.ReBaseline1), Is.True);
+                Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.ReBaseline2), Is.True);
+                Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.Complete), Is.True);
+                Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.AllInward), Is.False);
+                Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.Screw1), Is.False);
+                Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.Screw2), Is.False);
+            });
+        }
+
+        [Test]
+        public void BaselineRecoveryText_PerturbedSteps_DescribeUndoingTheMove() {
+            // 3-screw: undo only the moved screw.
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.AllInward, 3), Does.Contain("ALL screws back OUT"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 3), Does.Contain("screw 1 back OUT"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw2, 3), Does.Contain("screw 2 back OUT"));
+            });
+            // 4-screw: the opposing screw is undone too.
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 4), Does.Contain("screw 3 back IN"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw2, 4), Does.Contain("screw 4 back IN"));
+            });
+        }
+
+        [Test]
+        public void BaselineRecoveryText_BaselineSteps_SayAlreadyAtBaseline() {
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Baseline, 3), Does.Contain("already be at the baseline"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.ReBaseline1, 3), Does.Contain("already be at the baseline"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.ReBaseline2, 4), Does.Contain("already be at the baseline"));
+            });
+        }
+
+        [Test]
+        public void MeasurementFailureChoice_DefaultsHidden_AndClearsOnRestart() {
+            var (vm, _, _, _) = Build();
+            Assert.That(vm.HasMeasurementFailureChoice, Is.False);
+            // At the Baseline step the recovery guidance reports the user is already at baseline.
+            Assert.That(vm.IsCurrentStepAtBaseline, Is.True);
+            Assert.That(vm.BaselineRecoveryInstructions, Does.Contain("already be at the baseline"));
+
+            vm.RestartCommand.Execute(null);
+            Assert.That(vm.HasMeasurementFailureChoice, Is.False);
+        }
+
+        [Test]
+        public void RetryMeasurementCommand_CannotExecute_WithoutAFailureChoice() {
+            var (vm, _, _, _) = Build();
+            // No failure has occurred, so the retry button is disabled even though we're on a measurement step.
+            Assert.That(vm.RetryMeasurementCommand.CanExecute(null), Is.False);
+        }
     }
 }

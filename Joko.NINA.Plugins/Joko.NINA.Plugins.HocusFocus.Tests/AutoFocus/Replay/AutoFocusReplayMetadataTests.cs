@@ -158,6 +158,66 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
         }
 
         [Test]
+        public void Builder_PassesThroughSucceededAndFailureReason() {
+            var metadata = AutoFocusReplayMetadataBuilder.Build(
+                starDetectionOptions: null,
+                autoFocusOptions: new AutoFocusEngineOptions(),
+                regions: null,
+                results: null,
+                createdAtUtc: new DateTime(2026, 6, 24, 0, 0, 0, DateTimeKind.Utc),
+                pluginVersion: "x",
+                starDetectorVersion: 1,
+                succeeded: false,
+                failureReason: "boom");
+
+            Assert.Multiple(() => {
+                Assert.That(metadata.Succeeded, Is.False);
+                Assert.That(metadata.FailureReason, Is.EqualTo("boom"));
+            });
+        }
+
+        [Test]
+        public void RoundTrips_WithSucceededFalseAndFailureReason() {
+            // A failed run is still saved (and replayable) with the outcome recorded so it can be inspected.
+            var original = BuildPopulated();
+            original.Succeeded = false;
+            original.FailureReason = "Final HFR worse than original";
+
+            var restored = AutoFocusReplayMetadata.Deserialize(original.Serialize());
+
+            Assert.Multiple(() => {
+                Assert.That(restored.Succeeded, Is.False);
+                Assert.That(restored.FailureReason, Is.EqualTo("Final HFR worse than original"));
+            });
+        }
+
+        [Test]
+        public void RoundTrips_WithSucceededTrue_NullReason() {
+            var original = BuildPopulated();
+            original.Succeeded = true;
+            original.FailureReason = null;
+
+            var json = original.Serialize();
+            // NullValueHandling.Include keeps the field present (additive + backward-compatible).
+            Assert.That(json, Does.Contain("failureReason"));
+
+            var restored = AutoFocusReplayMetadata.Deserialize(json);
+            Assert.Multiple(() => {
+                Assert.That(restored.Succeeded, Is.True);
+                Assert.That(restored.FailureReason, Is.Null);
+            });
+        }
+
+        [Test]
+        public void Validate_DoesNotRequire_SucceededOrFailureReason() {
+            // Metadata written before these fields existed (both null) must still validate.
+            var metadata = BuildPopulated();
+            metadata.Succeeded = null;
+            metadata.FailureReason = null;
+            Assert.DoesNotThrow(() => metadata.Validate());
+        }
+
+        [Test]
         public void Validate_Throws_WhenStarDetectionMissing() {
             var metadata = BuildPopulated();
             metadata.StarDetection = null;

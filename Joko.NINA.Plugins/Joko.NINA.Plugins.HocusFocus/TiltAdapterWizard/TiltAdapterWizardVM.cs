@@ -87,6 +87,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private string measurementConsistencyWarningText = string.Empty;
         private bool hasRebaselineDriftWarning = false;
         private string rebaselineDriftWarningText = string.Empty;
+        private bool hasMeasurementFailureChoice = false;
+        private string measurementFailureText = string.Empty;
 
         // One (A, B, mean) tilt-plane reading plus the per-step field-curvature characterization, keyed by step.
         private readonly Dictionary<WizardStep, StepReading> stepReadings = new Dictionary<WizardStep, StepReading>();
@@ -172,6 +174,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             UseMeasuredHardwareCommand = new RelayCommand(UseMeasuredHardware, () => HasMeasuredHardware);
             BrowseSaveFolderCommand = new RelayCommand(BrowseSaveFolder);
             ReplayCommand = new AsyncRelayCommand(ReplayAsync, () => !IsWizardRunning && !IsMeasuring);
+            RetryMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => HasMeasurementFailureChoice && IsOnMeasurementStep && !IsMeasuring && AreDevicesConnected);
 
             tiltAdapterOptions.PropertyChanged += (s, e) => OnUIThread(() => {
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)) {
@@ -266,6 +269,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(IsComplete));
                 RaisePropertyChanged(nameof(IsOnMeasurementStep));
                 RaisePropertyChanged(nameof(StepInstructions));
+                RaisePropertyChanged(nameof(IsCurrentStepAtBaseline));
+                RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
                 NotifyCommandsCanExecuteChanged();
             }
         }
@@ -399,6 +404,32 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        // Shown after an AutoFocus / sensor-model failure: lets the user re-run AutoFocus or read how to get back to
+        // baseline, instead of the bare "Measurement failed." that left the screw-adjustment instruction on screen.
+        public bool HasMeasurementFailureChoice {
+            get => hasMeasurementFailureChoice;
+            private set {
+                hasMeasurementFailureChoice = value;
+                RaisePropertyChanged();
+                NotifyCommandsCanExecuteChanged();
+            }
+        }
+
+        public string MeasurementFailureText {
+            get => measurementFailureText;
+            private set {
+                measurementFailureText = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        // True when the current step's intended physical state IS the baseline (all screws at their starting
+        // position), so the failure panel can say "already at baseline" rather than how to undo a screw move.
+        public bool IsCurrentStepAtBaseline => StepIsAtBaseline(currentStep);
+
+        // Per-step guidance for returning to baseline before retrying, shown in the failure panel.
+        public string BaselineRecoveryInstructions => BaselineRecoveryText(currentStep, tiltAdapterOptions.ScrewCount);
+
         public bool HasRebaselineDriftWarning {
             get => hasRebaselineDriftWarning;
             private set {
@@ -478,6 +509,38 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        // True for steps whose intended physical state is the baseline (all screws at the starting position).
+        internal static bool StepIsAtBaseline(WizardStep step) {
+            switch (step) {
+                case WizardStep.Baseline:
+                case WizardStep.ReBaseline1:
+                case WizardStep.ReBaseline2:
+                case WizardStep.Complete:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // Instructions for undoing the current step's screw move to return to baseline (mirrors the ReBaseline /
+        // Complete wording in StepInstructions). For a step already at baseline, says so instead.
+        internal static string BaselineRecoveryText(WizardStep step, int screwCount) {
+            switch (step) {
+                case WizardStep.AllInward:
+                    return "Turn ALL screws back OUT exactly 1 full turn each, returning to the baseline position.";
+                case WizardStep.Screw1:
+                    return screwCount == 3
+                        ? "Turn screw 1 back OUT exactly 1 full turn, returning to the baseline position."
+                        : "Turn screw 1 back OUT and screw 3 back IN exactly 1 full turn each, returning to the baseline position.";
+                case WizardStep.Screw2:
+                    return screwCount == 3
+                        ? "Turn screw 2 back OUT exactly 1 full turn, returning to the baseline position."
+                        : "Turn screw 2 back OUT and screw 4 back IN exactly 1 full turn each, returning to the baseline position.";
+                default:
+                    return "All screws should already be at the baseline (starting) position.";
+            }
+        }
+
         public ICommand StartCommand { get; }
         public ICommand RunMeasurementCommand { get; }
         public ICommand UseSavedAFCommand { get; }
@@ -486,6 +549,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public ICommand UseMeasuredHardwareCommand { get; }
         public ICommand BrowseSaveFolderCommand { get; }
         public ICommand ReplayCommand { get; }
+        public ICommand RetryMeasurementCommand { get; }
 
         // Known amount the user moves each screw during the per-screw calibration steps (full turns
         // for screws, steps for steppers). Defaults to 1.0 to match the "1 full turn" instructions.
@@ -606,6 +670,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private Task StartAsync() {
             StatusText = string.Empty;
+            ClearMeasurementFailureChoice();
             stepReadings.Clear();
             HasRebaselineDriftWarning = false;
             RebaselineDriftWarningText = string.Empty;
@@ -683,6 +748,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private async Task RunMeasurementAsync() {
             HasMeasurementConsistencyWarning = false;
             MeasurementConsistencyWarningText = string.Empty;
+            ClearMeasurementFailureChoice();
 
             measureCts?.Dispose();
             measureCts = new CancellationTokenSource();
@@ -701,6 +767,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private async Task RunSavedMeasurementAsync() {
             HasMeasurementConsistencyWarning = false;
             MeasurementConsistencyWarningText = string.Empty;
+            ClearMeasurementFailureChoice();
 
             measureCts?.Dispose();
             measureCts = new CancellationTokenSource();
@@ -722,6 +789,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var reading = await RunAveragedMeasurement(token, step, StepDescription(step), fromSaved);
             if (reading == null) {
                 StatusText = "Measurement failed.";
+                // Offer a clear choice instead of silently leaving the screw-adjustment instruction on screen (which
+                // reads as "re-adjust the screw"). The focuser was left where the last run ended, so re-running
+                // AutoFocus often succeeds; otherwise the user can return to baseline (see BaselineRecoveryInstructions).
+                MeasurementFailureText = "AutoFocus or sensor modeling failed for this step. You can run AutoFocus again, or return the screws to baseline before retrying.";
+                HasMeasurementFailureChoice = true;
                 return;
             }
             stepReadings[step] = reading.Value;
@@ -900,6 +972,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measureCts?.Cancel();
         }
 
+        private void ClearMeasurementFailureChoice() {
+            HasMeasurementFailureChoice = false;
+            MeasurementFailureText = string.Empty;
+        }
+
         private void NextStep() {
             WizardStep next = currentStep + 1;
 
@@ -918,6 +995,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             HasMeasurementConsistencyWarning = false;
             MeasurementConsistencyWarningText = string.Empty;
             StatusText = string.Empty;
+            ClearMeasurementFailureChoice();
             CurrentStep = next;
         }
 
@@ -943,6 +1021,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             HasWarning = false;
             WarningText = string.Empty;
             StatusText = string.Empty;
+            ClearMeasurementFailureChoice();
             CurrentStep = WizardStep.Baseline;
         }
 
@@ -1477,6 +1556,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
             ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)ReplayCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)RetryMeasurementCommand).NotifyCanExecuteChanged();
         }
 
         private static double NormalizeAngle(double deg) => ((deg % 360) + 360) % 360;

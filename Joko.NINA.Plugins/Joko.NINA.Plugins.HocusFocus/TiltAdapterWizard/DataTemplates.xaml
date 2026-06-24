@@ -544,6 +544,48 @@
                         </TextBlock.Style>
                     </TextBlock>
 
+                    <!--  AutoFocus / sensor-model failure choice: run AF again, or how to return to baseline  -->
+                    <Border
+                        Margin="0,6,0,0"
+                        Padding="5"
+                        BorderBrush="{StaticResource NotificationErrorBrush}"
+                        BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasMeasurementFailureChoice}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel>
+                            <TextBlock
+                                Margin="0,0,0,6"
+                                Foreground="{StaticResource NotificationErrorBrush}"
+                                Text="{Binding MeasurementFailureText}"
+                                TextWrapping="Wrap" />
+                            <Button
+                                Margin="0,0,0,6"
+                                HorizontalAlignment="Left"
+                                Command="{Binding RetryMeasurementCommand}">
+                                <TextBlock
+                                    Margin="10,5,10,5"
+                                    Foreground="{StaticResource ButtonForegroundBrush}"
+                                    Text="Run AutoFocus again" />
+                            </Button>
+                            <TextBlock
+                                Margin="0,2,0,0"
+                                FontWeight="Bold"
+                                Text="To return to baseline:" />
+                            <TextBlock
+                                Margin="0,2,0,0"
+                                Text="{Binding BaselineRecoveryInstructions}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
                     <!--  Live inspector view: shown only during an active measurement  -->
                     <ContentControl
                         Margin="0,8,0,0"

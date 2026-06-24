@@ -30,7 +30,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
             IEnumerable<ReplayRegionResultSummary> results,
             DateTime createdAtUtc,
             string pluginVersion,
-            int starDetectorVersion) {
+            int starDetectorVersion,
+            bool? succeeded = null,
+            string failureReason = null) {
             if (autoFocusOptions == null) {
                 throw new ArgumentNullException(nameof(autoFocusOptions));
             }
@@ -42,7 +44,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
                 StarDetection = starDetectionOptions == null ? null : StarDetectionSettingsSnapshot.FromOptions(starDetectionOptions),
                 AutoFocus = AutoFocusReplayOptionsMapper.Capture(autoFocusOptions),
                 Regions = regions,
-                Results = results?.ToList()
+                Results = results?.ToList(),
+                Succeeded = succeeded,
+                FailureReason = failureReason
             };
         }
     }
