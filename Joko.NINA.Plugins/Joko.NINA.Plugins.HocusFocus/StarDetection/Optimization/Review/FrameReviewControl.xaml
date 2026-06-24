@@ -129,6 +129,16 @@
         <DockPanel Grid.Row="1" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
             <Button DockPanel.Dock="Left" Content="Fit" Command="{Binding FitCommand}" Margin="0,0,4,0" />
             <Button DockPanel.Dock="Left" Content="◀ Prev" Command="{Binding PrevCommand}" />
+            <ComboBox DockPanel.Dock="Left" Margin="4,0" VerticalAlignment="Center" MinWidth="96"
+                      ItemsSource="{Binding FramePickerItems}"
+                      SelectedValuePath="Number"
+                      SelectedValue="{Binding SelectedFrameNumber, Mode=TwoWay}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Foreground="Black" Text="{Binding Label}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
             <Button DockPanel.Dock="Left" Content="Next ▶" Command="{Binding NextCommand}" />
             <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" />
         </DockPanel>
