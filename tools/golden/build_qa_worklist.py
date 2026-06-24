@@ -1,16 +1,18 @@
 #!/usr/bin/env python
-"""Bridge golden_prep -> qa_workflow: assemble the QA worklist (Workflow `args`) from per-run prep manifests.
+"""Bridge golden_prep -> qa_workflow: assemble a COMPACT QA worklist (Workflow `args`) from per-run prep manifests.
 
-For every run scratch dir (holding manifest.json from golden_prep.py and f<foc>/montage_index.json), emit one work
-item per uncertain-tier montage with its cell->GLOBAL candidate-index array, so qa_workflow.js can map LLM cell
-confirmations back into the full snr_<foc>.json. Also emits, per run, the inverse needed by the persist step.
+golden_prep renders the uncertain-tier montages CONTIGUOUSLY (SNR-desc), so a montage cell's GLOBAL index into the
+full snr_<foc>.json is simply  high_count + montageIndex*grid^2 + cell  (high_count = the frame's auto-confirmed
+SNR>=12 tier size, where the uncertain tier begins). That means the whole bank's QA fan-out needs only a few ints
+per frame — not every montage path — so the worklist stays small enough to pass inline as Workflow args. The
+workflow reconstructs montage paths from <base>/<tag>/f<foc>/montage_<m>.png and maps cells via the base index.
+
+Emits: { base, grid, runs:[ { tag, frames:[ { foc, n (montages to QA, capped), b (high_count base index) } ] } ] }
 
 Usage:
-  build_qa_worklist.py --scratch-root <dir> --out worklist.json
-The driver then runs:  Workflow(scriptPath=tools/golden/qa_workflow.js, args=<worklist.json contents>)
-and persists the returned byKey as qa_<foc>.json per run before build_goldens.py.
+  build_qa_worklist.py --scratch-root <dir> --out worklist.json [--grid 6] [--max-montages-per-frame N]
 """
-import os, sys, json, argparse
+import os, json, argparse
 
 
 def main():
@@ -18,38 +20,30 @@ def main():
     ap.add_argument('--scratch-root', required=True)
     ap.add_argument('--out', required=True)
     ap.add_argument('--grid', type=int, default=6)
-    ap.add_argument('--max-montages-per-frame', type=int, default=0,
-                    help='cap QA to the first N montages per frame (montages are highest-SNR-first within the '
-                         'uncertain tier, so the first N are the most borderline-real). 0 = no cap.')
+    ap.add_argument('--max-montages-per-frame', type=int, default=0, help='0 = no cap')
     args = ap.parse_args()
-    per = args.grid * args.grid
 
-    work = []
     runs = []
+    total_montages = 0
     for entry in sorted(os.listdir(args.scratch_root)):
-        run_dir = os.path.join(args.scratch_root, entry)
-        man_path = os.path.join(run_dir, 'manifest.json')
+        man_path = os.path.join(args.scratch_root, entry, 'manifest.json')
         if not os.path.isfile(man_path):
             continue
         man = json.load(open(man_path))
-        runs.append({'run': entry, 'runDir': man.get('runDir'), 'scratch': run_dir})
+        frames = []
         for fr in man['frames']:
-            foc = fr['foc']
-            mi_path = os.path.join(fr['montageDir'], 'montage_index.json')
-            if not os.path.isfile(mi_path):
-                continue
-            mi = json.load(open(mi_path))
-            c2g = mi.get('cellToGlobal', {})  # { "<to_qa position>": globalSnrIdx }
-            montages = mi.get('montages', [])
+            n = fr['montageCount']
             if args.max_montages_per_frame > 0:
-                montages = montages[:args.max_montages_per_frame]
-            for m, mont in enumerate(montages):
-                cell_to_global = [c2g.get(str(m * per + j)) for j in range(per)]
-                cell_to_global = [g for g in cell_to_global if g is not None]
-                work.append({'run': entry, 'foc': foc, 'file': mont['file'], 'cellToGlobal': cell_to_global})
+                n = min(n, args.max_montages_per_frame)
+            if n <= 0:
+                continue
+            frames.append({'foc': fr['foc'], 'n': n, 'b': fr['high']})
+            total_montages += n
+        if frames:
+            runs.append({'tag': entry, 'frames': frames})
 
-    json.dump({'grid': args.grid, 'work': work, 'runs': runs}, open(args.out, 'w'))
-    print(f'{len(work)} montage work items across {len(runs)} run(s) -> {args.out}')
+    json.dump({'base': os.path.abspath(args.scratch_root), 'grid': args.grid, 'runs': runs}, open(args.out, 'w'))
+    print(f'{total_montages} montages to QA across {len(runs)} run(s) -> {args.out}')
 
 
 if __name__ == '__main__':
