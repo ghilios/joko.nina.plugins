@@ -206,6 +206,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             string labelsDir,
             MeasurementAverageEnum measurementAverage = MeasurementAverageEnum.Median) {
             this.queue = queue ?? throw new ArgumentNullException(nameof(queue));
+            FramePickerItems = queue
+                .Select((f, i) => new FramePickerItem(i + 1, $"{i + 1} — {f.FocuserPosition}"))
+                .ToList();
             this.labelsByRun = labelsByRun ?? throw new ArgumentNullException(nameof(labelsByRun));
             this.labelsDir = labelsDir ?? throw new ArgumentNullException(nameof(labelsDir));
             this.measurementAverage = measurementAverage;
@@ -234,6 +237,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                     currentIndex = value;
                     RaisePropertyChanged();
                     RaisePropertyChanged(nameof(PositionLabel));
+                    RaisePropertyChanged(nameof(SelectedFrameNumber));
                 }
             }
         }
@@ -241,6 +245,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         public int QueueCount => queue.Count;
 
         public string PositionLabel => $"{CurrentIndex + 1} / {queue.Count}";
+
+        /// <summary>Toolbar frame-picker entries (1-based number + focuser-position label).</summary>
+        public IReadOnlyList<FramePickerItem> FramePickerItems { get; }
+
+        /// <summary>Two-way bound by the toolbar frame picker (1-based, matching <see cref="PositionLabel"/>). Selecting
+        /// a frame jumps to it the same way Prev/Next do (set index, then LoadCurrent(fitView:false) to preserve
+        /// zoom/pan). Out-of-range and no-op selections are ignored.</summary>
+        public int SelectedFrameNumber {
+            get => CurrentIndex + 1;
+            set {
+                var index = value - 1;
+                if (index >= 0 && index < queue.Count && index != CurrentIndex) {
+                    CurrentIndex = index;
+                    LoadCurrent(fitView: false);
+                }
+            }
+        }
 
         private string cursorPositionText;
 
