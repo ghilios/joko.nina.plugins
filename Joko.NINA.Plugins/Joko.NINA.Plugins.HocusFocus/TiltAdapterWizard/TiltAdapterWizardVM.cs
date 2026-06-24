@@ -1184,20 +1184,27 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // representative per-step AutoFocus replay snapshot). Cancelling / closing the modal aborts.
             var representativeStepFolder = byStep[MeasurementSteps.First().ToString()];
             AutoFocusReplayMetadata.TryLoad(representativeStepFolder, out var replayMetadata, out _);
-            var choice = await ReplaySettingsPrompt.ShowAsync(windowServiceFactory, replayMetadata);
+            var choice = await ReplaySettingsPrompt.ShowAsync(windowServiceFactory, replayMetadata, ReplaySettingsPromptTexts.TiltCalibration);
             if (choice == ReplaySettingsChoice.Cancel) {
                 return;
             }
             var mode = TiltReplayModeResolver.Resolve(choice);
 
-            // "Update profile to capture-time": persist the run's capture-time star-detection settings to the live
-            // profile, then replay against it (no per-step override needed). ApplyFullSnapshot raises INPC -> UI thread.
-            if (mode.UpdateProfileToCaptureTime) {
-                var captureSnapshot = BuildTiltReplayDetectionOverride(representativeStepFolder, metadata);
-                if (captureSnapshot != null) {
-                    OnUIThread(() => HocusFocusPlugin.StarDetectionOptions?.ApplyFullSnapshot(captureSnapshot));
-                }
+            // The run's representative capture-time star-detection snapshot: used to warn when the run stored none, and
+            // — for "update profile" — to persist to the live profile AFTER a successful replay. Reuse the metadata
+            // already loaded above when present; otherwise build it (which also overlays legacy optimized settings).
+            var captureTimeSnapshot = mode.ApplyCaptureTimeOverridePerStep
+                ? (replayMetadata?.StarDetection ?? BuildTiltReplayDetectionOverride(representativeStepFolder, metadata))
+                : null;
+            if (mode.ApplyCaptureTimeOverridePerStep && captureTimeSnapshot == null) {
+                Notification.ShowWarning(mode.UpdateProfileToCaptureTime
+                    ? "This saved run has no stored star-detection settings, so it will replay with your current settings and your profile will not be changed."
+                    : "This saved run has no stored star-detection settings, so it will replay with your current settings.");
             }
+            // Failure/cancel happens before the profile write below, so the profile is never left half-changed.
+            var profileNotChangedNote = mode.UpdateProfileToCaptureTime
+                ? " Your profile was not changed (it is only updated after a successful replay)."
+                : string.Empty;
 
             // Replaying with current geometry applies the current screw count to the saved deltas; if the saved run
             // used a different screw count, the angle fit is meaningless. Warn rather than silently corrupt.
@@ -1228,22 +1235,22 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 foreach (var step in MeasurementSteps) {
                     token.ThrowIfCancellationRequested();
                     StatusText = $"Replaying {step}...";
-                    // Capture-time-in-memory replay passes a detached per-step star-detection snapshot as an override so
-                    // the profile is never touched. "Use current settings" and "update profile" both pass null (the
-                    // latter has already mutated the live profile to the capture-time settings).
+                    // Capture-time modes ("use captured in memory" and "update profile") replay each step with its own
+                    // detached capture-time star-detection snapshot as an override, so the live profile is untouched
+                    // during the replay. "Use current settings" passes null and uses the current profile.
                     var detectionOverride = mode.ApplyCaptureTimeOverridePerStep
                         ? BuildTiltReplayDetectionOverride(byStep[step.ToString()], metadata)
                         : null;
                     bool ok = await inspector.AnalyzeAutoFocusFromSavedPath(byStep[step.ToString()], token, detectionOverride);
                     if (!ok) {
                         StatusText = $"Replay failed at {step}.";
-                        Notification.ShowError($"Replay failed at step '{step}'. The saved frames could not be analyzed.");
+                        Notification.ShowError($"Replay failed at step '{step}'. The saved frames could not be analyzed.{profileNotChangedNote}");
                         return;
                     }
                     var m = inspector.TiltModel?.TiltPlaneModel;
                     if (m == null) {
                         StatusText = $"Replay produced no tilt model at {step}.";
-                        Notification.ShowError($"Replay produced no tilt model at step '{step}'.");
+                        Notification.ShowError($"Replay produced no tilt model at step '{step}'.{profileNotChangedNote}");
                         return;
                     }
                     var reading = new StepReading {
@@ -1286,18 +1293,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         IsStepperAdjustment);
                 }
                 RebuildDiagram();
+                // Update-profile choice: the replay succeeded, so now persist the run's capture-time star-detection
+                // settings to the live profile (no-op if the run stored none — the user was warned above).
+                if (mode.UpdateProfileToCaptureTime && captureTimeSnapshot != null) {
+                    OnUIThread(() => HocusFocusPlugin.StarDetectionOptions?.ApplyFullSnapshot(captureTimeSnapshot));
+                }
                 StatusText = "Replay complete.";
                 CurrentStep = WizardStep.Complete;
                 completed = true;
             } catch (OperationCanceledException) {
                 StatusText = "Replay cancelled.";
             } catch (Exception ex) {
-                Notification.ShowError($"Replay failed: {ex.Message}");
+                Notification.ShowError($"Replay failed: {ex.Message}{profileNotChangedNote}");
                 Logger.Error(ex, "Tilt calibration replay failed");
             } finally {
-                // "Use capture-time in memory" passes detection settings as an in-memory override, so nothing is undone.
-                // "Update profile to capture-time" intentionally persisted the capture-time settings to the profile (the
-                // user opted in via the modal), so it is likewise not restored.
+                // The live profile is only persisted on a successful "update profile to capture-time" replay (above), so
+                // a cancelled/failed replay leaves it untouched — nothing to restore. The in-memory per-step override
+                // never touches the profile either.
                 isReplaying = false;
                 IsMeasuring = false;
                 // A successful replay ends on the Complete panel (like a live run); a failed/cancelled replay

@@ -26,12 +26,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         /// replay thread: the awaited <see cref="ReplaySettingsPromptVM.Choice"/> completes when the user clicks a
         /// button or closes the window, and continuations run off the captured context.
         /// </summary>
-        public static async Task<ReplaySettingsChoice> ShowAsync(IWindowServiceFactory windowServiceFactory, AutoFocusReplayMetadata metadata) {
+        public static async Task<ReplaySettingsChoice> ShowAsync(IWindowServiceFactory windowServiceFactory, AutoFocusReplayMetadata metadata, ReplaySettingsPromptTexts texts = null) {
             if (windowServiceFactory == null) {
                 throw new ArgumentNullException(nameof(windowServiceFactory));
             }
 
-            var vm = new ReplaySettingsPromptVM(metadata);
+            var vm = new ReplaySettingsPromptVM(metadata, texts);
             var windowService = windowServiceFactory.Create();
 
             // A button (or the X) raises RequestClose; close the host window, which fires OnClosed below.

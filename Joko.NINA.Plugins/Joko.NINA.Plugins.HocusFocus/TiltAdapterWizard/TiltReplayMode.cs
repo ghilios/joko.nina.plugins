@@ -34,7 +34,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         /// <summary>Pass the per-step capture-time star-detection snapshot as an in-memory override (true) or use the live profile (false).</summary>
         public bool ApplyCaptureTimeOverridePerStep { get; }
 
-        /// <summary>Persist the run's capture-time star-detection settings to the live profile before replaying.</summary>
+        /// <summary>Persist the run's capture-time star-detection settings to the live profile AFTER a successful replay.</summary>
         public bool UpdateProfileToCaptureTime { get; }
     }
 
@@ -51,7 +51,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 case ReplaySettingsChoice.UseCaptureTimeSettingsInMemory:
                     return new TiltReplayMode(useMetadataGeometry: true, applyCaptureTimeOverridePerStep: true, updateProfileToCaptureTime: false);
                 case ReplaySettingsChoice.UpdateProfileToCaptureTime:
-                    return new TiltReplayMode(useMetadataGeometry: true, applyCaptureTimeOverridePerStep: false, updateProfileToCaptureTime: true);
+                    return new TiltReplayMode(useMetadataGeometry: true, applyCaptureTimeOverridePerStep: true, updateProfileToCaptureTime: true);
                 default:
                     throw new ArgumentOutOfRangeException(nameof(choice), choice, "Cancel must be handled before resolving a replay mode.");
             }

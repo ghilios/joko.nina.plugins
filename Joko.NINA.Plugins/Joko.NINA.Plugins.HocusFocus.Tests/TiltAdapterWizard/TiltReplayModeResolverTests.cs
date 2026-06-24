@@ -29,11 +29,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void UpdateProfile_MetadataGeometry_NoPerStepOverride_Mutates() {
+        public void UpdateProfile_MetadataGeometry_PerStepOverride_Mutates() {
+            // Update-profile replays per-step in memory (like the in-memory mode); the live profile is persisted only
+            // after a successful replay, so the per-step override still drives the replay itself.
             var mode = TiltReplayModeResolver.Resolve(ReplaySettingsChoice.UpdateProfileToCaptureTime);
             Assert.Multiple(() => {
                 Assert.That(mode.UseMetadataGeometry, Is.True);
-                Assert.That(mode.ApplyCaptureTimeOverridePerStep, Is.False);
+                Assert.That(mode.ApplyCaptureTimeOverridePerStep, Is.True);
                 Assert.That(mode.UpdateProfileToCaptureTime, Is.True);
             });
         }
