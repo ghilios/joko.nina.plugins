@@ -43,6 +43,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         private System.Windows.Point lastPanScreen;
         private bool suppressScrollEvents;
         protected bool hasFitOnce;
+        private bool windowSized;
+
+        // Desired first-load size of the host window (device-independent px), clamped to the work area below. Subclasses
+        // override to open larger/smaller; defaults suit the manual-AF review. The Aberration Inspector review opens
+        // bigger (more regions / the hover focus graph).
+        protected virtual double DesiredWindowWidth => 1100.0;
+
+        protected virtual double DesiredWindowHeight => 720.0;
 
         protected abstract Canvas ViewportCanvasPart { get; }
         protected abstract ScrollBar HScrollPart { get; }
@@ -55,6 +63,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             DataContextChanged += OnDataContextChanged;
             KeyDown += OnKeyDown;
             Unloaded += OnUnloaded;
+            Loaded += OnReviewLoaded;
+        }
+
+        // Size the host window to FIT the screen on first load (clamped to the work area, centered), with a small
+        // minimum so it can be shrunk freely. NINA's WindowService opens the window sized-to-content, which — without
+        // this — honors whatever large size the content asks for and can open off-screen on smaller displays. Shared by
+        // both review controls so the AutoFocus and Aberration Inspector windows behave identically.
+        private void OnReviewLoaded(object sender, RoutedEventArgs e) {
+            if (windowSized) {
+                return;
+            }
+            var window = Window.GetWindow(this);
+            if (window == null) {
+                return;
+            }
+            windowSized = true;
+
+            var work = SystemParameters.WorkArea; // device-independent pixels, excludes the taskbar
+            const double margin = 40.0;
+
+            window.SizeToContent = SizeToContent.Manual;
+            window.MinWidth = Math.Min(640.0, work.Width);
+            window.MinHeight = Math.Min(440.0, work.Height);
+            window.Width = Math.Min(DesiredWindowWidth, Math.Max(window.MinWidth, work.Width - margin));
+            window.Height = Math.Min(DesiredWindowHeight, Math.Max(window.MinHeight, work.Height - margin));
+            window.Left = work.Left + (work.Width - window.Width) / 2.0;
+            window.Top = work.Top + (work.Height - window.Height) / 2.0;
+
+            // The initial auto-fit (ViewportCanvas_SizeChanged) ran against the pre-resize canvas size, so re-fit against
+            // the FINAL window size once the resize layout pass has settled (DispatcherPriority.Loaded runs after
+            // layout). Latch hasFitOnce only if that deferred fit actually succeeds (F19).
+            Dispatcher.BeginInvoke(
+                new Action(() => { if (TryFit()) { hasFitOnce = true; } }),
+                System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e) {

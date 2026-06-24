@@ -193,8 +193,9 @@
     <!--  The Aberration Inspector "Review Frames" window content. Implicit DataType template so the WindowService's
           ContentPresenter resolves it by VM type (same mechanism as the wizard below).  -->
     <DataTemplate DataType="{x:Type review:FrameReviewVM}">
-        <!--  Open large by default; MinWidth/MinHeight let the window (CanResize) grow and the control fill it.  -->
-        <review:FrameReviewControl MinWidth="1280" MinHeight="860" />
+        <!--  No fixed min size: the control sizes its host window to fit the screen on load (ReviewViewportHostBase),
+              opening large (1280x860) but clamped to the work area so it can be shrunk freely.  -->
+        <review:FrameReviewControl />
     </DataTemplate>
 
     <!--  The wizard window content. Implicit DataType template so the WindowService's ContentPresenter resolves it by VM type.  -->

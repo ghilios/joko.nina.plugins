@@ -445,8 +445,11 @@
                        Visibility="Collapsed" Scroll="HScroll_Scroll" />
         </Grid>
 
-        <!-- Right column: legend (disabled rows greyed) + toggles + help. -->
-        <StackPanel Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" VerticalAlignment="Top" Width="240" Margin="12,0,0,0">
+        <!-- Right column: legend (disabled rows greyed) + toggles + help. Scrollable so it never clips on a short
+             window (matches the AutoFocus review). -->
+        <ScrollViewer Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" VerticalAlignment="Top" Width="240" Margin="12,0,0,0"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel>
             <TextBlock FontWeight="Bold" Margin="0,0,0,6" Text="Legend" />
             <ItemsControl ItemsSource="{Binding LegendEntries}">
                 <ItemsControl.ItemTemplate>
@@ -496,5 +499,6 @@
             <TextBlock Margin="0,8,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
                        Text="Wheel to zoom, right-drag to pan, Fit to reset. ◀ ▶ or Prev/Next to change frames." />
         </StackPanel>
+        </ScrollViewer>
     </Grid>
 </review:ReviewViewportHostBase>
