@@ -99,6 +99,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Review {
         public AutoFocusFrameReviewVM(AutoFocusFrameReviewSnapshot snapshot, IStarAnnotatorOptions annotatorOptions, IApplicationDispatcher applicationDispatcher, MeasurementAverageEnum measurementAverage)
             : base((snapshot ?? throw new ArgumentNullException(nameof(snapshot))).Frames.Count) {
             this.snapshot = snapshot;
+            FramePickerItems = snapshot.Frames
+                .Select((f, i) => new FramePickerItem(i + 1, $"{i + 1} — {f.FocuserPosition:0}"))
+                .ToList();
             this.annotatorOptions = annotatorOptions ?? throw new ArgumentNullException(nameof(annotatorOptions));
             this.applicationDispatcher = applicationDispatcher ?? throw new ArgumentNullException(nameof(applicationDispatcher));
             this.measurementAverage = measurementAverage;

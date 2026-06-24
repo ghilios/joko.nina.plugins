@@ -7,6 +7,84 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <SolidColorBrush x:Key="Fg" Color="White" />
 
+        <!-- Self-contained light ComboBox: NINA's app-wide themed ComboBox ignores instance Background/Foreground (its
+             template binds to theme brushes), so a fully custom template is the only reliable way to get a light box
+             with dark, legible text on this dark panel. (Mirrors AutoFocusFrameReviewControl's HF_LightCombo.) -->
+        <Style x:Key="HF_LightCombo" TargetType="ComboBox">
+            <Setter Property="Foreground" Value="Black" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Foreground" Value="Black" />
+                        <Setter Property="Padding" Value="6,3" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ComboBoxItem">
+                                    <Border x:Name="ItemBorder" Background="White" Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter TextElement.Foreground="Black" />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsHighlighted" Value="True">
+                                            <Setter TargetName="ItemBorder" Property="Background" Value="#FFCCE5FF" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton Grid.Column="0" Focusable="False" ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="Border" CornerRadius="2" BorderThickness="1"
+                                                Background="White" BorderBrush="#FF8A8A8A">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="20" />
+                                                </Grid.ColumnDefinitions>
+                                                <Path Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                      Data="M 0 0 L 4 4 L 8 0 Z" Fill="#FF303030" />
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Border" Property="Background" Value="#FFF2F2F2" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter IsHitTestVisible="False"
+                                              Margin="6,0,24,0" VerticalAlignment="Center" HorizontalAlignment="Left"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              TextElement.Foreground="Black" />
+                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" Focusable="False"
+                                   AllowsTransparency="True" PopupAnimation="Slide">
+                                <Border MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                        Background="White" BorderThickness="1" BorderBrush="#FF8A8A8A" SnapsToDevicePixels="True">
+                                    <ScrollViewer>
+                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- NINA's default toggle (StandardCheckBox) hard-codes the OFF label to {StaticResource PrimaryBrush},
              which is too dark on this panel and CANNOT be overridden from the consumer (StaticResource is baked
              into NINA's parsed style). So we keep NINA's exact toggle look but re-template it locally, pointing
@@ -85,9 +163,36 @@
             </Setter>
         </Style>
 
+        <!-- Self-contained toolbar button: keep Fit/Prev/Next/Close legible on the fixed dark panel regardless of the
+             active NINA theme (NINA's themed Button binds to theme brushes and ignores instance colors — same reason
+             the combo uses HF_LightCombo and the replay prompt uses ChoiceButton). -->
         <Style TargetType="Button">
             <Setter Property="Margin" Value="4,0" />
             <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Foreground" Value="#FFE6E9ED" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="#FF2A2F36" BorderBrush="#FF3E4650" BorderThickness="1"
+                                CornerRadius="3" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FF34404C" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FF5A86C0" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FF2C3742" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource Fg}" />
@@ -108,7 +213,7 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <DockPanel Grid.Row="0" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
+        <DockPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" LastChildFill="False" Margin="0,0,0,6">
             <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Text="{Binding FrameHeader}" />
             <TextBlock DockPanel.Dock="Right" Text="{Binding PositionLabel}" />
             <!-- Sensor (image-pixel) coordinates under the cursor, for describing a region precisely. -->
@@ -119,6 +224,17 @@
         <WrapPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,6">
             <Button Content="Fit" Command="{Binding FitCommand}" Margin="0,0,4,0" />
             <Button Content="◀ Prev" Command="{Binding PrevCommand}" />
+            <ComboBox Margin="4,0" VerticalAlignment="Center" MinWidth="96"
+                      Style="{StaticResource HF_LightCombo}"
+                      ItemsSource="{Binding FramePickerItems}"
+                      SelectedValuePath="Number"
+                      SelectedValue="{Binding SelectedFrameNumber, Mode=TwoWay}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Foreground="Black" Text="{Binding Label}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
             <Button Content="Next ▶" Command="{Binding NextCommand}" />
             <Button Content="Undo" Command="{Binding UndoCommand}" Margin="16,0,4,0" />
             <Button Content="Redo" Command="{Binding RedoCommand}" />
@@ -398,13 +514,13 @@
         </Grid>
 
         <!-- Concise, wrapping interaction instructions (the color key now lives in the legend panel at right) + counts. -->
-        <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,6,0,0">
+        <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,6,0,0">
             <TextBlock Foreground="#FFB0B6BD" Text="{Binding HelpText}" TextWrapping="Wrap" />
             <TextBlock Margin="0,4,0,0" Foreground="#FFB0B6BD" Text="{Binding CountsLabel}" />
         </StackPanel>
 
         <!-- Color legend (right column), generated from the VM's single color source so it tracks the overlays. -->
-        <StackPanel Grid.Row="0" Grid.RowSpan="4" Grid.Column="1" Width="230" Margin="12,0,0,0">
+        <StackPanel Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" VerticalAlignment="Top" Width="230" Margin="12,0,0,0">
             <TextBlock FontWeight="Bold" Margin="0,0,0,6" Text="Legend" />
             <ItemsControl ItemsSource="{Binding LegendEntries}">
                 <ItemsControl.ItemTemplate>

@@ -14,6 +14,7 @@ using CommunityToolkit.Mvvm.Input;
 using NINA.Core.Model;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
+using NINA.Core.Utility.WindowService;
 using NINA.Equipment.Equipment;
 using NINA.Equipment.Equipment.MyCamera;
 using NINA.Equipment.Equipment.MyFocuser;
@@ -67,6 +68,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private readonly ITiltAdapterOptions tiltAdapterOptions;
         private readonly InspectorVM inspector;
         private readonly IApplicationDispatcher applicationDispatcher;
+        // WindowServiceFactory is not a MEF export (NINA exposes the concrete type with a default ctor only), so it is
+        // constructed directly, matching InspectorVM / HocusFocusVM. Used to show the shared replay-settings modal.
+        private readonly IWindowServiceFactory windowServiceFactory = new WindowServiceFactory();
         private readonly IProgress<ApplicationStatus> progress;
 
         private CameraInfo cameraInfo = DeviceInfo.CreateDefaultInstance<CameraInfo>();
@@ -167,8 +171,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RestartCommand = new RelayCommand(Restart);
             UseMeasuredHardwareCommand = new RelayCommand(UseMeasuredHardware, () => HasMeasuredHardware);
             BrowseSaveFolderCommand = new RelayCommand(BrowseSaveFolder);
-            ReplayCommand = new AsyncRelayCommand(() => ReplayAsync(useMetadataSettings: true), () => !IsWizardRunning && !IsMeasuring);
-            ReplayCurrentSettingsCommand = new AsyncRelayCommand(() => ReplayAsync(useMetadataSettings: false), () => !IsWizardRunning && !IsMeasuring);
+            ReplayCommand = new AsyncRelayCommand(ReplayAsync, () => !IsWizardRunning && !IsMeasuring);
 
             tiltAdapterOptions.PropertyChanged += (s, e) => OnUIThread(() => {
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)) {
@@ -483,7 +486,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public ICommand UseMeasuredHardwareCommand { get; }
         public ICommand BrowseSaveFolderCommand { get; }
         public ICommand ReplayCommand { get; }
-        public ICommand ReplayCurrentSettingsCommand { get; }
 
         // Known amount the user moves each screw during the per-screw calibration steps (full turns
         // for screws, steps for steppers). Defaults to 1.0 to match the "1 full turn" instructions.
@@ -1130,12 +1132,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // ---- Replay -----------------------------------------------------------------------------------------
 
         // Replays a saved calibration run from a folder: reads metadata.json, re-analyzes each step from its saved
-        // frames, and recomputes the calibration.
-        // - useMetadataSettings = true ("Replay"): apply the run's stored star-detection settings transiently
-        //   (restored afterward) and use the run's stored geometry — reproduces the original calibration exactly.
-        // - useMetadataSettings = false ("Replay Current Settings"): leave the current profile's star-detection and
-        //   tilt-calibration settings in place, so metadata.json does not override what is configured now.
-        private async Task ReplayAsync(bool useMetadataSettings) {
+        // frames, and recomputes the calibration. A single "Replay" button opens the shared replay-settings modal,
+        // which offers three modes (see TiltReplayModeResolver):
+        // - Use current settings: current profile star-detection + current tilt geometry (metadata does not override).
+        // - Use capture-time settings in memory: the run's stored star-detection as a transient per-step override
+        //   (profile untouched) + the run's stored geometry — reproduces the original calibration exactly.
+        // - Update profile to capture-time: persist the run's star-detection settings to the live profile, then replay
+        //   against it + the run's stored geometry.
+        private async Task ReplayAsync() {
             string folder;
             using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
                 if (!string.IsNullOrEmpty(SaveAFRunsPath)) {
@@ -1163,9 +1167,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 return;
             }
 
+            // Resolve each step folder against the run directory the user selected, so a run that was moved or copied
+            // (its stored paths now pointing at the original capture location) still replays. Relative entries (the
+            // current format) rebase onto the selected folder; legacy absolute entries are honored as-is.
             var byStep = (metadata.RunStepMapping ?? new List<TiltRunStepMapping>())
                 .GroupBy(m => m.Step, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.Last().Folder, StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(g => g.Key, g => TiltCalibrationMetadata.ResolveStepFolder(folder, g.Last().Folder), StringComparer.OrdinalIgnoreCase);
             foreach (var step in MeasurementSteps) {
                 if (!byStep.ContainsKey(step.ToString())) {
                     Notification.ShowError($"metadata.json has no saved folder for step '{step}'. Cannot replay.");
@@ -1173,9 +1180,35 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 }
             }
 
-            // "Replay Current Settings" applies the current screw geometry to the saved deltas; if the saved run
+            // Consolidated replay: one button, three modes resolved by the shared replay-settings modal (seeded from a
+            // representative per-step AutoFocus replay snapshot). Cancelling / closing the modal aborts.
+            var representativeStepFolder = byStep[MeasurementSteps.First().ToString()];
+            AutoFocusReplayMetadata.TryLoad(representativeStepFolder, out var replayMetadata, out _);
+            var choice = await ReplaySettingsPrompt.ShowAsync(windowServiceFactory, replayMetadata, ReplaySettingsPromptTexts.TiltCalibration);
+            if (choice == ReplaySettingsChoice.Cancel) {
+                return;
+            }
+            var mode = TiltReplayModeResolver.Resolve(choice);
+
+            // The run's representative capture-time star-detection snapshot: used to warn when the run stored none, and
+            // — for "update profile" — to persist to the live profile AFTER a successful replay. Reuse the metadata
+            // already loaded above when present; otherwise build it (which also overlays legacy optimized settings).
+            var captureTimeSnapshot = mode.ApplyCaptureTimeOverridePerStep
+                ? (replayMetadata?.StarDetection ?? BuildTiltReplayDetectionOverride(representativeStepFolder, metadata))
+                : null;
+            if (mode.ApplyCaptureTimeOverridePerStep && captureTimeSnapshot == null) {
+                Notification.ShowWarning(mode.UpdateProfileToCaptureTime
+                    ? "This saved run has no stored star-detection settings, so it will replay with your current settings and your profile will not be changed."
+                    : "This saved run has no stored star-detection settings, so it will replay with your current settings.");
+            }
+            // Failure/cancel happens before the profile write below, so the profile is never left half-changed.
+            var profileNotChangedNote = mode.UpdateProfileToCaptureTime
+                ? " Your profile was not changed (it is only updated after a successful replay)."
+                : string.Empty;
+
+            // Replaying with current geometry applies the current screw count to the saved deltas; if the saved run
             // used a different screw count, the angle fit is meaningless. Warn rather than silently corrupt.
-            if (!useMetadataSettings && metadata.NumberOfScrews != tiltAdapterOptions.ScrewCount) {
+            if (!mode.UseMetadataGeometry && metadata.NumberOfScrews != tiltAdapterOptions.ScrewCount) {
                 Notification.ShowWarning($"The saved run used {metadata.NumberOfScrews} screws but the current setting is " +
                     $"{tiltAdapterOptions.ScrewCount}. Replaying with current settings may produce incorrect angles.");
             }
@@ -1202,22 +1235,22 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 foreach (var step in MeasurementSteps) {
                     token.ThrowIfCancellationRequested();
                     StatusText = $"Replaying {step}...";
-                    // No-mutation replay: when using the run's stored settings, pass a detached capture-time
-                    // star-detection snapshot as an override so the profile is never modified (and never needs
-                    // restoring). "Replay Current Settings" passes null and uses the current profile settings.
-                    var detectionOverride = useMetadataSettings
+                    // Capture-time modes ("use captured in memory" and "update profile") replay each step with its own
+                    // detached capture-time star-detection snapshot as an override, so the live profile is untouched
+                    // during the replay. "Use current settings" passes null and uses the current profile.
+                    var detectionOverride = mode.ApplyCaptureTimeOverridePerStep
                         ? BuildTiltReplayDetectionOverride(byStep[step.ToString()], metadata)
                         : null;
                     bool ok = await inspector.AnalyzeAutoFocusFromSavedPath(byStep[step.ToString()], token, detectionOverride);
                     if (!ok) {
                         StatusText = $"Replay failed at {step}.";
-                        Notification.ShowError($"Replay failed at step '{step}'. The saved frames could not be analyzed.");
+                        Notification.ShowError($"Replay failed at step '{step}'. The saved frames could not be analyzed.{profileNotChangedNote}");
                         return;
                     }
                     var m = inspector.TiltModel?.TiltPlaneModel;
                     if (m == null) {
                         StatusText = $"Replay produced no tilt model at {step}.";
-                        Notification.ShowError($"Replay produced no tilt model at step '{step}'.");
+                        Notification.ShowError($"Replay produced no tilt model at step '{step}'.{profileNotChangedNote}");
                         return;
                     }
                     var reading = new StepReading {
@@ -1238,7 +1271,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     });
                 }
 
-                if (useMetadataSettings) {
+                if (mode.UseMetadataGeometry) {
                     calibrationAppliedAmount = metadata.CalibrationAppliedAmount;
                     RaisePropertyChanged(nameof(CalibrationAppliedAmount));
                     RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
@@ -1260,17 +1293,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         IsStepperAdjustment);
                 }
                 RebuildDiagram();
+                // Update-profile choice: the replay succeeded, so now persist the run's capture-time star-detection
+                // settings to the live profile (no-op if the run stored none — the user was warned above).
+                if (mode.UpdateProfileToCaptureTime && captureTimeSnapshot != null) {
+                    OnUIThread(() => HocusFocusPlugin.StarDetectionOptions?.ApplyFullSnapshot(captureTimeSnapshot));
+                }
                 StatusText = "Replay complete.";
                 CurrentStep = WizardStep.Complete;
                 completed = true;
             } catch (OperationCanceledException) {
                 StatusText = "Replay cancelled.";
             } catch (Exception ex) {
-                Notification.ShowError($"Replay failed: {ex.Message}");
+                Notification.ShowError($"Replay failed: {ex.Message}{profileNotChangedNote}");
                 Logger.Error(ex, "Tilt calibration replay failed");
             } finally {
-                // No profile mutation to undo: capture-time detection settings are passed to the replay as an
-                // in-memory override (see BuildTiltReplayDetectionOverride), so the user's profile is never touched.
+                // The live profile is only persisted on a successful "update profile to capture-time" replay (above), so
+                // a cancelled/failed replay leaves it untouched — nothing to restore. The in-memory per-step override
+                // never touches the profile either.
                 isReplaying = false;
                 IsMeasuring = false;
                 // A successful replay ends on the Complete panel (like a live run); a failed/cancelled replay
@@ -1338,7 +1377,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             currentMetadata.RunStepMapping.RemoveAll(m => string.Equals(m.Step, stepName, StringComparison.OrdinalIgnoreCase));
             if (!string.IsNullOrEmpty(reading.SaveFolder)) {
-                currentMetadata.RunStepMapping.Add(new TiltRunStepMapping { Step = stepName, Folder = reading.SaveFolder });
+                // Store the folder relative to the run root so the saved run replays after being moved/copied.
+                currentMetadata.RunStepMapping.Add(new TiltRunStepMapping {
+                    Step = stepName,
+                    Folder = TiltCalibrationMetadata.ToRelativeStepFolder(runRootFolder, reading.SaveFolder)
+                });
             }
 
             currentMetadata.PerStep.RemoveAll(p => string.Equals(p.Step, stepName, StringComparison.OrdinalIgnoreCase));
@@ -1434,7 +1477,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ((RelayCommand)CancelCommand).NotifyCanExecuteChanged();
             ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)ReplayCommand).NotifyCanExecuteChanged();
-            ((AsyncRelayCommand)ReplayCurrentSettingsCommand).NotifyCanExecuteChanged();
         }
 
         private static double NormalizeAngle(double deg) => ((deg % 360) + 360) % 360;

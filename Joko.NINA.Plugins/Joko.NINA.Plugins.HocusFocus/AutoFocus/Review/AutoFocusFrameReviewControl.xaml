@@ -88,9 +88,36 @@
             </Setter>
         </Style>
 
+        <!-- Self-contained toolbar button: keep Fit/Prev/Next/Close legible on the fixed dark panel regardless of the
+             active NINA theme (NINA's themed Button binds to theme brushes and ignores instance colors — same reason
+             the combo uses HF_LightCombo and the replay prompt uses ChoiceButton). -->
         <Style TargetType="Button">
             <Setter Property="Margin" Value="4,0" />
             <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Foreground" Value="#FFE6E9ED" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="#FF2A2F36" BorderBrush="#FF3E4650" BorderThickness="1"
+                                CornerRadius="3" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FF34404C" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FF5A86C0" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FF2C3742" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource Fg}" />
@@ -110,7 +137,7 @@
         </Grid.RowDefinitions>
 
         <!-- Summary header: focuser position, detected-star count, HFR ± deviation stats, frame index. -->
-        <Border Grid.Row="0" Grid.Column="0" Margin="0,0,0,6" Padding="8,5" CornerRadius="3" Background="#FF262B31">
+        <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,0,6" Padding="8,5" CornerRadius="3" Background="#FF262B31">
             <DockPanel LastChildFill="False">
                 <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Text="{Binding FrameHeader}" />
                 <TextBlock DockPanel.Dock="Left" Margin="16,0,0,0" Foreground="#FFB0B6BD" Text="{Binding DetectedCountText}" />
@@ -125,6 +152,17 @@
         <DockPanel Grid.Row="1" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
             <Button DockPanel.Dock="Left" Content="Fit" Command="{Binding FitCommand}" Margin="0,0,4,0" />
             <Button DockPanel.Dock="Left" Content="◀ Prev" Command="{Binding PrevCommand}" />
+            <ComboBox DockPanel.Dock="Left" Margin="4,0" VerticalAlignment="Center" MinWidth="96"
+                      Style="{StaticResource HF_LightCombo}"
+                      ItemsSource="{Binding FramePickerItems}"
+                      SelectedValuePath="Number"
+                      SelectedValue="{Binding SelectedFrameNumber, Mode=TwoWay}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Foreground="Black" Text="{Binding Label}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
             <Button DockPanel.Dock="Left" Content="Next ▶" Command="{Binding NextCommand}" />
             <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" />
         </DockPanel>
@@ -315,7 +353,7 @@
 
         <!-- Right column: legend (disabled rows greyed) + per-star text / star-bounds selectors + help. Scrollable so
              it never clips on a short window. -->
-        <ScrollViewer Grid.Row="0" Grid.RowSpan="3" Grid.Column="1" Width="240" Margin="12,0,0,0"
+        <ScrollViewer Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" VerticalAlignment="Top" Width="240" Margin="12,0,0,0"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
             <TextBlock FontWeight="Bold" Margin="0,0,0,6" Text="Legend" />

@@ -15,11 +15,16 @@ using Newtonsoft.Json.Serialization;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
     /// <summary>One entry of the run → wizard-step folder map. The folder is the AutoFocus attempt root
-    /// (== <c>InspectorVM.LastSaveFolder</c>) that a replay/validation run loads.</summary>
+    /// (== <c>InspectorVM.LastSaveFolder</c>) that a replay/validation run loads. It is stored <b>relative to the
+    /// run root</b> (the directory holding <c>metadata.json</c>) so a saved run stays replayable after it is moved
+    /// or copied to another machine; legacy files that stored an absolute path are still honored on read. Use
+    /// <see cref="TiltCalibrationMetadata.ToRelativeStepFolder"/> when writing and
+    /// <see cref="TiltCalibrationMetadata.ResolveStepFolder"/> when reading.</summary>
     public sealed class TiltRunStepMapping {
         public string Step { get; set; }
         public string Folder { get; set; }
@@ -112,6 +117,32 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         public static TiltCalibrationMetadata Deserialize(string json) =>
             JsonConvert.DeserializeObject<TiltCalibrationMetadata>(json, JsonSettings);
+
+        /// <summary>
+        /// Converts a step folder to one stored relative to <paramref name="runRootFolder"/> (the directory holding
+        /// <c>metadata.json</c>) so a saved run stays replayable after it is moved or copied. A folder that is not
+        /// under the run root (e.g. a different volume) is kept absolute rather than emitting a brittle
+        /// <c>..\..</c> chain. Inverse of <see cref="ResolveStepFolder"/>.
+        /// </summary>
+        public static string ToRelativeStepFolder(string runRootFolder, string stepFolder) {
+            if (string.IsNullOrEmpty(stepFolder) || string.IsNullOrEmpty(runRootFolder)) {
+                return stepFolder;
+            }
+            var relative = Path.GetRelativePath(runRootFolder, stepFolder);
+            return Path.IsPathRooted(relative) ? stepFolder : relative;
+        }
+
+        /// <summary>
+        /// Resolves a stored step folder against the run root the caller actually selected. Relative entries (the
+        /// current format) are rebased onto <paramref name="runRootFolder"/>; absolute entries (legacy files) are
+        /// honored as-is. Mirrors the headless <c>TestApp</c> resolver so in-app and offline replay agree.
+        /// </summary>
+        public static string ResolveStepFolder(string runRootFolder, string storedFolder) {
+            if (string.IsNullOrEmpty(storedFolder) || string.IsNullOrEmpty(runRootFolder) || Path.IsPathRooted(storedFolder)) {
+                return storedFolder;
+            }
+            return Path.GetFullPath(Path.Combine(runRootFolder, storedFolder));
+        }
 
         public void Validate() {
             if (NumberOfScrews != 3 && NumberOfScrews != 4) {

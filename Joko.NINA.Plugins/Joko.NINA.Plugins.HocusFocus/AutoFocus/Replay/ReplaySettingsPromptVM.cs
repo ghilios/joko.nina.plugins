@@ -33,6 +33,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
 
         public string CaptureSummary { get; }
 
+        public string Title { get; }
+        public string Intro { get; }
+        public string UseCurrentCaption { get; }
+        public string UseCurrentDescription { get; }
+        public string UseCaptureCaption { get; }
+        public string UseCaptureDescription { get; }
+        public string UpdateProfileCaption { get; }
+        public string UpdateProfileDescription { get; }
+
         public ICommand UseCurrentCommand { get; }
         public ICommand UseCaptureInMemoryCommand { get; }
         public ICommand UpdateProfileCommand { get; }
@@ -41,7 +50,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         /// <summary>Completes when the user picks an option (or cancels / closes the window).</summary>
         public Task<ReplaySettingsChoice> Choice => tcs.Task;
 
-        public ReplaySettingsPromptVM(AutoFocusReplayMetadata metadata) {
+        public ReplaySettingsPromptVM(AutoFocusReplayMetadata metadata, ReplaySettingsPromptTexts texts = null) {
+            texts ??= ReplaySettingsPromptTexts.AutoFocus;
+            Title = texts.Title;
+            Intro = texts.Intro;
+            UseCurrentCaption = texts.UseCurrentCaption;
+            UseCurrentDescription = texts.UseCurrentDescription;
+            UseCaptureCaption = texts.UseCaptureCaption;
+            UseCaptureDescription = texts.UseCaptureDescription;
+            UpdateProfileCaption = texts.UpdateProfileCaption;
+            UpdateProfileDescription = texts.UpdateProfileDescription;
             CaptureSummary = BuildSummary(metadata);
             UseCurrentCommand = new RelayCommand(() => Pick(ReplaySettingsChoice.UseCurrentSettings));
             UseCaptureInMemoryCommand = new RelayCommand(() => Pick(ReplaySettingsChoice.UseCaptureTimeSettingsInMemory));

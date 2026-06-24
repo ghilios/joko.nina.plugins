@@ -56,7 +56,7 @@
             FontSize="16"
             FontWeight="Bold"
             Foreground="{StaticResource Fg}"
-            Text="Replay Saved AutoFocus Run" />
+            Text="{Binding Title}" />
 
         <TextBlock
             Grid.Row="1"
@@ -69,7 +69,7 @@
             Grid.Row="2"
             Margin="0,10,0,12"
             Foreground="{StaticResource FgDim}"
-            Text="This run was saved with the detection and AutoFocus settings used at capture time. Choose how to replay it:"
+            Text="{Binding Intro}"
             TextWrapping="Wrap" />
 
         <!--  (a) current settings  -->
@@ -81,11 +81,11 @@
                 <TextBlock
                     FontWeight="Bold"
                     Foreground="{StaticResource Fg}"
-                    Text="Use current settings" />
+                    Text="{Binding UseCurrentCaption}" />
                 <TextBlock
                     Margin="0,3,0,0"
                     Foreground="{StaticResource FgDim}"
-                    Text="Replay using your current profile's detection and AutoFocus settings."
+                    Text="{Binding UseCurrentDescription}"
                     TextWrapping="Wrap" />
             </StackPanel>
         </Button>
@@ -99,11 +99,11 @@
                 <TextBlock
                     FontWeight="Bold"
                     Foreground="{StaticResource Fg}"
-                    Text="Use the captured settings (don't change my profile)" />
+                    Text="{Binding UseCaptureCaption}" />
                 <TextBlock
                     Margin="0,3,0,0"
                     Foreground="{StaticResource FgDim}"
-                    Text="Replay using the settings from when this run was captured, held in memory only. Your profile settings are left untouched."
+                    Text="{Binding UseCaptureDescription}"
                     TextWrapping="Wrap" />
             </StackPanel>
         </Button>
@@ -117,11 +117,11 @@
                 <TextBlock
                     FontWeight="Bold"
                     Foreground="{StaticResource Fg}"
-                    Text="Update my profile to the captured settings" />
+                    Text="{Binding UpdateProfileCaption}" />
                 <TextBlock
                     Margin="0,3,0,0"
                     Foreground="{StaticResource FgDim}"
-                    Text="Overwrite your current profile's detection, AutoFocus, and ROI settings with the captured ones, then replay."
+                    Text="{Binding UpdateProfileDescription}"
                     TextWrapping="Wrap" />
             </StackPanel>
         </Button>

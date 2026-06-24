@@ -617,12 +617,12 @@
                 Padding="5,0,5,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Bottom"
-                ButtonText="Reprocess Saved Run"
+                ButtonText="Replay Saved AF"
                 CancelButtonImage="{StaticResource CancelSVG}"
                 CancelCommand="{Binding CancelLoadSavedAutoFocusRunCommand}"
                 CancelToolTip="{ns:Loc LblCancel}"
                 Command="{Binding LoadSavedAutoFocusRunCommand}"
-                ToolTip="Reprocesses AutoFocus images saved by having Save enabled in Hocus Focus -&gt; Auto Focus Options. This produces an auto focus curve using whatever the current star detection and fit settings are" />
+                ToolTip="Replays saved AutoFocus images (Save enabled in Hocus Focus -&gt; Auto Focus Options) to produce an auto focus curve using whatever the current star detection and fit settings are" />
             <StackPanel
                 Grid.Row="3"
                 Margin="0,15,10,5"
@@ -634,14 +634,14 @@
                     Padding="5,0,5,0"
                     VerticalAlignment="Center"
                     Command="{Binding ReviewFramesCommand}"
-                    ToolTip="Open the Review Frames window to inspect each frame of the last auto-focus run started from this pane (a live run or a Reprocess Saved Run) — its detected stars with the Hocus Focus Star Annotator's bounds, per-star text, rejection-reason and ROI boxes, plus per-frame HFR statistics. Enabled after such a run completes with &quot;Keep frames for review&quot; turned on.">
+                    ToolTip="Open the Review Frames window to inspect each frame of the last auto-focus run started from this pane (a live run or a Replay Saved AF) — its detected stars with the Hocus Focus Star Annotator's bounds, per-star text, rejection-reason and ROI boxes, plus per-frame HFR statistics. Enabled after such a run completes with &quot;Keep frames for review&quot; turned on.">
                     <TextBlock Margin="5,0,5,0" Text="Review Frames" />
                 </Button>
                 <StackPanel
                     Margin="12,0,0,0"
                     VerticalAlignment="Center"
                     Orientation="Horizontal"
-                    ToolTip="When on, the per-frame images from an auto-focus run started here in the AutoFocus pane — a live run or a Reprocess Saved Run — are kept in memory so the &quot;Review Frames&quot; button can show each frame with its detected stars and HFRs. Only applies to runs from this pane — auto-focus during an imaging sequence never keeps frames (it would use too much memory). The frames are released when you start a new run or close the review window. Off by default; saved in your profile.">
+                    ToolTip="When on, the per-frame images from an auto-focus run started here in the AutoFocus pane — a live run or a Replay Saved AF — are kept in memory so the &quot;Review Frames&quot; button can show each frame with its detected stars and HFRs. Only applies to runs from this pane — auto-focus during an imaging sequence never keeps frames (it would use too much memory). The frames are released when you start a new run or close the review window. Off by default; saved in your profile.">
                     <CheckBox
                         VerticalAlignment="Center"
                         IsChecked="{Binding AutoFocusOptions.KeepFramesForReview}" />
