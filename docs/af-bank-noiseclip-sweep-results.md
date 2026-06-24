@@ -5,6 +5,30 @@ whole `D:\Autofocus Bank` (17 AF runs, mixed cameras/optics), using the repeatab
 (`plans/autofocus-bank-verification-plan.md`, PR #96). The user's question: *was 4→2 the best change, or should NC
 be derived adaptively from the live data?*
 
+## Update — adaptive NC validated, shipped ON by default
+
+The "derive NC adaptively" follow-up was built and validated. Rather than a per-frame *scalar* NC, the win is
+making the threshold NC scales **spatially adaptive**: `local-median(x,y) + NC·local-σ(x,y)` from robust per-block
+statistics (design: `docs/adaptive-noiseclip-design.md`; option `LocallyAdaptiveBinarization`). It was A/B-tested
+OFF (legacy, bit-identical) vs ON at NC=2 across the bank (`bv_on/verification_20260624T155647Z` vs the OFF
+baseline `verification_20260624T142723Z`):
+
+| metric @ NC=2 (bank median) | OFF | ON |
+|---|---|---|
+| recall@SNR≥12 | 0.870 | **0.877** ↑ |
+| precision | 0.585 | **0.618** ↑ |
+| AF σ_focus | 10.26 | **8.84** ↑ (tighter) |
+
+It improves **recall *and* precision together** — which no single global NC can, because the defect was the
+threshold's *shape* (a global scalar over a spatially non-uniform frame), not its level. The standout is the
+well-covered run **cwhite_2026**: recall@≥12 **0.459 → 0.862** at a few-% precision cost (0.811→0.779) with AF σ
+tightened **10.65 → 4.1**. Donut runs did not regress (donut-aware: Panos 0.242→0.240 flat, mufti 0.395→**0.499**,
+both precision up). All four rollout-gate criteria passed, so **`LocallyAdaptiveBinarization` now defaults ON**
+(retained as a user/regression off-switch; legacy-OFF stays bit-identical). NC itself stays at 2 — the adaptive
+surface makes that 2 locally fair everywhere.
+
+The original NC 4→2 analysis below still stands and is the foundation for this.
+
 The verification config **C0 (as-default)** — the shipped defaults with NC swept over {2, 3, 4} — is the honest
 recall reference (no optimization). Each config is scored against a detector-independent golden set
 (`snr_ref.py` SNR/connected-component reference on the linear frames, with the SNR≥12 tier auto-confirmed and the

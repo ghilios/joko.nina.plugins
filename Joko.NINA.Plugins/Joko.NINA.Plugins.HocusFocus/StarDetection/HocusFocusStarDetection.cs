@@ -398,7 +398,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // StarDetectionOptions.ResetDefaults by BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild.
                 DefocusAwareDonutDetection = false,
                 DonutMorphCloseSize = 5,
-                LocallyAdaptiveBinarization = false,
+                LocallyAdaptiveBinarization = true,   // default ON (AF-bank validated)
                 AdaptiveNoiseBlockSize = 128,
                 DonutMinAnnularityHoleFraction = 0.15,
                 DonutMaxStreakEccentricity = 1.0,

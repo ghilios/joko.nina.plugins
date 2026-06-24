@@ -229,7 +229,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             defocusCenteringToleranceFactor = optionsAccessor.GetValueDouble("DefocusCenteringToleranceFactor", 2.0);
             defocusAwareDonutDetection = optionsAccessor.GetValueBoolean("DefocusAwareDonutDetection", false);
             donutMorphCloseSize = optionsAccessor.GetValueInt32("DonutMorphCloseSize", 5);
-            locallyAdaptiveBinarization = optionsAccessor.GetValueBoolean("LocallyAdaptiveBinarization", false);
+            locallyAdaptiveBinarization = optionsAccessor.GetValueBoolean("LocallyAdaptiveBinarization", true);
             adaptiveNoiseBlockSize = optionsAccessor.GetValueInt32("AdaptiveNoiseBlockSize", 128);
             donutMinAnnularityHoleFraction = optionsAccessor.GetValueDouble("DonutMinAnnularityHoleFraction", 0.15);
             donutMaxStreakEccentricity = optionsAccessor.GetValueDouble("DonutMaxStreakEccentricity", 1.0);
@@ -299,7 +299,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             DefocusCenteringToleranceFactor = 2.0;
             DefocusAwareDonutDetection = false;
             DonutMorphCloseSize = 5;
-            LocallyAdaptiveBinarization = false;
+            LocallyAdaptiveBinarization = true;   // default ON (AF-bank validated)
             AdaptiveNoiseBlockSize = 128;
             DonutMinAnnularityHoleFraction = 0.15;
             DonutMaxStreakEccentricity = 1.0;

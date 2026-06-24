@@ -259,7 +259,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // global σ uses (F4 σ-consistency) and local-median on the structure map actually thresholded; with constant
         // grids this reduces exactly to the global formula. EARLY param (it changes candidate formation): listed in
         // StarDetector.EarlyCacheKeyProperties. See docs/adaptive-noiseclip-design.md.
-        public bool LocallyAdaptiveBinarization { get; set; } = false;
+        // Default ON: AF-bank validated (recall@SNR≥12 + precision both improved at NC=2, no AF/donut regression —
+        // see docs/af-bank-noiseclip-sweep-results.md). Retained as a user/regression off-switch.
+        public bool LocallyAdaptiveBinarization { get; set; } = true;
 
         // EARLY adaptive-binarization knob (only when LocallyAdaptiveBinarization is true). Side length (px) of the
         // square blocks the robust local median/σ surface is estimated on (matches tools/golden/snr_ref.py coarse_bg,

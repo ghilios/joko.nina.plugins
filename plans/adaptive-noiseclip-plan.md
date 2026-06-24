@@ -12,10 +12,12 @@ permanent opt-in flag.
 
 ## Execution status — HANDOFF (2026-06-24)
 
-**Steps 1–5 are DONE and committed on `ghilios/adaptive-noiseclip`. The feature is fully implemented behind the
-`LocallyAdaptiveBinarization` option (default OFF) and bit-identical when off. Full unit suite green: 1528 passed /
-0 failed (was 1514 before; +14 new tests). Steps 6 (AF-bank validation) and 7 (rollout gate) REMAIN — to be run in
-a fresh session.**
+**ALL STEPS DONE.** Steps 1–5 (implementation, commit `9a80324`). **Step 6 (validation) + Step 7 (rollout gate)
+COMPLETE:** the OFF-vs-ON AF-bank A/B at NC=2 PASSED all four gate criteria — bank-median recall@SNR≥12 0.870→0.877,
+precision 0.585→0.618, AF σ 10.26→8.84 (all ↑); cwhite_2026 recall 0.459→0.862; donut runs no regression (Panos
+flat, mufti +26%). So **`LocallyAdaptiveBinarization` default flipped to ON** (4 seams) and the gate-logic test
+`Detect_HighSensitivityGate_RejectsCoreHaloStarsOnHonestMeanFlux` pins legacy-OFF (same as its NC pin). Full suite
+green 1528/0. Results in `docs/af-bank-noiseclip-sweep-results.md`. Ready for PR into develop.
 
 ### Build/test cycle on this machine (WSL → Windows) — important
 - There is **no Linux dotnet**; build/test with the **Windows** `dotnet.exe` at `/mnt/c/Program Files/dotnet/dotnet.exe`
