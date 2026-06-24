@@ -1,5 +1,7 @@
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NUnit.Framework;
+using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
@@ -146,6 +148,54 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 "Detected stars and metrics must exactly match the committed pre-change baseline. " +
                 "If this fails after a parallelization change, the change has altered results — " +
                 "investigate before updating the baseline.");
+        }
+
+        /// <summary>
+        /// Bit-identical gate for the spatially-adaptive binarization rollout: with
+        /// <see cref="StarDetectorParams.LocallyAdaptiveBinarization"/> OFF the binarization seam runs the exact
+        /// legacy scalar path (the new coarse grids are never even computed), so the full detected-star + metrics
+        /// signature MUST equal the committed pre-change baseline. This is the guarantee that lets the option's
+        /// default be flipped ON safely while keeping the boolean as an off-switch.
+        /// </summary>
+        [Test]
+        public async Task Detect_AdaptiveBinarizationOff_MatchesLegacyBaseline() {
+            var p = StarDetectorEquivalence.StandardParams();
+            p.LocallyAdaptiveBinarization = false;
+            using var field = StarDetectorEquivalence.BuildSmallField();
+            var result = await StarDetectorEquivalence.RunDetect(field, p);
+            var sig = StarDetectorEquivalence.Signature(result);
+
+            Assert.That(sig, Is.EqualTo(GoldenSignature),
+                "LocallyAdaptiveBinarization=false must be byte-for-byte identical to the legacy baseline.");
+        }
+
+        /// <summary>
+        /// End-to-end smoke test for the ON path: on a spatially-uniform field the local-median + NC·local-σ surface
+        /// degenerates to ~the global threshold, so adaptive binarization must execute and recover the same bright
+        /// stars as the legacy path. This is a behavioural check (same stars, within a fraction of a pixel), NOT a
+        /// bit-identical one — the estimators differ (block median / 1.4826·MAD vs histogram-median / kappa-sigma),
+        /// so a candidate at the pixel margin may differ. The real ON-path validation is the AF-bank audit (Step 6).
+        /// </summary>
+        [Test]
+        public async Task Detect_AdaptiveBinarizationOn_RecoversSameStarsOnUniformField() {
+            var pOff = StarDetectorEquivalence.StandardParams();
+            var pOn = StarDetectorEquivalence.StandardParams();
+            pOn.LocallyAdaptiveBinarization = true;
+            pOn.AdaptiveNoiseBlockSize = 128;
+
+            using var field1 = StarDetectorEquivalence.BuildSmallField();
+            var off = await StarDetectorEquivalence.RunDetect(field1, pOff);
+            using var field2 = StarDetectorEquivalence.BuildSmallField();
+            var on = await StarDetectorEquivalence.RunDetect(field2, pOn);
+
+            TestContext.Progress.WriteLine($"[adaptive] off={off.DetectedStars.Count} on={on.DetectedStars.Count}");
+            Assert.That(on.DetectedStars.Count, Is.EqualTo(off.DetectedStars.Count).Within(1),
+                "adaptive ON should recover essentially the same star count on a uniform field");
+            foreach (var s in off.DetectedStars) {
+                Assert.That(
+                    on.DetectedStars.Any(t => Math.Abs(t.Center.X - s.Center.X) < 0.5 && Math.Abs(t.Center.Y - s.Center.Y) < 0.5),
+                    Is.True, $"adaptive ON dropped a star near ({s.Center.X:F1},{s.Center.Y:F1})");
+            }
         }
     }
 }

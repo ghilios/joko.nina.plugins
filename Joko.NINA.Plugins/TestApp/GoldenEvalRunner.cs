@@ -325,6 +325,8 @@ namespace TestApp {
             Dbl("--max-distortion", v => p.MaxDistortion = v, "maxDist");
             Dbl("--min-hfr", v => p.MinHFR = v, "minHFR");
             Dbl("--star-center-tolerance", v => p.StarCenterTolerance = v, "centerTol");
+            Int("--adaptive-block", v => p.AdaptiveNoiseBlockSize = v, "adaptiveBlock");  // adaptive-binarization grid (candidate formation)
+            if (DiagnosticUtil.HasFlag(args, "--adaptive-binarize")) { p.LocallyAdaptiveBinarization = true; notes.Add("adaptiveBinarize"); }
             if (notes.Count > 0) {
                 sourceLabel += " +params[" + string.Join(",", notes) + "]";
             }
@@ -346,6 +348,8 @@ namespace TestApp {
             p.MinimumStarBoundingBoxSize = s.MinStarBoundingBoxSize;
             p.HotpixelThresholdingEnabled = s.HotpixelThresholdingEnabled;
             p.HotpixelThreshold = s.HotpixelThreshold;
+            p.LocallyAdaptiveBinarization = s.LocallyAdaptiveBinarization;
+            p.AdaptiveNoiseBlockSize = s.AdaptiveNoiseBlockSize;
 
             var master = s.DefocusAwareDonutDetection;
             p.DefocusAwareDonutDetection = master;

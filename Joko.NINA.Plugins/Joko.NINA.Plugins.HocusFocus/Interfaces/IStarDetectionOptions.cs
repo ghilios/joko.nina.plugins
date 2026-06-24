@@ -100,6 +100,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double DefocusCenteringToleranceFactor { get; set; }
         bool DefocusAwareDonutDetection { get; set; }
         int DonutMorphCloseSize { get; set; }
+        bool LocallyAdaptiveBinarization { get; set; }
+        int AdaptiveNoiseBlockSize { get; set; }
         double DonutMinAnnularityHoleFraction { get; set; }
         double DonutMaxStreakEccentricity { get; set; }
         double DonutSaturationBloomRadius { get; set; }

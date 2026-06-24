@@ -451,6 +451,8 @@
     <TextBlock x:Key="StructureLayerBoost_Tooltip" Text="Only used while Defocus-Aware Structure is enabled. The number of extra wavelet layers added when removing large-scale structure, making the removal coarser so larger defocused donuts survive and form candidates. 0 means no change (identical to the feature being off). Raise it (1–6) if very out-of-focus stars never appear; raising it too far can let nebulosity/background structure leak in as false candidates. Default 0." />
     <TextBlock x:Key="DefocusAwareDonutDetection_Tooltip" Text="MASTER toggle for defocus-aware donut detection (also on the optimizer wizard's start page). When ON, out-of-focus DONUT stars (heavily defocused stars that appear as hollow rings) are recovered: a morphological close reconnects fragmented rings and an annularity test lets a hollow ring pass the distortion gate like a filled disk (detection-only — it never changes HFR). It also unlocks the optimizer to tune ALL defocus-aware settings and to enable diffraction-spike / saturated-bloom suppression. Recommended for telescopes with a central obstruction (Newtonians/SCTs); leave OFF for refractors. Off by default; when OFF, detection is exactly as before." />
     <TextBlock x:Key="DonutMorphCloseSize_Tooltip" Text="Only used while Defocus-Aware Donut Detection is on. Diameter (px) of the morphological-close kernel that reconnects fragmented donut-ring arcs into one candidate (the dominant cause of donuts being dropped as 'too small'). 1 means no close. Keep it smaller than the gap between a bright star's diffraction spikes so it doesn't bridge them. EARLY-stage setting. Default 5." />
+    <TextBlock x:Key="LocallyAdaptiveBinarization_Tooltip" Text="Makes the structure-map binarization threshold spatially adaptive. Normally a single global threshold (background median + Noise Clipping Multiplier × global noise σ) is applied across the whole frame, which is too high in clean regions (losing faint stars) and too low in noisy corners (admitting noise). When enabled, the threshold becomes a smooth surface computed from robust local statistics on a coarse block grid — local background median + Noise Clipping Multiplier × local noise σ — so the same Noise Clipping Multiplier is locally fair everywhere. Recovers faint real stars in clean regions while rejecting noise in vignetted/gradient-heavy corners. Off by default; when off, detection is exactly as before. EARLY-stage setting." />
+    <TextBlock x:Key="AdaptiveNoiseBlockSize_Tooltip" Text="Only used while Locally Adaptive Binarization is on. The side length (in pixels) of the square blocks the local median/noise surface is estimated on. Larger values give a smoother, cheaper surface with less local adaptivity; smaller values adapt more finely but produce a noisier surface and risk absorbing real extended structure (large defocused donuts) into the background. The sane range is 64–256. Default 128." />
     <TextBlock x:Key="DonutMinAnnularityHoleFraction_Tooltip" Text="Only used while Defocus-Aware Donut Detection is on. Minimum size of a candidate's enclosed dark center (as a fraction of its bounding-box area) for it to count as a donut whose hole is filled for the distortion test — so a hollow ring is judged like a filled disk. This is detection-only and never changes the measured HFR/flux/center. Lower it to accept thinner rings; raise it to be stricter. Default 0.15." />
     <TextBlock x:Key="DonutMaxStreakEccentricity_Tooltip" Text="Only used while Defocus-Aware Donut Detection is on. Rejects very LINEAR candidates (diffraction spikes from a bright star, or satellite/aircraft trails) when their elongation (eccentricity) meets or exceeds this value. 1.0 means OFF (a perfect line has eccentricity 1.0, so nothing is rejected); lower it toward 0.95 to enable. Round donuts measure well below this, so they are never affected. Default 1.0 (OFF — the optimizer enables it when you label false detections)." />
     <TextBlock x:Key="DonutSaturationBloomRadius_Tooltip" Text="Only used while Defocus-Aware Donut Detection is on. Rejects candidates whose center lies within this many pixels of a saturated star, removing the bloom/halo fragments around a bright saturated star while keeping the star itself. 0 means OFF. Default 0 (OFF — the optimizer enables it when you label the saturated star's artifacts as should-reject)." />
@@ -1101,6 +1103,9 @@
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDonutDetection}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDonutDetection}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvancedAndDonutDetection}" />
+                <!--  52: Locally Adaptive Binarization toggle (advanced-only); 53: its block-size knob (advanced-only).  -->
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -1756,6 +1761,49 @@
                         <rules:DoubleRangeRule>
                             <rules:DoubleRangeRule.ValidRange>
                                 <rules:DoubleRangeChecker Maximum="100" Minimum="0" />
+                            </rules:DoubleRangeRule.ValidRange>
+                        </rules:DoubleRangeRule>
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+
+            <!--  52: Locally Adaptive Binarization master toggle; 53: its block-size knob.  -->
+            <TextBlock
+                Grid.Row="52"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Locally Adaptive Binarization"
+                ToolTip="{StaticResource LocallyAdaptiveBinarization_Tooltip}" />
+            <CheckBox
+                Grid.Row="52"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.LocallyAdaptiveBinarization}"
+                ToolTip="{StaticResource LocallyAdaptiveBinarization_Tooltip}" />
+
+            <TextBlock
+                Grid.Row="53"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Adaptive Noise Block Size"
+                ToolTip="{StaticResource AdaptiveNoiseBlockSize_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="53"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Unit="px"
+                ToolTip="{StaticResource AdaptiveNoiseBlockSize_Tooltip}">
+                <Binding Path="StarDetectionOptions.AdaptiveNoiseBlockSize" UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:DoubleRangeRule>
+                            <rules:DoubleRangeRule.ValidRange>
+                                <rules:DoubleRangeChecker Maximum="256" Minimum="64" />
                             </rules:DoubleRangeRule.ValidRange>
                         </rules:DoubleRangeRule>
                     </Binding.ValidationRules>

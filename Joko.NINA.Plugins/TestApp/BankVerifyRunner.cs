@@ -100,7 +100,8 @@ namespace TestApp {
             var runs = DiagnosticUtil.GetArg(args, "--runs");
             if (string.IsNullOrWhiteSpace(runs) || !Directory.Exists(runs)) {
                 Console.Error.WriteLine("Usage: TestApp bank-verify --runs <bank-root> [--out <dir>] [--nc-sweep 2,3,4] " +
-                    "[--opt-a <dir>] [--opt-b <dir>] [--golden <dir>] [--match-radius 12] [--commit <hash>] [--profile-id <guid>]");
+                    "[--opt-a <dir>] [--opt-b <dir>] [--golden <dir>] [--match-radius 12] [--commit <hash>] [--profile-id <guid>] " +
+                    "[--adaptive-binarize] [--adaptive-block 128]");
                 Environment.ExitCode = 2;
                 return;
             }
@@ -115,6 +116,12 @@ namespace TestApp {
             var commit = DiagnosticUtil.GetArg(args, "--commit") ?? "unknown";
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
             var ncSweep = ParseNcSweep(DiagnosticUtil.GetArg(args, "--nc-sweep") ?? "2,3,4");
+            // Spatially-adaptive binarization override for the C0 (as-default) configs — the flag-on-vs-off A/B that
+            // the adaptive-noiseclip feature is validated by (docs/adaptive-noiseclip-design.md). Default OFF mirrors
+            // the shipped default. The optimized A/B configs instead receive these via OverlayOptimized.
+            var adaptiveBinarize = DiagnosticUtil.HasFlag(args, "--adaptive-binarize");
+            var adaptiveBlock = DiagnosticUtil.GetArg(args, "--adaptive-block");
+            int adaptiveBlockSize = (adaptiveBlock != null && int.TryParse(adaptiveBlock, NumberStyles.Integer, CultureInfo.InvariantCulture, out var abv)) ? abv : 128;
 
             Logger.SetLogLevel(LogLevelEnum.INFO);
             // The WPF Application + dispatcher SynchronizationContext are set up by Run() on this STA thread.
@@ -132,7 +139,7 @@ namespace TestApp {
 
             var discovery = OptimizationRunDiscovery.Discover(runs);
             Console.WriteLine($"bank-verify: {discovery.Runs.Count} run(s) under {runs}; NC sweep [{string.Join(",", ncSweep.Select(x => x.ToString(CultureInfo.InvariantCulture)))}]; " +
-                $"A={(optA ?? "(none)")} B={(optB ?? "(none)")}; matchRadius={matchRadius}");
+                $"A={(optA ?? "(none)")} B={(optB ?? "(none)")}; matchRadius={matchRadius}; adaptiveBinarize={adaptiveBinarize}" + (adaptiveBinarize ? $"(block={adaptiveBlockSize})" : ""));
 
             var runResults = new List<RunResult>();
             int idx = 0;
@@ -141,7 +148,8 @@ namespace TestApp {
                 Console.WriteLine($"[{idx}/{discovery.Runs.Count}] {run.RunId}");
                 try {
                     var rr = await VerifyRunAsync(run, runs, outDir, ncSweep, optA, optB, goldenDir, matchRadius,
-                        profileService, activeProfile, starDetectionOptions, inspectorOptions, autoFocusOptions, detector, alglib, pixelScale);
+                        profileService, activeProfile, starDetectionOptions, inspectorOptions, autoFocusOptions, detector, alglib, pixelScale,
+                        adaptiveBinarize, adaptiveBlockSize);
                     runResults.Add(rr);
                 } catch (Exception ex) {
                     Console.Error.WriteLine($"  FAILED: {ex.GetType().Name}: {ex.Message}");
@@ -161,7 +169,7 @@ namespace TestApp {
             OptimizationRunDiscovery.DiscoveredRun run, string runsRoot, string outDir, double[] ncSweep, string optA, string optB,
             string goldenDir, double matchRadius, ProfileService profileService, NINA.Profile.Interfaces.IProfile activeProfile,
             StarDetectionOptions sdOptions, InspectorOptions inspectorOptions, AutoFocusOptions afOptions,
-            StarDetector detector, AlglibAPI alglib, double pixelScale) {
+            StarDetector detector, AlglibAPI alglib, double pixelScale, bool adaptiveBinarize, int adaptiveBlockSize) {
 
             var runFolder = Path.GetDirectoryName(run.Frames.First().Path);
             var ordered = run.Frames.OrderBy(f => f.FocuserPosition).ToList();
@@ -223,6 +231,8 @@ namespace TestApp {
             foreach (var nc in ncSweep) {
                 var p = BaseDefault();
                 p.NoiseClippingMultiplier = nc;
+                p.LocallyAdaptiveBinarization = adaptiveBinarize;
+                p.AdaptiveNoiseBlockSize = adaptiveBlockSize;
                 var cm = await ScoreConfigAsync($"C0@nc{nc:0.#}", nc, false, p, evalData, loaded, goldenByFocuser, matchRadius,
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
                 rr.configs.Add(cm);
@@ -376,6 +386,7 @@ namespace TestApp {
             p.StructureLayers = s.StructureLayers; p.NoiseReductionRadius = s.NoiseReductionRadius;
             p.MinimumStarBoundingBoxSize = s.MinStarBoundingBoxSize; p.HotpixelThresholdingEnabled = s.HotpixelThresholdingEnabled;
             p.HotpixelThreshold = s.HotpixelThreshold;
+            p.LocallyAdaptiveBinarization = s.LocallyAdaptiveBinarization; p.AdaptiveNoiseBlockSize = s.AdaptiveNoiseBlockSize;
             var master = forceDonutMaster || s.DefocusAwareDonutDetection;
             p.DefocusAwareDonutDetection = master;
             p.DefocusAwareDistortion = s.DefocusAwareGates && master; p.DefocusAwareCentering = s.DefocusAwareGates && master;

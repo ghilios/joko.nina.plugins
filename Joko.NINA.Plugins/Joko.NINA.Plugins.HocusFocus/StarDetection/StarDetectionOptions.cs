@@ -104,6 +104,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             StructureLayerBoost = s.StructureLayerBoost;
             DefocusAwareDonutDetection = s.DefocusAwareDonutDetection;
             DonutMorphCloseSize = s.DonutMorphCloseSize;
+            LocallyAdaptiveBinarization = s.LocallyAdaptiveBinarization;
+            AdaptiveNoiseBlockSize = s.AdaptiveNoiseBlockSize;
             DonutMinAnnularityHoleFraction = s.DonutMinAnnularityHoleFraction;
             DonutMaxStreakEccentricity = s.DonutMaxStreakEccentricity;
             DonutSaturationBloomRadius = s.DonutSaturationBloomRadius;
@@ -227,6 +229,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             defocusCenteringToleranceFactor = optionsAccessor.GetValueDouble("DefocusCenteringToleranceFactor", 2.0);
             defocusAwareDonutDetection = optionsAccessor.GetValueBoolean("DefocusAwareDonutDetection", false);
             donutMorphCloseSize = optionsAccessor.GetValueInt32("DonutMorphCloseSize", 5);
+            locallyAdaptiveBinarization = optionsAccessor.GetValueBoolean("LocallyAdaptiveBinarization", true);
+            adaptiveNoiseBlockSize = optionsAccessor.GetValueInt32("AdaptiveNoiseBlockSize", 128);
             donutMinAnnularityHoleFraction = optionsAccessor.GetValueDouble("DonutMinAnnularityHoleFraction", 0.15);
             donutMaxStreakEccentricity = optionsAccessor.GetValueDouble("DonutMaxStreakEccentricity", 1.0);
             donutSaturationBloomRadius = optionsAccessor.GetValueDouble("DonutSaturationBloomRadius", 0.0);
@@ -295,6 +299,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             DefocusCenteringToleranceFactor = 2.0;
             DefocusAwareDonutDetection = false;
             DonutMorphCloseSize = 5;
+            LocallyAdaptiveBinarization = true;   // default ON (AF-bank validated)
+            AdaptiveNoiseBlockSize = 128;
             DonutMinAnnularityHoleFraction = 0.15;
             DonutMaxStreakEccentricity = 1.0;
             DonutSaturationBloomRadius = 0.0;
@@ -722,6 +728,42 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     }
                     donutMorphCloseSize = value;
                     optionsAccessor.SetValueInt32("DonutMorphCloseSize", donutMorphCloseSize);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool locallyAdaptiveBinarization;
+
+        // Spatially-adaptive structure-map binarization (default OFF ⇒ bit-identical legacy detection). When ON the
+        // single global binarize threshold is replaced by a local-median + NoiseClippingMultiplier·local-σ surface
+        // (robust per-block statistics, bilinearly upsampled), making the same NoiseClippingMultiplier locally fair.
+        // EARLY param. See docs/adaptive-noiseclip-design.md.
+        public bool LocallyAdaptiveBinarization {
+            get => locallyAdaptiveBinarization;
+            set {
+                if (locallyAdaptiveBinarization != value) {
+                    locallyAdaptiveBinarization = value;
+                    optionsAccessor.SetValueBoolean("LocallyAdaptiveBinarization", locallyAdaptiveBinarization);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int adaptiveNoiseBlockSize;
+
+        // Side length (px) of the square blocks the adaptive binarization surface is estimated on (only while
+        // LocallyAdaptiveBinarization is ON). Larger = smoother/cheaper; smaller = more adaptive but noisier. EARLY
+        // param. Range [16, 1024] (sane working range 64–256). Default 128 (matches snr_ref.coarse_bg grid).
+        public int AdaptiveNoiseBlockSize {
+            get => adaptiveNoiseBlockSize;
+            set {
+                if (adaptiveNoiseBlockSize != value) {
+                    if (value < 16 || value > 1024) {
+                        throw new ArgumentException("AdaptiveNoiseBlockSize must be within [16, 1024]", "AdaptiveNoiseBlockSize");
+                    }
+                    adaptiveNoiseBlockSize = value;
+                    optionsAccessor.SetValueInt32("AdaptiveNoiseBlockSize", adaptiveNoiseBlockSize);
                     RaisePropertyChanged();
                 }
             }
@@ -1177,6 +1219,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             DefocusCenteringToleranceFactor = source.DefocusCenteringToleranceFactor;
             DefocusAwareDonutDetection = source.DefocusAwareDonutDetection;
             DonutMorphCloseSize = source.DonutMorphCloseSize;
+            LocallyAdaptiveBinarization = source.LocallyAdaptiveBinarization;
+            AdaptiveNoiseBlockSize = source.AdaptiveNoiseBlockSize;
             DonutMinAnnularityHoleFraction = source.DonutMinAnnularityHoleFraction;
             DonutMaxStreakEccentricity = source.DonutMaxStreakEccentricity;
             DonutSaturationBloomRadius = source.DonutSaturationBloomRadius;

@@ -133,6 +133,11 @@ Reuses the harness this design came from:
      regresses donuts / AF σ): remove the option rather than leave a permanent default-OFF flag. The opt-in/default-
      OFF state in steps 1–4 exists **only** to make this go/no-go comparison clean — it is not a shipping outcome.
 
+   **Outcome (2026-06-24): PASSED — shipped ON.** OFF-vs-ON at NC=2 across the 17-run bank improved bank-median
+   recall@SNR≥12 (0.870→0.877), precision (0.585→0.618), and AF σ_focus (10.26→8.84); cwhite_2026 recall 0.459→0.862;
+   donut runs no regression (Panos flat, mufti +26%). Default flipped ON (commit `c59a4b1`, PR #98); full numbers +
+   per-run table in `docs/af-bank-noiseclip-sweep-results.md`.
+
 ## Risks & notes
 
 - **Tracking real extended structure into the background.** A too-small block could absorb a large defocused

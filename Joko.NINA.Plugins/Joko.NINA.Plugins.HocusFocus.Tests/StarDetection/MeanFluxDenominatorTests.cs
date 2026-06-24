@@ -63,6 +63,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             Sensitivity = sensitivity,
             StarClippingMultiplier = StarClippingMultiplier,
             NoiseClippingMultiplier = 4.0, // pin pre-audit default so this sensitivity-gate logic test stays stable
+            LocallyAdaptiveBinarization = false, // pin legacy scalar binarization too (now ON by default) — same reason
         };
 
         [Test]

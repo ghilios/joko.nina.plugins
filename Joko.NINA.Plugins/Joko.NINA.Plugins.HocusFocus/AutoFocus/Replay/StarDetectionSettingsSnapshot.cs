@@ -62,6 +62,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         public double DefocusCenteringToleranceFactor { get; set; }
         public bool DefocusAwareDonutDetection { get; set; }
         public int DonutMorphCloseSize { get; set; }
+        public bool LocallyAdaptiveBinarization { get; set; }
+        public int AdaptiveNoiseBlockSize { get; set; } = 128;
         public double DonutMinAnnularityHoleFraction { get; set; }
         public double DonutMaxStreakEccentricity { get; set; }
         public double DonutSaturationBloomRadius { get; set; }
@@ -130,6 +132,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
                 DefocusCenteringToleranceFactor = o.DefocusCenteringToleranceFactor,
                 DefocusAwareDonutDetection = o.DefocusAwareDonutDetection,
                 DonutMorphCloseSize = o.DonutMorphCloseSize,
+                LocallyAdaptiveBinarization = o.LocallyAdaptiveBinarization,
+                AdaptiveNoiseBlockSize = o.AdaptiveNoiseBlockSize,
                 DonutMinAnnularityHoleFraction = o.DonutMinAnnularityHoleFraction,
                 DonutMaxStreakEccentricity = o.DonutMaxStreakEccentricity,
                 DonutSaturationBloomRadius = o.DonutSaturationBloomRadius,
