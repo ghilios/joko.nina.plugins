@@ -204,7 +204,7 @@
               lives on the scrollable body below, NOT here: keeping a MinHeight floor on the root grid prevented it
               from shrinking to a smaller window, so the bottom row (footer buttons) overflowed and clipped. With the
               floor gone the grid shrinks to the window, the body scrolls, and the footer stays pinned.  -->
-        <Grid Margin="10">
+        <Grid Margin="10" local:ClampWindowToWorkArea.Enabled="True">
             <Grid.Style>
                 <Style TargetType="Grid">
                     <Setter Property="Width" Value="640" />
