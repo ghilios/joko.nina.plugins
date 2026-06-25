@@ -116,5 +116,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             var vm = Build();
             Assert.That(vm.IsTool, Is.True);
         }
+
+        [Test]
+        public void HasInspectorRegionLayout_RequiresFullSixRegionGrid() {
+            // The region report indexes RegionHFRs[1..5], so fewer than 6 regions (e.g. a reprocessed single-region
+            // regular-AF run) must be rejected — the guard that turns the old IndexOutOfRange crash into a clean log.
+            Assert.Multiple(() => {
+                Assert.That(InspectorVM.HasInspectorRegionLayout(0), Is.False);
+                Assert.That(InspectorVM.HasInspectorRegionLayout(1), Is.False);
+                Assert.That(InspectorVM.HasInspectorRegionLayout(5), Is.False);
+                Assert.That(InspectorVM.HasInspectorRegionLayout(6), Is.True);
+                Assert.That(InspectorVM.HasInspectorRegionLayout(7), Is.True);
+            });
+        }
     }
 }

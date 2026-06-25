@@ -41,7 +41,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
             string runFolderPath,
             bool isInteractive,
             Func<AutoFocusEngineOptions> buildBaseOptions,
-            IStarDetectionOptions headlessStarDetectionOverride = null) {
+            IStarDetectionOptions headlessStarDetectionOverride = null,
+            ReplaySettingsPromptTexts texts = null) {
             if (buildBaseOptions == null) {
                 throw new ArgumentNullException(nameof(buildBaseOptions));
             }
@@ -60,7 +61,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
                 return new ReplayOptionsResolution() { Options = buildBaseOptions() };
             }
 
-            var choice = await ReplaySettingsPrompt.ShowAsync(windowServiceFactory, metadata);
+            var choice = await ReplaySettingsPrompt.ShowAsync(windowServiceFactory, metadata, texts);
             // ApplyToProfile (option c) raises INPC for the bound Options UI and must run on the UI thread. The AF-pane
             // replay runs on a background Task.Run, so marshal the mutation via the dispatcher (a synchronous Send with
             // a same-context fast path, so it is free when already on the UI thread, e.g. the Inspector path).

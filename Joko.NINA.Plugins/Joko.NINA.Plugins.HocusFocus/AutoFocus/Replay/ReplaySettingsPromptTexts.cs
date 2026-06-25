@@ -39,6 +39,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
             UpdateProfileDescription = "Overwrite your current profile's detection, AutoFocus, and ROI settings with the captured ones, then replay.",
         };
 
+        /// <summary>
+        /// Wording for the Aberration Inspector replay. Same as <see cref="AutoFocus"/> except option (b): the Inspector
+        /// always analyzes with the CURRENT region grid / ROI / sensor-curve-model (so a regular single-region AutoFocus
+        /// run can be inspected), and only the capture-time star-DETECTION settings are replayed in memory.
+        /// </summary>
+        public static ReplaySettingsPromptTexts Inspector { get; } = new ReplaySettingsPromptTexts {
+            Title = "Replay Saved AutoFocus Run",
+            Intro = "This run was saved with the detection and AutoFocus settings used at capture time. Choose how to replay it:",
+            UseCurrentCaption = "Use current settings",
+            UseCurrentDescription = "Replay using your current profile's detection and AutoFocus settings.",
+            UseCaptureCaption = "Use the captured detection settings (don't change my profile)",
+            UseCaptureDescription = "Replay using the captured star-detection settings, held in memory only. The Aberration Inspector always analyzes with your current region grid and ROI, so those use your current Inspector settings. Your profile is left untouched.",
+            UpdateProfileCaption = "Update my profile to the captured settings",
+            UpdateProfileDescription = "Overwrite your current profile's detection, AutoFocus, and ROI settings with the captured ones, then replay.",
+        };
+
         /// <summary>Wording for the Tilt Adapter wizard replay, which applies only star-detection settings.</summary>
         public static ReplaySettingsPromptTexts TiltCalibration { get; } = new ReplaySettingsPromptTexts {
             Title = "Replay Saved Tilt Calibration",

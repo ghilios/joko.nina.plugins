@@ -166,8 +166,10 @@
 
         <!-- Self-contained toolbar button: keep Fit/Prev/Next/Close legible on the fixed dark panel regardless of the
              active NINA theme (NINA's themed Button binds to theme brushes and ignores instance colors — same reason
-             the combo uses HF_LightCombo and the replay prompt uses ChoiceButton). -->
-        <Style TargetType="Button">
+             the combo uses HF_LightCombo and the replay prompt uses ChoiceButton). Keyed and applied explicitly per
+             button: an implicit Style here did NOT override NINA's themed Button on some themes (e.g. Classic), so the
+             buttons rendered with the theme's grey background + black text. An explicit Style always wins. -->
+        <Style x:Key="HF_ReviewToolbarButton" TargetType="Button">
             <Setter Property="Margin" Value="4,0" />
             <Setter Property="Padding" Value="10,4" />
             <Setter Property="Foreground" Value="#FFE6E9ED" />
@@ -232,8 +234,8 @@
 
         <!-- Toolbar: navigation + close (read-only). -->
         <DockPanel Grid.Row="1" Grid.Column="0" LastChildFill="False" Margin="0,0,0,6">
-            <Button DockPanel.Dock="Left" Content="Fit" Command="{Binding FitCommand}" Margin="0,0,4,0" />
-            <Button DockPanel.Dock="Left" Content="◀ Prev" Command="{Binding PrevCommand}" />
+            <Button DockPanel.Dock="Left" Content="Fit" Command="{Binding FitCommand}" Margin="0,0,4,0" Style="{StaticResource HF_ReviewToolbarButton}" />
+            <Button DockPanel.Dock="Left" Content="◀ Prev" Command="{Binding PrevCommand}" Style="{StaticResource HF_ReviewToolbarButton}" />
             <ComboBox DockPanel.Dock="Left" Margin="4,0" VerticalAlignment="Center" MinWidth="96"
                       Style="{StaticResource HF_LightCombo}"
                       ItemsSource="{Binding FramePickerItems}"
@@ -245,8 +247,8 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
-            <Button DockPanel.Dock="Left" Content="Next ▶" Command="{Binding NextCommand}" />
-            <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" />
+            <Button DockPanel.Dock="Left" Content="Next ▶" Command="{Binding NextCommand}" Style="{StaticResource HF_ReviewToolbarButton}" />
+            <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" Style="{StaticResource HF_ReviewToolbarButton}" />
         </DockPanel>
 
         <!-- Image + scrollbars. -->
@@ -445,8 +447,11 @@
                        Visibility="Collapsed" Scroll="HScroll_Scroll" />
         </Grid>
 
-        <!-- Right column: legend (disabled rows greyed) + toggles + help. -->
-        <StackPanel Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" VerticalAlignment="Top" Width="240" Margin="12,0,0,0">
+        <!-- Right column: legend (disabled rows greyed) + toggles + help. Scrollable so it never clips on a short
+             window (matches the AutoFocus review). -->
+        <ScrollViewer Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" VerticalAlignment="Top" Width="240" Margin="12,0,0,0"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel>
             <TextBlock FontWeight="Bold" Margin="0,0,0,6" Text="Legend" />
             <ItemsControl ItemsSource="{Binding LegendEntries}">
                 <ItemsControl.ItemTemplate>
@@ -496,5 +501,6 @@
             <TextBlock Margin="0,8,0,0" Foreground="#FFB0B6BD" TextWrapping="Wrap"
                        Text="Wheel to zoom, right-drag to pan, Fit to reset. ◀ ▶ or Prev/Next to change frames." />
         </StackPanel>
+        </ScrollViewer>
     </Grid>
 </review:ReviewViewportHostBase>

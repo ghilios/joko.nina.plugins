@@ -59,6 +59,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         /// <summary>Informational summary of the run's result(s); not used to drive a replay.</summary>
         public List<ReplayRegionResultSummary> Results { get; set; }
 
+        /// <summary>Whether the run completed successfully. Null on metadata written before this field existed; a
+        /// failed run is still saved (and replayable) so the failure can be inspected. Not used to drive a replay.</summary>
+        public bool? Succeeded { get; set; }
+
+        /// <summary>Short human-readable reason the run failed (null when it succeeded). Not used to drive a replay.</summary>
+        public string FailureReason { get; set; }
+
         public string Serialize() => JsonConvert.SerializeObject(this, JsonSettings);
 
         public static AutoFocusReplayMetadata Deserialize(string json) => JsonConvert.DeserializeObject<AutoFocusReplayMetadata>(json, JsonSettings);

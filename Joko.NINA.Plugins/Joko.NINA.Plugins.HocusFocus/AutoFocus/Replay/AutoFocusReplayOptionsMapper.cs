@@ -32,13 +32,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         /// </summary>
         public List<StarDetectionRegion> CaptureTimeRegions { get; set; }
 
-        /// <summary>
-        /// The capture-time Aberration Inspector "sensor curve model" flag, set only for the in-memory capture-time
-        /// replay (option b) so the Inspector analyzes the result the way the run was captured. Null means the caller
-        /// uses its current <c>InspectorOptions.SensorCurveModelEnabled</c>. Ignored by the AF pane.
-        /// </summary>
-        public bool? SensorCurveModelEnabled { get; set; }
-
         public static ReplayOptionsResolution Cancel() => new ReplayOptionsResolution() { Cancelled = true };
     }
 
@@ -142,8 +135,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
                         : new List<StarDetectionRegion>() { StarDetectionRegion.Full };
                     return new ReplayOptionsResolution() {
                         Options = options,
-                        CaptureTimeRegions = captureRegions,
-                        SensorCurveModelEnabled = metadata.Regions?.SensorCurveModelEnabled
+                        CaptureTimeRegions = captureRegions
                     };
                 }
 

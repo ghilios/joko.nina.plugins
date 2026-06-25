@@ -33,6 +33,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         protected override TranslateTransform ContentTranslatePart => ContentTranslate;
         protected override IViewportHostViewModel Vm => DataContext as IViewportHostViewModel;
 
+        // The Aberration Inspector review opens larger than the manual-AF one (more regions + the hover focus graph);
+        // the base clamps this to the work area and centers it on first load.
+        protected override double DesiredWindowWidth => 1280.0;
+
+        protected override double DesiredWindowHeight => 860.0;
+
         public FrameReviewControl() {
             InitializeComponent();
         }

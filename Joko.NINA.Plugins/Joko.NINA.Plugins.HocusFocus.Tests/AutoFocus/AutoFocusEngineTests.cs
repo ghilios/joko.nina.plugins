@@ -4,6 +4,7 @@ using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Utility;
@@ -361,6 +362,83 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             } finally {
                 AutoFocusEngine.ResetAutoFocusInProgressForTests();
             }
+        }
+
+        // --- Auto-retry-from-calculated-point decision (Change 1) ---
+        // The full sweep can't be driven through the all-mocked engine, so the retry predicate is unit-tested directly.
+
+        [Test]
+        public void ShouldRetryFromCalculatedPoint_HfrRegression_FirstTime_RetriesOnce() {
+            // A "final HFR worse than original" failure with a usable calculated point should re-center and retry.
+            Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
+                AutoFocusEngine.AutoFocusFailureMode.HfrRegression, calculatedPoint: 53929, currentSweepCenter: 54073, calculatedPointRetryUsed: false), Is.True);
+        }
+
+        [Test]
+        public void ShouldRetryFromCalculatedPoint_OutOfBounds_FirstTime_RetriesOnce() {
+            // A "focus point outside the swept range" failure (the user's saved run) should re-center and retry.
+            Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
+                AutoFocusEngine.AutoFocusFailureMode.FinalPointOutOfBounds, calculatedPoint: 53214, currentSweepCenter: 54073, calculatedPointRetryUsed: false), Is.True);
+        }
+
+        [Test]
+        public void ShouldRetryFromCalculatedPoint_SecondFailure_DoesNotRetryAgain() {
+            // The calculated-point retry is single-shot: once used, a second a/c failure must NOT trigger it again.
+            Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
+                AutoFocusEngine.AutoFocusFailureMode.HfrRegression, calculatedPoint: 53800, currentSweepCenter: 53929, calculatedPointRetryUsed: true), Is.False);
+            Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
+                AutoFocusEngine.AutoFocusFailureMode.FinalPointOutOfBounds, calculatedPoint: 53800, currentSweepCenter: 53929, calculatedPointRetryUsed: true), Is.False);
+        }
+
+        [Test]
+        public void ShouldRetryFromCalculatedPoint_NonRetryEligibleModes_DoNotRetry() {
+            // Bad-data / bad-fit failures can't be fixed by re-centering, so they fall through to the normal budget.
+            Assert.Multiple(() => {
+                Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
+                    AutoFocusEngine.AutoFocusFailureMode.FitQuality, 53929, 54073, false), Is.False);
+                Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
+                    AutoFocusEngine.AutoFocusFailureMode.InitialHfrFailed, 53929, 54073, false), Is.False);
+                Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
+                    AutoFocusEngine.AutoFocusFailureMode.FinalHfrMissing, 53929, 54073, false), Is.False);
+                Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
+                    AutoFocusEngine.AutoFocusFailureMode.None, 53929, 54073, false), Is.False);
+            });
+        }
+
+        [Test]
+        public void ShouldRetryFromCalculatedPoint_GuardsNoOpAndInvalidPoints() {
+            // calc == current center (no-op re-sweep) and an invalid (<0) point must both be rejected.
+            Assert.Multiple(() => {
+                Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
+                    AutoFocusEngine.AutoFocusFailureMode.HfrRegression, calculatedPoint: 54073, currentSweepCenter: 54073, calculatedPointRetryUsed: false), Is.False);
+                Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
+                    AutoFocusEngine.AutoFocusFailureMode.FinalPointOutOfBounds, calculatedPoint: -1, currentSweepCenter: 54073, calculatedPointRetryUsed: false), Is.False);
+            });
+        }
+
+        // --- metadata.json is written (and flagged) on the failure path (Change 2) ---
+
+        [Test]
+        public void WriteMetadataFile_WritesFailureFlaggedMetadata_ThatRoundTrips() {
+            using var tmp = new TempDir();
+            var metadata = new AutoFocusReplayMetadata() {
+                SchemaVersion = AutoFocusReplayMetadata.CurrentSchemaVersion,
+                StarDetection = new StarDetectionSettingsSnapshot(),
+                AutoFocus = new AutoFocusOptionsSnapshot(),
+                Succeeded = false,
+                FailureReason = "Calculated focus point outside the swept range"
+            };
+
+            AutoFocusEngine.WriteMetadataFile(tmp.Path, metadata);
+
+            var loaded = AutoFocusReplayMetadata.TryLoad(tmp.Path, out var restored, out var error);
+            Assert.Multiple(() => {
+                Assert.That(File.Exists(Path.Combine(tmp.Path, "metadata.json")), Is.True);
+                Assert.That(loaded, Is.True);
+                Assert.That(error, Is.Null);
+                Assert.That(restored.Succeeded, Is.False);
+                Assert.That(restored.FailureReason, Is.EqualTo("Calculated focus point outside the swept range"));
+            });
         }
 
         private sealed class TempDir : IDisposable {
