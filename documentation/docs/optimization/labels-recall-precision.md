@@ -8,6 +8,12 @@ fourth term, \(S_{\text{label}}\), scored directly against the boxes you drew.
 
 This is entirely optional. Without labels the optimizer runs on the focus / star-count / curve-fit terms alone.
 
+!!! note "Labels vs golden star sets"
+    Labels are *interactive* ground truth: a handful of boxes you draw, scored live inside the optimizer. To
+    validate a shipped default across many runs, the project instead measures against a detector-independent
+    reference that catalogs every real star in a frame. That method, and how recall and precision are scored
+    against it, is on [Precision & Recall](../settings/precision-recall.md).
+
 ## Three kinds of label
 
 A label is a **bounding box** drawn on a specific frame (at a known focuser position), in one of three

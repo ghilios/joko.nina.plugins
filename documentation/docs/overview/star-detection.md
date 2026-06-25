@@ -88,8 +88,10 @@ T = \text{median} + k_\sigma \cdot \sigma_{\text{noise}}
 \]
 
 Raising \( k_\sigma \) demands a stronger signal to count as a star (fewer, more reliable detections);
-lowering it admits fainter structure (more stars, more risk of noise). See
-[Pre-processing](../settings/preprocessing.md).
+lowering it admits fainter structure (more stars, more risk of noise). By default this threshold is computed
+*per region* rather than once for the whole frame (locally adaptive binarization), so the same multiplier stays
+fair across a vignetted or gradient-heavy frame. See [Pre-processing](../settings/preprocessing.md), and
+[Adaptive Binarization](../settings/adaptive-binarization.md) for why the default multiplier is 2.
 
 ### 6. Optional dilation
 
@@ -212,5 +214,7 @@ is what the annotator draws on the image.*
 - Tune any stage: the [Settings](../settings/index.md) section has one page per pipeline area.
 - Let the plugin tune detection against your own focus runs:
   [Optimization](../optimization/index.md).
+- See the data behind the detector's key defaults:
+  [Precision & Recall](../settings/precision-recall.md).
 - See how the accepted stars are drawn on the image:
   [Star Annotation](star-annotation.md).

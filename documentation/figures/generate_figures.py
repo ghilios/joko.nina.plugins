@@ -991,6 +991,227 @@ def fig_sensor_outlier_rejection(out_dir):
     return save_plot(fig, "sensor-outlier-rejection", out_dir)
 
 
+# -------- star-detection decisions / golden-set figures --------
+# Real measured numbers below are transcribed from the design/results docs and cited per figure:
+#   docs/star-detection-golden-audit-cwhite-results.md  (cwhite NC sweep, FN attribution, donut table)
+#   docs/af-bank-noiseclip-sweep-results.md             (bank-median NC sweep + adaptive OFF/ON A/B)
+#   docs/defocus-aware-donut-detection-design.md        (donut validation)
+
+def _flow_box(ax, x, y, w, h, title, detail, color):
+    from matplotlib.patches import FancyBboxPatch
+
+    ax.add_patch(
+        FancyBboxPatch(
+            (x - w / 2, y - h / 2), w, h,
+            boxstyle="round,pad=0.02,rounding_size=0.10",
+            linewidth=1.4, edgecolor=color, facecolor=color + "22",
+        )
+    )
+    ax.text(x, y + h * 0.26, title, ha="center", va="center", fontsize=8.6, fontweight="bold", color="0.1")
+    ax.text(x, y - h * 0.18, detail, ha="center", va="center", fontsize=7.0, color="0.3")
+
+
+def fig_golden_pipeline(out_dir):
+    # Methodology flow (.claude/docs/golden-star-set.md): independent SNR reference + LLM montage QA.
+    stages = [
+        (ACCENT, "Linear FITS", "mono / debayered\nframe"),
+        (ACCENT, "SNR reference\ndetector", "local bg + per-pixel SNR\n+ connected components\n(no HocusFocus gates)"),
+        (GOOD, "LLM montage QA", "classify each crop:\nreal centered star?"),
+        (ACCENT, "golden.json", "QA-confirmed stars\n+ SNR confidence tiers"),
+        (WARN, "golden eval", "recall · precision\n· FN attribution"),
+    ]
+    fig, ax = plt.subplots(figsize=(13.4, 2.5))
+    ax.set_xlim(0, 16)
+    ax.set_ylim(0, 2)
+    yc, bw, bh, spacing = 1.05, 2.7, 1.25, 3.1
+    xs = [1.55 + i * spacing for i in range(len(stages))]
+    for x, (color, title, detail) in zip(xs, stages):
+        _flow_box(ax, x, yc, bw, bh, title, detail, color)
+    for x0, x1 in zip(xs[:-1], xs[1:]):
+        ax.annotate("", xy=(x1 - bw / 2 - 0.05, yc), xytext=(x0 + bw / 2 + 0.05, yc),
+                    arrowprops=dict(arrowstyle="-|>", color="0.4", lw=1.6))
+    ax.text(8.0, 0.12, "Independent of HocusFocus, so reference stars it finds that HF rejects are exactly HF's recall gaps.",
+            ha="center", va="center", fontsize=7.6, color="0.4", style="italic")
+    ax.axis("off")
+    return _finalize(fig, "golden-pipeline", out_dir)
+
+
+def fig_candidate_ceiling(out_dir):
+    # cwhite false-negative attribution, default vs optimized (--inspection), all 9 frames.
+    # docs/star-detection-golden-audit-cwhite-results.md "The decisive finding" table.
+    buckets = ["NO CANDIDATE", "TooSmall", "TooDistorted", "NotCentered", "Contaminated"]
+    colors = [ACCENT2, "#7E57C2", "#5C6BC0", "#26A69A", "#FFB300"]
+    default = [6191, 563, 258, 263, 22]
+    optimized = [6191, 194, 24, 570, 52]
+    rows = [("Default", default, 1.0), ("Optimized (--inspection)", optimized, 0.0)]
+    fig, ax = plt.subplots(figsize=(8.8, 3.4))
+    for label, vals, y in rows:
+        left = 0
+        for v, c in zip(vals, colors):
+            ax.barh(y, v, left=left, height=0.62, color=c, edgecolor="white", linewidth=0.6)
+            left += v
+    ax.text(6191 / 2, 1.0, "6191  (79%)\nnever forms a candidate", ha="center", va="center",
+            fontsize=8.5, color="white", fontweight="bold")
+    ax.text(6191 / 2, 0.0, "6191  (identical)", ha="center", va="center",
+            fontsize=8.5, color="white", fontweight="bold")
+    ax.set_yticks([0.0, 1.0])
+    ax.set_yticklabels(["Optimized\n(--inspection)", "Default"])
+    ax.set_xlabel("false negatives — real stars missed (of 7875)")
+    ax.set_title("Candidate formation is the recall ceiling, not the late gates")
+    handles = [plt.matplotlib.patches.Patch(color=c, label=b) for c, b in zip(colors, buckets)]
+    ax.legend(handles=handles, frameon=False, fontsize=7.4, ncol=5, loc="upper center",
+              bbox_to_anchor=(0.5, -0.24), columnspacing=1.0, handlelength=1.2)
+    ax.grid(False)
+    fig.subplots_adjust(left=0.16, right=0.97, top=0.88, bottom=0.30)
+    return _finalize(fig, "candidate-ceiling", out_dir)
+
+
+def fig_nc_recall_sweep(out_dir):
+    # cwhite candidate-formation sweep (all 9 frames vs golden).
+    # docs/star-detection-golden-audit-cwhite-results.md "Candidate-formation sweep".
+    labels = ["4.0", "2.5", "2.0", "1.5"]
+    pos = [0, 1, 2, 3]
+    recall = [0.189, 0.358, 0.459, 0.596]
+    nocand = [6191, 4712, 3556, 1757]
+    fig, ax = plt.subplots(figsize=(7.4, 4.2))
+    l1, = ax.plot(pos, recall, "-o", color=ACCENT, lw=2, ms=6, label="recall @ SNR≥12")
+    ax.set_ylabel("recall @ SNR≥12", color=ACCENT)
+    ax.tick_params(axis="y", labelcolor=ACCENT)
+    ax.set_ylim(0, 0.7)
+    ax2 = ax.twinx()
+    l2, = ax2.plot(pos, nocand, "--s", color=ACCENT2, lw=2, ms=6, label="NO-CANDIDATE misses")
+    ax2.set_ylabel("NO-CANDIDATE misses", color=ACCENT2)
+    ax2.tick_params(axis="y", labelcolor=ACCENT2)
+    ax2.set_ylim(0, 7000)
+    ax2.grid(False)
+    ax.axvline(2, color=GOOD, ls=":", lw=1.4)
+    ax.text(2, 0.66, "shipped\ndefault", color=GOOD, ha="center", va="top", fontsize=8.5)
+    ax.text(0, 0.66, "legacy", color="0.4", ha="center", va="top", fontsize=8.5)
+    ax.set_xticks(pos)
+    ax.set_xticklabels(labels)
+    ax.set_xlabel("NoiseClippingMultiplier   (stricter ←   → more permissive)")
+    ax.set_title("Lowering the binarization floor recovers real stars (cwhite run)")
+    ax.legend([l1, l2], ["recall @ SNR≥12", "NO-CANDIDATE misses"], frameon=False, fontsize=9, loc="center right")
+    return save_plot(fig, "nc-recall-sweep", out_dir)
+
+
+def fig_adaptive_binarization(out_dir):
+    # Conceptual: a flat global floor vs a spatially-varying threshold surface over a non-uniform frame.
+    # docs/adaptive-noiseclip-design.md root-cause section.
+    rng = np.random.default_rng(17)
+    x = np.arange(100)
+    bg = 0.10 + 0.0024 * x + 0.20 * np.exp(-((x - 84) ** 2) / (2 * 9.0 ** 2))   # ramp + corner glow
+    sig = 0.014 + 0.00045 * x + 0.022 * np.exp(-((x - 84) ** 2) / (2 * 10.0 ** 2))
+    k = 2.0
+    adaptive = bg + k * sig
+    global_thr = float(np.median(bg) + k * np.median(sig))
+    star_amp, junk_amp = 0.10, 0.075
+    star = star_amp * np.exp(-((x - 24) ** 2) / (2 * 1.6 ** 2))  # faint real star, clean region
+    junk = junk_amp * np.exp(-((x - 84) ** 2) / (2 * 1.4 ** 2))  # noise bump inside the glow
+    signal = bg + 0.32 * rng.normal(0, sig) + star + junk
+    star_val = float(bg[24] + star_amp)                         # adaptive < star_val < global → recovered
+    junk_val = float(bg[84] + junk_amp)                         # global < junk_val < adaptive → rejected
+
+    # left: a synthetic 2D frame with the same gradient + glow (illustrative)
+    shape = (90, 100)
+    xx, yy = _grid(shape)
+    frame, _ = star_field(shape, 26, rng, max_amp=0.6, sigma_range=(1.3, 2.1))
+    frame = frame + 0.10 + 0.0024 * xx + 0.55 * np.exp(-((xx - 84) ** 2 + (yy - 20) ** 2) / (2 * 13.0 ** 2))
+    frame = add_noise(frame, sky=0.0, read_noise=0.012, rng=rng)
+
+    fig, axes = plt.subplots(1, 2, figsize=(11.4, 4.0), gridspec_kw={"width_ratios": [1, 1.35]})
+    axes[0].imshow(_stretch(frame), cmap=STAR_CMAP, interpolation="nearest")
+    axes[0].axhline(45, color=WARN, lw=1.0, ls="--", alpha=0.8)
+    axes[0].set_title("Real frame: gradient + corner glow")
+    axes[0].set_xticks([]); axes[0].set_yticks([]); axes[0].grid(False)
+
+    ax = axes[1]
+    ax.plot(x, signal, color="0.6", lw=1.0, label="pixel value (1 row)")
+    ax.plot(x, global_thr * np.ones_like(x), color=WARN, lw=2, ls="--", label="global threshold (one scalar)")
+    ax.plot(x, adaptive, color=ACCENT, lw=2, label="adaptive threshold (local)")
+    ax.plot(24, star_val, "o", color=GOOD, ms=9, zorder=5)
+    ax.annotate("faint star:\nabove adaptive,\nbelow global → recovered", xy=(24, star_val),
+                xytext=(31, 0.40), fontsize=7.6, color=GOOD,
+                arrowprops=dict(arrowstyle="->", color=GOOD))
+    ax.plot(84, junk_val, "X", color=ACCENT2, ms=10, zorder=5)
+    ax.annotate("glow noise:\nabove global,\nbelow adaptive → rejected", xy=(84, junk_val),
+                xytext=(36, 0.66), fontsize=7.6, color=ACCENT2,
+                arrowprops=dict(arrowstyle="->", color=ACCENT2))
+    ax.set_xlabel("column (px)")
+    ax.set_ylabel("intensity")
+    ax.set_ylim(0, 0.78)
+    ax.set_title("One global floor is the wrong shape for a non-uniform frame")
+    ax.legend(frameon=False, fontsize=8, loc="upper left")
+    return save_plot(fig, "adaptive-binarization", out_dir)
+
+
+def fig_nc_adaptive_ab(out_dir):
+    # Adaptive binarization OFF -> ON at NC=2. docs/af-bank-noiseclip-sweep-results.md A/B tables.
+    fig, axes = plt.subplots(1, 2, figsize=(10.6, 4.0))
+    # Panel A: bank-median recall & precision, OFF vs ON.
+    metrics = ["recall @ SNR≥12", "precision"]
+    off = [0.870, 0.585]
+    on = [0.877, 0.618]
+    xb = np.arange(2)
+    w = 0.36
+    a = axes[0]
+    a.bar(xb - w / 2, off, w, color="0.6", label="OFF (legacy global)")
+    a.bar(xb + w / 2, on, w, color=ACCENT, label="ON (adaptive)")
+    for xi, (o, n) in enumerate(zip(off, on)):
+        a.text(xi - w / 2, o + 0.012, f"{o:.3f}", ha="center", fontsize=8)
+        a.text(xi + w / 2, n + 0.012, f"{n:.3f}", ha="center", fontsize=8, color=ACCENT)
+    a.set_xticks(xb); a.set_xticklabels(metrics)
+    a.set_ylim(0, 1.0)
+    a.set_ylabel("bank median")
+    a.set_title("Recall and precision both rise")
+    a.legend(frameon=False, fontsize=8, loc="upper right")
+    # Panel B: AF focus scatter (lower = better), bank median and the standout run.
+    runs = ["bank median", "cwhite_2026"]
+    off_s = [10.26, 10.65]
+    on_s = [8.84, 4.10]
+    xr = np.arange(2)
+    b = axes[1]
+    b.bar(xr - w / 2, off_s, w, color="0.6", label="OFF")
+    b.bar(xr + w / 2, on_s, w, color=GOOD, label="ON (adaptive)")
+    for xi, (o, n) in enumerate(zip(off_s, on_s)):
+        b.text(xi - w / 2, o + 0.18, f"{o:.2f}", ha="center", fontsize=8)
+        b.text(xi + w / 2, n + 0.18, f"{n:.2f}", ha="center", fontsize=8, color=GOOD)
+    b.set_xticks(xr); b.set_xticklabels(runs)
+    b.set_ylim(0, 12.5)
+    b.set_ylabel("AF σ_focus (steps, lower = better)")
+    b.set_title("Focus fit tightens")
+    b.legend(frameon=False, fontsize=8, loc="upper right")
+    fig.suptitle("Locally adaptive binarization, OFF → ON at NoiseClippingMultiplier = 2", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    return _finalize(fig, "nc-adaptive-ab", out_dir)
+
+
+def fig_donut_recovery(out_dir):
+    # mufti frame (focuser 2325) vs SNR + matched-filter reference.
+    # docs/star-detection-golden-audit-cwhite-results.md "Donut / defocus validation".
+    settings = ["default", "NC=2\nonly", "defocus-aware\nonly", "NC=2 +\ndefocus-aware"]
+    accepted = [7, 21, 84, 161]
+    toodistorted = [191, 436, 214, 203]
+    x = np.arange(len(settings))
+    w = 0.38
+    fig, ax = plt.subplots(figsize=(8.2, 4.3))
+    ax.bar(x - w / 2, accepted, w, color=GOOD, label="accepted (real donuts recovered)")
+    ax.bar(x + w / 2, toodistorted, w, color=ACCENT2, label="rejected: TooDistorted")
+    for xi, v in enumerate(accepted):
+        ax.text(xi - w / 2, v + 6, str(v), ha="center", fontsize=8.5, color=GOOD, fontweight="bold")
+    for xi, v in enumerate(toodistorted):
+        ax.text(xi + w / 2, v + 6, str(v), ha="center", fontsize=8, color=ACCENT2)
+    ax.set_xticks(x); ax.set_xticklabels(settings)
+    ax.set_ylabel("candidates")
+    ax.set_ylim(0, 470)
+    ax.set_title("Donut recovery needs both levers (mufti, focuser 2325)")
+    ax.annotate("NC alone forms candidates,\nbut they pile into TooDistorted", xy=(1 + w / 2, 436),
+                xytext=(2.05, 415), fontsize=7.6, color=ACCENT2, ha="left",
+                arrowprops=dict(arrowstyle="->", color=ACCENT2))
+    ax.legend(frameon=False, fontsize=8.5, loc="upper left")
+    return save_plot(fig, "donut-recovery", out_dir)
+
+
 # --------------------------------------------------------------------------------------------------
 # Registry + CLI
 # --------------------------------------------------------------------------------------------------
@@ -1029,6 +1250,12 @@ FIGURES = {
     "hyperbola-asymmetric-bias": fig_hyperbola_asymmetric_bias,
     "hyperbola-variants": fig_hyperbola_variants,
     "hyperbola-parsimony": fig_hyperbola_parsimony,
+    "golden-pipeline": fig_golden_pipeline,
+    "candidate-ceiling": fig_candidate_ceiling,
+    "nc-recall-sweep": fig_nc_recall_sweep,
+    "adaptive-binarization": fig_adaptive_binarization,
+    "nc-adaptive-ab": fig_nc_adaptive_ab,
+    "donut-recovery": fig_donut_recovery,
 }
 
 

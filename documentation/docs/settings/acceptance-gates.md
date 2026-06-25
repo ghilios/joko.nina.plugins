@@ -245,6 +245,10 @@ a single **master toggle**, *Defocus-Aware Donut Detection*, that is **off by de
 detection is bit-identical to having the feature absent. It also appears on the
 [Optimization Wizard](../optimization/index.md)'s start page as **"Recover out-of-focus donut stars."**
 
+On a heavily defocused frame from a central-obstruction scope, recovering donuts needs *both* this group and a
+low noise-clipping floor: the floor forms the ring candidates, and these gates keep them. See
+[Donut-Aware Settings](donut-aware.md) for the measured "both levers" result.
+
 > MASTER toggle for defocus-aware donut detection. When ON, out-of-focus DONUT stars (heavily defocused stars that appear as hollow rings) are recovered: a morphological close reconnects fragmented rings and an annularity test lets a hollow ring pass the distortion gate like a filled disk (detection-only — it never changes HFR). It also unlocks the optimizer to tune ALL defocus-aware settings and to enable diffraction-spike / saturated-bloom suppression. Recommended for telescopes with a central obstruction (Newtonians/SCTs); leave OFF for refractors. Off by default; when OFF, detection is exactly as before.
 
 **What it does.** A heavily defocused star with a central obstruction breaks up into a fragmented
