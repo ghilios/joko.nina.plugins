@@ -200,24 +200,23 @@
 
     <!--  The wizard window content. Implicit DataType template so the WindowService's ContentPresenter resolves it by VM type.  -->
     <DataTemplate DataType="{x:Type local:StarDetectionOptimizerWizardVM}">
-        <!--  Width/height grow for the Review step (it embeds a full interactive image viewer); the other steps keep
-              the compact wizard footprint.  -->
-        <Grid Margin="10">
+        <!--  Width grows per step (the Review step embeds a full interactive image viewer). The preferred HEIGHT now
+              lives on the scrollable body below, NOT here: keeping a MinHeight floor on the root grid prevented it
+              from shrinking to a smaller window, so the bottom row (footer buttons) overflowed and clipped. With the
+              floor gone the grid shrinks to the window, the body scrolls, and the footer stays pinned.  -->
+        <Grid Margin="10" local:ClampWindowToWorkArea.Enabled="True">
             <Grid.Style>
                 <Style TargetType="Grid">
                     <Setter Property="Width" Value="640" />
-                    <Setter Property="MinHeight" Value="420" />
                     <Style.Triggers>
                         <!--  Wider on the results page so the auto-focus curve chart has room…  -->
                         <DataTrigger Binding="{Binding IsSummary}" Value="True">
                             <Setter Property="Width" Value="820" />
-                            <Setter Property="MinHeight" Value="560" />
                         </DataTrigger>
                         <!--  …and widest for the Review step (embeds the full interactive image viewer). Listed last
                               so it wins; the two are mutually exclusive anyway.  -->
                         <DataTrigger Binding="{Binding IsReview}" Value="True">
                             <Setter Property="Width" Value="1120" />
-                            <Setter Property="MinHeight" Value="720" />
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
@@ -237,8 +236,26 @@
                 FontWeight="Bold"
                 Text="Star Detection Optimization Wizard" />
 
-            <!--  Body: one panel visible per step  -->
-            <Grid Grid.Row="1">
+            <!--  Body: one panel visible per step. Wrapped in a ScrollViewer so that when the window is shorter than
+                  the body's preferred height, the body scrolls (the footer below stays pinned) instead of the whole
+                  grid overflowing and clipping the footer. The per-step MinHeight on the inner grid sets the
+                  preferred/opening height; on a tall-enough window the body fills (no scrollbar) exactly as before,
+                  so the StarReviewControl still gets the full area when there is room.  -->
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid>
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="MinHeight" Value="380" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSummary}" Value="True">
+                                <Setter Property="MinHeight" Value="520" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsReview}" Value="True">
+                                <Setter Property="MinHeight" Value="660" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
 
                 <!--  Step 1: Select Source  -->
                 <StackPanel Visibility="{Binding ShowSelectSource, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -669,6 +686,7 @@
                     DataContext="{Binding ReviewVM}"
                     Visibility="{Binding DataContext.ShowReview, RelativeSource={RelativeSource AncestorType=Grid}, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             </Grid>
+            </ScrollViewer>
 
             <!--  Error banner  -->
             <TextBlock
