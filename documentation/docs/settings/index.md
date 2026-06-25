@@ -134,7 +134,7 @@ Each accepted star contributes its HFR (and, with PSF modeling on, FWHM and ecce
 
 Internally the detector splits into an **EARLY** phase (`BuildDetectionContext`) and a **LATE** phase (`GateAndMeasure`):
 
-- **EARLY** parameters affect the prepared image, the candidate region set, and the noise estimates. Changing one forces a **full re-detect**. These are the hotpixel knobs (`HotpixelFiltering`, `HotpixelThresholdingEnabled`, `HotpixelThreshold`), noise reduction (`StarMeasurementNoiseReductionEnabled`, `NoiseReductionRadius`, `NoiseClippingMultiplier`), the structure-map knobs (`StructureLayers`, `DefocusAwareStructure`, `StructureLayerBoost`, `StructureDilationSize`, `StructureDilationCount`), `SaturationThreshold`, and the detection `Region`.
+- **EARLY** parameters affect the prepared image, the candidate region set, and the noise estimates. Changing one forces a **full re-detect**. These are the hotpixel knobs (`HotpixelFiltering`, `HotpixelThresholdingEnabled`, `HotpixelThreshold`), noise reduction (`StarMeasurementNoiseReductionEnabled`, `NoiseReductionRadius`, `NoiseClippingMultiplier`, `LocallyAdaptiveBinarization`, `AdaptiveNoiseBlockSize`), the structure-map knobs (`StructureLayers`, `DefocusAwareStructure`, `StructureLayerBoost`, `StructureDilationSize`, `StructureDilationCount`), `SaturationThreshold`, and the detection `Region`.
 - **LATE** parameters only re-gate or re-measure the candidates that already exist (sensitivity, distortion, centering, min-HFR, PSF settings, the defocus-aware *gate* relaxations, contamination). They are cheap to change.
 
 You don't normally need to think about this when using NINA, since it changes whichever parameters you change. The distinction matters because the [Optimization Wizard](../optimization/index.md) and the headless tooling exploit it: an expensive early context is cached and reused across many late-only candidate moves, which is what makes the optimizer fast. The safe failure mode of the cache is always a redundant recompute, never stale reuse.
@@ -145,6 +145,9 @@ You don't normally need to think about this when using NINA, since it changes wh
 
 ## Reference sub-pages
 
+- [Precision & Recall](precision-recall.md) — how detection quality is measured against golden star sets, and the candidate-formation finding that drove the defaults below.
+- [Adaptive Binarization](adaptive-binarization.md) — why the noise-clipping floor dropped from 4 to 2 and became spatially adaptive, with the data.
+- [Donut-Aware Settings](donut-aware.md) — the opt-in donut-recovery features and the measurements that justified them.
 - [Preprocessing & Noise](preprocessing.md) — hotpixel filtering, noise reduction radius, clipping multipliers, measurement noise reduction.
 - [Structure & Detection](structure-detection.md) — structure layers, dilation, brightness sensitivity, defocus-aware structure.
 - [Star Acceptance Gates](acceptance-gates.md) — distortion, centering, peak response, min bounding box, min HFR, defocus-aware gates.

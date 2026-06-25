@@ -16,7 +16,7 @@ The detector removes large-scale structure with an **à-trous (dyadic) B3-spline
 *From a raw frame (with nebulosity) to the wavelet residual to the binarized structure map: only star-scale structure survives.*
 
 !!! note
-    The binarization noise threshold itself is governed by **Noise Clipping Multiplier**, and the upstream noise reduction by **Noise Reduction Radius**. Both are covered on the [Preprocessing](preprocessing.md) page. This page covers the geometric/scale knobs: which structures are kept and how candidate blobs are grown.
+    The binarization noise threshold itself is governed by **Noise Clipping Multiplier** (applied as a per-region surface when **Locally Adaptive Binarization** is on, which is the default), and the upstream noise reduction by **Noise Reduction Radius**. All three are covered on the [Preprocessing](preprocessing.md) page. This page covers the geometric/scale knobs: which structures are kept and how candidate blobs are grown.
 
 ## Settings at a glance
 

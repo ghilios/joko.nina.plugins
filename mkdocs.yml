@@ -92,6 +92,9 @@ nav:
       - Sensor Model Fitting: overview/sensor-model.md
   - Star Detection Settings:
       - settings/index.md
+      - Precision & Recall: settings/precision-recall.md
+      - Adaptive Binarization: settings/adaptive-binarization.md
+      - Donut-Aware Settings: settings/donut-aware.md
       - Preprocessing & Noise: settings/preprocessing.md
       - Structure & Detection: settings/structure-detection.md
       - Star Acceptance Gates: settings/acceptance-gates.md
