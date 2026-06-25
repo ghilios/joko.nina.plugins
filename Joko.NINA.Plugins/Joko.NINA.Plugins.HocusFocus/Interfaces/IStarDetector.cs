@@ -301,6 +301,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // detection stays bit-identical. Excluded from the cache key (output-neutral side channel).
         public bool CollectRejectedCandidateDiagnostics { get; set; } = false;
 
+        // Logging suppression opt-in (output-neutral). When true, the detector skips the per-region
+        // "Average HFR / Detected Stars" INFO summary in HocusFocusStarDetection.BuildStarDetectionResult. The
+        // optimizer wizard sets this on its seed/baseline params (RunEvaluationLoader) so a single optimization —
+        // which re-runs detection thousands of times — does not flood the NINA log with ~10k+ INFO lines; normal
+        // autofocus leaves it false and keeps the summary. Affects logging only (no detected-star value or
+        // accept/reject decision changes), so it is excluded from the cache key below.
+        public bool SuppressInfoLogging { get; set; } = false;
+
         // Half size of a median box filter, used for hotpixel removal if HotpixelFiltering is enabled. Only 1 is supported for now, since OpenCV has native support for
         // a median box filter but not a general circular one
         public int HotpixelFilterRadius { get; set; } = 1;
@@ -513,6 +521,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
             // detected-star value are unaffected — the records are emitted at the same gate sites that already
             // run, after the reject decision is made — so this is output-neutral.
             nameof(CollectRejectedCandidateDiagnostics),
+
+            // Logging only: when true the per-region "Average HFR / Detected Stars" INFO summary in
+            // BuildStarDetectionResult is skipped. No detected-star value or accept/reject decision depends on it,
+            // so it is output-neutral and must not change which detections the optimizer's cache treats as equal.
+            nameof(SuppressInfoLogging),
 
             // Debug/intermediate-output only: stashes the structure map into DebugData for inspection. Does not
             // change which stars are detected or any measured value.
