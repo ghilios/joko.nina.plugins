@@ -166,6 +166,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var seed = detection.GetDefaultStarDetectorParams(firstImage, region, isAutoFocus: true);
             var baseline = detection.GetStarDetectorParams(firstImage, region, isAutoFocus: true);
 
+            // Every detection these params drive is an OPTIMIZER evaluation — the seed (and the candidates the
+            // optimizer materializes from it via Clone) and the baseline are each detected across all frames many
+            // thousands of times during a single optimization. Suppress the per-region "Average HFR" INFO summary
+            // so one optimization run does not flood the NINA log with ~10k+ INFO lines. The flag is output-neutral
+            // and excluded from the detection cache key, so detection results stay byte-identical; only the wizard
+            // path sets it (TestApp diagnostics build RunEvaluationData directly and are unaffected).
+            seed.SuppressInfoLogging = true;
+            baseline.SuppressInfoLogging = true;
+
             // AF detection params: the auto-focus detection contract (sigma rejections + AF flag). NumberOfAFStars
             // is left at 0 so detection keeps every accepted star — the optimizer scores on the full accepted set,
             // not the brightest-N subset the live AF picks for centroiding.
