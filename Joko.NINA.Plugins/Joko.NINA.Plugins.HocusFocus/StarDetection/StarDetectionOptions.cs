@@ -255,6 +255,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             usePSFAbsoluteDeviation = optionsAccessor.GetValueBoolean(nameof(UsePSFAbsoluteDeviation), false);
             hotpixelThreshold = optionsAccessor.GetValueDouble(nameof(HotpixelThreshold), 0.001d);
             saturationThreshold = optionsAccessor.GetValueDouble(nameof(SaturationThreshold), 0.99d);
+            excludeSaturatedStarsFromHFR = optionsAccessor.GetValueBoolean(nameof(ExcludeSaturatedStarsFromHFR), true);
             measurementAverage = optionsAccessor.GetValueEnum<MeasurementAverageEnum>(nameof(MeasurementAverage), MeasurementAverageEnum.Median);
             psfPixelIntegration = optionsAccessor.GetValueBoolean(nameof(PSFPixelIntegration), false);
             useOptimizedSettings = optionsAccessor.GetValueBoolean(nameof(UseOptimizedSettings), false);
@@ -322,6 +323,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             UsePSFAbsoluteDeviation = false;
             HotpixelThreshold = 0.001d;
             SaturationThreshold = 0.99d;
+            ExcludeSaturatedStarsFromHFR = true;
             MeasurementAverage = MeasurementAverageEnum.Median;
             PSFPixelIntegration = false;
             optimizedSettings = null;
@@ -1093,6 +1095,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        private bool excludeSaturatedStarsFromHFR;
+
+        public bool ExcludeSaturatedStarsFromHFR {
+            get => excludeSaturatedStarsFromHFR;
+            set {
+                if (excludeSaturatedStarsFromHFR != value) {
+                    excludeSaturatedStarsFromHFR = value;
+                    optionsAccessor.SetValueBoolean(nameof(ExcludeSaturatedStarsFromHFR), excludeSaturatedStarsFromHFR);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         private MeasurementAverageEnum measurementAverage;
 
         public MeasurementAverageEnum MeasurementAverage {
@@ -1257,6 +1272,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             UsePSFAbsoluteDeviation = source.UsePSFAbsoluteDeviation;
             HotpixelThreshold = source.HotpixelThreshold;
             SaturationThreshold = source.SaturationThreshold;
+            ExcludeSaturatedStarsFromHFR = source.ExcludeSaturatedStarsFromHFR;
             MeasurementAverage = source.MeasurementAverage;
             PSFPixelIntegration = source.PSFPixelIntegration;
         }

@@ -452,6 +452,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // If a star contains any pixels greater than this threshold, it is rejected due to being fully saturated
         public double SaturationThreshold { get; set; } = 0.99f;
 
+        // When true, partially-saturated stars (Background + PeakBrightness >= SaturationThreshold) are excluded from
+        // the per-frame HFR aggregation (AverageHFR / HFRStdDev) — their flat saturated cores bias HFR high — as long
+        // as enough unsaturated stars remain. They stay detected/counted; only the curve point is cleaned.
+        public bool ExcludeSaturatedStarsFromHFR { get; set; } = true;
+
         // Whether to model PSFs
         public bool ModelPSF { get; set; } = true;
 

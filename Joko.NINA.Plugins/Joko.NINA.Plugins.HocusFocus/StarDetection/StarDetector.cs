@@ -353,6 +353,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         public sealed class DetectionContext : IDisposable {
             internal Mat MeasurementImage;                       // prepared source image, read-only for the late stage
+            internal System.Drawing.Size FullImageSize;          // full-frame dimensions BEFORE any ROI crop (star centers are full-frame)
             internal List<StarCandidateRegion> Candidates;      // ALL flood-fill candidates (no late gate applied)
             internal double StructureNoiseSigma;                 // K-σ on the noise-reduced structure-map source
             internal double MeasurementNoiseSigma;              // K-σ on the image actually sampled for measurement
@@ -424,6 +425,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (p.HotpixelFiltering && p.HotpixelFilterRadius != 1) {
                 throw new NotImplementedException("Only hotpixel filter radius of 1 currently supported");
             }
+
+            // Full-frame dimensions captured BEFORE any ROI replacement of srcImage below, so downstream consumers
+            // (the optimizer's region-coverage metric) can normalize full-frame star centers to ratio coordinates.
+            var fullImageSize = new System.Drawing.Size(srcImage.Width, srcImage.Height);
 
             // When a resourceTracker is supplied (the monolithic DetectImpl path) the prepared srcImage and the
             // scratch Mats are tracked there and freed by the caller. When it is null (the public split path) we
@@ -678,6 +683,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // (structureMap; noiseReducedImage is disposed inside its task) and the context's image survives.
                     var context = new DetectionContext {
                         MeasurementImage = srcImage,
+                        FullImageSize = fullImageSize,
                         Candidates = candidates,
                         StructureNoiseSigma = noiseReducedImageNoise.Sigma,
                         MeasurementNoiseSigma = measurementImageNoise.Sigma,

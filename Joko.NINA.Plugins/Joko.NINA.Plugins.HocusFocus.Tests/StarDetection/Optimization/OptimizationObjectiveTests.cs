@@ -773,4 +773,227 @@ public class OptimizationObjectiveTests {
         Assert.That(OptimizationObjective.JRun(wayPastBound, inspection),
             Is.LessThan(OptimizationObjective.JRun(withinBound, inspection)));
     }
+
+    // ---- SHfrOutlier (extreme-HFR outlier penalty) ----
+
+    // Builds a run whose accepted-star HFRs are supplied per frame. Positions default to all-at-bestFocus (every
+    // frame inside the near-focus window); pass explicit positions to place frames inside/outside it. StarCounts are
+    // derived from each frame's HFR list length (the SHfrOutlier denominator).
+    private static RunEvaluationMetrics HfrRun(
+            IReadOnlyList<double>[] frameHfrs, int[] positions = null,
+            int stepSize = 100, int bestFocus = 5000, double sigmaFocus = 0.05) {
+        var n = frameHfrs.Length;
+        var pos = positions ?? Enumerable.Repeat(bestFocus, n).ToArray();
+        var counts = frameHfrs.Select(f => f.Count).ToArray();
+        return new RunEvaluationMetrics {
+            SigmaFocus = sigmaFocus,
+            LooStdError = double.NaN,
+            StepSize = stepSize,
+            RSquared = 0.99,
+            ReducedChiSquared = 1.0,
+            FrameStarCounts = counts,
+            FrameFocuserPositions = pos,
+            FrameStarHFRs = frameHfrs,
+            BestFocusPosition = bestFocus
+        };
+    }
+
+    // n normal stars sharing one tight HFR (the typical near-focus population).
+    private static double[] Normals(int n, double hfr = 2.0) => Enumerable.Repeat(hfr, n).ToArray();
+
+    // A frame of n normals plus a single bloated/saturated star whose HFR is far above the rest.
+    private static double[] NormalsPlusBlob(int n, double blob = 6.0, double hfr = 2.0) =>
+        Normals(n, hfr).Concat(new[] { blob }).ToArray();
+
+    [Test]
+    public void SHfrOutlier_NoData_ReturnsExactlyOne() {
+        // GoodRun has null FrameStarHFRs (the legacy caller shape) => no penalty.
+        Assert.That(OptimizationObjective.SHfrOutlier(GoodRun(), C), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SHfrOutlier_NoExtremeOutliers_ReturnsExactlyOne() {
+        // Tight near-focus HFRs (median 2.0, MAD 0). The relMargin guard (1.5×median = 3.0) prevents flagging
+        // anything when MAD collapses to 0, so a uniform population is never penalized.
+        var m = HfrRun(new IReadOnlyList<double>[] { Normals(10) });
+        Assert.That(OptimizationObjective.SHfrOutlier(m, C), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SHfrOutlier_ExtremeStar_DropsBelowOne() {
+        // 9 normals at 2.0 + one bloated star at 6.0 (≥ 1.5×median, MAD 0). outliers=1, pooled=10 => frac 0.10;
+        // excess over the 0.05 threshold => penalty 1 − 1.0·(0.10 − 0.05) = 0.95.
+        var m = HfrRun(new IReadOnlyList<double>[] { NormalsPlusBlob(9) });
+        var penalty = OptimizationObjective.SHfrOutlier(m, C);
+        Assert.Multiple(() => {
+            Assert.That(penalty, Is.LessThan(1.0));
+            Assert.That(penalty, Is.EqualTo(0.95).Within(1e-12));
+        });
+    }
+
+    [Test]
+    public void SHfrOutlier_RelaxesAsNormalStarsAdded_Dilution() {
+        // THE make-or-break contract: a fixed single bloated star (6.0); as more normal stars (2.0) are admitted,
+        // the outlier FRACTION 1/(N+1) shrinks, so the penalty must be non-decreasing and reach exactly 1.0 once
+        // 1/(N+1) ≤ threshold (0.05 ⇒ N+1 ≥ 20). This is what couples the penalty to recall.
+        var prev = 0.0;
+        for (var normals = 4; normals <= 25; normals++) {
+            var penalty = OptimizationObjective.SHfrOutlier(
+                HfrRun(new IReadOnlyList<double>[] { NormalsPlusBlob(normals) }), C);
+            Assert.That(penalty, Is.GreaterThanOrEqualTo(prev),
+                $"penalty must not decrease as more normal stars are admitted (normals={normals})");
+            prev = penalty;
+        }
+        // At a low star count the bloated star dominates a large fraction ⇒ a REAL penalty (strictly below 1)...
+        var atLow = OptimizationObjective.SHfrOutlier(HfrRun(new IReadOnlyList<double>[] { NormalsPlusBlob(4) }), C);
+        Assert.That(atLow, Is.LessThan(1.0), "at low recall the bloated star is a large outlier fraction => penalized");
+        // ... and once enough normal stars dilute it (N+1 = 20, normals = 19; frac 0.05 == threshold) ⇒ exactly 1.0.
+        var atHigh = OptimizationObjective.SHfrOutlier(HfrRun(new IReadOnlyList<double>[] { NormalsPlusBlob(19) }), C);
+        Assert.That(atHigh, Is.EqualTo(1.0).Within(1e-12));
+        Assert.That(atHigh, Is.GreaterThan(atLow), "the penalty must relax as recall rises (dilution)");
+    }
+
+    [Test]
+    public void SHfrOutlier_DefocusedExtremeBlob_NotPenalized() {
+        // bestFocus 5000, step 100, window 1.5·100 = 150. The bloated star is on a FAR (defocused) frame at 4600;
+        // the near-focus frames (4900/5000/5100) are clean. The far blob is excluded from the near-focus pool.
+        var frames = new IReadOnlyList<double>[] { NormalsPlusBlob(9), Normals(10), Normals(10), Normals(10) };
+        var positions = new[] { 4600, 4900, 5000, 5100 };
+        Assert.That(OptimizationObjective.SHfrOutlier(HfrRun(frames, positions), C), Is.EqualTo(1.0),
+            "a bloated star on a defocused extreme is not a near-focus outlier");
+    }
+
+    [Test]
+    public void SHfrOutlier_PenaltyFlooredAtMinFactor() {
+        // frac 0.10 with a very high strength would push the penalty negative; it must clamp to the floor.
+        var cHard = new ObjectiveConstants { HfrOutlierStrength = 100.0 };
+        var penalty = OptimizationObjective.SHfrOutlier(HfrRun(new IReadOnlyList<double>[] { NormalsPlusBlob(9) }), cHard);
+        Assert.That(penalty, Is.EqualTo(cHard.HfrOutlierMinFactor).Within(1e-12));
+    }
+
+    [Test]
+    public void SHfrOutlier_Fallback_RunLevelPool_WhenNoNearFocusWindow() {
+        // No focuser positions / NaN bestFocus => fall back to pooling all frames (guarded by MinFramesForPenalty).
+        // 3 frames each {9 normals + 1 blob} => pooled 30, outliers 3 => frac 0.10 => penalty 0.95.
+        var frame = NormalsPlusBlob(9);
+        var m = new RunEvaluationMetrics {
+            SigmaFocus = 0.05,
+            LooStdError = double.NaN,
+            StepSize = 100,
+            RSquared = 0.99,
+            ReducedChiSquared = 1.0,
+            FrameStarCounts = new[] { 10, 10, 10 },
+            FrameStarHFRs = new IReadOnlyList<double>[] { frame, frame, frame }
+            // FrameFocuserPositions null, BestFocusPosition NaN => fallback path
+        };
+        Assert.That(OptimizationObjective.SHfrOutlier(m, C), Is.EqualTo(0.95).Within(1e-12));
+    }
+
+    [Test]
+    public void SHfrOutlier_Fallback_TooFewFrames_NoPenalty() {
+        var c = C; // MinFramesForPenalty = 3
+        var frame = NormalsPlusBlob(9);
+        var m = new RunEvaluationMetrics {
+            SigmaFocus = 0.05,
+            LooStdError = double.NaN,
+            StepSize = 100,
+            RSquared = 0.99,
+            ReducedChiSquared = 1.0,
+            FrameStarCounts = new[] { 10, 10 },
+            FrameStarHFRs = new IReadOnlyList<double>[] { frame, frame }
+        };
+        Assert.That(OptimizationObjective.SHfrOutlier(m, c), Is.EqualTo(1.0),
+            "too few frames in the run-level fallback => no penalty");
+    }
+
+    [Test]
+    public void JRun_ExtremeHfrOutlier_LowersJ() {
+        // Identical runs except one star's HFR (clean 2.0 vs bloated 6.0) — same counts and σ, so the only
+        // difference in J is the multiplicative SHfrOutlier penalty.
+        var clean = HfrRun(new IReadOnlyList<double>[] { Normals(10), Normals(10), Normals(10) });
+        var blob = HfrRun(new IReadOnlyList<double>[] { NormalsPlusBlob(9), NormalsPlusBlob(9), NormalsPlusBlob(9) });
+        Assert.That(OptimizationObjective.JRun(blob, C), Is.LessThan(OptimizationObjective.JRun(clean, C)));
+    }
+
+    // ---- SCoverage (region-coverage reward) ----
+
+    // Builds a run with supplied per-frame region-occupancy fractions, all frames inside the near-focus window.
+    private static RunEvaluationMetrics CoverageRun(double[] occupancy, int stepSize = 100, int bestFocus = 5000, double sigmaFocus = 0.05) {
+        var n = occupancy.Length;
+        return new RunEvaluationMetrics {
+            SigmaFocus = sigmaFocus,
+            LooStdError = double.NaN,
+            StepSize = stepSize,
+            RSquared = 0.99,
+            ReducedChiSquared = 1.0,
+            FrameStarCounts = Enumerable.Repeat(40, n).ToArray(),
+            FrameFocuserPositions = Enumerable.Repeat(bestFocus, n).ToArray(),
+            FrameRegionOccupancy = occupancy,
+            BestFocusPosition = bestFocus
+        };
+    }
+
+    [Test]
+    public void SCoverage_NoData_ReturnsNaN() {
+        Assert.That(double.IsNaN(OptimizationObjective.SCoverage(GoodRun(), C)), Is.True);
+    }
+
+    [Test]
+    public void SCoverage_IsMeanOfNearFocusOccupancy() {
+        var s = OptimizationObjective.SCoverage(CoverageRun(new[] { 0.2, 0.4, 0.6 }), C);
+        Assert.That(s, Is.EqualTo(0.4).Within(1e-12));
+    }
+
+    [Test]
+    public void SCoverage_RisesWithSpread() {
+        var clustered = OptimizationObjective.SCoverage(CoverageRun(new[] { 1.0 / 9, 1.0 / 9, 1.0 / 9 }), C);
+        var spread = OptimizationObjective.SCoverage(CoverageRun(new[] { 1.0, 1.0, 1.0 }), C);
+        Assert.That(spread, Is.GreaterThan(clustered));
+    }
+
+    [Test]
+    public void SCoverage_SkipsNonFiniteOccupancy() {
+        // A NaN occupancy (frame had no usable geometry) is skipped, not averaged in.
+        var s = OptimizationObjective.SCoverage(CoverageRun(new[] { 0.2, double.NaN, 0.6 }), C);
+        Assert.That(s, Is.EqualTo(0.4).Within(1e-12));
+    }
+
+    [Test]
+    public void JRun_Coverage_RaisesJ() {
+        var c = C; // Wcov = 0.05
+        var clustered = CoverageRun(new[] { 1.0 / 9, 1.0 / 9, 1.0 / 9 });
+        var spread = CoverageRun(new[] { 1.0, 1.0, 1.0 });
+        Assert.That(OptimizationObjective.JRun(spread, c), Is.GreaterThan(OptimizationObjective.JRun(clustered, c)));
+    }
+
+    [Test]
+    public void JRun_Coverage_CanCostFocus() {
+        var c = C;
+        // A tight-but-clustered run vs a slightly-looser-but-spread run (step 1.0 so σ actually moves SFocus). With
+        // the coverage weight the spread run out-scores the tighter clustered run — coverage is allowed to cost a
+        // SMALL amount of focus tightness (the user's explicit requirement).
+        var tightClustered = CoverageRun(new[] { 1.0 / 9, 1.0 / 9, 1.0 / 9 }, stepSize: 1, sigmaFocus: 0.05);
+        var looserSpread = CoverageRun(new[] { 1.0, 1.0, 1.0 }, stepSize: 1, sigmaFocus: 0.08);
+        Assert.That(OptimizationObjective.JRun(looserSpread, c), Is.GreaterThan(OptimizationObjective.JRun(tightClustered, c)));
+    }
+
+    [Test]
+    public void JRun_CoverageExcluded_WhenWcovZero() {
+        var c = new ObjectiveConstants { Wtie = 0.0, Wcov = 0.0 };
+        var m = CoverageRun(new[] { 1.0, 1.0, 1.0 }); // occupancy present but Wcov = 0 => excluded
+        Assert.That(OptimizationObjective.JRun(m, c), Is.EqualTo(LegacyJRun(m, c, null, null)));
+    }
+
+    [Test]
+    public void JRun_BitIdentical_WhenNoHfrOrCoverageData() {
+        // DEFAULT constants (Wcov = 0.05, HfrOutlier on) but the metrics carry NEITHER occupancy NOR per-star HFR
+        // => both new terms inert => J byte-identical to the legacy weighted sum. This pins the "default-on is safe
+        // for legacy callers" guarantee for both the labeled and unlabeled cases.
+        var c = new ObjectiveConstants { Wtie = 0.0 };
+        var m = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18);
+        Assert.Multiple(() => {
+            Assert.That(OptimizationObjective.JRun(m, c), Is.EqualTo(LegacyJRun(m, c, null, null)));
+            Assert.That(OptimizationObjective.JRun(m, c, recall: 0.7, precision: 0.6), Is.EqualTo(LegacyJRun(m, c, 0.7, 0.6)));
+        });
+    }
 }

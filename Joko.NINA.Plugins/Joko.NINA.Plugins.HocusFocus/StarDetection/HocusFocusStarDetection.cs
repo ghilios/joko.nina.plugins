@@ -353,6 +353,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 UsePSFAbsoluteDeviation = options.UsePSFAbsoluteDeviation,
                 HotpixelThreshold = options.HotpixelThreshold,
                 SaturationThreshold = options.SaturationThreshold,
+                ExcludeSaturatedStarsFromHFR = options.ExcludeSaturatedStarsFromHFR,
                 PSFPixelIntegration = options.PSFPixelIntegration,
                 // Internal parallelism knob — 0 = auto (Environment.ProcessorCount via ParallelExecution governor).
                 // Not exposed in the options UI; callers may override after BuildStarDetectorParams returns.
@@ -418,6 +419,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 UsePSFAbsoluteDeviation = false,
                 HotpixelThreshold = 0.001d,
                 SaturationThreshold = 0.99d,
+                ExcludeSaturatedStarsFromHFR = true,
                 PSFPixelIntegration = false,
                 MaxStarEvaluationParallelism = 0,
                 // Matches StarDetectionOptions.ResetDefaults (Median); kept in lockstep by
@@ -573,6 +575,34 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// path AND the optimizer's split path (so they cannot drift). <paramref name="result"/> is the
         /// pre-populated header; <paramref name="starDetectorResult"/> is the raw detector output to fold in.
         /// </summary>
+        // Minimum unsaturated stars that must remain before saturated stars are dropped from the HFR aggregation.
+        // Below this we keep every star so a bright/saturated-dominated frame still yields an HFR.
+        internal const int MinUnsaturatedStarsForHfr = 3;
+
+        /// <summary>
+        /// The subset of accepted stars to use for HFR AGGREGATION (AverageHFR / HFRStdDev). When
+        /// <paramref name="excludeSaturated"/> is on and at least <see cref="MinUnsaturatedStarsForHfr"/> unsaturated
+        /// stars remain, partially-saturated stars (whose flat cores bias HFR HIGH by design — see StarDetector's
+        /// MeasureStar) are dropped so they do not inflate the per-frame curve point; otherwise every star is kept.
+        /// The accepted set itself — StarCount, centers, per-star HFRs — is unchanged: a saturated star is still a
+        /// real, counted star (and the optimizer's HFR-outlier penalty still sees it). Saturation uses the detector's
+        /// own test, <c>Background + PeakBrightness ≥ SaturationThreshold</c> (StarDetector.cs). When nothing is
+        /// saturated (or exclusion is off) the input list is returned unchanged, so HFR is bit-identical.
+        /// </summary>
+        internal static IReadOnlyList<Star> StarsForHfrAggregation(IReadOnlyList<Star> stars, bool excludeSaturated, double saturationThreshold) {
+            if (!excludeSaturated || stars == null || stars.Count == 0) {
+                return stars;
+            }
+            var unsaturated = new List<Star>(stars.Count);
+            for (var i = 0; i < stars.Count; i++) {
+                var s = stars[i];
+                if (s.Background + s.PeakBrightness < saturationThreshold) {
+                    unsaturated.Add(s);
+                }
+            }
+            return unsaturated.Count >= MinUnsaturatedStarsForHfr ? unsaturated : stars;
+        }
+
         internal StarDetectionResult BuildStarDetectionResult(
                 HocusFocusStarDetectionResult result,
                 HocusFocusStarDetectorResult starDetectorResult,
@@ -651,17 +681,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             // TODO: Consider whether to remove the ordering to get reproducibility between runs
             result.StarList = starList.Select(s => ToDetectedStar(s)).OrderBy(s => s.Position.Y * imageSize.Width + s.Position.X).ToList();
-            if (starList.Count > 1) {
+            // Aggregate the per-frame HFR over the saturated-filtered subset: a partially-saturated bright star stays
+            // counted and in StarList/StarCenters, but its flat-core HFR (biased high by design) is kept out of the
+            // curve point when enough unsaturated stars remain. When nothing is saturated this is the full starList,
+            // so AverageHFR/HFRStdDev are bit-identical.
+            var hfrStars = StarsForHfrAggregation(starList, detectorParams.ExcludeSaturatedStarsFromHFR, detectorParams.SaturationThreshold);
+            if (hfrStars.Count > 1) {
                 if (detectorParams.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
-                    result.AverageHFR = starList.Average(s => s.HFR);
-                    var hfrVariance = starList.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (starList.Count - 1);
+                    result.AverageHFR = hfrStars.Average(s => s.HFR);
+                    var hfrVariance = hfrStars.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (hfrStars.Count - 1);
                     result.HFRStdDev = Math.Sqrt(hfrVariance);
 
                     if (!detectorParams.SuppressInfoLogging) {
                         Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result?.Region.Index ?? 0}");
                     }
                 } else {
-                    var (hfrMedian, hfrMAD) = starList.Select(s => s.HFR).MedianMAD();
+                    var (hfrMedian, hfrMAD) = hfrStars.Select(s => s.HFR).MedianMAD();
                     result.AverageHFR = hfrMedian;
                     result.HFRStdDev = hfrMAD;
 

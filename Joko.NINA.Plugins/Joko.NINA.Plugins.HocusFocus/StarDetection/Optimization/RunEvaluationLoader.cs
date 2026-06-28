@@ -251,11 +251,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var centers = result.StarList == null
                     ? (IReadOnlyList<(double X, double Y)>)Array.Empty<(double X, double Y)>()
                     : result.StarList.Select(s => ((double)s.Position.X, (double)s.Position.Y)).ToList();
+                // Per-star HFRs, PARALLEL to centers (same StarList), for the extreme-HFR outlier penalty.
+                var hfrs = result.StarList == null
+                    ? (IReadOnlyList<double>)Array.Empty<double>()
+                    : result.StarList.Select(s => s.HFR).ToList();
+                var imageSize = (result as HocusFocusStarDetectionResult)?.ImageSize ?? System.Drawing.Size.Empty;
                 return new FrameDetectionResult {
                     AverageHFR = result.AverageHFR,
                     HFRStdDev = result.HFRStdDev,
                     StarCount = result.DetectedStars,
                     StarCenters = centers,
+                    StarHFRs = hfrs,
+                    ImageWidth = imageSize.Width,
+                    ImageHeight = imageSize.Height,
                     // Relaxation-admitted accepted-star count for this frame (0 unless a defocus-aware gate is on),
                     // surfaced from the detector metrics so the optimizer can apply its precision penalty.
                     RelaxationAdmittedCount = (result as HocusFocusStarDetectionResult)?.Metrics?.RelaxationAdmittedCount ?? 0

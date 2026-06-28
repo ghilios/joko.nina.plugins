@@ -114,6 +114,12 @@ namespace TestApp {
             // settings' σ. Off ⇒ the standard objective (bit-identical to before).
             bool inspection = DiagnosticUtil.HasFlag(args, "--inspection");
 
+            // --legacy-objective disables BOTH new behaviors for an A/B "before" pass from one binary: it zeroes the
+            // extreme-HFR outlier penalty (HfrOutlierStrength=0) and the region-coverage reward (Wcov=0) in the
+            // objective, AND forces the detector's saturated-star HFR exclusion off on the seed/baseline params. The
+            // result is the pre-change objective + detection. Default (no flag) = the new behavior (the "after" pass).
+            bool legacyObjective = DiagnosticUtil.HasFlag(args, "--legacy-objective");
+
             // --continue-rounds <0-2> mirrors the wizard's "Continue optimizing" button: after the first optimize,
             // re-seed from the prior best and run again (fresh curated set / step scale) up to this many more times
             // (3 passes total). Validates the chaining headlessly; per-round J is reported.
@@ -213,6 +219,13 @@ namespace TestApp {
             if (startFromCurrent) {
                 Console.WriteLine("--start-from-current: optimizer seed = current settings (never regresses below current)");
             }
+            if (legacyObjective) {
+                // Force the detector-side saturated-star HFR exclusion OFF on both seed and baseline so the harness
+                // aggregates HFR exactly as before. The objective-side terms are zeroed where objectiveConstants is built.
+                seed.ExcludeSaturatedStarsFromHFR = false;
+                baseline.ExcludeSaturatedStarsFromHFR = false;
+                Console.WriteLine("--legacy-objective: HFR-outlier penalty + coverage reward OFF, saturated-HFR exclusion OFF (pre-change A/B 'before')");
+            }
 
             Console.WriteLine($"Default seed params: Sensitivity={F(seed.Sensitivity)}, StarClippingMultiplier={F(seed.StarClippingMultiplier)}, " +
                 $"NoiseClippingMultiplier={F(seed.NoiseClippingMultiplier)}, StructureLayers={seed.StructureLayers}, PixelScale={F(seed.PixelScale)}");
@@ -265,6 +278,7 @@ namespace TestApp {
                 LabelsDir = labelsDir,
                 AnnotateAll = annotateAll,
                 Inspection = inspection,
+                LegacyObjective = legacyObjective,
                 ContinueRounds = continueRounds
             };
             if (inspection) {
@@ -297,6 +311,7 @@ namespace TestApp {
             public string LabelsDir;
             public bool AnnotateAll;
             public bool Inspection;     // --inspection: use the aberration-inspection objective
+            public bool LegacyObjective; // --legacy-objective: zero the HFR-outlier penalty + coverage reward (A/B "before")
             public int ContinueRounds;  // --continue-rounds: extra chained passes after the first (0-2)
         }
 
@@ -460,6 +475,13 @@ namespace TestApp {
             var objectiveConstants = ctx.Inspection
                 ? ObjectiveConstants.ForAberrationInspection(currentSigma)
                 : new ObjectiveConstants();
+            if (ctx.LegacyObjective) {
+                // A/B "before": disable the extreme-HFR outlier penalty and the region-coverage reward so the
+                // objective is exactly the pre-change one (HfrOutlierStrength=0 => SHfrOutlier==1; Wcov=0 => coverage
+                // excluded from the weighted sum).
+                objectiveConstants.HfrOutlierStrength = 0.0;
+                objectiveConstants.Wcov = 0.0;
+            }
             var optimizer = new StarDetectionOptimizer(objectiveConstants);
 
             var baselineJ = OptimizationObjective.JTotal(
@@ -730,6 +752,7 @@ namespace TestApp {
             Console.Error.WriteLine("  --annotate   (default extremes) annotate only min/max-focuser frames, or 'all' frames.");
             Console.Error.WriteLine("  --labels     (optional) folder of label JSON files; activates the recall/precision objective term.");
             Console.Error.WriteLine("  --inspection (optional) use the aberration-inspection objective (favor more stars; fit bounded relative to current σ).");
+            Console.Error.WriteLine("  --legacy-objective (optional) disable the HFR-outlier penalty + region-coverage reward + saturated-HFR exclusion (the pre-change 'before' for an A/B).");
             Console.Error.WriteLine("  --continue-rounds (optional, 0-2) extra chained passes after the first, each re-seeded from the prior best (3 total).");
             Console.Error.WriteLine("  --verbose    (optional) restore TRACE logging (default INFO). Slower: serializes per-detection stage timings to the NINA log.");
         }

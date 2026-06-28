@@ -95,6 +95,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             (nameof(IStarDetectionOptions.UsePSFAbsoluteDeviation), "PSF MAD Fitting"),
             (nameof(IStarDetectionOptions.HotpixelThreshold), "Hotpixel Threshold"),
             (nameof(IStarDetectionOptions.SaturationThreshold), "Saturation Threshold"),
+            (nameof(IStarDetectionOptions.ExcludeSaturatedStarsFromHFR), "Exclude Saturated Stars From HFR"),
             (nameof(IStarDetectionOptions.MeasurementAverage), "Measurement Averaging"),
         };
 

@@ -123,6 +123,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool UsePSFAbsoluteDeviation { get; set; }
         double HotpixelThreshold { get; set; }
         double SaturationThreshold { get; set; }
+        bool ExcludeSaturatedStarsFromHFR { get; set; }
         MeasurementAverageEnum MeasurementAverage { get; set; }
         bool PSFPixelIntegration { get; set; }
 

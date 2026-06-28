@@ -451,7 +451,8 @@ namespace TestApp {
                         baseParams.Region = region;
                         using var frameCopy = mat.Clone(); // Detect mutates its input
                         var result = await detector.Detect(frameCopy, baseParams, progress: null, CancellationToken.None).ConfigureAwait(false);
-                        var agg = HarnessDetection.ToFrameDetectionResult(result, measurementAverage, HighSigmaOutlierRejection, LowSigmaOutlierRejection);
+                        var agg = HarnessDetection.ToFrameDetectionResult(result, measurementAverage, HighSigmaOutlierRejection, LowSigmaOutlierRejection, imageSize,
+                            baseParams.ExcludeSaturatedStarsFromHFR, baseParams.SaturationThreshold);
                         if (agg.AverageHFR > 0 && agg.StarCount > 1) {
                             var sigma = agg.HFRStdDev > 0 ? agg.HFRStdDev : 1.0;
                             points.Add(new ScatterErrorPoint(focuser, agg.AverageHFR, 0, sigma));

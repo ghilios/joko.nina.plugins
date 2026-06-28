@@ -44,7 +44,8 @@ namespace TestApp {
         /// </summary>
         public static FrameDetectionResult ToFrameDetectionResult(
             HocusFocusStarDetectorResult result, MeasurementAverageEnum measurementAverage,
-            double highSigmaOutlierRejection, double lowSigmaOutlierRejection) {
+            double highSigmaOutlierRejection, double lowSigmaOutlierRejection, System.Drawing.Size fullImageSize,
+            bool excludeSaturatedFromHfr = true, double saturationThreshold = 0.99) {
             var stars = result.DetectedStars ?? new List<Star>();
 
             if (stars.Count > 1 && measurementAverage == MeasurementAverageEnum.MeanOutliers) {
@@ -54,15 +55,18 @@ namespace TestApp {
                 stars = stars.Where(s => s.HFR <= hi && s.HFR >= lo).ToList();
             }
 
+            // HFR aggregation over the saturated-filtered subset (mirrors HocusFocusStarDetection.BuildStarDetectionResult):
+            // a saturated bright star stays counted/in StarCenters/StarHFRs but is kept out of the curve point.
+            var hfrStars = HocusFocusStarDetection.StarsForHfrAggregation(stars, excludeSaturatedFromHfr, saturationThreshold);
             double averageHfr = 0.0;
             double hfrStdDev = 0.0;
-            if (stars.Count > 1) {
+            if (hfrStars.Count > 1) {
                 if (measurementAverage == MeasurementAverageEnum.MeanOutliers) {
-                    averageHfr = stars.Average(s => s.HFR);
-                    var variance = stars.Sum(s => (s.HFR - averageHfr) * (s.HFR - averageHfr)) / (stars.Count - 1);
+                    averageHfr = hfrStars.Average(s => s.HFR);
+                    var variance = hfrStars.Sum(s => (s.HFR - averageHfr) * (s.HFR - averageHfr)) / (hfrStars.Count - 1);
                     hfrStdDev = Math.Sqrt(variance);
                 } else {
-                    var (hfrMedian, hfrMAD) = stars.Select(s => s.HFR).MedianMAD();
+                    var (hfrMedian, hfrMAD) = hfrStars.Select(s => s.HFR).MedianMAD();
                     averageHfr = hfrMedian;
                     hfrStdDev = hfrMAD;
                 }
@@ -74,6 +78,10 @@ namespace TestApp {
                 HFRStdDev = hfrStdDev,
                 StarCount = stars.Count,
                 StarCenters = centers,
+                // Per-star HFRs PARALLEL to centers (same surviving set) for the extreme-HFR outlier penalty.
+                StarHFRs = stars.Select(s => s.HFR).ToList(),
+                ImageWidth = fullImageSize.Width,
+                ImageHeight = fullImageSize.Height,
                 RelaxationAdmittedCount = stars.Count(s => s.RelaxationAdmitted)
             };
         }
@@ -104,8 +112,10 @@ namespace TestApp {
         }
 
         public FrameDetectionResult GateAndMeasure(IDisposable context, StarDetectorParams p) {
-            var result = detector.GateAndMeasure((StarDetector.DetectionContext)context, p, CancellationToken.None);
-            return HarnessDetection.ToFrameDetectionResult(result, measurementAverage, highSigma, lowSigma);
+            var ctx = (StarDetector.DetectionContext)context;
+            var result = detector.GateAndMeasure(ctx, p, CancellationToken.None);
+            return HarnessDetection.ToFrameDetectionResult(result, measurementAverage, highSigma, lowSigma, ctx.FullImageSize,
+                p.ExcludeSaturatedStarsFromHFR, p.SaturationThreshold);
         }
     }
 }

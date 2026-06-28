@@ -85,6 +85,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         public bool UsePSFAbsoluteDeviation { get; set; }
         public double HotpixelThreshold { get; set; }
         public double SaturationThreshold { get; set; }
+        public bool ExcludeSaturatedStarsFromHFR { get; set; } = true;
         public MeasurementAverageEnum MeasurementAverage { get; set; }
         public bool PSFPixelIntegration { get; set; }
 
@@ -155,6 +156,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
                 UsePSFAbsoluteDeviation = o.UsePSFAbsoluteDeviation,
                 HotpixelThreshold = o.HotpixelThreshold,
                 SaturationThreshold = o.SaturationThreshold,
+                ExcludeSaturatedStarsFromHFR = o.ExcludeSaturatedStarsFromHFR,
                 MeasurementAverage = o.MeasurementAverage,
                 PSFPixelIntegration = o.PSFPixelIntegration,
                 UseOptimizedSettings = o.UseOptimizedSettings
