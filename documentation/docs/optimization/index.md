@@ -73,19 +73,22 @@ refining its step size as it homes in on a maximum.*
 ## How a candidate is scored
 
 For each candidate the evaluator runs star detection on every frame of the saved run, pools the
-per-frame HFR by focuser position, fits the autofocus hyperbola, and reads off three things: the
-best-focus uncertainty \( \sigma_{\text{focus}} \), the fit's \( R^2 \) and reduced \( \chi^2 \), and
-the per-frame accepted-star counts. These feed a composite objective \( J \in [0, 1] \) that the
-search **maximizes**:
+per-frame HFR by focuser position, fits the autofocus hyperbola, and reads off the best-focus
+uncertainty \( \sigma_{\text{focus}} \), the fit's \( R^2 \) and reduced \( \chi^2 \), the per-frame
+accepted-star counts, and where those stars sit on the sensor. These feed a composite objective
+\( J \in [0, 1] \) that the search **maximizes**:
 
 \[
-J_{\text{run}} = \frac{w_f\,S_{\text{focus}} + w_s\,S_{\text{stars}} + w_c\,S_{\text{fit}}}{w_f + w_s + w_c}
+J_{\text{run}} = \frac{w_f\,S_{\text{focus}} + w_s\,S_{\text{stars}} + w_c\,S_{\text{fit}} + w_{\text{cov}}\,S_{\text{cov}}}{w_f + w_s + w_c + w_{\text{cov}}}
 \]
 
-with default weights \( w_f = 0.55 \) (focus), \( w_s = 0.20 \) (star count), and \( w_c = 0.25 \)
-(curve fit). When ground-truth labels are present a fourth term \( w_l = 0.25 \) is added and all
-weights are renormalized to sum to one. A hard floor guards against starved frames: if any frame
-falls below 3 accepted stars, that run scores \( J_{\text{run}} = 0 \).
+with default weights \( w_f = 0.55 \) (focus), \( w_s = 0.20 \) (star count), \( w_c = 0.25 \)
+(curve fit), and \( w_{\text{cov}} = 0.05 \) (how well the accepted stars cover the sensor). When
+ground-truth labels are present a further term \( w_l = 0.25 \) is added and all weights are
+renormalized to sum to one. The weighted score is then scaled by two multiplicative penalties that
+default to 1.0: one for defocus-relaxed junk, and one for leaning on a saturated bright star's
+inflated HFR. A hard floor guards against starved frames: if any frame falls below 3 accepted stars,
+that run scores \( J_{\text{run}} = 0 \).
 
 When more than one run is optimized together, the per-run scores are blended as
 \( J_{\text{total}} = (1-\beta)\,\text{mean} + \beta\,\text{min} \) with \( \beta = 0.5 \), so a
