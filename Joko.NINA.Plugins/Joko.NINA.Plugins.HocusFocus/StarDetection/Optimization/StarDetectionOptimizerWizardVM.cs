@@ -180,6 +180,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public static string FormatRecommendation(int current, int recommended) =>
             current == recommended ? $"{recommended} (unchanged)" : $"{current} → {recommended}";
 
+        /// <summary>Arrow-joined σ(focus) path "2.20 → 1.85 → 1.52" across the optimization rounds, with a
+        /// "(~N% tighter)" suffix when the last σ improved on the first (σ is lower-is-better). Non-finite σ are
+        /// dropped; an empty/all-NaN input yields "". Pure — unit-tested.</summary>
+        public static string FormatSigmaTrajectory(IReadOnlyList<double> sigmas) {
+            var finite = sigmas?.Where(double.IsFinite).ToList() ?? new List<double>();
+            if (finite.Count == 0) {
+                return string.Empty;
+            }
+            var path = string.Join(" → ", finite.Select(s => s.ToString("F2")));
+            var first = finite[0];
+            var last = finite[finite.Count - 1];
+            if (first > 1e-9 && last < first) {
+                var pct = (first - last) / first * 100.0;
+                return $"{path}  (~{pct:F0}% tighter)";
+            }
+            return path;
+        }
+
         /// <summary>Percent improvement of <paramref name="improved"/> over <paramref name="baseline"/> for a
         /// higher-is-better score, clamped at 0 and guarded against non-finite / near-zero baselines. Pure —
         /// unit-tested.</summary>
@@ -749,6 +767,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         public bool HasRoundsSummary => RoundsSummaryText.Length > 0;
 
+        /// <summary>Focus-precision (σ) readout for the summary row. For the Optimized variant after more than one
+        /// pass it shows the full per-round σ path "baseline → R1 → R2 → …" (mirroring <see cref="RoundsSummaryText"/>'s
+        /// J path and <see cref="StarsPerFrame"/>'s counts, all read off the same retained curves); otherwise it falls
+        /// back to the start→finish <see cref="OptimizationSummary.SigmaText"/> (which carries the "(unchanged)" wording
+        /// for a single pass). Stage 0 is the current-settings σ (the same baseline RoundsSummaryText uses for J).</summary>
+        public string FocusPrecisionText {
+            get {
+                if (selectedVariant == OptimizationVariant.Optimized && optimizedRoundCurves.Count > 1 && currentCurve != null) {
+                    var sigmas = new List<double>(optimizedRoundCurves.Count + 1) { currentCurve.MinimumStdError };
+                    sigmas.AddRange(optimizedRoundCurves.Select(c => c.MinimumStdError));
+                    return OptimizationSummary.FormatSigmaTrajectory(sigmas);
+                }
+                return Summary?.SigmaText ?? string.Empty;
+            }
+        }
+
         private OptimizationResult SelectedResult => selectedVariant switch {
             OptimizationVariant.Feedback => feedbackResult,
             OptimizationVariant.Optimized => optimizedResult,
@@ -984,6 +1018,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(RoundsCompleted));
             RaisePropertyChanged(nameof(RoundsSummaryText));
             RaisePropertyChanged(nameof(HasRoundsSummary));
+            RaisePropertyChanged(nameof(FocusPrecisionText));
             AcceptCommand.NotifyCanExecuteChanged();
             BackCommand.NotifyCanExecuteChanged();
             ContinueOptimizationCommand.NotifyCanExecuteChanged();
@@ -1545,7 +1580,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// "Optimize with feedback" path), the search starts from the analytic recommendation and explores only the
         /// narrowed/curated axes it produced; otherwise it uses the first run's seed and the full curated set.</summary>
         private async Task<OptimizationResult> OptimizeAsync(IReadOnlyList<LoadedRun> runs, CancellationToken token,
-            StarDetectorParams seedOverride = null, IReadOnlyList<OptimizerVariable> variablesOverride = null) {
+            StarDetectorParams seedOverride = null, IReadOnlyList<OptimizerVariable> variablesOverride = null,
+            double? progressBaselineJOverride = null) {
             // All runs share the same camera/optics, so the search starts from the first run's seed (or the override).
             // With StartFromCurrentSettings, seed from the current settings (Baseline) to refine them rather than the
             // fully-default params. The warm-start override (feedback path) always wins.
@@ -1567,9 +1603,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 ProgressCurrent = p.Evaluations;
                 ProgressTotal = p.MaxEvaluations;
                 ProgressBestJ = p.BestJ;
-                // The displayed baseline is the user's CURRENT settings (currentBaselineJ), not the optimizer's
-                // default seed J (p.SeedJ), so the live "improved ~X%" reads vs current and matches the summary.
-                ProgressSeedJ = currentBaselineJ;
+                // The displayed baseline is the user's CURRENT settings (currentBaselineJ) for a fresh Start/feedback
+                // pass — not the optimizer's default seed J (p.SeedJ) — so the live "improved ~X%" reads vs current and
+                // matches the summary. A "Continue optimizing" pass overrides it with the PRIOR ROUND's best (the seed
+                // for that pass) so the live readout reflects the gain the continued search is making, not the total
+                // gain since the initial baseline.
+                ProgressSeedJ = progressBaselineJOverride ?? currentBaselineJ;
                 Phase = FriendlyPhase(p.Phase);
             });
 
@@ -2111,10 +2150,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // The seed for this pass is the CURRENT Optimized best (captured before any UI churn). optimizedResult is
             // not cleared by this path, so this stays valid through the reload.
             var seedForContinue = optimizedResult.BestParams;
+            // The prior round's best J is the live-improvement baseline for THIS pass: the user wants "improved ~X%"
+            // to read relative to where the last round left off, not the initial current-settings baseline.
+            var seedForContinueJ = optimizedResult.BestJ;
 
             ErrorMessage = null;
             SetProgress(null, 0, 0);
-            ProgressSeedJ = 0;
+            // Seed the live baseline synchronously (not via the async progress callback) so the readout is correct from
+            // the first frame and deterministic for tests; ProgressBestJ stays 0 so it starts at "Searching…".
+            ProgressSeedJ = seedForContinueJ;
             ProgressBestJ = 0;
             IsBusy = true;
 
@@ -2146,8 +2190,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 currentBaselineJ = await ComputeBaselineJAsync(reloaded, token).ConfigureAwait(true);
 
                 // Another optimize pass seeded from the prior best; variablesOverride=null ⇒ OptimizeAsync builds a
-                // fresh CreateCuratedSet(seedForContinue) with reset step scale.
-                var optimizeResult = await OptimizeAsync(reloaded, token, seedForContinue).ConfigureAwait(true);
+                // fresh CreateCuratedSet(seedForContinue) with reset step scale. The progress baseline override makes
+                // the live "improved ~X%" read vs the prior round's best rather than the current-settings baseline.
+                var optimizeResult = await OptimizeAsync(reloaded, token, seedForContinue,
+                    progressBaselineJOverride: seedForContinueJ).ConfigureAwait(true);
                 var built = await BuildSummaryAsync(reloaded, optimizeResult, token).ConfigureAwait(true);
 
                 // The latest pass REPLACES the Optimized variant (chart + Accept follow it); append the trajectory stage.

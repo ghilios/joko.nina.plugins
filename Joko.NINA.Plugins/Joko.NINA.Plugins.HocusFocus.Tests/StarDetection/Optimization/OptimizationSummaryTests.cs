@@ -76,6 +76,38 @@ public class OptimizationSummaryTests {
     }
 
     [Test]
+    public void FormatSigmaTrajectory_MultiRound_JoinsPathAndShowsTighter() {
+        // baseline → R1 → R2 σ path with a "(~N% tighter)" suffix from first vs last ((2.20-1.52)/2.20 ≈ 31%).
+        var s = OptimizationSummary.FormatSigmaTrajectory(new[] { 2.20, 1.85, 1.52 });
+        Assert.Multiple(() => {
+            Assert.That(s, Does.Contain("2.20 → 1.85 → 1.52"));
+            Assert.That(s, Does.Contain("31% tighter"));
+            Assert.That(s.Split('→').Length, Is.EqualTo(3), "two arrows across three stages");
+        });
+    }
+
+    [Test]
+    public void FormatSigmaTrajectory_NonImproving_NoTighterSuffix() {
+        // σ that holds or worsens (last >= first) renders the path only — no false "tighter" claim.
+        Assert.Multiple(() => {
+            Assert.That(OptimizationSummary.FormatSigmaTrajectory(new[] { 1.50, 1.80, 2.00 }), Is.EqualTo("1.50 → 1.80 → 2.00"));
+            Assert.That(OptimizationSummary.FormatSigmaTrajectory(new[] { 1.50, 1.50 }), Is.EqualTo("1.50 → 1.50"));
+        });
+    }
+
+    [Test]
+    public void FormatSigmaTrajectory_DropsNonFinite_AndHandlesEmpty() {
+        Assert.Multiple(() => {
+            // Non-finite stages are dropped; the suffix compares the surviving first/last (2.00 → 1.50 ≈ 25%).
+            Assert.That(OptimizationSummary.FormatSigmaTrajectory(new[] { double.NaN, 2.00, double.NaN, 1.50 }),
+                Does.Contain("2.00 → 1.50").And.Contain("25% tighter"));
+            Assert.That(OptimizationSummary.FormatSigmaTrajectory(new[] { double.NaN, double.NaN }), Is.Empty);
+            Assert.That(OptimizationSummary.FormatSigmaTrajectory(new double[0]), Is.Empty);
+            Assert.That(OptimizationSummary.FormatSigmaTrajectory(null), Is.Empty);
+        });
+    }
+
+    [Test]
     public void PercentBetter_HigherIsBetter_ClampedAndGuarded() {
         Assert.Multiple(() => {
             Assert.That(OptimizationSummary.PercentBetter(1.0, 1.5), Is.EqualTo(50.0).Within(1e-9), "higher best => positive %");
