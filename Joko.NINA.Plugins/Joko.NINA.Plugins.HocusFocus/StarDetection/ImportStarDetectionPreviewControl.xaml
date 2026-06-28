@@ -1,0 +1,92 @@
+<UserControl
+    x:Class="NINA.Joko.Plugins.HocusFocus.StarDetection.ImportStarDetectionPreviewControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Background="{StaticResource BackgroundBrush}" Padding="16">
+        <Grid Width="600">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock
+                Grid.Row="0"
+                FontSize="16"
+                FontWeight="Bold"
+                Foreground="{StaticResource PrimaryBrush}"
+                Text="Import Star Detection Settings" />
+
+            <TextBlock
+                Grid.Row="1"
+                Margin="0,6,0,0"
+                Foreground="{StaticResource SecondaryBrush}"
+                Text="{Binding HeaderText}"
+                TextWrapping="Wrap" />
+
+            <TextBlock
+                Grid.Row="2"
+                Margin="0,4,0,0"
+                FontStyle="Italic"
+                Foreground="{StaticResource SecondaryBrush}"
+                Text="{Binding SourceSummary}"
+                TextWrapping="Wrap"
+                Visibility="{Binding HasSourceSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
+            <DataGrid
+                Grid.Row="3"
+                Margin="0,12,0,0"
+                AutoGenerateColumns="False"
+                CanUserAddRows="False"
+                CanUserReorderColumns="False"
+                CanUserSortColumns="False"
+                HeadersVisibility="Column"
+                IsReadOnly="True"
+                ItemsSource="{Binding Rows}"
+                MaxHeight="340">
+                <DataGrid.Columns>
+                    <DataGridTextColumn
+                        Width="2.4*"
+                        Binding="{Binding Name}"
+                        Header="Setting" />
+                    <DataGridTextColumn
+                        Width="1.3*"
+                        Binding="{Binding CurrentValue}"
+                        Header="Current" />
+                    <DataGridTextColumn
+                        Width="1.3*"
+                        Binding="{Binding NewValue}"
+                        Header="Imported" />
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <StackPanel
+                Grid.Row="4"
+                Margin="0,14,0,0"
+                HorizontalAlignment="Right"
+                Orientation="Horizontal">
+                <Button
+                    MinWidth="100"
+                    Margin="0,0,8,0"
+                    Padding="12,6"
+                    Command="{Binding ApplyCommand}"
+                    IsDefault="True">
+                    <TextBlock
+                        Foreground="{StaticResource ButtonForegroundBrush}"
+                        Text="Apply" />
+                </Button>
+                <Button
+                    MinWidth="100"
+                    Padding="12,6"
+                    Command="{Binding CancelCommand}"
+                    IsCancel="True">
+                    <TextBlock
+                        Foreground="{StaticResource ButtonForegroundBrush}"
+                        Text="Cancel" />
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

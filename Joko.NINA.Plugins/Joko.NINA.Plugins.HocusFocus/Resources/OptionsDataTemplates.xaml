@@ -496,6 +496,8 @@
     <TextBlock x:Key="SaveIntermediateFiles_Tooltip" Text="If enabled, every step of star detection emits a debugging file to the intermediate path" />
     <TextBlock x:Key="UseAdvanced_Tooltip" Text="Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless you're an expert" />
     <TextBlock x:Key="OptimizeStarDetection_Tooltip" Text="Opens the Star Detection Optimization Wizard, which tunes star detection against a saved auto-focus run and (optionally) applies the result as your Simple-Mode settings" />
+    <TextBlock x:Key="ExportStarDetectionSettings_Tooltip" Text="Saves the current Star Detection parameters to a .json file so they can be moved to another machine (e.g. tune on a fast computer, import on the imaging computer). Only star-detection settings are exported — not autofocus, inspector, or tilt. The machine-local intermediate-image path is not included." />
+    <TextBlock x:Key="ImportStarDetectionSettings_Tooltip" Text="Loads Star Detection parameters from a .json file exported on another machine. A confirmation dialog shows exactly which settings will change before they replace the current ones on this profile. The intermediate-image path, Debug Mode, and PSF Parallel Size stay local to this machine." />
     <TextBlock x:Key="UseOptimizedSettings_Tooltip" Text="When enabled, the optimized star-detection settings produced by the optimization wizard drive detection instead of the Noise Level / Pixel Scale / Focus Range presets. Only available in Simple Mode after the wizard has produced and applied a result" />
     <TextBlock x:Key="ModelPSF_Tooltip" Text="Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity" />
     <TextBlock x:Key="PSFFitType_Tooltip" Text="What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight" />
@@ -2263,6 +2265,31 @@
                 IsChecked="{Binding StarDetectionOptions.SaveIntermediateImages}"
                 ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
         </Grid>
+            <!--  Import / Export the star-detection parameters only (tune on a fast machine, import on the imaging machine).  -->
+            <StackPanel
+                Margin="5,10,5,5"
+                HorizontalAlignment="Left"
+                Orientation="Horizontal">
+                <Button
+                    Margin="0,0,8,0"
+                    Command="{Binding ImportStarDetectionSettingsCommand}"
+                    ToolTip="{StaticResource ImportStarDetectionSettings_Tooltip}">
+                    <TextBlock
+                        Margin="10,5,10,5"
+                        Foreground="{StaticResource ButtonForegroundBrush}"
+                        Text="Import"
+                        TextWrapping="Wrap" />
+                </Button>
+                <Button
+                    Command="{Binding ExportStarDetectionSettingsCommand}"
+                    ToolTip="{StaticResource ExportStarDetectionSettings_Tooltip}">
+                    <TextBlock
+                        Margin="10,5,10,5"
+                        Foreground="{StaticResource ButtonForegroundBrush}"
+                        Text="Export"
+                        TextWrapping="Wrap" />
+                </Button>
+            </StackPanel>
         </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarAnnotator_Options">
