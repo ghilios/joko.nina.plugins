@@ -935,31 +935,6 @@
                         TextWrapping="Wrap" />
                 </Button>
             </Grid>
-            <!--  Import / Export the star-detection parameters only (tune on a fast machine, import on the imaging machine).  -->
-            <StackPanel
-                Margin="5,0,5,10"
-                HorizontalAlignment="Left"
-                Orientation="Horizontal">
-                <Button
-                    Margin="0,0,8,0"
-                    Command="{Binding ImportStarDetectionSettingsCommand}"
-                    ToolTip="{StaticResource ImportStarDetectionSettings_Tooltip}">
-                    <TextBlock
-                        Margin="10,5,10,5"
-                        Foreground="{StaticResource ButtonForegroundBrush}"
-                        Text="Import"
-                        TextWrapping="Wrap" />
-                </Button>
-                <Button
-                    Command="{Binding ExportStarDetectionSettingsCommand}"
-                    ToolTip="{StaticResource ExportStarDetectionSettings_Tooltip}">
-                    <TextBlock
-                        Margin="10,5,10,5"
-                        Foreground="{StaticResource ButtonForegroundBrush}"
-                        Text="Export"
-                        TextWrapping="Wrap" />
-                </Button>
-            </StackPanel>
         <Grid
             Margin="5"
             VerticalAlignment="Top"
@@ -2290,6 +2265,31 @@
                 IsChecked="{Binding StarDetectionOptions.SaveIntermediateImages}"
                 ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
         </Grid>
+            <!--  Import / Export the star-detection parameters only (tune on a fast machine, import on the imaging machine).  -->
+            <StackPanel
+                Margin="5,10,5,5"
+                HorizontalAlignment="Left"
+                Orientation="Horizontal">
+                <Button
+                    Margin="0,0,8,0"
+                    Command="{Binding ImportStarDetectionSettingsCommand}"
+                    ToolTip="{StaticResource ImportStarDetectionSettings_Tooltip}">
+                    <TextBlock
+                        Margin="10,5,10,5"
+                        Foreground="{StaticResource ButtonForegroundBrush}"
+                        Text="Import"
+                        TextWrapping="Wrap" />
+                </Button>
+                <Button
+                    Command="{Binding ExportStarDetectionSettingsCommand}"
+                    ToolTip="{StaticResource ExportStarDetectionSettings_Tooltip}">
+                    <TextBlock
+                        Margin="10,5,10,5"
+                        Foreground="{StaticResource ButtonForegroundBrush}"
+                        Text="Export"
+                        TextWrapping="Wrap" />
+                </Button>
+            </StackPanel>
         </StackPanel>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarAnnotator_Options">
