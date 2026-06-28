@@ -940,6 +940,42 @@ public class StarDetectionOptimizerWizardVMTests {
         });
     }
 
+    [Test]
+    public async Task Continue_FocusPrecision_ShowsEveryRound() {
+        var loader = new RecordingLoader();
+        var vm = NewVM(loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\cont-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        // A single pass has no chain to show, so focus precision is the start→finish SigmaText (no per-round path).
+        Assert.That(vm.FocusPrecisionText, Is.EqualTo(vm.Summary.SigmaText));
+
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null); // 2 rounds -> baseline + R1 + R2
+        // The σ row now shows the full per-round path (baseline → R1 → R2), mirroring the J rounds header — two arrows.
+        Assert.Multiple(() => {
+            Assert.That(vm.IsOptimizedVariant, Is.True);
+            Assert.That(vm.FocusPrecisionText.Count(c => c == '→'), Is.EqualTo(2),
+                "baseline → R1 → R2 renders one σ per stage");
+        });
+    }
+
+    [Test]
+    public async Task Continue_LiveImprovementBaseline_IsMostRecentRound() {
+        var loader = new RecordingLoader();
+        var vm = NewVM(loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\cont-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        vm.IsOptimizedVariant = true;            // read the optimized best regardless of the default selection
+        var priorBestJ = vm.Result.BestJ;
+
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null);
+
+        // The live "improved ~X%" baseline for a Continue pass is the PRIOR round's best (the seed for this pass),
+        // not the initial current-settings baseline — so ProgressSeedJ tracks where the last round left off.
+        Assert.That(vm.ProgressSeedJ, Is.EqualTo(priorBestJ).Within(1e-9));
+    }
+
     // ---- Optimize for aberration inspection -------------------------------------------------------------
 
     [Test]

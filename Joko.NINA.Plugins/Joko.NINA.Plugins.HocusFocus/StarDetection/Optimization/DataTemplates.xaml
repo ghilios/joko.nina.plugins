@@ -467,9 +467,12 @@
                         <!--  Before / after — plain language, no jargon "J" (the abstract objective stays in logs).
                               Every row is "[label Width=200][value]" with uniform spacing so the values line up in a
                               column and the row gaps match across the whole summary.  -->
+                        <!--  Focus precision shows the full per-round σ path "baseline → R1 → R2 → …" after "Continue
+                              optimizing" (FocusPrecisionText), mirroring the J rounds header; a single pass collapses to
+                              the start→finish SigmaText.  -->
                         <StackPanel Orientation="Horizontal" Margin="0,2">
                             <TextBlock Width="200" Text="Focus precision (σ, lower is better)" />
-                            <TextBlock Text="{Binding Summary.SigmaText, Mode=OneWay}" />
+                            <TextBlock Text="{Binding FocusPrecisionText, Mode=OneWay}" />
                         </StackPanel>
                         <!--  Feedback variant only: how much the feedback round tightened σ over the plain optimization.  -->
                         <StackPanel Orientation="Horizontal" Margin="0,2"
