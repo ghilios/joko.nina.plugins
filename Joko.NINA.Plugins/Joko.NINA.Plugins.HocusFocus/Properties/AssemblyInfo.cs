@@ -107,7 +107,7 @@ Check out his website at [https://www.smallstarspot.com](https://www.smallstarsp
 * Results are safe and reversible: optimized settings are stored separately and activated by a single toggle that appears only after a successful run, and the wizard never hands back a result worse than your current settings.
 * Improvement is reported honestly against what your rig does today, the wizard can seed from defaults or from your current settings, and it recommends an auto-focus step size tailored to your focal ratio, pixel scale, and focuser.
 * Selectable objectives: default auto-focus repeatability, an ""Optimize for Aberration Inspection"" objective that recovers far more stars across the frame, and a ""Recover out-of-focus donut stars"" mode for defocus-aware tuning.
-* ""Continue optimizing"" runs successive refinement passes; optional hand-drawn bounding-box labels add a recall/precision term that pushes the optimizer toward your own judgment on hard frames; and several runs from the same optical setup can be optimized together so a winning setting holds up across nights instead of overfitting a single run.
+* ""Continue optimizing"" runs successive refinement passes, and optional hand-drawn bounding-box labels add a recall/precision term that pushes the optimizer toward your own judgment on hard frames.
 
 *Aberration Inspector & Tilt Correction*
 

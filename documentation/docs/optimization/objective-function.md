@@ -277,24 +277,6 @@ Two properties make this safe:
   out of the curve point; this penalty additionally discourages settings that would lean on such a star in the first
   place.
 
-## Combining multiple runs
-
-When you optimize several autofocus runs together (only ever from the **same** optical setup), each run
-produces its own \(J_{\text{run}}\) and the wizard blends them with a mean/min mixture:
-
-\[
-J_{\text{total}} = (1 - \beta) \cdot \operatorname{mean}_r\!\left(J_{\text{run},r}\right)
-+ \beta \cdot \min_r\!\left(J_{\text{run},r}\right), \qquad \beta = 0.5
-\]
-
-With \(\beta = 0.5\) the score is the average of the mean and the worst-case run. The \(\min\) term enforces
-**balance**: a candidate must be good on average *and* not bad on any single run, so the wizard cannot win by
-sacrificing one run to flatter the others. A single run reduces to its own \(J\) (mean and min coincide).
-
-![Multi-run blend of mean and minimum per-run J](../assets/figures/multirun-blend.png){ width=620 }
-*\(J_{\text{total}} = (1-\beta)\cdot\text{mean} + \beta\cdot\text{min}\) over per-run scores, with
-\(\beta = 0.5\): the minimum term pulls the blend toward the weakest run.*
-
 ## All constants at a glance
 
 | Constant | Symbol | Value | Where it acts |
@@ -319,7 +301,6 @@ sacrificing one run to flatter the others. A single run reduces to its own \(J\)
 | HFR-outlier strength | — | 1.0 | \(S_{\text{hfr-outlier}}\) |
 | HFR-outlier min factor | — | 0.5 | \(S_{\text{hfr-outlier}}\) |
 | Near-focus window | — | 1.5 steps | \(S_{\text{defocus-precision}}\), \(S_{\text{cov}}\), \(S_{\text{hfr-outlier}}\) |
-| Multi-run blend | \(\beta\) | 0.5 | \(J_{\text{total}}\) |
 
 For how this objective is searched (the coarse grid and staged compass search), see
 [Search algorithm](search-algorithm.md); for the knobs it is allowed to move, see

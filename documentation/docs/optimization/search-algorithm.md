@@ -123,8 +123,8 @@ Two hard stops bound the work:
 
 ## What a single evaluation costs
 
-One evaluation scores a candidate against **every run** the wizard is optimizing, and the per-run
-score is what the objective consumes. For each run the evaluator (`RunEvaluationData`):
+One evaluation scores a candidate against the run the wizard is optimizing. The evaluator
+(`RunEvaluationData`):
 
 1. **Detects every frame** in the run, concurrently but capped (default \(\approx \max(2,
    \text{ProcessorCount}/4)\) frames in flight) to fill idle cores during the largely single-threaded
@@ -138,15 +138,8 @@ score is what the objective consumes. For each run the evaluator (`RunEvaluation
 4. Reads \(\sigma_{\text{focus}}\), \(R^2\), and reduced \(\chi^2\) off the winning fit, plus recall
    and precision when labels exist.
 
-The per-run scores are then blended into one number with the multi-run aggregate
-\(J_{\text{total}} = (1-\beta)\cdot\text{mean} + \beta\cdot\text{min}\), \(\beta = 0.5\), so a
-candidate must be good on average **and** not bad on any single run (see
+These metrics feed the composite objective \(J\) for the run (see
 [Objective function](objective-function.md)).
-
-!!! warning "Only group runs from the same optical setup"
-    The joint objective averages and worst-cases scores across all runs. Blending runs from different
-    cameras or scopes is meaningless. Use the wizard's per-run path (or the harness `--per-run` flag)
-    to tune setups independently.
 
 ### The early-context cache — why staging matters
 
