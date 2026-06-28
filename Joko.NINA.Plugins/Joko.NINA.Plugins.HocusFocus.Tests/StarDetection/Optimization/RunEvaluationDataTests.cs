@@ -395,6 +395,42 @@ public class RunEvaluationDataTests {
         });
     }
 
+    [Test]
+    public async Task EvaluateAsync_PopulatesFrameStarHFRs_AndRegionOccupancy() {
+        // The evaluator must surface the per-frame accepted-star HFRs (parallel to FrameStarCounts) and a finite
+        // per-frame region occupancy in [0,1] from the FrameDetectionResult, so the objective's new terms can read
+        // them. 3 stars in 3 distinct cells of a 3×3 grid over a 900×900 frame => occupancy 3/9.
+        const int width = 900, height = 900;
+        var centers = new (double X, double Y)[] { (150, 150), (450, 450), (750, 750) };
+        Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
+            var pos = (int)image;
+            return Task.FromResult(new FrameDetectionResult {
+                AverageHFR = Hfr(pos),
+                HFRStdDev = 0.05,
+                StarCount = 3,
+                StarCenters = centers,
+                StarHFRs = new double[] { 2.0, 2.1, 1.9 },
+                ImageWidth = width,
+                ImageHeight = height
+            });
+        };
+        var data = new RunEvaluationData("plumb", NineFrames(), detect, NewAlglib(), DefaultFitConfig());
+        var metrics = await data.EvaluateAsync(new StarDetectorParams(), CancellationToken.None);
+        Assert.Multiple(() => {
+            Assert.That(metrics.FrameStarHFRs, Is.Not.Null);
+            Assert.That(metrics.FrameStarHFRs.Count, Is.EqualTo(metrics.FrameStarCounts.Count));
+            for (var i = 0; i < metrics.FrameStarHFRs.Count; i++) {
+                Assert.That(metrics.FrameStarHFRs[i].Count, Is.EqualTo(metrics.FrameStarCounts[i]),
+                    "per-frame HFR list must be parallel to the accepted star count");
+            }
+            Assert.That(metrics.FrameRegionOccupancy, Is.Not.Null);
+            Assert.That(metrics.FrameRegionOccupancy.Count, Is.EqualTo(metrics.FrameStarCounts.Count));
+            foreach (var occ in metrics.FrameRegionOccupancy) {
+                Assert.That(occ, Is.EqualTo(3.0 / 9).Within(1e-12), "3 stars in 3 distinct cells of a 3×3 grid => 3/9");
+            }
+        });
+    }
+
     // Synchronous IProgress so reports are captured on the calling thread (no SynchronizationContext marshaling).
     private sealed class ImmediateProgress<T> : IProgress<T> {
         private readonly Action<T> onReport;

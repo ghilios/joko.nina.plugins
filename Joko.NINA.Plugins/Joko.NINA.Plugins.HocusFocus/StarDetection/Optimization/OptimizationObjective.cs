@@ -118,6 +118,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // own the hard-fail path). 0.25 ⇒ at most a 4× reduction from this term alone.
         public double FitGuardMinFactor { get; set; } = 0.25;
 
+        // ── Extreme-HFR outlier penalty (SHfrOutlier) ──────────────────────────────────────────────────────
+        // MULTIPLICATIVE penalty (modeled on SDefocusPrecision) for accepting a near-focus star whose HFR is an
+        // extreme HIGH outlier — the saturated bright-blob signature that inflates the per-frame HFR. The signal is
+        // an OUTLIER FRACTION (outliers / accepted) over the POOLED near-focus stars, so it SHRINKS as a lower
+        // sensitivity admits more normal stars (dilution). That is what makes it actually MOVE the optimum: it
+        // pulls toward higher recall instead of penalizing every config equally (the bright star is admitted at all
+        // sensitivities, so an absolute max/median ratio would be inert). Returns exactly 1.0 when FrameStarHFRs is
+        // null/empty OR no near-focus extreme outlier exists ⇒ J bit-identical at the baseline.
+        public double HfrOutlierMadK { get; set; } = 4.0;       // robust-σ multiple (mad already scaled ×1.483)
+        public double HfrOutlierRelMargin { get; set; } = 1.5;  // ALSO require HFR ≥ 1.5×median (MAD≈0 tight-frame guard)
+        public double HfrOutlierThreshold { get; set; } = 0.05; // tolerate ≤5% outlier fraction before the penalty bites
+        public double HfrOutlierStrength { get; set; } = 1.0;   // penalty = 1 − Strength·max(0, frac − Threshold)
+        public double HfrOutlierMinFactor { get; set; } = 0.5;  // floor: at most a 2× reduction from this term alone
+
+        // ── Region-coverage reward (SCoverage) ─────────────────────────────────────────────────────────────
+        // ADDITIVE sub-score folded into the renormalized weighted sum: the near-focus mean fraction of an N×M
+        // sensor tiling that holds ≥1 accepted star. Rewards SPREAD (a cluster of stars in one corner scores worse
+        // than the same count spread across the sensor), pulling toward a lower sensitivity / more stars. A small,
+        // REAL weight so it can cost a little SFocus off-plateau — the user explicitly wants coverage to be able to
+        // cost a small amount of focus tightness, so this is NOT merely a plateau tie-breaker. Wcov = 0 OR no
+        // occupancy data ⇒ the term is excluded from BOTH the numerator and the denominator ⇒ J bit-identical.
+        public double Wcov { get; set; } = 0.05;
+
         /// <summary>
         /// Builds the constants for the "Optimize for Aberration Inspection" objective: reweighted toward star
         /// count (so the optimizer recovers many more stars across the frame for tilt/curvature modeling) while the
@@ -166,6 +189,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // The fitted best-focus (curve-minimum) focuser position, or NaN when no usable fit was produced. Used
         // with StepSize to define the near-focus window for the precision penalty.
         public double BestFocusPosition { get; set; } = double.NaN;
+
+        // Per-frame accepted-star HFRs (JAGGED; PARALLEL to FrameStarCounts, with FrameStarHFRs[i].Count ==
+        // FrameStarCounts[i]). Feeds the extreme-HFR outlier penalty (SHfrOutlier). Null ⇒ no per-star HFR data ⇒
+        // SHfrOutlier returns exactly 1.0 (J bit-identical at the baseline).
+        public IReadOnlyList<IReadOnlyList<double>> FrameStarHFRs { get; set; }
+
+        // Per-frame region-occupancy fraction in [0, 1] (or NaN where geometry was unavailable), PARALLEL to
+        // FrameStarCounts. Feeds the region-coverage reward (SCoverage). Null ⇒ coverage is excluded from JRun
+        // entirely (J bit-identical at the baseline).
+        public IReadOnlyList<double> FrameRegionOccupancy { get; set; }
 
         // Label scores for this run, supplied by the evaluator only when labels exist; null otherwise. The
         // optimizer passes these straight through to JRun, keeping itself label-agnostic.
@@ -275,15 +308,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var sStars = SStars(m.FrameStarCounts, c);
             var sFit = SFit(m.RSquared, m.ReducedChiSquared, c);
 
-            double j;
+            // Region-coverage reward: an ADDITIVE sub-score folded into the renormalized weighted sum. Active only
+            // when Wcov > 0 AND occupancy data exists; otherwise it is excluded from BOTH the numerator and the
+            // denominator, so J is bit-identical to the pre-coverage objective (even with the default Wcov, because
+            // legacy callers carry no FrameRegionOccupancy). Composes identically in the labeled/unlabeled cases.
+            var sCoverage = SCoverage(m, c);
+            var coverageOn = c.Wcov > 0.0 && IsFinite(sCoverage);
+
+            double num, den;
             if (effRecall.HasValue && effPrecision.HasValue) {
                 var sLabel = LabelScore(effRecall.Value, effPrecision.Value);
-                var wSum = c.Wf + c.Ws + c.Wc + c.Wl;
-                j = (c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit + c.Wl * sLabel) / wSum;
+                num = c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit + c.Wl * sLabel;
+                den = c.Wf + c.Ws + c.Wc + c.Wl;
             } else {
-                var wSum = c.Wf + c.Ws + c.Wc;
-                j = (c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit) / wSum;
+                num = c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit;
+                den = c.Wf + c.Ws + c.Wc;
             }
+            if (coverageOn) {
+                num += c.Wcov * sCoverage;
+                den += c.Wcov;
+            }
+            var j = num / den;
 
             // F3: MULTIPLICATIVE label-free precision penalty. NOT an additive Wd weight (that would change the
             // baseline). SDefocusPrecision returns exactly 1.0 when there is no relaxation data or zero relaxation
@@ -297,6 +342,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // and while σ stays within the margin, so J is bit-identical unless the inspection mode set a finite
             // reference AND the fit has degraded past it. Applied after the weighted sum, like SDefocusPrecision.
             j *= SFitGuard(m, c);
+
+            // Extreme-HFR outlier penalty: MULTIPLICATIVE, like SDefocusPrecision. Returns exactly 1.0 when
+            // FrameStarHFRs is null/empty or no near-focus extreme outlier exists, so J is bit-identical at the
+            // baseline. The dilution-sensitive outlier FRACTION discourages keeping a saturated bright blob as one
+            // of only a few accepted near-focus stars, pulling the optimizer toward a lower sensitivity / higher
+            // recall. Applied after the weighted sum, like the other multiplicative penalties.
+            j *= SHfrOutlier(m, c);
 
             // Plateau tie-breaker: blend in the unsaturating secondary score so that when the primary objective is
             // flat (J saturated at 1.0 over a region) the search still prefers more stars / lower σ. Applied ONLY on
@@ -431,22 +483,173 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return PenaltyFromFraction(frac, c);
         }
 
-        /// <summary>The shared penalty shape: <c>1 − Strength · max(0, frac − Threshold)</c>, clamped to
-        /// [MinFactor, 1]. Returns exactly 1.0 at or below the threshold.</summary>
+        /// <summary>The shared penalty shape, using the DEFOCUS-PRECISION constants: <c>1 − Strength · max(0, frac −
+        /// Threshold)</c>, clamped to [MinFactor, 1]. Returns exactly 1.0 at or below the threshold.</summary>
         private static double PenaltyFromFraction(double frac, ObjectiveConstants c) {
-            var excess = frac - c.DefocusPrecisionThreshold;
+            return PenaltyFromFraction(frac, c.DefocusPrecisionThreshold, c.DefocusPrecisionStrength, c.DefocusPrecisionMinFactor);
+        }
+
+        /// <summary>The shared penalty shape with EXPLICIT knobs (so SHfrOutlier can reuse it with its own
+        /// threshold/strength/floor): <c>1 − strength · max(0, frac − threshold)</c>, clamped to [minFactor, 1].
+        /// Returns exactly 1.0 at or below the threshold.</summary>
+        private static double PenaltyFromFraction(double frac, double threshold, double strength, double minFactor) {
+            var excess = frac - threshold;
             if (excess <= 0.0) {
                 return 1.0;
             }
-            var penalty = 1.0 - c.DefocusPrecisionStrength * excess;
-            var floor = c.DefocusPrecisionMinFactor;
-            if (penalty < floor) {
-                penalty = floor;
+            var penalty = 1.0 - strength * excess;
+            if (penalty < minFactor) {
+                penalty = minFactor;
             }
             if (penalty > 1.0) {
                 penalty = 1.0;
             }
             return penalty;
+        }
+
+        /// <summary>
+        /// Extreme-HFR outlier penalty in (0, 1], MULTIPLIED into J by <see cref="JRun"/>. Returns <b>exactly 1.0</b>
+        /// (no penalty) when there is no per-star HFR data (null/empty <see cref="RunEvaluationMetrics.FrameStarHFRs"/>)
+        /// OR no near-focus extreme outlier exists — the baseline, so J is bit-identical.
+        ///
+        /// <para>Signal — NEAR-FOCUS pooled outlier FRACTION: the accepted-star HFRs of the near-focus frames (within
+        /// <see cref="ObjectiveConstants.NearFocusWindowSteps"/> · stepSize of the fitted minimum, exactly as
+        /// <see cref="SDefocusPrecision"/>) are pooled into one robust sample. A star is an extreme-HFR outlier when
+        /// BOTH <c>HFR ≥ median + HfrOutlierMadK · MAD</c> AND <c>HFR ≥ HfrOutlierRelMargin · median</c> — the k·MAD
+        /// term guards loose frames; the relative-margin term guards the MAD≈0 tight-frame case (else any star a hair
+        /// above the median would flag). The penalty is a function of <c>outliers / pooled accepted</c>. Because the
+        /// denominator GROWS as a lower sensitivity admits more normal stars, the fraction SHRINKS — so the penalty
+        /// relaxes toward 1.0 as recall rises, which is what makes it move the optimum toward higher recall instead of
+        /// penalizing every config equally (the bright blob is admitted at all sensitivities).</para>
+        ///
+        /// <para>Fallback — run-level pool: when no near-focus window can be formed (no per-frame positions, or a
+        /// non-finite fitted minimum), all frames are pooled, guarded by <see cref="ObjectiveConstants.MinFramesForPenalty"/>
+        /// and <see cref="ObjectiveConstants.MinAcceptedForPenalty"/> so a thin run is not spuriously penalized.</para>
+        ///
+        /// <para>Penalty shape: <c>1 − HfrOutlierStrength · max(0, frac − HfrOutlierThreshold)</c>, clamped to
+        /// [<see cref="ObjectiveConstants.HfrOutlierMinFactor"/>, 1].</para>
+        /// </summary>
+        public static double SHfrOutlier(RunEvaluationMetrics m, ObjectiveConstants c) {
+            if (m == null) {
+                return 1.0;
+            }
+            var hfrs = m.FrameStarHFRs;
+            if (hfrs == null || hfrs.Count == 0) {
+                return 1.0; // no per-star HFR data ⇒ bit-identical baseline
+            }
+            var positions = m.FrameFocuserPositions;
+
+            var canUseNearFocus =
+                positions != null && positions.Count == hfrs.Count &&
+                IsFinite(m.BestFocusPosition) && m.StepSize > 0.0 && c.NearFocusWindowSteps > 0.0;
+            var window = canUseNearFocus ? c.NearFocusWindowSteps * m.StepSize : 0.0;
+
+            // Pool the eligible frames' accepted-star HFRs into one robust sample (maximizes n for the median/MAD).
+            var pooled = new List<double>();
+            var eligibleFrames = 0;
+            for (var i = 0; i < hfrs.Count; i++) {
+                if (canUseNearFocus && Math.Abs(positions[i] - m.BestFocusPosition) > window) {
+                    continue;
+                }
+                var fr = hfrs[i];
+                if (fr == null || fr.Count == 0) {
+                    continue;
+                }
+                eligibleFrames++;
+                for (var k = 0; k < fr.Count; k++) {
+                    pooled.Add(fr[k]);
+                }
+            }
+
+            // Fallback guard: with no near-focus window, require enough frames/stars before penalizing a thin run.
+            if (!canUseNearFocus && (eligibleFrames < c.MinFramesForPenalty || pooled.Count < c.MinAcceptedForPenalty)) {
+                return 1.0;
+            }
+            if (pooled.Count == 0) {
+                return 1.0;
+            }
+
+            var (median, mad) = MedianAndMad(pooled);
+            if (!IsFinite(median) || median <= 0.0) {
+                return 1.0;
+            }
+            var kThresh = median + c.HfrOutlierMadK * (IsFinite(mad) ? mad : 0.0);
+            var relThresh = c.HfrOutlierRelMargin * median;
+            long outliers = 0;
+            for (var i = 0; i < pooled.Count; i++) {
+                if (pooled[i] >= kThresh && pooled[i] >= relThresh) {
+                    outliers++;
+                }
+            }
+            if (outliers == 0) {
+                return 1.0; // no extreme outliers ⇒ bit-identical
+            }
+            var frac = (double)outliers / pooled.Count;
+            return PenaltyFromFraction(frac, c.HfrOutlierThreshold, c.HfrOutlierStrength, c.HfrOutlierMinFactor);
+        }
+
+        /// <summary>Robust center/scale of a sample: the median, and the MAD scaled by 1.483 so it estimates σ for a
+        /// Gaussian (matching the codebase's <c>MedianMAD</c> convention, keeping the objective dependency-free).</summary>
+        private static (double median, double mad) MedianAndMad(List<double> values) {
+            if (values == null || values.Count == 0) {
+                return (double.NaN, double.NaN);
+            }
+            var a = values.ToArray();
+            Array.Sort(a);
+            var median = MedianSorted(a);
+            for (var i = 0; i < a.Length; i++) {
+                a[i] = Math.Abs(a[i] - median);
+            }
+            Array.Sort(a);
+            return (median, 1.483 * MedianSorted(a));
+        }
+
+        private static double MedianSorted(double[] sorted) {
+            var n = sorted.Length;
+            if (n == 0) {
+                return double.NaN;
+            }
+            if ((n & 1) == 1) {
+                return sorted[n / 2];
+            }
+            return (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0;
+        }
+
+        /// <summary>
+        /// Region-coverage sub-score in [0, 1] (or NaN ⇒ no data ⇒ EXCLUDED from <see cref="JRun"/>): the near-focus
+        /// mean of the per-frame region-occupancy fractions in <see cref="RunEvaluationMetrics.FrameRegionOccupancy"/>
+        /// (the fraction of an N×M sensor tiling that holds ≥1 accepted star). Near-focus frames are selected with the
+        /// same window plumbing as <see cref="SDefocusPrecision"/>; when no window can be formed it averages all finite
+        /// frames. Frames whose occupancy is NaN (no usable geometry) are skipped. Higher ⇒ stars spread across the
+        /// sensor; lower ⇒ stars clustered, which the additive Wcov term in <see cref="JRun"/> discourages.
+        /// </summary>
+        public static double SCoverage(RunEvaluationMetrics m, ObjectiveConstants c) {
+            if (m == null) {
+                return double.NaN;
+            }
+            var occ = m.FrameRegionOccupancy;
+            if (occ == null || occ.Count == 0) {
+                return double.NaN; // no occupancy data ⇒ excluded from JRun
+            }
+            var positions = m.FrameFocuserPositions;
+            var canUseNearFocus =
+                positions != null && positions.Count == occ.Count &&
+                IsFinite(m.BestFocusPosition) && m.StepSize > 0.0 && c.NearFocusWindowSteps > 0.0;
+            var window = canUseNearFocus ? c.NearFocusWindowSteps * m.StepSize : 0.0;
+
+            var sum = 0.0;
+            var n = 0;
+            for (var i = 0; i < occ.Count; i++) {
+                if (canUseNearFocus && Math.Abs(positions[i] - m.BestFocusPosition) > window) {
+                    continue;
+                }
+                if (!IsFinite(occ[i])) {
+                    continue;
+                }
+                sum += occ[i];
+                n++;
+            }
+            return n == 0 ? double.NaN : sum / n;
         }
 
         /// <summary>

@@ -32,8 +32,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double HFRStdDev { get; set; }
         public int StarCount { get; set; }
 
-        /// <summary>Accepted-star centers (image pixel coords), used only for label recall/precision.</summary>
+        /// <summary>Accepted-star centers (image pixel coords), used for label recall/precision and region coverage.</summary>
         public IReadOnlyList<(double X, double Y)> StarCenters { get; set; }
+
+        /// <summary>Accepted-star HFRs (PARALLEL to <see cref="StarCenters"/>; same surviving set, same order). Feeds
+        /// the optimizer's extreme-HFR outlier penalty. Null/empty whenever the caller doesn't populate it, in which
+        /// case the penalty is inert (objective bit-identical).</summary>
+        public IReadOnlyList<double> StarHFRs { get; set; }
+
+        /// <summary>Full-frame sensor dimensions (pixels) used to convert <see cref="StarCenters"/> to ratio coords
+        /// for the region-coverage metric. 0 when unknown, in which case coverage is skipped for the frame.</summary>
+        public int ImageWidth { get; set; }
+        public int ImageHeight { get; set; }
 
         /// <summary>Number of accepted stars on this frame admitted only by a defocus-RELAXED gate (would have
         /// failed the strict gate) — i.e. <c>StarDetectorMetrics.RelaxationAdmittedCount</c> for this frame. Zero
@@ -189,6 +199,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         // A hyperbola has 4-5 parameters; fewer than this many distinct positions can never determine a fit.
         private const int MinPositionsForFit = 3;
+
+        // Region-coverage grid (structural, not a scoring weight): per-frame occupancy is computed over a
+        // CoverageGridRows × CoverageGridCols equal tiling of the sensor, matching the inspector's region set. 3×3
+        // is coarse enough that a thin-but-spread frame still registers full coverage, yet penalizes corner clusters.
+        private const int CoverageGridRows = 3;
+        private const int CoverageGridCols = 3;
 
         // Concurrency cap for the per-frame detect/build+gate loop WITHIN one evaluation. Frames are largely
         // single-threaded in their expensive early stage (wavelet/binarization), so running a few concurrently
@@ -582,6 +598,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var frameStarCounts = new List<int>(frames.Count);
             var frameRelaxationAdmittedCounts = new List<int>(frames.Count);
             var frameFocuserPositions = new List<int>(frames.Count);
+            var frameStarHfrs = new List<IReadOnlyList<double>>(frames.Count);
+            var frameRegionOccupancy = new List<double>(frames.Count);
             var perFrame = new List<(int FocuserPosition, FrameDetectionResult Detection)>(frames.Count);
             for (int i = 0; i < frames.Count; i++) {
                 var detection = detections[i];
@@ -590,6 +608,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // 0 across the board unless a defocus-aware gate is on, so the baseline J is unaffected.
                 frameRelaxationAdmittedCounts.Add(detection.RelaxationAdmittedCount);
                 frameFocuserPositions.Add(frames[i].FocuserPosition);
+                // Per-frame accepted-star HFRs (extreme-HFR outlier penalty) and region occupancy (coverage reward).
+                // Both stay inert in the objective when null/NaN, so the baseline J is unaffected.
+                frameStarHfrs.Add(detection.StarHFRs ?? (IReadOnlyList<double>)Array.Empty<double>());
+                frameRegionOccupancy.Add(RegionCoverage.Occupancy(
+                    detection.StarCenters, detection.ImageWidth, detection.ImageHeight, CoverageGridRows, CoverageGridCols));
                 perFrame.Add((frames[i].FocuserPosition, detection));
             }
 
@@ -624,6 +647,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 FrameStarCounts = frameStarCounts,
                 FrameRelaxationAdmittedCounts = frameRelaxationAdmittedCounts,
                 FrameFocuserPositions = frameFocuserPositions,
+                FrameStarHFRs = frameStarHfrs,
+                FrameRegionOccupancy = frameRegionOccupancy,
                 BestFocusPosition = double.NaN
             };
             AlglibHyperbolicFitting bestFit = null;

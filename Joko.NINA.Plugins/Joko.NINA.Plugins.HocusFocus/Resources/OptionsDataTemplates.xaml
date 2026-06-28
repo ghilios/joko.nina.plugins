@@ -423,6 +423,7 @@
     <TextBlock x:Key="HotpixelThresholdingEnabled_Tooltip" Text="A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy" />
     <TextBlock x:Key="HotpixelThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value" />
     <TextBlock x:Key="SaturationThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a saturated pixel. Star candidates containing saturated pixels are processed with those pixels masked during PSF fitting" />
+    <TextBlock x:Key="ExcludeSaturatedStarsFromHFR_Tooltip" Text="When enabled (default), partially-saturated stars (those whose peak reaches the Saturation Threshold) are left out of the per-frame HFR average — their flat, saturated cores bias HFR high and can pull the focus curve. The stars are still detected and counted; only the HFR average excludes them, and only while enough unsaturated stars remain. Disable to include every star's HFR as before." />
     <TextBlock x:Key="UseAutoFocusCrop_Tooltip" Text="Uses the inner and outer crop from the Auto Focus options for regular exposures (ie, those that aren't done during focusing)" />
     <TextBlock x:Key="SavePath_Tooltip" Text="The folder to save Auto Focus runs" />
     <TextBlock x:Key="SaveAutoFocus_Tooltip" Text="Saves details about every Auto Focus run, including a copy of the image, the star detection results, and the stretched annotated image" />
@@ -2187,6 +2188,22 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
+
+            <TextBlock
+                Grid.Row="35"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Exclude Saturated Stars From HFR"
+                ToolTip="{StaticResource ExcludeSaturatedStarsFromHFR_Tooltip}" />
+            <CheckBox
+                Grid.Row="35"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                IsChecked="{Binding StarDetectionOptions.ExcludeSaturatedStarsFromHFR}"
+                ToolTip="{StaticResource ExcludeSaturatedStarsFromHFR_Tooltip}" />
 
             <TextBlock
                 Grid.Row="38"
