@@ -38,6 +38,7 @@ using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.Interfaces.ViewModel;
 using NINA.Core.Model;
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
+using AsyncRelayCommand = CommunityToolkit.Mvvm.Input.AsyncRelayCommand;
 
 namespace NINA.Joko.Plugins.HocusFocus {
 
@@ -144,6 +145,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
             ChooseSavePathDiagCommand = new RelayCommand(ChooseSavePathDiag);
             OptimizeStarDetectionCommand = new RelayCommand(OptimizeStarDetection);
             LaunchStarDetectionOptimizer = OptimizeStarDetection;
+            ExportStarDetectionSettingsCommand = new RelayCommand(() => StarDetectionSettingsIO.Export(StarDetectionOptions));
+            ImportStarDetectionSettingsCommand = new AsyncRelayCommand(() => StarDetectionSettingsIO.ImportAsync(StarDetectionOptions, windowServiceFactory));
         }
 
         /// <summary>
@@ -269,5 +272,9 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public ICommand ChooseSavePathDiagCommand { get; private set; }
 
         public ICommand OptimizeStarDetectionCommand { get; private set; }
+
+        public ICommand ExportStarDetectionSettingsCommand { get; private set; }
+
+        public ICommand ImportStarDetectionSettingsCommand { get; private set; }
     }
 }

@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Core.Utility;
+using NINA.Core.Utility.WindowService;
 using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.ViewModel;
@@ -19,11 +20,16 @@ using System.ComponentModel.Composition;
 using System.Windows;
 using System.Windows.Input;
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
+using AsyncRelayCommand = CommunityToolkit.Mvvm.Input.AsyncRelayCommand;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     [Export(typeof(IDockableVM))]
     public class StarDetectionOptionsVM : DockableVM {
+
+        // WindowServiceFactory is not a MEF export (NINA exposes the concrete type with a default ctor only), so it is
+        // instantiated directly here, mirroring HocusFocusPlugin. Used to show the import-confirmation dialog.
+        private readonly IWindowServiceFactory windowServiceFactory = new WindowServiceFactory();
 
         [ImportingConstructor]
         public StarDetectionOptionsVM(IProfileService profileService)
@@ -38,6 +44,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
             ChooseIntermediatePathDiagCommand = new RelayCommand(ChooseIntermediatePathDiag);
             OptimizeStarDetectionCommand = new RelayCommand(OptimizeStarDetection);
+            ExportStarDetectionSettingsCommand = new RelayCommand(() => StarDetectionSettingsIO.Export(StarDetectionOptions));
+            ImportStarDetectionSettingsCommand = new AsyncRelayCommand(() => StarDetectionSettingsIO.ImportAsync(StarDetectionOptions, windowServiceFactory));
         }
 
         private void OptimizeStarDetection() {
@@ -63,5 +71,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public ICommand ChooseIntermediatePathDiagCommand { get; private set; }
 
         public ICommand OptimizeStarDetectionCommand { get; private set; }
+
+        public ICommand ExportStarDetectionSettingsCommand { get; private set; }
+
+        public ICommand ImportStarDetectionSettingsCommand { get; private set; }
     }
 }

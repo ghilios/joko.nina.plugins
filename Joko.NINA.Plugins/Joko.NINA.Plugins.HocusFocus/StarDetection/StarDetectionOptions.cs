@@ -1160,11 +1160,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// Restores the full star-detection configuration from <paramref name="source"/> — used by AutoFocus replay's
         /// "update profile to capture-time settings" option (c). Faithfully reproduces the captured MODE, not just the
         /// effective values: the optimized-settings snapshot, the Simple/Advanced flag, the "Use Optimized Settings"
-        /// flag, the Simple-mode presets, and every advanced knob. The local <see cref="IntermediateSavePath"/> /
-        /// <see cref="SaveIntermediateImages"/> are intentionally NOT copied — they are machine-local and
-        /// detection-irrelevant for replay.
+        /// flag, the Simple-mode presets, and every advanced knob (including the machine-local
+        /// <see cref="PSFParallelPartitionSize"/> and <see cref="DebugMode"/>). The local
+        /// <see cref="IntermediateSavePath"/> / <see cref="SaveIntermediateImages"/> are intentionally NOT copied —
+        /// they are machine-local and detection-irrelevant for replay.
         /// </summary>
-        public void ApplyFullSnapshot(IStarDetectionOptions source) {
+        public void ApplyFullSnapshot(IStarDetectionOptions source) => ApplySnapshotCore(source, includeMachineLocalPerfKnobs: true);
+
+        /// <summary>
+        /// Cross-machine IMPORT of star-detection parameters. Same faithful mode / optimized-layer / preset / knob
+        /// restore as <see cref="ApplyFullSnapshot"/>, but additionally leaves the machine-local
+        /// <see cref="PSFParallelPartitionSize"/> (CPU parallelism) and <see cref="DebugMode"/> (local diagnostics)
+        /// untouched — alongside the already-excluded <see cref="IntermediateSavePath"/> /
+        /// <see cref="SaveIntermediateImages"/> — so an imaging machine keeps its own parallelism and diagnostics when
+        /// importing settings tuned on a different machine.
+        /// </summary>
+        public void ApplyImportedSnapshot(IStarDetectionOptions source) => ApplySnapshotCore(source, includeMachineLocalPerfKnobs: false);
+
+        private void ApplySnapshotCore(IStarDetectionOptions source, bool includeMachineLocalPerfKnobs) {
             if (source == null) {
                 throw new ArgumentNullException(nameof(source));
             }
@@ -1189,14 +1202,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // 3) Copy every knob verbatim LAST. Setting these non-"Simple" properties does NOT re-trigger the
             //    Simple-mode recompute (only Simple_*/UseAdvanced/UseOptimizedSettings do), so the captured resolved
             //    values stick exactly in either mode — and they already equal what the recompute would produce.
-            ApplyKnobs(source);
+            ApplyKnobs(source, includeMachineLocalPerfKnobs);
 
             RaiseAllPropertiesChanged();
         }
 
         // Copies every advanced knob (not the Simple_* presets, the mode flags, or the machine-local intermediate-save
-        // settings) from a source. Used as the final step of ApplyFullSnapshot.
-        private void ApplyKnobs(IStarDetectionOptions source) {
+        // settings) from a source. Used as the final step of ApplySnapshotCore. When includeMachineLocalPerfKnobs is
+        // false (cross-machine import), the machine-local DebugMode and PSFParallelPartitionSize are left untouched.
+        private void ApplyKnobs(IStarDetectionOptions source, bool includeMachineLocalPerfKnobs) {
             ModelPSF = source.ModelPSF;
             HotpixelFiltering = source.HotpixelFiltering;
             HotpixelThresholdingEnabled = source.HotpixelThresholdingEnabled;
@@ -1231,8 +1245,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             StructureDilationSize = source.StructureDilationSize;
             StructureDilationCount = source.StructureDilationCount;
             PixelSampleSize = source.PixelSampleSize;
-            DebugMode = source.DebugMode;
-            PSFParallelPartitionSize = source.PSFParallelPartitionSize;
+            if (includeMachineLocalPerfKnobs) {
+                // Machine-local: copied for same-machine replay (option c), skipped for cross-machine import so the
+                // imaging machine keeps its own parallelism / diagnostics settings.
+                DebugMode = source.DebugMode;
+                PSFParallelPartitionSize = source.PSFParallelPartitionSize;
+            }
             PSFFitType = source.PSFFitType;
             PSFResolution = source.PSFResolution;
             PSFFitThreshold = source.PSFFitThreshold;
