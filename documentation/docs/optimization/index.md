@@ -90,10 +90,6 @@ default to 1.0: one for defocus-relaxed junk, and one for leaning on a saturated
 inflated HFR. A hard floor guards against starved frames: if any frame falls below 3 accepted stars,
 that run scores \( J_{\text{run}} = 0 \).
 
-When more than one run is optimized together, the per-run scores are blended as
-\( J_{\text{total}} = (1-\beta)\,\text{mean} + \beta\,\text{min} \) with \( \beta = 0.5 \), so a
-setting must be good on average **and** not bad on any single run.
-
 The full breakdown of each sub-score lives on the dedicated pages below.
 
 ## Section map
@@ -101,14 +97,14 @@ The full breakdown of each sub-score lives on the dedicated pages below.
 This section documents every moving part of the optimizer:
 
 - **[Objective function](objective-function.md):** the composite score \( J \): how \( S_{\text{focus}} \),
-  \( S_{\text{stars}} \), and \( S_{\text{fit}} \) are computed, the hard floors, the multi-run blend,
-  and the label-free precision penalty.
+  \( S_{\text{stars}} \), and \( S_{\text{fit}} \) are computed, the hard floors, and the label-free
+  precision penalty.
 - **[Search variables](search-variables.md):** the curated set of tunable parameters, their bounds,
   initial step sizes, and the synthetic defocus-aware knobs.
 - **[Search algorithm](search-algorithm.md):** the staged compass/pattern search: the coarse seed
   grid, the alternating late/early stages, step halving, the memoization that makes repeated
   evaluation cheap, and the evaluation budget.
-- **[AF curve fitting](af-curve-fitting.md):** how each run is detected, pooled by focuser position,
+- **[AF curve fitting](af-curve-fitting.md):** how the run is detected, pooled by focuser position,
   and fit to extract \( \sigma_{\text{focus}} \), \( R^2 \), and reduced \( \chi^2 \).
 - **[Labels: recall & precision](labels-recall-precision.md):** the optional ground-truth labeling
   loop and how box-containment recall/precision enter the objective.

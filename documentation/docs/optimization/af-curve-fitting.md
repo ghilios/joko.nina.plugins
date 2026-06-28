@@ -166,21 +166,12 @@ steps per side and is clamped to at least 1 (and to the focuser's limits when kn
     **future** runs, not a re-measurement of the one you replayed. It is written to your profile only
     when you apply the wizard's results.
 
-## How this scales to a budgeted search and to multiple runs
+## How this scales to a budgeted search
 
-This whole pipeline runs once per candidate, per run, and the search tries hundreds of candidates (up
+This whole pipeline runs once per candidate, and the search tries hundreds of candidates (up
 to 400 evaluations). Two facts keep that affordable. First, detection is split into an expensive
 **early** stage (hot-pixel filtering, structure preparation, wavelet, binarization, candidate
 collection) and a cheap **late** stage (gate + measure); the early stage is cached per frame and
 reused whenever a candidate changes only late-stage gate parameters, which is the bulk of the search.
 Second, identical parameter bundles are memoized, so a revisited point never re-detects. The result is
 **bit-identical** scores at roughly 10–13× the speed.
-
-When you optimize several runs together, each run is scored by this pipeline independently, and the
-per-run scores are blended so a candidate must be good on average **and** not bad on any single run;
-this is detailed under [multi-run blending](objective-function.md).
-
-!!! warning
-    Only group runs from the **same** optical setup. The blend assumes the runs are comparable; a
-    joint score across different cameras or scopes is meaningless, because their focus curves and star
-    fields are not the same problem.
