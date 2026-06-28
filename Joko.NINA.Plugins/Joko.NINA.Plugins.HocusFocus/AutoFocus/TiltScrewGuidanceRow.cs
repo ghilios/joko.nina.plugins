@@ -20,6 +20,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public bool HasTiltGuidance { get; set; }
         public bool HasBackfocusRow { get; set; }
 
+        // Gate for the 4th-screw backfocus arrow: needs both the 4th screw to exist and the backfocus
+        // row to be active. Exposed as a single bool so the XAML can use one plain Visibility binding
+        // (like every other cell) instead of a MultiDataTrigger, which did not re-apply when the whole
+        // guidance object is swapped (this VM raises no per-property change notifications).
+        public bool HasFourScrewBackfocus => HasFourScrews && HasBackfocusRow;
+
         public string Screw1TiltArrow { get; set; } = "—";
         public string Screw2TiltArrow { get; set; } = "—";
         public string Screw3TiltArrow { get; set; } = "—";
