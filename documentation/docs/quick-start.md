@@ -105,4 +105,11 @@ indoors as many times as you like with different settings.
 This replay loop is the fastest way to tune detection: optimize, label any missed or false stars,
 re-optimize, and repeat, all from your desk.
 
+!!! tip "Tune on a fast machine, image on another"
+    The optimizer runs entirely from saved frames, so it does not need to run on your imaging computer. Copy a
+    saved autofocus run to a faster desktop, run the [Optimization Wizard](optimization/index.md) there, then use
+    **Export** on the Star Detection options page to write the tuned settings to a `.json` file. **Import** that file
+    on the imaging computer to apply them, after confirming exactly what will change. See
+    [exporting and importing settings](settings/index.md#exporting-and-importing-star-detection-settings).
+
 → Full detail: [Autofocus](overview/autofocus.md) and [Star Detection Optimization](optimization/index.md).

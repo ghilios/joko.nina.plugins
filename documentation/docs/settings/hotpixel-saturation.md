@@ -16,6 +16,7 @@ These options live in the **Advanced** star-detection settings. In Simple mode t
 | Use Hotpixel Thresholding | On | On / Off | Replace only pixels that differ sharply from the median, instead of blurring everything |
 | Hotpixel Threshold | 0.1% (0.001) | (0, 100%] | How far a pixel must sit from its 3×3 median (as a fraction of full well) to count as a hot pixel |
 | Saturation Threshold | 99% (0.99) | (0, 100%] | Pixels at or above this fraction of full well are treated as saturated and masked during PSF fitting |
+| Exclude Saturated Stars From HFR | On | On / Off | Leave partially-saturated stars out of the per-frame HFR average; they stay detected and counted |
 
 ---
 
@@ -103,3 +104,21 @@ When a star's core clips at the sensor's full-well limit, its peak flattens into
 
 !!! note
     The same threshold gates two things: the per-image **saturated-pixel count** in the metrics, and the per-star mask applied during PSF fitting. It does not, by itself, reject stars from the accepted set.
+
+---
+
+## Exclude Saturated Stars From HFR
+
+**What it does:** keeps partially-saturated stars out of the per-frame HFR average, while still detecting and counting them.
+
+> "When enabled (default), partially-saturated stars (those whose peak reaches the Saturation Threshold) are left out of the per-frame HFR average — their flat, saturated cores bias HFR high and can pull the focus curve. The stars are still detected and counted; only the HFR average excludes them, and only while enough unsaturated stars remain. Disable to include every star's HFR as before."
+
+- **Default:** On
+- **Range:** On / Off
+
+A saturated core clips flat at the full-well limit, so the half-flux radius measured from it reads larger than the star's true size. That inflated HFR drags the frame's aggregate HFR upward and can distort the focus curve the optimizer fits to find best focus. This setting drops such stars from the per-frame **HFR average** (and its standard deviation), so the curve point reflects the well-behaved stars instead.
+
+It does not reject the star. A partially-saturated star is still a real detection with a valid position and structure, so it stays in the accepted set: the total star count, the star centers, and each star's own measured HFR are unchanged. Only the per-frame average leaves it out. Rejecting it outright would discard a genuine star, and on a frame with few stars that loss matters most. For that reason the exclusion applies only while **at least three unsaturated stars remain** on the frame; below that floor every star is kept, so a bright, saturation-heavy frame still produces an HFR. A star counts as saturated by the same test the rest of the pipeline uses: its background plus peak brightness reaches the **Saturation Threshold** above. With nothing saturated, or with this option off, the HFR average is exactly what it was before.
+
+!!! tip "When this helps"
+    Leave it **on**. It matters most on frames that hold a bright, clipped star next to fainter ones, where that single star would otherwise pull the HFR curve. Turn it **off** only to restore the legacy behavior, where every accepted star contributes to the HFR average regardless of saturation.

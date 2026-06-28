@@ -22,14 +22,15 @@ fixed for a given build.
 
 For a single autofocus run, all frames are detected, frames sharing a focuser position are pooled into one
 HFR point, the HFR-vs-focuser curve is fitted, and the fit yields \(\sigma_{\text{focus}}\), \(R^2\), and the
-reduced \(\chi^2\). Those feed three sub-scores (a fourth, the label score, is added only when you have
-provided ground-truth labels). The per-run score is their weighted, renormalized average, then multiplied by a
-defocus-precision penalty:
+reduced \(\chi^2\). Those, together with the accepted-star counts and positions, feed the additive sub-scores
+below: focus repeatability, star count, curve fit, and region coverage, plus a label score when you have provided
+ground-truth labels. The per-run score is their weighted, renormalized average, then multiplied by two safety
+penalties (a defocus-precision penalty and an extreme-HFR-outlier penalty):
 
 \[
-J_{\text{run}} \;=\; \frac{W_f\,S_{\text{focus}} + W_s\,S_{\text{stars}} + W_c\,S_{\text{fit}}
-\;\bigl[\,+\;W_\ell\,S_{\text{label}}\,\bigr]}{W_f + W_s + W_c \;[\,+\;W_\ell\,]}
-\;\times\; S_{\text{defocus-precision}}
+J_{\text{run}} \;=\; \frac{W_f\,S_{\text{focus}} + W_s\,S_{\text{stars}} + W_c\,S_{\text{fit}} + W_{\text{cov}}\,S_{\text{cov}}
+\;\bigl[\,+\;W_\ell\,S_{\text{label}}\,\bigr]}{W_f + W_s + W_c + W_{\text{cov}} \;[\,+\;W_\ell\,]}
+\;\times\; S_{\text{defocus-precision}} \;\times\; S_{\text{hfr-outlier}}
 \]
 
 The label term and \(W_\ell\) are present only when labels exist for the run; otherwise both the numerator
@@ -40,9 +41,12 @@ term and the denominator term are dropped (the weights always renormalize to sum
 | Focus | \(W_f\) | 0.55 | A tight, repeatable best-focus position |
 | Stars | \(W_s\) | 0.20 | Enough usable stars on every frame |
 | Curve fit | \(W_c\) | 0.25 | A clean, well-explained HFR curve |
+| Coverage | \(W_{\text{cov}}\) | 0.05 | Accepted stars spread across the whole sensor |
 | Label | \(W_\ell\) | 0.25 | Matching your hand-labeled stars (only when labels exist) |
 
-Focus carries the largest weight because focus repeatability is the whole point of the exercise.
+Focus carries the largest weight because focus repeatability is the whole point of the exercise. The two
+multiplicative penalties default to exactly 1.0 (no effect) and only bite in specific situations, described in
+their own sections below.
 
 !!! note "The aberration-inspection objective reweights these"
     The weights above are the default, autofocus-tuned objective. When you select **"Optimize for
@@ -139,6 +143,28 @@ information and therefore no penalty.
 over-scattered fit (reduced \(\chi^2 > \chi_\tau = 2.0\)) is progressively penalized; below the knee there is
 no penalty.*
 
+## \(S_{\text{cov}}\) — region coverage (weight 0.05)
+
+A detection setting can post a tight, well-fit curve while quietly collapsing onto a handful of bright stars in one
+part of the frame. That is fragile: it ignores most of the sensor and is easily thrown off by a gradient or a
+passing cloud. \(S_{\text{cov}}\) rewards spreading the accepted stars across the whole frame, not just finding
+enough of them.
+
+The sensor is divided into a 3×3 grid of equal regions. For each near-focus frame, coverage is the fraction of those
+nine regions that hold at least one accepted star, and \(S_{\text{cov}}\) is the mean of that fraction over the
+near-focus frames. The same number of stars clustered in one corner scores lower than the same count spread evenly,
+so the optimizer is pulled toward settings that keep stars everywhere.
+
+The weight is deliberately small (0.05). Coverage is allowed to cost a little focus tightness — recovering stars
+across the frame is worth a minor rise in \(\sigma_{\text{focus}}\) — but at one-eleventh of the focus weight it
+cannot override the dominant focus term. When a run has no accepted-star positions to score, the term drops out of
+both the numerator and the denominator, so \(J_{\text{run}}\) is unchanged.
+
+!!! note "Coverage and aberration inspection"
+    This term reinforces what the **"Optimize for Aberration Inspection"** objective already favors: stars spread
+    across the sensor are exactly what a [tilt / curvature model](../overview/tilt-aberration-inspector.md) needs.
+    Under the default autofocus objective it stays a gentle nudge.
+
 ## \(S_{\text{label}}\) — recall and precision (weight 0.25, only with labels)
 
 When you have hand-labeled stars on a frame (via the labeling workflow), the run also earns a label score that
@@ -205,6 +231,52 @@ strength 0.5 down to a floor of 0.5.*
     version. It exists so the optimizer can safely explore turning the gates on — recovering bloated donuts on
     the extremes — without learning to manufacture spurious near-focus stars.
 
+## \(S_{\text{hfr-outlier}}\) — the bright-blob penalty
+
+A bright star whose core saturates measures a half-flux radius that reads too large, because its peak clips flat. If
+the optimizer keeps such a star as one of only a few accepted stars near focus, that one inflated HFR pulls the
+curve point, and the fit can look deceptively tight while resting on a bloated outlier. Like the defocus-precision
+term, \(S_{\text{hfr-outlier}}\) is a **multiplicative** penalty in \([0.5, 1.0]\) applied after the weighted sum.
+
+\[
+J_{\text{run}} \;\leftarrow\; J_{\text{run}} \times S_{\text{hfr-outlier}}, \qquad
+S_{\text{hfr-outlier}} \in [\,0.5,\; 1.0\,]
+\]
+
+The accepted-star HFRs from the near-focus frames are pooled, and a star counts as an extreme outlier only when its
+HFR clears **both** bars: at least \(4\times\) the robust scatter (median absolute deviation) above the median,
+**and** at least \(1.5\times\) the median. The first bar handles loose frames; the second guards the case where every
+star is nearly identical, so the scatter collapses toward zero. The penalty is then a function of the outlier
+**fraction** \(f\) — outliers over accepted stars in the near-focus pool:
+
+\[
+S_{\text{hfr-outlier}} = \operatorname{clip}_{[0.5,\,1]}\!\bigl(\,1 - \text{Strength}\cdot\max(0,\; f - \text{Threshold})\,\bigr),
+\qquad \text{Threshold} = 0.05,\; \text{Strength} = 1.0
+\]
+
+| Constant | Value | Role |
+|---|---|---|
+| MAD multiple | 4.0 | How far above the median (in robust scatter) an HFR must sit to count as an outlier |
+| Relative margin | 1.5 | An outlier must also be at least 1.5× the median HFR (guards the zero-scatter case) |
+| Threshold | 0.05 | Outlier fraction tolerated before any penalty |
+| Strength | 1.0 | How hard \(J\) is scaled per unit of excess outlier fraction |
+| Min factor | 0.5 | Floor — this term alone can at most halve \(J\), never zero it |
+
+Using a **fraction** rather than a flag is what makes this useful. A bright saturated star is admitted at almost any
+sensitivity, so a plain "is there a big-HFR star" test would dock every candidate equally and change nothing. The
+fraction shrinks as a lower sensitivity admits more normal stars, so the penalty eases exactly as the curve stops
+leaning on the outlier. The term therefore pulls the search toward **more stars and higher recall**, not away from
+it.
+
+Two properties make this safe:
+
+- **Off is bit-identical.** With no per-star HFR data, or no near-focus extreme outlier, \(S_{\text{hfr-outlier}} = 1.0\)
+  exactly and \(J\) is unchanged.
+- **It works with the detector, not against it.** The
+  [Exclude Saturated Stars From HFR](../settings/hotpixel-saturation.md) option keeps a saturated star's inflated HFR
+  out of the curve point; this penalty additionally discourages settings that would lean on such a star in the first
+  place.
+
 ## Combining multiple runs
 
 When you optimize several autofocus runs together (only ever from the **same** optical setup), each run
@@ -230,6 +302,7 @@ sacrificing one run to flatter the others. A single run reduces to its own \(J\)
 | Focus weight | \(W_f\) | 0.55 | \(S_{\text{focus}}\) |
 | Star-count weight | \(W_s\) | 0.20 | \(S_{\text{stars}}\) |
 | Curve-fit weight | \(W_c\) | 0.25 | \(S_{\text{fit}}\) |
+| Coverage weight | \(W_{\text{cov}}\) | 0.05 | \(S_{\text{cov}}\) |
 | Label weight | \(W_\ell\) | 0.25 | \(S_{\text{label}}\) (labels only) |
 | Focus reference | \(\rho_{\text{ref}}\) | 0.25 | \(S_{\text{focus}}\) |
 | Min-count knee | \(N_{\text{floor}}\) | 8 | \(S_{\text{stars}}\) |
@@ -240,7 +313,12 @@ sacrificing one run to flatter the others. A single run reduces to its own \(J\)
 | Precision threshold | — | 0.20 | \(S_{\text{defocus-precision}}\) |
 | Precision strength | — | 0.5 | \(S_{\text{defocus-precision}}\) |
 | Precision min factor | — | 0.5 | \(S_{\text{defocus-precision}}\) |
-| Near-focus window | — | 1.5 steps | \(S_{\text{defocus-precision}}\) |
+| HFR-outlier MAD multiple | — | 4.0 | \(S_{\text{hfr-outlier}}\) |
+| HFR-outlier relative margin | — | 1.5 | \(S_{\text{hfr-outlier}}\) |
+| HFR-outlier threshold | — | 0.05 | \(S_{\text{hfr-outlier}}\) |
+| HFR-outlier strength | — | 1.0 | \(S_{\text{hfr-outlier}}\) |
+| HFR-outlier min factor | — | 0.5 | \(S_{\text{hfr-outlier}}\) |
+| Near-focus window | — | 1.5 steps | \(S_{\text{defocus-precision}}\), \(S_{\text{cov}}\), \(S_{\text{hfr-outlier}}\) |
 | Multi-run blend | \(\beta\) | 0.5 | \(J_{\text{total}}\) |
 
 For how this objective is searched (the coarse grid and staged compass search), see

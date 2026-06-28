@@ -62,6 +62,14 @@ Internally, this preset chooses the noise-reduction radius, whether measurement-
 
 When **Use Optimized Settings** is on and a wizard result exists, Simple mode first derives the preset baseline, then overlays the curated subset of parameters from the saved snapshot (sensitivity, clipping multipliers, peak response, distortion, min HFR, center tolerance, structure layers, noise-reduction radius, minimum bounding box, and the hotpixel knobs). Non-curated advanced knobs keep their preset defaults; the curated ones win. See [Labels, Recall & Precision](../optimization/labels-recall-precision.md) for how those values are chosen.
 
+### Exporting and importing star-detection settings
+
+Star-detection settings can move between machines. Two buttons at the bottom of the Star Detection options pane, **Export** and **Import**, write and read a single `.json` file (named `HocusFocusStarDetection_<timestamp>.json`). This is how you tune on one computer and image on another: run the [Optimization Wizard](../optimization/index.md) on a fast desktop, **Export**, then **Import** on the imaging computer.
+
+Only **star-detection** settings are written, not autofocus, inspector, or tilt settings. The wizard's optimized-settings snapshot is included too, so the imported profile can turn it on with **Use Optimized Settings**. A few values are deliberately left out because they belong to one computer: the intermediate-image path, the **Save Intermediate** flag, **Debug Mode**, and **PSF Parallel Size**. Those keep their local values on import.
+
+Import never changes anything silently. After you pick a file, a confirmation dialog lists every setting that would change in a **Setting / Current / Imported** table, and the new values are applied only when you click **Apply**. If the file matches your current settings, it tells you there is nothing to change. A file that is not a Hocus Focus star-detection export, or that comes from a newer version's format, is rejected without touching your settings.
+
 ## Reading the results: the Star Detection Results panel
 
 Throughout these pages you are told to "watch the metrics panel." That panel is the **Star Detection
