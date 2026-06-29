@@ -677,6 +677,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     AlglibHyperbolicFitting fitting;
                     bool solveResult;
                     int rejectedCount;
+                    // The points this star's fit rejected as outliers (same focuser position + HFR as the displayed
+                    // detections, only re-weighted), retained so the Review Frames graph can mark them with a red X.
+                    IReadOnlyList<ScatterErrorPoint> rejectedForStar;
                     if (autoFocusOptions.HyperbolicFitModel == HyperbolicFitModel.Hybrid) {
                         // Pick the best model for THIS star after each candidate rejects its own outliers — outlier-ness
                         // is model-specific, so the winner is judged on the curve it produces once cleaned, exactly like
@@ -690,6 +693,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                             maxDegreeOfParallelism: 1);
                         solveResult = fitting != null;
                         rejectedCount = rejected.Count;
+                        rejectedForStar = rejected;
                     } else {
                         // Fixed model: reject its own outliers via reject-and-refit (unchanged).
                         var modelForStar = autoFocusOptions.HyperbolicFitModel;
@@ -710,6 +714,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                             }
                         } while (continueFitting);
                         rejectedCount = rejectedPoints.Count;
+                        rejectedForStar = rejectedPoints;
                     }
 
                     if (!solveResult || fitting == null) {
@@ -728,6 +733,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     // star's focus curve / R² / best focus. Each Parallel.For iteration writes a distinct registeredStar,
                     // and this array is the one returned to (and surfaced by) SensorModelResult.RegisteredStars.
                     registeredStar.Fitting = fitting;
+                    registeredStar.RejectedPoints = rejectedForStar ?? Array.Empty<ScatterErrorPoint>();
 
                     rejectedCounts[registeredStarIndex] = rejectedCount;
                     var dataPointX = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
@@ -1326,6 +1332,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             // Carries the curve function, minimum (best focus), and R² for the Review Frames focus-graph overlay; its
             // Fitting closure captures only a double[] so it is safe to retain after the run's heavy data is freed.
             public AlglibHyperbolicFitting Fitting { get; set; }
+
+            // The per-frame detections this star's fit rejected as outliers (focuser position + HFR), set by FitImages
+            // alongside Fitting so the Review Frames focus graph can mark them with a red X. Empty when none rejected.
+            public IReadOnlyList<ScatterErrorPoint> RejectedPoints { get; set; } = Array.Empty<ScatterErrorPoint>();
             public List<MatchedStar> MatchedStars { get; private set; } = new List<MatchedStar>();
 
             public override string ToString() {

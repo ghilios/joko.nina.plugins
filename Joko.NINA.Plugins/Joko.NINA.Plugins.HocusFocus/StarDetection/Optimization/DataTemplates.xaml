@@ -40,14 +40,15 @@
             PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
             TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
             <oxy:Plot.Axes>
+                <!--  Explicit bounds (incl. the best-focus minimum, padded) so a steep curve's optimum is never clipped.  -->
                 <oxy:LinearAxis
                     AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                     IsPanEnabled="False"
                     IsZoomEnabled="False"
                     MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
                     MajorGridlineStyle="LongDash"
-                    MaximumPadding="0.1"
-                    MinimumPadding="0.1"
+                    Maximum="{Binding Bounds.YMax}"
+                    Minimum="{Binding Bounds.YMin}"
                     Position="Left"
                     TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                     TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
@@ -58,8 +59,8 @@
                     IsZoomEnabled="False"
                     MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
                     MajorGridlineStyle="LongDash"
-                    MaximumPadding="0.1"
-                    MinimumPadding="0.1"
+                    Maximum="{Binding Bounds.XMax}"
+                    Minimum="{Binding Bounds.XMin}"
                     Position="Bottom"
                     TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                     TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
@@ -99,14 +100,15 @@
             PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
             TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
             <oxy:Plot.Axes>
+                <!--  Explicit bounds (incl. the best-focus minimum, padded) so a steep curve's optimum is never clipped.  -->
                 <oxy:LinearAxis
                     AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                     IsPanEnabled="False"
                     IsZoomEnabled="False"
                     MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
                     MajorGridlineStyle="LongDash"
-                    MaximumPadding="0.1"
-                    MinimumPadding="0.1"
+                    Maximum="{Binding Bounds.YMax}"
+                    Minimum="{Binding Bounds.YMin}"
                     Position="Left"
                     TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                     TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
@@ -117,8 +119,8 @@
                     IsZoomEnabled="False"
                     MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
                     MajorGridlineStyle="LongDash"
-                    MaximumPadding="0.1"
-                    MinimumPadding="0.1"
+                    Maximum="{Binding Bounds.XMax}"
+                    Minimum="{Binding Bounds.XMin}"
                     Position="Bottom"
                     TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                     TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
@@ -130,6 +132,14 @@
                     MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                     MarkerType="Circle"
                     TrackerFormatString="Focuser: {2:0}, HFR: {4:0.000}" />
+                <!--  Outlier-rejected detections: a red X drawn over the rejected point's dot (mirrors the AutoFocus graph).  -->
+                <oxy:ScatterSeries
+                    ItemsSource="{Binding RejectedPoints}"
+                    MarkerSize="6"
+                    MarkerStroke="Red"
+                    MarkerStrokeThickness="2"
+                    MarkerType="Cross"
+                    TrackerFormatString="Rejected — Focuser: {2:0}, HFR: {4:0.000}" />
             </oxy:Plot.Series>
             <oxy:Plot.Annotations>
                 <oxy:FunctionAnnotation
