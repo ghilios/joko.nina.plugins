@@ -2875,22 +2875,8 @@
                                     Grid.Column="4"
                                     HorizontalAlignment="Center"
                                     FontSize="18"
-                                    Text="{Binding TiltGuidance.Screw4BackfocusArrow}">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Visibility" Value="Collapsed" />
-                                            <Style.Triggers>
-                                                <MultiDataTrigger>
-                                                    <MultiDataTrigger.Conditions>
-                                                        <Condition Binding="{Binding TiltGuidance.HasFourScrews}" Value="True" />
-                                                        <Condition Binding="{Binding TiltGuidance.HasBackfocusRow}" Value="True" />
-                                                    </MultiDataTrigger.Conditions>
-                                                    <Setter Property="Visibility" Value="Visible" />
-                                                </MultiDataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+                                    Text="{Binding TiltGuidance.Screw4BackfocusArrow}"
+                                    Visibility="{Binding TiltGuidance.HasFourScrewBackfocus, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             </Grid>
 
                             <!--  Precise numeric adjustments (turns / steps) — shown when adapter hardware is configured  -->

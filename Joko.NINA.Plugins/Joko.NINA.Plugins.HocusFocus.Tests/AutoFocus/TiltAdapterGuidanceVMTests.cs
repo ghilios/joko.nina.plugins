@@ -37,4 +37,17 @@ public class TiltAdapterGuidanceVMTests {
     public void FormatTotal_NoDirection_ShowsMagnitudeOnly() {
         Assert.That(TiltAdapterGuidanceVM.FormatTotal(0.95, steps: false, hasDirection: false), Is.EqualTo("0.95 turns"));
     }
+
+    // The Screw 4 backfocus arrow is shown only when the adapter has four screws AND the backfocus row
+    // is active. This gating bool lets the XAML use a single plain Visibility binding (like every other
+    // cell) instead of a MultiDataTrigger that failed to re-apply on the whole-object guidance swap.
+    [Test]
+    public void HasFourScrewBackfocus_RequiresFourScrewsAndBackfocusRow() {
+        Assert.Multiple(() => {
+            Assert.That(new TiltAdapterGuidanceVM { ScrewCount = 4, HasBackfocusRow = true }.HasFourScrewBackfocus, Is.True);
+            Assert.That(new TiltAdapterGuidanceVM { ScrewCount = 3, HasBackfocusRow = true }.HasFourScrewBackfocus, Is.False);
+            Assert.That(new TiltAdapterGuidanceVM { ScrewCount = 4, HasBackfocusRow = false }.HasFourScrewBackfocus, Is.False);
+            Assert.That(new TiltAdapterGuidanceVM { ScrewCount = 3, HasBackfocusRow = false }.HasFourScrewBackfocus, Is.False);
+        });
+    }
 }
