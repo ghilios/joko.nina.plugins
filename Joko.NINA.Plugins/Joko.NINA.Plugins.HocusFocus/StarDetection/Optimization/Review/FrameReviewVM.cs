@@ -63,9 +63,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
     public sealed class FrameReviewFocusGraph {
         public string Label { get; init; }
         public IReadOnlyList<ScatterErrorPoint> Points { get; init; }
+
+        /// <summary>The detections this star's fit rejected as outliers, drawn as a red X over their dots. Empty when
+        /// none were rejected.</summary>
+        public IReadOnlyList<ScatterErrorPoint> RejectedPoints { get; init; }
+
         public AlglibHyperbolicFitting Fit { get; init; }
         public Func<double, double> Fitting => Fit?.Fitting;
         public DataPoint Minimum => Fit?.Minimum ?? default;
+
+        private FocusGraphAxisBounds? bounds;
+
+        /// <summary>Explicit chart axis bounds that include the best-focus minimum (not just the scatter points), so a
+        /// steep curve's optimum diamond is never clipped off the plot. Computed once on first access.</summary>
+        public FocusGraphAxisBounds Bounds => bounds ??= FocusGraphAxisBounds.Compute(Points, Fit != null ? Fit.Minimum : (DataPoint?)null);
     }
 
     /// <summary>A points-only focus graph for a registered star that has NO accepted hyperbolic fit: just the
@@ -252,6 +263,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 HoverContent = new FrameReviewFocusGraph {
                     Label = $"Star {registrationId}",
                     Points = curve.Points,
+                    RejectedPoints = curve.RejectedPoints,
                     Fit = curve.Fit,
                 };
                 HoverRSquaredText = $"R²: {curve.RSquared:0.###}";

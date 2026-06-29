@@ -57,6 +57,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>The fitted curve minimum (best-focus position + HFR) for the chart's optimum marker.</summary>
         public DataPoint Minimum => Fit?.Minimum ?? default;
 
+        /// <summary>Explicit chart axis bounds that include the best-focus minimum (not just the scatter points), so a
+        /// steep curve's optimum is never clipped off the plot. Null vertex when there is no fit, so points-only.</summary>
+        public FocusGraphAxisBounds Bounds => FocusGraphAxisBounds.Compute(Points, Fit != null ? Fit.Minimum : (DataPoint?)null);
+
         public double MinimumStdError => Fit?.MinimumStdError ?? double.NaN;
         public double RSquared => Fit?.RSquared ?? double.NaN;
         public double ReducedChiSquared => Fit?.ReducedChiSquared ?? double.NaN;

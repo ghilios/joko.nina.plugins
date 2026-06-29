@@ -94,6 +94,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public int RegistrationId { get; init; }
         public AlglibHyperbolicFitting Fit { get; init; }
         public IReadOnlyList<ScatterErrorPoint> Points { get; init; }
+
+        /// <summary>The detections the fit rejected as outliers (subset of <see cref="Points"/> by coordinate), so the
+        /// hover graph can mark them with a red X. Empty when none were rejected.</summary>
+        public IReadOnlyList<ScatterErrorPoint> RejectedPoints { get; init; } = Array.Empty<ScatterErrorPoint>();
+
         public double RSquared { get; init; }
 
         /// <summary>Focuser position at best focus (the fit minimum's X).</summary>
@@ -197,10 +202,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         offset = rs.Fitting.Minimum.X - meanBestFocus.Value;
                         offsetByRegId[i] = offset.Value;
                     }
+                    // Rejected outliers only for fitted stars (a fitless star has no fit to reject from); projected to
+                    // zero-error points like the display Points, since the graph draws plain red-X markers.
+                    var rejected = (rs.Fitting != null ? rs.RejectedPoints : null)?
+                        .Select(p => new ScatterErrorPoint(p.X, p.Y, 0.0, 0.0))
+                        .ToList() ?? (IReadOnlyList<ScatterErrorPoint>)Array.Empty<ScatterErrorPoint>();
                     focusCurves[i] = new FrameReviewFocusCurve {
                         RegistrationId = i,
                         Fit = rs.Fitting,
                         Points = points,
+                        RejectedPoints = rejected,
                         RSquared = rs.Fitting?.RSquared ?? double.NaN,
                         BestFocus = rs.Fitting?.Minimum.X ?? double.NaN,
                         OffsetFromMean = offset,

@@ -7,6 +7,7 @@ using NINA.Joko.Plugins.HocusFocus.Tests.Synthetic;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NSubstitute;
 using NUnit.Framework;
+using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -224,6 +225,56 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
                 Assert.That(curve.Points.Count, Is.EqualTo(2)); // one per matched star
                 Assert.That(curve.RSquared, Is.EqualTo(fit.RSquared));
                 Assert.That(curve.BestFocus, Is.EqualTo(fit.Minimum.X));
+            });
+        }
+
+        [Test]
+        public void Build_FocusCurve_CarriesRejectedPointsForFittedStar_ProjectedToZeroError() {
+            var star = MakeStar(posX: 30);
+            var frame = MakeFrame(100, new[] { star }, MakeImage());
+            var fitted = MakeFittedRegistered(MakeFit(5000), (star, 0), (star, 1));
+            // The fit rejected one detection (carries a nonzero weight/error from the fit's input).
+            fitted.RejectedPoints = new[] { new ScatterErrorPoint(1.0, 7.5, 0.0, 0.3) };
+            var registered = new[] { fitted };
+
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, registered, referenceImageIndex: 0, ransacEnabled: true);
+
+            var curve = snapshot.FocusCurvesByRegistrationId[0];
+            Assert.Multiple(() => {
+                Assert.That(curve.RejectedPoints.Count, Is.EqualTo(1));
+                Assert.That(curve.RejectedPoints[0].X, Is.EqualTo(1.0)); // focuser position carried through
+                Assert.That(curve.RejectedPoints[0].Y, Is.EqualTo(7.5)); // HFR carried through
+                Assert.That(curve.RejectedPoints[0].ErrorY, Is.EqualTo(0.0)); // projected to zero error like display points
+            });
+        }
+
+        [Test]
+        public void Build_FocusCurve_NoRejectedPoints_IsEmpty() {
+            var star = MakeStar(posX: 30);
+            var frame = MakeFrame(100, new[] { star }, MakeImage());
+            var registered = new[] { MakeFittedRegistered(MakeFit(5000), (star, 0), (star, 1)) };
+
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, registered, referenceImageIndex: 0, ransacEnabled: true);
+
+            Assert.That(snapshot.FocusCurvesByRegistrationId[0].RejectedPoints, Is.Empty);
+        }
+
+        [Test]
+        public void Build_FocusCurve_UnfittedStar_HasNoRejectedPoints() {
+            var star = MakeStar(posX: 20);
+            var frame = MakeFrame(100, new[] { star }, MakeImage());
+            // A registered-but-unfitted star: even if rejected points were somehow set, the builder only surfaces them
+            // for fitted stars (a fitless star had no fit to reject from).
+            var noFit = MakeRegistered((star, 0));
+            noFit.RejectedPoints = new[] { new ScatterErrorPoint(0.0, 5.0, 0.0, 0.0) };
+            var registered = new[] { noFit };
+
+            var snapshot = FrameReviewSnapshotBuilder.Build(new[] { frame }, registered, referenceImageIndex: 0, ransacEnabled: true);
+
+            var curve = snapshot.FocusCurvesByRegistrationId[0];
+            Assert.Multiple(() => {
+                Assert.That(curve.Fit, Is.Null);
+                Assert.That(curve.RejectedPoints, Is.Empty);
             });
         }
 
