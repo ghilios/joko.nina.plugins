@@ -743,7 +743,7 @@ namespace TestApp {
         }
 
         private static void PrintUsage() {
-            Console.Error.WriteLine("Usage: TestApp optimize --runs <folder> [--per-run] [--profile-id <guid>] [--out <dir>] [--max-evals <int>] [--annotate extremes|all] [--labels <dir>] [--inspection] [--continue-rounds <0-2>] [--verbose]");
+            Console.Error.WriteLine("Usage: TestApp optimize --runs <folder> [--per-run] [--profile-id <guid>] [--out <dir>] [--max-evals <int>] [--annotate extremes|all] [--labels <dir>] [--inspection] [--donut] [--start-from-current] [--continue-rounds <0-2>] [--verbose]");
             Console.Error.WriteLine("  --runs       (required) folder of saved AF runs. Runs are 'attempt*' folders (recursively, <=4 deep) with >=3 focuser positions; or --runs itself.");
             Console.Error.WriteLine("  --per-run    (optional) optimize each discovered run INDEPENDENTLY into its own subfolder + an aggregate_summary.txt (use for a multi-setup bank).");
             Console.Error.WriteLine("  --profile-id (default active) NINA profile id to load (settings + PixelScale).");
@@ -752,6 +752,8 @@ namespace TestApp {
             Console.Error.WriteLine("  --annotate   (default extremes) annotate only min/max-focuser frames, or 'all' frames.");
             Console.Error.WriteLine("  --labels     (optional) folder of label JSON files; activates the recall/precision objective term.");
             Console.Error.WriteLine("  --inspection (optional) use the aberration-inspection objective (favor more stars; fit bounded relative to current σ).");
+            Console.Error.WriteLine("  --donut      (optional) force the DefocusAwareDonutDetection MASTER on so the optimizer explores the donut/spike recovery axes.");
+            Console.Error.WriteLine("  --start-from-current (optional) seed the optimizer from the current settings instead of the defaults (never regresses below current J).");
             Console.Error.WriteLine("  --legacy-objective (optional) disable the HFR-outlier penalty + region-coverage reward + saturated-HFR exclusion (the pre-change 'before' for an A/B).");
             Console.Error.WriteLine("  --continue-rounds (optional, 0-2) extra chained passes after the first, each re-seeded from the prior best (3 total).");
             Console.Error.WriteLine("  --verbose    (optional) restore TRACE logging (default INFO). Slower: serializes per-detection stage timings to the NINA log.");

@@ -52,11 +52,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // accepts strictly-improving moves and seeds from the DEFAULT params — wanders to an arbitrary tie-point
         // far from (and often worse than) the user's settings (e.g. it halves the star count for no J gain).
         // TieBreakerScore is an UNSATURATING secondary score (more stars / lower σ ⇒ higher, forever) blended
-        // into J as a convex combination: J = (1−Wtie)·J_primary + Wtie·T. Wtie is tiny so any genuine primary-J
-        // difference (≥~1e-3) dominates and off-plateau ranking is unchanged; on the plateau (J_primary tied) T
-        // decides, steering toward the star-rich / sharper basin. Wtie = 0 ⇒ J is bit-identical to the pre-tie
-        // -breaker objective. See docs/optimizer-plateau-tiebreaker-design.md.
-        public double Wtie { get; set; } = 1e-3;
+        // into J as a convex combination: J = (1−Wtie)·J_primary + Wtie·T. Wtie is small so a GENUINE primary-J
+        // difference still dominates and off-plateau ranking is unchanged; on the (near-)plateau (J_primary tied to
+        // within the σ-wiggle) T decides, steering toward the star-rich / sharper basin. Wtie = 0 ⇒ J is
+        // bit-identical to the pre-tie-breaker objective. See docs/optimizer-plateau-tiebreaker-design.md.
+        //
+        // Strengthened 1e-3 → 0.02 (docs/optimizer-sensitivity-pinning-design.md): the objective is BISTABLE in the
+        // (sensitivity, star-clip) plane — a star-SHEDDING corner (high sensitivity/clip, few stars) and a
+        // star-RICH corner score essentially the same J, and on a saturated plateau the shedding corner can hold a
+        // ~1e-3 σ-focus edge that the original tiny Wtie could not out-vote (bobp_m101: it pinned Sensitivity 50 /
+        // StarClip 9.5 → recall@SNR≥12 0.13 while a star-rich config scored ~0.87 at the same J). 0.02 is calibrated
+        // to bracket the two regimes: it reliably out-votes a fine-step plateau σ-wiggle (primary-Δ ≲ 4e-3, the
+        // bobp_m101 case) yet stays below a GENUINE focus-quality gap (primary-Δ ~9e-3 for a 30% σ difference at a
+        // coarse step — ForAberrationInspection_FlipsRankingTowardMoreStars — and ≫1e-2 for
+        // JRun_TieBreaker_DoesNotOverrideRealPrimaryDifference), so it only ever decides genuine ties.
+        public double Wtie { get; set; } = 0.02;
 
         // ── F3: label-free precision / false-positive penalty (SDefocusPrecision) ──────────────────────────
         // These gate the MULTIPLICATIVE penalty the objective applies for defocus-relaxation that admits junk.

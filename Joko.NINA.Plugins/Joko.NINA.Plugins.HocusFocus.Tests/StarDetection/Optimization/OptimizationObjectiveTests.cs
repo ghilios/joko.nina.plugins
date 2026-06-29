@@ -543,6 +543,33 @@ public class OptimizationObjectiveTests {
             "the tie-breaker is applied only on the feasible path; it never rescues an infeasible run");
     }
 
+    [Test]
+    public void JRun_TieBreaker_RejectsStarSheddingOnNearPlateau() {
+        // Regression for the sensitivity/star-clip bistability (docs/optimizer-sensitivity-pinning-design.md):
+        // on a (near-)saturated plateau a star-SHEDDING config can hold a vanishing σ-focus edge over a
+        // star-RICH one (both J_primary ≈ 1.0), and a too-weak tie-breaker lets that σ-wiggle pick the
+        // star-shedding corner — the bobp_m101 failure (recall 0.13 vs 0.87 at the same J). The shipped
+        // tie-breaker strength must out-vote the wiggle in favour of keeping stars.
+        RunEvaluationMetrics Plateau(int starsPerFrame, double sigmaFocus) => new RunEvaluationMetrics {
+            SigmaFocus = sigmaFocus, LooStdError = double.NaN, StepSize = 24.0, RSquared = 1.0,
+            ReducedChiSquared = 1.0, FrameStarCounts = Enumerable.Repeat(starsPerFrame, 10).ToList()
+        };
+        var shedding = Plateau(25, 0.20);   // few stars, marginally sharper σ → a tiny primary-J edge
+        var starRich = Plateau(200, 0.30);  // many stars, marginally softer σ (still on the plateau)
+
+        // Pre-fix baseline: the original tiny Wtie lets the σ-wiggle pick the star-shedding corner (the bug).
+        var cWeak = new ObjectiveConstants { Wtie = 1e-3 };
+        Assert.That(OptimizationObjective.JRun(shedding, cWeak),
+            Is.GreaterThan(OptimizationObjective.JRun(starRich, cWeak)),
+            "the weak tie-breaker wrongly prefers the star-shedding corner");
+
+        // Shipped strength: the strengthened tie-breaker keeps the star-rich corner.
+        var c = C;
+        Assert.That(OptimizationObjective.JRun(starRich, c),
+            Is.GreaterThan(OptimizationObjective.JRun(shedding, c)),
+            "the shipped tie-breaker keeps the star-rich corner on the plateau");
+    }
+
     // ---- JTotal ----
 
     [Test]

@@ -115,3 +115,16 @@ cannot climb across to. The optimizer only guarantees "≥ the **seed**" (defaul
    settings — keeping Current" note) whenever `BestJ ≤ currentBaselineJ + ε`. The Optimized variant stays
    available to inspect, but the default Accept keeps current. Exposed as `OptimizerImprovedOverCurrent` /
    `ShowNoImprovementNote` / `OptimizerNoImprovementNote` on the wizard VM; red-green verified.
+
+## Follow-up: Wtie strengthened 1e-3 → 0.02 (sensitivity-pinning bistability)
+
+The default-seeded `bobp_m101` audit (`docs/optimizer-sensitivity-pinning-design.md`,
+`docs/bobp-m101-recall-investigation-results.md`) showed the tie-breaker at `Wtie = 1e-3` was **too weak** in
+practice. The (sensitivity, star-clip) plane is bistable — a star-SHEDDING corner and a star-RICH corner score
+essentially the same J — and on the plateau the shedding corner holds a ~1e-3 σ-focus wiggle that `1e-3` could not
+out-vote, so the run pinned `Sensitivity 50 / StarClip 9.5` (recall@SNR≥12 0.13) where a star-rich config scored
+~0.87 at the same J. `Wtie` is raised to **0.02**, calibrated to bracket the two regimes — it out-votes a
+fine-step plateau σ-wiggle (primary-Δ ≲ 4e-3) yet stays below a GENUINE focus-quality gap (primary-Δ ~9e-3 for a
+30% σ difference at a coarse step, so the standard objective still prefers the sharper run and only `--inspection`
+flips toward stars). Guarded by `JRun_TieBreaker_RejectsStarSheddingOnNearPlateau`, and unchanged-pass on
+`JRun_TieBreaker_DoesNotOverrideRealPrimaryDifference` / `ForAberrationInspection_FlipsRankingTowardMoreStars`.
