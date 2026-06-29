@@ -96,25 +96,29 @@
         <Style x:Key="HF_ReviewToolbarButton" TargetType="Button">
             <Setter Property="Margin" Value="4,0" />
             <Setter Property="Padding" Value="10,4" />
-            <Setter Property="Foreground" Value="#FFE6E9ED" />
+            <Setter Property="Foreground" Value="#FF15181C" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="#FF3A4453" BorderBrush="#FF6E86A6" BorderThickness="1"
+                        <Border x:Name="Bd" Background="#FFD7DCE3" BorderBrush="#FF9AA5B3" BorderThickness="1"
                                 CornerRadius="3" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                               TextElement.Foreground="{TemplateBinding Foreground}" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#FF49566A" />
+                                <Setter TargetName="Bd" Property="Background" Value="#FFFFFFFF" />
                                 <Setter TargetName="Bd" Property="BorderBrush" Value="#FF5A86C0" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#FF313A47" />
+                                <Setter TargetName="Bd" Property="Background" Value="#FFB9C1CC" />
                             </Trigger>
+                            <!--  Disabled: a muted medium fill with light text (NOT a faded opacity, which made the text
+                                  unreadable) so a disabled Prev/Next still reads clearly as a greyed-out button.  -->
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.45" />
+                                <Setter TargetName="Bd" Property="Background" Value="#FF515A66" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FF626C7A" />
+                                <Setter Property="Foreground" Value="#FFC9CED6" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
