@@ -277,4 +277,94 @@ public class TiltCalibrationCalculatorTests {
             Assert.That(r.Screw2DirectionDegrees, Is.EqualTo(120).Within(1e-4));
         });
     }
+
+    // --- Calibration confidence (signal-to-noise) ---
+
+    [Test]
+    public void ComputeConfidence_CleanMeasurement_HighSnrAndReliable() {
+        // Baselines all identical (zero noise probes) and two clean equal screw moves -> infinite SNR, reliable.
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            Baseline = new TiltGradient(0, 0, 1000),
+            AllInward = new TiltGradient(0, 0, 1075),   // piston only: no tilt change vs baseline
+            ReBaseline1 = new TiltGradient(0, 0, 1000),
+            Screw1 = new TiltGradient(10, 0, 1000),
+            ReBaseline2 = new TiltGradient(0, 0, 1000),
+            Screw2 = new TiltGradient(0, 10, 1000),
+        };
+        var c = TiltCalibrationCalculator.ComputeConfidence(inputs);
+        Assert.Multiple(() => {
+            Assert.That(c.ScrewMoveSignal, Is.EqualTo(10).Within(1e-9));
+            Assert.That(c.NoiseEstimate, Is.EqualTo(0).Within(1e-9));
+            Assert.That(double.IsPositiveInfinity(c.SignalToNoise), Is.True);
+            Assert.That(c.PredictedAngleUncertaintyDeg, Is.EqualTo(0).Within(1e-9));
+            Assert.That(c.IsReliable, Is.True);
+        });
+    }
+
+    [Test]
+    public void ComputeConfidence_NoiseRivalsSignal_FlaggedUnreliable() {
+        // A large all-inward tilt residual (a pure piston should give ~0) drives the noise floor near the signal.
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            Baseline = new TiltGradient(0, 0, 1000),
+            AllInward = new TiltGradient(20, 0, 1075),  // 20-unit spurious tilt change on a piston move
+            ReBaseline1 = new TiltGradient(0, 0, 1000),
+            Screw1 = new TiltGradient(10, 0, 1000),
+            ReBaseline2 = new TiltGradient(0, 0, 1000),
+            Screw2 = new TiltGradient(0, 10, 1000),
+        };
+        var c = TiltCalibrationCalculator.ComputeConfidence(inputs);
+        Assert.Multiple(() => {
+            Assert.That(c.AllInwardTiltResidual, Is.EqualTo(20).Within(1e-9));
+            Assert.That(c.NoiseEstimate, Is.EqualTo(Math.Sqrt(400.0 / 3.0)).Within(1e-9));
+            Assert.That(c.SignalToNoise, Is.LessThan(TiltCalibrationCalculator.MinReliableSignalToNoise));
+            Assert.That(c.IsReliable, Is.False);
+        });
+    }
+
+    [Test]
+    public void ComputeConfidence_RealAstrodet6Run_IsNoiseDominated() {
+        // Regression lock on the real astrodet_6 calibration (D:\Tilt Calibration Bank\astrodet_6\...115023):
+        // the per-step tilt vectors give SNR ~0.81 and ~51° predicted screw-direction error -> not reliable.
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            Baseline = new TiltGradient(-2.1105835080420547, 24.121199286798387, 591.0128980765176),
+            AllInward = new TiltGradient(8.482652443992663, 6.478563541214388, 498.59261745105937),
+            ReBaseline1 = new TiltGradient(3.575182052031437, 6.397250940705116, 599.5753346049264),
+            Screw1 = new TiltGradient(7.026796200619742, -7.090700037203773, 566.0698145625257),
+            ReBaseline2 = new TiltGradient(6.01584663828578, 16.457907779687257, 609.7793117669113),
+            Screw2 = new TiltGradient(19.615438422209536, 13.583617294890002, 591.3416298243283),
+        };
+        var c = TiltCalibrationCalculator.ComputeConfidence(inputs);
+        Assert.Multiple(() => {
+            Assert.That(c.ScrewMoveSignal, Is.EqualTo(13.91).Within(0.05));
+            Assert.That(c.NoiseEstimate, Is.EqualTo(17.10).Within(0.05));
+            Assert.That(c.SignalToNoise, Is.EqualTo(0.81).Within(0.02));
+            Assert.That(c.PredictedAngleUncertaintyDeg, Is.EqualTo(50.9).Within(0.5));
+            Assert.That(c.IsReliable, Is.False);
+        });
+    }
+
+    [Test]
+    public void Calibrate_PopulatesConfidence() {
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            Baseline = new TiltGradient(0, 0, 1000),
+            AllInward = new TiltGradient(0, 0, 1075),
+            ReBaseline1 = new TiltGradient(0, 0, 1000),
+            Screw1 = SingleScrewReading(0, 400, 3, 1000),
+            ReBaseline2 = new TiltGradient(0, 0, 1000),
+            Screw2 = SingleScrewReading(120, 400, 3, 1000),
+            ImageWidthPixels = ImgW,
+            ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize,
+            FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm,
+            CalibrationAppliedAmount = 1.0,
+        };
+        var r = TiltCalibrationCalculator.Calibrate(inputs);
+        Assert.That(r.Confidence, Is.Not.Null);
+        Assert.That(r.Confidence.IsReliable, Is.True); // clean synthetic moves, zero drift
+    }
 }

@@ -72,6 +72,29 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         /// clean, equal single-screw moves this is ~1; a large value means the two calibration turns were unequal
         /// (uneven turning / backlash) and the recovered pitch/step size is unreliable. NaN if a magnitude is 0.</summary>
         public double MoveMagnitudeRatio { get; set; }
+
+        /// <summary>Signal-to-noise / reliability of the whole calibration, derived from the per-step tilt vectors.
+        /// Populated by <see cref="TiltCalibrationCalculator.Calibrate"/>.</summary>
+        public TiltCalibrationConfidence Confidence { get; set; }
+    }
+
+    /// <summary>
+    /// How trustworthy a calibration is, derived purely from the six per-step tilt vectors — no fit covariance
+    /// needed. The screw-move magnitudes are the <i>signal</i>; quantities that must be ~0 in a noise-free,
+    /// stationary measurement are <i>noise probes</i>: turning all screws inward equally is a pure piston (no net
+    /// tilt change vs baseline), and each re-baseline should return to its predecessor (zero drift). When the
+    /// noise probes rival the screw-move signal the recovered geometry is dominated by measurement noise / between
+    /// step drift, no matter how cleanly the screws were turned.
+    /// </summary>
+    public sealed class TiltCalibrationConfidence {
+        public double ScrewMoveSignal { get; set; }               // mean |single-screw move| magnitude (the signal)
+        public double NoiseEstimate { get; set; }                 // RMS of the noise probes below
+        public double SignalToNoise { get; set; }                 // ScrewMoveSignal / NoiseEstimate (Inf if noise 0)
+        public double PredictedAngleUncertaintyDeg { get; set; }  // ~1σ on each recovered screw direction
+        public double AllInwardTiltResidual { get; set; }         // |AllInward − Baseline|, should be ~0 (pure piston)
+        public double Rebaseline1Drift { get; set; }              // |ReBaseline1 − Baseline|, should be ~0
+        public double Rebaseline2Drift { get; set; }              // |ReBaseline2 − ReBaseline1|, should be ~0
+        public bool IsReliable { get; set; }                      // SignalToNoise >= MinReliableSignalToNoise
     }
 
     /// <summary>
@@ -87,6 +110,44 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     public static class TiltCalibrationCalculator {
 
         public static double NormalizeAngle(double deg) => ((deg % 360) + 360) % 360;
+
+        /// <summary>Below this signal-to-noise the calibration is noise-dominated and should not be trusted/applied.
+        /// At SNR = 2 the screw-move signal is twice the noise floor, giving a recovered-direction 1σ of ~27°.</summary>
+        public const double MinReliableSignalToNoise = 2.0;
+
+        private static double Magnitude(double a, double b) => Math.Sqrt(a * a + b * b);
+
+        /// <summary>
+        /// Estimates how trustworthy the calibration is from the six per-step tilt vectors. See
+        /// <see cref="TiltCalibrationConfidence"/> for the model: screw moves are the signal; the all-inward piston
+        /// residual and the two re-baseline drifts are independent noise probes (each ~0 in an ideal measurement).
+        /// </summary>
+        public static TiltCalibrationConfidence ComputeConfidence(TiltCalibrationInputs inputs) {
+            double s1 = Magnitude(inputs.Screw1.A - inputs.ReBaseline1.A, inputs.Screw1.B - inputs.ReBaseline1.B);
+            double s2 = Magnitude(inputs.Screw2.A - inputs.ReBaseline2.A, inputs.Screw2.B - inputs.ReBaseline2.B);
+            double signal = 0.5 * (s1 + s2);
+
+            double allInward = Magnitude(inputs.AllInward.A - inputs.Baseline.A, inputs.AllInward.B - inputs.Baseline.B);
+            double drift1 = Magnitude(inputs.ReBaseline1.A - inputs.Baseline.A, inputs.ReBaseline1.B - inputs.Baseline.B);
+            double drift2 = Magnitude(inputs.ReBaseline2.A - inputs.ReBaseline1.A, inputs.ReBaseline2.B - inputs.ReBaseline1.B);
+            double noise = Math.Sqrt((allInward * allInward + drift1 * drift1 + drift2 * drift2) / 3.0);
+
+            double snr = noise > 0 ? signal / noise : double.PositiveInfinity;
+            // A screw direction is atan2 of its move vector; transverse noise of ~noise on a signal of ~signal
+            // perturbs that direction by ~atan(noise/signal). Degenerate (no signal) => maximally uncertain.
+            double angleUncertainty = signal > 0 ? Math.Atan2(noise, signal) * 180.0 / Math.PI : 90.0;
+
+            return new TiltCalibrationConfidence {
+                ScrewMoveSignal = signal,
+                NoiseEstimate = noise,
+                SignalToNoise = snr,
+                PredictedAngleUncertaintyDeg = angleUncertainty,
+                AllInwardTiltResidual = allInward,
+                Rebaseline1Drift = drift1,
+                Rebaseline2Drift = drift2,
+                IsReliable = snr >= MinReliableSignalToNoise
+            };
+        }
 
         /// <summary>Curvature (backfocus) sign from the all-screws-inward vs baseline mean-focus delta.</summary>
         public static int ComputeCurvatureSign(double allScrewsMean, double baselineMean) {
@@ -214,7 +275,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 MeasuredHardwareMicrons = RecoverHardwareMicrons(inputs),
                 Screw1DirectionDegrees = NormalizeAngle(Math.Atan2(d1A, -d1B) * 180.0 / Math.PI),
                 Screw2DirectionDegrees = NormalizeAngle(Math.Atan2(d2A, -d2B) * 180.0 / Math.PI),
-                MoveMagnitudeRatio = MoveMagnitudeRatio(d1A, d1B, d2A, d2B)
+                MoveMagnitudeRatio = MoveMagnitudeRatio(d1A, d1B, d2A, d2B),
+                Confidence = ComputeConfidence(inputs)
             };
         }
     }

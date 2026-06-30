@@ -49,6 +49,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         /// <summary>
+        /// Exact inverse of <see cref="PlaneGradientToPhysical"/>: convert a physical best-focus tilt gradient
+        /// (focuser microns of travel per micron of sensor displacement — e.g. the per-star paraboloid's Gx/Gy)
+        /// into tilt-plane coefficients (A, B) in focuser steps per normalized image coordinate over [-0.5, 0.5].
+        /// This lets the robust per-star sensor-model tilt feed the same screw-calibration math the 4-corner plane
+        /// uses, so the wizard can consume the better estimator without changing downstream geometry.
+        /// </summary>
+        public static (double a, double b) PhysicalGradientToPlane(
+            double gx, double gy, double focuserStepMicrons, double sensorWidthMicrons, double sensorHeightMicrons) {
+            if (focuserStepMicrons <= 0) {
+                return (double.NaN, double.NaN);
+            }
+            var a = gx * sensorWidthMicrons / focuserStepMicrons;
+            var b = gy * sensorHeightMicrons / focuserStepMicrons;
+            return (a, b);
+        }
+
+        /// <summary>
         /// Per-screw axial move (microns) that cancels the given best-focus tilt gradient,
         /// evaluated at the screw location: δ = -(gx·x + gy·y). Positive = the direction
         /// returned here is the sensor-axial displacement to apply at that screw.

@@ -87,6 +87,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private string measurementConsistencyWarningText = string.Empty;
         private bool hasRebaselineDriftWarning = false;
         private string rebaselineDriftWarningText = string.Empty;
+        private bool hasConfidenceWarning = false;
+        private string confidenceWarningText = string.Empty;
         private bool hasMeasurementFailureChoice = false;
         private string measurementFailureText = string.Empty;
 
@@ -446,6 +448,24 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        // Overall signal-to-noise of the calibration (screw-move signal vs the all-inward/re-baseline noise probes).
+        // When low, the recovered screw geometry is dominated by measurement noise / drift and should not be applied.
+        public bool HasConfidenceWarning {
+            get => hasConfidenceWarning;
+            private set {
+                hasConfidenceWarning = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        public string ConfidenceWarningText {
+            get => confidenceWarningText;
+            private set {
+                confidenceWarningText = value;
+                RaisePropertyChanged();
+            }
+        }
+
         // Transient per-run toggle: save each calibration step's AutoFocus sweep so the run can be replayed.
         // Always starts OFF and must be explicitly enabled before each run (not persisted). The folder is
         // persisted (SaveAFRunsPath) so the location is reused.
@@ -674,6 +694,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             stepReadings.Clear();
             HasRebaselineDriftWarning = false;
             RebaselineDriftWarningText = string.Empty;
+            HasConfidenceWarning = false;
+            ConfidenceWarningText = string.Empty;
             HasWarning = false;
             WarningText = string.Empty;
             ClearSummaryRows();
@@ -1138,6 +1160,15 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
 
             EvaluateRebaselineDrift();
+            EvaluateCalibrationConfidence(TiltCalibrationCalculator.ComputeConfidence(new TiltCalibrationInputs {
+                ScrewCount = screwCount,
+                Baseline = new TiltGradient(a.A, a.B, a.Mean),
+                AllInward = new TiltGradient(b.A, b.B, b.Mean),
+                ReBaseline1 = new TiltGradient(c.A, c.B, c.Mean),
+                Screw1 = new TiltGradient(d.A, d.B, d.Mean),
+                ReBaseline2 = new TiltGradient(e.A, e.B, e.Mean),
+                Screw2 = new TiltGradient(f.A, f.B, f.Mean)
+            }));
             RaiseHardwareSummaryChanged();
         }
 
@@ -1205,6 +1236,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 ? string.Empty
                 : "Re-baseline drift detected: " + string.Join("; ", parts) +
                     ". The undo between moves left residual tilt (backlash or an uneven turn); consider recalibrating.";
+        }
+
+        // Overall calibration signal-to-noise from the six per-step tilt vectors. A low SNR means the recovered
+        // screw geometry is dominated by measurement noise / between-step drift (typically too few stars or a
+        // too-coarse focus step), regardless of how cleanly the screws were turned — warn the user not to apply it.
+        private void EvaluateCalibrationConfidence(TiltCalibrationConfidence confidence) {
+            if (confidence == null || confidence.IsReliable) {
+                HasConfidenceWarning = false;
+                ConfidenceWarningText = string.Empty;
+                return;
+            }
+            HasConfidenceWarning = true;
+            ConfidenceWarningText =
+                $"Low calibration confidence: signal-to-noise {confidence.SignalToNoise:F1} (need ≥ {TiltCalibrationCalculator.MinReliableSignalToNoise:F0}), " +
+                $"predicted screw-direction error ±{confidence.PredictedAngleUncertaintyDeg:F0}°. The tilt-measurement noise rivals the " +
+                "screw-move signal — usually too few stars or a too-coarse focus step (calibrate on a star-rich field with a finer step), " +
+                "or drift between steps. Re-capture before applying these screw angles.";
         }
 
         private StepReading Reading(WizardStep step) =>
