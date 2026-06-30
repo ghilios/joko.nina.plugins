@@ -841,6 +841,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private static string StepFolderName(WizardStep step) => $"{(int)step + 1:00}_{step}";
 
+        // The wizard calibrates from the per-star sensor-curve model's tilt (the paraboloid Gx/Gy, expressed as a
+        // TiltPlaneModel by SensorModelAberrationResult.CreateTiltPlaneModel) — NEVER the 4-corner region plane. The
+        // sensor model is force-generated around each measurement (inspector.ForceSensorCurveModelGeneration); this is
+        // null when the paraboloid could not be fit (too few stars), in which case the measurement fails.
+        private TiltPlaneModel CalibrationTiltPlane => inspector.SensorModel?.SensorModelResult?.TiltPlaneModel;
+
         // Runs the aberration inspector MeasurementAverageCount times, averages the tilt plane, appends summary
         // rows + the consistency warning, and captures the per-step field-curvature characterization. When saving
         // (live only), each step's run is redirected into its own folder and the saved location is recorded.
@@ -871,16 +877,27 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 token.ThrowIfCancellationRequested();
                 StatusText = $"Run {i + 1}/{count}...";
                 bool ok;
-                if (fromSaved) {
-                    // IsMeasuring is set via callback after the folder dialog closes so the chart doesn't appear
-                    // until the user has confirmed a selection.
-                    ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true, saveOverride: saveOverride);
-                } else {
-                    ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true, saveOverride);
+                // Force the per-star sensor-curve model so this analysis produces the paraboloid tilt the calibration
+                // reads (CalibrationTiltPlane); restore the flag immediately so it never leaks to other inspector uses.
+                var prevForce = inspector.ForceSensorCurveModelGeneration;
+                inspector.ForceSensorCurveModelGeneration = true;
+                try {
+                    if (fromSaved) {
+                        // IsMeasuring is set via callback after the folder dialog closes so the chart doesn't appear
+                        // until the user has confirmed a selection.
+                        ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true, saveOverride: saveOverride);
+                    } else {
+                        ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true, saveOverride);
+                    }
+                } finally {
+                    inspector.ForceSensorCurveModelGeneration = prevForce;
                 }
                 if (!ok) return null;
-                var m = inspector.TiltModel?.TiltPlaneModel;
-                if (m == null) return null;
+                var m = CalibrationTiltPlane;
+                if (m == null) {
+                    Logger.Error("Tilt calibration: the per-star sensor-curve model could not be fit for this step; cannot derive tilt.");
+                    return null;
+                }
                 readings.Add((m.A, m.B, m.MeanFocuserPosition));
             }
 
@@ -888,7 +905,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             double avgB = readings.Average(r => r.B);
             double avgMean = readings.Average(r => r.Mean);
 
-            var latestModel = inspector.TiltModel?.TiltPlaneModel;
+            var latestModel = CalibrationTiltPlane;
             AppendSummaryRows(readings, stepDescription, latestModel, count, avgA, avgB);
 
             var reading = new StepReading {
@@ -1130,7 +1147,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             calibrationPixelSizeMicrons = pixelSize;
             calibrationFocuserStepMicrons = fStep;
 
-            var model = inspector.TiltModel?.TiltPlaneModel;
+            var model = CalibrationTiltPlane;
             if (model != null) {
                 var inputs = new TiltCalibrationInputs {
                     ScrewCount = screwCount,
@@ -1370,16 +1387,24 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     var detectionOverride = mode.ApplyCaptureTimeOverridePerStep
                         ? BuildTiltReplayDetectionOverride(byStep[step.ToString()], metadata)
                         : null;
-                    bool ok = await inspector.AnalyzeAutoFocusFromSavedPath(byStep[step.ToString()], token, detectionOverride);
+                    bool ok;
+                    // Force the per-star sensor-curve model so replay derives tilt from the paraboloid, like a live run.
+                    var prevForce = inspector.ForceSensorCurveModelGeneration;
+                    inspector.ForceSensorCurveModelGeneration = true;
+                    try {
+                        ok = await inspector.AnalyzeAutoFocusFromSavedPath(byStep[step.ToString()], token, detectionOverride);
+                    } finally {
+                        inspector.ForceSensorCurveModelGeneration = prevForce;
+                    }
                     if (!ok) {
                         StatusText = $"Replay failed at {step}.";
                         Notification.ShowError($"Replay failed at step '{step}'. The saved frames could not be analyzed.{profileNotChangedNote}");
                         return;
                     }
-                    var m = inspector.TiltModel?.TiltPlaneModel;
+                    var m = CalibrationTiltPlane;
                     if (m == null) {
                         StatusText = $"Replay produced no tilt model at {step}.";
-                        Notification.ShowError($"Replay produced no tilt model at step '{step}'.{profileNotChangedNote}");
+                        Notification.ShowError($"Replay produced no sensor-curve-model tilt at step '{step}'. The per-star paraboloid could not be fit.{profileNotChangedNote}");
                         return;
                     }
                     var reading = new StepReading {
