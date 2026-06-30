@@ -835,6 +835,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         // the frame forms at least this many triangles. Only ever runs for frames that all earlier passes failed.
         private const double maxEscalationSizePortion = 0.35;
         private const int minEscalationFrameTriangles = 12;
+        // Hard cap on the stars fed into the escalation's triangle builds. The DENSE reference build is O(k^2)/O(k^3)
+        // in stars-within-box, so a star-rich reference frame at a large box would explode into millions of triangles
+        // (observed: a multi-thousand-star bank run hung for hours). The brightest ~120 stars are more than enough to
+        // register a sparse failed frame's handful of stars, and capping bounds the triangle count regardless of box.
+        private const int maxEscalationStars = 120;
 
         private int AlignStarsWithRANSAC(
             List<SensorDetectedStars> allDetectedStars,
@@ -1132,6 +1137,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             transform = Matrix3x2.Identity;
             putativeMatches = 0;
             boxUsed = referenceBox;
+            // Bound the O(k^2)/O(k^3) dense-triangle cost (see maxEscalationStars): use only the brightest stars. This
+            // is the failure path only, so the normal passes still triangulate the full star set.
+            if (referenceStars.Count > maxEscalationStars) {
+                referenceStars = referenceStars.OrderByDescending(p => p.NormalisedBrightness).Take(maxEscalationStars).ToList();
+            }
+            if (frameStars.Count > maxEscalationStars) {
+                frameStars = frameStars.OrderByDescending(p => p.NormalisedBrightness).Take(maxEscalationStars).ToList();
+            }
             int maxBox = (int)(maxEscalationSizePortion * Math.Min(imageSize.Width, imageSize.Height));
             // Math.Max(box + 1, ...) guarantees the box strictly grows each step so the loop always terminates,
             // even for a degenerate tiny reference box where (int)(box * 1.5) could otherwise stall.
