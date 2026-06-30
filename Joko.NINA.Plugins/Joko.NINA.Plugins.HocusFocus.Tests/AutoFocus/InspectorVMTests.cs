@@ -118,6 +118,49 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
         }
 
         [Test]
+        public void ApplySignalAmplification_LiveRun_DividesStepSizeAndMultipliesStepCount() {
+            var options = new AutoFocusEngineOptions { AutoFocusInitialOffsetSteps = 4, AutoFocusStepSize = 100 };
+            InspectorVM.ApplySignalAmplification(options, signalAmplification: 2, isLiveCapture: true);
+            Assert.Multiple(() => {
+                Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(8));
+                Assert.That(options.AutoFocusStepSize, Is.EqualTo(50));
+            });
+        }
+
+        [TestCase(1)]   // factor of 1 disables amplification
+        [TestCase(0)]   // clamped to 1 -> no-op
+        [TestCase(-3)]  // clamped to 1 -> no-op
+        public void ApplySignalAmplification_FactorOfOneOrLess_IsNoOp(int amp) {
+            var options = new AutoFocusEngineOptions { AutoFocusInitialOffsetSteps = 4, AutoFocusStepSize = 100 };
+            InspectorVM.ApplySignalAmplification(options, signalAmplification: amp, isLiveCapture: true);
+            Assert.Multiple(() => {
+                Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(4));
+                Assert.That(options.AutoFocusStepSize, Is.EqualTo(100));
+            });
+        }
+
+        [Test]
+        public void ApplySignalAmplification_Replay_IsNoOp() {
+            // On replay the saved frames' focuser positions are fixed, so amplification must not change the sweep.
+            var options = new AutoFocusEngineOptions { AutoFocusInitialOffsetSteps = 4, AutoFocusStepSize = 100 };
+            InspectorVM.ApplySignalAmplification(options, signalAmplification: 3, isLiveCapture: false);
+            Assert.Multiple(() => {
+                Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(4));
+                Assert.That(options.AutoFocusStepSize, Is.EqualTo(100));
+            });
+        }
+
+        [Test]
+        public void ApplySignalAmplification_StepSizeFloorsAtOne() {
+            var options = new AutoFocusEngineOptions { AutoFocusInitialOffsetSteps = 5, AutoFocusStepSize = 1 };
+            InspectorVM.ApplySignalAmplification(options, signalAmplification: 4, isLiveCapture: true);
+            Assert.Multiple(() => {
+                Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(20));
+                Assert.That(options.AutoFocusStepSize, Is.EqualTo(1));
+            });
+        }
+
+        [Test]
         public void HasInspectorRegionLayout_RequiresFullSixRegionGrid() {
             // The region report indexes RegionHFRs[1..5], so fewer than 6 regions (e.g. a reprocessed single-region
             // regular-AF run) must be rejected — the guard that turns the old IndexOutOfRange crash into a clean log.

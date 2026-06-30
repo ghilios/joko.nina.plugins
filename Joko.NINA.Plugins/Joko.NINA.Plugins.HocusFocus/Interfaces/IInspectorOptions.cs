@@ -47,6 +47,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public interface IInspectorOptions : INotifyPropertyChanged {
         int StepCount { get; set; }
         int StepSize { get; set; }
+        int SignalAmplification { get; set; }
+        bool CenterFocuserBeforeRun { get; set; }
         int FramesPerPoint { get; set; }
         int TimeoutSeconds { get; set; }
         int NumRegionsWide { get; set; }
