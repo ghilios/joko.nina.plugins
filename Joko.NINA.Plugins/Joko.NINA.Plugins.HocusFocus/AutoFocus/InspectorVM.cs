@@ -284,7 +284,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // keep the engine save OFF so it neither writes auxiliary artifacts nor a replay metadata.json into the
                 // global save path during tilt calibration replay.
                 options.Save = false;
-                var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
+                var sensorCurveModelEnabled = ResolveSensorCurveModelEnabled();
                 var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
@@ -401,7 +401,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             options.SaveExposuresOnly = suppressAuxiliaryFiles;
                         }
                     }
-                    var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
+                    var sensorCurveModelEnabled = ResolveSensorCurveModelEnabled();
                     var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
                     var imagingFilter = GetImagingFilter();
 
@@ -479,6 +479,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private bool focuserStepSizeWarningShowed = false;
+
+        // When set (by the Tilt Adapter Wizard around its own calibration analyses), the per-star sensor-curve model
+        // (paraboloid) is generated even if the SensorCurveModelEnabled display option is off, so calibration can read
+        // its robust tilt. Transient and not persisted; the wizard sets it only for the duration of each analysis call.
+        public bool ForceSensorCurveModelGeneration { get; set; }
+
+        private bool ResolveSensorCurveModelEnabled() =>
+            inspectorOptions.SensorCurveModelEnabled || ForceSensorCurveModelGeneration;
 
         private async Task<bool> AnalyzeAutoFocusResult(
             AutoFocusEngineOptions options,
@@ -1140,7 +1148,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // options.StarDetectionOptionsOverride, which the explicit-region detection path applies regardless of
                 // which regions are used. ROI follows the regions: the Inspector grid uses the app's SensorROI/CornersROI
                 // and the AF region uses the app's crop (see GetAutoFocusRegion).
-                var sensorCurveModelEnabled = inspectorOptions.SensorCurveModelEnabled;
+                var sensorCurveModelEnabled = ResolveSensorCurveModelEnabled();
                 var regions = GetStarDetectionRegions(options, sensorCurveModelEnabled: sensorCurveModelEnabled);
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;

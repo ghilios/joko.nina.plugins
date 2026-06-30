@@ -178,4 +178,25 @@ public class TiltScrewGeometryTests {
             Assert.That(gy, Is.EqualTo(-2.0 * 5.0 / 8000.0).Within(1e-12));
         });
     }
+
+    [Test]
+    public void PhysicalGradientToPlane_IsExactInverseOfPlaneGradientToPhysical() {
+        const double stepMicrons = 3.58, sensorW = 6000 * 3.76, sensorH = 4000 * 3.76;
+        // Round-trip a plane (A,B) -> physical gradient -> back, and the reverse from a physical gradient.
+        var (gx, gy) = TiltScrewGeometry.PlaneGradientToPhysical(7.0, -3.5, stepMicrons, sensorW, sensorH);
+        var (a, b) = TiltScrewGeometry.PhysicalGradientToPlane(gx, gy, stepMicrons, sensorW, sensorH);
+        Assert.Multiple(() => {
+            Assert.That(a, Is.EqualTo(7.0).Within(1e-9));
+            Assert.That(b, Is.EqualTo(-3.5).Within(1e-9));
+            // Direct formula: A = gx·sensorW/step.
+            Assert.That(TiltScrewGeometry.PhysicalGradientToPlane(0.01, 0.0, stepMicrons, sensorW, sensorH).a,
+                Is.EqualTo(0.01 * sensorW / stepMicrons).Within(1e-9));
+        });
+    }
+
+    [Test]
+    public void PhysicalGradientToPlane_ReturnsNaN_OnNonPositiveStep() {
+        var (a, b) = TiltScrewGeometry.PhysicalGradientToPlane(0.01, 0.02, 0.0, 1000, 1000);
+        Assert.That(double.IsNaN(a) && double.IsNaN(b), Is.True);
+    }
 }

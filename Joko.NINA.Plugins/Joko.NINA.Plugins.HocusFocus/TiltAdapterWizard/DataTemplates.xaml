@@ -771,6 +771,28 @@
                             TextWrapping="Wrap" />
                     </Border>
 
+                    <!--  Low calibration confidence: measurement noise rivals the screw-move signal (do not apply)  -->
+                    <Border
+                        Margin="0,5"
+                        Padding="5"
+                        BorderBrush="{StaticResource NotificationErrorBrush}"
+                        BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasConfidenceWarning}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock
+                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Text="{Binding ConfidenceWarningText}"
+                            TextWrapping="Wrap" />
+                    </Border>
+
                     <Grid Margin="0,5,0,5" HorizontalAlignment="Stretch">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />

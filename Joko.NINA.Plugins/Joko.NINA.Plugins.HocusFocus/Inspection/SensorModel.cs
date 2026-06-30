@@ -587,11 +587,29 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         // on a detected star (mean brightness above background, with a shot-noise-like denominator). This
         // makes the previously no-op WeightedHyperbolicFitEnabled meaningful. It does not affect the
         // best-focus standard error, which is self-calibrated from the fit residuals.
+        // Per-point HFR uncertainty (used as 1/σ² weights in the per-star sweep fit). Base term is the shot-noise
+        // estimate σ ≈ HFR / SNR, with two donut-aware adjustments that down-weight heavily-defocused points whose
+        // HFR is unreliable beyond shot noise (the dominant scatter in the per-star curves on reflector/defocus runs):
+        //   • A low SNR floor: the previous 1.0 floor pinned σ at HFR for EVERY sub-unity-SNR detection, understating
+        //     the noise of faint, spread-out donuts; letting σ = HFR/SNR grow for them reflects their true
+        //     uncertainty. (PSF quality is deliberately not used — a PSF fit is only meaningful for an in-focus star,
+        //     never a donut.)
+        //   • A contamination multiplier: the detector flags blended/overlapping detections (common among
+        //     extreme-defocus donuts), whose HFR is corrupted by a neighbour's flux.
+        // Regularize() only floors σ (caps the max weight), so these inflations pass through and reduce weight as
+        // intended. EstimateHfrStdDev is private to the sensor model, so this affects only the aberration/tilt fit,
+        // not the autofocus curve fit.
+        private const double HfrSigmaSnrFloor = 0.2;
+        private const double HfrSigmaContaminationFactor = 3.0;
+
         private static double EstimateHfrStdDev(HocusFocusDetectedStar star) {
             var signal = star.AverageBrightness - star.Background;
             var noise = Math.Sqrt(Math.Max(star.AverageBrightness, 1.0));
             var snr = signal > 0 ? signal / noise : 0.0;
-            var sigma = star.HFR / Math.Max(snr, 1.0);
+            var sigma = star.HFR / Math.Max(snr, HfrSigmaSnrFloor);
+            if (star.StarContaminationSuspected) {
+                sigma *= HfrSigmaContaminationFactor;
+            }
             return Math.Max(sigma, 1e-3);
         }
 

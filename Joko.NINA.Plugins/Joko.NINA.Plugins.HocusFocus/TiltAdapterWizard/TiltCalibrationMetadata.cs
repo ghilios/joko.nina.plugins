@@ -16,6 +16,7 @@ using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
@@ -134,14 +135,50 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         /// <summary>
         /// Resolves a stored step folder against the run root the caller actually selected. Relative entries (the
-        /// current format) are rebased onto <paramref name="runRootFolder"/>; absolute entries (legacy files) are
-        /// honored as-is. Mirrors the headless <c>TestApp</c> resolver so in-app and offline replay agree.
+        /// current format) are rebased onto <paramref name="runRootFolder"/>. Absolute entries (legacy files, or a
+        /// run captured under a different volume/path than where <c>metadata.json</c> now lives) are honored as-is
+        /// when they still exist; otherwise their tail is rebased onto the selected run root so a moved/copied run
+        /// stays replayable. Mirrors the headless <c>TestApp</c> resolver so in-app and offline replay agree.
         /// </summary>
         public static string ResolveStepFolder(string runRootFolder, string storedFolder) {
-            if (string.IsNullOrEmpty(storedFolder) || string.IsNullOrEmpty(runRootFolder) || Path.IsPathRooted(storedFolder)) {
+            if (string.IsNullOrEmpty(storedFolder) || string.IsNullOrEmpty(runRootFolder)) {
                 return storedFolder;
             }
-            return Path.GetFullPath(Path.Combine(runRootFolder, storedFolder));
+            if (!Path.IsPathRooted(storedFolder)) {
+                return Path.GetFullPath(Path.Combine(runRootFolder, storedFolder));
+            }
+            // Absolute, and present on this machine: honor it (the common live-replay case).
+            if (Directory.Exists(storedFolder)) {
+                return storedFolder;
+            }
+            // Absolute but missing — the run was moved/copied to a different drive than the captured path. Rebase
+            // the portion after the run-root folder (e.g. TiltCalibration_<id>) onto the selected run root; fall
+            // back to the last two segments (<NN_Step>\AutoFocus_<timestamp>), the wizard's save structure.
+            return RebaseAbsoluteStepFolder(runRootFolder, storedFolder) ?? storedFolder;
+        }
+
+        private static string RebaseAbsoluteStepFolder(string runRootFolder, string storedFolder) {
+            var segments = storedFolder.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+            string TryTail(IEnumerable<string> tailSegments) {
+                var tail = tailSegments.ToArray();
+                if (tail.Length == 0) {
+                    return null;
+                }
+                var candidate = Path.GetFullPath(Path.Combine(runRootFolder, Path.Combine(tail)));
+                return Directory.Exists(candidate) ? candidate : null;
+            }
+
+            var rootLeaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(runRootFolder));
+            if (!string.IsNullOrEmpty(rootLeaf)) {
+                int idx = Array.FindLastIndex(segments, s => string.Equals(s, rootLeaf, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0 && idx < segments.Length - 1) {
+                    var afterRoot = TryTail(segments.Skip(idx + 1));
+                    if (afterRoot != null) {
+                        return afterRoot;
+                    }
+                }
+            }
+            return segments.Length >= 2 ? TryTail(segments.Skip(segments.Length - 2)) : null;
         }
 
         public void Validate() {

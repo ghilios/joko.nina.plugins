@@ -13,8 +13,10 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using NINA.Core.Enum;
+using NINA.Core.Model;
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
@@ -187,11 +189,13 @@ namespace TestApp {
 
             var perStep = new List<StepResult>(orderedRuns.Count);
             foreach (var run in orderedRuns) {
-                Console.WriteLine($"Measuring tilt for {run.Step} ({Path.GetFileName(run.Folder)}) ...");
+                Console.WriteLine($"Measuring 4-corner tilt for {run.Step} ({Path.GetFileName(run.Folder)}, {run.Frames.Count} frames × 5 regions) ...");
+                var sw4c = System.Diagnostics.Stopwatch.StartNew();
                 var stepResult = await MeasureTiltAsync(run, detector, detectionParams, regions, fRatio,
                     metadata.FocuserStepSizeMicrons, metadata.PixelSizeMicrons, starDetectionOptions.MeasurementAverage,
                     profileService, alglibAPI, afOptions.HyperbolicFitModel).ConfigureAwait(false);
                 perStep.Add(stepResult);
+                Console.WriteLine($"    [4-corner {run.Step}] done in {sw4c.ElapsedMilliseconds} ms");
                 Console.WriteLine($"    A={F(stepResult.Gradient.A)}, B={F(stepResult.Gradient.B)}, " +
                     $"direction={F(NormalizeAngle(Math.Atan2(stepResult.Gradient.A, -stepResult.Gradient.B) * 180.0 / Math.PI))}°, " +
                     $"tilt={F(stepResult.TiltAngleDeg)}°, mean={F(stepResult.Gradient.MeanFocuserPosition)}");
@@ -218,7 +222,42 @@ namespace TestApp {
             };
             var calibration = TiltCalibrationCalculator.Calibrate(inputs);
 
-            WriteReport(outDir, metadata, optimizationSource, perStep, inputs, calibration);
+            // Alternative estimator: measure each step's tilt from the robust per-star paraboloid (Gx/Gy) and run the
+            // SAME calibration on it, to see how the "use the sensor-model tilt" rewire behaves on this exact data.
+            var paraboloidSteps = new List<ParaboloidStepResult>(orderedRuns.Count);
+            foreach (var run in orderedRuns) {
+                Console.WriteLine($"Paraboloid (per-star) tilt for {run.Step} ...");
+                var mean = byStep[run.Step].Gradient.MeanFocuserPosition;
+                var ps = await MeasureTiltViaParaboloidAsync(run, detector, detectionParams, metadata.FocuserStepSizeMicrons,
+                    metadata.PixelSizeMicrons, mean, profileService, inspectorOptions, afOptions, alglibAPI).ConfigureAwait(false);
+                paraboloidSteps.Add(ps);
+                Console.WriteLine(ps.Fitted
+                    ? $"    A={F(ps.Gradient.A)}, B={F(ps.Gradient.B)}, stars={ps.StarsInModel}, R²={F(ps.RSquared)}"
+                    : $"    paraboloid fit FAILED: {ps.Status}");
+            }
+            TiltCalibrationResult paraboloidCalibration = null;
+            if (paraboloidSteps.All(p => p.Fitted)) {
+                var pbyStep = paraboloidSteps.ToDictionary(s => s.Step, StringComparer.OrdinalIgnoreCase);
+                var pinputs = new TiltCalibrationInputs {
+                    ScrewCount = metadata.NumberOfScrews,
+                    Baseline = pbyStep["Baseline"].Gradient,
+                    AllInward = pbyStep["AllInward"].Gradient,
+                    ReBaseline1 = pbyStep["ReBaseline1"].Gradient,
+                    Screw1 = pbyStep["Screw1"].Gradient,
+                    ReBaseline2 = pbyStep["ReBaseline2"].Gradient,
+                    Screw2 = pbyStep["Screw2"].Gradient,
+                    ImageWidthPixels = imageSize.Width,
+                    ImageHeightPixels = imageSize.Height,
+                    PixelSizeMicrons = metadata.PixelSizeMicrons,
+                    FocuserStepMicrons = metadata.FocuserStepSizeMicrons,
+                    ScrewRadiusMillimeters = metadata.ScrewRadiusMillimeters,
+                    CalibrationAppliedAmount = metadata.CalibrationAppliedAmount,
+                    IsStepperAdjustment = inputs.IsStepperAdjustment
+                };
+                paraboloidCalibration = TiltCalibrationCalculator.Calibrate(pinputs);
+            }
+
+            WriteReport(outDir, metadata, optimizationSource, perStep, inputs, calibration, paraboloidSteps, paraboloidCalibration);
             Console.WriteLine($"Wrote tilt_summary.txt and tilt_summary.json to {outDir}");
         }
 
@@ -487,6 +526,102 @@ namespace TestApp {
             }
         }
 
+        // Per-step result of the alternative estimator: the robust per-star paraboloid tilt (Gx/Gy), converted to
+        // the same (A, B) plane units as the 4-corner result so the same screw-calibration math can consume it.
+        private sealed class ParaboloidStepResult {
+            public string Step;
+            public TiltGradient Gradient;   // A/B from the paraboloid Gx/Gy; Mean carried over from the 4-corner step
+            public int StarsInModel;
+            public double RSquared;
+            public double TiltAngleDeg;
+            public bool Fitted;
+            public string Status;           // why the fit failed, when !Fitted
+        }
+
+        /// <summary>
+        /// Measures one step's tilt via the production per-star sensor-model paraboloid (the robust, outlier-rejected,
+        /// curvature-aware estimator), instead of the 4-corner region plane. Detects each frame full-sensor, drives
+        /// <see cref="SensorModel.RegisterStarsAndFit"/> (image: null, exactly like bank-verify), then converts the
+        /// fitted tilt gradient Gx/Gy to plane (A, B) via <see cref="TiltScrewGeometry.PhysicalGradientToPlane"/>.
+        /// The piston (Mean focuser position) is carried over from <paramref name="fourCornerMean"/> since it is
+        /// estimator-independent. Returns a non-fitted result (with a reason) when the field is too star-poor.
+        /// </summary>
+        private static async Task<ParaboloidStepResult> MeasureTiltViaParaboloidAsync(
+            RunStep run, StarDetector detector, StarDetectorParams baseParams, double focuserStepMicrons,
+            double pixelSizeMicrons, double fourCornerMean, ProfileService profileService,
+            InspectorOptions inspectorOptions, AutoFocusOptions afOptions, IAlglibAPI alglibAPI) {
+
+            var mats = await LoadRunMatsAsync(run, profileService).ConfigureAwait(false);
+            try {
+                var imageSize = new DrawingSize(mats[0].Mat.Width, mats[0].Mat.Height);
+                var sensorFrames = new List<SensorDetectedStars>(mats.Count);
+                baseParams.Region = StarDetectionRegion.Full;
+                int fi = 0;
+                foreach (var (focuser, _, mat) in mats) {
+                    var swDet = System.Diagnostics.Stopwatch.StartNew();
+                    using var frameCopy = mat.Clone();
+                    var result = await detector.Detect(frameCopy, baseParams, progress: null, CancellationToken.None).ConfigureAwait(false);
+                    var stars = result.DetectedStars ?? new List<Star>();
+                    var starList = stars.Select(HocusFocusStarDetection.ToDetectedStar)
+                        .OrderBy(s => s.Position.Y * (long)imageSize.Width + s.Position.X).ToList();
+                    sensorFrames.Add(new SensorDetectedStars(
+                        focuser, new HocusFocusStarDetectionResult { StarList = starList, ImageSize = imageSize }, image: null));
+                    Console.WriteLine($"    [paraboloid {run.Step}] full-sensor detect {++fi}/{mats.Count} focuser {focuser}: {starList.Count} stars ({swDet.ElapsedMilliseconds} ms)");
+                }
+
+                int stepSize = InferStepSize(run.Frames.Select(f => f.Focuser));
+                var sortedFoc = run.Frames.Select(f => (double)f.Focuser).OrderBy(x => x).ToList();
+                double finalFocus = sortedFoc[sortedFoc.Count / 2];
+
+                var sensorModel = new SensorModel(profileService, inspectorOptions, afOptions, alglibAPI);
+                // Headless: route registration/fit messages to the logger instead of the UI-bound
+                // RegistrationAndFitReport collection. Without this, Report() marshals to the WPF dispatcher with a
+                // blocking Send, which deadlocks against TestApp's main thread (it blocks on the async command), and
+                // it only fires on the incomplete-RANSAC-alignment path — i.e. exactly the donut-heavy tilt steps.
+                sensorModel.RegistrationReportSink = m => Logger.Info($"[paraboloid {run.Step}] {m}");
+                try {
+                    Console.WriteLine($"    [paraboloid {run.Step}] registering + fitting {sensorFrames.Sum(f => f.StarDetectionResult.StarList.Count)} stars across {sensorFrames.Count} frames (RANSAC={inspectorOptions.UseRANSAC}) ...");
+                    var swFit = System.Diagnostics.Stopwatch.StartNew();
+                    // The headless fit can hang on degenerate (donut-heavy, RANSAC-failed) frames, so bound it: run on a
+                    // worker with a cancellation token and a hard WhenAny cutoff; report a timeout rather than blocking.
+                    // Cutoff is env-configurable (TILT_FIT_TIMEOUT_SEC) so a deadlock investigation can extend it and
+                    // capture a managed stack dump of the hung worker before it is abandoned.
+                    int fitTimeoutSec = int.TryParse(Environment.GetEnvironmentVariable("TILT_FIT_TIMEOUT_SEC"), out var t) && t > 0 ? t : 45;
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(fitTimeoutSec));
+                    var fitTask = Task.Run(() => sensorModel.RegisterStarsAndFit(
+                        sensorFrames, imageSize, focuserSizeMicrons: focuserStepMicrons, finalFocusPosition: finalFocus,
+                        pixelSize: pixelSizeMicrons, progress: new Progress<ApplicationStatus>(), stepSize: stepSize,
+                        ct: cts.Token));
+                    if (await Task.WhenAny(fitTask, Task.Delay(TimeSpan.FromSeconds(fitTimeoutSec + 5))).ConfigureAwait(false) != fitTask) {
+                        Console.WriteLine($"    [paraboloid {run.Step}] fit TIMED OUT (>{fitTimeoutSec}s) — abandoning and moving on");
+                        return new ParaboloidStepResult { Step = run.Step, Fitted = false, Status = $"fit timed out (>{fitTimeoutSec}s)" };
+                    }
+                    var (fit, _) = await fitTask.ConfigureAwait(false);
+                    Console.WriteLine($"    [paraboloid {run.Step}] fit done in {swFit.ElapsedMilliseconds} ms (stars in model: {fit?.StarsInModel ?? 0})");
+                    if (fit == null) {
+                        return new ParaboloidStepResult { Step = run.Step, Fitted = false, Status = "fit returned null" };
+                    }
+                    var sensorW = imageSize.Width * pixelSizeMicrons;
+                    var sensorH = imageSize.Height * pixelSizeMicrons;
+                    var (a, b) = TiltScrewGeometry.PhysicalGradientToPlane(fit.Gx, fit.Gy, focuserStepMicrons, sensorW, sensorH);
+                    return new ParaboloidStepResult {
+                        Step = run.Step,
+                        Gradient = new TiltGradient(a, b, fourCornerMean),
+                        StarsInModel = fit.StarsInModel,
+                        RSquared = fit.GoodnessOfFit,
+                        TiltAngleDeg = fit.Theta * 180.0 / Math.PI,
+                        Fitted = true
+                    };
+                } catch (Exception ex) {
+                    return new ParaboloidStepResult { Step = run.Step, Fitted = false, Status = ex.Message };
+                }
+            } finally {
+                foreach (var (_, _, mat) in mats) {
+                    mat?.Dispose();
+                }
+            }
+        }
+
         /// <summary>Fits a hyperbolic focus curve to the per-region (focuser, HFR) points and returns the curve
         /// minimum (final focus position) + R². Uses the profile's hyperbolic fit model; unweighted for robustness
         /// headless. Returns (NaN, NaN) on too few points or a failed solve.</summary>
@@ -553,7 +688,8 @@ namespace TestApp {
 
         private static void WriteReport(
             string outDir, TiltCalibrationMetadata metadata, string optimizationSource, List<StepResult> perStep,
-            TiltCalibrationInputs inputs, TiltCalibrationResult calibration) {
+            TiltCalibrationInputs inputs, TiltCalibrationResult calibration,
+            List<ParaboloidStepResult> paraboloidSteps, TiltCalibrationResult paraboloidCalibration) {
 
             bool isStepper = inputs.IsStepperAdjustment;
             double groundTruthHardware = isStepper ? metadata.StepperStepSizeMicrons : metadata.ScrewThreadPitchMicrons;
@@ -604,6 +740,39 @@ namespace TestApp {
             Line($"Curvature (backfocus) inward sign: {calibration.CurvatureSign:+0;-0}");
             Line();
 
+            var conf = calibration.Confidence;
+            Line("Calibration confidence (signal vs noise from the per-step tilt vectors):");
+            Line($"  Screw-move signal: {F(conf.ScrewMoveSignal)}   Noise floor: {F(conf.NoiseEstimate)}   SNR: {F(conf.SignalToNoise)}");
+            Line($"  Noise probes (should be « the signal) — AllInward piston residual: {F(conf.AllInwardTiltResidual)}, " +
+                $"re-baseline drift 1/2: {F(conf.Rebaseline1Drift)}/{F(conf.Rebaseline2Drift)}");
+            Line($"  Predicted screw-direction uncertainty: ±{F(conf.PredictedAngleUncertaintyDeg)}°");
+            if (!conf.IsReliable) {
+                Line($"  NOTE: SNR {F(conf.SignalToNoise)} is below {F(TiltCalibrationCalculator.MinReliableSignalToNoise)} — the calibration is " +
+                    "noise-dominated (insufficient or unstable signal). Re-capture on a star-rich field with a finer step; " +
+                    "the recovered screw geometry from this run should not be applied.");
+            }
+            Line();
+
+            // Alternative estimator: the per-star paraboloid tilt (the "calibrate from the sensor-model tilt" rewire).
+            Line("Per-star paraboloid tilt (alternative estimator — the robust sensor-model Gx/Gy):");
+            Line($"  {"Step",-12} {"A",10} {"B",10} {"stars",6} {"R²",7}  status");
+            foreach (var ps in paraboloidSteps) {
+                Line(ps.Fitted
+                    ? $"  {ps.Step,-12} {F(ps.Gradient.A),10} {F(ps.Gradient.B),10} {ps.StarsInModel,6} {F(ps.RSquared),7}  ok"
+                    : $"  {ps.Step,-12} {"—",10} {"—",10} {"—",6} {"—",7}  FAILED: {ps.Status}");
+            }
+            if (paraboloidCalibration?.Confidence != null) {
+                var pc = paraboloidCalibration.Confidence;
+                Line($"  Paraboloid calibration: SNR {F(pc.SignalToNoise)} (vs 4-corner {F(conf.SignalToNoise)}), " +
+                    $"screw gap {F(paraboloidCalibration.RawAngleDiffDegrees)}° (ideal {(metadata.NumberOfScrews == 3 ? "120" : "90")}°), " +
+                    $"move ratio {F(paraboloidCalibration.MoveMagnitudeRatio)}×, reliable={pc.IsReliable}");
+            } else {
+                int fitted = paraboloidSteps.Count(p => p.Fitted);
+                Line($"  Paraboloid calibration not computed — only {fitted}/{paraboloidSteps.Count} steps fitted. " +
+                    "The per-star model needs ≥9 stars matched across ≥5 frames; this field is too star-poor for it.");
+            }
+            Line();
+
             // Verdicts. The screw-1 angle and hardware checks need ground truth that a wizard-written metadata.json
             // does not carry; when absent they are reported "n/a" and do not fail the run.
             bool angleProvided = !double.IsNaN(metadata.ExpectedPositionAngleScrew1Deg);
@@ -616,9 +785,11 @@ namespace TestApp {
                 Line("  NOTE: the two screw turns produced very unequal tilt changes — the recovered hardware/angles " +
                     "are unreliable. Re-capture turning each screw the same amount.");
             }
+            bool confidenceOk = conf.IsReliable;
             string V(bool ok, bool provided) => !provided ? "n/a" : (ok ? "PASS" : "FAIL");
             Line($"VERDICT: Screw1 angle {V(angleOk, angleProvided)}, angle separation {(gapOk ? "PASS" : "FAIL")}, " +
-                $"hardware {V(hardwareOk, hardwareProvided)}, move balance {(magnitudeOk ? "PASS" : "FAIL")}");
+                $"hardware {V(hardwareOk, hardwareProvided)}, move balance {(magnitudeOk ? "PASS" : "FAIL")}, " +
+                $"confidence {(confidenceOk ? "PASS" : "FAIL")}");
 
             File.WriteAllText(Path.Combine(outDir, "tilt_summary.txt"), sb.ToString());
 
@@ -649,11 +820,19 @@ namespace TestApp {
                     groundTruthHardwareMicrons = groundTruthHardware,
                     hardwarePctDelta
                 },
-                verdict = new { angleOk, gapOk, hardwareOk, magnitudeOk }
+                confidence = conf,
+                paraboloid = new {
+                    perStep = paraboloidSteps.Select(p => new {
+                        p.Step, p.Fitted, p.Status, p.StarsInModel, p.RSquared,
+                        A = p.Gradient.A, B = p.Gradient.B, p.TiltAngleDeg
+                    }),
+                    calibration = paraboloidCalibration
+                },
+                verdict = new { angleOk, gapOk, hardwareOk, magnitudeOk, confidenceOk }
             };
             File.WriteAllText(Path.Combine(outDir, "tilt_summary.json"), JsonConvert.SerializeObject(json, MetadataJsonSettings));
 
-            if (!angleOk || !gapOk || !hardwareOk || !magnitudeOk) {
+            if (!angleOk || !gapOk || !hardwareOk || !magnitudeOk || !confidenceOk) {
                 Environment.ExitCode = 3;
             }
         }
