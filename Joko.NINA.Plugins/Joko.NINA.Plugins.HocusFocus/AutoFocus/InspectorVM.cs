@@ -420,13 +420,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     // Pre-center the focuser at best focus before the detailed multi-region sweep, so the sweep
                     // brackets focus symmetrically. This reduces extreme one-sided defocus frames that fail RANSAC
                     // alignment and improves the per-star paraboloid fit the tilt is read from. A plain (single-region)
-                    // AutoFocus is run on a SEPARATE engine — no inspector chart wiring, no save, profile step
-                    // size/count (NOT signal-amplified; a quick coarse centering pass is sufficient). Failure is
-                    // non-fatal: the detailed run proceeds from the current focuser position.
+                    // AutoFocus is run on a SEPARATE engine — no inspector chart wiring. It uses GetOptions() (profile
+                    // step size/count), so it is deliberately NOT signal-amplified: the finer steps are only needed for
+                    // the sensor-model run, a quick coarse centering pass is sufficient. The centering run is NEVER
+                    // saved (Save forced off, independent of the global AutoFocus save toggle and of any saveOverride):
+                    // only the actual sensor-model / per-tilt-step run that follows is persisted. Failure is non-fatal:
+                    // the detailed run proceeds from the current focuser position.
                     if (inspectorOptions.CenterFocuserBeforeRun) {
                         try {
                             var centeringEngine = autoFocusEngineFactory.Create();
                             var centeringOptions = centeringEngine.GetOptions();
+                            centeringOptions.Save = false;
+                            centeringOptions.PreserveExposures = false;
                             this.progress.Report(new ApplicationStatus() { Status = "Centering focuser before sensor model run" });
                             var centeringResult = await centeringEngine.Run(centeringOptions, imagingFilter, localAnalyzeCts.Token, this.progress);
                             if (centeringResult == null || !centeringResult.Succeeded) {
