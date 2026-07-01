@@ -45,6 +45,18 @@ effect (`ScrewInwardCurvatureSign`: whether turning a screw inward pushes that s
 toward the telescope). To average out seeing, set **Measurements** above 1; the wizard flags
 inconsistent repeats so you can re-run.
 
+!!! tip "Each calibration step runs a full inspector sweep"
+    A calibration measurement is a full sensor-model sweep, so it runs the same alignment and
+    focus-centering steps as a standalone Detailed Analysis. With **Center Focuser First** on (the
+    default), each step re-centers
+    the focuser at best focus before its sweep, so the measurement is not skewed toward one side of
+    focus. **Signal Amplification** gives each step more, finer-spaced focus points for a steadier
+    per-star fit. For a heavily-defocused frame that would otherwise fail to register, the frame aligner
+    escalates its search rather than dropping the frame from that step's model. These help most on faint
+    fields or in poor seeing, and are set under [Inspector
+    options](tilt-aberration-inspector.md#inspector-options). Raising **Measurements** above 1 averages
+    independent repeats on top of them.
+
 !!! note "Set Microns per Focuser Step for the best guidance"
     Per its tooltip, *Microns per Focuser Step* is "how much the focuser moves per step, in microns.
     If this is set, the adjustment chart will include adjustments in microns." Without it, adjustments

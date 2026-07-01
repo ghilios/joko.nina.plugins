@@ -137,8 +137,21 @@ Two registration approaches are available, set by **Use RANSAC** (on by default)
   a RANSAC-estimated transform (a similarity transform by default, or an affine one when **Use Affine
   Alignment** is on), so matching stars land almost on top of each other. The nearest-neighbor match
   then runs with a much tighter search radius. This is what keeps matching reliable at the defocused
-  ends of the sweep, where stars are bloated and sparse; it falls back to the wider radius if any frame
-  fails to align.
+  ends of the sweep, where stars are bloated and sparse.
+
+A frame that does not align to the reference on the first pass is retried against a denser set of
+reference triangles, and can also be matched to its nearest already-aligned neighbor, whose similar
+defocus makes its stars easier to match than the sharp reference. A frame stays unplaced when it is
+defocused enough that its few stars sit too far apart to form the small triangles the RANSAC step
+matches on. For that frame, and for a dense copy of the reference, the aligner then rebuilds the
+triangles over a larger box. The box grows by about half each step, up to roughly a third of the shorter
+image dimension, until the frame forms enough triangles to estimate a transform. A plate-scale check
+rejects any transform that would not keep the frame at close to its original scale, so a chance match
+cannot register a frame wrongly. These retries run only for frames the first pass could not place, and
+the box escalation triangulates only the brightest stars (about 120 of them), so a dense field, which
+aligns on the first pass, is neither altered nor slowed. If any frame still cannot be placed, star
+matching for the whole sweep reverts to the wider nearest-neighbor search radius used when RANSAC is
+off.
 
 A star must be matched in **at least five frames** to be fit, so its focus curve has enough points to
 be meaningful.
