@@ -291,7 +291,7 @@ The fitted parameters are converted into the quantities the panel displays.
 |---|---|
 | **Tilt** | The angle \(\theta = \arctan\sqrt{G_x^2 + G_y^2}\), in degrees, with its one-sigma error. |
 | **Tilt effect** | Half the spread of the planar term across the four sensor corners: the worst-case best-focus offset, in microns, caused purely by tilt. |
-| **Curvature radius** | \(R = 1 / (2000\,|K|)\) millimeters. Larger is flatter (and better), with its one-sigma error. |
+| **Curvature radius** | \(R = 1 / (2000\,\lvert K \rvert)\) millimeters. Larger is flatter (and better), with its one-sigma error. |
 | **Curvature effect** | The curvature term evaluated at a corner: the corner-to-center offset, in microns, caused purely by field curvature. |
 | **Critical focus** | \(\text{CFZ} = 2.44\,F^2 \cdot 0.55\) microns, from the telescope focal ratio \(F\). The tolerance the other effects are graded against. |
 | **Centering** | The optical-center offsets \(X_0, Y_0\); flagged when either exceeds ten pixels. |

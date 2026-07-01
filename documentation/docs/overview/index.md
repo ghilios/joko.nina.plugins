@@ -2,7 +2,7 @@
 
 Hocus Focus is a plugin for [NINA](https://nighttime-imaging.eu/) that, in the words of its own description, provides **"Improved Star Detection, Star Annotation, Auto Focus, and Tilt Correction for NINA."** It replaces or augments NINA's built-in star handling and auto-focus routines with a more accurate star detector, a fully customizable annotator, a concurrent auto-focus engine, and an aberration inspector that measures backfocus and sensor-tilt errors.
 
-The plugin is deliberately modular. Per its documentation, you "can use the new Star Detector or Annotator without requiring both"; keep whichever pieces you like and leave the rest on NINA's defaults. The features are wired in under **Options → Imaging → Image Options**, where installing the plugin adds **Star Annotator** and **Auto Focus** dropdowns; select **"Hocus Focus"** in those to turn the features on.
+The plugin is deliberately modular. Per its documentation, you "can use the new Star Detector or Annotator without requiring both"; keep whichever pieces you like and leave the rest on NINA's defaults. The features are wired in under **Options → Imaging → Image Options**, where installing the plugin adds **Star Detection**, **Star Annotator**, and **Auto Focus** dropdowns; select **"Hocus Focus"** in those to turn the features on.
 
 !!! note "Requirements"
 

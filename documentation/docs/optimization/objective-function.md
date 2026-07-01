@@ -52,7 +52,7 @@ their own sections below.
     The weights above are the default, autofocus-tuned objective. When you select **"Optimize for
     Aberration Inspection"** on the wizard's start page, the optimizer swaps in a star-count-favoring
     objective (`ObjectiveConstants.ForAberrationInspection`) that recovers far more stars across the
-    frame — what a [tilt / curvature model](../overview/tilt-aberration-inspector.md) needs — while a
+    frame (what a [tilt / curvature model](../overview/tilt-aberration-inspector.md) needs), while a
     fit guard tied to your current settings' \(\sigma_{\text{focus}}\) keeps the focus curve usable.
     The structure of the score (the sub-scores below) is unchanged; only the weighting differs.
 
@@ -186,7 +186,7 @@ a sub-score.
 
 ## \(S_{\text{defocus-precision}}\) — the defocus junk penalty
 
-The three sub-scores above are combined by a weighted **average**. The defocus-precision term is different: it
+The sub-scores above are combined by a weighted **average**. The defocus-precision term is different: it
 is a **multiplicative** penalty in \([0.5, 1.0]\) applied after the weighted sum. It guards the optional
 defocus-aware gates (which relax distortion/centering to recover bloated donut stars) from being abused to
 flood near-focus frames with junk.
@@ -227,8 +227,8 @@ Two properties make this safe:
 strength 0.5 down to a floor of 0.5.*
 
 !!! warning "The defocus-aware gates are opt-in"
-    With the gates off (default) this penalty is inert and the objective is identical to the three-term
-    version. It exists so the optimizer can safely explore turning the gates on — recovering bloated donuts on
+    With the gates off (default) this penalty is inert and the objective is identical to the weighted-average
+    form above. It exists so the optimizer can safely explore turning the gates on — recovering bloated donuts on
     the extremes — without learning to manufacture spurious near-focus stars.
 
 ## \(S_{\text{hfr-outlier}}\) — the bright-blob penalty

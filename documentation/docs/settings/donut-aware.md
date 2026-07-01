@@ -59,7 +59,7 @@ recovered, 22x the default, at 0.93 precision.*
 So a donut run wants the [low, adaptive floor](adaptive-binarization.md) *and* the donut-aware gates together,
 not either alone.
 
-## Honest limit
+## What it does not recover
 
 Faint pure-ring donuts with no core stay noise-limited for everyone. Hocus Focus catches the brighter cored
 donuts and misses the faint rings, and a naive matched filter over-detects them. When a star is that far out of

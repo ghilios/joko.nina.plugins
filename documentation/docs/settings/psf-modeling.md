@@ -34,7 +34,7 @@ Star detection first finds candidates, measures each star's centroid and **HFR**
 
 ## Fit PSF
 
-**Fit PSF** (property `ModelPSF`) — master switch that turns PSF fitting on or off for detected stars.
+**Fit PSF** (property `ModelPSF`) is the master switch that turns PSF fitting on or off for detected stars.
 
 > Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity
 

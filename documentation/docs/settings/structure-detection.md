@@ -24,8 +24,8 @@ The detector removes large-scale structure with an **à-trous (dyadic) B3-spline
 |---|---|---|---|
 | Structure Layers | 4 | integer > 0 | Wavelet layers kept; structures larger than ~\(2^{\text{layers}}\) px are removed as background. More layers keep larger (e.g. defocused) stars. |
 | Defocus-Aware Structure | Off | On / Off | When on, removes background more coarsely so heavily-defocused donut stars survive and form candidates. Off ⇒ detection unchanged. |
-| Structure Layer Boost | 0 | 0 – 6 | Extra wavelet layers added *only* while Defocus-Aware Structure is on. Higher ⇒ coarser removal ⇒ bigger donuts survive. |
-| Structure Dilation Size | 3 | 3 – 30 px | Diameter of the morphological filter that grows candidate blobs in the structure map. |
+| Structure Layer Boost | 0 | 0–6 | Extra wavelet layers added *only* while Defocus-Aware Structure is on. Higher ⇒ coarser removal ⇒ bigger donuts survive. |
+| Structure Dilation Size | 3 | 3–30 px | Diameter of the morphological filter that grows candidate blobs in the structure map. |
 | Structure Dilation Iterations | 0 | ≥ 0 | How many times the dilation is applied. 0 disables dilation. |
 
 ## Structure Layers
@@ -66,12 +66,12 @@ The strength knob for Defocus-Aware Structure: how many extra wavelet layers to 
 
 > Only used while Defocus-Aware Structure is enabled. The number of extra wavelet layers added when removing large-scale structure, making the removal coarser so larger defocused donuts survive and form candidates. 0 means no change (identical to the feature being off). Raise it (1–6) if very out-of-focus stars never appear; raising it too far can let nebulosity/background structure leak in as false candidates. Default 0.
 
-**Default:** 0. **Range:** 0 – 6 (validated).
+**Default:** 0. **Range:** 0–6 (validated).
 
 Each extra layer roughly doubles the size scale that is preserved rather than erased, so a boost of \(n\) keeps structures up to about \(2^{(\text{StructureLayers}+n)}\) px.
 
 !!! tip "When to adjust"
-    **Raise it 1 – 6** when very out-of-focus stars never appear, increasing it gradually until they do. **Leave it at 0** unless Defocus-Aware Structure is enabled. It is ignored while that toggle is off. It can hurt when pushed too high: a coarser residual leaves more large-scale structure behind, so nebulosity and background gradients start registering as false candidates.
+    **Raise it 1–6** when very out-of-focus stars never appear, increasing it gradually until they do. **Leave it at 0** unless Defocus-Aware Structure is enabled. It is ignored while that toggle is off. It can hurt when pushed too high: a coarser residual leaves more large-scale structure behind, so nebulosity and background gradients start registering as false candidates.
 
 ## Structure Dilation Size
 
@@ -79,7 +79,7 @@ The diameter of the morphological filter used to grow candidate blobs in the str
 
 > During star detection a structure map is generated containing potential star pixels that are above the background noise threshold. This parameter defines the size of gaussian morphology filter used to dilate the structure map. Consider increasing this value if bounding boxes are not large enough around stars, which may be more likely at very high focal lengths.
 
-**Default:** 3. **Range:** 3 – 30 px (validated; the setter also enforces a minimum of 3).
+**Default:** 3. **Range:** 3–30 px (validated; the setter also enforces a minimum of 3).
 
 Internally this is the diameter of an elliptical structuring element passed to OpenCV's morphological dilation. It has **no effect** unless **Structure Dilation Iterations** is at least 1; dilation only runs when the iteration count is positive.
 

@@ -20,7 +20,7 @@ tilt-and-curvature model so you can quantify and correct aberrations across the 
 ## Key features
 
 - **[Improved star detection](overview/star-detection.md)** — accurate, gradient-aware HFR measurement
-  plus optional Gaussian and Moffat-4 PSF fitting for eccentricity and FWHM, with simple defaults and an
+  plus optional Gaussian and Moffat 4.0 PSF fitting for eccentricity and FWHM, with simple defaults and an
   advanced mode for fine tuning.
 - **[Customizable star annotation](overview/star-annotation.md)** — configurable colors and fonts, with
   dynamic reloading of annotations without re-running detection.

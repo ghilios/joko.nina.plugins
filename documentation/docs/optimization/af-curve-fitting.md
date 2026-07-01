@@ -1,7 +1,7 @@
 # From Focus Frames to a Score
 
-The optimization wizard does not score your settings on a single image. It scores them on a whole
-**auto-focus run**, a sweep of frames taken across a range of focuser positions. For each candidate
+The Star Detection Optimization Wizard does not score your settings on a single image. It scores them on a whole
+**autofocus run**, a sweep of frames taken across a range of focuser positions. For each candidate
 set of detection parameters, the wizard detects stars on every frame, rebuilds the HFR-vs-focuser
 curve those frames imply, fits it, and reads how *sharp and trustworthy* the resulting best-focus
 estimate is. That single number is what the search maximizes.
@@ -27,7 +27,7 @@ The work for one candidate parameter bundle, on one run, is done by `RunEvaluati
 4. **Score it.** Feed \(\sigma_{\text{focus}}\), the star counts, \(R^2\), and reduced \(\chi^2\)
    into the objective's sub-scores.
 
-![Auto-focus HFR V-curve with a hyperbolic fit, the best-focus minimum, and the sigma_focus uncertainty band](../assets/figures/af-vcurve.png){ width=620 }
+![Autofocus HFR V-curve with a hyperbolic fit, the best-focus minimum, and the sigma_focus uncertainty band](../assets/figures/af-vcurve.png){ width=620 }
 
 *A run's pooled HFR points (one per focuser position, with error bars) and the fitted curve. The
 fit's minimum is the estimated best-focus position; the shaded band is \(\sigma_{\text{focus}}\), the
@@ -37,8 +37,8 @@ narrower.*
 !!! note
     The wizard loads each saved exposure once (rendered, no detection), then re-runs detection on the
     already-loaded frames for every candidate. The fit configuration (step size, weighting,
-    outlier-rejection count and confidence) is taken from the run's own auto-focus options, so the
-    wizard's curve fit matches the auto-focus engine's fit exactly. The optimizer is not changing how
+    outlier-rejection count and confidence) is taken from the run's own autofocus options, so the
+    wizard's curve fit matches the autofocus engine's fit exactly. The optimizer is not changing how
     you focus; it is changing how cleanly the stars are measured.
 
 ## Step 1 — detect, then aggregate each frame
@@ -62,7 +62,7 @@ as the resulting fit (see the star-count term, \(S_{\text{stars}}\), in
 ## Step 2 — pool frames at the same focuser position
 
 Frames captured at the same focuser position are merged into one curve point using the same semantics
-as the auto-focus engine: the point's HFR is the **mean** of the per-frame measures, and its error
+as the autofocus engine: the point's HFR is the **mean** of the per-frame measures, and its error
 bar is the **SEM-pooled** standard deviation: the per-frame \(\sigma\)s combined and divided by the
 square root of the number of contributing frames. Iterating in ascending focuser position keeps the
 fit input deterministic. The result is one scatter point (focuser position, pooled HFR, pooled error)
@@ -71,7 +71,7 @@ per **distinct** focuser position.
 ## Step 3 — fit the focus curve
 
 With at least **3 distinct focuser positions**, the wizard runs the same "best fit" model selection
-the auto-focus engine uses (`AlglibHyperbolicFitting.SelectBestModel`): it tries the candidate models
+the autofocus engine uses (`AlglibHyperbolicFitting.SelectBestModel`): it tries the candidate models
 and lets the winner compete on merit, rather than forcing a single shape (see
 [Hyperbolic Curve Fitting](../overview/hyperbola-fitting.md) for the model family and the Hybrid
 selection rules). From the winning fit it reads:
@@ -142,7 +142,7 @@ rather than the fit; it is covered alongside the full weighting in
 ## A byproduct: the recommended step size
 
 The same winning fit also drives the wizard's **step-size recommendation**, which is reported (and
-applied on confirm) but is *not* part of the score. The idea is to size the auto-focus step so a sweep
+applied on confirm) but is *not* part of the score. The idea is to size the autofocus step so a sweep
 lands roughly 3–4 measurement points on each side of focus inside the "focus-sensitive" band, the
 region where HFR climbs from its minimum to about three times the minimum, which carries the most slope and
 therefore the most information.

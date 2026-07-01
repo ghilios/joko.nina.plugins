@@ -10,8 +10,8 @@ reference page if you want the full detail.
 
 ## 1. Tell NINA about your rig
 
-Several Hocus Focus features derive their starting points from your image scale, so it is worth getting
-two things right first: your **pixel scale** and how far your **focuser moves per step**.
+Several Hocus Focus features derive their starting points from your image scale, so get two things right
+first: your **pixel scale** and how far your **focuser moves per step**.
 
 - **Pixel size** (microns) — NINA's **Options → Equipment → Camera** tab. Usually filled in by the
   camera driver; confirm it matches your sensor.
@@ -90,7 +90,7 @@ Once calibrated, the inspector's adjustment chart tells you exactly which screw 
 
 → Full detail: [Tilt Adapter Wizard](overview/tilt-adapter-wizard.md).
 
-## 6. Pro-tip: save an autofocus run, then replay it to tune during the day
+## 6. Save an autofocus run, then replay it to tune during the day
 
 You do not need clear skies to improve your settings. Save a real autofocus run once, then replay it
 indoors as many times as you like with different settings.

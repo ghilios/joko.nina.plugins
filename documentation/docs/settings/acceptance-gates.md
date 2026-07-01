@@ -208,9 +208,6 @@ Because near-focus candidates stay at or below the size reference, they keep the
 !!! tip "When this helps"
     Enable it when you deliberately collect autofocus frames far from focus (wide sweeps) and see donut stars dropped as **Too Distorted** or **Not Centered** at the sweep extremes. It does nothing for near-focus imaging frames, and it should stay off there so the strict gates keep filtering noise. If even heavily defocused stars never appear as candidates at all (not merely rejected), that is a structure-detection problem, not a gate problem; see Defocus-Aware Structure on the [Structure detection](structure-detection.md) page.
 
-!!! warning
-    The three tuning values below are consulted **only while Defocus-Aware Gates is enabled**. With the toggle off they have no effect.
-
 ### Defocus Size Reference
 
 > Tuning knob for the Defocus-Aware Gates (only used while they are enabled). The candidate bounding-box size (in pixels, the larger of width/height) at or below which the strict gate thresholds still apply; larger candidates get the relaxed thresholds. Shared by both the distortion and centering relaxations. Lower it to relax smaller stars; raise it to keep more of the strict behavior. Default 30.

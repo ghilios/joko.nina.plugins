@@ -1,6 +1,6 @@
 # Autofocus
 
-Hocus Focus replaces NINA's built-in autofocus engine with a star-detection-driven routine that sweeps the focuser, measures Half-Flux Radius (HFR) on every frame, fits a curve to the resulting V-shape, and moves to the modelled best-focus position. It is the same star detector you tune elsewhere in the plugin, now feeding a more careful curve-fitting and validation pipeline.
+Hocus Focus replaces NINA's built-in autofocus engine with a star-detection-driven routine that sweeps the focuser, measures Half-Flux Radius (HFR) on every frame, fits a curve to the resulting V-shape, and moves to the modeled best-focus position. It is the same star detector you tune elsewhere in the plugin, now feeding a more careful curve-fitting and validation pipeline.
 
 ## What it does, and why it is better
 
@@ -99,7 +99,7 @@ All tooltips below are quoted verbatim from the plugin UI.
 Every HFR measurement comes from the same Hocus Focus star detector documented in [Star detection](star-detection.md), run with autofocus-specific overrides:
 
 - **Profile-driven parameters.** Sensitivity, noise reduction, and the brightest-stars count are taken from NINA's profile (Image and Focuser settings), and the run is flagged as autofocus mode.
-- **Region of interest.** When NINA's inner-crop ratio is below 1 and the camera is not subsampling, detection is restricted to that central crop; otherwise the full frame is analysed. If the camera supports hardware subsampling with the inner crop enabled, the engine reads out only that central rectangle.
+- **Region of interest.** When NINA's inner-crop ratio is below 1 and the camera is not subsampling, detection is restricted to that central crop; otherwise the full frame is analyzed. If the camera supports hardware subsampling with the inner crop enabled, the engine reads out only that central rectangle.
 - **Per-region detection.** For multi-region runs the detector measures HFR only inside each region's boundary, and the per-region results are saved separately.
 - **Replay with cache reuse.** When replaying a saved run, the engine can reuse the cached star-detection result if the detector version and region key still match, falling back to fresh detection otherwise, so you can re-fit a curve with new options without re-running hardware. Replay decodes the saved frames deterministically (concurrent image loads are serialized), so a re-fit reproduces the same per-position HFR every time rather than occasionally pairing two positions with an identical value.
 - **The measurement.** From each detection it takes the median HFR (`AverageHFR`) as the point value and the per-star HFR standard deviation (`HFRStdDev`) as the measurement \(\sigma\) fed into the weighted curve fit.

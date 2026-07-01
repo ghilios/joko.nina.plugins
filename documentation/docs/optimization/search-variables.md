@@ -1,6 +1,6 @@
 # Search Variables — the Curated Search Space
 
-The optimizer does **not** tune every star-detection parameter. It tunes a deliberately small, **curated set** of knobs that have the largest, most predictable effect on the autofocus curve, and it leaves everything else at your profile's current values. Keeping the search space small is what lets a derivative-free search converge inside a fixed evaluation budget (`MaxEvaluations = 400`).
+The optimizer does **not** tune every star-detection parameter. It tunes a deliberately small, **curated set** of knobs that have the largest, most predictable effect on the autofocus curve, and it leaves everything else at your profile's current values. Keeping the search space small is what lets a derivative-free search converge inside a fixed evaluation budget (`MaxEvaluations = 250` by default, raised to `400` when *Recover out-of-focus donut stars* is enabled).
 
 This page is the reference for that curated set: every variable, its bounds, the setting it maps to, the two *synthetic* variables that drive more than one parameter at once, how values are quantized, and the EARLY/LATE split that makes the search fast.
 
@@ -28,7 +28,7 @@ Each row is one tunable axis. **Type** governs quantization (see [Quantization r
 | `DefocusAwareGates` | Boolean (synthetic) | 0 | 1 | — | Two gate-relaxation params at once (see below) |
 | `DefocusAwareStructure` | Integer (synthetic) | 0 | 4 | 1 | Defocus-aware structure flag + layer boost (see below) |
 
-That is **14** axes. Several bounds are open-ended in the detector (there is no hard UI validation range), so the wizard applies pragmatic heuristic limits. For example, `Sensitivity` was widened from a 20 to a 50 ceiling and `StarClippingMultiplier` to a `[0.25, 10]` range because rich star fields kept pinning the older, tighter bounds. The two highest-impact axes, `Sensitivity` and `StarClippingMultiplier`, are also the pair the search grids over first in its coarse Phase A (see [search algorithm](search-algorithm.md)).
+That is the **12** always-on axes. The two synthetic rows in the table above (`DefocusAwareGates`, `DefocusAwareStructure`) plus seven further defocus-tuning knobs (`DefocusDistortionSizeReference`, `DefocusDistortionMinFactor`, `DefocusCenteringToleranceFactor`, `DonutMorphCloseSize`, `DonutMinAnnularityHoleFraction`, `DonutMaxStreakEccentricity`, `DonutSaturationBloomRadius`) are added only when *Recover out-of-focus donut stars* is enabled, taking the curated set to **21** axes; with that master toggle off (the default) the optimizer never touches any defocus parameter. Several bounds are open-ended in the detector (there is no hard UI validation range), so the wizard applies pragmatic heuristic limits. For example, `Sensitivity` was widened from a 20 to a 50 ceiling and `StarClippingMultiplier` to a `[0.25, 10]` range because rich star fields kept pinning the older, tighter bounds. The two highest-impact axes, `Sensitivity` and `StarClippingMultiplier`, are also the pair the search grids over first in its coarse Phase A (see [search algorithm](search-algorithm.md)).
 
 ## The two synthetic variables
 

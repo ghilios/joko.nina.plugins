@@ -244,11 +244,6 @@ Saves additional in-memory debug data during detection.
 - **Default:** Off
 - **Range:** On / Off
 
-!!! warning "Leave this off for normal use"
-
-    Debug Mode exists for diagnosing detection, not for routine imaging. As the tooltip says, keep it off
-    unless you are actively tuning and want to inspect structure maps.
-
 ## Save Intermediate
 
 Writes a file for each step of the detection pipeline so you can inspect exactly what the detector saw.
