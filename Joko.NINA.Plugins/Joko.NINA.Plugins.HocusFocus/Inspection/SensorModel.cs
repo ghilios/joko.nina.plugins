@@ -840,6 +840,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         // (observed: a multi-thousand-star bank run hung for hours). The brightest ~120 stars are more than enough to
         // register a sparse failed frame's handful of stars, and capping bounds the triangle count regardless of box.
         private const int maxEscalationStars = 120;
+        // Work budget for a single box's putative-triangle match. The match is O(refTriangles x frameTriangles) in the
+        // k-d tree's per-query allocation, and even with the 120-star cap BOTH dense sets can reach ~C(120,3) triangles
+        // at a large box, so their product is only cheap when the failing frame is sparse (the design case). If a
+        // failing frame is itself star-rich, the product would blow up; skip the match once it would exceed this budget
+        // (and stop escalating, since a larger box only grows both sets), so a pathological frame cannot stall the run.
+        private const long maxEscalationMatchWork = 200_000_000L;
 
         private int AlignStarsWithRANSAC(
             List<SensorDetectedStars> allDetectedStars,
@@ -1154,6 +1160,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     continue;   // still too sparse at this box; grow further
                 }
                 var refDense = RANSACRegistration.BuildStarTriangles(imageSize, referenceStars, box, false, true);
+                // The putative match below is O(refDense x frameDense) in the k-d tree's per-query allocation. Both
+                // sets are bounded per box by the star cap, but a star-rich FAILING frame can still make their product
+                // enormous at a large box. Bail before the match once the product would exceed the work budget; larger
+                // boxes only grow both sets, so stop escalating rather than continue.
+                if ((long)refDense.Count * frameDense.Count > maxEscalationMatchWork) {
+                    break;
+                }
                 var (src, dst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
                     frameDense, refDense, status, maxShapeDistanceStrict);
                 if (dst.Count < 20) {
