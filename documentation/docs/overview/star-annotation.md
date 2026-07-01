@@ -82,12 +82,12 @@ This is where annotation earns its keep. The detector records, per frame, the bo
 
 | Toggle | Default color | What it reveals |
 |---|---|---|
-| Show Distorted | Green, 50% | *"Whether to show the failed stars that were too distorted"* — candidates whose box-fill / aspect ratio failed the distortion gate. (The gate/reason is "Too Distorted", but the toggle is **Show Distorted**.) |
-| Show Degenerate | Green, 50% | *"Whether to show the failed degenerate stars"* — too few pixels or too little contrast to fit. |
+| Show Distorted | Green, 50% | *"Whether to show the failed stars that were too distorted"*. Candidates whose box-fill / aspect ratio failed the distortion gate. (The gate/reason is "Too Distorted", but the toggle is **Show Distorted**.) |
+| Show Degenerate | Green, 50% | *"Whether to show the failed degenerate stars"*. Too few pixels or too little contrast to fit. |
 | Show Saturated | Green, 50% | *"Whether to show the partially-saturated stars that were processed with masked pixels"*. Grouped here with rejection diagnostics, but saturated stars are **kept** (measured with their saturated pixels masked during PSF fitting), not rejected. |
-| Show Low Sensitivity | Green, 50% | *"Whether to show the failed low sensitivity stars"* — signal too weak relative to background and noise. |
-| Show Not Centered | Green, 50% | *"Whether to show the failed not centered stars"* — centroid fell outside the centering tolerance. |
-| Show Too Flat | Green, 50% | *"Whether to show the failed too flat stars"* — peak too close to the local background. |
+| Show Low Sensitivity | Green, 50% | *"Whether to show the failed low sensitivity stars"*. Signal too weak relative to background and noise. |
+| Show Not Centered | Green, 50% | *"Whether to show the failed not centered stars"*. Centroid fell outside the centering tolerance. |
+| Show Too Flat | Green, 50% | *"Whether to show the failed too flat stars"*. Peak too close to the local background. |
 | Show Contaminated | Magenta, 50% | Marks stars flagged by the contamination test (neighbor, gradient, or hot column). |
 
 Each toggle has a companion color setting (Distorted Box Color, Degenerate Box Color, Saturated Box Color, Low Sensitivity Box Color, Not Centered Box Color, Too Flat Box Color, Contaminated Box Color); the six rejection-gate colors all share the tooltip *"The color of the failed star bounding box"*.

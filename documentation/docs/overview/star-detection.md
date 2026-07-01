@@ -18,7 +18,7 @@ heavily defocused donuts. Hocus Focus addresses these head-on:
   sky gradients do not drown faint stars or create spurious blobs.
 - **The background is modeled as a tilted plane per star**, not a single number, so a one-sided gradient
   under a star no longer biases its centroid, flux, or HFR.
-- **Contamination is detected gradient-robustly.** A neighboring star bleeding into one side of the
+- **Contamination is detected even under a background gradient**, so a neighboring star bleeding into one side of the
   measurement annulus is flagged and (by default) removed, instead of quietly corrupting the HFR.
 - **Multiple independent acceptance gates** reject clipped, distorted, off-center, flat, dim, and
   contaminated candidates, each tracked as a named rejection count you can inspect.
@@ -81,7 +81,7 @@ donut stars survive the subtraction. See [Structure Detection](../settings/struc
 
 The smoothed structure map is thresholded into foreground (star) vs. background. The threshold is the
 structure map's median plus a **noise-clipping multiplier** times an estimated noise sigma, where the sigma
-comes from a Kappa-Sigma (an iterative clip-at-k·σ robust noise estimate) noise estimate on the noise-reduced image:
+comes from a Kappa-Sigma noise estimate (an iterative clip-at-k·σ robust estimate) on the noise-reduced image:
 
 \[
 T = \text{median} + k_\sigma \cdot \sigma_{\text{noise}}

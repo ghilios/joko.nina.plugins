@@ -20,7 +20,7 @@ confirm, and the toggle is fully reversible.
 
 ## What the wizard does
 
-At its core the wizard drives a derivative-free search engine, the `StarDetectionOptimizer`. The
+The wizard drives a derivative-free search engine, the `StarDetectionOptimizer`. The
 **same** engine runs in the live wizard and in the offline `TestApp optimize` harness, so results are
 reproducible and the optimizer can be exercised without launching NINA.
 

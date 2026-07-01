@@ -84,16 +84,16 @@ adapter's **physical hardware model**:
 
 | Hardware field | Meaning |
 |---|---|
-| **Adjustment Type** | Whether the adapter is adjusted by **Screws** (reported in turns) or **Stepper Motors** (reported in steps). |
-| **Thread Pitch** | Axial microns the sensor moves per full screw turn; used when Adjustment Type is Screws. |
-| **Stepper Step Size** | Axial microns per stepper step; used when Adjustment Type is Stepper Motors. |
-| **Screw Radius** | Distance of each adjuster from the sensor center, in millimeters; converts a tilt *angle* into an axial movement at the screw. |
+| **Adjustment type** | Whether the adapter is adjusted by **Screws** (reported in turns) or **Stepper Motors** (reported in steps). |
+| **Thread pitch (µm/turn)** | Axial microns the sensor moves per full screw turn; used when Adjustment type is Screws. |
+| **Step size (µm/step)** | Axial microns per stepper step; used when Adjustment type is Stepper Motors. |
+| **Screw radius (mm)** | Distance of each adjuster from the sensor center, in millimeters; converts a tilt *angle* into an axial movement at the screw. |
 
 **Device presets.** Rather than entering those numbers by hand, pick your adapter from the **Device**
 list. Choosing a preset pre-fills and locks the hardware fields to the manufacturer's values. The
 built-in presets are:
 
-| Device | Adjustment | Adjusters | Thread Pitch (µm/turn) | Stepper Step (µm) | Screw Radius (mm) |
+| Device | Adjustment | Adjusters | Thread Pitch (µm/turn) | Step size (µm) | Screw Radius (mm) |
 |---|---|---|---|---|---|
 | Neumann CTU XT48 | Screws | 3 | 400 | — | 44 |
 | ASG Photon Cage - 78mm | Screws | 4 | 212 | — | 44 |

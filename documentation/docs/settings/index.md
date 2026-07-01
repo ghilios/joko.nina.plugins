@@ -149,7 +149,7 @@ You don't normally need to think about this when using NINA, since it changes wh
 
 !!! note "Profile-scoped and auto-saved"
 
-    All star-detection settings are stored per NINA profile. Switching profiles re-derives Simple-mode settings from that profile's presets. There is also a **Reset to defaults** action that restores every parameter to its shipped value (Simple mode, Typical presets, PSF modeling on with Moffat 4.0, and so on) and clears any optimized snapshot.
+    All star-detection settings are stored per NINA profile. Switching profiles re-derives Simple-mode settings from that profile's presets. There is also a **Reset Defaults** action that restores every parameter to its shipped value (Simple mode, Typical presets, PSF modeling on with Moffat 4.0, and so on) and clears any optimized snapshot.
 
 ## Reference sub-pages
 
