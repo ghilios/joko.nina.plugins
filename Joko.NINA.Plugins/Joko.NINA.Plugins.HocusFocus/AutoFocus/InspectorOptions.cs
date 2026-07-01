@@ -48,6 +48,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private void InitializeOptions() {
             stepCount = optionsAccessor.GetValueInt32(nameof(StepCount), -1);
             stepSize = optionsAccessor.GetValueInt32(nameof(StepSize), -1);
+            signalAmplification = Math.Max(1, optionsAccessor.GetValueInt32(nameof(SignalAmplification), 2));
+            centerFocuserBeforeRun = optionsAccessor.GetValueBoolean(nameof(CenterFocuserBeforeRun), true);
             framesPerPoint = optionsAccessor.GetValueInt32(nameof(FramesPerPoint), -1);
             timeoutSeconds = optionsAccessor.GetValueInt32(nameof(TimeoutSeconds), -1);
             simpleExposureSeconds = optionsAccessor.GetValueDouble(nameof(SimpleExposureSeconds), -1);
@@ -81,6 +83,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public void ResetDefaults() {
             StepCount = -1;
             StepSize = -1;
+            SignalAmplification = 2;
+            CenterFocuserBeforeRun = true;
             FramesPerPoint = -1;
             TimeoutSeconds = -1;
             SimpleExposureSeconds = -1;
@@ -128,6 +132,40 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (stepSize != value) {
                     stepSize = value;
                     optionsAccessor.SetValueInt32(nameof(StepSize), stepSize);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        // Signal amplification factor for sensor-model / tilt calibration sweeps: divides the focuser step size and
+        // multiplies the step count by this factor, so a live run captures more, finer-spaced points over the same
+        // range. More points => more signal and smaller defocus jumps between adjacent frames (easier RANSAC
+        // alignment). Clamped to >= 1; 1 disables amplification. Applied only to live captures, never on replay.
+        private int signalAmplification = 2;
+
+        public int SignalAmplification {
+            get => signalAmplification;
+            set {
+                var clamped = Math.Max(1, value);
+                if (signalAmplification != clamped) {
+                    signalAmplification = clamped;
+                    optionsAccessor.SetValueInt32(nameof(SignalAmplification), signalAmplification);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        // When on (default), a quick standard autofocus is run before each live sensor-model / tilt sweep to center
+        // the focuser at best focus, so the sweep brackets focus symmetrically (fewer extreme one-sided defocus
+        // frames that fail to align). No effect on replay of saved frames.
+        private bool centerFocuserBeforeRun = true;
+
+        public bool CenterFocuserBeforeRun {
+            get => centerFocuserBeforeRun;
+            set {
+                if (centerFocuserBeforeRun != value) {
+                    centerFocuserBeforeRun = value;
+                    optionsAccessor.SetValueBoolean(nameof(CenterFocuserBeforeRun), centerFocuserBeforeRun);
                     RaisePropertyChanged();
                 }
             }

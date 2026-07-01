@@ -25,6 +25,8 @@ public class InspectorOptionsTests {
         Assert.Multiple(() => {
             Assert.That(options.StepCount, Is.EqualTo(-1));
             Assert.That(options.StepSize, Is.EqualTo(-1));
+            Assert.That(options.SignalAmplification, Is.EqualTo(2));
+            Assert.That(options.CenterFocuserBeforeRun, Is.True);
             Assert.That(options.FramesPerPoint, Is.EqualTo(-1));
             Assert.That(options.TimeoutSeconds, Is.EqualTo(-1));
             Assert.That(options.SimpleExposureSeconds, Is.EqualTo(-1));
@@ -59,6 +61,8 @@ public class InspectorOptionsTests {
         var (options, store, _) = Build();
         options.StepCount = 5;
         options.StepSize = 50;
+        options.SignalAmplification = 3;
+        options.CenterFocuserBeforeRun = false;
         options.FramesPerPoint = 3;
         options.NumRegionsWide = 9;
         options.SimpleExposureSeconds = 2.5;
@@ -87,6 +91,8 @@ public class InspectorOptionsTests {
         Assert.Multiple(() => {
             Assert.That(store.Snapshot[nameof(InspectorOptions.StepCount)], Is.EqualTo(5));
             Assert.That(store.Snapshot[nameof(InspectorOptions.StepSize)], Is.EqualTo(50));
+            Assert.That(store.Snapshot[nameof(InspectorOptions.SignalAmplification)], Is.EqualTo(3));
+            Assert.That(store.Snapshot[nameof(InspectorOptions.CenterFocuserBeforeRun)], Is.False);
             Assert.That(store.Snapshot[nameof(InspectorOptions.FramesPerPoint)], Is.EqualTo(3));
             Assert.That(store.Snapshot[nameof(InspectorOptions.SimpleExposureSeconds)], Is.EqualTo(2.5));
             Assert.That(store.Snapshot[nameof(InspectorOptions.DetailedAnalysisExposureSeconds)], Is.EqualTo(4.0));
@@ -136,6 +142,17 @@ public class InspectorOptionsTests {
         Assert.That(options.CornersROI, Is.EqualTo(expected));
     }
 
+    [TestCase(-5, 1)]
+    [TestCase(0, 1)]
+    [TestCase(1, 1)]
+    [TestCase(2, 2)]
+    [TestCase(4, 4)]
+    public void SignalAmplification_ClampsToAtLeastOne(int assigned, int expected) {
+        var (options, _, _) = Build();
+        options.SignalAmplification = assigned;
+        Assert.That(options.SignalAmplification, Is.EqualTo(expected));
+    }
+
     [Test]
     public void BrightnessToleranceHint_ReflectsPreviousRunBrightnessDiff() {
         var (options, _, _) = Build();
@@ -165,6 +182,8 @@ public class InspectorOptionsTests {
         options.NumRegionsWide = 10;
         options.SensorROI = 0.5;
         options.MouseOnChartsEnabled = false;
+        options.SignalAmplification = 4;
+        options.CenterFocuserBeforeRun = false;
 
         options.ResetDefaults();
 
@@ -174,10 +193,14 @@ public class InspectorOptionsTests {
             Assert.That(options.SensorROI, Is.EqualTo(1.0));
             Assert.That(options.MouseOnChartsEnabled, Is.True);
             Assert.That(options.InterpolationAmount, Is.EqualTo(InterpolationAmountEnum.Medium));
+            Assert.That(options.SignalAmplification, Is.EqualTo(2));
+            Assert.That(options.CenterFocuserBeforeRun, Is.True);
         });
     }
 
     [TestCase(nameof(InspectorOptions.StepCount), 4)]
+    [TestCase(nameof(InspectorOptions.SignalAmplification), 3)]
+    [TestCase(nameof(InspectorOptions.CenterFocuserBeforeRun), false)]
     [TestCase(nameof(InspectorOptions.LoopingExposureAnalysisEnabled), true)]
     [TestCase(nameof(InspectorOptions.MicronsPerFocuserStep), 2.5)]
     [TestCase(nameof(InspectorOptions.SensorROI), 0.6)]

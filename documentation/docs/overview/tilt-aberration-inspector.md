@@ -93,9 +93,11 @@ outliers are detected and rejected, see [Sensor Model Fitting](sensor-model.md).
 
 !!! note "Frame alignment is robust to heavy defocus"
     Matching stars across frames is hardest at the defocused extremes of the sweep, where stars are
-    bloated and sparse. The matcher chains alignment through neighboring frames and retries against a
-    denser reference rather than giving up, so the "*N frames failed to align*" condition is now rare.
-    If you still hit it, collect more stars on the weak frames (a wider exposure, or the
+    bloated and sparse. The matcher chains alignment through neighboring frames, retries against a
+    denser reference, and escalates its search box for the hardest frames rather than giving up, so the
+    "*N frames failed to align*" condition is now rare. See [cross-frame
+    registration](sensor-model.md#from-stars-to-data-points) for how these fallbacks work. If you still
+    hit it, collect more stars on the weak frames (a wider exposure, or the
     [donut-recovery settings](../settings/acceptance-gates.md#recover-out-of-focus-donut-stars)) and
     re-run.
 
@@ -136,6 +138,8 @@ from the option definitions; descriptions quote the in-app tooltips where one ex
 | **Mouse on Charts** | on | on/off | "Enable mouse events on charts to scroll, pan, and zoom. Disable this if you don't want the charts to intercept mouse actions." |
 | **Step Count** | -1 (auto) | -1 or &gt;0 | "The minimum number of data points needed on each side of the AutoFocus curve minimum. Uses the value set for AutoFocus if blank." |
 | **Step Size** | -1 (auto) | -1 or &gt;0 | "How many focuser steps in between each data point … Uses the value set for AutoFocus if blank." |
+| **Signal Amplification** | 2 | &ge;1 | "Increases the resolution and signal of sensor-model / tilt calibration runs by capturing more, finer-spaced focuser points. The focuser step size is divided by this factor and the number of steps multiplied by it, so the sweep covers the same range with more points (and smaller defocus jumps between adjacent frames, which makes star alignment more reliable) … Set to 1 to disable. Applies to live captures only." |
+| **Center Focuser First** | on | on/off | "When on (default), a quick standard AutoFocus is run before each live sensor-model / tilt calibration sweep to center the focuser at best focus. The detailed sweep then brackets focus symmetrically, which reduces extreme one-sided defocus frames that fail to align. Has no effect when replaying saved frames." |
 | **Frames Per Point** | -1 (auto) | -1 or &ge;1 | "How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank." |
 | **Timeout (s)** | -1 (auto) | -1 or &gt;0 | "How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank." |
 | **Simple Exposure (s)** | -1 (auto) | -1 or &gt;0 | "How long of an exposure to take for analysis. Defaults to the Auto Focus exposure duration if not set." Sets the exposure for the single-frame Simple Analysis. |

@@ -828,6 +828,25 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         private const double maxShapeDistanceStrict = 0.02;
         private const double maxShapeDistanceRelaxed = 0.05;
 
+        // Box-escalation fallback (TryAlignWithBoxEscalation). A heavily-defocused frame has few stars spread far
+        // apart, so at the reference's (small) search box almost no triples fall within it and RANSAC starves. These
+        // bound a last-resort retry that re-triangulates the frame + a dense reference at progressively LARGER boxes:
+        // grow the box up to this portion of the image's smaller side, ~1.5x per step, attempting an alignment once
+        // the frame forms at least this many triangles. Only ever runs for frames that all earlier passes failed.
+        private const double maxEscalationSizePortion = 0.35;
+        private const int minEscalationFrameTriangles = 12;
+        // Hard cap on the stars fed into the escalation's triangle builds. The DENSE reference build is O(k^2)/O(k^3)
+        // in stars-within-box, so a star-rich reference frame at a large box would explode into millions of triangles
+        // (observed: a multi-thousand-star bank run hung for hours). The brightest ~120 stars are more than enough to
+        // register a sparse failed frame's handful of stars, and capping bounds the triangle count regardless of box.
+        private const int maxEscalationStars = 120;
+        // Work budget for a single box's putative-triangle match. The match is O(refTriangles x frameTriangles) in the
+        // k-d tree's per-query allocation, and even with the 120-star cap BOTH dense sets can reach ~C(120,3) triangles
+        // at a large box, so their product is only cheap when the failing frame is sparse (the design case). If a
+        // failing frame is itself star-rich, the product would blow up; skip the match once it would exceed this budget
+        // (and stop escalating, since a larger box only grows both sets), so a pathological frame cannot stall the run.
+        private const long maxEscalationMatchWork = 200_000_000L;
+
         private int AlignStarsWithRANSAC(
             List<SensorDetectedStars> allDetectedStars,
             System.Drawing.Size imageSize,
@@ -1001,8 +1020,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                         allDetectedStars[imageIndex].HasBeenAligned = true;
                         Logger.Info($"Image {imageIndex}: aligned on dense-reference retry ({retryDst.Count} putative matches; sparse-ref error was: {ex.Message})");
                     } catch (Exception ex2) {
-                        Logger.Info($"Image {imageIndex}: Error: {ex.Message}; dense-reference retry also failed: {ex2.Message}");
-                        allDetectedStars[imageIndex].HasBeenAligned = false;
+                        // Final fallback: ESCALATE the search box for this sparse frame (and a dense reference at the
+                        // same box) so it can form enough triangles to register. The reference-box triangulation
+                        // starves heavily-defocused frames whose few stars are spread far apart; a larger box restores
+                        // the corresponding triangles. The plate-scale guard inside guards against a wrong transform.
+                        if (TryAlignWithBoxEscalation(referenceStars.ToList(), theseStars.ToList(), imageSize, maxTriangleSize, status, progress, out var escTransform, out var escMatches, out var escBox)) {
+                            ApplyAlignmentTransform(imageIndex, escTransform);
+                            imagesAligned++;
+                            allDetectedStars[imageIndex].HasBeenAligned = true;
+                            Logger.Info($"Image {imageIndex}: aligned on box-escalation retry (box {escBox}, {escMatches} putative matches; sparse/dense-ref errors were: {ex.Message} / {ex2.Message})");
+                        } else {
+                            Logger.Info($"Image {imageIndex}: Error: {ex.Message}; dense-reference retry also failed: {ex2.Message}; box escalation also failed");
+                            allDetectedStars[imageIndex].HasBeenAligned = false;
+                        }
                     }
                 }
             }
@@ -1090,6 +1120,82 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             Logger.Info($"RANSAC alignment: {imagesAligned} / {allDetectedStars.Count} images were successfully aligned");
             stopwatch.RecordEntry("RANSAC alignment");
             return imagesAligned;
+        }
+
+        // Last-resort alignment for a heavily-defocused frame that the reference-box triangulation cannot register:
+        // such a frame has few stars spread far apart, so at the reference's (small) search box almost no triples
+        // fall within it (often 1-2 triangles) and RANSAC starves — and the dense-reference retry and neighbor
+        // chaining reuse that SAME box, so they starve too. This re-triangulates BOTH the frame and a DENSE reference
+        // at progressively LARGER boxes until the frame forms enough triangles, restoring the corresponding triangles
+        // a transform needs. The 0.9-1.1 plate-scale guard (frames in one AF run share scale; defocus doesn't rescale
+        // the field) still rejects a degenerate fit, so a larger box cannot admit a wrong transform. Returns the
+        // transform, the putative-match count, and the box that worked. Runs ONLY for frames every earlier pass failed.
+        private bool TryAlignWithBoxEscalation(
+                List<Point2D> referenceStars,
+                List<Point2D> frameStars,
+                System.Drawing.Size imageSize,
+                int referenceBox,
+                ApplicationStatus status,
+                IProgress<ApplicationStatus> progress,
+                out Matrix3x2 transform,
+                out int putativeMatches,
+                out int boxUsed) {
+            transform = Matrix3x2.Identity;
+            putativeMatches = 0;
+            boxUsed = referenceBox;
+            // Bound the O(k^2)/O(k^3) dense-triangle cost (see maxEscalationStars): use only the brightest stars. This
+            // is the failure path only, so the normal passes still triangulate the full star set.
+            if (referenceStars.Count > maxEscalationStars) {
+                referenceStars = referenceStars.OrderByDescending(p => p.NormalisedBrightness).Take(maxEscalationStars).ToList();
+            }
+            if (frameStars.Count > maxEscalationStars) {
+                frameStars = frameStars.OrderByDescending(p => p.NormalisedBrightness).Take(maxEscalationStars).ToList();
+            }
+            int maxBox = (int)(maxEscalationSizePortion * Math.Min(imageSize.Width, imageSize.Height));
+            // Math.Max(box + 1, ...) guarantees the box strictly grows each step so the loop always terminates,
+            // even for a degenerate tiny reference box where (int)(box * 1.5) could otherwise stall.
+            for (int box = Math.Max(referenceBox + 1, (int)(referenceBox * 1.5)); box <= maxBox; box = Math.Max(box + 1, (int)(box * 1.5))) {
+                var frameDense = RANSACRegistration.BuildStarTriangles(imageSize, frameStars, box, false, false);
+                if (frameDense.Count < minEscalationFrameTriangles) {
+                    continue;   // still too sparse at this box; grow further
+                }
+                var refDense = RANSACRegistration.BuildStarTriangles(imageSize, referenceStars, box, false, true);
+                // The putative match below is O(refDense x frameDense) in the k-d tree's per-query allocation. Both
+                // sets are bounded per box by the star cap, but a star-rich FAILING frame can still make their product
+                // enormous at a large box. Bail before the match once the product would exceed the work budget; larger
+                // boxes only grow both sets, so stop escalating rather than continue.
+                if ((long)refDense.Count * frameDense.Count > maxEscalationMatchWork) {
+                    break;
+                }
+                var (src, dst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                    frameDense, refDense, status, maxShapeDistanceStrict);
+                if (dst.Count < 20) {
+                    foreach (var t in frameDense) {
+                        t.ResetMatch();
+                    }
+                    (src, dst) = RANSACRegistration.GeneratePutativeMatchesUsingSimilarTriangles(
+                        frameDense, refDense, status, maxShapeDistanceRelaxed);
+                }
+                if (dst.Count < 6) {
+                    continue;
+                }
+                try {
+                    var t = inspectorOptions.UseAffineAlignment
+                        ? RANSACRegistration.EstimateAffineTransform(src, dst, status, progress)
+                        : RANSACRegistration.EstimateSimilarityTransform(src, dst, status, progress).ToMatrix3x2();
+                    var scale = Math.Sqrt(Math.Abs(t.GetDeterminant()));
+                    if (scale < 0.9 || scale > 1.1) {
+                        continue;   // degenerate at this box; try a larger one
+                    }
+                    transform = t;
+                    putativeMatches = dst.Count;
+                    boxUsed = box;
+                    return true;
+                } catch {
+                    // RANSAC could not find a consistent transform at this box; escalate further.
+                }
+            }
+            return false;
         }
 
         private static (RegisteredStar[], int) MatchStarsUsingKdTree(

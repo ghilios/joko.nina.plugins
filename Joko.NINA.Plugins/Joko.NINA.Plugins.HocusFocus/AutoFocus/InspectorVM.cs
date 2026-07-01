@@ -416,6 +416,34 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     ResetErrors();
                     ResetExposureAnalysis();
                     LastSaveFolder = null;
+
+                    // Pre-center the focuser at best focus before the detailed multi-region sweep, so the sweep
+                    // brackets focus symmetrically. This reduces extreme one-sided defocus frames that fail RANSAC
+                    // alignment and improves the per-star paraboloid fit the tilt is read from. A plain (single-region)
+                    // AutoFocus is run on a SEPARATE engine — no inspector chart wiring. It uses GetOptions() (profile
+                    // step size/count), so it is deliberately NOT signal-amplified: the finer steps are only needed for
+                    // the sensor-model run, a quick coarse centering pass is sufficient. The centering run is NEVER
+                    // saved (Save forced off, independent of the global AutoFocus save toggle and of any saveOverride):
+                    // only the actual sensor-model / per-tilt-step run that follows is persisted. Failure is non-fatal:
+                    // the detailed run proceeds from the current focuser position.
+                    if (inspectorOptions.CenterFocuserBeforeRun) {
+                        try {
+                            var centeringEngine = autoFocusEngineFactory.Create();
+                            var centeringOptions = centeringEngine.GetOptions();
+                            centeringOptions.Save = false;
+                            centeringOptions.PreserveExposures = false;
+                            this.progress.Report(new ApplicationStatus() { Status = "Centering focuser before sensor model run" });
+                            var centeringResult = await centeringEngine.Run(centeringOptions, imagingFilter, localAnalyzeCts.Token, this.progress);
+                            if (centeringResult == null || !centeringResult.Succeeded) {
+                                Logger.Warning("Centering AutoFocus did not succeed; continuing the sensor-model run from the current focuser position.");
+                            }
+                        } catch (OperationCanceledException) {
+                            throw;
+                        } catch (Exception ex) {
+                            Logger.Warning($"Centering AutoFocus failed: {ex.Message}; continuing the sensor-model run from the current focuser position.");
+                        }
+                    }
+
                     var result = await autoFocusEngine.RunWithRegions(options, imagingFilter, regions, localAnalyzeCts.Token, this.progress);
                     if (result == null) {
                         InspectorErrorText = "AutoFocus Analysis Failed";
@@ -1052,6 +1080,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (inspectorOptions.StepSize > 0 && savedAutoFocusAttempt != null) {
                 options.AutoFocusStepSize = inspectorOptions.StepSize;
             }
+            // Signal amplification: capture more, finer-spaced points over the same sweep range by dividing the step
+            // size and multiplying the step count by the factor. Only meaningful for LIVE captures — a replay re-uses
+            // the saved frames' fixed focuser positions (savedAutoFocusAttempt != null), so those stay untouched.
+            ApplySignalAmplification(options, inspectorOptions.SignalAmplification, isLiveCapture: savedAutoFocusAttempt == null);
             if (inspectorOptions.TimeoutSeconds > 0) {
                 options.AutoFocusTimeout = TimeSpan.FromSeconds(inspectorOptions.TimeoutSeconds);
             }
@@ -1068,6 +1100,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 options.PreserveExposures = true;
             }
             return options;
+        }
+
+        // Applies the Signal Amplification factor to a live sensor-model / tilt sweep: divides the focuser step size
+        // and multiplies the step count by the factor, so the same sweep range is covered with more, finer-spaced
+        // points (more signal, smaller defocus jumps between adjacent frames). No-op at factor <= 1 or on replay
+        // (isLiveCapture == false), since replay re-uses the saved frames' fixed focuser positions. Internal for tests.
+        internal static void ApplySignalAmplification(AutoFocusEngineOptions options, int signalAmplification, bool isLiveCapture) {
+            var amp = Math.Max(1, signalAmplification);
+            if (amp > 1 && isLiveCapture) {
+                options.AutoFocusInitialOffsetSteps *= amp;
+                options.AutoFocusStepSize = Math.Max(1, (int)Math.Round(options.AutoFocusStepSize / (double)amp));
+            }
         }
 
         private StarDetectionRegion GetAutoFocusRegion(AutoFocusEngineOptions options) {
