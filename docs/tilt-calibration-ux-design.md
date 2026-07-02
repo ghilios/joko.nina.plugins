@@ -16,19 +16,31 @@ In addition, the wizard always runs 6 steps even though the first 2 (Baseline �
 measure the curvature/backfocus direction sign; guidance never states a turn direction (only IN/OUT); and
 there is no way to enter a known calibration manually.
 
+## Terminology
+
+Two different motions get called "in/out"; this spec (and all new UI text) keeps them distinct:
+
+- **Screw motion**: clockwise (CW) always advances/tightens a screw — a fixed hardware fact, never a
+  setting. UI text says "clockwise/counter-clockwise (tighten/loosen)", never "in/out", for this.
+- **Adapter motion**: *inward* = the adapter's moving plate travels **toward the telescope objective**
+  (away from the camera); *outward* = toward the camera. Whether a CW screw turn produces inward or
+  outward adapter motion depends on the adapter design (push vs pull screws, spring loading) — **this
+  is the rig-specific configuration that needs a setting.**
+
+The existing wizard prompts use "INWARD" in the screw-motion sense; they will be reworded to
+"clockwise (tighten)" to remove the ambiguity.
+
 ## Decisions confirmed with the user
 
 1. **Shared settings, two surfaces.** Signal Amplification and Center Focuser First remain single
    `InspectorOptions` values; the wizard binds the same instances (no wizard-specific overrides).
-2. **Direction semantics.** Clockwise always drives a screw inward (hardware fact — right-hand thread).
-   The rig-specific unknown is whether that inward screw motion moves the sensor plate **toward the
-   telescope objective** or **away from it (toward the camera)**. No rotation-direction enum is needed;
-   IN ⇔ CW and OUT ⇔ CCW are fixed wording. The plate-direction unknown is exactly what
-   `ScrewInwardCurvatureSign` already encodes.
+2. **Direction semantics.** CW ⇒ screw advances is fixed; the setting captures whether that moves the
+   **adapter** inward (toward objective) or outward (toward camera). Guidance states rotation as
+   CW/CCW (always valid); adapter in/out wording is derived from the setting.
 3. **Manual calibration entry** lives in the wizard's pre-run settings panel (collapsed expander), and
    applying it produces the same persisted calibration state the wizard writes (tagged as manual).
-4. **Stepper guidance uses signed steps** (`+35 steps` / `−35 steps`), positive = inward, matching the
-   convention the wizard prompts establish.
+4. **Stepper guidance uses signed steps** (`+35 steps` / `−35 steps`), where "+" is the step direction
+   the wizard's calibration prompts establish.
 
 ## Feature 1 — Surface the sweep-cost settings
 
@@ -81,24 +93,27 @@ there is no way to enter a known calibration manually.
 
 The numeric guidance pipeline already exists (`InspectorVM.FillNumericGuidance`,
 `TiltScrewGeometry.ScrewCorrectionMicrons` / `InwardAdjustment`,
-`TiltAdapterGuidanceVM.FormatMagnitude` / `FormatTotal`). Changes are wording plus the assumed-direction
-default (Feature 3):
+`TiltAdapterGuidanceVM.FormatMagnitude` / `FormatTotal`). Internally, a positive `InwardAdjustment`
+means "turn the screw in the direction the calibration prompts used" — i.e. CW for screws — so the
+rotation word is a fixed mapping; only adapter in/out wording depends on the Feature 3 setting:
 
-- **Screws:** totals become e.g. `1.25 turns CW (in)` / `0.50 turns CCW (out)`. IN maps to CW
-  unconditionally, per the confirmed hardware fact.
-- **Steppers:** totals become signed steps: `+35 steps (in)` / `−35 steps (out)`, positive = inward —
-  the same "+" the wizard's calibration prompts instruct.
-- Per-screw Tilt/Backfocus cells stay magnitude-only (the arrows carry direction). Add a one-line legend
-  under the guidance table: "⬆ = inward (clockwise)" (steppers: "⬆ = inward (+ steps)").
+- **Screws:** totals become e.g. `1.25 turns CW` / `0.50 turns CCW`.
+- **Steppers:** totals become signed steps: `+35 steps` / `−35 steps`, with the same "+" the wizard's
+  calibration prompts instruct.
+- Per-screw Tilt/Backfocus cells stay magnitude-only (the arrows carry direction). Add a one-line
+  legend under the guidance table stating both conventions, with the adapter direction derived from
+  the Feature 3 setting: e.g. "⬆ = clockwise (adapter moves toward camera)" — steppers:
+  "⬆ = + steps (adapter moves toward camera)".
+- The tilt component's direction comes from the measured screw angles and is independent of the
+  Feature 3 setting; only the backfocus/total components depend on it. When the setting is assumed
+  rather than measured (Feature 3), the guidance shows an "(assumed direction)" annotation.
 - `FormatTotal` (and a new small formatter for the legend) extended and kept as **pure static helpers**
   for unit testing.
-- Wizard step instructions and baseline-recovery text gain the fixed rotation words:
-  "Turn ALL screws INWARD (clockwise) exactly 1 full turn…", "…back OUT (counter-clockwise)…". For
-  stepper adapters the prompts switch to signed-step phrasing ("apply +N steps to every motor…"),
-  replacing the current turns-only wording, with N = `CalibrationAppliedAmount`.
-- The direction is available whenever calibration is available; because Feature 3 gives
-  `ScrewInwardCurvatureSign` an assumed default, totals always carry a direction word, with an
-  "(assumed)" caveat where the sign is not measured (see below).
+- Wizard step instructions and baseline-recovery text are reworded from the ambiguous "INWARD/OUT" to
+  screw-motion terms: "Turn ALL screws CLOCKWISE (tighten) exactly 1 full turn…", "…back
+  COUNTER-CLOCKWISE (loosen)…". For stepper adapters the prompts switch to signed-step phrasing
+  ("apply +N steps to every motor…"), replacing the current turns-only wording, with
+  N = `CalibrationAppliedAmount`.
 
 ## Feature 3 — Curvature calibration becomes opt-in (4-step wizard by default)
 
@@ -108,25 +123,35 @@ New/changed persisted options on `TiltAdapterOptions`:
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
-| `MeasureCurvatureDuringCalibration` | bool | **false** | Include the Baseline + AllInward steps (6-step wizard) to measure the direction sign. |
-| `ScrewInwardCurvatureSign` | int | **−1** (was 0) | Unchanged storage/semantics: +1 = inward turns raise the curvature effect; −1 = lower it. New default = the user-requested assumption "inward decreases curvature". |
+| `MeasureCurvatureDuringCalibration` | bool | **false** | Include the Baseline + AllInward steps (6-step wizard) to measure the adapter direction. |
+| `ScrewInwardCurvatureSign` | int | **non-zero default** (was 0) | Unchanged storage/semantics: the sign of the focus/curvature response to a CW ("prompt-direction") screw turn, exactly what `ComputeCurvatureSign` measures. Now derived from the mechanical setting below when not measured. |
 | `ScrewInwardCurvatureSignIsMeasured` | bool | **false** | Provenance: true only when a 6-step wizard run measured the sign. Cleared when the user edits the direction manually or applies manual calibration entry. |
 
-Physical interpretation shown to the user (consistent with `.claude/docs/tilt-domain.md` and the
-standard NINA focuser convention of position increasing = drawtube out): sign **−1** ⇔ "turning screws
-clockwise (inward) moves the sensor plate **away from the objective** — curvature effect decreases";
-sign **+1** ⇔ "…**toward the objective** — curvature effect increases". If a rig's guidance appears
-inverted, flipping this setting (or running the 6-step measurement) corrects it.
+The **user-facing setting is mechanical**, per the confirmed framing: does a CW screw turn move the
+adapter inward (toward objective) or outward (toward camera)? It is presented as a two-entry ComboBox
+and stored via `ScrewInwardCurvatureSign` through a **fixed mapping constant** (the physics/focuser
+convention linking adapter motion to the measured focus-shift sign). That constant must be **verified
+empirically during implementation** against a real measured calibration run (saved run metadata records
+the measured sign, and the adapter's mechanical behavior is known for the reference hardware) — it is a
+single boolean that armchair sign-chasing gets wrong too easily.
+
+**Default:** CW ⇒ adapter moves **outward (toward the camera)** — consistent with
+`.claude/docs/tilt-domain.md` ("turning a screw inward pushes that corner of the sensor away from the
+telescope"). If the empirical mapping check shows this default disagrees with the originally requested
+"inward decreases curvature" behavior, the mechanical default wins and the discrepancy is raised for
+review. If a rig's backfocus guidance appears inverted, flipping this setting (or running the 6-step
+measurement) corrects it.
 
 ### Wizard settings UI (Panel A, in the new "Measurement" section after Feature 1's rows)
 
-1. ComboBox **"Turning screws inward (CW)"** with two entries bound to the sign:
-   - "Moves sensor away from objective — curvature decreases" (−1, default)
-   - "Moves sensor toward objective — curvature increases" (+1)
-   For stepper adapters the label reads **"Applying + steps"** instead. Disabled while
-   `MeasureCurvatureDuringCalibration` is checked (measurement will overwrite it); after a measured run
-   it displays the measured value.
-2. CheckBox **"Measure curvature direction during calibration"** with prose to the right:
+1. ComboBox **"Turning screws clockwise moves the adapter"** with two entries:
+   - "Toward the camera — outward" (default)
+   - "Toward the objective — inward"
+   For stepper adapters the label reads **"Applying + steps moves the adapter"** instead. Disabled
+   while `MeasureCurvatureDuringCalibration` is checked (measurement will overwrite it); after a
+   measured run it displays the value inferred from the measurement (the measured sign back-fills this
+   setting through the same fixed mapping).
+2. CheckBox **"Measure adapter direction during calibration"** with prose to the right:
    > "Adds 2 extra measurement steps (6 instead of 4 — about 50% longer) to determine the direction
    > automatically. Turn on if you don't know how your adapter behaves, or to verify the setting above."
 
@@ -145,8 +170,8 @@ inverted, flipping this setting (or running the 6-step measurement) corrects it.
 - **Metadata/replay/validator:** `TiltCalibrationMetadata` records which steps ran (`RunStepMapping`
   already lists them per step). Replaying an old 6-step run still measures the sign; a 4-step run
   replays as 4 steps. The TestApp validator accepts both.
-- The wizard results panel and saved-calibration panel annotate the curvature row with
-  "(measured)" / "(assumed)" from `ScrewInwardCurvatureSignIsMeasured`.
+- The wizard results panel and saved-calibration panel show the adapter direction row with a
+  "(measured)" / "(assumed)" annotation from `ScrewInwardCurvatureSignIsMeasured`.
 
 ## Feature 4 — Manual calibration entry
 
@@ -159,7 +184,7 @@ saved-calibration display):
 - **Screw numbering direction (in the image)** — ComboBox {Clockwise (default), Counter-clockwise}.
   Remaining screws are placed at equal spacing: 3-screw ±120°; 4-screw ±90° with opposite screws 180°
   apart — the same layout `ComputeScrewAngles` fits to.
-- The **curvature direction** setting from Feature 3 sits directly above in the same panel and is
+- The **adapter direction** setting from Feature 3 sits directly above in the same panel and is
   called out in the expander's prose as the companion setting ("set the direction above if you know
   it").
 - **Apply** button: writes `Screw1..4AngleDegrees`, `CalibratedScrewCount = ScrewCount`,
@@ -198,7 +223,9 @@ New/updated NUnit tests (test project links shared sources directly):
   handling, em-dash small-value behavior.
 - `InspectorOptions`: `CenterFocuserBeforeRun` default false; `TimeoutSeconds` persists under its own
   key (and no longer clobbers `StepCount`).
-- `TiltAdapterOptions`: new option defaults (`ScrewInwardCurvatureSign` = −1, flags false).
+- `TiltAdapterOptions`: new option defaults (non-zero `ScrewInwardCurvatureSign`, flags false); the
+  mechanical-setting ↔ stored-sign mapping constant round-trips (one test pinned to the empirically
+  verified value).
 
 Full suite (`dotnet test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo`) must pass.
 
@@ -217,9 +244,12 @@ Update the MkDocs manual (follow `.claude/docs/documentation-style.md`):
 - **Wizard-specific overrides** for amplification/centering — rejected by user (shared settings).
 - **A rotation-direction enum (CW/CCW = inward)** — rejected: CW⇒screw-inward is fixed by hardware; the
   only rig-specific sign is the plate direction, already covered by `ScrewInwardCurvatureSign`.
-- **Leaving the direction unset until chosen** — rejected: user wants the inward-decreases default;
-  the "(assumed)" tag plus the IN/OUT word retained next to CW/CCW keeps a wrong assumption visible and
-  recoverable.
+- **Leaving the direction unset until chosen** — rejected: a sensible mechanical default plus the
+  "(assumed direction)" annotation keeps a wrong assumption visible and recoverable, and the feature
+  works out of the box.
+- **Phrasing the setting through curvature ("inward decreases curvature")** — rejected after review:
+  it conflates the mechanical rig fact (CW ⇒ adapter in/out, which the user knows) with the optical
+  response (which the code measures); the mechanical phrasing is the one users can answer.
 - **Separate dialog for manual entry** — rejected in favor of an inline expander (fewer clicks, less
   XAML surface).
 - **Up/Down stepper wording** — rejected in favor of signed steps (user choice).
