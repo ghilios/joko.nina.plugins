@@ -36,7 +36,7 @@ The adapter type is set by the **Screws** field (default `3`).
   with an equal-spacing constraint, splitting measurement error evenly between them.
 - **4-screw adapter**: screws are spaced about `90°` apart and **opposite screws are mechanically
   coupled**, so adjustments are made in pairs (tighten one while the opposite loosens). The wizard
-  exploits this: "opposite screws are always 180° apart regardless of mirroring," so it measures two
+  exploits this: opposite screws are always 180° apart regardless of mirroring, so it measures two
   screws and places the other two 180° across.
 
 ## The calibration loop
@@ -71,24 +71,25 @@ flags inconsistent repeats so you can re-run.
     the frame from that step's model. These help most on faint fields or in poor seeing. Raising
     **Measurements** above 1 averages independent repeats on top of them.
 
-!!! note "Set Microns per Focuser Step for the best guidance"
-    Per its tooltip, *Microns per Focuser Step* is "how much the focuser moves per step, in microns.
+!!! note "Set Focuser Step Size for the best guidance"
+    Per its tooltip, *Focuser Step Size* is "how much the focuser moves per step, in microns.
     If this is set, the adjustment chart will include adjustments in microns." Without it, adjustments
     are still reported in focuser steps, and the tilt-angle calculation falls back to the connected
     focuser's reported step size when available.
 
-!!! tip "Tilt, backfocus, and curvature: what the screws can fix"
-    The Sensor Model splits the focus surface into two effects. The **Tilt Effect** is the linear
-    plane (one side focuses ahead of the opposite side); you null it by moving the screws
-    *differentially*, reported as the per-screw **Tilt** amount.
+## What the screws can fix
 
-    The **Curvature Effect** is the symmetric corners-versus-center bowl. The wizard reads it as a
-    spacing error and derives a **backfocus** correction from it, reported as the per-screw
-    **Backfocus** amount: turn all screws the same way to move the whole sensor along the optical axis
-    (or add spacers for changes beyond the adapter's travel), then re-measure and repeat until the
-    Curvature Effect stops dropping. What remains is the residual curvature of a correctly spaced
-    system, set by your corrector design and focal ratio; the adapter cannot remove it (a
-    better-matched corrector or stopping down does).
+The Sensor Model splits the focus surface into two effects. The **Tilt Effect** is the linear
+plane (one side focuses ahead of the opposite side); you null it by moving the screws
+*differentially*, reported as the per-screw **Tilt** amount.
+
+The **Curvature Effect** is the symmetric corners-versus-center bowl. The wizard reads it as a
+spacing error and derives a **backfocus** correction from it, reported as the per-screw
+**Backfocus** amount: turn all screws the same way to move the whole sensor along the optical axis
+(or add spacers for changes beyond the adapter's travel), then re-measure and repeat until the
+Curvature Effect stops dropping. What remains is the residual curvature of a correctly spaced
+system, set by your corrector design and focal ratio; the adapter cannot remove it (a
+better-matched corrector or stopping down does).
 
 ## Manual calibration entry
 
@@ -150,7 +151,7 @@ radius yourself.
     sensor actually moved. The wizard remembers the last measured value and **warns you if it diverges
     from the configured value**, which usually means the wrong preset is selected or a number was
     mistyped. Without a valid hardware model, adjustments are still reported in focuser steps (and, if
-    *Microns per Focuser Step* is set, in microns); you just do not get the turn/step figure.
+    *Focuser Step Size* is set, in microns); you just do not get the turn/step figure.
 
 ## Saving and replaying a calibration run
 

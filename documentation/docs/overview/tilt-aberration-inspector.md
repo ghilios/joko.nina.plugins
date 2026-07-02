@@ -3,8 +3,8 @@
 The **Aberration Inspector** is a dockable panel that drives an auto-focus run (or a single snapshot)
 and turns the result into a quantitative picture of how your sensor sits in the optical train. It
 answers the questions a single center-of-frame focus number cannot: *Is one corner sharper than the
-other? Is the field bowed? Is my backfocus right?* Backfocus is the spacing between the
-corrector/flattener and the sensor. And, when paired with a tilt-adapter calibration, the inspector
+other? Is the field bowed? Is my backfocus right?* (Backfocus is the spacing between the
+corrector/flattener and the sensor.) When paired with a tilt-adapter calibration, the inspector
 translates those numbers into concrete screw-turn guidance.
 
 ## Sensor tilt, in one paragraph
@@ -34,12 +34,12 @@ field curvature." The panel reports, among others:
 | Measurement | What it means (from the panel tooltips) |
 |---|---|
 | **Tilt** | "The angle the sensor is tilted. 0 indicates no tilt, and values here are typically very small." |
-| **Tilt effect** | "The maximum nominal distance from the corners of the sensor to the center, due purely to the modeled tilt." |
-| **Curvature effect** | "The nominal distance from the corner of the sensor to the center, due purely to the modeled curvature. Curvature effect is more exaggerated on larger sensors." |
-| **Curvature radius** | "Near focus, the base of the sensor parabola is close to a sphere. This value represents the radius of that sphere. Larger values indicate flatter curves, which are better." |
-| **Critical focus** | "The focuser distance a pixel can be from optimal focus before the effects can be noticed. This value increases with larger (slower) F/ratios, which can tolerate more curvature before affecting image quality." |
-| **Mean focuser position** | "The weighted mean focuser position under the sensor curve … a focus point where pixels throughout the sensor have minimum absolute distance from optimal focus." |
-| **AutoFocus offset** | "The number of focuser steps between the AutoFocus position and the Sensor Mean Focuser Position." |
+| **Tilt Effect** | "The maximum nominal distance from the corners of the sensor to the center, due purely to the modeled tilt." |
+| **Curvature Effect** | "The nominal distance from the corner of the sensor to the center, due purely to the modeled curvature. Curvature effect is more exaggerated on larger sensors." |
+| **Curvature Radius** | "Near focus, the base of the sensor parabola is close to a sphere. This value represents the radius of that sphere. Larger values indicate flatter curves, which are better." |
+| **Critical Focus** | "The focuser distance a pixel can be from optimal focus before the effects can be noticed. This value increases with larger (slower) F/ratios, which can tolerate more curvature before affecting image quality." |
+| **Mean Focuser Position** | "The weighted mean focuser position under the sensor curve … a focus point where pixels throughout the sensor have minimum absolute distance from optimal focus." |
+| **Auto Focus Offset** | "The number of focuser steps between the AutoFocus position and the Sensor Mean Focuser Position." |
 
 A lighter-weight **Simple Analysis** "[takes] a single exposure to produce a FWHM contour map and
 Eccentricity vector field," useful for a quick look at off-axis aberrations without a full sweep.
@@ -66,13 +66,13 @@ normalized image coordinates that run from \(-0.5\) to \(+0.5\) on each axis:
 \]
 
 \(A\) and \(B\) are the tilt slopes in the horizontal and vertical directions (in focuser steps per
-normalized image unit), and \(C\) is the mean focus plane. Each corner's **Adjustment Required** is
-its best-focus position minus the mean, reported in focuser steps (and in microns, if you have set
-*Microns per Focuser Step*).
+normalized image unit), and \(C\) is the mean focus plane. Each corner's required adjustment (the
+**Adj Steps** / **Adj Microns** columns) is its best-focus position minus the mean, reported in
+focuser steps (and in microns, if you have set *Focuser Step Size*).
 
 ### The full sensor surface (optional)
 
-Enabling **Sensor Curve Model** goes further. Per its tooltip, it will "in addition to analyzing
+Turning on **Sensor Curve Model Enabled** goes further. Per its tooltip, it will "in addition to analyzing
 AutoFocus curves for the corners and center, create a paraboloid model of the sensor by creating
 focus curves for every star. This enables calculation of centering error and curvature, and is
 similar to the type of analysis done by CCD Inspector." Stars are matched across frames (the panel
@@ -86,16 +86,16 @@ outliers are detected and rejected, see [Sensor Model Fitting](sensor-model.md).
 *The sensor curve model: a 3D surface of best-focus offset across the sensor (telescope up, sensor down).*
 
 !!! tip "When the surface model helps"
-    Enable **Sensor Curve Model** when you intend to physically correct tilt or want curvature and
+    Turn on **Sensor Curve Model Enabled** when you intend to physically correct tilt or want curvature and
     centering numbers, not just a corner-vs-center plane. It is heavier (it fits a curve for every
     matched star) and needs enough matched stars to be meaningful, so leave it off for a quick tilt
     check.
 
-!!! note "Frame alignment is robust to heavy defocus"
+!!! note "Frame alignment holds up under heavy defocus"
     Matching stars across frames is hardest at the defocused extremes of the sweep, where stars are
     bloated and sparse. The matcher chains alignment through neighboring frames, retries against a
     denser reference, and escalates its search box for the hardest frames rather than giving up, so the
-    "*N frames failed to align*" condition is now rare. See [cross-frame
+    "*N frames failed to align*" condition is rare. See [cross-frame
     registration](sensor-model.md#from-stars-to-data-points) for how these fallbacks work. If you still
     hit it, collect more stars on the weak frames (a wider exposure, or the
     [donut-recovery settings](../settings/acceptance-gates.md#recover-out-of-focus-donut-stars)) and
@@ -118,7 +118,9 @@ the adapter direction has been measured in the wizard.
 ## Inspector options
 
 These settings live in the inspector panel (not the main Options page). Defaults and ranges are taken
-from the option definitions; descriptions quote the in-app tooltips where one exists.
+from the option definitions; descriptions quote the in-app tooltips where one exists. The alignment,
+star-matching, outlier-rejection, and save-images settings (plus **Astigmatic field curvature** and
+**Min R² (rejection)**) sit inside an **Experimental** sub-expander within the Options section.
 
 ![The Aberration Inspector options section](../assets/screenshots/inspector-options-empty.png){ width=519 }
 
@@ -126,40 +128,37 @@ from the option definitions; descriptions quote the in-app tooltips where one ex
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|
-| **Num Regions Wide** | 7 | odd, positive | "How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors … the height will be calculated proportionally." |
-| **Microns per Focuser Step** | -1 (auto) | -1 or &gt;0 | "How much the focuser moves per step, in microns. If this is set, the adjustment chart will include adjustments in microns." |
+| **Eccentricity Grid Width** | 7 | odd, positive | "How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors … the height will be calculated proportionally." |
+| **Focuser Step Size** | -1 (auto) | -1 or &gt;0 | "How much the focuser moves per step, in microns. If this is set, the adjustment chart will include adjustments in microns." |
 | **Sensor ROI** | 1.0 | 0.1–1.0 | "Uses only a centered portion of the full sensor when evaluating aberration. This is useful if you have a flattener that cannot produce a flat field for your sensor." |
 | **Corners ROI** | 1.0 | 0.1–1.0 | "Reduces the size of the corner regions when performing corners analysis … evaluate only stars closer to the corners than the full 1/9th region. This can be combined with Sensor ROI." |
-| **Sensor Curve Model** | off | on/off | "Create a paraboloid model of the sensor by creating focus curves for every star. This enables calculation of centering error and curvature … similar to … CCD Inspector." |
+| **Sensor Curve Model Enabled** | off | on/off | "Create a paraboloid model of the sensor by creating focus curves for every star. This enables calculation of centering error and curvature … similar to … CCD Inspector." |
 | **Show Sensor Model** | on | on/off | Displays the 3D surface model in the panel. |
-| **Fixed Sensor Center** | on | on/off | "Assume the sensor is perfectly centered in the optical train. If this option is off, the sensor location will be modeled along with the other model parameters." |
+| **Sensor Centered** | on | on/off | "Assume the sensor is perfectly centered in the optical train. If this option is off, the sensor location will be modeled along with the other model parameters." |
 | **Astigmatic field curvature** | off | on/off | "When off (default), field curvature is modeled as rotationally symmetric … Enable to fit independent X and Y curvature, representing the saddle-shaped field of an astigmatic optical train. Adds one free parameter." |
-| **Use RANSAC** | on | on/off | Align frames with RANSAC before matching stars, improving registration robustness. |
-| **Use Affine Alignment** | off | on/off | Use a 6-DOF affine transform (adds shear) instead of similarity; only enabled when RANSAC is on. |
-| **Reject Badly Fitting Matches** | on | on/off | Drop matched stars whose per-star hyperbolic fit is too poor. |
-| **Reject Bad Brightness Matches** | off | on/off | Enable an adaptive search that rejects matched stars whose brightness differs too much. |
-| **Starting Brightness Diff** | -1 (auto) | -1 or &ge;0.01 | Starting brightness tolerance for the adaptive match search; -1 starts from the previous run's value. |
-| **Acceptable R² Min** | 0.05 | 0–1 | Minimum model \(R^2\) for acceptance; only triggers rejection when reduced \(\chi^2\) also fails. |
-| **Max Stars Per Region** | -1 (unlimited) | -1 or &gt;0 | Cap on the number of (brightest) stars used per region. |
-| **Eccentricity Color Map** | on | on/off | "Enable color on the eccentricity map." |
-| **Mouse on Charts** | on | on/off | "Enable mouse events on charts to scroll, pan, and zoom. Disable this if you don't want the charts to intercept mouse actions." |
-| **Step Count** | -1 (auto) | -1 or &gt;0 | "The minimum number of data points needed on each side of the AutoFocus curve minimum. Uses the value set for AutoFocus if blank." |
+| **Align images before matching** | on | on/off | Align frames with RANSAC before matching stars, so matching stays reliable at the defocused ends of the sweep. |
+| **Use affine alignment (diagnostic)** | off | on/off | Use a 6-DOF affine transform (adds shear) instead of similarity; only enabled when **Align images before matching** is on. |
+| **Outlier rejection** | on | on/off | Drop matched stars whose per-star hyperbolic fit is too poor. |
+| **Match using brightness** | off | on/off | Enable an adaptive search that rejects matched stars whose brightness differs too much. |
+| **Starting Brightness Tolerance** | -1 (auto) | -1 or &ge;0.01 | Starting brightness tolerance for the adaptive match search; -1 starts from the previous run's value. |
+| **Min R² (rejection)** | 0.05 | 0–1 | Minimum model \(R^2\) for acceptance; only triggers rejection when reduced \(\chi^2\) also fails. |
+| **Eccentricity Color Enabled** | on | on/off | "Enable color on the eccentricity map." |
+| **Mouse Events Enabled** | on | on/off | "Enable mouse events on charts to scroll, pan, and zoom. Disable this if you don't want the charts to intercept mouse actions." |
+| **Steps** | -1 (auto) | -1 or &gt;0 | "The minimum number of data points needed on each side of the AutoFocus curve minimum. Uses the value set for AutoFocus if blank." |
 | **Step Size** | -1 (auto) | -1 or &gt;0 | "How many focuser steps in between each data point … Uses the value set for AutoFocus if blank." |
 | **Signal Amplification** | 2 | &ge;1 | "Increases the resolution and signal of sensor-model / tilt calibration runs by capturing more, finer-spaced focuser points. The focuser step size is divided by this factor and the number of steps multiplied by it, so the sweep covers the same range with more points (and smaller defocus jumps between adjacent frames, which makes star alignment more reliable) … Set to 1 to disable. Applies to live captures only." Sits above the Options expander, with a live estimate of the images each run will capture. |
 | **Center Focuser First** | off | on/off | "When on, a quick standard AutoFocus is run before each live sensor-model / tilt calibration sweep to center the focuser at best focus. The detailed sweep then brackets focus symmetrically, which reduces extreme one-sided defocus frames that fail to align … Has no effect when replaying saved frames." Sits above the Options expander, next to Signal Amplification. |
-| **Frames Per Point** | -1 (auto) | -1 or &ge;1 | "How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank." |
-| **Timeout (s)** | -1 (auto) | -1 or &gt;0 | "How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank." |
-| **Simple Exposure (s)** | -1 (auto) | -1 or &gt;0 | "How long of an exposure to take for analysis. Defaults to the Auto Focus exposure duration if not set." Sets the exposure for the single-frame Simple Analysis. |
-| **Detailed Analysis Exposure (s)** | -1 (auto) | -1 or &gt;0 | Per-frame exposure for a Detailed Analysis sweep; defaults to the AutoFocus exposure duration when blank. Unlike Simple Exposure (the single-frame Simple Analysis), this sets the per-frame exposure for the multi-frame Detailed Analysis sweep. |
-| **Looping Exposure Analysis** | off | on/off | "If enabled, repeatedly take and analyze exposures." |
-| **Save Images on Reruns** | off | on/off | Save registered/alignment images when reanalyzing saved runs. |
-| **Save Alignment Images** | off | on/off | Also save the pre-alignment star-detection images. |
+| **Exposures per Point** | -1 (auto) | -1 or &ge;1 | "How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank." |
+| **AutoFocus Timeout** | -1 (auto) | -1 or &gt;0 | "How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank." |
+| **Simple Analysis exposure** (the unlabeled seconds box beside **Take Exposure**) | -1 (auto) | -1 or &gt;0 | "How long of an exposure to take for analysis. Defaults to the Auto Focus exposure duration if not set." Sets the exposure for the single-frame Simple Analysis. |
+| **AutoFocus Exposure** | -1 (auto) | -1 or &gt;0 | Per-frame exposure for a Detailed Analysis sweep; defaults to the AutoFocus exposure duration when blank. Unlike the Simple Analysis exposure box, this sets the per-frame exposure for the multi-frame Detailed Analysis sweep. |
+| **Looping** | off | on/off | "If enabled, repeatedly take and analyze exposures." |
+| **Save annotated images when rerunning a saved autofocus** | off | on/off | Save registered/alignment images when reanalyzing saved runs. |
+| **Save alignment images** | off | on/off | Also save the pre-alignment star-detection images. |
 
-!!! tip "When Sensor ROI / Corners ROI help"
-    Reach for **Sensor ROI** when your flattener cannot deliver a flat field all the way to the sensor
-    edges. Restricting analysis to the well-corrected center keeps a bad corner from polluting the
-    tilt fit. Use **Corners ROI** when you want the corner regions sampled closer to the actual
-    corners than the default outer one-ninth of the frame.
+!!! tip "Sensor ROI protects the tilt fit"
+    Restricting analysis to the well-corrected center (**Sensor ROI**) keeps a corner your
+    flattener cannot correct from polluting the tilt fit.
 
 ## Running it from a sequence
 

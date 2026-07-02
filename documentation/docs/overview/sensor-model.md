@@ -44,7 +44,7 @@ optical residual you can only minimize.
 *Best focus is reached at a different focuser position across the sensor. A smooth left-to-right
 gradient is tilt; a center-to-corner bowl is curvature. The models below separate the two.*
 
-## 4-Corners Model
+## The 4-corners model
 
 The center and four corner regions each yield an estimated best-focus position. The center is held
 back for the backfocus comparison below; the four corners are fed to an ordinary-least-squares fit of
@@ -55,12 +55,13 @@ a plane, over normalized image coordinates that run from \(-0.5\) to \(+0.5\) on
 \]
 
 \(A\) and \(B\) are the tilt slopes along the horizontal and vertical axes (in focuser steps per
-normalized image unit) and \(C\) is the mean focus plane. Each corner's **Adjustment Required** is its
-best-focus position minus that mean, reported in focuser steps (and in microns when *Microns per
-Focuser Step* is set). There is no outlier rejection here, because there are only four points to fit.
+normalized image unit) and \(C\) is the mean focus plane. Each corner's required adjustment (the
+**Adj Steps** / **Adj Microns** columns) is its best-focus position minus that mean, reported in
+focuser steps (and in microns when *Focuser Step Size* is set). There is no outlier rejection here,
+because there are only four points to fit.
 
 **Backfocus** is read off the same regions rather than the plane: it is the mean of the four corner
-best-focus positions minus the center position, converted to microns with *Microns per Focuser Step*,
+best-focus positions minus the center position, converted to microns with *Focuser Step Size*,
 and compared against the critical focus zone. A positive value means the corners focus past the
 center, a sign the sensor sits too far from the corrector. The screw-by-screw guidance built from this
 plane is covered under
@@ -128,14 +129,14 @@ and each other frame's stars are matched to it by nearest neighbor within a sear
 reference is the frame with the most detected stars, so the registry and the frame alignment have as
 many anchor stars as possible to match against.
 
-Two registration approaches are available, set by **Use RANSAC** (on by default) under
-[Inspector options](tilt-aberration-inspector.md#inspector-options):
+Two registration approaches are available, set by **Align images before matching** (on by default)
+under [Inspector options](tilt-aberration-inspector.md#inspector-options):
 
-- **Nearest-neighbor only** (RANSAC off). Stars are matched directly in their original pixel
+- **Nearest-neighbor only** (alignment off). Stars are matched directly in their original pixel
   positions, using a wide search radius so the frame-to-frame drift still falls inside it.
-- **RANSAC alignment first** (RANSAC on). Every frame is first transformed onto the reference frame by
-  a RANSAC-estimated transform (a similarity transform by default, or an affine one when **Use Affine
-  Alignment** is on), so matching stars land almost on top of each other. The nearest-neighbor match
+- **RANSAC alignment first** (alignment on). Every frame is first transformed onto the reference frame by
+  a RANSAC-estimated transform (a similarity transform by default, or an affine one when **Use affine
+  alignment (diagnostic)** is on), so matching stars land almost on top of each other. The nearest-neighbor match
   then runs with a much tighter search radius. This is what keeps matching reliable at the defocused
   ends of the sweep, where stars are bloated and sparse.
 
@@ -150,8 +151,8 @@ rejects any transform that would not keep the frame at close to its original sca
 cannot register a frame wrongly. These retries run only for frames the first pass could not place, and
 the box escalation triangulates only the brightest stars (about 120 of them), so a dense field, which
 aligns on the first pass, is neither altered nor slowed. If any frame still cannot be placed, star
-matching for the whole sweep reverts to the wider nearest-neighbor search radius used when RANSAC is
-off.
+matching for the whole sweep reverts to the wider nearest-neighbor search radius used when alignment
+is off.
 
 A star must be matched in **at least five frames** to be fit, so its focus curve has enough points to
 be meaningful.
@@ -189,7 +190,7 @@ Two details keep the fit well-behaved:
 - **Parameter scaling.** The parameters span very different magnitudes (a center offset in microns, a
   dimensionless gradient near \(10^{-3}\), a curvature coefficient near \(10^{-6}\)). The optimizer is
   told each parameter's scale so it can take sensible steps in every direction at once.
-- **The center.** With **Fixed Sensor Center** on (the default), \(X_0\) and \(Y_0\) are pinned to
+- **The center.** With **Sensor Centered** on (the default), \(X_0\) and \(Y_0\) are pinned to
   zero and the sensor is assumed centered. Turning it off lets the fit estimate the center along with
   everything else, bounded to the sensor's own dimensions. Pinning the center is more than an optics
   assumption: a free center and the tilt gradients are partly confounded (a small shift of the vertex
@@ -242,7 +243,7 @@ A few additional safeguards keep the result stable from run to run.
   survived to constrain the surface.
 - **A deliberate acceptance gate.** A low \(R^2\) on its own never rejects the model, because a nearly
   flat sensor genuinely explains little variance while still being fit well. The model is rejected only
-  when \(R^2\) is below **Acceptable R² Min** (default \(0.05\)) *and* the reduced \(\chi^2\) is also
+  when \(R^2\) is below **Min R² (rejection)** (default \(0.05\)) *and* the reduced \(\chi^2\) is also
   poor (above \(5\)).
 - **Determinism.** The per-star curve fits run in parallel but are written back in a fixed order, so
   the surface fit, and every number derived from it, is identical no matter how the work was scheduled.
