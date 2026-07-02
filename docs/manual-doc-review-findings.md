@@ -2,6 +2,24 @@
 
 Run during the tilt-calibration-ux branch work. 28 pages reviewed, 95 confirmed findings (each adversarially verified). All findings on the four pages edited by the branch were verified to be PRE-EXISTING; the branch's own doc changes came back clean apart from two small fixes already applied. This report is the backlog for a separate docs-cleanup pass.
 
+> **✅ Backlog closed on branch `ghilios/docs-and-tilt-ux-polish` (2026-07-02).**
+> All 95 findings below were burned down across five per-page-group batches (landing, detection/AF,
+> tilt/sensor, optimization, settings), each verified with `mkdocs build --strict` and committed separately.
+> Every finding was applied or corrected against the current pages; **none were obsolete** — all 15 findings
+> on the four pages PR #117 had edited still matched. The one finding whose real fix lived in the XAML source
+> rather than the doc (the star-annotation reticule / structure-map tooltip typos) was closed at the source
+> and the doc quotes resynced. Two cross-batch consistency items found during application were also fixed: the
+> **Optimize for aberration inspection** label was normalized to bold-without-quotes manual-wide, and the
+> phantom **Max Stars Per Region** inspector-options row was deleted.
+>
+> A second adversarial-doc-review sweep (28 pages, formatting + style lens, 3-vote verification) then confirmed
+> the backlog was cleared and surfaced **10 further findings** — pre-existing misses this fresher pass caught,
+> not regressions from the cleanup: a `Microns per Focuser Step` → **Focuser Step Size** label fix on
+> quick-start, a `Focus sharpness` → `Focus repeatability` terminology alignment on af-curve-fitting, an
+> EARLY/LATE synthetic-axis caveat accuracy fix on search-variables, and seven house-voice nits (filler, a
+> question/first-person heading, reflexive bolding, a `robust` buzzword, and Simple/Advanced-mode casing). All
+> ten were applied in the re-review cleanup commit. **The backlog is now closed.**
+
 
 ## index.md (3)
 
