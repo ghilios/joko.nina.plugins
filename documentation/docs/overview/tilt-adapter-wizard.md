@@ -58,6 +58,10 @@ of the effect (`ScrewInwardCurvatureSign`) from the curvature change, and the sa
 reports the direction as measured. To average out seeing, set **Measurements to average** above 1; the wizard
 flags inconsistent repeats so you can re-run.
 
+![The Tilt Adapter Wizard's Measurement section: Signal Amplification, Center Focuser First, the adapter-direction selector, and Measure direction](../assets/screenshots/wizard-measurement-section.png){ width=620 }
+
+*The Measurement section configures each calibration sweep and sets which way a clockwise turn moves the adapter.*
+
 !!! tip "Each calibration step runs a full inspector sweep"
     A calibration measurement is a full sensor-model sweep, so it runs the same alignment and
     focus-centering steps as a standalone Detailed Analysis. **Center Focuser First** (off by

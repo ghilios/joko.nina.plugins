@@ -1,0 +1,15 @@
+{
+  "source": "wizard-measurement-section.png",
+  "crop": [
+    268,
+    353,
+    1268,
+    528
+  ],
+  "scale_from": [
+    1600,
+    1040
+  ],
+  "highlights": [],
+  "output": "wizard-measurement-section.png"
+}
