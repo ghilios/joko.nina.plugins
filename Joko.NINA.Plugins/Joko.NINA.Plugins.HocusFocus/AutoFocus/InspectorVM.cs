@@ -1142,8 +1142,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var (points, images) = EstimateImagesPerRun(stepCount, framesPerPoint, signalAmplification, profileOffsetSteps, profileFramesPerPoint);
             if (images <= 0) return string.Empty;
             int frames = framesPerPoint > 0 ? framesPerPoint : profileFramesPerPoint;
-            return $"Each auto focus run will capture ~{images} images ({points} focus positions × {frames} exposure{(frames == 1 ? "" : "s")} each). " +
-                "Higher values collect more, finer-spaced points for a steadier fit on weak signal; 1 runs a regular autofocus (fastest).";
+            return $"Each autofocus run will capture ~{images} images ({points} focus positions × {frames} exposure{(frames == 1 ? "" : "s")} each). " +
+                "Higher values collect more, finer-spaced points for a steadier fit on weak signal; a value of 1 runs a regular autofocus (fastest).";
         }
 
         public string SignalAmplificationSummary =>
