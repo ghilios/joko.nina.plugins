@@ -28,7 +28,7 @@
     <TextBlock x:Key="StepSize_Tooltip" Text="How many focuser steps in between each data point when doing an AutoFocus. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="FramesPerPoint_Tooltip" Text="How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="SignalAmplification_Tooltip" Text="Increases the resolution and signal of sensor-model / tilt calibration runs by capturing more, finer-spaced focuser points. The focuser step size is divided by this factor and the number of steps multiplied by it, so the sweep covers the same range with more points (and smaller defocus jumps between adjacent frames, which makes star alignment more reliable). Default 2. Set to 1 to disable. Applies to live captures only, not when replaying saved frames." />
-    <TextBlock x:Key="CenterFocuserBeforeRun_Tooltip" Text="When on (default), a quick standard AutoFocus is run before each live sensor-model / tilt calibration sweep to center the focuser at best focus. The detailed sweep then brackets focus symmetrically, which reduces extreme one-sided defocus frames that fail to align. Has no effect when replaying saved frames." />
+    <TextBlock x:Key="CenterFocuserBeforeRun_Tooltip" Text="When on, a quick standard AutoFocus is run before each live sensor-model / tilt calibration sweep to center the focuser at best focus. The detailed sweep then brackets focus symmetrically, which reduces extreme one-sided defocus frames that fail to align. Off by default; it adds an extra AutoFocus run to every sweep. Has no effect when replaying saved frames." />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="NumRegionsWide_Tooltip" Text="How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors. This value must be an odd, positive integer, and the height will be calculated proportionally from it based on the sensor resolution" />
     <TextBlock x:Key="MicronsPerFocuserStep_Tooltip" Text="How much the focuser moves per step, in microns. If this is set, the adjustment chart will include adjustments in microns" />
@@ -1391,6 +1391,83 @@
                             VerticalAlignment="Center"
                             Text="Keep frames for Review" />
                     </StackPanel>
+
+                    <!--  Sweep-cost settings: kept out of the Options expander because they directly
+                          control how long every sensor-model / tilt-calibration run takes.  -->
+                    <Grid
+                        Grid.Row="4"
+                        Grid.ColumnSpan="4"
+                        Margin="0,4,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Signal Amplification"
+                            ToolTip="{StaticResource SignalAmplification_Tooltip}" />
+                        <ninactrl:UnitTextBox
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            MinWidth="40"
+                            VerticalAlignment="Center"
+                            HorizontalContentAlignment="Left"
+                            VerticalContentAlignment="Center"
+                            Foreground="{StaticResource PrimaryBrush}"
+                            TextAlignment="Left"
+                            ToolTip="{StaticResource SignalAmplification_Tooltip}"
+                            Unit="x">
+                            <Binding
+                                Mode="TwoWay"
+                                Path="InspectorOptions.SignalAmplification"
+                                UpdateSourceTrigger="LostFocus" />
+                        </ninactrl:UnitTextBox>
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="2"
+                            MaxWidth="400"
+                            Margin="10,5,5,5"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            FontStyle="Italic"
+                            Opacity="0.7"
+                            Text="{Binding SignalAmplificationSummary}"
+                            TextWrapping="Wrap" />
+                        <TextBlock
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Center Focuser First"
+                            ToolTip="{StaticResource CenterFocuserBeforeRun_Tooltip}" />
+                        <CheckBox
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Margin="5,0,0,0"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            IsChecked="{Binding InspectorOptions.CenterFocuserBeforeRun}"
+                            ToolTip="{StaticResource CenterFocuserBeforeRun_Tooltip}" />
+                        <TextBlock
+                            Grid.Row="1"
+                            Grid.Column="2"
+                            MaxWidth="400"
+                            Margin="10,5,5,5"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            FontStyle="Italic"
+                            Opacity="0.7"
+                            Text="Runs one standard autofocus to center the focuser before each measurement sweep. Turn on if your focuser drifts between runs or starts far from best focus; leave off to save time."
+                            TextWrapping="Wrap" />
+                    </Grid>
                 </Grid>
                 <Expander
                     Grid.Row="1"
@@ -1408,7 +1485,6 @@
                             </Style>
                         </Grid.Resources>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -1757,50 +1833,8 @@
                             <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.FixedSensorCenter}" />
                         </StackPanel>
 
-                        <TextBlock
-                            Grid.Row="7"
-                            Grid.Column="0"
-                            Margin="5"
-                            VerticalAlignment="Center"
-                            Text="Signal Amplification"
-                            ToolTip="{StaticResource SignalAmplification_Tooltip}" />
-                        <ninactrl:UnitTextBox
-                            Grid.Row="7"
-                            Grid.Column="1"
-                            MinWidth="40"
-                            VerticalAlignment="Center"
-                            HorizontalContentAlignment="Left"
-                            VerticalContentAlignment="Center"
-                            Foreground="{StaticResource PrimaryBrush}"
-                            TextAlignment="Left"
-                            ToolTip="{StaticResource SignalAmplification_Tooltip}"
-                            Unit="x">
-                            <Binding
-                                Mode="TwoWay"
-                                Path="InspectorOptions.SignalAmplification"
-                                UpdateSourceTrigger="LostFocus" />
-                        </ninactrl:UnitTextBox>
-
-                        <TextBlock
-                            Grid.Row="7"
-                            Grid.Column="2"
-                            Margin="5"
-                            VerticalAlignment="Center"
-                            Text="Center Focuser First"
-                            ToolTip="{StaticResource CenterFocuserBeforeRun_Tooltip}" />
-                        <StackPanel
-                            Grid.Row="7"
-                            Grid.Column="3"
-                            Orientation="Horizontal">
-                            <CheckBox
-                                Margin="5,0,0,0"
-                                VerticalAlignment="Center"
-                                IsChecked="{Binding InspectorOptions.CenterFocuserBeforeRun}"
-                                ToolTip="{StaticResource CenterFocuserBeforeRun_Tooltip}" />
-                        </StackPanel>
-
                         <Expander
-                            Grid.Row="8"
+                            Grid.Row="7"
                             Grid.ColumnSpan="4"
                             VerticalAlignment="Center"
                             Header="Experimental">
@@ -2798,6 +2832,13 @@
                         </TextBlock>
                         <!--  Calibrated guidance branch  -->
                         <StackPanel Visibility="{Binding HasTiltAdapterCalibration, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <!--  Direction legend: ⬆/⬇ = adapter motion, ⟳/⟲ = screw rotation. First
+                                  element so the conventions are read before the table.  -->
+                            <TextBlock
+                                Margin="5,4,5,2"
+                                Text="{Binding TiltGuidance.DirectionLegend}"
+                                TextWrapping="Wrap"
+                                Visibility="{Binding TiltGuidance.HasDirectionLegend, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             <!--  No measurement yet  -->
                             <TextBlock
                                 Margin="5"
@@ -2924,7 +2965,7 @@
                                     Visibility="{Binding TiltGuidance.HasFourScrewBackfocus, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             </Grid>
 
-                            <!--  Precise numeric adjustments (turns / steps) — shown when adapter hardware is configured  -->
+                            <!--  Precise numeric adjustments, each with its rotation glyph / step sign — shown when adapter hardware is configured  -->
                             <Grid
                                 Margin="5,8,5,0"
                                 Visibility="{Binding TiltGuidance.HasNumericGuidance, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">

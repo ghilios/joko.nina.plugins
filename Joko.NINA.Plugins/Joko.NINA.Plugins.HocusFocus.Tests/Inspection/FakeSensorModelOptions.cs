@@ -9,7 +9,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         public int StepCount { get; set; }
         public int StepSize { get; set; }
         public int SignalAmplification { get; set; } = 2;
-        public bool CenterFocuserBeforeRun { get; set; } = true;
+        public bool CenterFocuserBeforeRun { get; set; } = false;
         public int FramesPerPoint { get; set; }
         public int TimeoutSeconds { get; set; }
         public int NumRegionsWide { get; set; } = 7;

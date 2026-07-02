@@ -367,4 +367,77 @@ public class TiltCalibrationCalculatorTests {
         Assert.That(r.Confidence, Is.Not.Null);
         Assert.That(r.Confidence.IsReliable, Is.True); // clean synthetic moves, zero drift
     }
+
+    [Test]
+    public void Calibrate_WithoutCurvatureMeasurement_PassesFallbackSignThrough() {
+        // 4-step run: Baseline/AllInward were never measured. The baseline reading is supplied in
+        // the ReBaseline1 slot (it is the screw-1 reference); Baseline/AllInward stay default.
+        var baseline = new TiltGradient(0, 0, 1000);
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            HasCurvatureMeasurement = false,
+            FallbackCurvatureSign = -1,
+            ReBaseline1 = baseline,
+            Screw1 = SingleScrewReading(0, 400, 3),
+            ReBaseline2 = baseline,
+            Screw2 = SingleScrewReading(120, 400, 3),
+            ImageWidthPixels = ImgW,
+            ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize,
+            FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm,
+            CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false
+        };
+        var result = TiltCalibrationCalculator.Calibrate(inputs);
+        Assert.Multiple(() => {
+            Assert.That(result.CurvatureSign, Is.EqualTo(-1));
+            Assert.That(result.Screw1AngleDegrees, Is.EqualTo(0).Within(1e-6));
+            Assert.That(result.Screw2AngleDegrees, Is.EqualTo(120).Within(1e-6));
+            Assert.That(result.MeasuredHardwareMicrons, Is.EqualTo(400).Within(1e-6));
+        });
+    }
+
+    [Test]
+    public void ComputeConfidence_WithoutCurvatureMeasurement_UsesOnlyRebaseline2Drift() {
+        var baseline = new TiltGradient(0, 0, 1000);
+        var drifted = new TiltGradient(0.01, 0, 1000); // ReBaseline2 drifts by 0.01 from ReBaseline1
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            HasCurvatureMeasurement = false,
+            ReBaseline1 = baseline,
+            Screw1 = new TiltGradient(0.10, 0, 1000),
+            ReBaseline2 = drifted,
+            Screw2 = new TiltGradient(0.01, 0.10, 1000)
+        };
+        var confidence = TiltCalibrationCalculator.ComputeConfidence(inputs);
+        Assert.Multiple(() => {
+            // signal = mean(|0.10|, |0.10|) = 0.10; noise = |ReBaseline2 - ReBaseline1| = 0.01
+            Assert.That(confidence.ScrewMoveSignal, Is.EqualTo(0.10).Within(1e-9));
+            Assert.That(confidence.NoiseEstimate, Is.EqualTo(0.01).Within(1e-9));
+            Assert.That(confidence.SignalToNoise, Is.EqualTo(10.0).Within(1e-9));
+            Assert.That(confidence.AllInwardTiltResidual, Is.NaN);
+            Assert.That(confidence.Rebaseline1Drift, Is.NaN);
+            Assert.That(confidence.Rebaseline2Drift, Is.EqualTo(0.01).Within(1e-9));
+            Assert.That(confidence.IsReliable, Is.True);
+        });
+    }
+
+    [TestCase(30.0, true, 3, 30.0, 150.0, 270.0, double.NaN)]
+    [TestCase(30.0, false, 3, 30.0, 270.0, 150.0, double.NaN)]
+    [TestCase(350.0, true, 4, 350.0, 80.0, 170.0, 260.0)]
+    [TestCase(10.0, false, 4, 10.0, 280.0, 190.0, 100.0)]
+    [TestCase(-30.0, true, 3, 330.0, 90.0, 210.0, double.NaN)]  // out-of-range input normalized into [0, 360)
+    [TestCase(370.0, true, 3, 10.0, 130.0, 250.0, double.NaN)]
+    public void ComputeManualScrewAngles_PlacesEqualSpacingWithWinding(
+        double screw1, bool clockwise, int screwCount, double e1, double e2, double e3, double e4) {
+        var (s1, s2, s3, s4) = TiltCalibrationCalculator.ComputeManualScrewAngles(screw1, clockwise, screwCount);
+        Assert.Multiple(() => {
+            Assert.That(s1, Is.EqualTo(e1).Within(1e-9));
+            Assert.That(s2, Is.EqualTo(e2).Within(1e-9));
+            Assert.That(s3, Is.EqualTo(e3).Within(1e-9));
+            if (double.IsNaN(e4)) Assert.That(s4, Is.NaN);
+            else Assert.That(s4, Is.EqualTo(e4).Within(1e-9));
+        });
+    }
 }

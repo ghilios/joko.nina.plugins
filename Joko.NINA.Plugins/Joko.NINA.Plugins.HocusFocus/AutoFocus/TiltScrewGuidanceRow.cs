@@ -41,8 +41,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public bool HasNumericGuidance { get; set; }
         public bool UnitsAreSteps { get; set; }
 
-        // Per-screw tilt and backfocus magnitudes (direction is shown by the arrows above), and the
-        // signed total with an explicit IN/OUT direction word.
+        // Per-screw signed adjustments, all three rows carrying their own rotation direction
+        // (⟳/⟲ glyphs for screws, +/− signs for steppers). The arrows grid above describes adapter
+        // MOTION (⬆ = toward the objective), not rotation — the two answer different questions.
         public string Screw1TiltAmount { get; set; } = "—";
         public string Screw2TiltAmount { get; set; } = "—";
         public string Screw3TiltAmount { get; set; } = "—";
@@ -62,36 +63,38 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public string PitchMismatchWarning { get; set; } = string.Empty;
         public bool HasPitchMismatch => !string.IsNullOrEmpty(PitchMismatchWarning);
 
+        // One-line legend defining the motion arrows and rotation glyphs; empty until guidance renders.
+        public string DirectionLegend { get; set; } = string.Empty;
+        public bool HasDirectionLegend => !string.IsNullOrEmpty(DirectionLegend);
+
         /// <summary>
-        /// Format an unsigned per-screw magnitude. Steppers round to whole steps (the user's choice);
-        /// screws show two decimals of a turn. Values that round to nothing render as an em dash.
+        /// Fixed legend for the guidance table: ⬆/⬇ describe adapter-plate motion (toward the
+        /// objective / toward the camera — pure physics, identical on every rig), and ⟳/⟲ (screws)
+        /// or the +/− step sign (steppers) describe the rig-specific rotation that produces it.
+        /// "(assumed)" flags a direction setting never verified by a wizard measurement.
         /// </summary>
-        public static string FormatMagnitude(double amount, bool steps) {
-            double a = Math.Abs(amount);
-            if (steps) {
-                long rounded = (long)Math.Round(a, MidpointRounding.AwayFromZero);
-                return rounded == 0 ? "—" : $"{rounded} steps";
-            }
-            return a < 0.005 ? "—" : $"{a:0.00} turns";
+        public static string BuildDirectionLegend(bool steps, bool signIsMeasured) {
+            string body = steps
+                ? "⬆ = adapter moves toward the objective · steps are signed as in the wizard prompts"
+                : "⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in turns";
+            string assumed = signIsMeasured ? string.Empty : " (assumed — set or measure in the Tilt Adapter Wizard)";
+            return body + assumed;
         }
 
         /// <summary>
-        /// Format the signed total adjustment with an explicit IN/OUT direction (positive = inward).
-        /// When the inward direction is not calibrated (<paramref name="hasDirection"/> false) only the
-        /// magnitude is shown.
+        /// Format a signed per-screw adjustment. Positive = clockwise / the wizard-prompt "+" step
+        /// direction. Screws render the magnitude with a rotation glyph ("1.25 ⟳" / "0.50 ⟲" — units
+        /// live in the legend); steppers render signed whole steps ("+35 steps"). Values that round
+        /// to nothing render as an em dash with no direction mark.
         /// </summary>
-        public static string FormatTotal(double inwardAmount, bool steps, bool hasDirection) {
-            string magnitude;
+        public static string FormatAmount(double signedAmount, bool steps) {
             if (steps) {
-                long rounded = (long)Math.Round(Math.Abs(inwardAmount), MidpointRounding.AwayFromZero);
+                long rounded = (long)Math.Round(Math.Abs(signedAmount), MidpointRounding.AwayFromZero);
                 if (rounded == 0) return "—";
-                magnitude = $"{rounded} steps";
-            } else {
-                if (Math.Abs(inwardAmount) < 0.005) return "—";
-                magnitude = $"{Math.Abs(inwardAmount):0.00} turns";
+                return signedAmount >= 0 ? $"+{rounded} steps" : $"−{rounded} steps";
             }
-            if (!hasDirection) return magnitude;
-            return $"{magnitude} {(inwardAmount >= 0 ? "IN" : "OUT")}";
+            if (Math.Abs(signedAmount) < 0.005) return "—";
+            return $"{Math.Abs(signedAmount):0.00} {(signedAmount >= 0 ? "⟳" : "⟲")}";
         }
     }
 }

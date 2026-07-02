@@ -43,7 +43,8 @@ namespace TestApp {
     /// <summary>
     /// Headless validator for the Tilt Adapter Wizard's calibration. Given a dataset folder containing the 6
     /// saved AF runs the wizard consumes in sequence (Baseline → AllInward → ReBaseline1 → Screw1 → ReBaseline2 →
-    /// Screw2), it measures each
+    /// Screw2) — or the 4 runs of a wizard flow saved without the curvature-direction steps (Baseline → Screw1 →
+    /// ReBaseline2 → Screw2) — it measures each
     /// run's tilt plane, runs the SAME pure <see cref="TiltCalibrationCalculator"/> the live wizard uses, and
     /// reports the computed per-screw position angles + recovered hardware (thread pitch / step size) against
     /// ground-truth metadata stored in a per-dataset JSON file. It can also run (and persist) the star-detection
@@ -164,7 +165,7 @@ namespace TestApp {
             var inspectorOptions = new InspectorOptions(profileService);
             var alglibAPI = new AlglibAPI();
 
-            // Map the run folders to the 4 wizard steps (explicit override in metadata, else folder-name order).
+            // Map the run folders to the wizard steps (explicit override in metadata, else folder-name order).
             var orderedRuns = MapRunsToSteps(metadata, runFolders, datasetDir);
             foreach (var r in orderedRuns) {
                 Console.WriteLine($"  {r.Step,-10} -> {Path.GetFileName(r.Folder)} ({r.Frames.Count} frames, {r.Frames.Select(f => f.Focuser).Distinct().Count()} positions)");
@@ -204,14 +205,20 @@ namespace TestApp {
             // Calibrate using the pure shared calculator.
             var byStep = perStep.ToDictionary(s => s.Step, StringComparer.OrdinalIgnoreCase);
             var imageSize = perStep[0].ImageSize;
+            // A 4-step run (wizard flow without the curvature-direction steps) has no AllInward/ReBaseline1: its
+            // Baseline reading is the screw-1 reference (ReBaseline1 slot), and the curvature sign falls back to
+            // whatever the wizard carried in the metadata (0 = unknown).
+            bool hasCurvatureSteps = byStep.ContainsKey("AllInward");
             var inputs = new TiltCalibrationInputs {
                 ScrewCount = metadata.NumberOfScrews,
-                Baseline = byStep["Baseline"].Gradient,
-                AllInward = byStep["AllInward"].Gradient,
-                ReBaseline1 = byStep["ReBaseline1"].Gradient,
+                Baseline = hasCurvatureSteps ? byStep["Baseline"].Gradient : default,
+                AllInward = hasCurvatureSteps ? byStep["AllInward"].Gradient : default,
+                ReBaseline1 = hasCurvatureSteps ? byStep["ReBaseline1"].Gradient : byStep["Baseline"].Gradient,
                 Screw1 = byStep["Screw1"].Gradient,
                 ReBaseline2 = byStep["ReBaseline2"].Gradient,
                 Screw2 = byStep["Screw2"].Gradient,
+                HasCurvatureMeasurement = hasCurvatureSteps,
+                FallbackCurvatureSign = metadata.Calibration?.CurvatureSign ?? 0,
                 ImageWidthPixels = imageSize.Width,
                 ImageHeightPixels = imageSize.Height,
                 PixelSizeMicrons = metadata.PixelSizeMicrons,
@@ -240,12 +247,14 @@ namespace TestApp {
                 var pbyStep = paraboloidSteps.ToDictionary(s => s.Step, StringComparer.OrdinalIgnoreCase);
                 var pinputs = new TiltCalibrationInputs {
                     ScrewCount = metadata.NumberOfScrews,
-                    Baseline = pbyStep["Baseline"].Gradient,
-                    AllInward = pbyStep["AllInward"].Gradient,
-                    ReBaseline1 = pbyStep["ReBaseline1"].Gradient,
+                    Baseline = hasCurvatureSteps ? pbyStep["Baseline"].Gradient : default,
+                    AllInward = hasCurvatureSteps ? pbyStep["AllInward"].Gradient : default,
+                    ReBaseline1 = hasCurvatureSteps ? pbyStep["ReBaseline1"].Gradient : pbyStep["Baseline"].Gradient,
                     Screw1 = pbyStep["Screw1"].Gradient,
                     ReBaseline2 = pbyStep["ReBaseline2"].Gradient,
                     Screw2 = pbyStep["Screw2"].Gradient,
+                    HasCurvatureMeasurement = hasCurvatureSteps,
+                    FallbackCurvatureSign = metadata.Calibration?.CurvatureSign ?? 0,
                     ImageWidthPixels = imageSize.Width,
                     ImageHeightPixels = imageSize.Height,
                     PixelSizeMicrons = metadata.PixelSizeMicrons,
@@ -270,6 +279,40 @@ namespace TestApp {
         }
 
         private static List<RunStep> MapRunsToSteps(TiltCalibrationMetadata metadata, List<string> runFolders, string datasetDir) {
+            // Runs saved by the 4-step wizard flow have no AllInward/ReBaseline1 steps. Pick the expected step set
+            // from the explicit mapping when present, else from the discovered folder count.
+            string[] expectedSteps;
+            if (metadata.RunStepMapping != null && metadata.RunStepMapping.Count > 0) {
+                bool hasAllInward = metadata.RunStepMapping.Any(m => string.Equals(m.Step, "AllInward", StringComparison.OrdinalIgnoreCase));
+                expectedSteps = hasAllInward ? StepOrder : TiltCalibrationMetadata.StepOrderWithoutCurvature;
+                if (!hasAllInward) {
+                    // A mapping without an "AllInward" entry is treated as a 4-step run, which silently
+                    // ignores any measured curvature-direction data. Entries that are not 4-step names
+                    // (a typo like "AllInwards", or a stray "ReBaseline1" without "AllInward") suggest
+                    // the author intended the 6-step flow — warn instead of guessing.
+                    var anomalous = metadata.RunStepMapping
+                        .Select(m => m.Step)
+                        .Where(s => !TiltCalibrationMetadata.StepOrderWithoutCurvature.Any(k => string.Equals(k, s, StringComparison.OrdinalIgnoreCase)))
+                        .ToList();
+                    if (anomalous.Count > 0) {
+                        Console.Error.WriteLine(
+                            $"WARNING: runStepMapping has no 'AllInward' entry, so this dataset is treated as a 4-step run " +
+                            $"({string.Join(", ", TiltCalibrationMetadata.StepOrderWithoutCurvature)}) and curvature-direction data is ignored. " +
+                            $"Unrecognized 4-step entries: {string.Join(", ", anomalous.Select(s => $"'{s}'"))}. " +
+                            $"If this was meant to be a 6-step run, check the step names in runStepMapping ({string.Join(", ", StepOrder)}).");
+                    }
+                }
+            } else if (runFolders.Count == StepOrder.Length) {
+                expectedSteps = StepOrder;
+            } else if (runFolders.Count == TiltCalibrationMetadata.StepOrderWithoutCurvature.Length) {
+                expectedSteps = TiltCalibrationMetadata.StepOrderWithoutCurvature;
+            } else {
+                throw new InvalidOperationException(
+                    $"Expected {StepOrder.Length} run folders ({string.Join(", ", StepOrder)}) or " +
+                    $"{TiltCalibrationMetadata.StepOrderWithoutCurvature.Length} ({string.Join(", ", TiltCalibrationMetadata.StepOrderWithoutCurvature)}) under {datasetDir}, " +
+                    $"but found {runFolders.Count}. Provide an explicit 'runStepMapping' in the metadata to disambiguate.");
+            }
+
             // Build the ordered (step, folder) list.
             List<(string Step, string Folder)> ordered;
             if (metadata.RunStepMapping != null && metadata.RunStepMapping.Count > 0) {
@@ -277,17 +320,12 @@ namespace TestApp {
                     .Select(m => (m.Step, Folder: ResolveFolder(m.Folder, datasetDir)))
                     .ToList();
             } else {
-                if (runFolders.Count != StepOrder.Length) {
-                    throw new InvalidOperationException(
-                        $"Expected exactly {StepOrder.Length} run folders ({string.Join(", ", StepOrder)}) under {datasetDir}, " +
-                        $"but found {runFolders.Count}. Provide an explicit 'runStepMapping' in the metadata to disambiguate.");
-                }
-                ordered = runFolders.Select((f, i) => (StepOrder[i], f)).ToList();
+                ordered = runFolders.Select((f, i) => (expectedSteps[i], f)).ToList();
             }
 
-            // Validate exactly the 4 expected steps are present.
+            // Validate every expected step is present.
             var steps = ordered.Select(o => o.Step).ToList();
-            foreach (var required in StepOrder) {
+            foreach (var required in expectedSteps) {
                 if (!steps.Any(s => string.Equals(s, required, StringComparison.OrdinalIgnoreCase))) {
                     throw new InvalidOperationException($"runStepMapping is missing the '{required}' step.");
                 }
@@ -737,14 +775,31 @@ namespace TestApp {
                 $"(ground truth {F(groundTruthHardware)}, Δ {(double.IsNaN(hardwarePctDelta) ? "n/a" : F(hardwarePctDelta) + "%")})");
             Line($"Screw move magnitude ratio (larger/smaller): {F(calibration.MoveMagnitudeRatio)}× " +
                 "(should be ~1× for two equal calibration turns)");
-            Line($"Curvature (backfocus) inward sign: {calibration.CurvatureSign:+0;-0}");
+            // A measured sign is always ±1; sign 0 is only reachable for a 4-step run whose metadata carried no
+            // fallback sign (and a two-section format would misprint it as "+0"), so spell out the unmeasured cases.
+            string curvatureSignText;
+            if (inputs.HasCurvatureMeasurement) {
+                curvatureSignText = calibration.CurvatureSign.ToString("+0;-0", CultureInfo.InvariantCulture);
+            } else if (calibration.CurvatureSign == 0) {
+                curvatureSignText = "0 (unknown — not measured, no fallback in metadata)";
+            } else {
+                curvatureSignText = calibration.CurvatureSign.ToString("+0;-0", CultureInfo.InvariantCulture) +
+                    " (not measured; carried from metadata)";
+            }
+            Line($"Curvature (backfocus) inward sign: {curvatureSignText}");
             Line();
 
             var conf = calibration.Confidence;
             Line("Calibration confidence (signal vs noise from the per-step tilt vectors):");
             Line($"  Screw-move signal: {F(conf.ScrewMoveSignal)}   Noise floor: {F(conf.NoiseEstimate)}   SNR: {F(conf.SignalToNoise)}");
-            Line($"  Noise probes (should be « the signal) — AllInward piston residual: {F(conf.AllInwardTiltResidual)}, " +
-                $"re-baseline drift 1/2: {F(conf.Rebaseline1Drift)}/{F(conf.Rebaseline2Drift)}");
+            if (inputs.HasCurvatureMeasurement) {
+                Line($"  Noise probes (should be « the signal) — AllInward piston residual: {F(conf.AllInwardTiltResidual)}, " +
+                    $"re-baseline drift 1/2: {F(conf.Rebaseline1Drift)}/{F(conf.Rebaseline2Drift)}");
+            } else {
+                // 4-step run: no curvature-direction steps were captured, so the AllInward residual and first
+                // re-baseline drift do not exist; the single re-baseline drift is the only noise probe.
+                Line($"  Noise probe (should be « the signal) — single re-baseline drift: {F(conf.Rebaseline2Drift)} (4-step run)");
+            }
             Line($"  Predicted screw-direction uncertainty: ±{F(conf.PredictedAngleUncertaintyDeg)}°");
             if (!conf.IsReliable) {
                 Line($"  NOTE: SNR {F(conf.SignalToNoise)} is below {F(TiltCalibrationCalculator.MinReliableSignalToNoise)} — the calibration is " +
@@ -814,6 +869,8 @@ namespace TestApp {
                     calibration.Screw4AngleDegrees,
                     calibration.RawAngleDiffDegrees,
                     calibration.CurvatureSign,
+                    // False for a 4-step run: CurvatureSign was not measured, it is the metadata fallback (0 = unknown).
+                    curvatureSignMeasured = inputs.HasCurvatureMeasurement,
                     calibration.MeasuredHardwareMicrons,
                     calibration.MoveMagnitudeRatio,
                     screw1DeviationDeg = screw1Deviation,
@@ -849,6 +906,11 @@ namespace TestApp {
         // ---- Metadata --------------------------------------------------------------------------------------
 
         private static void WriteMetadataTemplate(string metadataPath, string outDir, List<string> runFolders) {
+            // Seed the template mapping with the step order matching the discovered folder count (4 = the wizard
+            // flow without the curvature-direction steps); the user corrects it if the guess is wrong.
+            var templateStepOrder = runFolders.Count == TiltCalibrationMetadata.StepOrderWithoutCurvature.Length
+                ? TiltCalibrationMetadata.StepOrderWithoutCurvature
+                : StepOrder;
             var template = new TiltCalibrationMetadata {
                 NumberOfScrews = 3,
                 ScrewThreadPitchMicrons = 0,
@@ -861,7 +923,7 @@ namespace TestApp {
                 AdjustmentType = "Screws",
                 StepperStepSizeMicrons = -1,
                 RunStepMapping = runFolders.Select((f, i) => new TiltRunStepMapping {
-                    Step = i < StepOrder.Length ? StepOrder[i] : $"Extra{i}",
+                    Step = i < templateStepOrder.Length ? templateStepOrder[i] : $"Extra{i}",
                     Folder = Path.GetFileName(f)
                 }).ToList(),
                 OptimizedStarDetectionSettings = null
@@ -872,7 +934,7 @@ namespace TestApp {
 
         private static void PrintUsage() {
             Console.Error.WriteLine("Usage: TestApp tilt --dataset <folder> [--profile-id <guid>] [--out <dir>] [--reoptimize] [--max-evals <int>]");
-            Console.Error.WriteLine("  --dataset    (required) folder containing the 6 AF runs (Baseline, AllInward, ReBaseline1, Screw1, ReBaseline2, Screw2).");
+            Console.Error.WriteLine("  --dataset    (required) folder containing the 6 AF runs (Baseline, AllInward, ReBaseline1, Screw1, ReBaseline2, Screw2) — or 4 (Baseline, Screw1, ReBaseline2, Screw2) for a run saved without the curvature-direction steps.");
             Console.Error.WriteLine("  --profile-id (default active) NINA profile id (settings + focal length).");
             Console.Error.WriteLine("  --out        (default %LOCALAPPDATA%\\NINA\\Logs\\hf-diag\\tilt\\<timestamp>) output directory.");
             Console.Error.WriteLine("  --reoptimize force re-running star-detection optimization and overwrite the stored settings in metadata.");

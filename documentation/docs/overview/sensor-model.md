@@ -304,4 +304,6 @@ tilt adapter removes the tilt (linear) part with differential screw moves, and r
 effect by moving all screws together to change the backfocus spacing (see the
 [Tilt Adapter Wizard](tilt-adapter-wizard.md)); the curvature that remains at the optimal spacing is a
 property of the corrector and focal ratio, addressed with a better-matched corrector or stopping down
-rather than the adapter.
+rather than the adapter. The direction of those all-screws moves comes from the adapter-direction
+setting (or the wizard's optional direction measurement); if the backfocus guidance seems inverted,
+flip that setting.

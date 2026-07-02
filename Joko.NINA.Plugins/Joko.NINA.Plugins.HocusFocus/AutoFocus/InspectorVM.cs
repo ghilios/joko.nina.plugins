@@ -101,6 +101,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // is instantiated directly here, mirroring HocusFocusPlugin — used to show the modal Review Frames dialog.
         private readonly IWindowServiceFactory windowServiceFactory = new WindowServiceFactory();
 
+        // SignalAmplificationSummary reads the ACTIVE profile's FocuserSettings; these track the settings
+        // object currently subscribed so in-place edits refresh the summary and profile swaps re-hook cleanly.
+        private readonly System.ComponentModel.PropertyChangedEventHandler focuserSettingsHandler;
+        private IFocuserSettings hookedFocuserSettings;
+
+        private void HookActiveProfileFocuserSettings() {
+            if (hookedFocuserSettings != null) {
+                hookedFocuserSettings.PropertyChanged -= focuserSettingsHandler;
+            }
+            hookedFocuserSettings = profileService?.ActiveProfile?.FocuserSettings;
+            if (hookedFocuserSettings != null) {
+                hookedFocuserSettings.PropertyChanged += focuserSettingsHandler;
+            }
+        }
+
         [ImportingConstructor]
         public InspectorVM(
             IProfileService profileService,
@@ -169,6 +184,29 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionLineFittings = new AsyncObservableCollection<TrendlineFitting>(Enumerable.Range(0, 6).Select(i => (TrendlineFitting)null));
             TiltModel = new TiltModel(inspectorOptions);
             SensorModel = new SensorModel(profileService, inspectorOptions, autoFocusOptions, alglibAPI);
+
+            inspectorOptions.PropertyChanged += (s, e) => {
+                if (e.PropertyName == nameof(IInspectorOptions.SignalAmplification) ||
+                    e.PropertyName == nameof(IInspectorOptions.StepCount) ||
+                    e.PropertyName == nameof(IInspectorOptions.FramesPerPoint)) {
+                    RaisePropertyChanged(nameof(SignalAmplificationSummary));
+                }
+            };
+            // SignalAmplificationSummary also reads the active profile's FocuserSettings (offset steps /
+            // frames per point), which the user can edit in place without swapping profiles —
+            // ProfileChanged alone would leave the summary stale. Track the active profile's
+            // FocuserSettings and re-hook on every profile change (unsubscribe old, subscribe new).
+            focuserSettingsHandler = (s, e) => {
+                if (e.PropertyName == nameof(IFocuserSettings.AutoFocusInitialOffsetSteps) ||
+                    e.PropertyName == nameof(IFocuserSettings.AutoFocusNumberOfFramesPerPoint)) {
+                    RaisePropertyChanged(nameof(SignalAmplificationSummary));
+                }
+            };
+            HookActiveProfileFocuserSettings();
+            profileService.ProfileChanged += (s, e) => {
+                HookActiveProfileFocuserSettings();
+                RaisePropertyChanged(nameof(SignalAmplificationSummary));
+            };
 
             this.tiltAdapterOptions = tiltAdapterOptions;
             TiltGuidance = new TiltAdapterGuidanceVM();
@@ -1114,6 +1152,37 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        // Estimated sweep size for one live sensor-model autofocus run at the given settings.
+        // points ≈ 2·offsetSteps·amp + 1 (the engine can extend a sweep, so callers label it "~");
+        // images = points × framesPerPoint. Returns (0, 0) when the inputs cannot be resolved.
+        internal static (int points, int images) EstimateImagesPerRun(
+            int stepCount, int framesPerPoint, int signalAmplification, int profileOffsetSteps, int profileFramesPerPoint) {
+            int offsetSteps = stepCount > 0 ? stepCount : profileOffsetSteps;
+            int frames = framesPerPoint > 0 ? framesPerPoint : profileFramesPerPoint;
+            if (offsetSteps <= 0 || frames <= 0) return (0, 0);
+            int amp = Math.Max(1, signalAmplification);
+            int points = 2 * offsetSteps * amp + 1;
+            return (points, points * frames);
+        }
+
+        // Prose shown beside the Signal Amplification control. Internal for tests.
+        internal static string BuildSignalAmplificationSummary(
+            int stepCount, int framesPerPoint, int signalAmplification, int profileOffsetSteps, int profileFramesPerPoint) {
+            var (points, images) = EstimateImagesPerRun(stepCount, framesPerPoint, signalAmplification, profileOffsetSteps, profileFramesPerPoint);
+            if (images <= 0) return string.Empty;
+            int frames = framesPerPoint > 0 ? framesPerPoint : profileFramesPerPoint;
+            return $"Each autofocus run will capture ~{images} images ({points} focus positions × {frames} exposure{(frames == 1 ? "" : "s")} each). " +
+                "Higher values collect more, finer-spaced points for a steadier fit on weak signal; a value of 1 runs a regular autofocus (fastest).";
+        }
+
+        public string SignalAmplificationSummary =>
+            BuildSignalAmplificationSummary(
+                inspectorOptions.StepCount,
+                inspectorOptions.FramesPerPoint,
+                inspectorOptions.SignalAmplification,
+                profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
+                profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint);
+
         private StarDetectionRegion GetAutoFocusRegion(AutoFocusEngineOptions options) {
             var analysisParams = new StarDetectionParams() {
                 Sensitivity = profileService.ActiveProfile.ImageSettings.StarSensitivity,
@@ -1818,6 +1887,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var guidance = new TiltAdapterGuidanceVM { ScrewCount = n };
 
             if (HasTiltAdapterCalibration) {
+                // σ resolved for the arrow rows; FillNumericGuidance resolves the same 0→default
+                // rule for the numeric rows.
+                int curvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign;
+                int resolvedSign = curvatureSign == 0 ? TiltScrewGeometry.DefaultScrewInwardCurvatureSign : curvatureSign;
+
                 var tiltPlane = TiltModel?.TiltPlaneModel;
                 if (tiltPlane != null) {
                     double a = tiltPlane.A;
@@ -1829,6 +1903,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         angles[2] = tiltAdapterOptions.Screw3AngleDegrees;
                         if (n == 4) angles[3] = tiltAdapterOptions.Screw4AngleDegrees;
 
+                        // Per-screw CW-positive correction turns from the tilt plane. The arrows grid
+                        // shows the adapter MOTION those turns produce (⬆ = toward the objective), not
+                        // the rotation itself — the rotation glyphs on the numeric rows carry that.
                         var turns = new double[n];
                         for (int i = 0; i < n; i++) {
                             double theta = angles[i] * Math.PI / 180.0;
@@ -1841,7 +1918,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                             if (maxAbs < GuidanceNoiseThreshold) {
                                 tiltArrows[i] = "—";
                             } else {
-                                double ratio = turns[i] / maxAbs;
+                                // turns[i] is CW-positive (the stored response-convention angles encode
+                                // the rig direction), so adapter MOTION toward the objective = −σ·turns.
+                                double ratio = (-resolvedSign * turns[i]) / maxAbs;
                                 if (ratio >= GuidanceLargeArrowThreshold) tiltArrows[i] = "⬆";
                                 else if (ratio >= GuidanceMinArrowThreshold) tiltArrows[i] = "↑";
                                 else if (ratio <= -GuidanceLargeArrowThreshold) tiltArrows[i] = "⬇";
@@ -1857,12 +1936,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
                 }
 
-                // Backfocus row: adjust curvature toward 0 using sensor model CurvatureEffectMicrons and ScrewInwardCurvatureSign.
-                // CurvatureEffectMicrons is in focuser-µm at the sensor corner — positive when C > 0.
-                // ScrewInwardCurvatureSign = +1 means turning all screws inward raises curvature; -1 means it lowers it.
-                // To reduce |curvature| toward 0: go inward when curvatureEffect and curvatureSign have opposite signs.
-                int curvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign;
-                if (curvatureSign != 0 && SensorModel?.DisplayedSensorModel != null) {
+                // Backfocus row: adapter MOTION needed to null the curvature effect. Toward the
+                // objective ⇔ the local best-focus position must decrease; the σ in "which rotation
+                // is needed" and the σ in "what a rotation does" cancel, so the motion arrow is
+                // sign(CurvatureEffectMicrons) — rig-independent physics (see
+                // docs/tilt-guidance-motion-arrows-design.md).
+                if (SensorModel?.DisplayedSensorModel != null) {
                     double curvatureEffectMicrons = SensorModel.SensorModelResult.CurvatureEffectMicrons;
                     double absMicrons = Math.Abs(curvatureEffectMicrons);
 
@@ -1870,9 +1949,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     if (absMicrons < BackfocusNoiseThresholdMicrons) {
                         backfocusArrow = "—";
                     } else {
-                        bool needsInward = curvatureEffectMicrons * curvatureSign < 0;
-                        string bigArrow = needsInward ? "⬆" : "⬇";
-                        string smallArrow = needsInward ? "↑" : "↓";
+                        bool towardObjective = curvatureEffectMicrons > 0;
+                        string bigArrow = towardObjective ? "⬆" : "⬇";
+                        string smallArrow = towardObjective ? "↑" : "↓";
                         backfocusArrow = absMicrons >= BackfocusLargeArrowThresholdMicrons ? bigArrow : smallArrow;
                     }
 
@@ -1886,6 +1965,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             FillNumericGuidance(guidance, n);
 
+            // Direction legend only when the arrows/totals it annotates are actually on screen
+            // (the arrows grid is gated by HasTiltGuidance, the numeric totals by HasNumericGuidance).
+            // Otherwise the calibrated-but-unmeasured state would show a legend right under
+            // "Run a measurement to see guidance." with nothing to explain.
+            if (guidance.HasTiltGuidance || guidance.HasNumericGuidance) {
+                guidance.DirectionLegend = TiltAdapterGuidanceVM.BuildDirectionLegend(
+                    steps: tiltAdapterOptions.AdjustmentType == TiltAdjustmentType.StepperMotors,
+                    signIsMeasured: tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured);
+            }
+
             TiltGuidance = guidance;
             RaisePropertyChanged(nameof(TiltGuidance));
         }
@@ -1893,8 +1982,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private const double PitchMismatchFraction = 0.15;
 
         // Populate the precise per-screw turn/step amounts from the fitted paraboloid model and the
-        // configured adapter hardware. Magnitudes are direction-indicated by the existing arrows; the
-        // total carries an explicit IN/OUT word. Everything is computed in axial best-focus microns
+        // configured adapter hardware. All three rows carry their own rotation direction (⟳/⟲ glyphs
+        // for screws, signed steps for steppers); the arrows grid above describes adapter MOTION
+        // (⬆ = toward the objective), not rotation. Everything is computed in axial best-focus microns
         // (tilt = -TiltAt, backfocus = -CurvatureAt) then divided by the saved pitch/step size — there
         // is no square root, the curvature term is already a length.
         private void FillNumericGuidance(TiltAdapterGuidanceVM guidance, int n) {
@@ -1908,9 +1998,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (unitMicrons <= 0 || radiusMm <= 0) return;
 
             double radiusMicrons = radiusMm * 1000.0;
+            // σ is never 0 from persisted options (defaulted since the direction-setting feature);
+            // resolve defensively to the assumed default so every row can carry a direction.
             int curvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign;
-            bool hasDirection = curvatureSign != 0;
-            int signForTotal = hasDirection ? curvatureSign : 1;
+            int resolvedSign = curvatureSign == 0 ? TiltScrewGeometry.DefaultScrewInwardCurvatureSign : curvatureSign;
 
             var angles = new double[n];
             angles[0] = tiltAdapterOptions.Screw1AngleDegrees;
@@ -1925,10 +2016,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             for (int i = 0; i < n; i++) {
                 var corr = TiltScrewGeometry.ScrewCorrectionMicrons(
                     model.Gx, model.Gy, model.Kx, model.Ky, model.X0, model.Y0, angles[i], radiusMicrons);
-                tiltText[i] = TiltAdapterGuidanceVM.FormatMagnitude(corr.TiltMicrons / unitMicrons, steps);
-                backText[i] = TiltAdapterGuidanceVM.FormatMagnitude(corr.BackfocusMicrons / unitMicrons, steps);
-                double totalInward = TiltScrewGeometry.InwardAdjustment(corr.TotalMicrons, unitMicrons, signForTotal);
-                totalText[i] = TiltAdapterGuidanceVM.FormatTotal(totalInward, steps, hasDirection);
+                tiltText[i] = TiltAdapterGuidanceVM.FormatAmount(corr.TiltMicrons / unitMicrons, steps);
+                backText[i] = TiltAdapterGuidanceVM.FormatAmount(resolvedSign * corr.BackfocusMicrons / unitMicrons, steps);
+                // The curvature sign applies ONLY to the backfocus component: the tilt component's
+                // direction is already encoded by the stored response-convention screw angle (the same
+                // convention the tilt arrows invert), so multiplying the whole total by the sign would
+                // double-apply the rig direction to the tilt part on sign = -1 rigs.
+                double totalSigned = TiltScrewGeometry.SignedTotalAdjustment(
+                    corr.TiltMicrons, corr.BackfocusMicrons, unitMicrons, resolvedSign);
+                totalText[i] = TiltAdapterGuidanceVM.FormatAmount(totalSigned, steps);
             }
 
             guidance.Screw1TiltAmount = tiltText[0];

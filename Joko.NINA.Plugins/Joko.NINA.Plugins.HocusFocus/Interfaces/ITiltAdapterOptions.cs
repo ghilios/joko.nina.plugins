@@ -28,7 +28,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double Screw4AngleDegrees { get; set; }  // double.NaN when 3-screw setup
         int CalibratedScrewCount { get; set; }      // screw count at time of last calibration; 0 = never calibrated
         int MeasurementAverageCount { get; set; }
-        int ScrewInwardCurvatureSign { get; set; } // +1 or -1; 0 = not yet calibrated
+        // Sign of the curvature/backfocus response to a CW ("inward") screw turn: +1 = CW turns
+        // raise the curvature effect, -1 = lower it. Defaults to the assumed mechanical direction
+        // (TiltScrewGeometry.DefaultScrewInwardCurvatureSign); a 6-step wizard run measures it.
+        int ScrewInwardCurvatureSign { get; set; }
+
+        // True only when a wizard run measured ScrewInwardCurvatureSign (Baseline -> AllInward
+        // steps). Cleared when the user edits the direction manually or applies a manual entry.
+        bool ScrewInwardCurvatureSignIsMeasured { get; set; }
+
+        // Include the 2 curvature-direction steps (Baseline + AllInward) in a calibration run:
+        // 6 steps instead of 4. Off by default — the assumed/manual direction is used instead.
+        bool MeasureCurvatureDuringCalibration { get; set; }
+
+        // True when the current calibration came from Manual Calibration Entry, not a wizard run.
+        bool CalibrationIsManual { get; set; }
 
         // Physical adapter hardware model, used to convert focus deviation into absolute
         // screw turns (or stepper steps). -1 = unset.

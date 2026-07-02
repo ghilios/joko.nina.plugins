@@ -7,35 +7,55 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus;
 public class TiltAdapterGuidanceVMTests {
 
     [Test]
-    public void FormatMagnitude_Screws_ShowsTwoDecimalTurns() {
+    public void FormatAmount_Screws_ShowsMagnitudeWithRotationGlyph() {
         Assert.Multiple(() => {
-            Assert.That(TiltAdapterGuidanceVM.FormatMagnitude(0.75, steps: false), Is.EqualTo("0.75 turns"));
-            Assert.That(TiltAdapterGuidanceVM.FormatMagnitude(-0.301, steps: false), Is.EqualTo("0.30 turns"));
-            Assert.That(TiltAdapterGuidanceVM.FormatMagnitude(0.0, steps: false), Is.EqualTo("—"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(1.25, steps: false), Is.EqualTo("1.25 ⟳"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.5, steps: false), Is.EqualTo("0.50 ⟲"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.001, steps: false), Is.EqualTo("—"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.004, steps: false), Is.EqualTo("—"));
+            // Floor boundary: the dash threshold equals the smallest value that renders, so a
+            // misleading "0.00 ⟳" can never be displayed.
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.005, steps: false), Is.EqualTo("0.01 ⟳"));
         });
     }
 
     [Test]
-    public void FormatMagnitude_Steppers_RoundsToWholeSteps() {
+    public void FormatAmount_Steppers_ShowsSignedSteps() {
         Assert.Multiple(() => {
-            Assert.That(TiltAdapterGuidanceVM.FormatMagnitude(119.6, steps: true), Is.EqualTo("120 steps"));
-            Assert.That(TiltAdapterGuidanceVM.FormatMagnitude(-120.4, steps: true), Is.EqualTo("120 steps"));
-            Assert.That(TiltAdapterGuidanceVM.FormatMagnitude(0.4, steps: true), Is.EqualTo("—"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(35.2, steps: true), Is.EqualTo("+35 steps"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-35.2, steps: true), Is.EqualTo("−35 steps"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.5, steps: true), Is.EqualTo("+1 steps"));
+            // Rounding is away-from-zero on BOTH sides of zero (|amount| is rounded, then signed).
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.5, steps: true), Is.EqualTo("−1 steps"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.4, steps: true), Is.EqualTo("—"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.2, steps: true), Is.EqualTo("—"));
         });
     }
 
     [Test]
-    public void FormatTotal_AddsInOutDirection() {
+    public void BuildDirectionLegend_IsFixedTextWithProvenanceSuffix() {
         Assert.Multiple(() => {
-            Assert.That(TiltAdapterGuidanceVM.FormatTotal(0.95, steps: false, hasDirection: true), Is.EqualTo("0.95 turns IN"));
-            Assert.That(TiltAdapterGuidanceVM.FormatTotal(-0.30, steps: false, hasDirection: true), Is.EqualTo("0.30 turns OUT"));
-            Assert.That(TiltAdapterGuidanceVM.FormatTotal(119.6, steps: true, hasDirection: true), Is.EqualTo("120 steps IN"));
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: true),
+                Is.EqualTo("⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in turns"));
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: false),
+                Is.EqualTo("⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in turns (assumed — set or measure in the Tilt Adapter Wizard)"));
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: true, signIsMeasured: true),
+                Is.EqualTo("⬆ = adapter moves toward the objective · steps are signed as in the wizard prompts"));
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: true, signIsMeasured: false),
+                Is.EqualTo("⬆ = adapter moves toward the objective · steps are signed as in the wizard prompts (assumed — set or measure in the Tilt Adapter Wizard)"));
         });
     }
 
+    // A fresh guidance object must carry no legend: the legend gate in InspectorVM.RebuildTiltGuidance
+    // relies on this default — DirectionLegend is only assigned when guidance rows exist, so the
+    // unassigned state must render nothing (HasDirectionLegend gates the XAML row).
     [Test]
-    public void FormatTotal_NoDirection_ShowsMagnitudeOnly() {
-        Assert.That(TiltAdapterGuidanceVM.FormatTotal(0.95, steps: false, hasDirection: false), Is.EqualTo("0.95 turns"));
+    public void FreshGuidance_HasNoDirectionLegend() {
+        var vm = new TiltAdapterGuidanceVM();
+        Assert.Multiple(() => {
+            Assert.That(vm.DirectionLegend, Is.Empty);
+            Assert.That(vm.HasDirectionLegend, Is.False);
+        });
     }
 
     // The Screw 4 backfocus arrow is shown only when the adapter has four screws AND the backfocus row

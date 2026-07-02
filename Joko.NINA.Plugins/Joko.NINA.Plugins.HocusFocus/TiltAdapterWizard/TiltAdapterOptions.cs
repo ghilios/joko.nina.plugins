@@ -54,7 +54,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             screw4AngleDegrees = optionsAccessor.GetValueDouble(nameof(Screw4AngleDegrees), double.NaN);
             calibratedScrewCount = optionsAccessor.GetValueInt32(nameof(CalibratedScrewCount), 0);
             measurementAverageCount = optionsAccessor.GetValueInt32(nameof(MeasurementAverageCount), 1);
-            screwInwardCurvatureSign = optionsAccessor.GetValueInt32(nameof(ScrewInwardCurvatureSign), 0);
+            screwInwardCurvatureSign = optionsAccessor.GetValueInt32(nameof(ScrewInwardCurvatureSign), TiltScrewGeometry.DefaultScrewInwardCurvatureSign);
+            screwInwardCurvatureSignIsMeasured = optionsAccessor.GetValueBoolean(nameof(ScrewInwardCurvatureSignIsMeasured), false);
+            measureCurvatureDuringCalibration = optionsAccessor.GetValueBoolean(nameof(MeasureCurvatureDuringCalibration), false);
+            calibrationIsManual = optionsAccessor.GetValueBoolean(nameof(CalibrationIsManual), false);
             adjustmentType = optionsAccessor.GetValueEnum(nameof(AdjustmentType), TiltAdjustmentType.Screws);
             threadPitchMicrons = optionsAccessor.GetValueDouble(nameof(ThreadPitchMicrons), -1.0);
             stepperStepSizeMicrons = optionsAccessor.GetValueDouble(nameof(StepperStepSizeMicrons), -1.0);
@@ -177,6 +180,45 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (screwInwardCurvatureSign != value) {
                     screwInwardCurvatureSign = value;
                     optionsAccessor.SetValueInt32(nameof(ScrewInwardCurvatureSign), screwInwardCurvatureSign);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool screwInwardCurvatureSignIsMeasured;
+
+        public bool ScrewInwardCurvatureSignIsMeasured {
+            get => screwInwardCurvatureSignIsMeasured;
+            set {
+                if (screwInwardCurvatureSignIsMeasured != value) {
+                    screwInwardCurvatureSignIsMeasured = value;
+                    optionsAccessor.SetValueBoolean(nameof(ScrewInwardCurvatureSignIsMeasured), screwInwardCurvatureSignIsMeasured);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool measureCurvatureDuringCalibration;
+
+        public bool MeasureCurvatureDuringCalibration {
+            get => measureCurvatureDuringCalibration;
+            set {
+                if (measureCurvatureDuringCalibration != value) {
+                    measureCurvatureDuringCalibration = value;
+                    optionsAccessor.SetValueBoolean(nameof(MeasureCurvatureDuringCalibration), measureCurvatureDuringCalibration);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool calibrationIsManual;
+
+        public bool CalibrationIsManual {
+            get => calibrationIsManual;
+            set {
+                if (calibrationIsManual != value) {
+                    calibrationIsManual = value;
+                    optionsAccessor.SetValueBoolean(nameof(CalibrationIsManual), calibrationIsManual);
                     RaisePropertyChanged();
                 }
             }

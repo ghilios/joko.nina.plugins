@@ -45,11 +45,24 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RaiseAllPropertiesChanged();
         }
 
+        // StepCount is a per-side AF offset-step count: -1 = use the profile's AutoFocus value, real
+        // values are small (single/double digits). Neither the setter nor the UI (a plain HintTextBox)
+        // constrains it, so 50 is a generous sanity bound used only to catch corrupted stores.
+        private const int MaxPlausibleStepCount = 50;
+
         private void InitializeOptions() {
             stepCount = optionsAccessor.GetValueInt32(nameof(StepCount), -1);
+            // Profiles written by builds with the old TimeoutSeconds bug (it persisted under the
+            // StepCount key) can hold a timeout value (e.g. 300) here. Reset implausible values to -1
+            // and write the correction back so the store is healed once instead of on every load.
+            if (stepCount < -1 || stepCount > MaxPlausibleStepCount) {
+                Logger.Warning($"InspectorOptions.StepCount loaded an implausible value ({stepCount}) — likely a TimeoutSeconds value written under the StepCount key by an older build. Resetting to -1 (use the profile's AutoFocus value).");
+                stepCount = -1;
+                optionsAccessor.SetValueInt32(nameof(StepCount), stepCount);
+            }
             stepSize = optionsAccessor.GetValueInt32(nameof(StepSize), -1);
             signalAmplification = Math.Max(1, optionsAccessor.GetValueInt32(nameof(SignalAmplification), 2));
-            centerFocuserBeforeRun = optionsAccessor.GetValueBoolean(nameof(CenterFocuserBeforeRun), true);
+            centerFocuserBeforeRun = optionsAccessor.GetValueBoolean(nameof(CenterFocuserBeforeRun), false);
             framesPerPoint = optionsAccessor.GetValueInt32(nameof(FramesPerPoint), -1);
             timeoutSeconds = optionsAccessor.GetValueInt32(nameof(TimeoutSeconds), -1);
             simpleExposureSeconds = optionsAccessor.GetValueDouble(nameof(SimpleExposureSeconds), -1);
@@ -84,7 +97,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             StepCount = -1;
             StepSize = -1;
             SignalAmplification = 2;
-            CenterFocuserBeforeRun = true;
+            CenterFocuserBeforeRun = false;
             FramesPerPoint = -1;
             TimeoutSeconds = -1;
             SimpleExposureSeconds = -1;
@@ -155,10 +168,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        // When on (default), a quick standard autofocus is run before each live sensor-model / tilt sweep to center
+        // When on, a quick standard autofocus is run before each live sensor-model / tilt sweep to center
         // the focuser at best focus, so the sweep brackets focus symmetrically (fewer extreme one-sided defocus
-        // frames that fail to align). No effect on replay of saved frames.
-        private bool centerFocuserBeforeRun = true;
+        // frames that fail to align). Off by default — it adds a full AF run to every sweep. No effect on replay.
+        private bool centerFocuserBeforeRun = false;
 
         public bool CenterFocuserBeforeRun {
             get => centerFocuserBeforeRun;
@@ -191,7 +204,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             set {
                 if (timeoutSeconds != value) {
                     timeoutSeconds = value;
-                    optionsAccessor.SetValueInt32(nameof(StepCount), timeoutSeconds);
+                    optionsAccessor.SetValueInt32(nameof(TimeoutSeconds), timeoutSeconds);
                     RaisePropertyChanged();
                 }
             }

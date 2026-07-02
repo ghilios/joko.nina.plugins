@@ -147,14 +147,51 @@ public class TiltScrewGeometryTests {
 
     [TestCase(1)]
     [TestCase(-1)]
-    public void InwardAdjustment_SignMatchesLegacyBackfocusRule(int curvatureSign) {
+    public void SignedTotalAdjustment_BackfocusComponentMatchesLegacyBackfocusRule(int curvatureSign) {
         // Legacy backfocus arrow: needsInward = curvatureEffect * sign < 0, where curvatureEffect is
-        // the curvature deviation (= -correction). So needsInward <=> sign * correction > 0.
+        // the curvature deviation (= -correction). So needsInward <=> sign * correction > 0. With no
+        // tilt component, the signed total must reproduce that rule for the backfocus correction.
         double curvatureDeviation = 42.0;        // positive deviation
         double correction = -curvatureDeviation; // correction cancels it
-        double inward = TiltScrewGeometry.InwardAdjustment(correction, unitMicrons: 500.0, curvatureSign: curvatureSign);
+        double signed = TiltScrewGeometry.SignedTotalAdjustment(0.0, correction, unitMicrons: 500.0, curvatureSign: curvatureSign);
         bool legacyNeedsInward = curvatureDeviation * curvatureSign < 0;
-        Assert.That(inward > 0, Is.EqualTo(legacyNeedsInward));
+        Assert.That(signed > 0, Is.EqualTo(legacyNeedsInward));
+    }
+
+    [Test]
+    public void SignedTotalAdjustment_AppliesSignOnlyToBackfocus() {
+        Assert.Multiple(() => {
+            // The tilt component is already direction-encoded by the stored response-convention
+            // screw angle; only the backfocus component takes the curvature sign.
+            Assert.That(TiltScrewGeometry.SignedTotalAdjustment(300, 100, 100, -1), Is.EqualTo(2.0).Within(1e-12)); // (300 − 100)/100
+            Assert.That(TiltScrewGeometry.SignedTotalAdjustment(300, 100, 100, +1), Is.EqualTo(4.0).Within(1e-12)); // (300 + 100)/100
+            // Unknown sign (0) treats backfocus as +1; callers then display magnitude only.
+            Assert.That(TiltScrewGeometry.SignedTotalAdjustment(300, 100, 100, 0), Is.EqualTo(4.0).Within(1e-12));
+            // Non-positive unit is invalid.
+            Assert.That(TiltScrewGeometry.SignedTotalAdjustment(300, 100, 0, 1), Is.NaN);
+            // REGRESSION PIN (critical sign bug): a pure-tilt correction must render the same
+            // rotational direction on every rig — the curvature sign must NOT touch it.
+            Assert.That(TiltScrewGeometry.SignedTotalAdjustment(300, 0, 100, -1), Is.EqualTo(3.0).Within(1e-12));
+            Assert.That(TiltScrewGeometry.SignedTotalAdjustment(300, 0, 100, +1), Is.EqualTo(3.0).Within(1e-12));
+        });
+    }
+
+    [Test]
+    public void PhysicalToStoredAngle_RoundTripsAndFlipsOnNegativeSign() {
+        Assert.Multiple(() => {
+            // +1 rigs: a CW turn drives the tilt gradient along the physical screw direction,
+            // so stored (response-convention) and physical angles coincide.
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, +1), Is.EqualTo(30).Within(1e-12));
+            // −1 rigs (CW moves the adapter toward the objective): the response is inverted,
+            // so stored = physical + 180°.
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, -1), Is.EqualTo(210).Within(1e-12));
+            // Self-inverse: applying the conversion to a stored angle recovers the physical one.
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(210, -1), Is.EqualTo(30).Within(1e-12));
+            // Unknown sign (0) resolves to the default direction (+1 ⇒ identity).
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, 0), Is.EqualTo(30).Within(1e-12));
+            // Result is normalized to [0, 360).
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(-30, -1), Is.EqualTo(150).Within(1e-12));
+        });
     }
 
     [Test]
@@ -198,5 +235,25 @@ public class TiltScrewGeometryTests {
     public void PhysicalGradientToPlane_ReturnsNaN_OnNonPositiveStep() {
         var (a, b) = TiltScrewGeometry.PhysicalGradientToPlane(0.01, 0.02, 0.0, 1000, 1000);
         Assert.That(double.IsNaN(a) && double.IsNaN(b), Is.True);
+    }
+
+    [Test]
+    public void CurvatureSignForCwDirection_MatchesEmpiricalAnchor() {
+        Assert.Multiple(() => {
+            // Pinned to the empirically verified mapping (see TiltScrewGeometry comment): moving
+            // the adapter toward the objective DECREASES the curvature effect (user measurement,
+            // 2026-07-02), so CW-toward-objective => CW lowers the effect => -1. If this fails
+            // after an intentional flip, update BOTH the constant comment and this test.
+            Assert.That(TiltScrewGeometry.CurvatureSignWhenCwMovesAdapterTowardObjective, Is.EqualTo(-1));
+            Assert.That(TiltScrewGeometry.CurvatureSignForCwDirection(cwMovesAdapterTowardObjective: true), Is.EqualTo(-1));
+            Assert.That(TiltScrewGeometry.CurvatureSignForCwDirection(cwMovesAdapterTowardObjective: false), Is.EqualTo(1));
+            Assert.That(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(-1), Is.True);
+            Assert.That(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(1), Is.False);
+            // Default assumption: CW moves the adapter outward (toward the camera), so the default
+            // stored sign is +1 (CW raises the curvature effect) — equivalently, adapter motion
+            // toward the objective decreases it, the originally requested default behavior.
+            Assert.That(TiltScrewGeometry.DefaultScrewInwardCurvatureSign,
+                Is.EqualTo(TiltScrewGeometry.CurvatureSignForCwDirection(false)));
+        });
     }
 }

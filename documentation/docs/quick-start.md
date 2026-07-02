@@ -83,8 +83,13 @@ how far a turn moves it.
 1. Pick your adapter from the **Device** preset list (or **Manual** to enter the
    [hardware values](overview/tilt-adapter-wizard.md#hardware-model-and-device-presets)
    yourself: thread pitch, screw radius, screw count).
-2. Run the guided **calibration loop** (a baseline measurement, then turning the screws by a known
-   amount while the wizard re-measures) to map the screws into image space.
+2. Run the guided **calibration loop** to map the screws into image space. By default it is four
+   steps (a baseline, screw 1, a re-baseline, screw 2); the screw moves are prompted as clockwise
+   or counter-clockwise turns, and each step ends with a measurement. Turn on **Measure direction**
+   to add two steps that also measure which way the screws move the adapter.
+3. Know your adapter already? Use
+   [**Manual Calibration Entry**](overview/tilt-adapter-wizard.md#manual-calibration-entry) in the
+   wizard to type in the screw-1 angle instead of running the loop.
 
 Once calibrated, the inspector's adjustment chart tells you exactly which screw to turn and by how much.
 

@@ -31,13 +31,38 @@ public class TiltAdapterOptionsTests {
             Assert.That(options.Screw4AngleDegrees, Is.NaN);
             Assert.That(options.CalibratedScrewCount, Is.EqualTo(0));
             Assert.That(options.MeasurementAverageCount, Is.EqualTo(1));
-            Assert.That(options.ScrewInwardCurvatureSign, Is.EqualTo(0));
+            Assert.That(options.ScrewInwardCurvatureSign, Is.EqualTo(TiltScrewGeometry.DefaultScrewInwardCurvatureSign));
             Assert.That(options.AdjustmentType, Is.EqualTo(TiltAdjustmentType.Screws));
             Assert.That(options.ThreadPitchMicrons, Is.EqualTo(-1.0));
             Assert.That(options.StepperStepSizeMicrons, Is.EqualTo(-1.0));
             Assert.That(options.ScrewRadiusMillimeters, Is.EqualTo(-1.0));
             Assert.That(options.DeviceName, Is.EqualTo("Manual"));
+            Assert.That(options.ScrewInwardCurvatureSignIsMeasured, Is.False);
+            Assert.That(options.MeasureCurvatureDuringCalibration, Is.False);
+            Assert.That(options.CalibrationIsManual, Is.False);
         });
+    }
+
+    [Test]
+    public void NewOptions_RoundTripThroughAccessor() {
+        var (options, store, _) = Build();
+        options.ScrewInwardCurvatureSignIsMeasured = true;
+        options.MeasureCurvatureDuringCalibration = true;
+        options.CalibrationIsManual = true;
+        Assert.Multiple(() => {
+            Assert.That(store.GetValueBoolean(nameof(TiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured), false), Is.True);
+            Assert.That(store.GetValueBoolean(nameof(TiltAdapterOptions.MeasureCurvatureDuringCalibration), false), Is.True);
+            Assert.That(store.GetValueBoolean(nameof(TiltAdapterOptions.CalibrationIsManual), false), Is.True);
+        });
+    }
+
+    [Test]
+    public void PersistedCurvatureSign_WinsOverDefault() {
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        store.SetValueInt32(nameof(TiltAdapterOptions.ScrewInwardCurvatureSign), -1);
+        var options = new TiltAdapterOptions(profile, store);
+        Assert.That(options.ScrewInwardCurvatureSign, Is.EqualTo(-1));
     }
 
     [Test]
@@ -92,7 +117,10 @@ public class TiltAdapterOptionsTests {
     [TestCase(nameof(TiltAdapterOptions.Screw4AngleDegrees), 359.9)]
     [TestCase(nameof(TiltAdapterOptions.CalibratedScrewCount), 3)]
     [TestCase(nameof(TiltAdapterOptions.MeasurementAverageCount), 7)]
-    [TestCase(nameof(TiltAdapterOptions.ScrewInwardCurvatureSign), 1)]
+    [TestCase(nameof(TiltAdapterOptions.ScrewInwardCurvatureSign), -1)]
+    [TestCase(nameof(TiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured), true)]
+    [TestCase(nameof(TiltAdapterOptions.MeasureCurvatureDuringCalibration), true)]
+    [TestCase(nameof(TiltAdapterOptions.CalibrationIsManual), true)]
     [TestCase(nameof(TiltAdapterOptions.AdjustmentType), TiltAdjustmentType.StepperMotors)]
     [TestCase(nameof(TiltAdapterOptions.ThreadPitchMicrons), 500.0)]
     [TestCase(nameof(TiltAdapterOptions.StepperStepSizeMicrons), 1.25)]

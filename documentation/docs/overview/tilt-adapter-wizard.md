@@ -3,8 +3,8 @@
 A measured tilt plane tells you which corners need to move and by how much, but turning a screw moves
 the sensor along that screw's own axis. To convert the [Tilt & Aberration
 Inspector](tilt-aberration-inspector.md) measurement into a concrete instruction (*"turn this screw
-inward ¼ turn"*), the wizard must know where each screw sits relative to the sensor and how far a turn
-moves it. That mapping is established once by the **Tilt Adapter Wizard**.
+clockwise ¼ turn"*), the wizard must know where each screw sits relative to the sensor and how far a
+turn moves it. That mapping is established once by the **Tilt Adapter Wizard**.
 
 ![The Tilt Adapter Guidance table giving the direction and number of turns for each screw](../assets/screenshots/inspector-tilt-guidance.png){ width=620 }
 
@@ -14,7 +14,11 @@ moves it. That mapping is established once by the **Tilt Adapter Wizard**.
 
 Screw orientations are stored as angles measured **clockwise from straight up (12 o'clock)**: `0°` is
 the top of the sensor, `90°` is to the right, `180°` is the bottom, `270°` is to the left. The wizard
-stores one angle per screw (`Screw1AngleDegrees` … `Screw4AngleDegrees`).
+stores one angle per screw (`Screw1AngleDegrees` … `Screw4AngleDegrees`). On adapters where a
+clockwise turn moves the plate toward the objective, the stored convention encodes that direction:
+the wizard's diagram and saved-calibration angles read 180° rotated from the screws' physical
+positions in the image, while [Manual Calibration Entry](#manual-calibration-entry) always takes the
+physical angle.
 
 !!! warning "Orientation is tracked in image space, not physically"
     A star diagonal, a mirror, or a rotator can flip the sensor's orientation inside the camera body,
@@ -31,31 +35,41 @@ The adapter type is set by the **Screws** field (default `3`).
   Screw 1 at the top (12 o'clock) and numbers the rest clockwise, then solves for the three angles
   with an equal-spacing constraint, splitting measurement error evenly between them.
 - **4-screw adapter**: screws are spaced about `90°` apart and **opposite screws are mechanically
-  coupled**, so adjustments are made in pairs (turn one in while the opposite turns out). The wizard
+  coupled**, so adjustments are made in pairs (tighten one while the opposite loosens). The wizard
   exploits this: "opposite screws are always 180° apart regardless of mirroring," so it measures two
   screws and places the other two 180° across.
 
 ## The calibration loop
 
-The wizard establishes the screw-to-tilt mapping empirically. You take a **baseline** measurement,
-then follow on-screen instructions to turn screws by a known amount (the wizard prompts, e.g., "turn
-ALL screws INWARD exactly 1 full turn each," then per-screw steps), re-measuring after each. From the
-change in the tilt vector \((\Delta A, \Delta B)\) it computes each screw's angle and the sign of its
-effect (`ScrewInwardCurvatureSign`: whether turning a screw inward pushes that side away from or
-toward the telescope). To average out seeing, set **Measurements** above 1; the wizard flags
-inconsistent repeats so you can re-run.
+The wizard establishes the screw-to-tilt mapping empirically. The default run is **four steps**: a
+**baseline** measurement, a screw 1 move, a re-baseline, and a screw 2 move. The move steps prompt
+a known amount of motion, worded as clockwise/counter-clockwise (tighten/loosen) turns for screws
+(e.g., "Turn screw 1 CLOCKWISE exactly 1 full turn") and as signed +/− steps for stepper adapters;
+every step ends with a measurement. From the change in the tilt vector \((\Delta A, \Delta B)\) it
+computes each screw's angle.
+
+The four-step run does not measure which way a clockwise turn moves the adapter. That direction
+comes from the adapter direction setting in the wizard's **Measurement** section, labeled **Turning
+screws clockwise moves the adapter** (or **Applying + steps moves the adapter** for steppers):
+either **Toward the camera — outward** (the default) or **Toward the objective — inward**. Until it
+is measured, guidance marks the direction "(assumed)". To measure it, turn on **Measure direction**:
+this adds two steps (an all-screws-clockwise move plus a return to baseline) that determine the sign
+of the effect (`ScrewInwardCurvatureSign`) from the curvature change, and the saved calibration then
+reports the direction as measured. To average out seeing, set **Measurements** above 1; the wizard
+flags inconsistent repeats so you can re-run.
 
 !!! tip "Each calibration step runs a full inspector sweep"
     A calibration measurement is a full sensor-model sweep, so it runs the same alignment and
-    focus-centering steps as a standalone Detailed Analysis. With **Center Focuser First** on (the
-    default), each step re-centers
-    the focuser at best focus before its sweep, so the measurement is not skewed toward one side of
-    focus. **Signal Amplification** gives each step more, finer-spaced focus points for a steadier
-    per-star fit. For a heavily-defocused frame that would otherwise fail to register, the frame aligner
-    escalates its search rather than dropping the frame from that step's model. These help most on faint
-    fields or in poor seeing, and are set under [Inspector
-    options](tilt-aberration-inspector.md#inspector-options). Raising **Measurements** above 1 averages
-    independent repeats on top of them.
+    focus-centering steps as a standalone Detailed Analysis. **Center Focuser First** (off by
+    default) re-centers the focuser at best focus before each step's sweep, so the measurement is not
+    skewed toward one side of focus. **Signal Amplification** gives each step more, finer-spaced
+    focus points for a steadier per-star fit. Both are editable in the wizard's **Measurement**
+    section (they are the same settings as the [Inspector
+    options](tilt-aberration-inspector.md#inspector-options)), which also shows a live estimate of the
+    images each sweep captures and the total for the whole calibration. For a heavily-defocused frame
+    that would otherwise fail to register, the frame aligner escalates its search rather than dropping
+    the frame from that step's model. These help most on faint fields or in poor seeing. Raising
+    **Measurements** above 1 averages independent repeats on top of them.
 
 !!! note "Set Microns per Focuser Step for the best guidance"
     Per its tooltip, *Microns per Focuser Step* is "how much the focuser moves per step, in microns.
@@ -75,6 +89,27 @@ inconsistent repeats so you can re-run.
     Curvature Effect stops dropping. What remains is the residual curvature of a correctly spaced
     system, set by your corrector design and focal ratio; the adapter cannot remove it (a
     better-matched corrector or stopping down does).
+
+## Manual calibration entry
+
+If you already know where screw 1 sits in the image, you can skip the calibration loop. Open the
+**Manual Calibration Entry** expander in the wizard and enter:
+
+- **Screw 1 angle (°)**: the position angle of screw 1 in the image, using the convention above (0°
+  is straight up, at 12 o'clock, increasing clockwise). The remaining screws are placed at equal
+  spacing: 120° apart for 3 screws, 90° for 4.
+- **Numbering direction**: whether screws 2 and up proceed clockwise or counter-clockwise from
+  screw 1, *as seen in the image*. Mirrors or diagonals in the optical train can flip this relative
+  to the physical adapter, so count the direction on an image if you can.
+
+**Apply** writes the same calibration state a wizard run produces; the saved-calibration panel tags
+it "Manually entered calibration (not measured by the wizard)." The curvature sign comes from the
+adapter direction setting, so guidance stays marked "(assumed)" until a **Measure direction** run
+verifies it. The entered angle is interpreted with the adapter direction setting in effect when you
+click **Apply** — if you change that setting later, click **Apply** again. If guidance moves the
+tilt the wrong way after a manual entry, the numbering direction is flipped: switch it and Apply
+again. A wrong adapter direction setting inverts guidance the same way — correct that setting and
+click **Apply** again.
 
 ## Hardware model and device presets
 
