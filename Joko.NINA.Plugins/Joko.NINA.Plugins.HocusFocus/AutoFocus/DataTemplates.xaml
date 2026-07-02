@@ -2835,7 +2835,7 @@
                                   element so the conventions are read before the table.  -->
                             <TextBlock
                                 Margin="5,4,5,2"
-                                Text="{Binding TiltGuidance.DirectionLegend}"
+                                controls:IconizedText.Text="{Binding TiltGuidance.DirectionLegend}"
                                 TextWrapping="Wrap"
                                 Visibility="{Binding TiltGuidance.HasDirectionLegend, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             <!--  No measurement yet  -->
@@ -2987,26 +2987,26 @@
                                 <TextBlock Grid.Row="0" Grid.Column="3" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 3" />
                                 <TextBlock Grid.Row="0" Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 4"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
-                                <!--  Tilt amounts  -->
+                                <!--  Tilt amounts — ⟳/⟲ in the bound strings render as icons via IconizedText  -->
                                 <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Tilt" />
-                                <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw1TiltAmount}" />
-                                <TextBlock Grid.Row="1" Grid.Column="2" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw2TiltAmount}" />
-                                <TextBlock Grid.Row="1" Grid.Column="3" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw3TiltAmount}" />
-                                <TextBlock Grid.Row="1" Grid.Column="4" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw4TiltAmount}"
+                                <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw1TiltAmount}" />
+                                <TextBlock Grid.Row="1" Grid.Column="2" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw2TiltAmount}" />
+                                <TextBlock Grid.Row="1" Grid.Column="3" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw3TiltAmount}" />
+                                <TextBlock Grid.Row="1" Grid.Column="4" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw4TiltAmount}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
-                                <!--  Backfocus amounts  -->
+                                <!--  Backfocus amounts — ⟳/⟲ render as icons via IconizedText  -->
                                 <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Backfocus" />
-                                <TextBlock Grid.Row="2" Grid.Column="1" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw1BackfocusAmount}" />
-                                <TextBlock Grid.Row="2" Grid.Column="2" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw2BackfocusAmount}" />
-                                <TextBlock Grid.Row="2" Grid.Column="3" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw3BackfocusAmount}" />
-                                <TextBlock Grid.Row="2" Grid.Column="4" HorizontalAlignment="Center" Text="{Binding TiltGuidance.Screw4BackfocusAmount}"
+                                <TextBlock Grid.Row="2" Grid.Column="1" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw1BackfocusAmount}" />
+                                <TextBlock Grid.Row="2" Grid.Column="2" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw2BackfocusAmount}" />
+                                <TextBlock Grid.Row="2" Grid.Column="3" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw3BackfocusAmount}" />
+                                <TextBlock Grid.Row="2" Grid.Column="4" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw4BackfocusAmount}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
-                                <!--  Total  -->
+                                <!--  Total — ⟳/⟲ render as icons via IconizedText; SemiBold on the cell carries to the Run  -->
                                 <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="Total" />
-                                <TextBlock Grid.Row="3" Grid.Column="1" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw1TotalAmount}" />
-                                <TextBlock Grid.Row="3" Grid.Column="2" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw2TotalAmount}" />
-                                <TextBlock Grid.Row="3" Grid.Column="3" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw3TotalAmount}" />
-                                <TextBlock Grid.Row="3" Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw4TotalAmount}"
+                                <TextBlock Grid.Row="3" Grid.Column="1" HorizontalAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw1TotalAmount}" />
+                                <TextBlock Grid.Row="3" Grid.Column="2" HorizontalAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw2TotalAmount}" />
+                                <TextBlock Grid.Row="3" Grid.Column="3" HorizontalAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw3TotalAmount}" />
+                                <TextBlock Grid.Row="3" Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw4TotalAmount}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             </Grid>
 

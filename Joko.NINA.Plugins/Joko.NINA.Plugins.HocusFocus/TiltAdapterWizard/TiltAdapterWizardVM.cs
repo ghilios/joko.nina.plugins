@@ -780,9 +780,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        // The visible direction-row label is now composed in XAML (a "Screw ⟳ moves adapter" /
+        // "+ steps move adapter" icon+text row). This property is retained because a profile swap
+        // must still raise it (TiltAdapterWizardVMTests asserts the notification); the strings below
+        // are kept aligned with the XAML wording for any future textual use.
         public string CwDirectionLabel => IsStepperAdjustment
-            ? "Applying + steps moves the adapter"
-            : "Turning screws clockwise moves the adapter";
+            ? "+ steps move adapter"
+            : "Screw turn moves adapter";
 
         public string CurvatureSignProvenance =>
             tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured
