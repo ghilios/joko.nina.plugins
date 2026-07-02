@@ -2832,6 +2832,13 @@
                         </TextBlock>
                         <!--  Calibrated guidance branch  -->
                         <StackPanel Visibility="{Binding HasTiltAdapterCalibration, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <!--  Direction legend: ⬆/⬇ = adapter motion, ⟳/⟲ = screw rotation. First
+                                  element so the conventions are read before the table.  -->
+                            <TextBlock
+                                Margin="5,4,5,2"
+                                Text="{Binding TiltGuidance.DirectionLegend}"
+                                TextWrapping="Wrap"
+                                Visibility="{Binding TiltGuidance.HasDirectionLegend, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             <!--  No measurement yet  -->
                             <TextBlock
                                 Margin="5"
@@ -2958,7 +2965,7 @@
                                     Visibility="{Binding TiltGuidance.HasFourScrewBackfocus, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             </Grid>
 
-                            <!--  Precise numeric adjustments (turns / steps) — shown when adapter hardware is configured  -->
+                            <!--  Precise numeric adjustments, each with its rotation glyph / step sign — shown when adapter hardware is configured  -->
                             <Grid
                                 Margin="5,8,5,0"
                                 Visibility="{Binding TiltGuidance.HasNumericGuidance, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
@@ -3003,15 +3010,6 @@
                                 <TextBlock Grid.Row="3" Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw4TotalAmount}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             </Grid>
-
-                            <!--  Direction legend: what ⬆ / CW / + steps mean for this adapter  -->
-                            <TextBlock
-                                Margin="5,4,5,0"
-                                FontStyle="Italic"
-                                Opacity="0.7"
-                                Text="{Binding TiltGuidance.DirectionLegend}"
-                                TextWrapping="Wrap"
-                                Visibility="{Binding TiltGuidance.HasDirectionLegend, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
                             <!--  Saved-vs-measured pitch mismatch warning  -->
                             <Border
