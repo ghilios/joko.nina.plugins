@@ -102,9 +102,6 @@ When a star's core clips at the sensor's full-well limit, its peak flattens into
 !!! tip "When this helps"
     Leave the default (99%) for most setups. **Lower** it if your sensor or processing introduces non-linearity or blooming just below the full-well point, so those tainted near-saturation pixels are also excluded from fits. **Raise** it toward 100% only if you are confident your sensor stays linear right up to the clip point and want to keep as many pixels as possible in the fit. Setting it too low needlessly throws away good pixels and can leave too few for a reliable fit.
 
-!!! note
-    The same threshold gates two things: the per-image **saturated-pixel count** in the metrics, and the per-star mask applied during PSF fitting. It does not, by itself, reject stars from the accepted set.
-
 ---
 
 ## Exclude Saturated Stars From HFR

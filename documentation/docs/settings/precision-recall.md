@@ -31,9 +31,9 @@ Two properties matter, and they are in tension with the obvious shortcuts:
 
 ## Why hand-marking every star does not scale
 
-The first attempt had a vision model mark every star directly on stretched image tiles. It failed on faint subs,
-and the failure is worth recording so it is not repeated. Each tile reaches the model downscaled to roughly a
-256-pixel thumbnail, so the model guesses a position and scales it back up. Localization came out to 15–170
+The first attempt had a vision model mark every star directly on stretched image tiles. It failed on faint subs.
+Each tile reaches the model downscaled to roughly a 256-pixel thumbnail, so the model guesses a position and
+scales it back up. Localization came out to 15–170
 pixels of error and was inconsistent from tile to tile. At a stretch aggressive enough to reveal real faint
 stars the model over-marked background noise, and at a gentle stretch it missed obvious bright stars. The result
 was essentially uncorrelated with the real stars: only about 5 of 145 detector stars had any mark within 25
@@ -102,7 +102,7 @@ few-pixel offset between the reference centroid and the detector centroid). From
 - **False-negative attribution** labels every missed golden star by *why* it was missed: `NO CANDIDATE` means
   the structure stage never proposed it (a candidate-formation gap), `REJECTED: <gate>` means a candidate formed
   but a named acceptance gate dropped it, and accepted-elsewhere means a different golden box claimed the same
-  detection. This split is what turns a recall number into an actionable diagnosis, since a candidate-formation
+  detection. This split is what turns a recall number into a diagnosis, since a candidate-formation
   gap and a too-strict gate call for different fixes.
 
 !!! tip "Read recall @ SNR≥12 as the headline"
@@ -120,7 +120,7 @@ few-pixel offset between the reference centroid and the detector centroid). From
 
 ## What the audit found
 
-On a real ZWO ASI6200MM Pro train, Hocus Focus had excellent precision (about 0.85) but found only ~19% of the
+On a real ZWO ASI6200MM Pro train, Hocus Focus had excellent precision (about 0.85) but found only about 19% of the
 real SNR ≥ 12 stars. The decisive part was *where* the misses went: about 79% of all the real stars never formed
 a candidate at all. They were `NO CANDIDATE`, dropped by the wavelet structure stage before any acceptance gate
 could see them, and that count did not move when the optimizer tuned the late gates. Candidate formation, not

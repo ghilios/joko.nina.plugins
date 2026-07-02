@@ -81,8 +81,8 @@ How each value maps:
 | Typical | On | 4 | Off | ×0.2 |
 | High | On | 6 | On | ×1.0 |
 
-(Noise-reduction radius: base radius 3/5; +1 is added whenever Hotpixel Thresholding is enabled (the
-default), so the applied radius is 4/6 (None stays 0 because filtering is off).)
+Noise-reduction radius: the base radius is 3/5; +1 is added whenever Hotpixel Thresholding is enabled (the
+default), so the applied radius is 4/6. None stays 0 because filtering is off.
 
 The *sensitivity scale* compensates for how the noise σ is measured per preset, so that the same effective
 threshold is preserved across presets. It feeds into the derived **Brightness Sensitivity** described below.
@@ -94,8 +94,8 @@ applied to the measurement image, not just the structure map.
     Bump to **High** for a noisy sensor or very high f-ratio where faint stars are being missed in noise.
     Leave at **Typical** for most CMOS rigs. **None** is for already-clean data; over-blurring (High on a
     clean image) can merge close stars and slightly inflate HFR. To tell whether a change is helping,
-    re-detect and watch **Total detected** rise without the spurious/**Structure candidates** counts
-    ballooning in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel).
+    re-detect and watch **Total Detected** rise without the **Structure Candidates** count ballooning with
+    spurious candidates in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel).
 
 ### Pixel Scale
 
@@ -260,7 +260,7 @@ keeps spamming files across sessions. Use it for a focused debugging run and tur
 
 The folder the intermediate debugging files are written to.
 
-> When Save Intermediate is enabled, they are written to this path the next time star detection runs
+> When Save Intermediate Files is enabled, they are written to this path the next time star detection runs
 
 - **Default:** a `HocusFocusIntermediate` folder under the application temp directory
 - **Range:** any writable folder path

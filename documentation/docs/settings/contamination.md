@@ -15,7 +15,7 @@ test fires and whether a flagged star is thrown out or merely marked.
 
 | Setting | Default | Range | Effect |
 |---|---|---|---|
-| Contamination Sensitivity | 5.0 σ | 0 – 20 (0 disables) | Required one-sided asymmetry, in multiples of the per-star background scatter, before a star is flagged. Higher = fewer flags. |
+| Contamination Sensitivity | 5.0 σ | 0–20 (0 disables) | Required one-sided asymmetry, in multiples of the per-star background scatter, before a star is flagged. Higher = fewer flags. |
 | Reject Contaminated Stars | On | On / Off | On removes flagged stars from the result; Off keeps them and only marks them. |
 
 These are Advanced-mode options. In Simple mode the preset derivation never overrides them,

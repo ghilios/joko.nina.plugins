@@ -3,12 +3,13 @@
 Far from focus, a star with a central obstruction (a Newtonian or an SCT) becomes a hollow **donut**. The
 default detector drops most of them, which costs the stars at the ends of a wide autofocus sweep, exactly where
 the V-curve fit needs them. The opt-in donut-aware features recover those stars. This page explains the settings
-and the [measured](precision-recall.md) data behind adding them. The features are off by default; with the
-master toggle off, detection is identical to having them absent.
+and the [measured](precision-recall.md) data behind adding them. The features are off by default; with all of
+them off, detection is identical to having them absent.
 
 ## The settings
 
-The whole group is gated by one master toggle. The numeric knobs and their full reference live on the
+The donut-recovery knobs are gated by the **Defocus-Aware Donut Detection** master toggle; **Defocus-Aware Gates**
+and **Defocus-Aware Structure** are independent toggles. The numeric knobs and their full reference live on the
 [Acceptance Gates](acceptance-gates.md#recover-out-of-focus-donut-stars) and
 [Structure Detection](structure-detection.md#defocus-aware-structure) pages:
 
@@ -17,7 +18,7 @@ The whole group is gated by one master toggle. The numeric knobs and their full 
 | Defocus-Aware Donut Detection (master) | Off | [Acceptance Gates](acceptance-gates.md#recover-out-of-focus-donut-stars) |
 | Defocus-Aware Gates | Off | [Acceptance Gates](acceptance-gates.md#defocus-aware-gates) |
 | Defocus-Aware Structure + Structure Layer Boost | Off / 0 | [Structure Detection](structure-detection.md#defocus-aware-structure) |
-| Donut morph close, annularity, streak, bloom | per knob | [Acceptance Gates](acceptance-gates.md#recover-out-of-focus-donut-stars) |
+| Donut Morph Close Size, Donut Min Annularity Hole Fraction, Donut Max Streak Eccentricity, Donut Saturation Bloom Radius | per knob | [Acceptance Gates](acceptance-gates.md#recover-out-of-focus-donut-stars) |
 
 ## The problem
 

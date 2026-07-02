@@ -6,7 +6,7 @@ This page is the entry point to the settings reference. It explains the two ways
 
 ## Where to find these settings
 
-Open NINA's options, go to the **Plugins** tab, and select **Hocus Focus**. The star-detection settings live under the star-detection options area. Two top-level switches decide which controls you see:
+Open NINA's options, go to the **Plugins** tab, and select **Hocus Focus**. The star-detection settings live in the **Star Detector** tab. Two top-level switches decide which controls you see:
 
 ![The Hocus Focus entry under Options then Plugins in NINA, with its Auto Focus, Star Detector, and Star Annotator settings tabs](../assets/screenshots/hocus-focus-plugin-location.png){ width=620 }
 
@@ -80,8 +80,8 @@ signal for every adjustment below. It reports:
 
 *The Star Detection Results dock reports the last frame's metrics and how many candidates each gate rejected.*
 
-- **Structure candidates** — bright structures evaluated as potential stars before any gate.
-- **Total detected** — stars accepted after all gates.
+- **Structure Candidates** — bright structures evaluated as potential stars before any gate.
+- **Total Detected** — stars accepted after all gates.
 - a **per-reason rejection count** for each gate: **Too Small**, **On Border**, **Too Distorted**, **Not
   Centered**, **Too Flat**, **Low Sensitivity**, **Saturated** (kept, not rejected: pixels masked during
   PSF fitting), **Degenerate**, and **Contaminated**.
@@ -156,10 +156,10 @@ You don't normally need to think about this when using NINA, since it changes wh
 - [Precision & Recall](precision-recall.md) — how detection quality is measured against golden star sets, and the candidate-formation finding that drove the defaults below.
 - [Adaptive Binarization](adaptive-binarization.md) — why the noise-clipping floor dropped from 4 to 2 and became spatially adaptive, with the data.
 - [Donut-Aware Settings](donut-aware.md) — the opt-in donut-recovery features and the measurements that justified them.
-- [Preprocessing & Noise](preprocessing.md) — hotpixel filtering, noise reduction radius, clipping multipliers, measurement noise reduction.
+- [Preprocessing & Noise](preprocessing.md) — hotpixel filtering, noise reduction radius, clipping multipliers, measurement noise reduction, pixel sample size.
 - [Structure & Detection](structure-detection.md) — structure layers, dilation, brightness sensitivity, defocus-aware structure.
 - [Star Acceptance Gates](acceptance-gates.md) — distortion, centering, peak response, min bounding box, min HFR, defocus-aware gates.
 - [Hot Pixels & Saturation](hotpixel-saturation.md) — hotpixel threshold and saturation rejection threshold.
 - [PSF Modeling](psf-modeling.md) — fit type, resolution, goodness-of-fit threshold, pixel integration.
 - [Contamination Rejection](contamination.md) — contamination sensitivity and reject-vs-flag behavior.
-- [Advanced & Debug](advanced-debug.md) — measurement averaging, pixel sample size, intermediate files, debug mode.
+- [Advanced & Debug](advanced-debug.md) — measurement averaging, intermediate files, debug mode.

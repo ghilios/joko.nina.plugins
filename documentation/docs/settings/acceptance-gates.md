@@ -53,7 +53,7 @@ A candidate is accepted only when its normalized brightness divided by the measu
 \frac{s - b}{n} > \text{BrightnessSensitivity}
 \]
 
-**Smaller values are more sensitive** (they admit fainter stars); larger values are stricter. Because σ is measured on the same image that is actually sampled for star measurement, the number is an honest multiple of the real noise and behaves consistently across noise-reduction settings.
+**Smaller values are more sensitive** (they admit fainter stars); larger values are stricter. Because σ is measured on the image actually sampled for star measurement, the same threshold keeps its meaning whether or not noise reduction is enabled.
 
 **Default:** 2.0. **Range:** ≥ 0 (must be non-negative)
 
@@ -153,7 +153,7 @@ A star's HFR is the radius enclosing half its total flux (see [Star detection](.
 **Default:** 1.2 px. **Range:** > 0 (the model accepts 0, but the UI requires a value greater than zero)
 
 !!! tip "When to adjust"
-    Leave it at the default for almost all setups. Lower it only if you are extremely undersampled and confident your real stars measure below 1.2 px. Raising it discards the sharpest stars and is rarely useful. The default of 1.2 is an honest-HFR floor calibrated to the current measurement pipeline; the older 1.5 floor was tuned against noise-inflated faint-star HFRs and is no longer appropriate.
+    Leave it at the default for almost all setups. Lower it only if you are extremely undersampled and confident your real stars measure below 1.2 px. Raising it discards the sharpest stars and is rarely useful. The default of 1.2 is calibrated to the current measurement pipeline; older versions defaulted to 1.5, which compensated for noise-inflated HFR measurements of faint stars and is no longer needed.
 
 ## Background Box Expansion
 
@@ -240,13 +240,13 @@ A second, separate opt-in feature aimed at the same problem the Defocus-Aware Ga
 (heavily defocused stars), but from the structure/shape side rather than by loosening thresholds. It is
 a single **master toggle**, *Defocus-Aware Donut Detection*, that is **off by default**; when off,
 detection is bit-identical to having the feature absent. It also appears on the
-[Optimization Wizard](../optimization/index.md)'s start page as **"Recover out-of-focus donut stars."**
+[Optimization Wizard](../optimization/index.md)'s start page as **"Recover out-of-focus donut stars (reflectors/SCTs)"**.
 
 On a heavily defocused frame from a central-obstruction scope, recovering donuts needs *both* this group and a
 low noise-clipping floor: the floor forms the ring candidates, and these gates keep them. See
 [Donut-Aware Settings](donut-aware.md) for the measured "both levers" result.
 
-> MASTER toggle for defocus-aware donut detection. When ON, out-of-focus DONUT stars (heavily defocused stars that appear as hollow rings) are recovered: a morphological close reconnects fragmented rings and an annularity test lets a hollow ring pass the distortion gate like a filled disk (detection-only — it never changes HFR). It also unlocks the optimizer to tune ALL defocus-aware settings and to enable diffraction-spike / saturated-bloom suppression. Recommended for telescopes with a central obstruction (Newtonians/SCTs); leave OFF for refractors. Off by default; when OFF, detection is exactly as before.
+> MASTER toggle for defocus-aware donut detection (also on the optimizer wizard's start page). When ON, out-of-focus DONUT stars (heavily defocused stars that appear as hollow rings) are recovered: a morphological close reconnects fragmented rings and an annularity test lets a hollow ring pass the distortion gate like a filled disk (detection-only — it never changes HFR). It also unlocks the optimizer to tune ALL defocus-aware settings and to enable diffraction-spike / saturated-bloom suppression. Recommended for telescopes with a central obstruction (Newtonians/SCTs); leave OFF for refractors. Off by default; when OFF, detection is exactly as before.
 
 **What it does.** A heavily defocused star with a central obstruction breaks up into a fragmented
 hollow ring. Two things go wrong: the arcs of the ring are detected as several tiny structures (each
@@ -301,7 +301,7 @@ diffraction spikes and trails. Round donuts sit well below this, so they are una
 
 ### Donut Saturation Bloom Radius
 
-> Only used while Defocus-Aware Donut Detection is on. Rejects candidates whose center lies within this many pixels of a saturated star, removing the bloom/halo fragments around a bright saturated star while keeping the star itself. 0 means OFF. Default 0.
+> Only used while Defocus-Aware Donut Detection is on. Rejects candidates whose center lies within this many pixels of a saturated star, removing the bloom/halo fragments around a bright saturated star while keeping the star itself. 0 means OFF. Default 0 (OFF — the optimizer enables it when you label the saturated star's artifacts as should-reject).
 
 **Default:** 0 (off). **Range:** 0–100 px. Raise it to clear the bloom/halo fragments that ring a
 bright saturated star while keeping the star itself.

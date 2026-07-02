@@ -43,7 +43,7 @@ A key idea runs through all of these: Hocus Focus keeps **two images**. A *struc
 The radius is a *half-size*: the convolution kernel spans roughly twice the radius, with the Gaussian σ chosen automatically to match. A larger radius merges more neighboring pixels, which smooths away noise but also softens faint, closely-spaced, or small stars. Because a blur would smear hot pixels into their neighbors, enabling noise reduction implies hot-pixel filtering runs first (see [Hot Pixels & Saturation](hotpixel-saturation.md)).
 
 !!! tip "When this helps"
-    Raise it for **low-SNR** subframes (short exposures, fast focus sweeps, or a noisy sensor) where single-pixel noise is fragmenting stars or producing spurious candidates. Leave it at the default for typical data. It can hurt when the field is tightly packed or the rig is undersampled, because over-blurring merges adjacent stars and erases the smallest ones. **Feedback:** in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel), a good move raises **Total detected** while the **Structure candidates** count falls toward it (fewer spurious candidates are formed only to be rejected).
+    Raise it for **low-SNR** subframes (short exposures, fast focus sweeps, or a noisy sensor) where single-pixel noise is fragmenting stars or producing spurious candidates. Leave it at the default for typical data. It can hurt when the field is tightly packed or the rig is undersampled, because over-blurring merges adjacent stars and erases the smallest ones. **Feedback:** in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel), a good move raises **Total Detected** while the **Structure Candidates** count falls toward it (fewer spurious candidates are formed only to be rejected).
 
 ## Noise Reduced Star Measurement
 
@@ -97,7 +97,7 @@ where the median is the background and \(\sigma_{\text{structure}}\) is the Kapp
 **What it does:** makes the binarization floor a smooth per-region surface instead of a single global value, so
 the same Noise Clipping Multiplier is fair in both the clean center and the noisy corners of a frame.
 
-> Makes the structure-map binarization threshold spatially adaptive. Normally a single global threshold (background median + Noise Clipping Multiplier × global noise σ) is applied across the whole frame, which is too high in clean regions (losing faint stars) and too low in noisy corners (admitting noise). When enabled, the threshold becomes a smooth surface computed from robust local statistics on a coarse block grid, so the same Noise Clipping Multiplier is locally fair everywhere.
+> Makes the structure-map binarization threshold spatially adaptive. Normally a single global threshold (background median + Noise Clipping Multiplier × global noise σ) is applied across the whole frame, which is too high in clean regions (losing faint stars) and too low in noisy corners (admitting noise). When enabled, the threshold becomes a smooth surface computed from robust local statistics on a coarse block grid — local background median + Noise Clipping Multiplier × local noise σ — so the same Noise Clipping Multiplier is locally fair everywhere. Recovers faint real stars in clean regions while rejecting noise in vignetted/gradient-heavy corners. On by default; turn it off to revert to the single global threshold, which makes detection bit-for-bit identical to the legacy behavior. EARLY-stage setting.
 
 **Default:** `On` &nbsp;•&nbsp; **Range:** On / Off.
 
@@ -133,9 +133,6 @@ estimated on.
 Smaller blocks track local background changes more tightly but give a noisier surface and risk absorbing a large
 defocused star into the background. Larger blocks give a smoother, cheaper surface with less local adaptivity.
 The default of 128 px matches the reference detector used to validate the feature.
-
-!!! note
-    This value has no effect unless Locally Adaptive Binarization is on.
 
 ## Star Clipping Multiplier
 

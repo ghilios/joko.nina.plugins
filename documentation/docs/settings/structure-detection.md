@@ -32,14 +32,14 @@ The detector removes large-scale structure with an **à-trous (dyadic) B3-spline
 
 Sets how much large-scale structure the wavelet removes, and therefore the largest size a "star" can be before it is erased as background.
 
-> The number of dyadic (power of 2) layers to include in structure detection. At the default of 5 (2⁵=32), structures larger than 32 pixels in size are excluded from structure detection
+> The number of dyadic (power of 2) layers to include in structure detection. At the default of 4 (2⁴=16), structures larger than 16 pixels in size are excluded from structure detection
 
-**Default:** 4 (the tooltip's "5/32 px" wording describes the scaling relationship; the shipped default is 4, i.e. structures larger than \(2^{4}=16\) px). **Range:** any positive integer (validated as greater than zero).
+**Default:** 4 (structures larger than \(2^{4}=16\) px are removed as background). **Range:** any positive integer (validated as greater than zero).
 
 In `BuildStarDetectorParams` this maps straight to `StarDetectorParams.StructureLayers`, which is also the layer count used for the post-subtraction blur, so it has a second, smaller effect on how holes in large stars are smoothed over.
 
 !!! tip "When to adjust"
-    **Raise it** when real stars are missing entirely because they are large on the sensor: long focal lengths, big pixels, or frames taken well away from focus, where stars spread over many pixels and get swept up with the background. The Simple-mode presets already do this for you: *Wide Range* focus and *Long Focal Length* each add a layer, while *Wide Field* pixel scale removes one. **Leave it at the default** for typical sampling near focus. Lowering it can hurt by erasing genuine large stars; raising it too far lets nebulosity and gradients leak in as false candidates, since less background is removed. As you adjust, watch the **Total detected** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) and confirm real stars stop being missing entirely.
+    **Raise it** when real stars are missing entirely because they are large on the sensor: long focal lengths, big pixels, or frames taken well away from focus, where stars spread over many pixels and get swept up with the background. The Simple-mode presets already do this for you: *Wide Range* focus and *Long Focal Length* each add a layer, while *Wide Field* pixel scale removes one. **Leave it at the default** for typical sampling near focus. Lowering it can hurt by erasing genuine large stars; raising it too far lets nebulosity and gradients leak in as false candidates, since less background is removed. As you adjust, watch the **Total Detected** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) and confirm real stars stop being missing entirely.
 
 !!! tip "Starting point"
     Pick \(L\) so \(2^{L}\) is a few × your star size in pixels: \(L \approx \mathrm{clamp}(\mathrm{round}(\log_2(3\text{–}4 \times \mathrm{FWHM\_px})),\ 1,\ 8)\), where \(\mathrm{FWHM\_px} = \mathrm{FWHM\_arcsec} / \mathrm{pixelScale}\) is known from your rig. This is just a starting point the optimizer and Simple presets refine.
@@ -84,7 +84,7 @@ The diameter of the morphological filter used to grow candidate blobs in the str
 Internally this is the diameter of an elliptical structuring element passed to OpenCV's morphological dilation. It has **no effect** unless **Structure Dilation Iterations** is at least 1; dilation only runs when the iteration count is positive.
 
 !!! tip "When to adjust"
-    **Increase it** (together with at least one iteration) when bounding boxes are clipping the outsides of stars, most likely at very high focal lengths where a star's wings extend beyond the binarized core. **Leave it at the default** otherwise. It can hurt in crowded fields: larger dilation merges nearby stars into a single blob, producing oversized boxes or lost separations. Watch for the **Total detected** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) dropping as neighbors merge.
+    **Increase it** (together with at least one iteration) when bounding boxes are clipping the outsides of stars, most likely at very high focal lengths where a star's wings extend beyond the binarized core. **Leave it at the default** otherwise. It can hurt in crowded fields: larger dilation merges nearby stars into a single blob, producing oversized boxes or lost separations. Watch for the **Total Detected** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) dropping as neighbors merge.
 
 ## Structure Dilation Iterations
 

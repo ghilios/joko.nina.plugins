@@ -38,7 +38,7 @@ Star detection first finds candidates, measures each star's centroid and **HFR**
 
 > Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity
 
-**Default:** On &nbsp;·&nbsp; **Range:** On / Off
+**Default:** On &nbsp;•&nbsp; **Range:** On / Off
 
 When this is on, each accepted star is fit and the results populate the star's FWHM and eccentricity. When off, the detector skips fitting entirely and those metrics are unavailable; HFR is still measured.
 
@@ -50,11 +50,11 @@ When this is on, each accepted star is fit and the results populate the star's F
 
 ## PSF Type
 
-**PSF Type** (property `PSFFitType`) — selects which analytic profile is fit to each star.
+**PSF Type** (property `PSFFitType`) selects which analytic profile is fit to each star.
 
 > What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight
 
-**Default:** Moffat 4.0 &nbsp;·&nbsp; **Range:** Gaussian, Moffat 4.0, Moffat 2.5, Moffat 1.5, Moffat (β fittable)
+**Default:** Moffat 4.0 &nbsp;•&nbsp; **Range:** Gaussian, Moffat 4.0, Moffat 2.5, Moffat 1.5, Moffat (β fittable)
 
 A **Gaussian** falls off quickly and underestimates the light in a star's wings. A **Moffat** profile adds heavier wings governed by a power-law exponent \( \beta \), which is why it tracks real stellar profiles more faithfully. The numeric labels are fixed \( \beta \) values:
 
@@ -76,7 +76,7 @@ How finely each star's bounding box is sampled when fitting the model.
 
 > The number of pixels of the width of a nominal square to sample star bounding boxes for the purposes of PSF model fitting. Higher resolution may be more accurate, but takes longer to calculate
 
-**Default:** 10 (pixels) &nbsp;·&nbsp; **Range:** integer > 0 (the field validates greater-than-zero; the backing property rejects negatives)
+**Default:** 10 (pixels) &nbsp;•&nbsp; **Range:** integer > 0 (the field validates greater-than-zero; the backing property rejects negatives)
 
 Higher resolution gives the solver more samples per star (potentially a more accurate fit) at the cost of compute time per star.
 
@@ -89,7 +89,7 @@ The R² goodness-of-fit gate that decides whether a PSF fit is trustworthy.
 
 > The minimum goodness of fit (R²) required for a PSF
 
-**Default:** 0.9 (R²) &nbsp;·&nbsp; **Range:** (0, 1]. The field validates `0 ≤ value ≤ 1.0`; the backing property rejects values outside the open-low, closed-high interval \((0, 1]\)
+**Default:** 0.9 (R²) &nbsp;•&nbsp; **Range:** (0, 1]. The field validates `0 ≤ value ≤ 1.0`; the backing property rejects values outside the open-low, closed-high interval \((0, 1]\)
 
 After a star is fit, its coefficient of determination \( R^2 \) is compared against this threshold. A fit with \( R^2 \ge \) threshold is kept; otherwise the fit is discarded (the star keeps its HFR but reports no FWHM/eccentricity, and the `PSFFitFailed` count increases). \( R^2 = 1 \) is a perfect fit; lower values mean the model explains less of the star's pixel variance.
 
@@ -105,12 +105,12 @@ Computes the model value for each pixel as the integral over the pixel's area ra
 
 > When enabled, PSF model values are computed as the integral over the pixel area rather than sampled at the pixel centre. Reduces sigma error on undersampled rigs (FWHM ≈ 1.5 px) from ~8% to less than 5%. Leave off for well-sampled rigs.
 
-**Default:** Off &nbsp;·&nbsp; **Range:** On / Off
+**Default:** Off &nbsp;•&nbsp; **Range:** On / Off
 
 Point-sampling the model at \( (i, j) \) ignores how the profile varies across a pixel. On **undersampled** rigs (where a star spans only a couple of pixels) that approximation biases the fitted sigma. Integrating the model over each pixel area \([i-0.5, i+0.5]\times[j-0.5, j+0.5]\) removes most of that bias.
 
 !!! tip "When this helps"
-    Turn it **on** for undersampled setups (short focal length / large pixels, FWHM around 1.5 px), where it cuts sigma error from roughly 8% to under 5%. **Leave it off** for well-sampled rigs. The extra cost buys nothing there. To judge it, compare reported FWHM/σ stability before and after, and watch the **PSFFitFailed** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) for any change in fit rejections.
+    Turn it **on** for undersampled setups (short focal length / large pixels, FWHM around 1.5 px), where it cuts sigma error from roughly 8% to under 5%. **Leave it off** for well-sampled rigs. The extra cost buys nothing there. To judge it, compare reported FWHM/σ stability before and after, and watch the **PSF Failed** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) for any change in fit rejections.
 
 ## PSF MAD Fitting
 
@@ -118,12 +118,12 @@ Experimental fitting mode that minimizes absolute deviation instead of squared r
 
 > Enables an experimental PSF fitting approach that is more robust to noise and outlier pixels. This should more closely mimic PixInsight PSF fitting logic
 
-**Default:** Off &nbsp;·&nbsp; **Range:** On / Off (property name `UsePSFAbsoluteDeviation`)
+**Default:** Off &nbsp;•&nbsp; **Range:** On / Off (property name `UsePSFAbsoluteDeviation`)
 
-Fitting to minimize absolute deviation downweights outlier pixels (a hot pixel, a cosmic-ray hit, a nearby star's flux) relative to a least-squares fit, at a modest extra computational cost. The internal note describes it as "more robust to noise and outlier pixels."
+Fitting to minimize absolute deviation downweights outlier pixels (a hot pixel, a cosmic-ray hit, a nearby star's flux) relative to a least-squares fit, at a modest extra computational cost.
 
 !!! tip "When this helps"
-    Try it on **noisy frames** or fields with frequent outlier pixels where ordinary fits are being pulled around, and when you want behavior closer to PixInsight's PSF logic. To gauge the effect, compare reported FWHM/σ stability before and after and watch the **PSFFitFailed** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel) for any shift in fit rejections. Because it is experimental and slower, **leave it off** by default and enable it deliberately when robustness matters more than speed.
+    Try it on **noisy frames** or fields with frequent outlier pixels where ordinary fits are being pulled around, and when you want behavior closer to PixInsight's PSF logic. Judge it the same way as PSF Pixel Integration above: FWHM/σ stability before and after, plus the **PSF Failed** count. Because it is experimental and slower, **leave it off** by default and enable it deliberately when robustness matters more than speed.
 
 ## PSF Parallel Size
 
@@ -131,7 +131,7 @@ Batches stars for parallel PSF fitting.
 
 > Enables parallel processing of PSF modeling by partitioning the detected stars into batches of this size. Set to 0 to disable parallelism
 
-**Default:** 100 (stars) &nbsp;·&nbsp; **Range:** integer ≥ 0 (the backing property rejects negatives)
+**Default:** 100 (stars) &nbsp;•&nbsp; **Range:** integer ≥ 0 (the backing property rejects negatives)
 
 Stars are partitioned into batches of this size and each batch is fit on its own task, which speeds up frames with many stars on multi-core machines. A value of **0** disables parallelism and fits every star sequentially.
 
