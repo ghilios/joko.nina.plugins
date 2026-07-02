@@ -32,7 +32,7 @@ Robustness property (state it in code comments and pin it in tests): with a **wr
 
 ### Cell formats
 
-- Screws — Tilt `0.75 ⟳`, Backfocus `0.30 ⟲`, Total `1.05 ⟳` (bold, per today's Total styling). **No "turns" word and no "CW"/"CCW" text anywhere** — the glyph alone carries rotation; the legend defines it.
+- Screws — Tilt `0.75 ⟳`, Backfocus `0.30 ⟲`, Total `1.05 ⟳` (bold, per today's Total styling). **No units and no "CW"/"CCW" text in any cell** — today's cells say "0.75 turns"; the unit moves into the legend ("amounts in turns") and the glyph alone carries rotation.
 - Steppers — no rotation glyphs (the motor abstracts rotation). All three rows show **signed steps** in the wizard-prompt convention: Tilt `+35 steps`, Backfocus `−12 steps`, Total `+23 steps`. (Tilt/Backfocus cells were magnitude-only before; they gain the sign so steppers carry the same per-row direction information screws get from glyphs.) Signs: Tilt σ-free, Backfocus σ-signed, Total per `SignedTotalAdjustment` — identical logic to the glyph selection.
 - Below-threshold values keep today's "—" dash behavior (no glyph/sign on a dash).
 
@@ -45,10 +45,10 @@ Unreachable from persisted options since PR #117 (default +1, wizard writes ±1,
 - **Position:** first element under the "Tilt Adapter Guidance" header, above the arrows grid (moved from below the numeric grid).
 - **Style:** regular (non-italic), full opacity — prominence by position *and* weight; wraps.
 - **Text (fixed, no longer varies with σ):**
-  - Screws: `⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten)`
+  - Screws: `⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in turns`
   - Steppers: `⬆ = adapter moves toward the objective · steps are signed as in the wizard prompts`
   - Suffix when σ is not wizard-measured (unchanged rule): ` (assumed — set or measure in the Tilt Adapter Wizard)`.
-- `BuildDirectionLegend` keeps its signature; σ now only drives the assumed-suffix resolution (and the defensive 0→default rule), not the wording.
+- Since the wording no longer depends on σ, `BuildDirectionLegend` drops its `curvatureSign` parameter: `BuildDirectionLegend(bool steps, bool signIsMeasured)`.
 - Visibility gating unchanged: legend renders iff guidance rows render.
 
 ## Vocabulary consistency (wizard step summary)
