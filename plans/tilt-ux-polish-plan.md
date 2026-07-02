@@ -153,7 +153,7 @@ The wizard's Measurement section carries literal-text copies of the inspector's 
 Requires: Windows machine, NINA with the branch-built plugin installed, windows-mcp. **Read `.claude/docs/nina-mcp-screenshots.md` first and follow its capture/annotate pipeline exactly** (it defines the build-install steps, capture resolution, theme, and file conventions).
 
 **Files:**
-- Replace: `documentation/docs/assets/screenshots/inspector-tilt-guidance.png` (currently shows the pre-#117 IN/OUT guidance table; must show CW/CCW totals + the direction legend line)
+- Replace: `documentation/docs/assets/screenshots/inspector-tilt-guidance.png` (currently shows the pre-#117 IN/OUT guidance table; must show the motion-anchored arrows, per-row rotation glyphs, and the legend at the top of the section)
 - Replace: `documentation/docs/assets/screenshots/inspector-options-empty.png` (must show the new always-visible sweep-settings block above the Options expander)
 - Create: `documentation/docs/assets/screenshots/wizard-measurement-section.png` (the wizard's Measurement section incl. the adapter-direction ComboBox) — embed it in `documentation/docs/overview/tilt-adapter-wizard.md` in "The calibration loop" section, after the paragraph introducing the Measurement section, MkDocs image syntax matching the page's existing images (`{ width=620 }`).
 - Modify: `documentation/docs/overview/tilt-adapter-wizard.md` (embed line for the new screenshot)

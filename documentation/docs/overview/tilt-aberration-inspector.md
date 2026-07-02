@@ -108,10 +108,12 @@ Once tilt is measured, a **tilt adapter** lets you correct the linear (tilt-plan
 hardware model, then converts the measured tilt into concrete screw-turn (or stepper-step)
 instructions. See [Tilt Adapter Wizard](tilt-adapter-wizard.md).
 
-Each screw's guidance total carries an explicit direction: `1.25 turns CW` or `0.50 turns CCW` for
-screws, `+35 steps` or `−35 steps` for stepper motors. A legend line under the numbers ties the
-arrows to physical motion, for example "⬆ = clockwise (adapter moves toward the camera)", and is
-marked "(assumed)" until the adapter direction has been measured in the wizard.
+The arrows describe what the adapter must do: ⬆ means that corner of the adapter plate moves toward
+the objective, ⬇ toward the camera — the same on every rig. The numeric rows each carry the screw
+rotation that produces the move: `1.25 ⟳` means 1.25 turns clockwise (tighten), `0.50 ⟲`
+counter-clockwise (loosen); stepper adapters show signed steps (`+35 steps`) matching the wizard's
+prompts. A legend at the top of the section defines both conventions and is marked "(assumed)" until
+the adapter direction has been measured in the wizard.
 
 ## Inspector options
 
