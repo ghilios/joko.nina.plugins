@@ -272,6 +272,37 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(IsManualDevice));
                 RaisePropertyChanged(nameof(SaveAFRunsPath));
                 RaisePropertyChanged(nameof(WizardSweepSummary));
+                // TiltAdapterOptions reloads its values from the new profile in its own ProfileChanged handler
+                // (subscribed before this VM exists, so it runs first), but that reload raises one broadcast
+                // PropertyChanged (null name) that the per-name filters in the options handler above never match.
+                // Every wrapper/derived property must therefore be re-raised here, or the direction controls,
+                // provenance text, prompts, and diagram keep showing the previous profile's state — and re-selecting
+                // the stale direction value would silently overwrite the new profile's measured sign.
+                RaisePropertyChanged(nameof(CwMovesAdapterTowardObjective));
+                RaisePropertyChanged(nameof(CurvatureSignDescription));
+                RaisePropertyChanged(nameof(CurvatureSignProvenance));
+                RaisePropertyChanged(nameof(CwDirectionLabel));
+                RaisePropertyChanged(nameof(HasCurvatureCalibration));
+                RaisePropertyChanged(nameof(IsCalibrationValid));
+                RaisePropertyChanged(nameof(StepInstructions));
+                RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
+                RaisePropertyChanged(nameof(AdjustmentType));
+                RaisePropertyChanged(nameof(IsStepperAdjustment));
+                RaisePropertyChanged(nameof(CalibrationAmountLabel));
+                RaisePropertyChanged(nameof(ThreadPitchMicronsValue));
+                RaisePropertyChanged(nameof(StepperStepSizeMicronsValue));
+                RaisePropertyChanged(nameof(ScrewRadiusMillimetersValue));
+                RaisePropertyChanged(nameof(ShowRunColumn));
+                RaiseHardwareSummaryChanged();
+                RebuildDiagram();
+                // Re-run the manual-entry pre-fill for the new profile's calibration (it was constructor-only):
+                // stored angles are response-convention, the manual field holds the physical image angle, and the
+                // conversion uses the new profile's direction sign. When the new profile has no calibration angle
+                // the previous value is kept, matching the constructor's NaN guard.
+                if (!double.IsNaN(tiltAdapterOptions.Screw1AngleDegrees)) {
+                    ManualScrew1AngleDegrees = TiltScrewGeometry.PhysicalToStoredAngle(
+                        tiltAdapterOptions.Screw1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
+                }
             });
 
             // Re-assert and lock a persisted device preset on load.
@@ -929,6 +960,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             StatusText = string.Empty;
             ClearMeasurementFailureChoice();
             stepReadings.Clear();
+            HasMeasurementConsistencyWarning = false;
+            MeasurementConsistencyWarningText = string.Empty;
             HasRebaselineDriftWarning = false;
             RebaselineDriftWarningText = string.Empty;
             HasConfidenceWarning = false;
@@ -1182,7 +1215,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
-        private void AppendSummaryRows(List<(double A, double B, double Mean)> readings, string stepDescription,
+        // Internal for tests (the consistency-warning path is otherwise only reachable through a live inspector run).
+        internal void AppendSummaryRows(List<(double A, double B, double Mean)> readings, string stepDescription,
             TiltPlaneModel latestModel, int count, double avgA, double avgB) {
             for (int i = 0; i < readings.Count; i++) {
                 var (a, b, _) = readings[i];
@@ -1256,7 +1290,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             MeasurementFailureText = string.Empty;
         }
 
-        private void NextStep() {
+        // Internal for tests (the step-advance rule and the end-of-run calibration math are otherwise only
+        // reachable through a live inspector measurement).
+        internal void NextStep() {
             int idx = Array.IndexOf(activeMeasurementSteps, currentStep);
             if (idx < 0) {
                 // Unreachable via the measurement commands (they gate on IsOnMeasurementStep), but never
@@ -1281,8 +1317,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 FinalizeMetadata();
             }
 
-            HasMeasurementConsistencyWarning = false;
-            MeasurementConsistencyWarningText = string.Empty;
+            // The measurement-consistency warning is intentionally NOT cleared here: it is set at the end of a
+            // successful averaged measurement, and NextStep runs immediately afterwards — clearing it here would
+            // hide it before the user ever saw it. It survives onto the next step's screen and is cleared when the
+            // next measurement run starts (RunMeasurementAsync / RunSavedMeasurementAsync) and on Start/Restart/Replay.
             StatusText = string.Empty;
             ClearMeasurementFailureChoice();
             CurrentStep = next;
@@ -1539,6 +1577,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private StepReading Reading(WizardStep step) =>
             stepReadings.TryGetValue(step, out var r) ? r : default;
+
+        // Test seam: seeds a step reading with the fields the calibration math consumes, so unit tests can
+        // exercise NextStep/RunCalibrationMath without running the inspector. StepReading and stepReadings
+        // stay private — this is the only external write path.
+        internal void SeedStepReading(WizardStep step, double a, double b, double mean) {
+            stepReadings[step] = new StepReading { A = a, B = b, Mean = mean };
+        }
 
         // ---- Replay -----------------------------------------------------------------------------------------
 

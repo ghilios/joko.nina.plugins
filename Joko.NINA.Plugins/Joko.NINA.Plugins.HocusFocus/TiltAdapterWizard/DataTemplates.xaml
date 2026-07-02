@@ -955,6 +955,29 @@
                         <TextBlock Text="{Binding WarningText}" TextWrapping="Wrap" />
                     </Border>
 
+                    <!--  Consistency warning raised by the final step's repeats: it survives the advance to
+                          Complete (the step panel that raised it is already hidden), so it must render here too  -->
+                    <Border
+                        Margin="0,5"
+                        Padding="5"
+                        BorderBrush="{StaticResource NotificationErrorBrush}"
+                        BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasMeasurementConsistencyWarning}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock
+                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Text="{Binding MeasurementConsistencyWarningText}"
+                            TextWrapping="Wrap" />
+                    </Border>
+
                     <!--  Re-baseline drift warning (an undo between moves left residual tilt)  -->
                     <Border
                         Margin="0,5"

@@ -13,6 +13,8 @@ using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
 using NSubstitute;
 using NUnit.Framework;
+using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
@@ -502,6 +504,210 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             var (vm, _, _, _) = Build();
             // No failure has occurred, so the retry button is disabled even though we're on a measurement step.
             Assert.That(vm.RetryMeasurementCommand.CanExecute(null), Is.False);
+        }
+
+        // --- Measurement-consistency warning lifetime ---
+
+        private static readonly List<(double A, double B, double Mean)> InconsistentReadings =
+            new List<(double A, double B, double Mean)> { (0.0, 0.0, 1000.0), (0.1, 0.1, 1000.0) };
+
+        [Test]
+        public void MeasurementConsistencyWarning_SurvivesStepAdvance() {
+            // The warning is raised at the end of a successful averaged measurement, after which the wizard
+            // immediately advances to the next step. If NextStep cleared it, it could never be seen — it must
+            // survive the advance and show on the next step's screen.
+            var (vm, _, _, _) = Build();
+            vm.StartCommand.Execute(null);
+
+            // Real warning path: two repeats whose (A, B) deviate from the average by more than the 0.02 threshold.
+            vm.AppendSummaryRows(InconsistentReadings, "Baseline", latestModel: null, count: 2, avgA: 0.05, avgB: 0.05);
+            Assert.That(vm.HasMeasurementConsistencyWarning, Is.True, "precondition: the averaged measurement raised the warning");
+
+            vm.NextStep();
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Screw1));
+                Assert.That(vm.HasMeasurementConsistencyWarning, Is.True, "the warning must survive the step advance");
+                Assert.That(vm.MeasurementConsistencyWarningText, Does.Contain("max deviation"));
+            });
+        }
+
+        [Test]
+        public void MeasurementConsistencyWarning_ClearedWhenANewRunStarts() {
+            // The surviving warning describes the previous step's repeats; starting a fresh wizard run (like
+            // starting the next measurement) must clear it.
+            var (vm, _, _, _) = Build();
+            vm.AppendSummaryRows(InconsistentReadings, "Baseline", latestModel: null, count: 2, avgA: 0.05, avgB: 0.05);
+            Assert.That(vm.HasMeasurementConsistencyWarning, Is.True);
+
+            vm.StartCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasMeasurementConsistencyWarning, Is.False);
+                Assert.That(vm.MeasurementConsistencyWarningText, Is.Empty);
+            });
+        }
+
+        // --- Profile switch refreshes direction controls (real options + broadcast reload) ---
+
+        [Test]
+        public void ProfileChanged_RefreshesDirectionControlsAndManualPrefill() {
+            // TiltAdapterOptions reloads its values on ProfileChanged and raises a broadcast PropertyChanged that
+            // the VM's per-name filters miss. The VM's own ProfileChanged handler must therefore re-raise the
+            // direction/provenance/prompt wrappers and re-run the manual-entry pre-fill, or the controls keep
+            // showing the previous profile's state (and re-selecting the stale value would overwrite the new
+            // profile's measured sign).
+            var profileService = Substitute.For<IProfileService>();
+            var store = new InMemoryPluginOptionsAccessor();
+            var options = new TiltAdapterOptions(profileService, store);
+            // Old profile: measured "CW moves the adapter toward the objective" (stored sign −1 per the empirical
+            // anchor) with a calibrated screw 1 at stored angle 210° (physical 30° on a −1 rig).
+            options.ScrewInwardCurvatureSign = -1;
+            options.ScrewInwardCurvatureSignIsMeasured = true;
+            options.Screw1AngleDegrees = 210.0;
+            options.IsCalibrated = true;
+            options.CalibratedScrewCount = 3;
+
+            var vm = new TiltAdapterWizardVM(
+                profileService: profileService,
+                applicationStatusMediator: Substitute.For<IApplicationStatusMediator>(),
+                cameraMediator: Substitute.For<ICameraMediator>(),
+                focuserMediator: Substitute.For<IFocuserMediator>(),
+                inspector: BuildInspector(),
+                applicationDispatcher: new SynchronousApplicationDispatcher(),
+                tiltAdapterOptions: options);
+            Assert.Multiple(() => {
+                Assert.That(vm.CwMovesAdapterTowardObjective, Is.True, "precondition: old profile's direction");
+                Assert.That(vm.ManualScrew1AngleDegrees, Is.EqualTo(30).Within(1e-9), "precondition: ctor pre-fill");
+            });
+
+            // The new profile stores the opposite (assumed) direction and a different screw-1 angle.
+            store.Clear();
+            store.SetValueInt32(nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign), 1);
+            store.SetValueBoolean(nameof(ITiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured), false);
+            store.SetValueDouble(nameof(ITiltAdapterOptions.Screw1AngleDegrees), 90.0);
+
+            var raised = new List<string>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+            profileService.ProfileChanged += Raise.Event<EventHandler>(profileService, EventArgs.Empty);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CwMovesAdapterTowardObjective, Is.False, "the getter reads the new profile's sign");
+                Assert.That(raised, Does.Contain(nameof(vm.CwMovesAdapterTowardObjective)));
+                Assert.That(raised, Does.Contain(nameof(vm.CurvatureSignDescription)));
+                Assert.That(raised, Does.Contain(nameof(vm.CurvatureSignProvenance)));
+                Assert.That(raised, Does.Contain(nameof(vm.CwDirectionLabel)));
+                Assert.That(raised, Does.Contain(nameof(vm.HasCurvatureCalibration)));
+                Assert.That(raised, Does.Contain(nameof(vm.IsCalibrationValid)));
+                Assert.That(raised, Does.Contain(nameof(vm.StepInstructions)));
+                Assert.That(raised, Does.Contain(nameof(vm.BaselineRecoveryInstructions)));
+                // The manual pre-fill re-runs against the new profile: sign +1 stores physical angles unchanged.
+                Assert.That(vm.ManualScrew1AngleDegrees, Is.EqualTo(90).Within(1e-9));
+                Assert.That(raised, Does.Contain(nameof(vm.ManualScrew1AngleDegrees)));
+            });
+        }
+
+        // --- 4-step / 6-step VM sequencing through the real NextStep ---
+
+        [Test]
+        public void NextStep_FourStepFlow_SkipsCurvatureStepsAndCompletes() {
+            var (vm, _, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(false));
+            vm.StartCommand.Execute(null);
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Baseline));
+
+            // Seed a reading per measurement step as a real run would before each advance.
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
+
+            vm.NextStep();
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Screw1), "from Baseline the 4-step flow goes straight to Screw1, not AllInward");
+            vm.NextStep();
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.ReBaseline2));
+            vm.NextStep();
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Screw2));
+            vm.NextStep();
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete), "from Screw2 the 4-step wizard completes");
+                Assert.That(vm.IsComplete, Is.True);
+            });
+        }
+
+        [Test]
+        public void NextStep_SixStepFlow_WalksAllCurvatureStepsAndCompletes() {
+            var (vm, _, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true));
+            vm.StartCommand.Execute(null);
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Baseline));
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 1010.0);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
+
+            var walked = new List<WizardStep> { vm.CurrentStep };
+            for (int i = 0; i < 6; i++) {
+                vm.NextStep();
+                walked.Add(vm.CurrentStep);
+            }
+
+            Assert.That(walked, Is.EqualTo(new[] {
+                WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1,
+                WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2, WizardStep.Complete }));
+        }
+
+        // --- Curvature-sign persistence semantics at run completion ---
+
+        [Test]
+        public void CompletingSixStepRun_WritesMeasuredCurvatureSignFromMeans() {
+            var (vm, options, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true));
+            vm.StartCommand.Execute(null);
+
+            // AllInward mean focus (990) below baseline (1000) => ComputeCurvatureSign(990, 1000) = −1.
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 990.0);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
+            options.ClearReceivedCalls();
+
+            for (int i = 0; i < 6; i++) {
+                vm.NextStep();
+            }
+
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
+            Assert.Multiple(() => {
+                options.Received().ScrewInwardCurvatureSign = -1;
+                options.Received().ScrewInwardCurvatureSignIsMeasured = true;
+                options.Received().IsCalibrated = true;
+            });
+        }
+
+        [Test]
+        public void CompletingFourStepRun_DoesNotTouchCurvatureSign() {
+            var (vm, options, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(false));
+            vm.StartCommand.Execute(null);
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
+            options.ClearReceivedCalls();
+
+            for (int i = 0; i < 4; i++) {
+                vm.NextStep();
+            }
+
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
+            Assert.Multiple(() => {
+                // Without the AllInward probe the configured/assumed sign must be left untouched.
+                options.DidNotReceive().ScrewInwardCurvatureSign = Arg.Any<int>();
+                options.DidNotReceive().ScrewInwardCurvatureSignIsMeasured = Arg.Any<bool>();
+                options.Received().IsCalibrated = true;
+            });
         }
     }
 }
