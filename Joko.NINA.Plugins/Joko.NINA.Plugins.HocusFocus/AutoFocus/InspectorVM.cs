@@ -170,6 +170,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             TiltModel = new TiltModel(inspectorOptions);
             SensorModel = new SensorModel(profileService, inspectorOptions, autoFocusOptions, alglibAPI);
 
+            inspectorOptions.PropertyChanged += (s, e) => {
+                if (e.PropertyName == nameof(IInspectorOptions.SignalAmplification) ||
+                    e.PropertyName == nameof(IInspectorOptions.StepCount) ||
+                    e.PropertyName == nameof(IInspectorOptions.FramesPerPoint)) {
+                    RaisePropertyChanged(nameof(SignalAmplificationSummary));
+                }
+            };
+            profileService.ProfileChanged += (s, e) => RaisePropertyChanged(nameof(SignalAmplificationSummary));
+
             this.tiltAdapterOptions = tiltAdapterOptions;
             TiltGuidance = new TiltAdapterGuidanceVM();
             if (tiltAdapterOptions != null) {
@@ -1113,6 +1122,37 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 options.AutoFocusStepSize = Math.Max(1, (int)Math.Round(options.AutoFocusStepSize / (double)amp));
             }
         }
+
+        // Estimated sweep size for one live sensor-model autofocus run at the given settings.
+        // points ≈ 2·offsetSteps·amp + 1 (the engine can extend a sweep, so callers label it "~");
+        // images = points × framesPerPoint. Returns (0, 0) when the inputs cannot be resolved.
+        internal static (int points, int images) EstimateImagesPerRun(
+            int stepCount, int framesPerPoint, int signalAmplification, int profileOffsetSteps, int profileFramesPerPoint) {
+            int offsetSteps = stepCount > 0 ? stepCount : profileOffsetSteps;
+            int frames = framesPerPoint > 0 ? framesPerPoint : profileFramesPerPoint;
+            if (offsetSteps <= 0 || frames <= 0) return (0, 0);
+            int amp = Math.Max(1, signalAmplification);
+            int points = 2 * offsetSteps * amp + 1;
+            return (points, points * frames);
+        }
+
+        // Prose shown beside the Signal Amplification control. Internal for tests.
+        internal static string BuildSignalAmplificationSummary(
+            int stepCount, int framesPerPoint, int signalAmplification, int profileOffsetSteps, int profileFramesPerPoint) {
+            var (points, images) = EstimateImagesPerRun(stepCount, framesPerPoint, signalAmplification, profileOffsetSteps, profileFramesPerPoint);
+            if (images <= 0) return string.Empty;
+            int frames = framesPerPoint > 0 ? framesPerPoint : profileFramesPerPoint;
+            return $"Each auto focus run will capture ~{images} images ({points} focus positions × {frames} exposure{(frames == 1 ? "" : "s")} each). " +
+                "Higher values collect more, finer-spaced points for a steadier fit on weak signal; 1 runs a regular autofocus (fastest).";
+        }
+
+        public string SignalAmplificationSummary =>
+            BuildSignalAmplificationSummary(
+                inspectorOptions.StepCount,
+                inspectorOptions.FramesPerPoint,
+                inspectorOptions.SignalAmplification,
+                profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
+                profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint);
 
         private StarDetectionRegion GetAutoFocusRegion(AutoFocusEngineOptions options) {
             var analysisParams = new StarDetectionParams() {
