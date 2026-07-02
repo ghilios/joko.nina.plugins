@@ -122,39 +122,38 @@ GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.nor
 
 ---
 
-### Task 2: Direction-mapping constant in TiltScrewGeometry (USER CHECKPOINT)
+### Task 2: Direction-mapping constant in TiltScrewGeometry (empirical anchor recorded)
 
-The spec requires the mechanical-setting ↔ stored-sign mapping to be **verified empirically, not derived on paper**. This task pins it as a single named constant.
+The spec requires the mechanical-setting ↔ stored-sign mapping to be **verified empirically, not derived on paper**. The user supplied the anchor on 2026-07-02: **moving the adapter toward the objective decreases the curvature effect** (measured on their rig). Composed with the stored sign's consumer semantics (`InspectorVM.cs` backfocus guidance: `+1` = a CW screw turn raises the curvature effect), this pins the constant at **−1**: a rig where CW moves the adapter toward the objective has CW lowering the curvature effect.
 
 **Files:**
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/TiltAdapterWizard/TiltScrewGeometry.cs`
 - Test: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/TiltAdapterWizard/TiltScrewGeometryTests.cs`
 
-- [ ] **Step 1: STOP — ask the user (blocking checkpoint)**
+- [ ] **Step 1: Optional cross-check (non-blocking; flip if it contradicts)**
 
-Ask the user these two questions about a rig they have **measured** with the 6-step wizard:
-
-1. On that adapter, does turning the screws **clockwise** move the adapter plate **toward the objective** or **toward the camera**?
-2. What is the measured curvature sign on that rig? (Visible as the "Screws Inward / Curvature ↑ or ↓" row in the wizard's saved-calibration panel — ↑ = `+1`, ↓ = `−1`; or as `calibration.curvatureSign` in a saved run's `metadata.json`.)
-
-Set the constant so the two answers agree: if CW→objective pairs with measured `+1` (or CW→camera pairs with `−1`), the constant is `+1`; if CW→objective pairs with measured `−1`, the constant is `−1`. **Do not guess. Do not proceed without the user's answer.** Record the rig + date in the comment.
+If the user's rig has a wizard-measured calibration handy, cross-check the measured path: note the "Screws Inward / Curvature ↑ or ↓" arrow in the wizard's saved-calibration panel (↑ = `+1`, ↓ = `−1`) and which way CW moves that adapter mechanically. The pair must satisfy `measuredSign == CurvatureSignForCwDirection(cwMovesAdapterTowardObjective)` with the constant below. If it does NOT, the wizard's mean-focus measurement disagrees with the curvature-response semantics on that rig — **stop and surface this to the user** (it would mean the sign's two producers disagree, a pre-existing issue bigger than this feature); anchor the constant to the measured path in that case.
 
 - [ ] **Step 2: Write the failing test**
 
-In `TiltScrewGeometryTests.cs` add (adjust the two `+1/−1` expectations if the user's answer flipped the constant — the test documents the verified truth):
+In `TiltScrewGeometryTests.cs` add:
 
 ```csharp
     [Test]
     public void CurvatureSignForCwDirection_MatchesEmpiricalAnchor() {
         Assert.Multiple(() => {
-            // Pinned to the empirically verified mapping (see TiltScrewGeometry comment). If this
-            // fails after an intentional flip, update BOTH the constant comment and this test.
-            Assert.That(TiltScrewGeometry.CurvatureSignWhenCwMovesAdapterTowardObjective, Is.EqualTo(1));
-            Assert.That(TiltScrewGeometry.CurvatureSignForCwDirection(cwMovesAdapterTowardObjective: true), Is.EqualTo(1));
-            Assert.That(TiltScrewGeometry.CurvatureSignForCwDirection(cwMovesAdapterTowardObjective: false), Is.EqualTo(-1));
-            Assert.That(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(1), Is.True);
-            Assert.That(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(-1), Is.False);
-            // Default assumption: CW moves the adapter outward (toward the camera).
+            // Pinned to the empirically verified mapping (see TiltScrewGeometry comment): moving
+            // the adapter toward the objective DECREASES the curvature effect (user measurement,
+            // 2026-07-02), so CW-toward-objective => CW lowers the effect => -1. If this fails
+            // after an intentional flip, update BOTH the constant comment and this test.
+            Assert.That(TiltScrewGeometry.CurvatureSignWhenCwMovesAdapterTowardObjective, Is.EqualTo(-1));
+            Assert.That(TiltScrewGeometry.CurvatureSignForCwDirection(cwMovesAdapterTowardObjective: true), Is.EqualTo(-1));
+            Assert.That(TiltScrewGeometry.CurvatureSignForCwDirection(cwMovesAdapterTowardObjective: false), Is.EqualTo(1));
+            Assert.That(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(-1), Is.True);
+            Assert.That(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(1), Is.False);
+            // Default assumption: CW moves the adapter outward (toward the camera), so the default
+            // stored sign is +1 (CW raises the curvature effect) — equivalently, adapter motion
+            // toward the objective decreases it, the originally requested default behavior.
             Assert.That(TiltScrewGeometry.DefaultScrewInwardCurvatureSign,
                 Is.EqualTo(TiltScrewGeometry.CurvatureSignForCwDirection(false)));
         });
@@ -176,12 +175,12 @@ Append inside the `TiltScrewGeometry` class (it is a static geometry helper clas
         // Clockwise (tighten) always advances a screw; the rig-specific unknown is whether that
         // advance moves the adapter's plate toward the telescope objective ("inward") or toward the
         // camera ("outward"). ScrewInwardCurvatureSign stores the measurable consequence: the sign
-        // of the mean best-focus / curvature-effect response to a CW turn (+1 = raises it).
+        // of the curvature-effect response to a CW turn (+1 = raises it).
         //
-        // EMPIRICAL ANCHOR (verified <DATE> against <RIG> — fill in from the Task 2 checkpoint):
-        // a plate moving toward the objective forces the focuser to re-focus outward, raising the
-        // mean best-focus position, which ComputeCurvatureSign records as +1.
-        public const int CurvatureSignWhenCwMovesAdapterTowardObjective = 1;
+        // EMPIRICAL ANCHOR (user measurement, 2026-07-02): moving the adapter toward the objective
+        // DECREASES the curvature effect. Therefore a rig where CW drives the adapter toward the
+        // objective has CW lowering the effect: sign -1.
+        public const int CurvatureSignWhenCwMovesAdapterTowardObjective = -1;
 
         /// <summary>The stored curvature sign implied by the mechanical setting.</summary>
         public static int CurvatureSignForCwDirection(bool cwMovesAdapterTowardObjective) =>
@@ -196,10 +195,10 @@ Append inside the `TiltScrewGeometry` class (it is a static geometry helper clas
         // Default assumption when the direction was never measured or chosen: CW moves the adapter
         // toward the camera (outward) — the common push-screw design; matches the tilt-domain doc
         // ("turning a screw inward pushes that corner of the sensor away from the telescope").
+        // With the anchor above this makes the default stored sign +1 (CW raises the curvature
+        // effect; adapter motion toward the objective decreases it).
         public static int DefaultScrewInwardCurvatureSign => CurvatureSignForCwDirection(false);
 ```
-
-Replace `<DATE>` / `<RIG>` with the user's checkpoint answer, and flip the constant to `-1` (and the test's expectations) if that is what the answer implies.
 
 - [ ] **Step 5: Run tests, then commit**
 

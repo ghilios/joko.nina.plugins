@@ -129,18 +129,22 @@ New/changed persisted options on `TiltAdapterOptions`:
 
 The **user-facing setting is mechanical**, per the confirmed framing: does a CW screw turn move the
 adapter inward (toward objective) or outward (toward camera)? It is presented as a two-entry ComboBox
-and stored via `ScrewInwardCurvatureSign` through a **fixed mapping constant** (the physics/focuser
-convention linking adapter motion to the measured focus-shift sign). That constant must be **verified
-empirically during implementation** against a real measured calibration run (saved run metadata records
-the measured sign, and the adapter's mechanical behavior is known for the reference hardware) — it is a
-single boolean that armchair sign-chasing gets wrong too easily.
+and stored via `ScrewInwardCurvatureSign` through a **fixed mapping constant**.
+
+**Empirical anchor (user measurement, 2026-07-02):** moving the adapter toward the objective
+**decreases** the curvature effect. Combined with the sign's consumer semantics (+1 = a CW turn raises
+the curvature effect), the constant is pinned: CW-toward-objective ⇔ sign **−1**
+(`TiltScrewGeometry.CurvatureSignWhenCwMovesAdapterTowardObjective = -1`).
 
 **Default:** CW ⇒ adapter moves **outward (toward the camera)** — consistent with
 `.claude/docs/tilt-domain.md` ("turning a screw inward pushes that corner of the sensor away from the
-telescope"). If the empirical mapping check shows this default disagrees with the originally requested
-"inward decreases curvature" behavior, the mechanical default wins and the discrepancy is raised for
-review. If a rig's backfocus guidance appears inverted, flipping this setting (or running the 6-step
-measurement) corrects it.
+telescope"). With the anchor above, the default stored sign is **+1**, whose composed behavior is
+exactly the originally requested default: adapter motion inward (toward the objective) decreases the
+curvature effect. An optional implementation-time cross-check compares a wizard-measured rig's sign
+arrow (↑/↓) against its known mechanical direction; a contradiction would indicate the measured and
+manual producers of the sign disagree and must be surfaced rather than papered over. If a rig's
+backfocus guidance appears inverted, flipping this setting (or running the 6-step measurement)
+corrects it.
 
 ### Wizard settings UI (Panel A, in the new "Measurement" section after Feature 1's rows)
 
