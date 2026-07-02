@@ -2970,6 +2970,15 @@
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             </Grid>
 
+                            <!--  Direction legend: what ⬆ / CW / + steps mean for this adapter  -->
+                            <TextBlock
+                                Margin="5,4,5,0"
+                                FontStyle="Italic"
+                                Opacity="0.7"
+                                Text="{Binding TiltGuidance.DirectionLegend}"
+                                TextWrapping="Wrap"
+                                Visibility="{Binding TiltGuidance.HasDirectionLegend, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
                             <!--  Saved-vs-measured pitch mismatch warning  -->
                             <Border
                                 Margin="5,6,5,0"

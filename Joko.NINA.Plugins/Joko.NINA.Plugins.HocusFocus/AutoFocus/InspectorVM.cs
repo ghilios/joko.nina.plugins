@@ -1886,6 +1886,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             FillNumericGuidance(guidance, n);
 
+            // Direction legend only when the arrows/totals it annotates are actually on screen
+            // (the arrows grid is gated by HasTiltGuidance, the numeric totals by HasNumericGuidance).
+            // Otherwise the calibrated-but-unmeasured state would show a legend right under
+            // "Run a measurement to see guidance." with nothing to explain.
+            if (guidance.HasTiltGuidance || guidance.HasNumericGuidance) {
+                guidance.DirectionLegend = TiltAdapterGuidanceVM.BuildDirectionLegend(
+                    steps: tiltAdapterOptions.AdjustmentType == TiltAdjustmentType.StepperMotors,
+                    curvatureSign: tiltAdapterOptions.ScrewInwardCurvatureSign,
+                    signIsMeasured: tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured);
+            }
+
             TiltGuidance = guidance;
             RaisePropertyChanged(nameof(TiltGuidance));
         }
@@ -1894,7 +1905,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         // Populate the precise per-screw turn/step amounts from the fitted paraboloid model and the
         // configured adapter hardware. Magnitudes are direction-indicated by the existing arrows; the
-        // total carries an explicit IN/OUT word. Everything is computed in axial best-focus microns
+        // total carries an explicit direction (CW/CCW or +/− steps). Everything is computed in axial best-focus microns
         // (tilt = -TiltAt, backfocus = -CurvatureAt) then divided by the saved pitch/step size — there
         // is no square root, the curvature term is already a length.
         private void FillNumericGuidance(TiltAdapterGuidanceVM guidance, int n) {
