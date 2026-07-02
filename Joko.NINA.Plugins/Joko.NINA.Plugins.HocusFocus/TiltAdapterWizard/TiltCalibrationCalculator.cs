@@ -36,6 +36,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// The discrete 6-step flow measures: Baseline (a), AllInward (b), ReBaseline1 (c), Screw1 (d), ReBaseline2 (e),
     /// Screw2 (f). Each screw's angle/hardware is derived from the move relative to the re-baseline that immediately
     /// precedes it (c→d for screw 1, e→f for screw 2), so a single physical move is isolated per measurement pair.
+    /// In the 4-step flow (no curvature steps) Baseline/AllInward are unset, HasCurvatureMeasurement is false, and
+    /// the baseline reading occupies the ReBaseline1 slot.
     /// </summary>
     public sealed class TiltCalibrationInputs {
         public int ScrewCount { get; set; }                 // 3 or 4
@@ -52,6 +54,15 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double ScrewRadiusMillimeters { get; set; }
         public double CalibrationAppliedAmount { get; set; } // turns (screws) or steps (steppers) applied per screw step
         public bool IsStepperAdjustment { get; set; }
+
+        /// <summary>False for a 4-step run that skipped the curvature-direction steps: Baseline and
+        /// AllInward were never measured (leave them default) and the baseline reading is supplied
+        /// in the ReBaseline1 slot, which is the screw-1 reference in both flows.</summary>
+        public bool HasCurvatureMeasurement { get; set; } = true;
+
+        /// <summary>Curvature sign carried into the result when HasCurvatureMeasurement is false
+        /// (the configured/assumed ScrewInwardCurvatureSign; 0 = unknown).</summary>
+        public int FallbackCurvatureSign { get; set; }
     }
 
     /// <summary>Result of calibrating a tilt adapter: per-screw position angles, curvature sign, and recovered hardware.</summary>
@@ -63,7 +74,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public int CalibratedScrewCount { get; set; }
         public bool IsCalibrated { get; set; }
         public double RawAngleDiffDegrees { get; set; }      // measured screw1->screw2 gap before the constrained fit
-        public int CurvatureSign { get; set; }               // +1 / -1
+        public int CurvatureSign { get; set; }               // +1 / -1; 0 = unknown (4-step run whose fallback sign was never configured)
         public double MeasuredHardwareMicrons { get; set; }  // µm/turn (screws) or µm/step (steppers); NaN if uncomputable
         public double Screw1DirectionDegrees { get; set; }   // raw measured direction of screw 1's move (atan2(dA,-dB))
         public double Screw2DirectionDegrees { get; set; }   // raw measured direction of screw 2's move
@@ -79,20 +90,22 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     }
 
     /// <summary>
-    /// How trustworthy a calibration is, derived purely from the six per-step tilt vectors — no fit covariance
+    /// How trustworthy a calibration is, derived purely from the per-step tilt vectors — no fit covariance
     /// needed. The screw-move magnitudes are the <i>signal</i>; quantities that must be ~0 in a noise-free,
     /// stationary measurement are <i>noise probes</i>: turning all screws inward equally is a pure piston (no net
-    /// tilt change vs baseline), and each re-baseline should return to its predecessor (zero drift). When the
-    /// noise probes rival the screw-move signal the recovered geometry is dominated by measurement noise / between
-    /// step drift, no matter how cleanly the screws were turned.
+    /// tilt change vs baseline), and each re-baseline should return to its predecessor (zero drift). A 6-step run
+    /// has all three noise probes; a 4-step run (no curvature steps) has only the single re-baseline drift, and
+    /// <see cref="AllInwardTiltResidual"/> / <see cref="Rebaseline1Drift"/> are NaN there. When the noise probes
+    /// rival the screw-move signal the recovered geometry is dominated by measurement noise / between step drift,
+    /// no matter how cleanly the screws were turned.
     /// </summary>
     public sealed class TiltCalibrationConfidence {
         public double ScrewMoveSignal { get; set; }               // mean |single-screw move| magnitude (the signal)
         public double NoiseEstimate { get; set; }                 // RMS of the noise probes below
         public double SignalToNoise { get; set; }                 // ScrewMoveSignal / NoiseEstimate (Inf if noise 0)
         public double PredictedAngleUncertaintyDeg { get; set; }  // ~1σ on each recovered screw direction
-        public double AllInwardTiltResidual { get; set; }         // |AllInward − Baseline|, should be ~0 (pure piston)
-        public double Rebaseline1Drift { get; set; }              // |ReBaseline1 − Baseline|, should be ~0
+        public double AllInwardTiltResidual { get; set; }         // |AllInward − Baseline|, should be ~0 (pure piston); NaN for 4-step runs
+        public double Rebaseline1Drift { get; set; }              // |ReBaseline1 − Baseline|, should be ~0; NaN for 4-step runs
         public double Rebaseline2Drift { get; set; }              // |ReBaseline2 − ReBaseline1|, should be ~0
         public bool IsReliable { get; set; }                      // SignalToNoise >= MinReliableSignalToNoise
     }
@@ -118,19 +131,30 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private static double Magnitude(double a, double b) => Math.Sqrt(a * a + b * b);
 
         /// <summary>
-        /// Estimates how trustworthy the calibration is from the six per-step tilt vectors. See
-        /// <see cref="TiltCalibrationConfidence"/> for the model: screw moves are the signal; the all-inward piston
-        /// residual and the two re-baseline drifts are independent noise probes (each ~0 in an ideal measurement).
+        /// Estimates how trustworthy the calibration is from the per-step tilt vectors. See
+        /// <see cref="TiltCalibrationConfidence"/> for the model: screw moves are the signal; the noise probes are
+        /// independent quantities that are each ~0 in an ideal measurement — the all-inward piston residual and both
+        /// re-baseline drifts in a 6-step run, only the single re-baseline drift in a 4-step run.
         /// </summary>
         public static TiltCalibrationConfidence ComputeConfidence(TiltCalibrationInputs inputs) {
             double s1 = Magnitude(inputs.Screw1.A - inputs.ReBaseline1.A, inputs.Screw1.B - inputs.ReBaseline1.B);
             double s2 = Magnitude(inputs.Screw2.A - inputs.ReBaseline2.A, inputs.Screw2.B - inputs.ReBaseline2.B);
             double signal = 0.5 * (s1 + s2);
 
-            double allInward = Magnitude(inputs.AllInward.A - inputs.Baseline.A, inputs.AllInward.B - inputs.Baseline.B);
-            double drift1 = Magnitude(inputs.ReBaseline1.A - inputs.Baseline.A, inputs.ReBaseline1.B - inputs.Baseline.B);
             double drift2 = Magnitude(inputs.ReBaseline2.A - inputs.ReBaseline1.A, inputs.ReBaseline2.B - inputs.ReBaseline1.B);
-            double noise = Math.Sqrt((allInward * allInward + drift1 * drift1 + drift2 * drift2) / 3.0);
+            double allInward = double.NaN;
+            double drift1 = double.NaN;
+            double noise;
+            if (inputs.HasCurvatureMeasurement) {
+                allInward = Magnitude(inputs.AllInward.A - inputs.Baseline.A, inputs.AllInward.B - inputs.Baseline.B);
+                drift1 = Magnitude(inputs.ReBaseline1.A - inputs.Baseline.A, inputs.ReBaseline1.B - inputs.Baseline.B);
+                noise = Math.Sqrt((allInward * allInward + drift1 * drift1 + drift2 * drift2) / 3.0);
+            } else {
+                // 4-step run: the only available noise probe is the single re-baseline drift. A one-sample noise
+                // estimate makes the IsReliable gate looser than the 6-step RMS-of-3 — an accepted tradeoff of the
+                // shorter flow.
+                noise = drift2;
+            }
 
             double snr = noise > 0 ? signal / noise : double.PositiveInfinity;
             // A screw direction is atan2 of its move vector; transverse noise of ~noise on a signal of ~signal
@@ -197,6 +221,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 // Opposite screws are always 180° apart regardless of mirroring.
                 return (theta1, theta2, NormalizeAngle(theta1 + 180.0), NormalizeAngle(theta2 + 180.0), rawDiff);
             }
+        }
+
+        /// <summary>
+        /// Places all screws from a manually entered screw-1 position angle: equal spacing (120° for
+        /// 3 screws; 90° for 4, opposite screws 180° apart), numbered clockwise or counter-clockwise
+        /// around the IMAGE (mirrors/diagonals can flip the physical winding). s4 = NaN for 3 screws.
+        /// </summary>
+        public static (double s1, double s2, double s3, double s4) ComputeManualScrewAngles(
+            double screw1Deg, bool clockwise, int screwCount) {
+            double step = (screwCount == 3 ? 120.0 : 90.0) * (clockwise ? 1.0 : -1.0);
+            double s1 = NormalizeAngle(screw1Deg);
+            double s2 = NormalizeAngle(s1 + step);
+            double s3 = NormalizeAngle(s1 + 2 * step);
+            double s4 = screwCount == 4 ? NormalizeAngle(s1 + 3 * step) : double.NaN;
+            return (s1, s2, s3, s4);
         }
 
         /// <summary>
@@ -271,7 +310,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 CalibratedScrewCount = inputs.ScrewCount,
                 IsCalibrated = true,
                 RawAngleDiffDegrees = rawDiff,
-                CurvatureSign = ComputeCurvatureSign(inputs.AllInward.MeanFocuserPosition, inputs.Baseline.MeanFocuserPosition),
+                CurvatureSign = inputs.HasCurvatureMeasurement
+                    ? ComputeCurvatureSign(inputs.AllInward.MeanFocuserPosition, inputs.Baseline.MeanFocuserPosition)
+                    : inputs.FallbackCurvatureSign,
                 MeasuredHardwareMicrons = RecoverHardwareMicrons(inputs),
                 Screw1DirectionDegrees = NormalizeAngle(Math.Atan2(d1A, -d1B) * 180.0 / Math.PI),
                 Screw2DirectionDegrees = NormalizeAngle(Math.Atan2(d2A, -d2B) * 180.0 / Math.PI),
