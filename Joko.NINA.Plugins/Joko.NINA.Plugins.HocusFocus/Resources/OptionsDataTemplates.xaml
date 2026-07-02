@@ -475,7 +475,7 @@
     <TextBlock x:Key="AnnotationColor_Tooltip" Text="The color of the annotation text next to the star" />
     <TextBlock x:Key="ShowROI_Tooltip" Text="Whether to show the region of interest" />
     <TextBlock x:Key="ROIColor_Tooltip" Text="The color of the region of interest boxes" />
-    <TextBlock x:Key="ShowStarCenter_Tooltip" Text="Whether to show the a reticule on each star center" />
+    <TextBlock x:Key="ShowStarCenter_Tooltip" Text="Whether to show a reticule on each star center" />
     <TextBlock x:Key="StarCenterColor_Tooltip" Text="The color of the reticule on each star center" />
     <TextBlock x:Key="ShowTooDistorted_Tooltip" Text="Whether to show the failed stars that were too distorted" />
     <TextBlock x:Key="TooDistortedColor_Tooltip" Text="The color of the failed star bounding box" />
@@ -491,7 +491,7 @@
     <TextBlock x:Key="TooFlatColor_Tooltip" Text="The color of the failed star bounding box" />
     <TextBlock x:Key="ShowContaminated_Tooltip" Text="Whether to mark stars flagged as possibly contaminated by a neighbor, background gradient, or hot column. The marker is shown whether or not 'Reject Contaminated Stars' is enabled, so you can see which stars were flagged even when they are excluded from measurements" />
     <TextBlock x:Key="ContaminatedColor_Tooltip" Text="The color used to outline contaminated stars. The marker is drawn as the star's bounding box" />
-    <TextBlock x:Key="ShowStructureMap_Tooltip" Text="Overlays the structure map to aide debugging. Original shows the initial structure map after noise clipping and binarization, and Dilated shows it after dilation has been performed" />
+    <TextBlock x:Key="ShowStructureMap_Tooltip" Text="Overlays the structure map to aid debugging. Original shows the initial structure map after noise clipping and binarization, and Dilated shows it after dilation has been performed" />
     <TextBlock x:Key="StructureMapColor_Tooltip" Text="The color of the overlayed structure map" />
     <TextBlock x:Key="SaveIntermediatePath_Tooltip" Text="When Save Intermediate Files is enabled, they are written to this path the next time star detection runs" />
     <TextBlock x:Key="SaveIntermediateFiles_Tooltip" Text="If enabled, every step of star detection emits a debugging file to the intermediate path" />

@@ -40,7 +40,7 @@ These controls govern the always-on overlay drawn for accepted stars. ("Property
 | (font size, inline) | 18 pt | > 0 | Point size of the text labels, set via the inline pt box under **Property Font**. |
 | Show ROI | On | on / off | *"Whether to show the region of interest"*. |
 | ROI Color | Yellow | ARGB color | *"The color of the region of interest boxes"*. |
-| Show Star Center | On | on / off | *"Whether to show the a reticule on each star center"*. |
+| Show Star Center | On | on / off | *"Whether to show a reticule on each star center"*. |
 | Star Center Color | Blue, 50% | ARGB color | *"The color of the reticule on each star center"*. |
 
 ### Bounds type
@@ -99,7 +99,7 @@ Each toggle has a companion color setting (Distorted Box Color, Degenerate Box C
 
 ## Structure map overlay (debug)
 
-**Show Structure Map** overlays the detector's binary structure mask so you can see exactly which pixels were treated as potential star structure. Its tooltip: *"Overlays the structure map to aide debugging. Original shows the initial structure map after noise clipping and binarization, and Dilated shows it after dilation has been performed"*.
+**Show Structure Map** overlays the detector's binary structure mask so you can see exactly which pixels were treated as potential star structure. Its tooltip: *"Overlays the structure map to aid debugging. Original shows the initial structure map after noise clipping and binarization, and Dilated shows it after dilation has been performed"*.
 
 | Value | Shows |
 |---|---|
