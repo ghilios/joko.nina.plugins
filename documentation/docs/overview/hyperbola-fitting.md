@@ -208,13 +208,13 @@ the simpler symmetric model with its smaller \(\sigma_{\text{focus}}\).*
 
 ## Which model should I pick?
 
-Leave it on **Hybrid**. Across a large bank of real runs no single fixed model wins on every curve, so
+Leave it on **Hybrid (Best Fit)**. Across a large bank of real runs no single fixed model wins on every curve, so
 per-run self-selection is the safe default. Asymmetric models fit tighter (lower RMS and
 \(\chi^2\)) but a five-parameter fit is easier to over-fit on a thin sweep, which is exactly what the
 parsimony gate guards against.
 
 If you prefer a fixed model: **Symmetric** is the most stable and a good choice for clean,
-near-symmetric curves; **Tilted** is the best fixed asymmetric model; **Smooth Blend** suits curves
+near-symmetric curves; **Tilted Hyperbola** is the best fixed asymmetric model; **Smooth Blend** suits curves
 whose two sides have clearly different curvature; and **Uneven Blend** is only for reproducing old
 behavior. The setting lives in [Key autofocus options](autofocus.md#key-autofocus-options), and the
 optimizer uses these same fit metrics when it scores detection settings

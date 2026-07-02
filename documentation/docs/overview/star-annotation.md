@@ -1,6 +1,6 @@
 # Star Annotation
 
-Star annotation overlays diagnostic information on top of the image NINA already shows you. After Hocus Focus detects stars, the annotator redraws the frame with a marker around each star, an optional text label (HFR, FWHM, eccentricity, and more), reticules on star centers, the region-of-interest box, and optional boxes that reveal *why* particular candidates were rejected. It is your window into what the detector actually saw, which is invaluable when tuning detection or diagnosing focus problems.
+Star annotation overlays diagnostic information on top of the image NINA already shows you. After Hocus Focus detects stars, the annotator redraws the frame with a marker around each star, an optional text label (HFR, FWHM, eccentricity, and more), reticules on star centers, the region-of-interest box, and optional boxes that reveal *why* particular candidates were rejected. It is your window into what the detector actually saw, which helps when tuning detection or diagnosing focus problems.
 
 Hocus Focus registers its annotator as a pluggable behavior (it implements NINA's `IStarAnnotator`), so it can be selected from the same dropdown NINA uses for any star annotator. The AutoFocus engine and the Tilt & Aberration Inspector both pick the active annotator through `IPluggableBehaviorSelector<IStarAnnotator>`. The settings below live in the plugin options under the Star Annotator section and persist with your NINA profile.
 
@@ -107,15 +107,12 @@ Each toggle has a companion color setting (Distorted Box Color, Degenerate Box C
 | Original | the structure map after noise clipping and binarization |
 | Dilated | the same map after morphological dilation |
 
-The mask pixels are blended onto the image in **Structure Map Color** (*"The color of the overlayed structure map"*; magenta/purple, half-transparent by default). This control is only exposed when the detector's debug mode is enabled, since it exists for algorithm-level tuning rather than routine use.
-
-!!! warning
-    The structure-map overlay is a debugging aid for tuning the structure-detection stage (noise clipping, dilation). It is not meant to be left on during normal focusing, since it obscures the underlying image.
+The mask pixels are blended onto the image in **Structure Map Color** (*"The color of the overlayed structure map"*; magenta/purple, half-transparent by default). This control is only exposed when the detector's debug mode is enabled, since it exists for algorithm-level tuning rather than routine use. Leave it off during normal focusing; the overlay obscures the underlying image.
 
 ## Practical recipes
 
 !!! example "Tuning detection quality"
-    Cap labels (**Show All Stars** off, **Maximum Stars** ≈ 200), then enable the rejection toggles one or two at a time with distinct colors. Walk the gates until the accepted set looks right for your focal ratio and seeing.
+    Cap labels (**Show All Stars** off, **Maximum Stars** ≈ 50), then enable the rejection toggles one or two at a time with distinct colors. Walk the gates until the accepted set looks right for your focal ratio and seeing.
 
 !!! example "Checking focus quality across the field"
     Set **Show Property** to FWHM or Eccentricity (PSF modeling required) and watch for consistent, low values near best focus. The star-center reticule makes off-center or trailed stars at the defocus extremes easy to spot.
