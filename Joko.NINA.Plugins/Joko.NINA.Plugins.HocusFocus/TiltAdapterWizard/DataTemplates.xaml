@@ -571,7 +571,7 @@
                                 Margin="0,0,0,5"
                                 FontStyle="Italic"
                                 Opacity="0.7"
-                                Text="If you already know where screw 1 sits, enter it here and skip the wizard. Angles and numbering direction are in image space — mirrors or diagonals in the optical train can flip them relative to the physical adapter. If guidance moves tilt the wrong way, flip the numbering direction. Set the adapter direction in the Measurement settings above if you know it."
+                                Text="If you already know where screw 1 sits, enter it here and skip the wizard. Angles and numbering direction are in image space — mirrors or diagonals in the optical train can flip them relative to the physical adapter. If guidance moves tilt the wrong way, flip the numbering direction. Set the adapter direction in the Measurement settings above if you know it. If you change the adapter direction setting later, click Apply again."
                                 TextWrapping="Wrap" />
                             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
                                 <TextBlock VerticalAlignment="Center" Text="Screw 1 angle (°)"

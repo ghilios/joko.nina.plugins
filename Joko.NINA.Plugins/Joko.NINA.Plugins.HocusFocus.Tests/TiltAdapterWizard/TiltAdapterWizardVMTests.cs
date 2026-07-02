@@ -43,13 +43,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 tiltAdapterOptions: Substitute.For<ITiltAdapterOptions>());
         }
 
-        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options, ICameraMediator camera, IFocuserMediator focuser) Build(int screwCount = 3, IApplicationDispatcher dispatcher = null) {
+        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options, ICameraMediator camera, IFocuserMediator focuser) Build(int screwCount = 3, IApplicationDispatcher dispatcher = null, System.Action<ITiltAdapterOptions> configureOptions = null) {
             var profileService = Substitute.For<IProfileService>();
             var camera = Substitute.For<ICameraMediator>();
             var focuser = Substitute.For<IFocuserMediator>();
             var options = Substitute.For<ITiltAdapterOptions>();
             options.ScrewCount.Returns(screwCount);
             options.MeasurementAverageCount.Returns(1);
+            configureOptions?.Invoke(options);
             var inspector = BuildInspector();
             var vm = new TiltAdapterWizardVM(
                 profileService: profileService,
@@ -397,8 +398,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void ApplyManualCalibration_WritesCalibrationState() {
+        public void ApplyManualCalibration_WritesCalibrationState_PositiveSignStoresPhysicalAngles() {
+            // On +1 rigs the stored response-convention angles coincide with the physical angles the
+            // user typed, so 30° places the clockwise-numbered screws at 30/150/270.
             var (vm, options, _, _) = Build(screwCount: 3);
+            options.ScrewInwardCurvatureSign.Returns(1);
             vm.ManualScrew1AngleDegrees = 30;
             vm.ManualNumberingClockwise = true;
 
@@ -418,6 +422,46 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 options.Received().LastMeasuredThreadPitchMicrons = -1;
                 options.Received().LastMeasuredStepperStepSizeMicrons = -1;
             });
+        }
+
+        [Test]
+        public void ApplyManualCalibration_NegativeSign_ConvertsPhysicalToResponseConvention() {
+            // On −1 rigs a CW turn drives the tilt gradient opposite the physical screw direction, so
+            // the stored (response-convention) angles are the typed physical angle + 180°: wizard runs
+            // persist response-convention angles and the guidance math consumes them, so a manual
+            // entry must convert or its arrows would invert on these rigs.
+            var (vm, options, _, _) = Build(screwCount: 3);
+            options.ScrewInwardCurvatureSign.Returns(-1);
+            vm.ManualScrew1AngleDegrees = 30;
+            vm.ManualNumberingClockwise = true;
+
+            vm.ApplyManualCalibration();
+
+            Assert.Multiple(() => {
+                options.Received().Screw1AngleDegrees = 210;
+                options.Received().Screw2AngleDegrees = 330;
+                options.Received().Screw3AngleDegrees = 90;
+                options.Received().Screw4AngleDegrees = double.NaN;
+                options.Received().CalibratedScrewCount = 3;
+                options.Received().IsCalibrated = true;
+            });
+        }
+
+        [Test]
+        public void Constructor_PrefillsManualAngleAsPhysical() {
+            // Stored calibration angles are response-convention; the manual-entry field holds the
+            // PHYSICAL image angle, so the pre-fill must convert back (the conversion is self-inverse).
+            var (vmNeg, _, _, _) = Build(screwCount: 3, configureOptions: o => {
+                o.Screw1AngleDegrees.Returns(210.0);
+                o.ScrewInwardCurvatureSign.Returns(-1);
+            });
+            Assert.That(vmNeg.ManualScrew1AngleDegrees, Is.EqualTo(30).Within(1e-9));
+
+            var (vmPos, _, _, _) = Build(screwCount: 3, configureOptions: o => {
+                o.Screw1AngleDegrees.Returns(210.0);
+                o.ScrewInwardCurvatureSign.Returns(1);
+            });
+            Assert.That(vmPos.ManualScrew1AngleDegrees, Is.EqualTo(210).Within(1e-9));
         }
 
         [Test]

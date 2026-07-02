@@ -104,14 +104,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         /// <summary>
-        /// Convert an axial correction (microns) into a signed adjustment in turns (screws) or
-        /// steps (steppers), where positive = turn the screw inward. Inward turning moves the
-        /// sensor axially in the direction given by <paramref name="curvatureSign"/> (= the wizard's
-        /// ScrewInwardCurvatureSign), so the inward amount is curvatureSign·correction / unitMicrons.
+        /// Signed total adjustment in turns/steps, CW/+ positive. The tilt component is already
+        /// direction-encoded by the stored response-convention screw angle (a CW turn of the screw
+        /// stored at θ raises the local gradient along +θ by construction of the calibration), so it
+        /// takes NO sign factor; the backfocus component is a physical axial requirement from the
+        /// curvature model, so the configured/measured curvature sign converts it to a rotation
+        /// direction. A zero sign treats backfocus as +1 (callers then display magnitude only).
         /// </summary>
-        public static double InwardAdjustment(double correctionMicrons, double unitMicrons, int curvatureSign) {
+        public static double SignedTotalAdjustment(double tiltMicrons, double backfocusMicrons, double unitMicrons, int curvatureSign) {
             if (unitMicrons <= 0) return double.NaN;
-            return curvatureSign * correctionMicrons / unitMicrons;
+            int sign = curvatureSign == 0 ? 1 : curvatureSign;
+            return (tiltMicrons + sign * backfocusMicrons) / unitMicrons;
         }
 
         /// <summary>
@@ -161,6 +164,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // With the anchor above this makes the default stored sign +1 (CW raises the curvature
         // effect; adapter motion toward the objective decreases it).
         public static int DefaultScrewInwardCurvatureSign => CurvatureSignForCwDirection(false);
+
+        /// <summary>Converts between the physical image angle and the wizard's stored response-convention
+        /// angle (self-inverse): identical when CW raises the curvature effect (+1); 180° apart when CW
+        /// lowers it (−1). A zero sign is treated as the default direction. The condition is written
+        /// against the empirical-anchor constant so an anchor flip keeps the mechanical meaning
+        /// coherent: the 180° offset belongs to the rigs where CW moves the adapter toward the
+        /// objective. NOTE: callers convert with the sign in effect at Apply time — if the adapter
+        /// direction setting changes afterwards, the conversion must be re-applied.</summary>
+        public static double PhysicalToStoredAngle(double angleDegrees, int curvatureSign) {
+            int resolvedSign = curvatureSign == 0 ? DefaultScrewInwardCurvatureSign : curvatureSign;
+            double offset = resolvedSign == CurvatureSignWhenCwMovesAdapterTowardObjective ? 180.0 : 0.0;
+            return TiltCalibrationCalculator.NormalizeAngle(angleDegrees + offset);
+        }
     }
 
     public readonly struct ScrewAxialCorrection {

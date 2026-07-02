@@ -101,8 +101,10 @@ If you already know where screw 1 sits in the image, you can skip the calibratio
 **Apply** writes the same calibration state a wizard run produces; the saved-calibration panel tags
 it "Manually entered calibration (not measured by the wizard)." The curvature sign comes from the
 adapter direction setting, so guidance stays marked "(assumed)" until a **Measure direction** run
-verifies it. If guidance moves the tilt the wrong way after a manual entry, the numbering direction
-is flipped: switch it and Apply again.
+verifies it. The entered angle is interpreted with the adapter direction setting in effect when you
+click **Apply** — if you change that setting later, click **Apply** again. If guidance moves the
+tilt the wrong way after a manual entry, the numbering direction is flipped: switch it and Apply
+again.
 
 ## Hardware model and device presets
 

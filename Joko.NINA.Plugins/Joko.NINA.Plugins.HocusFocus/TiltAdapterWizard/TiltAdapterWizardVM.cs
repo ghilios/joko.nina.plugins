@@ -277,9 +277,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // Re-assert and lock a persisted device preset on load.
             ApplyDevice(tiltAdapterOptions.DeviceName);
 
-            // Pre-fill the Manual Calibration Entry angle from an existing calibration.
+            // Pre-fill the Manual Calibration Entry angle from an existing calibration. Stored angles
+            // are response-convention; the manual field holds the PHYSICAL image angle, so convert
+            // back (PhysicalToStoredAngle is self-inverse) with the current direction sign.
             if (!double.IsNaN(tiltAdapterOptions.Screw1AngleDegrees)) {
-                manualScrew1AngleDegrees = tiltAdapterOptions.Screw1AngleDegrees;
+                manualScrew1AngleDegrees = TiltScrewGeometry.PhysicalToStoredAngle(
+                    tiltAdapterOptions.Screw1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
             }
 
             RebuildDiagram();
@@ -729,8 +732,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private double manualScrew1AngleDegrees;
 
-        // Manual Calibration Entry: screw 1 position angle in degrees, image space, 0° = straight
-        // up (12 o'clock), increasing clockwise — the plugin-wide convention.
+        // Manual Calibration Entry: screw 1 PHYSICAL position angle in degrees, image space, 0° =
+        // straight up (12 o'clock), increasing clockwise — the plugin-wide convention. Converted to
+        // the wizard's stored response convention on Apply (TiltScrewGeometry.PhysicalToStoredAngle),
+        // using the adapter-direction sign at Apply time.
         public double ManualScrew1AngleDegrees {
             get => manualScrew1AngleDegrees;
             set {
@@ -763,7 +768,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 return;
             }
             int n = tiltAdapterOptions.ScrewCount;
-            var (s1, s2, s3, s4) = TiltCalibrationCalculator.ComputeManualScrewAngles(manualScrew1AngleDegrees, manualNumberingClockwise, n);
+            // The user types the PHYSICAL image angle, but wizard runs persist RESPONSE-convention
+            // angles (the direction a CW turn drives the tilt gradient — 180° from physical on
+            // sign = -1 rigs), and the guidance math consumes stored angles as response-convention.
+            // Convert with the adapter-direction sign in effect now; if the user changes that setting
+            // later they must click Apply again (the conversion is not retroactive).
+            double stored1 = TiltScrewGeometry.PhysicalToStoredAngle(manualScrew1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
+            var (s1, s2, s3, s4) = TiltCalibrationCalculator.ComputeManualScrewAngles(stored1, manualNumberingClockwise, n);
             tiltAdapterOptions.Screw1AngleDegrees = s1;
             tiltAdapterOptions.Screw2AngleDegrees = s2;
             tiltAdapterOptions.Screw3AngleDegrees = s3;
