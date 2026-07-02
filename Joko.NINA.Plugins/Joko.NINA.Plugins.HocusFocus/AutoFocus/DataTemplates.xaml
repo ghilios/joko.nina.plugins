@@ -17,6 +17,7 @@
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core">
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="../Resources/OptionsDataTemplates.xaml" />
+        <ResourceDictionary Source="../Resources/SharedTooltips.xaml" />
     </ResourceDictionary.MergedDictionaries>
     <TextBlock x:Key="ClearAnalyses_Tooltip" Text="Clear charts and analyses. This can be useful if the chart rendering is slowing NINA down, especially after you're finished with aberration inspection" />
     <TextBlock x:Key="DetailedAnalysis_Tooltip" Text="Run an autofocus to detect various aberrations, such as tilt, incorrect backfocus, and field curvature" />
@@ -27,8 +28,6 @@
     <TextBlock x:Key="StepCount_Tooltip" Text="The minimum number of data points needed on each side of the AutoFocus curve minimum. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="StepSize_Tooltip" Text="How many focuser steps in between each data point when doing an AutoFocus. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="FramesPerPoint_Tooltip" Text="How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank" />
-    <TextBlock x:Key="SignalAmplification_Tooltip" Text="Increases the resolution and signal of sensor-model / tilt calibration runs by capturing more, finer-spaced focuser points. The focuser step size is divided by this factor and the number of steps multiplied by it, so the sweep covers the same range with more points (and smaller defocus jumps between adjacent frames, which makes star alignment more reliable). Default 2. Set to 1 to disable. Applies to live captures only, not when replaying saved frames." />
-    <TextBlock x:Key="CenterFocuserBeforeRun_Tooltip" Text="When on, a quick standard AutoFocus is run before each live sensor-model / tilt calibration sweep to center the focuser at best focus. The detailed sweep then brackets focus symmetrically, which reduces extreme one-sided defocus frames that fail to align. Off by default; it adds an extra AutoFocus run to every sweep. Has no effect when replaying saved frames." />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="NumRegionsWide_Tooltip" Text="How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors. This value must be an odd, positive integer, and the height will be calculated proportionally from it based on the sensor resolution" />
     <TextBlock x:Key="MicronsPerFocuserStep_Tooltip" Text="How much the focuser moves per step, in microns. If this is set, the adjustment chart will include adjustments in microns" />

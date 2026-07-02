@@ -8,6 +8,7 @@
     xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces">
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="../Resources/OptionsDataTemplates.xaml" />
+        <ResourceDictionary Source="../Resources/SharedTooltips.xaml" />
     </ResourceDictionary.MergedDictionaries>
 
     <!--
@@ -333,7 +334,7 @@
                             Margin="0,2,5,2"
                             VerticalAlignment="Center"
                             Text="Signal Amplification"
-                            ToolTip="Increases the resolution and signal of sensor-model / tilt calibration runs by capturing more, finer-spaced focuser points. Set to 1 to disable. Applies to live captures only." />
+                            ToolTip="{StaticResource SignalAmplification_Tooltip}" />
                         <ninactrl:UnitTextBox
                             Grid.Row="0"
                             Grid.Column="1"
@@ -365,7 +366,7 @@
                             Margin="0,2,5,2"
                             VerticalAlignment="Center"
                             Text="Center Focuser First"
-                            ToolTip="When on, a quick standard AutoFocus is run before each live sweep to center the focuser at best focus. Off by default. No effect when replaying saved frames." />
+                            ToolTip="{StaticResource CenterFocuserBeforeRun_Tooltip}" />
                         <CheckBox
                             Grid.Row="1"
                             Grid.Column="1"
