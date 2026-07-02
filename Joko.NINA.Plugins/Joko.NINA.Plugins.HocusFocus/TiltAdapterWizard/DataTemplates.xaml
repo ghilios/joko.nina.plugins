@@ -280,7 +280,7 @@
 
                     <!--  Editable per-session fields (kept together, always editable)  -->
                     <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
-                        <TextBlock VerticalAlignment="Center" Text="Measurements"
+                        <TextBlock VerticalAlignment="Center" Text="Measurements to average"
                             ToolTip="Number of autofocus runs to average per calibration step. Higher values reduce noise but take longer." />
                         <TextBox
                             MinWidth="60"

@@ -55,7 +55,7 @@ either **Toward the camera — outward** (the default) or **Toward the objective
 is measured, guidance marks the direction "(assumed)". To measure it, turn on **Measure direction**:
 this adds two steps (an all-screws-clockwise move plus a return to baseline) that determine the sign
 of the effect (`ScrewInwardCurvatureSign`) from the curvature change, and the saved calibration then
-reports the direction as measured. To average out seeing, set **Measurements** above 1; the wizard
+reports the direction as measured. To average out seeing, set **Measurements to average** above 1; the wizard
 flags inconsistent repeats so you can re-run.
 
 !!! tip "Each calibration step runs a full inspector sweep"
@@ -69,7 +69,7 @@ flags inconsistent repeats so you can re-run.
     images each sweep captures and the total for the whole calibration. For a heavily-defocused frame
     that would otherwise fail to register, the frame aligner escalates its search rather than dropping
     the frame from that step's model. These help most on faint fields or in poor seeing. Raising
-    **Measurements** above 1 averages independent repeats on top of them.
+    **Measurements to average** above 1 averages independent repeats on top of them.
 
 !!! note "Set Focuser Step Size for the best guidance"
     Per its tooltip, *Focuser Step Size* is "how much the focuser moves per step, in microns.
