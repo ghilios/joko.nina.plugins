@@ -317,6 +317,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(AdjustmentType));
                 RaisePropertyChanged(nameof(IsStepperAdjustment));
                 RaisePropertyChanged(nameof(CalibrationAmountLabel));
+                // CalibrationAppliedAmountDisplay (turns/steps units) is intentionally not re-raised in this
+                // list: RaiseHardwareSummaryChanged() below already raises it on every ProfileChanged.
                 RaisePropertyChanged(nameof(ThreadPitchMicronsValue));
                 RaisePropertyChanged(nameof(StepperStepSizeMicronsValue));
                 RaisePropertyChanged(nameof(ScrewRadiusMillimetersValue));
