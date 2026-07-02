@@ -100,7 +100,7 @@ halved.*
 Because it improves both axes with no autofocus or donut regression, locally adaptive binarization ships **on by
 default**. The multiplier stays at 2; the surface is what makes that 2 fair everywhere.
 
-## Reverting to legacy behavior (you should not need to)
+## Reverting to legacy behavior
 
 Two independent switches turn the change off:
 

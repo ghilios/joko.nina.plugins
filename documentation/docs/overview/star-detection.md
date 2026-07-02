@@ -43,7 +43,7 @@ reported in full-frame pixels.
 
 Single bright pixels (cosmic rays, sensor defects) look like tiny, intensely peaked stars and would survive
 most gates. A 3×3 median replaces a hot pixel with the median of its neighbors while leaving genuine stars
-(which span many pixels) essentially untouched. With *hot-pixel thresholding* enabled, only pixels that
+(which span many pixels) essentially untouched. With **Use Hotpixel Thresholding** enabled, only pixels that
 exceed their surroundings by the configured threshold are corrected, so real star cores are preserved. For
 bayered images the filter runs on the raw CFA before debayering. See
 [Hot Pixels & Saturation](../settings/hotpixel-saturation.md).
@@ -62,7 +62,7 @@ so it helps most on noisy, short, or high-gain subs and can hurt on already-clea
 
 ### 4. Wavelet structure detection (remove large-scale structures)
 
-This is the heart of what makes the detector robust to nebulae and gradients. The detector computes an
+This step is what makes the detector insensitive to nebulae and gradients. The detector computes an
 à-trous B3-spline wavelet residual over a configurable number of layers and **subtracts it**, which removes
 structures larger than the stars while keeping the stars themselves. A short Gaussian smoothing then heals
 the holes that subtracting large scales can punch in the middle of big or out-of-focus stars.
@@ -80,7 +80,7 @@ donut stars survive the subtraction. See [Structure Detection](../settings/struc
 ### 5. Binarization (noise floor)
 
 The smoothed structure map is thresholded into foreground (star) vs. background. The threshold is the
-structure map's median plus a **noise-clipping multiplier** times an estimated noise sigma, where the sigma
+structure map's median plus the **Noise Clipping Multiplier** times an estimated noise sigma, where the sigma
 comes from a Kappa-Sigma noise estimate (an iterative clip-at-k·σ robust estimate) on the noise-reduced image:
 
 \[
@@ -139,18 +139,18 @@ so the metrics panel tells you exactly *why* candidates are being dropped:
 
 | Gate | Rejects when | Tune with |
 |---|---|---|
-| Too small | bounding box width or height below the minimum box size | min star box size |
+| Too small | bounding box width or height below the minimum box size | Min Bounding Box Size |
 | On border | bounding box touches a frame edge (likely clipped) | — |
-| Too distorted | fill ratio (pixels / \(d^2\)) below the max-distortion threshold | max distortion |
+| Too distorted | fill ratio (pixels / \(d^2\)) below the max-distortion threshold | Max Distortion |
 | Degenerate | parameters could not be computed | — |
-| Low sensitivity | normalized brightness / noise sigma at or below the sensitivity threshold | brightness sensitivity |
-| Not centered | centroid falls outside the centered acceptance sub-box | star center tolerance |
-| Too flat | star median at or above peak-response × peak (a flat blob, not a peaked star) | star peak response |
-| HFR failed / too low | HFR could not be measured, or is at/below the minimum HFR | min HFR |
-| Contaminated | a one-sided neighbor was detected in the annulus (when rejection is on) | contamination sensitivity |
+| Low sensitivity | normalized brightness / noise sigma at or below the sensitivity threshold | Brightness Sensitivity |
+| Not centered | centroid falls outside the centered acceptance sub-box | Star Center Tolerance |
+| Too flat | star median at or above peak-response × peak (a flat blob, not a peaked star) | Star Peak Response |
+| HFR failed / too low | HFR could not be measured, or is at/below the minimum HFR | Min HFR |
+| Contaminated | a one-sided neighbor was detected in the annulus (when rejection is on) | Contamination Sensitivity |
 
 The fill-ratio idea behind *too distorted*: a round disk fills about \( \pi/4 \approx 0.79 \) of its
-bounding box, while a streak (a satellite trail or merged pair) fills far less. The *defocus-aware gates*
+bounding box, while a streak (a satellite trail or merged pair) fills far less. The **Defocus-Aware Gates**
 option (opt-in) relaxes the distortion and centering gates for large candidates so bloated donut stars near
 the sweep extremes are not thrown away; with it off, detection is unchanged. For telescopes with a central
 obstruction, the separate opt-in

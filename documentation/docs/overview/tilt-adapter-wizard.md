@@ -36,7 +36,7 @@ The adapter type is set by the **Screws** field (default `3`).
   with an equal-spacing constraint, splitting measurement error evenly between them.
 - **4-screw adapter**: screws are spaced about `90°` apart and **opposite screws are mechanically
   coupled**, so adjustments are made in pairs (tighten one while the opposite loosens). The wizard
-  exploits this: "opposite screws are always 180° apart regardless of mirroring," so it measures two
+  exploits this: opposite screws are always 180° apart regardless of mirroring, so it measures two
   screws and places the other two 180° across.
 
 ## The calibration loop
@@ -55,8 +55,12 @@ either **Toward the camera — outward** (the default) or **Toward the objective
 is measured, guidance marks the direction "(assumed)". To measure it, turn on **Measure direction**:
 this adds two steps (an all-screws-clockwise move plus a return to baseline) that determine the sign
 of the effect (`ScrewInwardCurvatureSign`) from the curvature change, and the saved calibration then
-reports the direction as measured. To average out seeing, set **Measurements** above 1; the wizard
+reports the direction as measured. To average out seeing, set **Measurements to average** above 1; the wizard
 flags inconsistent repeats so you can re-run.
+
+![The Tilt Adapter Wizard's Measurement section: Signal Amplification, Center Focuser First, the adapter-direction selector, and Measure direction](../assets/screenshots/wizard-measurement-section.png){ width=620 }
+
+*The Measurement section configures each calibration sweep and sets which way a clockwise turn moves the adapter.*
 
 !!! tip "Each calibration step runs a full inspector sweep"
     A calibration measurement is a full sensor-model sweep, so it runs the same alignment and
@@ -69,26 +73,27 @@ flags inconsistent repeats so you can re-run.
     images each sweep captures and the total for the whole calibration. For a heavily-defocused frame
     that would otherwise fail to register, the frame aligner escalates its search rather than dropping
     the frame from that step's model. These help most on faint fields or in poor seeing. Raising
-    **Measurements** above 1 averages independent repeats on top of them.
+    **Measurements to average** above 1 averages independent repeats on top of them.
 
-!!! note "Set Microns per Focuser Step for the best guidance"
-    Per its tooltip, *Microns per Focuser Step* is "how much the focuser moves per step, in microns.
+!!! note "Set Focuser Step Size for the best guidance"
+    Per its tooltip, *Focuser Step Size* is "how much the focuser moves per step, in microns.
     If this is set, the adjustment chart will include adjustments in microns." Without it, adjustments
     are still reported in focuser steps, and the tilt-angle calculation falls back to the connected
     focuser's reported step size when available.
 
-!!! tip "Tilt, backfocus, and curvature: what the screws can fix"
-    The Sensor Model splits the focus surface into two effects. The **Tilt Effect** is the linear
-    plane (one side focuses ahead of the opposite side); you null it by moving the screws
-    *differentially*, reported as the per-screw **Tilt** amount.
+## What the screws can fix
 
-    The **Curvature Effect** is the symmetric corners-versus-center bowl. The wizard reads it as a
-    spacing error and derives a **backfocus** correction from it, reported as the per-screw
-    **Backfocus** amount: turn all screws the same way to move the whole sensor along the optical axis
-    (or add spacers for changes beyond the adapter's travel), then re-measure and repeat until the
-    Curvature Effect stops dropping. What remains is the residual curvature of a correctly spaced
-    system, set by your corrector design and focal ratio; the adapter cannot remove it (a
-    better-matched corrector or stopping down does).
+The Sensor Model splits the focus surface into two effects. The **Tilt Effect** is the linear
+plane (one side focuses ahead of the opposite side); you null it by moving the screws
+*differentially*, reported as the per-screw **Tilt** amount.
+
+The **Curvature Effect** is the symmetric corners-versus-center bowl. The wizard reads it as a
+spacing error and derives a **backfocus** correction from it, reported as the per-screw
+**Backfocus** amount: turn all screws the same way to move the whole sensor along the optical axis
+(or add spacers for changes beyond the adapter's travel), then re-measure and repeat until the
+Curvature Effect stops dropping. What remains is the residual curvature of a correctly spaced
+system, set by your corrector design and focal ratio; the adapter cannot remove it (a
+better-matched corrector or stopping down does).
 
 ## Manual calibration entry
 
@@ -106,7 +111,7 @@ If you already know where screw 1 sits in the image, you can skip the calibratio
 it "Manually entered calibration (not measured by the wizard)." The curvature sign comes from the
 adapter direction setting, so guidance stays marked "(assumed)" until a **Measure direction** run
 verifies it. The entered angle is interpreted with the adapter direction setting in effect when you
-click **Apply** — if you change that setting later, click **Apply** again. If guidance moves the
+click **Apply**; if you change that setting later, click **Apply** again. If guidance moves the
 tilt the wrong way after a manual entry, the numbering direction is flipped: switch it and Apply
 again. A wrong adapter direction setting inverts guidance the same way — correct that setting and
 click **Apply** again.
@@ -150,7 +155,7 @@ radius yourself.
     sensor actually moved. The wizard remembers the last measured value and **warns you if it diverges
     from the configured value**, which usually means the wrong preset is selected or a number was
     mistyped. Without a valid hardware model, adjustments are still reported in focuser steps (and, if
-    *Microns per Focuser Step* is set, in microns); you just do not get the turn/step figure.
+    *Focuser Step Size* is set, in microns); you just do not get the turn/step figure.
 
 ## Saving and replaying a calibration run
 

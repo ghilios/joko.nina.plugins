@@ -3,7 +3,7 @@
 The Star Detection Optimization Wizard does not score your settings on a single image. It scores them on a whole
 **autofocus run**, a sweep of frames taken across a range of focuser positions. For each candidate
 set of detection parameters, the wizard detects stars on every frame, rebuilds the HFR-vs-focuser
-curve those frames imply, fits it, and reads how *sharp and trustworthy* the resulting best-focus
+curve those frames imply, fits it, and reads how *repeatable and trustworthy* the resulting best-focus
 estimate is. That single number is what the search maximizes.
 
 This page walks the pipeline end to end: detect → aggregate per frame → pool by focuser position →
@@ -72,7 +72,7 @@ per **distinct** focuser position.
 
 With at least **3 distinct focuser positions**, the wizard runs the same "best fit" model selection
 the autofocus engine uses (`AlglibHyperbolicFitting.SelectBestModel`): it tries the candidate models
-and lets the winner compete on merit, rather than forcing a single shape (see
+and picks the winner on merit, rather than forcing a single shape (see
 [Hyperbolic Curve Fitting](../overview/hyperbola-fitting.md) for the model family and the Hybrid
 selection rules). From the winning fit it reads:
 
@@ -91,17 +91,17 @@ unusable.
 
 !!! warning
     Fewer than 3 distinct focuser positions can never determine a fit (the hyperbola has 4–5
-    parameters). A run that thin produces a NaN \(\sigma\). The evaluation does not throw, but the
-    objective hard-fails it gracefully to a run score of 0. This is why a usable run needs a real
+    parameters). A run that thin produces a NaN \(\sigma\). The evaluation does not throw; the
+    objective hard-fails the run to a score of 0. This is why a usable run needs a real
     sweep, not a couple of frames.
 
 ## Step 4 — turn the fit into a score
 
 Two of the objective's sub-scores read straight off this pipeline.
 
-### Focus sharpness — \(S_{\text{focus}}\)
+### Focus repeatability — \(S_{\text{focus}}\)
 
-The focus term rewards a best-focus estimate that is sharp **relative to the step size** you sweep
+The focus term rewards a best-focus estimate that is repeatable **relative to the step size** you sweep
 at. Define the normalized uncertainty \(\rho = \sigma_{\text{focus}} / \text{stepSize}\) (using the
 leave-one-out value when \(\sigma_{\text{focus}}\) is non-finite), then
 
@@ -125,15 +125,15 @@ The curve-fit term rewards a model that actually explains the points without bei
 their error bars:
 
 \[
-S_{\text{fit}} = \operatorname{clamp}_{[0,1]}(R^2) \cdot \text{penalty}, \qquad
-\text{penalty} = \begin{cases} 1 & \text{reduced }\chi^2 \le \tau \\[2pt] \dfrac{\tau}{\text{reduced }\chi^2} & \text{reduced }\chi^2 > \tau \end{cases}, \quad \tau = 2.0 .
+S_{\text{fit}} = \operatorname{clip}_{[0,1]}(R^2) \cdot \text{penalty}, \qquad
+\text{penalty} = \begin{cases} 1 & \text{reduced }\chi^2 \le \chi_\tau \\[2pt] \dfrac{\chi_\tau}{\text{reduced }\chi^2} & \text{reduced }\chi^2 > \chi_\tau \end{cases}, \quad \chi_\tau = 2.0 .
 \]
 
 ![S_fit equals clamped R-squared times a reduced-chi-squared penalty that only bites on the high side](../assets/figures/objective-sfit.png){ width=620 }
 
 *Only the **high** side of reduced \(\chi^2\) is penalized. Star-rich fields routinely produce a
 reduced \(\chi^2\) well below 1 (over-fit-looking but benign), so values at or below the knee
-\(\tau = 2.0\) carry no penalty at all; above the knee the penalty decays smoothly as \(\tau / \text{reduced }\chi^2\).*
+\(\chi_\tau = 2.0\) carry no penalty at all; above the knee the penalty decays smoothly as \(\chi_\tau / \text{reduced }\chi^2\).*
 
 The star-count sub-score \(S_{\text{stars}}\) draws on the per-frame accepted counts from Step 1
 rather than the fit; it is covered alongside the full weighting in

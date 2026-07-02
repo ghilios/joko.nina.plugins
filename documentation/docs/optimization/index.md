@@ -28,7 +28,7 @@ reproducible and the optimizer can be exercised without launching NINA.
 
 *The wizard's start page: choose a saved auto-focus run and the optimization objectives.*
 
-The high-level loop is simple:
+The high-level loop has three steps:
 
 1. **Seed from the defaults, measure against your current settings.** The optimizer starts its search
    from the **fully-default** detection parameters (built through the autofocus detection path, with
@@ -56,7 +56,7 @@ fraction of accepted detections that are real). This term is decisive for dim or
 
 !!! note "Two start-page objectives: autofocus vs aberration inspection"
     By default the wizard optimizes for **autofocus repeatability** (the objective below). Turning on
-    **"Optimize for Aberration Inspection"** instead reweights the objective toward **recovering many
+    **Optimize for aberration inspection** instead reweights the objective toward **recovering many
     more stars across the whole frame** (what the [tilt / curvature
     model](../overview/tilt-aberration-inspector.md) needs), while a fit guard keeps the focus curve
     usable. The **"Recover out-of-focus donut stars"** toggle (the
@@ -79,12 +79,12 @@ accepted-star counts, and where those stars sit on the sensor. These feed a comp
 \( J \in [0, 1] \) that the search **maximizes**:
 
 \[
-J_{\text{run}} = \frac{w_f\,S_{\text{focus}} + w_s\,S_{\text{stars}} + w_c\,S_{\text{fit}} + w_{\text{cov}}\,S_{\text{cov}}}{w_f + w_s + w_c + w_{\text{cov}}}
+J_{\text{run}} = \frac{W_f\,S_{\text{focus}} + W_s\,S_{\text{stars}} + W_c\,S_{\text{fit}} + W_{\text{cov}}\,S_{\text{cov}}}{W_f + W_s + W_c + W_{\text{cov}}}
 \]
 
-with default weights \( w_f = 0.55 \) (focus), \( w_s = 0.20 \) (star count), \( w_c = 0.25 \)
-(curve fit), and \( w_{\text{cov}} = 0.05 \) (how well the accepted stars cover the sensor). When
-ground-truth labels are present a further term \( w_l = 0.25 \) is added and all weights are
+with default weights \( W_f = 0.55 \) (focus), \( W_s = 0.20 \) (star count), \( W_c = 0.25 \)
+(curve fit), and \( W_{\text{cov}} = 0.05 \) (how well the accepted stars cover the sensor). When
+ground-truth labels are present a further term \( W_\ell = 0.25 \) is added and all weights are
 renormalized to sum to one. The weighted score is then scaled by two multiplicative penalties that
 default to 1.0: one for defocus-relaxed junk, and one for leaning on a saturated bright star's
 inflated HFR. A hard floor guards against starved frames: if any frame falls below 3 accepted stars,
@@ -119,6 +119,6 @@ This section documents every moving part of the optimizer:
     optical setup), the better the result. Do not mix runs from different cameras or scopes into one
     joint optimization, because a shared objective across different rigs is meaningless.
 
-For the design rationale behind every choice on these pages (why a derivative-free pattern search
-rather than a smooth solver, why these weights, and why these exclusions), see the authoritative
-design spec, `docs/star-detection-optimization-wizard-design.md`.
+For the design rationale behind these choices (why a derivative-free pattern search rather than a
+smooth solver, why these weights, and why these exclusions), see
+`docs/star-detection-optimization-wizard-design.md` in the project repository.

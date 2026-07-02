@@ -14,7 +14,7 @@ fixed for a given build.
 
 !!! note "Why focus repeatability, not sharpness"
     The wizard scores a whole autofocus sweep, not a single frame. A detection setting that makes one frame
-    look pretty but scatters the per-position HFR points produces a wobbly curve and an uncertain minimum —
+    look pretty but scatters the per-position HFR points produces a wobbly curve and an uncertain minimum:
     you would land on a slightly different focuser position every run. Minimizing that uncertainty
     (\(\sigma_{\text{focus}}\), below) is the same thing as making focus sharp *and* repeatable.
 
@@ -50,7 +50,7 @@ their own sections below.
 
 !!! note "The aberration-inspection objective reweights these"
     The weights above are the default, autofocus-tuned objective. When you select **"Optimize for
-    Aberration Inspection"** on the wizard's start page, the optimizer swaps in a star-count-favoring
+    aberration inspection"** on the wizard's start page, the optimizer swaps in a star-count-favoring
     objective (`ObjectiveConstants.ForAberrationInspection`) that recovers far more stars across the
     frame (what a [tilt / curvature model](../overview/tilt-aberration-inspector.md) needs), while a
     fit guard tied to your current settings' \(\sigma_{\text{focus}}\) keeps the focus curve usable.
@@ -155,13 +155,13 @@ nine regions that hold at least one accepted star, and \(S_{\text{cov}}\) is the
 near-focus frames. The same number of stars clustered in one corner scores lower than the same count spread evenly,
 so the optimizer is pulled toward settings that keep stars everywhere.
 
-The weight is deliberately small (0.05). Coverage is allowed to cost a little focus tightness — recovering stars
-across the frame is worth a minor rise in \(\sigma_{\text{focus}}\) — but at one-eleventh of the focus weight it
+The weight is deliberately small (0.05). Coverage is allowed to cost a little focus tightness (recovering stars
+across the frame is worth a minor rise in \(\sigma_{\text{focus}}\)), but at one-eleventh of the focus weight it
 cannot override the dominant focus term. When a run has no accepted-star positions to score, the term drops out of
 both the numerator and the denominator, so \(J_{\text{run}}\) is unchanged.
 
 !!! note "Coverage and aberration inspection"
-    This term reinforces what the **"Optimize for Aberration Inspection"** objective already favors: stars spread
+    This term reinforces what the **Optimize for aberration inspection** objective already favors: stars spread
     across the sensor are exactly what a [tilt / curvature model](../overview/tilt-aberration-inspector.md) needs.
     Under the default autofocus objective it stays a gentle nudge.
 
@@ -227,9 +227,8 @@ Two properties make this safe:
 strength 0.5 down to a floor of 0.5.*
 
 !!! warning "The defocus-aware gates are opt-in"
-    With the gates off (default) this penalty is inert and the objective is identical to the weighted-average
-    form above. It exists so the optimizer can safely explore turning the gates on — recovering bloated donuts on
-    the extremes — without learning to manufacture spurious near-focus stars.
+    This penalty exists so the optimizer can safely explore turning the gates on (recovering bloated
+    donuts on the extremes) without learning to manufacture spurious near-focus stars.
 
 ## \(S_{\text{hfr-outlier}}\) — the bright-blob penalty
 

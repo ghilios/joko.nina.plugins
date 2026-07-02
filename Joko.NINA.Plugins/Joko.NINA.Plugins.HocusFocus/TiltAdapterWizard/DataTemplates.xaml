@@ -8,6 +8,7 @@
     xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces">
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="../Resources/OptionsDataTemplates.xaml" />
+        <ResourceDictionary Source="../Resources/SharedTooltips.xaml" />
     </ResourceDictionary.MergedDictionaries>
 
     <!--
@@ -280,7 +281,7 @@
 
                     <!--  Editable per-session fields (kept together, always editable)  -->
                     <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
-                        <TextBlock VerticalAlignment="Center" Text="Measurements"
+                        <TextBlock VerticalAlignment="Center" Text="Measurements to average"
                             ToolTip="Number of autofocus runs to average per calibration step. Higher values reduce noise but take longer." />
                         <TextBox
                             MinWidth="60"
@@ -333,7 +334,7 @@
                             Margin="0,2,5,2"
                             VerticalAlignment="Center"
                             Text="Signal Amplification"
-                            ToolTip="Increases the resolution and signal of sensor-model / tilt calibration runs by capturing more, finer-spaced focuser points. Set to 1 to disable. Applies to live captures only." />
+                            ToolTip="{StaticResource SignalAmplification_Tooltip}" />
                         <ninactrl:UnitTextBox
                             Grid.Row="0"
                             Grid.Column="1"
@@ -365,7 +366,7 @@
                             Margin="0,2,5,2"
                             VerticalAlignment="Center"
                             Text="Center Focuser First"
-                            ToolTip="When on, a quick standard AutoFocus is run before each live sweep to center the focuser at best focus. Off by default. No effect when replaying saved frames." />
+                            ToolTip="{StaticResource CenterFocuserBeforeRun_Tooltip}" />
                         <CheckBox
                             Grid.Row="1"
                             Grid.Column="1"
@@ -584,7 +585,7 @@
                                 <!--  Validation keeps the box in an error state on unparseable/out-of-range text: without it a
                                       failed LostFocus conversion silently leaves the last valid angle in the VM while the box
                                       shows the garbage text, and Apply would persist the stale angle.  -->
-                                <TextBox MinWidth="60">
+                                <TextBox x:Name="ManualScrew1AngleBox" MinWidth="60">
                                     <TextBox.Text>
                                         <Binding Path="ManualScrew1AngleDegrees" UpdateSourceTrigger="LostFocus">
                                             <Binding.ValidationRules>
@@ -618,6 +619,15 @@
                                 Margin="0,8,0,0"
                                 HorizontalAlignment="Left"
                                 Command="{Binding ApplyManualCalibrationCommand}">
+                                <Button.Style>
+                                    <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ElementName=ManualScrew1AngleBox, Path=(Validation.HasError)}" Value="True">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
                                 <TextBlock
                                     Margin="10,5,10,5"
                                     Foreground="{StaticResource ButtonForegroundBrush}"

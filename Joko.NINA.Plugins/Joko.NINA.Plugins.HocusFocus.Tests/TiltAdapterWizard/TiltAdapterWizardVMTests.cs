@@ -702,6 +702,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        [Test]
+        public void ProfileChanged_RaisesCalibrationAppliedAmountDisplay() {
+            // A profile swap can flip AdjustmentType (screws ↔ steppers), changing the units (turns vs
+            // steps) in CalibrationAppliedAmountDisplay. This guards that a ProfileChanged refreshes that
+            // label; it is currently satisfied transitively by RaiseHardwareSummaryChanged() in the handler,
+            // so this test pins the behavior in case a refactor ever drops that path.
+            var profileService = Substitute.For<IProfileService>();
+            var (vm, _, _, _) = Build(profileService: profileService);
+            var raised = new List<string>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+            profileService.ProfileChanged += Raise.Event<EventHandler>(profileService, EventArgs.Empty);
+            Assert.Multiple(() => {
+                // Sanity: proves the ProfileChanged handler actually executed under this fixture's dispatcher.
+                Assert.That(raised, Does.Contain(nameof(vm.CalibrationAmountLabel)));
+                Assert.That(raised, Does.Contain(nameof(vm.CalibrationAppliedAmountDisplay)));
+            });
+        }
+
         // --- 4-step / 6-step VM sequencing through the real NextStep ---
 
         [Test]

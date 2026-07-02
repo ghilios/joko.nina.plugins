@@ -1,7 +1,7 @@
 # Modes, Measurement & Debug Settings
 
 Most of the Hocus Focus star-detection settings documented elsewhere in this section are the
-*fine-grained advanced knobs*. This page covers the controls that sit **above** them: the Simple-Mode
+*fine-grained advanced knobs*. This page covers the controls that sit **above** them: the Simple-mode
 presets that derive those knobs for you, the master Advanced toggle, how the optimization wizard's result
 is wired in, how a frame's HFR is aggregated across its stars, and the debug / intermediate-file options
 used when tuning detection.
@@ -21,7 +21,7 @@ used when tuning detection.
 | Save Intermediate | Off | On / Off | Writes a file for every detection step (not persisted across restarts) |
 | Intermediate Path | `%temp%\HocusFocusIntermediate` | folder path | Where intermediate files are written |
 
-!!! note "Simple Mode vs. Advanced Mode"
+!!! note "Simple mode vs. Advanced mode"
 
     With **Advanced Mode** off (the default), the four advanced groups are computed for you every time a
     Simple preset changes; you never edit individual knobs. The settings on the rest of this section's
@@ -29,8 +29,8 @@ used when tuning detection.
 
 ## Advanced Mode
 
-**Advanced Mode** (property `UseAdvanced`) is the master switch between Simple Mode (preset-driven) and
-Advanced Mode (manual control of every knob).
+**Advanced Mode** (property `UseAdvanced`) is the master switch between Simple mode (preset-driven) and
+Advanced mode (manual control of every knob).
 
 ![The Advanced Mode toggle at the top of the Star Detector tab, with an arrow pointing to it](../assets/screenshots/advanced-mode-toggle.png){ width=620 }
 
@@ -52,9 +52,9 @@ values become a starting point you can tune freely.
     The presets already cover noisy sensors, focal length, and wide focus sweeps. Turn it on only when you
     are deliberately tuning detection against your own data and understand what each knob does.
 
-## Simple-Mode presets
+## Simple-mode presets
 
-In Simple Mode, three dropdowns describe your rig and conditions; Hocus Focus translates them into the full
+In Simple mode, three dropdowns describe your rig and conditions; Hocus Focus translates them into the full
 advanced parameter bundle. The mapping below is exactly what the plugin applies (it runs whenever any preset
 changes).
 
@@ -81,8 +81,8 @@ How each value maps:
 | Typical | On | 4 | Off | ×0.2 |
 | High | On | 6 | On | ×1.0 |
 
-(Noise-reduction radius: base radius 3/5; +1 is added whenever Hotpixel Thresholding is enabled (the
-default), so the applied radius is 4/6 (None stays 0 because filtering is off).)
+Noise-reduction radius: the base radius is 3/5; +1 is added whenever Hotpixel Thresholding is enabled (the
+default), so the applied radius is 4/6. None stays 0 because filtering is off.
 
 The *sensitivity scale* compensates for how the noise σ is measured per preset, so that the same effective
 threshold is preserved across presets. It feeds into the derived **Brightness Sensitivity** described below.
@@ -94,8 +94,8 @@ applied to the measurement image, not just the structure map.
     Bump to **High** for a noisy sensor or very high f-ratio where faint stars are being missed in noise.
     Leave at **Typical** for most CMOS rigs. **None** is for already-clean data; over-blurring (High on a
     clean image) can merge close stars and slightly inflate HFR. To tell whether a change is helping,
-    re-detect and watch **Total detected** rise without the spurious/**Structure candidates** counts
-    ballooning in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel).
+    re-detect and watch **Total Detected** rise without the **Structure Candidates** count ballooning with
+    spurious candidates in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel).
 
 ### Pixel Scale
 
@@ -153,8 +153,8 @@ The derivations stack: Noise Level sets the blur and the sensitivity scale; Pixe
 adjust the structure-layer count, minimum box size, sub-pixel sampling, and brightness threshold on top of
 that. The presets also fix several knobs that are not exposed as preset dropdowns (for example Star Peak
 Response, Max Distortion, Star Center Tolerance, the PSF fit type (Moffat 4.0) and resolution, and the
-hotpixel threshold) to their standard Simple-Mode values. Those individual settings are documented on the
-other pages in this section; in Simple Mode you do not edit them directly.
+hotpixel threshold) to their standard Simple-mode values. Those individual settings are documented on the
+other pages in this section; in Simple mode you do not edit them directly.
 
 ## Use Optimized Settings
 
@@ -168,15 +168,15 @@ dropdowns.
 - **Default:** Off
 - **Range:** On / Off (only meaningful once the wizard has saved a result)
 
-When this is on, Hocus Focus first applies the normal Simple-Mode preset baseline, then overlays the wizard's
+When this is on, Hocus Focus first applies the normal Simple-mode preset baseline, then overlays the wizard's
 **curated** tuned knobs (the sensitivity, clipping, distortion, structure-layer, hotpixel and related values
-the optimizer searches). Knobs the optimizer does not tune keep their Simple-Mode preset defaults. Turning it
+the optimizer searches). Knobs the optimizer does not tune keep their Simple-mode preset defaults. Turning it
 off reverts to the pure preset derivation.
 
 !!! tip "When this helps"
 
     Enable this after running the optimization wizard against your own autofocus runs. It lets the tuned
-    result drive live detection while you stay in Simple Mode. See the
+    result drive live detection while you stay in Simple mode. See the
     [optimization overview](../optimization/index.md) for how the snapshot is produced.
 
 ## Measurement Averaging
@@ -260,7 +260,7 @@ keeps spamming files across sessions. Use it for a focused debugging run and tur
 
 The folder the intermediate debugging files are written to.
 
-> When Save Intermediate is enabled, they are written to this path the next time star detection runs
+> When Save Intermediate Files is enabled, they are written to this path the next time star detection runs
 
 - **Default:** a `HocusFocusIntermediate` folder under the application temp directory
 - **Range:** any writable folder path
