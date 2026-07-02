@@ -108,6 +108,11 @@ Once tilt is measured, a **tilt adapter** lets you correct the linear (tilt-plan
 hardware model, then converts the measured tilt into concrete screw-turn (or stepper-step)
 instructions. See [Tilt Adapter Wizard](tilt-adapter-wizard.md).
 
+Each screw's guidance total carries an explicit direction: `1.25 turns CW` or `0.50 turns CCW` for
+screws, `+35 steps` or `−35 steps` for stepper motors. A legend line under the numbers ties the
+arrows to physical motion, for example "⬆ = clockwise (adapter moves toward the camera)", and is
+marked "(assumed)" until the adapter direction has been measured in the wizard.
+
 ## Inspector options
 
 These settings live in the inspector panel (not the main Options page). Defaults and ranges are taken
@@ -138,8 +143,8 @@ from the option definitions; descriptions quote the in-app tooltips where one ex
 | **Mouse on Charts** | on | on/off | "Enable mouse events on charts to scroll, pan, and zoom. Disable this if you don't want the charts to intercept mouse actions." |
 | **Step Count** | -1 (auto) | -1 or &gt;0 | "The minimum number of data points needed on each side of the AutoFocus curve minimum. Uses the value set for AutoFocus if blank." |
 | **Step Size** | -1 (auto) | -1 or &gt;0 | "How many focuser steps in between each data point … Uses the value set for AutoFocus if blank." |
-| **Signal Amplification** | 2 | &ge;1 | "Increases the resolution and signal of sensor-model / tilt calibration runs by capturing more, finer-spaced focuser points. The focuser step size is divided by this factor and the number of steps multiplied by it, so the sweep covers the same range with more points (and smaller defocus jumps between adjacent frames, which makes star alignment more reliable) … Set to 1 to disable. Applies to live captures only." |
-| **Center Focuser First** | on | on/off | "When on (default), a quick standard AutoFocus is run before each live sensor-model / tilt calibration sweep to center the focuser at best focus. The detailed sweep then brackets focus symmetrically, which reduces extreme one-sided defocus frames that fail to align. Has no effect when replaying saved frames." |
+| **Signal Amplification** | 2 | &ge;1 | "Increases the resolution and signal of sensor-model / tilt calibration runs by capturing more, finer-spaced focuser points. The focuser step size is divided by this factor and the number of steps multiplied by it, so the sweep covers the same range with more points (and smaller defocus jumps between adjacent frames, which makes star alignment more reliable) … Set to 1 to disable. Applies to live captures only." Sits above the Options expander, with a live estimate of the images each run will capture. |
+| **Center Focuser First** | off | on/off | "When on, a quick standard AutoFocus is run before each live sensor-model / tilt calibration sweep to center the focuser at best focus. The detailed sweep then brackets focus symmetrically, which reduces extreme one-sided defocus frames that fail to align … Has no effect when replaying saved frames." Sits above the Options expander, next to Signal Amplification. |
 | **Frames Per Point** | -1 (auto) | -1 or &ge;1 | "How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank." |
 | **Timeout (s)** | -1 (auto) | -1 or &gt;0 | "How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank." |
 | **Simple Exposure (s)** | -1 (auto) | -1 or &gt;0 | "How long of an exposure to take for analysis. Defaults to the Auto Focus exposure duration if not set." Sets the exposure for the single-frame Simple Analysis. |
