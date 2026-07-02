@@ -1,12 +1,12 @@
 # Overview & Features
 
-Hocus Focus is a plugin for [NINA](https://nighttime-imaging.eu/) that, in the words of its own description, provides **"Improved Star Detection, Star Annotation, Auto Focus, and Tilt Correction for NINA."** It replaces or augments NINA's built-in star handling and auto-focus routines with a more accurate star detector, a fully customizable annotator, a concurrent auto-focus engine, and an aberration inspector that measures backfocus and sensor-tilt errors.
+Hocus Focus is a plugin for [NINA](https://nighttime-imaging.eu/) that provides improved star detection, star annotation, auto focus, and tilt correction. It replaces or augments NINA's built-in star handling and auto-focus routines with a more accurate star detector, a fully customizable annotator, a concurrent auto-focus engine, and an aberration inspector that measures backfocus and sensor-tilt errors.
 
-The plugin is deliberately modular. Per its documentation, you "can use the new Star Detector or Annotator without requiring both"; keep whichever pieces you like and leave the rest on NINA's defaults. The features are wired in under **Options → Imaging → Image Options**, where installing the plugin adds **Star Detection**, **Star Annotator**, and **Auto Focus** dropdowns; select **"Hocus Focus"** in those to turn the features on.
+The plugin is deliberately modular: the star detector, the annotator, and the auto-focus engine can each be enabled independently, so keep whichever pieces you like and leave the rest on NINA's defaults. The features are wired in under **Options → Imaging → Image Options**, where installing the plugin adds **Star Detector**, **Star Annotator**, and **Autofocus** dropdowns; select **Hocus Focus** in each to turn that feature on.
 
 !!! note "Requirements"
 
-    Hocus Focus targets NINA 3.2.0.2001 or newer (the plugin's declared `MinimumApplicationVersion`). The Aberration Inspector in particular requires that **Hocus Focus is selected for both Auto Focus and Star Detection**.
+    Hocus Focus targets NINA 3.2.0.2001 or newer (the plugin's declared `MinimumApplicationVersion`). The Aberration Inspector in particular requires that **Hocus Focus is selected for both Autofocus and Star Detector**.
 
 ## The four feature areas
 
@@ -16,7 +16,7 @@ The improved star detector measures each star's HFR empirically from a robust, g
 
 ### Star Annotation
 
-The annotator controls how detected stars are drawn on top of an image. It offers **customizable colors and fonts** for the star overlays, and supports **dynamic reloading of annotations without re-running star detection**, so you can restyle the overlay or change what is shown without paying for another detection pass. See [Star Annotation](star-annotation.md).
+The annotator controls how detected stars are drawn on top of an image. It offers customizable colors and fonts for the star overlays, and it can reload annotations dynamically without re-running star detection, so you can restyle the overlay or change what is shown without paying for another detection pass. See [Star Annotation](star-annotation.md).
 
 ### Autofocus
 
@@ -24,14 +24,14 @@ The Hocus Focus auto-focus engine **analyzes each exposure while the next focus 
 
 ### Tilt & Aberration Inspector
 
-The inspector estimates **backfocus and tilt errors** by running an auto-focus and computing AF curves for the **center and corner regions of the sensor split into a 3×3 grid**, producing a full **sensor tilt and curvature model**, which lets it measure backfocus error even when tilt is present. For single exposures it also generates **FWHM contour maps** and **eccentricity vector fields** for a quick visual read, offers a **3D visualization of sensor tilt**, and can **replay saved AF runs**. See [Tilt & Aberration Inspector](tilt-aberration-inspector.md), [Sensor Model Fitting](sensor-model.md) for how the tilt and curvature model is fit, and the [Tilt Adapter Wizard](tilt-adapter-wizard.md) for turning a measured tilt into concrete screw adjustments.
+The inspector estimates **backfocus and tilt errors** by running an auto-focus and computing AF curves for the center and corner regions of the sensor, split into a 3×3 grid. The result is a full sensor tilt and curvature model, which lets it measure backfocus error even when tilt is present. For single exposures it also generates FWHM contour maps and eccentricity vector fields for a quick visual read, offers a 3D visualization of sensor tilt, and can replay saved AF runs. See [Tilt & Aberration Inspector](tilt-aberration-inspector.md), [Sensor Model Fitting](sensor-model.md) for how the tilt and curvature model is fit, and the [Tilt Adapter Wizard](tilt-adapter-wizard.md) for turning a measured tilt into concrete screw adjustments.
 
 ![Sensor tilt and curvature best-focus offset map](../assets/figures/tilt-heatmap.png){ width=620 }
 *The Aberration Inspector models how best-focus position varies across the sensor, separating uniform backfocus error from tilt and field curvature.*
 
 ## Simple vs Advanced configuration
 
-Hocus Focus exposes "simpler configuration, with an advanced mode for fine tuning." There are three levels of control, in increasing order of effort:
+Hocus Focus is simple to configure by default, with an advanced mode for fine tuning. There are three levels of control, in increasing order of effort:
 
 | Level | Who it's for | What you do |
 |---|---|---|
@@ -39,7 +39,7 @@ Hocus Focus exposes "simpler configuration, with an advanced mode for fine tunin
 | **Advanced** | Tuners | Open Advanced settings to hand-tune individual detection, gating, and PSF parameters. |
 | **Optimization Wizard** | Anyone chasing the lowest HFR scatter | Let the optimizer search the parameter space against an objective function using your own saved AF runs. |
 
-Start at the Simple level: "higher accuracy (lower HFR Standard Deviation)" is available "if parameters are set properly," and the defaults are a reasonable starting point. Move to Advanced only when you need to correct a specific behavior, and reach for the wizard when you want the settings tuned automatically rather than by hand.
+Start at the Simple level: the defaults are a reasonable starting point, and higher accuracy (lower HFR standard deviation) comes from setting parameters well. Move to Advanced only when you need to correct a specific behavior, and reach for the wizard when you want the settings tuned automatically rather than by hand.
 
 !!! tip "When to go beyond Simple"
 

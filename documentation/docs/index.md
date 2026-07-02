@@ -3,10 +3,10 @@
 **Hocus Focus** is a plugin for [NINA](https://nighttime-imaging.eu/) (Nighttime Imaging 'N' Astronomy)
 that provides improved **star detection**, customizable **star annotation**, a concurrent
 **autofocus** engine, and a **tilt / aberration inspector** that measures backfocus (the spacing
-between the corrector/flattener and the sensor) and sensor-tilt errors. It measures HFR with a robust,
-gradient-aware star detector and fits PSF models to stars for eccentricity and FWHM measurements; lets
-you swap in just the star detector or just the annotator without taking both; and builds a full sensor
-tilt-and-curvature model so you can quantify and correct aberrations across the field.
+between the corrector/flattener and the sensor) and sensor-tilt errors. It measures HFR with an accurate,
+gradient-aware star detector and fits PSF models to stars for eccentricity and FWHM measurements. It
+also builds a full sensor tilt-and-curvature model so you can quantify and correct aberrations across
+the field.
 
 !!! tip "New here? Start with the Quick Start"
     The **[Quick Start](quick-start.md)** walks you from a fresh install through setting up detection,
@@ -33,14 +33,14 @@ tilt-and-curvature model so you can quantify and correct aberrations across the 
 !!! note "Mix and match"
     You can use the new star detector or the new annotator independently; keep whichever you like.
     To enable the autofocus and aberration-inspector features, Hocus Focus must be selected for both
-    Auto Focus and Star Detection.
+    Autofocus and Star Detector.
 
 ## Installation
 
 Hocus Focus is published through NINA's in-app plugin manager: open **Plugins → Available**, find
-**Hocus Focus**, and install it. To turn on the star detector and annotator afterward, go to
-**Options → Imaging → Image Options** and select **Hocus Focus** in the Star Detection, Star Annotator,
-and Auto Focus dropdowns.
+**Hocus Focus**, and install it. To turn on its features afterward, go to
+**Options → Imaging → Image Options** and select **Hocus Focus** in the **Star Detector**, **Star Annotator**,
+and **Autofocus** dropdowns.
 
 ![Selecting Hocus Focus as the Star Detector in Options, Imaging, Image Options](assets/screenshots/image-options-dropdown.png){ width=488 }
 

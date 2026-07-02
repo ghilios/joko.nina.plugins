@@ -32,13 +32,13 @@ Turn on the parts you want. Go to **Options → Imaging → Image Options** and,
 
 *Set Star Detector, Star Annotator, and Autofocus to Hocus Focus in Options, Imaging, Image Options.*
 
-- **Star Detection** — the improved detector (see [Star Detection](overview/star-detection.md)).
+- **Star Detector** — the improved detector (see [Star Detection](overview/star-detection.md)).
 - **Star Annotator** — the customizable overlay (see [Star Annotation](overview/star-annotation.md)).
-- **Auto Focus** — the concurrent autofocus engine (see [Autofocus](overview/autofocus.md)).
+- **Autofocus** — the concurrent autofocus engine (see [Autofocus](overview/autofocus.md)).
 
 !!! note "Some features need both"
-    The autofocus engine and the Aberration Inspector require Hocus Focus to be selected for **both**
-    Auto Focus **and** Star Detection. You can otherwise mix and match, for example keeping only the detector.
+    The autofocus engine and the Aberration Inspector require Hocus Focus to be selected for both
+    **Autofocus** and **Star Detector**. You can otherwise mix and match, for example keeping only the detector.
 
 ## 3. Optimize star detection
 
@@ -48,9 +48,9 @@ cleanest, most repeatable focus curve. Launch it from the top of the **Star Dete
 
 You will choose **what to optimize for** on the start page:
 
-- **Default (autofocus repeatability)** — the everyday choice. It tunes detection so your autofocus
+- **Autofocus repeatability** (the default) — the everyday choice. It tunes detection so your autofocus
   curves are tight and your best-focus position is repeatable run to run.
-- **Optimize for Aberration Inspection** — tunes instead to **recover many more stars across the whole
+- **Optimize for aberration inspection** — tunes instead to **recover many more stars across the whole
   frame**, which is what the tilt/curvature model in step 4 needs, while keeping the focus curve usable.
   Use this when you are about to run a Detailed Analysis.
 
@@ -68,7 +68,7 @@ autofocus across the center and corners of the sensor at once and reports **tilt
 center-to-corner offset), and **field curvature**. A lighter **Simple Analysis** takes a single
 exposure to show an FWHM contour map and an eccentricity vector field for a quick look.
 
-Enable **Sensor Curve Model** if you want curvature and centering numbers (not just a corner-vs-center
+Turn on **Sensor Curve Model Enabled** if you want curvature and centering numbers (not just a corner-vs-center
 tilt plane), for example when you intend to physically correct tilt. How that model is fit is covered
 in [Sensor Model Fitting](overview/sensor-model.md).
 
