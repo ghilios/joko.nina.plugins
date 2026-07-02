@@ -115,11 +115,31 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // screw-move signal (backlash / uneven undo would corrupt the recovered angle/hardware for that screw).
         private const double RebaselineDriftWarnThreshold = 0.5;
 
-        // The six measurement steps in capture order.
-        private static readonly WizardStep[] MeasurementSteps = {
-            WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1,
-            WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2
-        };
+        // The measurement steps in capture order. The 4-step flow (default) skips the two
+        // curvature-direction steps; the Baseline reading then serves as the screw-1 reference
+        // (the ReBaseline1 role of the 6-step flow).
+        internal static WizardStep[] GetMeasurementSteps(bool measureCurvature) =>
+            measureCurvature
+                ? new[] { WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1,
+                          WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2 }
+                : new[] { WizardStep.Baseline, WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2 };
+
+        // Captured at run start (StartAsync/ReplayAsync) so toggling the option mid-run is inert.
+        private WizardStep[] activeMeasurementSteps = GetMeasurementSteps(measureCurvature: false);
+
+        // Prose for the wizard's Signal Amplification row: per-sweep image estimate plus the total
+        // for the whole calibration at current settings. Internal for tests.
+        internal static string BuildSweepSummary(int stepsInRun, int measurementAverage,
+            int stepCount, int framesPerPoint, int signalAmplification, int profileOffsetSteps, int profileFramesPerPoint) {
+            var (points, imagesPerRun) = InspectorVM.EstimateImagesPerRun(
+                stepCount, framesPerPoint, signalAmplification, profileOffsetSteps, profileFramesPerPoint);
+            if (imagesPerRun <= 0) return string.Empty;
+            int frames = framesPerPoint > 0 ? framesPerPoint : profileFramesPerPoint;
+            int sweeps = stepsInRun * Math.Max(1, measurementAverage);
+            return $"Every calibration step runs a full autofocus sweep of ~{imagesPerRun} images ({points} focus positions × {frames} exposure{(frames == 1 ? "" : "s")}). " +
+                $"At the current settings this calibration will take {sweeps} sweeps ≈ {sweeps * imagesPerRun} images total. " +
+                "Increase for more signal on faint stars; decrease to run faster (1 = a regular autofocus).";
+        }
 
         private struct StepReading {
             public double A;
@@ -177,11 +197,25 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             BrowseSaveFolderCommand = new RelayCommand(BrowseSaveFolder);
             ReplayCommand = new AsyncRelayCommand(ReplayAsync, () => !IsWizardRunning && !IsMeasuring);
             RetryMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => HasMeasurementFailureChoice && IsOnMeasurementStep && !IsMeasuring && AreDevicesConnected);
+            ApplyManualCalibrationCommand = new RelayCommand(ApplyManualCalibration);
 
             tiltAdapterOptions.PropertyChanged += (s, e) => OnUIThread(() => {
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)) {
                     RaisePropertyChanged(nameof(HasCurvatureCalibration));
                     RaisePropertyChanged(nameof(CurvatureSignDescription));
+                    RaisePropertyChanged(nameof(CwMovesAdapterTowardObjective));
+                    RaisePropertyChanged(nameof(CurvatureSignProvenance));
+                }
+                if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured)) {
+                    RaisePropertyChanged(nameof(CurvatureSignDescription));
+                    RaisePropertyChanged(nameof(CurvatureSignProvenance));
+                }
+                if (e.PropertyName == nameof(ITiltAdapterOptions.MeasureCurvatureDuringCalibration) ||
+                    e.PropertyName == nameof(ITiltAdapterOptions.MeasurementAverageCount)) {
+                    RaisePropertyChanged(nameof(WizardSweepSummary));
+                }
+                if (e.PropertyName == nameof(ITiltAdapterOptions.CalibrationIsManual)) {
+                    RaisePropertyChanged(nameof(IsCalibrationValid));
                 }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewCount) ||
                     e.PropertyName == nameof(ITiltAdapterOptions.IsCalibrated) ||
@@ -210,9 +244,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     RaisePropertyChanged(nameof(ThreadPitchMicronsValue));
                     RaisePropertyChanged(nameof(StepperStepSizeMicronsValue));
                     RaisePropertyChanged(nameof(ScrewRadiusMillimetersValue));
+                    // Adjustment type changes the prompt vocabulary (screw turns vs signed steps).
+                    RaisePropertyChanged(nameof(CwDirectionLabel));
+                    RaisePropertyChanged(nameof(StepInstructions));
+                    RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
                     RaiseHardwareSummaryChanged();
                 }
             });
+
+            if (inspector.InspectorOptions != null) {
+                inspector.InspectorOptions.PropertyChanged += (s, e) => OnUIThread(() => {
+                    if (e.PropertyName == nameof(IInspectorOptions.SignalAmplification) ||
+                        e.PropertyName == nameof(IInspectorOptions.StepCount) ||
+                        e.PropertyName == nameof(IInspectorOptions.FramesPerPoint)) {
+                        RaisePropertyChanged(nameof(WizardSweepSummary));
+                    }
+                });
+            }
 
             profileService.ProfileChanged += (s, e) => OnUIThread(() => {
                 RaisePropertyChanged(nameof(PixelSizeMicronsValue));
@@ -220,10 +268,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(SelectedDevice));
                 RaisePropertyChanged(nameof(IsManualDevice));
                 RaisePropertyChanged(nameof(SaveAFRunsPath));
+                RaisePropertyChanged(nameof(WizardSweepSummary));
             });
 
             // Re-assert and lock a persisted device preset on load.
             ApplyDevice(tiltAdapterOptions.DeviceName);
+
+            // Pre-fill the Manual Calibration Entry angle from an existing calibration.
+            if (!double.IsNaN(tiltAdapterOptions.Screw1AngleDegrees)) {
+                manualScrew1AngleDegrees = tiltAdapterOptions.Screw1AngleDegrees;
+            }
 
             RebuildDiagram();
 
@@ -280,7 +334,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public bool IsComplete => currentStep == WizardStep.Complete;
 
         // Steps that end with running the aberration inspector (measurement auto-advances)
-        public bool IsOnMeasurementStep => MeasurementSteps.Contains(currentStep);
+        public bool IsOnMeasurementStep => activeMeasurementSteps.Contains(currentStep);
 
         public bool IsCalibrationValid =>
             tiltAdapterOptions.IsCalibrated &&
@@ -344,10 +398,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // Do nothing
         }
 
-        public string CurvatureSignDescription =>
-            tiltAdapterOptions.ScrewInwardCurvatureSign == 1 ? "↑" :
-            tiltAdapterOptions.ScrewInwardCurvatureSign == -1 ? "↓" :
-            string.Empty;
+        public string CurvatureSignDescription {
+            get {
+                int sign = tiltAdapterOptions.ScrewInwardCurvatureSign;
+                if (sign == 0) return string.Empty;
+                string arrow = sign == 1 ? "↑" : "↓";
+                return tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured ? $"{arrow} (measured)" : $"{arrow} (assumed)";
+            }
+        }
 
         public bool IsMeasuring {
             get => isMeasuring;
@@ -430,7 +488,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public bool IsCurrentStepAtBaseline => StepIsAtBaseline(currentStep);
 
         // Per-step guidance for returning to baseline before retrying, shown in the failure panel.
-        public string BaselineRecoveryInstructions => BaselineRecoveryText(currentStep, tiltAdapterOptions.ScrewCount);
+        public string BaselineRecoveryInstructions =>
+            BaselineRecoveryText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, calibrationAppliedAmount);
 
         public bool HasRebaselineDriftWarning {
             get => hasRebaselineDriftWarning;
@@ -497,35 +556,66 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
-        public string StepInstructions {
-            get {
-                int n = tiltAdapterOptions.ScrewCount;
-                switch (currentStep) {
-                    case WizardStep.Baseline:
-                        return "Ensure all screws are at their starting position, then click Run Measurement to take a baseline reading.";
-                    case WizardStep.AllInward:
-                        return "Label your screws 1, 2, and 3 (or 1–4 for a 4-screw adapter) in a consistent clockwise order. " +
-                            "Screw 1 does NOT need to be at any particular clock position — the wizard determines each screw's actual " +
-                            "position from the measurements.\n\nTurn ALL screws INWARD exactly 1 full turn each, then click Run Measurement.";
-                    case WizardStep.ReBaseline1:
-                        return "Turn ALL screws back OUT exactly 1 full turn each, returning to the baseline position, then click Run Measurement.";
-                    case WizardStep.Screw1:
-                        return n == 3
-                            ? "Turn screw 1 INWARD exactly 1 full turn, then click Run Measurement."
-                            : "Turn screw 1 INWARD and screw 3 OUTWARD exactly 1 full turn each, then click Run Measurement.";
-                    case WizardStep.ReBaseline2:
-                        return n == 3
-                            ? "Turn screw 1 back OUT exactly 1 full turn, returning to the baseline position, then click Run Measurement."
-                            : "Turn screw 1 back OUT and screw 3 back IN exactly 1 full turn each, returning to the baseline position, then click Run Measurement.";
-                    case WizardStep.Screw2:
-                        return n == 3
-                            ? "Turn screw 2 INWARD exactly 1 full turn, then click Run Measurement."
-                            : "Turn screw 2 INWARD and screw 4 OUTWARD exactly 1 full turn each, then click Run Measurement.";
-                    case WizardStep.Complete:
-                        return "Restore all screws to their original position.";
-                    default:
-                        return string.Empty;
-                }
+        public string StepInstructions =>
+            StepInstructionsText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, calibrationAppliedAmount);
+
+        // Formats the calibration move amount: "1 full turn" / "1.5 turns" for screws, whole "+N"
+        // magnitude for steppers (sign is added by the caller's wording).
+        internal static string FormatAppliedAmount(bool isStepper, double amount) =>
+            isStepper ? $"{amount:0.##}" : (amount == 1.0 ? "1 full turn" : $"{amount:0.##} turns");
+
+        // All wizard prompts. Screw motion is worded as CLOCKWISE/COUNTER-CLOCKWISE (tighten/loosen)
+        // — never "inward/outward", which this plugin reserves for adapter-plate motion. Stepper
+        // prompts use signed steps; "+" is the direction the guidance later reports as positive.
+        internal static string StepInstructionsText(WizardStep step, int screwCount, bool isStepper, double appliedAmount) {
+            string amt = FormatAppliedAmount(isStepper, appliedAmount);
+            bool four = screwCount == 4;
+            switch (step) {
+                case WizardStep.Baseline:
+                    return "Label your screws 1, 2, and 3 (or 1–4 for a 4-screw adapter) in a consistent clockwise order. " +
+                        "Screw 1 does NOT need to be at any particular clock position — the wizard determines each screw's actual " +
+                        "position from the measurements.\n\nEnsure all screws are at their starting position, then click Run Measurement to take a baseline reading.";
+                case WizardStep.AllInward:
+                    return isStepper
+                        ? $"Apply +{amt} steps to EVERY motor, then click Run Measurement."
+                        : $"Turn ALL screws CLOCKWISE (tighten) exactly {amt} each, then click Run Measurement.";
+                case WizardStep.ReBaseline1:
+                    return isStepper
+                        ? $"Apply −{amt} steps to every motor, returning to the baseline position, then click Run Measurement."
+                        : $"Turn ALL screws back COUNTER-CLOCKWISE (loosen) exactly {amt} each, returning to the baseline position, then click Run Measurement.";
+                case WizardStep.Screw1:
+                    if (isStepper) {
+                        return four
+                            ? $"Apply +{amt} steps to motor 1 and −{amt} steps to motor 3, then click Run Measurement."
+                            : $"Apply +{amt} steps to motor 1, then click Run Measurement.";
+                    }
+                    return four
+                        ? $"Turn screw 1 CLOCKWISE and screw 3 COUNTER-CLOCKWISE exactly {amt} each, then click Run Measurement."
+                        : $"Turn screw 1 CLOCKWISE exactly {amt}, then click Run Measurement.";
+                case WizardStep.ReBaseline2:
+                    if (isStepper) {
+                        return four
+                            ? $"Apply −{amt} steps to motor 1 and +{amt} steps to motor 3, returning to the baseline position, then click Run Measurement."
+                            : $"Apply −{amt} steps to motor 1, returning to the baseline position, then click Run Measurement.";
+                    }
+                    return four
+                        ? $"Turn screw 1 back COUNTER-CLOCKWISE and screw 3 back CLOCKWISE exactly {amt} each, returning to the baseline position, then click Run Measurement."
+                        : $"Turn screw 1 back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position, then click Run Measurement.";
+                case WizardStep.Screw2:
+                    if (isStepper) {
+                        return four
+                            ? $"Apply +{amt} steps to motor 2 and −{amt} steps to motor 4, then click Run Measurement."
+                            : $"Apply +{amt} steps to motor 2, then click Run Measurement.";
+                    }
+                    return four
+                        ? $"Turn screw 2 CLOCKWISE and screw 4 COUNTER-CLOCKWISE exactly {amt} each, then click Run Measurement."
+                        : $"Turn screw 2 CLOCKWISE exactly {amt}, then click Run Measurement.";
+                case WizardStep.Complete:
+                    return isStepper
+                        ? "Return all motors to their original position."
+                        : "Restore all screws to their original position.";
+                default:
+                    return string.Empty;
             }
         }
 
@@ -544,18 +634,32 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Instructions for undoing the current step's screw move to return to baseline (mirrors the ReBaseline /
         // Complete wording in StepInstructions). For a step already at baseline, says so instead.
-        internal static string BaselineRecoveryText(WizardStep step, int screwCount) {
+        internal static string BaselineRecoveryText(WizardStep step, int screwCount, bool isStepper, double appliedAmount) {
+            string amt = FormatAppliedAmount(isStepper, appliedAmount);
+            bool four = screwCount == 4;
             switch (step) {
                 case WizardStep.AllInward:
-                    return "Turn ALL screws back OUT exactly 1 full turn each, returning to the baseline position.";
+                    return isStepper
+                        ? $"Apply −{amt} steps to every motor, returning to the baseline position."
+                        : $"Turn ALL screws back COUNTER-CLOCKWISE exactly {amt} each, returning to the baseline position.";
                 case WizardStep.Screw1:
-                    return screwCount == 3
-                        ? "Turn screw 1 back OUT exactly 1 full turn, returning to the baseline position."
-                        : "Turn screw 1 back OUT and screw 3 back IN exactly 1 full turn each, returning to the baseline position.";
+                    if (isStepper) {
+                        return four
+                            ? $"Apply −{amt} steps to motor 1 and +{amt} steps to motor 3, returning to the baseline position."
+                            : $"Apply −{amt} steps to motor 1, returning to the baseline position.";
+                    }
+                    return four
+                        ? $"Turn screw 1 back COUNTER-CLOCKWISE and screw 3 back CLOCKWISE exactly {amt} each, returning to the baseline position."
+                        : $"Turn screw 1 back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position.";
                 case WizardStep.Screw2:
-                    return screwCount == 3
-                        ? "Turn screw 2 back OUT exactly 1 full turn, returning to the baseline position."
-                        : "Turn screw 2 back OUT and screw 4 back IN exactly 1 full turn each, returning to the baseline position.";
+                    if (isStepper) {
+                        return four
+                            ? $"Apply −{amt} steps to motor 2 and +{amt} steps to motor 4, returning to the baseline position."
+                            : $"Apply −{amt} steps to motor 2, returning to the baseline position.";
+                    }
+                    return four
+                        ? $"Turn screw 2 back COUNTER-CLOCKWISE and screw 4 back CLOCKWISE exactly {amt} each, returning to the baseline position."
+                        : $"Turn screw 2 back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position.";
                 default:
                     return "All screws should already be at the baseline (starting) position.";
             }
@@ -570,6 +674,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public ICommand BrowseSaveFolderCommand { get; }
         public ICommand ReplayCommand { get; }
         public ICommand RetryMeasurementCommand { get; }
+        public ICommand ApplyManualCalibrationCommand { get; }
 
         // Known amount the user moves each screw during the per-screw calibration steps (full turns
         // for screws, steps for steppers). Defaults to 1.0 to match the "1 full turn" instructions.
@@ -580,11 +685,126 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     calibrationAppliedAmount = value;
                     RaisePropertyChanged();
                     RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
+                    // The prompts embed the applied amount, so editing it must refresh them.
+                    RaisePropertyChanged(nameof(StepInstructions));
+                    RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
                 }
             }
         }
 
         public bool IsStepperAdjustment => tiltAdapterOptions.AdjustmentType == TiltAdjustmentType.StepperMotors;
+
+        // Mechanical framing of ScrewInwardCurvatureSign: does a CW screw turn (or +steps) move the
+        // adapter plate toward the objective? Editing writes the sign (and marks it assumed); a
+        // 6-step wizard measurement overwrites the sign and this re-reads it.
+        public bool CwMovesAdapterTowardObjective {
+            get {
+                int sign = tiltAdapterOptions.ScrewInwardCurvatureSign;
+                if (sign == 0) sign = TiltScrewGeometry.DefaultScrewInwardCurvatureSign;
+                return TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(sign);
+            }
+            set {
+                int sign = TiltScrewGeometry.CurvatureSignForCwDirection(value);
+                if (tiltAdapterOptions.ScrewInwardCurvatureSign != sign) {
+                    tiltAdapterOptions.ScrewInwardCurvatureSign = sign;
+                    tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured = false;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        public string CwDirectionLabel => IsStepperAdjustment
+            ? "Applying + steps moves the adapter"
+            : "Turning screws clockwise moves the adapter";
+
+        public string CurvatureSignProvenance => tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured
+            ? "Direction was measured by a calibration run."
+            : "Direction is assumed — enable the measurement below (or run a 6-step calibration) to verify it.";
+
+        private double manualScrew1AngleDegrees;
+
+        // Manual Calibration Entry: screw 1 position angle in degrees, image space, 0° = straight
+        // up (12 o'clock), increasing clockwise — the plugin-wide convention.
+        public double ManualScrew1AngleDegrees {
+            get => manualScrew1AngleDegrees;
+            set {
+                if (manualScrew1AngleDegrees != value) {
+                    manualScrew1AngleDegrees = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool manualNumberingClockwise = true;
+
+        // Whether screws 2..n proceed clockwise from screw 1 in the IMAGE (mirrors can flip it).
+        public bool ManualNumberingClockwise {
+            get => manualNumberingClockwise;
+            set {
+                if (manualNumberingClockwise != value) {
+                    manualNumberingClockwise = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        // Applies a manually entered calibration: same persisted state a wizard run writes, tagged
+        // manual. The curvature sign is whatever the direction setting above holds (assumed).
+        internal void ApplyManualCalibration() {
+            // WPF double bindings can push NaN/Infinity; never persist IsCalibrated over all-NaN angles.
+            if (!double.IsFinite(manualScrew1AngleDegrees)) {
+                Notification.ShowWarning("Enter a valid screw 1 position angle (in degrees) before applying a manual calibration.");
+                return;
+            }
+            int n = tiltAdapterOptions.ScrewCount;
+            var (s1, s2, s3, s4) = TiltCalibrationCalculator.ComputeManualScrewAngles(manualScrew1AngleDegrees, manualNumberingClockwise, n);
+            tiltAdapterOptions.Screw1AngleDegrees = s1;
+            tiltAdapterOptions.Screw2AngleDegrees = s2;
+            tiltAdapterOptions.Screw3AngleDegrees = s3;
+            tiltAdapterOptions.Screw4AngleDegrees = s4;
+            tiltAdapterOptions.CalibratedScrewCount = n;
+            tiltAdapterOptions.IsCalibrated = true;
+            tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured = false;
+            tiltAdapterOptions.CalibrationIsManual = true;
+            // A manual entry supersedes whatever wizard run last measured the hardware — reset to the
+            // unset sentinel (-1, what the options initialize to; PitchMismatchExceeds ignores <= 0) so
+            // the inspector's pitch-mismatch warning can't compare the new adapter's configured pitch
+            // against a stale measurement from a previous adapter.
+            tiltAdapterOptions.LastMeasuredThreadPitchMicrons = -1;
+            tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = -1;
+            // Clear stale wizard-run display state (measured-hardware panel, per-run warnings, summary
+            // rows — the same state Restart clears) that would otherwise describe the previous run next
+            // to a manually entered calibration.
+            measuredHardwareMicrons = double.NaN;
+            lastRawAngleDiff = double.NaN;
+            lastMoveMagnitudeRatio = double.NaN;
+            HasWarning = false;
+            WarningText = string.Empty;
+            HasMeasurementConsistencyWarning = false;
+            MeasurementConsistencyWarningText = string.Empty;
+            HasRebaselineDriftWarning = false;
+            RebaselineDriftWarningText = string.Empty;
+            HasConfidenceWarning = false;
+            ConfidenceWarningText = string.Empty;
+            ClearSummaryRows();
+            RaiseHardwareSummaryChanged();
+            RebuildDiagram();
+        }
+
+        public string WizardSweepSummary {
+            get {
+                var inspectorOptions = inspector.InspectorOptions;
+                if (inspectorOptions == null) return string.Empty;
+                return BuildSweepSummary(
+                    GetMeasurementSteps(tiltAdapterOptions.MeasureCurvatureDuringCalibration).Length,
+                    tiltAdapterOptions.MeasurementAverageCount,
+                    inspectorOptions.StepCount,
+                    inspectorOptions.FramesPerPoint,
+                    inspectorOptions.SignalAmplification,
+                    profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
+                    profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint);
+            }
+        }
 
         public string CalibrationAmountLabel => IsStepperAdjustment ? "Steps applied per screw" : "Turns applied per screw";
 
@@ -710,6 +930,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 }
             }
 
+            activeMeasurementSteps = GetMeasurementSteps(tiltAdapterOptions.MeasureCurvatureDuringCalibration);
             CurrentStep = WizardStep.Baseline;
             IsWizardRunning = true;
             return Task.CompletedTask;
@@ -1019,7 +1240,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         private void NextStep() {
-            WizardStep next = currentStep + 1;
+            int idx = Array.IndexOf(activeMeasurementSteps, currentStep);
+            if (idx < 0) {
+                // Unreachable via the measurement commands (they gate on IsOnMeasurementStep), but never
+                // fabricate a Complete: that would run the calibration math on default-zero readings and
+                // persist IsCalibrated from garbage. Log loudly and leave the state untouched.
+                Logger.Error($"Tilt calibration: current step {currentStep} is not in the active measurement sequence; ignoring step advance.");
+                return;
+            }
+            WizardStep next = idx == activeMeasurementSteps.Length - 1
+                ? WizardStep.Complete
+                : activeMeasurementSteps[idx + 1];
 
             if (next == WizardStep.Complete) {
                 RunCalibrationMath(
@@ -1112,15 +1343,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // by a live run (geometry from the current options/profile) and a replay (geometry from the metadata).
         private void RunCalibrationMath(int screwCount, double radiusMm, double pixelSize, double fStep,
             double appliedAmount, bool isStepper) {
+            bool measuredCurvature = stepReadings.ContainsKey(WizardStep.AllInward);
             var a = Reading(WizardStep.Baseline);
             var b = Reading(WizardStep.AllInward);
-            var c = Reading(WizardStep.ReBaseline1);
+            var c = measuredCurvature ? Reading(WizardStep.ReBaseline1) : Reading(WizardStep.Baseline);
             var d = Reading(WizardStep.Screw1);
             var e = Reading(WizardStep.ReBaseline2);
             var f = Reading(WizardStep.Screw2);
 
-            // Curvature (backfocus) sign from baseline (a) → all-inward (b) mean focus.
-            tiltAdapterOptions.ScrewInwardCurvatureSign = TiltCalibrationCalculator.ComputeCurvatureSign(b.Mean, a.Mean);
+            // Curvature (backfocus) sign from baseline (a) → all-inward (b) mean focus, only when
+            // those steps ran; otherwise the configured/assumed sign is left untouched.
+            if (measuredCurvature) {
+                tiltAdapterOptions.ScrewInwardCurvatureSign = TiltCalibrationCalculator.ComputeCurvatureSign(b.Mean, a.Mean);
+                tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured = true;
+            }
 
             // Screw angles from each move relative to its preceding re-baseline (c→d, e→f).
             double d1A = d.A - c.A, d1B = d.B - c.B;
@@ -1136,6 +1372,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
             tiltAdapterOptions.CalibratedScrewCount = screwCount;
             tiltAdapterOptions.IsCalibrated = true;
+            tiltAdapterOptions.CalibrationIsManual = false;
 
             lastRawAngleDiff = rawDiff;
             lastMoveMagnitudeRatio = TiltCalibrationCalculator.MoveMagnitudeRatio(d1A, d1B, d2A, d2B);
@@ -1151,12 +1388,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             if (model != null) {
                 var inputs = new TiltCalibrationInputs {
                     ScrewCount = screwCount,
-                    Baseline = new TiltGradient(a.A, a.B, a.Mean),
-                    AllInward = new TiltGradient(b.A, b.B, b.Mean),
+                    // 4-step runs never measured Baseline/AllInward as curvature probes: leave them default —
+                    // the calculator ignores them when HasCurvatureMeasurement is false (c carries the baseline).
+                    Baseline = measuredCurvature ? new TiltGradient(a.A, a.B, a.Mean) : default,
+                    AllInward = measuredCurvature ? new TiltGradient(b.A, b.B, b.Mean) : default,
                     ReBaseline1 = new TiltGradient(c.A, c.B, c.Mean),
                     Screw1 = new TiltGradient(d.A, d.B, d.Mean),
                     ReBaseline2 = new TiltGradient(e.A, e.B, e.Mean),
                     Screw2 = new TiltGradient(f.A, f.B, f.Mean),
+                    HasCurvatureMeasurement = measuredCurvature,
+                    FallbackCurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign,
                     ImageWidthPixels = model.ImageSize.Width,
                     ImageHeightPixels = model.ImageSize.Height,
                     PixelSizeMicrons = pixelSize,
@@ -1179,12 +1420,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             EvaluateRebaselineDrift();
             EvaluateCalibrationConfidence(TiltCalibrationCalculator.ComputeConfidence(new TiltCalibrationInputs {
                 ScrewCount = screwCount,
-                Baseline = new TiltGradient(a.A, a.B, a.Mean),
-                AllInward = new TiltGradient(b.A, b.B, b.Mean),
+                Baseline = measuredCurvature ? new TiltGradient(a.A, a.B, a.Mean) : default,
+                AllInward = measuredCurvature ? new TiltGradient(b.A, b.B, b.Mean) : default,
                 ReBaseline1 = new TiltGradient(c.A, c.B, c.Mean),
                 Screw1 = new TiltGradient(d.A, d.B, d.Mean),
                 ReBaseline2 = new TiltGradient(e.A, e.B, e.Mean),
-                Screw2 = new TiltGradient(f.A, f.B, f.Mean)
+                Screw2 = new TiltGradient(f.A, f.B, f.Mean),
+                HasCurvatureMeasurement = measuredCurvature,
+                FallbackCurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign
             }));
             RaiseHardwareSummaryChanged();
         }
@@ -1232,13 +1475,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // Re-baseline drift: each re-baseline (c, e) should return close to the prior state. A large residual
         // relative to the subsequent screw move means backlash / an uneven undo contaminated the calibration.
         private void EvaluateRebaselineDrift() {
+            bool measuredCurvature = stepReadings.ContainsKey(WizardStep.AllInward);
             var a = Reading(WizardStep.Baseline);
-            var c = Reading(WizardStep.ReBaseline1);
+            var c = measuredCurvature ? Reading(WizardStep.ReBaseline1) : Reading(WizardStep.Baseline);
             var d = Reading(WizardStep.Screw1);
             var e = Reading(WizardStep.ReBaseline2);
             var f = Reading(WizardStep.Screw2);
 
-            double drift1 = TiltCalibrationCalculator.RebaselineDriftRatio(c.A - a.A, c.B - a.B, d.A - c.A, d.B - c.B);
+            // In the 4-step flow c IS a (drift1 would be a meaningless 0); the explicit NaN keeps the
+            // warning semantics clean — only the 6-step flow has a re-baseline-1 to evaluate.
+            double drift1 = measuredCurvature
+                ? TiltCalibrationCalculator.RebaselineDriftRatio(c.A - a.A, c.B - a.B, d.A - c.A, d.B - c.B)
+                : double.NaN;
             double drift2 = TiltCalibrationCalculator.RebaselineDriftRatio(e.A - c.A, e.B - c.B, f.A - e.A, f.B - e.B);
 
             var parts = new List<string>(2);
@@ -1319,7 +1567,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var byStep = (metadata.RunStepMapping ?? new List<TiltRunStepMapping>())
                 .GroupBy(m => m.Step, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => TiltCalibrationMetadata.ResolveStepFolder(folder, g.Last().Folder), StringComparer.OrdinalIgnoreCase);
-            foreach (var step in MeasurementSteps) {
+            // A run saved without the curvature steps replays as a 4-step run.
+            bool replayHasCurvatureSteps = byStep.ContainsKey(WizardStep.AllInward.ToString());
+            var replaySteps = GetMeasurementSteps(replayHasCurvatureSteps);
+            activeMeasurementSteps = replaySteps;
+            foreach (var step in replaySteps) {
                 if (!byStep.ContainsKey(step.ToString())) {
                     Notification.ShowError($"metadata.json has no saved folder for step '{step}'. Cannot replay.");
                     return;
@@ -1328,7 +1580,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             // Consolidated replay: one button, three modes resolved by the shared replay-settings modal (seeded from a
             // representative per-step AutoFocus replay snapshot). Cancelling / closing the modal aborts.
-            var representativeStepFolder = byStep[MeasurementSteps.First().ToString()];
+            var representativeStepFolder = byStep[replaySteps.First().ToString()];
             AutoFocusReplayMetadata.TryLoad(representativeStepFolder, out var replayMetadata, out _);
             var choice = await ReplaySettingsPrompt.ShowAsync(windowServiceFactory, replayMetadata, ReplaySettingsPromptTexts.TiltCalibration);
             if (choice == ReplaySettingsChoice.Cancel) {
@@ -1378,7 +1630,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             bool completed = false;
             try {
-                foreach (var step in MeasurementSteps) {
+                foreach (var step in replaySteps) {
                     token.ThrowIfCancellationRequested();
                     StatusText = $"Replaying {step}...";
                     // Capture-time modes ("use captured in memory" and "update profile") replay each step with its own

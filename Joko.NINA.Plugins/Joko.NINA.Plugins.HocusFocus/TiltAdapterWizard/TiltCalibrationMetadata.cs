@@ -77,6 +77,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             "Baseline", "AllInward", "ReBaseline1", "Screw1", "ReBaseline2", "Screw2"
         };
 
+        /// <summary>The 4 measurement steps of a run captured without the curvature-direction steps.</summary>
+        public static readonly string[] StepOrderWithoutCurvature = {
+            "Baseline", "Screw1", "ReBaseline2", "Screw2"
+        };
+
         public static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings {
             ContractResolver = new CamelCasePropertyNamesContractResolver(),
             Formatting = Formatting.Indented,

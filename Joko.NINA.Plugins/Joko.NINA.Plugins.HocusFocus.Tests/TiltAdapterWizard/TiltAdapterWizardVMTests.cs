@@ -235,14 +235,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void CurvatureSignDescription_ArrowMatchesSign() {
+        public void CurvatureSignDescription_ArrowMatchesSign_AndCarriesProvenance() {
             var (vm, options, _, _) = Build();
 
             options.ScrewInwardCurvatureSign.Returns(1);
-            Assert.That(vm.CurvatureSignDescription, Is.EqualTo("↑"));
+            options.ScrewInwardCurvatureSignIsMeasured.Returns(true);
+            Assert.That(vm.CurvatureSignDescription, Is.EqualTo("↑ (measured)"));
 
             options.ScrewInwardCurvatureSign.Returns(-1);
-            Assert.That(vm.CurvatureSignDescription, Is.EqualTo("↓"));
+            options.ScrewInwardCurvatureSignIsMeasured.Returns(false);
+            Assert.That(vm.CurvatureSignDescription, Is.EqualTo("↓ (assumed)"));
 
             options.ScrewInwardCurvatureSign.Returns(0);
             Assert.That(vm.CurvatureSignDescription, Is.Empty);
@@ -314,26 +316,129 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
 
         [Test]
         public void BaselineRecoveryText_PerturbedSteps_DescribeUndoingTheMove() {
-            // 3-screw: undo only the moved screw.
+            // 3-screw: undo only the moved screw (CW/CCW vocabulary — never "inward/outward").
             Assert.Multiple(() => {
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.AllInward, 3), Does.Contain("ALL screws back OUT"));
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 3), Does.Contain("screw 1 back OUT"));
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw2, 3), Does.Contain("screw 2 back OUT"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.AllInward, 3, false, 1.0), Does.Contain("ALL screws back COUNTER-CLOCKWISE"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 3, false, 1.0), Does.Contain("screw 1 back COUNTER-CLOCKWISE"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw2, 3, false, 1.0), Does.Contain("screw 2 back COUNTER-CLOCKWISE"));
             });
             // 4-screw: the opposing screw is undone too.
             Assert.Multiple(() => {
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 4), Does.Contain("screw 3 back IN"));
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw2, 4), Does.Contain("screw 4 back IN"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 4, false, 1.0), Does.Contain("screw 3 back CLOCKWISE"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw2, 4, false, 1.0), Does.Contain("screw 4 back CLOCKWISE"));
+            });
+            // Steppers: signed steps (U+2212 minus for undo).
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.AllInward, 3, true, 2.0), Does.Contain("−2 steps to every motor"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 4, true, 2.0), Does.Contain("−2 steps to motor 1").And.Contain("+2 steps to motor 3"));
             });
         }
 
         [Test]
         public void BaselineRecoveryText_BaselineSteps_SayAlreadyAtBaseline() {
             Assert.Multiple(() => {
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Baseline, 3), Does.Contain("already be at the baseline"));
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.ReBaseline1, 3), Does.Contain("already be at the baseline"));
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.ReBaseline2, 4), Does.Contain("already be at the baseline"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Baseline, 3, false, 1.0), Does.Contain("already be at the baseline"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.ReBaseline1, 3, false, 1.0), Does.Contain("already be at the baseline"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.ReBaseline2, 4, false, 1.0), Does.Contain("already be at the baseline"));
             });
+        }
+
+        // --- 4-step / 6-step sequencing, reworded prompts, sweep summary (Task 8) ---
+
+        [Test]
+        public void GetMeasurementSteps_FourStepFlowSkipsCurvatureSteps() {
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.GetMeasurementSteps(measureCurvature: true), Is.EqualTo(new[] {
+                    WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1,
+                    WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2 }));
+                Assert.That(TiltAdapterWizardVM.GetMeasurementSteps(measureCurvature: false), Is.EqualTo(new[] {
+                    WizardStep.Baseline, WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2 }));
+            });
+        }
+
+        [Test]
+        public void StepInstructionsText_Screws_UsesClockwiseWordingAndAmount() {
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Baseline, 3, isStepper: false, appliedAmount: 1.0),
+                    Does.Contain("consistent clockwise order").And.Contain("starting position"));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.AllInward, 3, false, 1.0),
+                    Does.Contain("ALL screws CLOCKWISE (tighten) exactly 1 full turn"));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline1, 3, false, 1.0),
+                    Does.Contain("COUNTER-CLOCKWISE (loosen) exactly 1 full turn"));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Screw1, 4, false, 1.0),
+                    Does.Contain("screw 1 CLOCKWISE").And.Contain("screw 3 COUNTER-CLOCKWISE"));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Screw2, 3, false, 1.5),
+                    Does.Contain("screw 2 CLOCKWISE exactly 1.5 turns"));
+            });
+        }
+
+        [Test]
+        public void StepInstructionsText_Steppers_UsesSignedSteps() {
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.AllInward, 3, isStepper: true, appliedAmount: 2.0),
+                    Does.Contain("+2 steps to EVERY motor"));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline2, 3, true, 2.0),
+                    Does.Contain("−2 steps to motor 1"));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Screw1, 4, true, 2.0),
+                    Does.Contain("+2 steps to motor 1").And.Contain("−2 steps to motor 3"));
+            });
+        }
+
+        [Test]
+        public void BuildSweepSummary_CountsSweepsAndImages() {
+            // 4 steps × 2 averaged measurements = 8 sweeps; profile: 4 offset steps, 1 frame, amp 2 => 17 images/run.
+            var text = TiltAdapterWizardVM.BuildSweepSummary(4, 2, -1, -1, 2, 4, 1);
+            Assert.Multiple(() => {
+                Assert.That(text, Does.Contain("~17 images"));
+                Assert.That(text, Does.Contain("8 sweeps"));
+                Assert.That(text, Does.Contain("136 images total"));
+            });
+            Assert.That(TiltAdapterWizardVM.BuildSweepSummary(4, 1, -1, -1, 2, 0, 0), Is.Empty);
+        }
+
+        [Test]
+        public void ApplyManualCalibration_WritesCalibrationState() {
+            var (vm, options, _, _) = Build(screwCount: 3);
+            vm.ManualScrew1AngleDegrees = 30;
+            vm.ManualNumberingClockwise = true;
+
+            vm.ApplyManualCalibration();
+
+            Assert.Multiple(() => {
+                options.Received().Screw1AngleDegrees = 30;
+                options.Received().Screw2AngleDegrees = 150;
+                options.Received().Screw3AngleDegrees = 270;
+                options.Received().Screw4AngleDegrees = double.NaN;
+                options.Received().CalibratedScrewCount = 3;
+                options.Received().IsCalibrated = true;
+                options.Received().ScrewInwardCurvatureSignIsMeasured = false;
+                options.Received().CalibrationIsManual = true;
+                // A manual entry must invalidate the previous wizard run's measured hardware (the
+                // inspector's pitch-mismatch warning compares against these): -1 = the unset sentinel.
+                options.Received().LastMeasuredThreadPitchMicrons = -1;
+                options.Received().LastMeasuredStepperStepSizeMicrons = -1;
+            });
+        }
+
+        [Test]
+        public void CwMovesAdapterTowardObjective_RoundTripsThroughSign() {
+            var (vm, options, _, _) = Build();
+
+            options.ScrewInwardCurvatureSign.Returns(0);
+            vm.CwMovesAdapterTowardObjective = true;
+            Assert.Multiple(() => {
+                options.Received().ScrewInwardCurvatureSign = TiltScrewGeometry.CurvatureSignForCwDirection(true);
+                options.Received().ScrewInwardCurvatureSignIsMeasured = false;
+            });
+
+            vm.CwMovesAdapterTowardObjective = false;
+            options.Received().ScrewInwardCurvatureSign = TiltScrewGeometry.CurvatureSignForCwDirection(false);
+
+            // The getter maps a stored sign back through the pinned empirical constant.
+            options.ScrewInwardCurvatureSign.Returns(TiltScrewGeometry.CurvatureSignForCwDirection(true));
+            Assert.That(vm.CwMovesAdapterTowardObjective, Is.True);
+            options.ScrewInwardCurvatureSign.Returns(TiltScrewGeometry.CurvatureSignForCwDirection(false));
+            Assert.That(vm.CwMovesAdapterTowardObjective, Is.False);
         }
 
         [Test]
