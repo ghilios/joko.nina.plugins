@@ -49,7 +49,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             stepCount = optionsAccessor.GetValueInt32(nameof(StepCount), -1);
             stepSize = optionsAccessor.GetValueInt32(nameof(StepSize), -1);
             signalAmplification = Math.Max(1, optionsAccessor.GetValueInt32(nameof(SignalAmplification), 2));
-            centerFocuserBeforeRun = optionsAccessor.GetValueBoolean(nameof(CenterFocuserBeforeRun), true);
+            centerFocuserBeforeRun = optionsAccessor.GetValueBoolean(nameof(CenterFocuserBeforeRun), false);
             framesPerPoint = optionsAccessor.GetValueInt32(nameof(FramesPerPoint), -1);
             timeoutSeconds = optionsAccessor.GetValueInt32(nameof(TimeoutSeconds), -1);
             simpleExposureSeconds = optionsAccessor.GetValueDouble(nameof(SimpleExposureSeconds), -1);
@@ -84,7 +84,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             StepCount = -1;
             StepSize = -1;
             SignalAmplification = 2;
-            CenterFocuserBeforeRun = true;
+            CenterFocuserBeforeRun = false;
             FramesPerPoint = -1;
             TimeoutSeconds = -1;
             SimpleExposureSeconds = -1;
@@ -155,10 +155,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        // When on (default), a quick standard autofocus is run before each live sensor-model / tilt sweep to center
+        // When on, a quick standard autofocus is run before each live sensor-model / tilt sweep to center
         // the focuser at best focus, so the sweep brackets focus symmetrically (fewer extreme one-sided defocus
-        // frames that fail to align). No effect on replay of saved frames.
-        private bool centerFocuserBeforeRun = true;
+        // frames that fail to align). Off by default — it adds a full AF run to every sweep. No effect on replay.
+        private bool centerFocuserBeforeRun = false;
 
         public bool CenterFocuserBeforeRun {
             get => centerFocuserBeforeRun;
@@ -191,7 +191,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             set {
                 if (timeoutSeconds != value) {
                     timeoutSeconds = value;
-                    optionsAccessor.SetValueInt32(nameof(StepCount), timeoutSeconds);
+                    optionsAccessor.SetValueInt32(nameof(TimeoutSeconds), timeoutSeconds);
                     RaisePropertyChanged();
                 }
             }
