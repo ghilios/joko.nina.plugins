@@ -283,9 +283,25 @@ namespace TestApp {
             // from the explicit mapping when present, else from the discovered folder count.
             string[] expectedSteps;
             if (metadata.RunStepMapping != null && metadata.RunStepMapping.Count > 0) {
-                expectedSteps = metadata.RunStepMapping.Any(m => string.Equals(m.Step, "AllInward", StringComparison.OrdinalIgnoreCase))
-                    ? StepOrder
-                    : TiltCalibrationMetadata.StepOrderWithoutCurvature;
+                bool hasAllInward = metadata.RunStepMapping.Any(m => string.Equals(m.Step, "AllInward", StringComparison.OrdinalIgnoreCase));
+                expectedSteps = hasAllInward ? StepOrder : TiltCalibrationMetadata.StepOrderWithoutCurvature;
+                if (!hasAllInward) {
+                    // A mapping without an "AllInward" entry is treated as a 4-step run, which silently
+                    // ignores any measured curvature-direction data. Entries that are not 4-step names
+                    // (a typo like "AllInwards", or a stray "ReBaseline1" without "AllInward") suggest
+                    // the author intended the 6-step flow — warn instead of guessing.
+                    var anomalous = metadata.RunStepMapping
+                        .Select(m => m.Step)
+                        .Where(s => !TiltCalibrationMetadata.StepOrderWithoutCurvature.Any(k => string.Equals(k, s, StringComparison.OrdinalIgnoreCase)))
+                        .ToList();
+                    if (anomalous.Count > 0) {
+                        Console.Error.WriteLine(
+                            $"WARNING: runStepMapping has no 'AllInward' entry, so this dataset is treated as a 4-step run " +
+                            $"({string.Join(", ", TiltCalibrationMetadata.StepOrderWithoutCurvature)}) and curvature-direction data is ignored. " +
+                            $"Unrecognized 4-step entries: {string.Join(", ", anomalous.Select(s => $"'{s}'"))}. " +
+                            $"If this was meant to be a 6-step run, check the step names in runStepMapping ({string.Join(", ", StepOrder)}).");
+                    }
+                }
             } else if (runFolders.Count == StepOrder.Length) {
                 expectedSteps = StepOrder;
             } else if (runFolders.Count == TiltCalibrationMetadata.StepOrderWithoutCurvature.Length) {

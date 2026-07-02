@@ -3,6 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
+    xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
     xmlns:s="clr-namespace:System;assembly=mscorlib"
     xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces">
     <ResourceDictionary.MergedDictionaries>
@@ -160,8 +161,12 @@
                 <TextBlock HorizontalAlignment="Center" Text="Screw 4" />
                 <TextBlock HorizontalAlignment="Center" Text="{Binding TiltAdapterOptions.Screw4AngleDegrees, StringFormat={}{0:F1}°}" />
             </UniformGrid>
-            <!--  Curvature row — shows the configured/measured direction of the curvature response  -->
-            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+            <!--  Curvature row — the arrow shows how the curvature effect responds to clockwise screw turns  -->
+            <UniformGrid
+                Margin="0,2"
+                VerticalAlignment="Center"
+                Columns="2"
+                ToolTip="The direction of the curvature response to clockwise screw turns (+ steps for stepper motors). Set by the adapter direction in the Measurement settings, or measured by a 6-step calibration run.">
                 <UniformGrid.Style>
                     <Style TargetType="UniformGrid">
                         <Setter Property="Visibility" Value="Collapsed" />
@@ -172,7 +177,7 @@
                         </Style.Triggers>
                     </Style>
                 </UniformGrid.Style>
-                <TextBlock HorizontalAlignment="Center" Text="Screws Inward" />
+                <TextBlock HorizontalAlignment="Center" Text="Screws CW" />
                 <TextBlock HorizontalAlignment="Center">
                     <Run Text="Curvature " /><Run Text="{Binding CurvatureSignDescription, Mode=OneWay}" />
                 </TextBlock>
@@ -576,7 +581,22 @@
                             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
                                 <TextBlock VerticalAlignment="Center" Text="Screw 1 angle (°)"
                                     ToolTip="Position angle of screw 1 in the image: 0° = straight up (12 o'clock), increasing clockwise. Remaining screws are placed at equal spacing (120° for 3 screws, 90° for 4)." />
-                                <TextBox MinWidth="60" Text="{Binding ManualScrew1AngleDegrees, UpdateSourceTrigger=LostFocus}" />
+                                <!--  Validation keeps the box in an error state on unparseable/out-of-range text: without it a
+                                      failed LostFocus conversion silently leaves the last valid angle in the VM while the box
+                                      shows the garbage text, and Apply would persist the stale angle.  -->
+                                <TextBox MinWidth="60">
+                                    <TextBox.Text>
+                                        <Binding Path="ManualScrew1AngleDegrees" UpdateSourceTrigger="LostFocus">
+                                            <Binding.ValidationRules>
+                                                <rules:DoubleRangeRule>
+                                                    <rules:DoubleRangeRule.ValidRange>
+                                                        <rules:DoubleRangeChecker Maximum="360" Minimum="0" />
+                                                    </rules:DoubleRangeRule.ValidRange>
+                                                </rules:DoubleRangeRule>
+                                            </Binding.ValidationRules>
+                                        </Binding>
+                                    </TextBox.Text>
+                                </TextBox>
                             </UniformGrid>
                             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
                                 <TextBlock VerticalAlignment="Center" Text="Numbering direction"

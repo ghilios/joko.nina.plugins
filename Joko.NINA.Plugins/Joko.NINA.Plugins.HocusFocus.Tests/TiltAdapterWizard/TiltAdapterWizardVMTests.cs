@@ -45,8 +45,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 tiltAdapterOptions: Substitute.For<ITiltAdapterOptions>());
         }
 
-        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options, ICameraMediator camera, IFocuserMediator focuser) Build(int screwCount = 3, IApplicationDispatcher dispatcher = null, System.Action<ITiltAdapterOptions> configureOptions = null) {
-            var profileService = Substitute.For<IProfileService>();
+        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options, ICameraMediator camera, IFocuserMediator focuser) Build(int screwCount = 3, IApplicationDispatcher dispatcher = null, System.Action<ITiltAdapterOptions> configureOptions = null, IProfileService profileService = null) {
+            profileService ??= Substitute.For<IProfileService>();
             var camera = Substitute.For<ICameraMediator>();
             var focuser = Substitute.For<IFocuserMediator>();
             var options = Substitute.For<ITiltAdapterOptions>();
@@ -447,6 +447,100 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 options.Received().CalibratedScrewCount = 3;
                 options.Received().IsCalibrated = true;
             });
+        }
+
+        [Test]
+        public void ApplyManualCalibration_NonFiniteAngle_WritesNothing() {
+            // WPF double bindings can push NaN; the guard must refuse to persist any calibration
+            // state (IsCalibrated over garbage angles would corrupt guidance until recalibrated).
+            var (vm, options, _, _) = Build(screwCount: 3);
+            options.ScrewInwardCurvatureSign.Returns(1);
+            vm.ManualScrew1AngleDegrees = double.NaN;
+            options.ClearReceivedCalls();
+
+            vm.ApplyManualCalibration();
+
+            Assert.Multiple(() => {
+                options.DidNotReceive().Screw1AngleDegrees = Arg.Any<double>();
+                options.DidNotReceive().Screw2AngleDegrees = Arg.Any<double>();
+                options.DidNotReceive().Screw3AngleDegrees = Arg.Any<double>();
+                options.DidNotReceive().Screw4AngleDegrees = Arg.Any<double>();
+                options.DidNotReceive().CalibratedScrewCount = Arg.Any<int>();
+                options.DidNotReceive().IsCalibrated = Arg.Any<bool>();
+                options.DidNotReceive().ScrewInwardCurvatureSignIsMeasured = Arg.Any<bool>();
+                options.DidNotReceive().CalibrationIsManual = Arg.Any<bool>();
+                options.DidNotReceive().LastMeasuredThreadPitchMicrons = Arg.Any<double>();
+                options.DidNotReceive().LastMeasuredStepperStepSizeMicrons = Arg.Any<double>();
+            });
+        }
+
+        [Test]
+        public void StepDescription_ArrowsFollowClockwiseUpConvention() {
+            // Summary-row arrows must match the guidance legend (⬆ = clockwise / + steps): the
+            // perturbation steps are CLOCKWISE moves per StepInstructionsText, so they carry ↑;
+            // the re-baseline undo moves are counter-clockwise and carry ↓.
+            var (vm3, _, _, _) = Build(screwCount: 3);
+            var (vm4, _, _, _) = Build(screwCount: 4);
+            Assert.Multiple(() => {
+                Assert.That(vm3.StepDescription(WizardStep.Baseline), Is.EqualTo("Baseline"));
+                Assert.That(vm3.StepDescription(WizardStep.AllInward), Is.EqualTo("All screws ↑"));
+                Assert.That(vm3.StepDescription(WizardStep.ReBaseline1), Is.EqualTo("Re-baseline (all ↓)"));
+                Assert.That(vm3.StepDescription(WizardStep.Screw1), Is.EqualTo("Screw 1 ↑"));
+                Assert.That(vm3.StepDescription(WizardStep.Screw2), Is.EqualTo("Screw 2 ↑"));
+                Assert.That(vm4.StepDescription(WizardStep.Screw1), Is.EqualTo("Screw 1 ↑, Screw 3 ↓"));
+                Assert.That(vm4.StepDescription(WizardStep.ReBaseline2), Is.EqualTo("Re-baseline (Screw 1 ↓, Screw 3 ↑)"));
+                Assert.That(vm4.StepDescription(WizardStep.Screw2), Is.EqualTo("Screw 2 ↑, Screw 4 ↓"));
+            });
+        }
+
+        [Test]
+        public void WizardSweepSummary_RefreshesOnInPlaceFocuserSettingEdits() {
+            // The summary reads the ACTIVE profile's FocuserSettings; editing those values in place
+            // (no profile swap) must re-raise it, filtered to the two properties it consumes.
+            var profileService = Substitute.For<IProfileService>();
+            var (vm, _, _, _) = Build(profileService: profileService);
+            var settings = profileService.ActiveProfile.FocuserSettings;
+
+            var raised = new List<string>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            settings.PropertyChanged += Raise.Event<System.ComponentModel.PropertyChangedEventHandler>(
+                settings, new System.ComponentModel.PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusInitialOffsetSteps)));
+            Assert.That(raised, Does.Contain(nameof(vm.WizardSweepSummary)));
+
+            raised.Clear();
+            settings.PropertyChanged += Raise.Event<System.ComponentModel.PropertyChangedEventHandler>(
+                settings, new System.ComponentModel.PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusNumberOfFramesPerPoint)));
+            Assert.That(raised, Does.Contain(nameof(vm.WizardSweepSummary)));
+
+            raised.Clear();
+            settings.PropertyChanged += Raise.Event<System.ComponentModel.PropertyChangedEventHandler>(
+                settings, new System.ComponentModel.PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusExposureTime)));
+            Assert.That(raised, Does.Not.Contain(nameof(vm.WizardSweepSummary)), "unrelated focuser settings must not re-raise the summary");
+        }
+
+        [Test]
+        public void WizardSweepSummary_RehooksFocuserSettingsOnProfileChange() {
+            var profileService = Substitute.For<IProfileService>();
+            var (vm, _, _, _) = Build(profileService: profileService);
+            var oldSettings = profileService.ActiveProfile.FocuserSettings;
+
+            var newProfile = Substitute.For<IProfile>();
+            profileService.ActiveProfile.Returns(newProfile);
+            profileService.ProfileChanged += Raise.Event<EventHandler>(profileService, EventArgs.Empty);
+            var newSettings = newProfile.FocuserSettings;
+
+            var raised = new List<string>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            newSettings.PropertyChanged += Raise.Event<System.ComponentModel.PropertyChangedEventHandler>(
+                newSettings, new System.ComponentModel.PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusInitialOffsetSteps)));
+            Assert.That(raised, Does.Contain(nameof(vm.WizardSweepSummary)), "the new profile's settings must be hooked");
+
+            raised.Clear();
+            oldSettings.PropertyChanged += Raise.Event<System.ComponentModel.PropertyChangedEventHandler>(
+                oldSettings, new System.ComponentModel.PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusInitialOffsetSteps)));
+            Assert.That(raised, Does.Not.Contain(nameof(vm.WizardSweepSummary)), "the previous profile's settings must be unhooked");
         }
 
         [Test]

@@ -254,6 +254,36 @@ public class InspectorOptionsTests {
     }
 
     [Test]
+    public void StepCount_ContaminatedByOldTimeoutBug_ResetsToDefaultAndHealsStore() {
+        // Profiles written by builds with the old TimeoutSeconds bug can hold a timeout value (e.g. 300)
+        // under the StepCount key. Load must reset it to -1 (use profile default) AND write the
+        // correction back through the accessor so the store is healed.
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        store.SetValueInt32(nameof(InspectorOptions.StepCount), 300);
+
+        var options = new InspectorOptions(profile, store);
+
+        Assert.Multiple(() => {
+            Assert.That(options.StepCount, Is.EqualTo(-1));
+            Assert.That(store.GetValueInt32(nameof(InspectorOptions.StepCount), -999), Is.EqualTo(-1));
+        });
+    }
+
+    [TestCase(-1)]
+    [TestCase(4)]
+    [TestCase(20)]
+    public void StepCount_PlausibleStoredValues_SurviveLoadUnchanged(int stored) {
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        store.SetValueInt32(nameof(InspectorOptions.StepCount), stored);
+
+        var options = new InspectorOptions(profile, store);
+
+        Assert.That(options.StepCount, Is.EqualTo(stored));
+    }
+
+    [Test]
     public void TimeoutSeconds_PersistsUnderItsOwnKey() {
         var (options, store, _) = Build();
         options.TimeoutSeconds = 120;

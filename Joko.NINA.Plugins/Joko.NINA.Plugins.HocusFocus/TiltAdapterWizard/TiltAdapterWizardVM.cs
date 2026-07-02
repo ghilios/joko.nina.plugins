@@ -96,6 +96,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private readonly Dictionary<WizardStep, StepReading> stepReadings = new Dictionary<WizardStep, StepReading>();
         private CancellationTokenSource measureCts;
 
+        // WizardSweepSummary reads the ACTIVE profile's FocuserSettings; these track the settings object
+        // currently subscribed so in-place edits refresh the summary and profile swaps re-hook cleanly.
+        private readonly System.ComponentModel.PropertyChangedEventHandler focuserSettingsHandler;
+        private IFocuserSettings hookedFocuserSettings;
+
+        private void HookActiveProfileFocuserSettings() {
+            if (hookedFocuserSettings != null) {
+                hookedFocuserSettings.PropertyChanged -= focuserSettingsHandler;
+            }
+            hookedFocuserSettings = profileService?.ActiveProfile?.FocuserSettings;
+            if (hookedFocuserSettings != null) {
+                hookedFocuserSettings.PropertyChanged += focuserSettingsHandler;
+            }
+        }
+
         private double calibrationAppliedAmount = 1.0;
         private double measuredHardwareMicrons = double.NaN;
         private double calibrationPixelSizeMicrons;
@@ -265,7 +280,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 });
             }
 
+            // WizardSweepSummary also reads the active profile's FocuserSettings (offset steps / frames
+            // per point), which the user can edit in place without swapping profiles — ProfileChanged
+            // alone would leave the summary stale. Track the active profile's FocuserSettings and
+            // re-hook on every profile change (unsubscribe old, subscribe new).
+            focuserSettingsHandler = (s, e) => OnUIThread(() => {
+                if (e.PropertyName == nameof(IFocuserSettings.AutoFocusInitialOffsetSteps) ||
+                    e.PropertyName == nameof(IFocuserSettings.AutoFocusNumberOfFramesPerPoint)) {
+                    RaisePropertyChanged(nameof(WizardSweepSummary));
+                }
+            });
+            HookActiveProfileFocuserSettings();
+
             profileService.ProfileChanged += (s, e) => OnUIThread(() => {
+                HookActiveProfileFocuserSettings();
                 RaisePropertyChanged(nameof(PixelSizeMicronsValue));
                 RaisePropertyChanged(nameof(FocuserStepSizeMicronsValue));
                 RaisePropertyChanged(nameof(SelectedDevice));
@@ -1097,15 +1125,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         // Description shown on each summary row, reflecting the single move performed for the step.
-        private string StepDescription(WizardStep step) {
+        // Arrow convention matches the guidance legend (⬆ = clockwise / + steps): ↑ = the screw was
+        // turned CLOCKWISE (+ steps), ↓ = COUNTER-CLOCKWISE (− steps) — screw motion, never
+        // adapter-plate motion. So the perturbation steps (all CW per StepInstructionsText) carry ↑
+        // and the re-baseline undo moves carry ↓. Internal for tests.
+        internal string StepDescription(WizardStep step) {
             bool four = tiltAdapterOptions.ScrewCount == 4;
             switch (step) {
                 case WizardStep.Baseline: return "Baseline";
-                case WizardStep.AllInward: return "All screws ↓";
-                case WizardStep.ReBaseline1: return "Re-baseline (all ↑)";
-                case WizardStep.Screw1: return four ? "Screw 1 ↓, Screw 3 ↑" : "Screw 1 ↓";
-                case WizardStep.ReBaseline2: return four ? "Re-baseline (Screw 1 ↑, Screw 3 ↓)" : "Re-baseline (Screw 1 ↑)";
-                case WizardStep.Screw2: return four ? "Screw 2 ↓, Screw 4 ↑" : "Screw 2 ↓";
+                case WizardStep.AllInward: return "All screws ↑";
+                case WizardStep.ReBaseline1: return "Re-baseline (all ↓)";
+                case WizardStep.Screw1: return four ? "Screw 1 ↑, Screw 3 ↓" : "Screw 1 ↑";
+                case WizardStep.ReBaseline2: return four ? "Re-baseline (Screw 1 ↓, Screw 3 ↑)" : "Re-baseline (Screw 1 ↓)";
+                case WizardStep.Screw2: return four ? "Screw 2 ↑, Screw 4 ↓" : "Screw 2 ↑";
                 default: return step.ToString();
             }
         }

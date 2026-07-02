@@ -14,7 +14,11 @@ turn moves it. That mapping is established once by the **Tilt Adapter Wizard**.
 
 Screw orientations are stored as angles measured **clockwise from straight up (12 o'clock)**: `0°` is
 the top of the sensor, `90°` is to the right, `180°` is the bottom, `270°` is to the left. The wizard
-stores one angle per screw (`Screw1AngleDegrees` … `Screw4AngleDegrees`).
+stores one angle per screw (`Screw1AngleDegrees` … `Screw4AngleDegrees`). On adapters where a
+clockwise turn moves the plate toward the objective, the stored convention encodes that direction:
+the wizard's diagram and saved-calibration angles read 180° rotated from the screws' physical
+positions in the image, while [Manual Calibration Entry](#manual-calibration-entry) always takes the
+physical angle.
 
 !!! warning "Orientation is tracked in image space, not physically"
     A star diagonal, a mirror, or a rotator can flip the sensor's orientation inside the camera body,
@@ -104,7 +108,8 @@ adapter direction setting, so guidance stays marked "(assumed)" until a **Measur
 verifies it. The entered angle is interpreted with the adapter direction setting in effect when you
 click **Apply** — if you change that setting later, click **Apply** again. If guidance moves the
 tilt the wrong way after a manual entry, the numbering direction is flipped: switch it and Apply
-again.
+again. A wrong adapter direction setting inverts guidance the same way — correct that setting and
+click **Apply** again.
 
 ## Hardware model and device presets
 

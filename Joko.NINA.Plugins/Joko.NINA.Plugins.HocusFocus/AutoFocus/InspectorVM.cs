@@ -101,6 +101,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // is instantiated directly here, mirroring HocusFocusPlugin — used to show the modal Review Frames dialog.
         private readonly IWindowServiceFactory windowServiceFactory = new WindowServiceFactory();
 
+        // SignalAmplificationSummary reads the ACTIVE profile's FocuserSettings; these track the settings
+        // object currently subscribed so in-place edits refresh the summary and profile swaps re-hook cleanly.
+        private readonly System.ComponentModel.PropertyChangedEventHandler focuserSettingsHandler;
+        private IFocuserSettings hookedFocuserSettings;
+
+        private void HookActiveProfileFocuserSettings() {
+            if (hookedFocuserSettings != null) {
+                hookedFocuserSettings.PropertyChanged -= focuserSettingsHandler;
+            }
+            hookedFocuserSettings = profileService?.ActiveProfile?.FocuserSettings;
+            if (hookedFocuserSettings != null) {
+                hookedFocuserSettings.PropertyChanged += focuserSettingsHandler;
+            }
+        }
+
         [ImportingConstructor]
         public InspectorVM(
             IProfileService profileService,
@@ -177,7 +192,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     RaisePropertyChanged(nameof(SignalAmplificationSummary));
                 }
             };
-            profileService.ProfileChanged += (s, e) => RaisePropertyChanged(nameof(SignalAmplificationSummary));
+            // SignalAmplificationSummary also reads the active profile's FocuserSettings (offset steps /
+            // frames per point), which the user can edit in place without swapping profiles —
+            // ProfileChanged alone would leave the summary stale. Track the active profile's
+            // FocuserSettings and re-hook on every profile change (unsubscribe old, subscribe new).
+            focuserSettingsHandler = (s, e) => {
+                if (e.PropertyName == nameof(IFocuserSettings.AutoFocusInitialOffsetSteps) ||
+                    e.PropertyName == nameof(IFocuserSettings.AutoFocusNumberOfFramesPerPoint)) {
+                    RaisePropertyChanged(nameof(SignalAmplificationSummary));
+                }
+            };
+            HookActiveProfileFocuserSettings();
+            profileService.ProfileChanged += (s, e) => {
+                HookActiveProfileFocuserSettings();
+                RaisePropertyChanged(nameof(SignalAmplificationSummary));
+            };
 
             this.tiltAdapterOptions = tiltAdapterOptions;
             TiltGuidance = new TiltAdapterGuidanceVM();

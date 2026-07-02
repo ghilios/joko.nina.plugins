@@ -3,8 +3,10 @@ using NINA.Equipment.Equipment.MyFocuser;
 using NINA.Equipment.Equipment.MyTelescope;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
+using NINA.Profile.Interfaces;
 using NSubstitute;
 using NUnit.Framework;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 
@@ -138,6 +140,77 @@ public class InspectorVMBehavioralTests {
             Assert.That(vm.SensorModel, Is.Not.Null);
             Assert.That(vm.TiltGuidance, Is.Not.Null);
             Assert.That(vm.InspectorOptions, Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public void TiltGuidance_CalibratedButUnmeasured_ShowsNoDirectionLegend() {
+        // The legend is gated in RebuildTiltGuidance: it renders only when the rows it annotates exist
+        // (HasTiltGuidance / HasNumericGuidance). Driving those true needs a fitted tilt/sensor model,
+        // which would take heavy scaffolding — so this pins the reachable half of the gate: with a
+        // valid calibration and a non-zero sign but no measurement, the legend must stay hidden even
+        // though BuildDirectionLegend would produce text for that sign.
+        var bundle = new MediatorBundle();
+        bundle.TiltAdapterOptions.IsCalibrated.Returns(true);
+        bundle.TiltAdapterOptions.ScrewCount.Returns(3);
+        bundle.TiltAdapterOptions.CalibratedScrewCount.Returns(3);
+        bundle.TiltAdapterOptions.ScrewInwardCurvatureSign.Returns(1);
+
+        var vm = bundle.BuildInspectorVM();
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasTiltAdapterCalibration, Is.True, "precondition: the calibration is valid");
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, curvatureSign: 1, signIsMeasured: false), Is.Not.Empty,
+                "precondition: the legend text itself would be non-empty for this sign");
+            Assert.That(vm.TiltGuidance.HasTiltGuidance, Is.False, "no measurement -> no arrow rows");
+            Assert.That(vm.TiltGuidance.HasNumericGuidance, Is.False, "no sensor model -> no numeric rows");
+            Assert.That(vm.TiltGuidance.DirectionLegend, Is.Empty, "the gate must suppress the legend when no rows exist");
+            Assert.That(vm.TiltGuidance.HasDirectionLegend, Is.False);
+        });
+    }
+
+    [Test]
+    public void SignalAmplificationSummary_RefreshesOnInPlaceFocuserSettingEdits() {
+        // The summary reads the ACTIVE profile's FocuserSettings; editing those values in place
+        // (no profile swap) must re-raise it, filtered to the two properties it consumes.
+        var bundle = new MediatorBundle();
+        var vm = bundle.BuildInspectorVM();
+        var settings = bundle.ProfileService.ActiveProfile.FocuserSettings;
+
+        int relevant = CountChanges(vm, nameof(InspectorVM.SignalAmplificationSummary), () => {
+            settings.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+                settings, new PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusInitialOffsetSteps)));
+            settings.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+                settings, new PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusNumberOfFramesPerPoint)));
+            settings.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+                settings, new PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusExposureTime))); // filtered out
+        });
+        Assert.That(relevant, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void SignalAmplificationSummary_RehooksFocuserSettingsOnProfileChange() {
+        var bundle = new MediatorBundle();
+        var vm = bundle.BuildInspectorVM();
+        var oldSettings = bundle.ProfileService.ActiveProfile.FocuserSettings;
+
+        var newProfile = Substitute.For<IProfile>();
+        bundle.ProfileService.ActiveProfile.Returns(newProfile);
+        bundle.ProfileService.ProfileChanged += Raise.Event<EventHandler>(bundle.ProfileService, EventArgs.Empty);
+        var newSettings = newProfile.FocuserSettings;
+
+        int fromNew = CountChanges(vm, nameof(InspectorVM.SignalAmplificationSummary), () => {
+            newSettings.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+                newSettings, new PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusInitialOffsetSteps)));
+        });
+        int fromOld = CountChanges(vm, nameof(InspectorVM.SignalAmplificationSummary), () => {
+            oldSettings.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+                oldSettings, new PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusInitialOffsetSteps)));
+        });
+
+        Assert.Multiple(() => {
+            Assert.That(fromNew, Is.EqualTo(1), "the new profile's settings must be hooked");
+            Assert.That(fromOld, Is.Zero, "the previous profile's settings must be unhooked");
         });
     }
 }

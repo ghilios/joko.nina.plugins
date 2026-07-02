@@ -73,6 +73,18 @@ public class TiltAdapterGuidanceVMTests {
         });
     }
 
+    // A fresh guidance object must carry no legend: the legend gate in InspectorVM.RebuildTiltGuidance
+    // relies on this default — DirectionLegend is only assigned when guidance rows exist, so the
+    // unassigned state must render nothing (HasDirectionLegend gates the XAML row).
+    [Test]
+    public void FreshGuidance_HasNoDirectionLegend() {
+        var vm = new TiltAdapterGuidanceVM();
+        Assert.Multiple(() => {
+            Assert.That(vm.DirectionLegend, Is.Empty);
+            Assert.That(vm.HasDirectionLegend, Is.False);
+        });
+    }
+
     // The Screw 4 backfocus arrow is shown only when the adapter has four screws AND the backfocus row
     // is active. This gating bool lets the XAML use a single plain Visibility binding (like every other
     // cell) instead of a MultiDataTrigger that failed to re-apply on the whole-object guidance swap.
