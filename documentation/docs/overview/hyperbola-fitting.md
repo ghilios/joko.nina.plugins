@@ -206,7 +206,7 @@ F = \frac{\big(\chi^2_{\text{sym}} - \chi^2_{\text{asym}}\big) / (p_{\text{asym}
 *On clean, near-symmetric data the asymmetric fit adds no significant improvement, so the F-test keeps
 the simpler symmetric model with its smaller \(\sigma_{\text{focus}}\).*
 
-## Which model should I pick?
+## Choosing a model
 
 Leave it on **Hybrid (Best Fit)**. Across a large bank of real runs no single fixed model wins on every curve, so
 per-run self-selection is the safe default. Asymmetric models fit tighter (lower RMS and

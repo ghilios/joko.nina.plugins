@@ -62,7 +62,7 @@ so it helps most on noisy, short, or high-gain subs and can hurt on already-clea
 
 ### 4. Wavelet structure detection (remove large-scale structures)
 
-This is the heart of what makes the detector robust to nebulae and gradients. The detector computes an
+This step is what makes the detector insensitive to nebulae and gradients. The detector computes an
 à-trous B3-spline wavelet residual over a configurable number of layers and **subtracts it**, which removes
 structures larger than the stars while keeping the stars themselves. A short Gaussian smoothing then heals
 the holes that subtracting large scales can punch in the middle of big or out-of-focus stars.

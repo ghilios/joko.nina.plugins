@@ -1,6 +1,6 @@
 # Overview & Features
 
-Hocus Focus is a plugin for [NINA](https://nighttime-imaging.eu/) that provides improved star detection, star annotation, auto focus, and tilt correction. It replaces or augments NINA's built-in star handling and auto-focus routines with a more accurate star detector, a fully customizable annotator, a concurrent auto-focus engine, and an aberration inspector that measures backfocus and sensor-tilt errors.
+Hocus Focus is a plugin for [NINA](https://nighttime-imaging.eu/) that provides improved star detection, star annotation, autofocus, and tilt correction. It replaces or augments NINA's built-in star handling and auto-focus routines with a more accurate star detector, a fully customizable annotator, a concurrent auto-focus engine, and an aberration inspector that measures backfocus and sensor-tilt errors.
 
 The plugin is deliberately modular: the star detector, the annotator, and the auto-focus engine can each be enabled independently, so keep whichever pieces you like and leave the rest on NINA's defaults. The features are wired in under **Options → Imaging → Image Options**, where installing the plugin adds **Star Detector**, **Star Annotator**, and **Autofocus** dropdowns; select **Hocus Focus** in each to turn that feature on.
 
@@ -20,7 +20,7 @@ The annotator controls how detected stars are drawn on top of an image. It offer
 
 ### Autofocus
 
-The Hocus Focus auto-focus engine **analyzes each exposure while the next focus point is being exposed**, which can make it faster than NINA's built-in auto focuser. It can **save AF runs** (the images and the annotated star detection) so a run can be **replayed later with different settings**. The concurrent design is especially valuable with the Hocus Focus star detector, which is more resource-intensive than the built-in one. See [Autofocus](autofocus.md).
+The Hocus Focus auto-focus engine analyzes each exposure while the next focus point is being exposed, which can make it faster than NINA's built-in auto focuser. It can save AF runs (the images and the annotated star detection) so a run can be replayed later with different settings. The concurrent design is especially valuable with the Hocus Focus star detector, which is more resource-intensive than the built-in one. See [Autofocus](autofocus.md).
 
 ### Tilt & Aberration Inspector
 

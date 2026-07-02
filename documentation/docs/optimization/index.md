@@ -28,7 +28,7 @@ reproducible and the optimizer can be exercised without launching NINA.
 
 *The wizard's start page: choose a saved auto-focus run and the optimization objectives.*
 
-The high-level loop is simple:
+The high-level loop has three steps:
 
 1. **Seed from the defaults, measure against your current settings.** The optimizer starts its search
    from the **fully-default** detection parameters (built through the autofocus detection path, with

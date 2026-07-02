@@ -3,7 +3,7 @@
 The Star Detection Optimization Wizard does not score your settings on a single image. It scores them on a whole
 **autofocus run**, a sweep of frames taken across a range of focuser positions. For each candidate
 set of detection parameters, the wizard detects stars on every frame, rebuilds the HFR-vs-focuser
-curve those frames imply, fits it, and reads how *sharp and trustworthy* the resulting best-focus
+curve those frames imply, fits it, and reads how *repeatable and trustworthy* the resulting best-focus
 estimate is. That single number is what the search maximizes.
 
 This page walks the pipeline end to end: detect → aggregate per frame → pool by focuser position →
@@ -99,9 +99,9 @@ unusable.
 
 Two of the objective's sub-scores read straight off this pipeline.
 
-### Focus sharpness — \(S_{\text{focus}}\)
+### Focus repeatability — \(S_{\text{focus}}\)
 
-The focus term rewards a best-focus estimate that is sharp **relative to the step size** you sweep
+The focus term rewards a best-focus estimate that is repeatable **relative to the step size** you sweep
 at. Define the normalized uncertainty \(\rho = \sigma_{\text{focus}} / \text{stepSize}\) (using the
 leave-one-out value when \(\sigma_{\text{focus}}\) is non-finite), then
 
