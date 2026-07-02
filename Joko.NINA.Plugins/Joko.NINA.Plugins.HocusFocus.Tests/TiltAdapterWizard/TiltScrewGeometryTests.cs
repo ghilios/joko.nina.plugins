@@ -199,4 +199,24 @@ public class TiltScrewGeometryTests {
         var (a, b) = TiltScrewGeometry.PhysicalGradientToPlane(0.01, 0.02, 0.0, 1000, 1000);
         Assert.That(double.IsNaN(a) && double.IsNaN(b), Is.True);
     }
+
+    [Test]
+    public void CurvatureSignForCwDirection_MatchesEmpiricalAnchor() {
+        Assert.Multiple(() => {
+            // Pinned to the empirically verified mapping (see TiltScrewGeometry comment): moving
+            // the adapter toward the objective DECREASES the curvature effect (user measurement,
+            // 2026-07-02), so CW-toward-objective => CW lowers the effect => -1. If this fails
+            // after an intentional flip, update BOTH the constant comment and this test.
+            Assert.That(TiltScrewGeometry.CurvatureSignWhenCwMovesAdapterTowardObjective, Is.EqualTo(-1));
+            Assert.That(TiltScrewGeometry.CurvatureSignForCwDirection(cwMovesAdapterTowardObjective: true), Is.EqualTo(-1));
+            Assert.That(TiltScrewGeometry.CurvatureSignForCwDirection(cwMovesAdapterTowardObjective: false), Is.EqualTo(1));
+            Assert.That(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(-1), Is.True);
+            Assert.That(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(1), Is.False);
+            // Default assumption: CW moves the adapter outward (toward the camera), so the default
+            // stored sign is +1 (CW raises the curvature effect) — equivalently, adapter motion
+            // toward the objective decreases it, the originally requested default behavior.
+            Assert.That(TiltScrewGeometry.DefaultScrewInwardCurvatureSign,
+                Is.EqualTo(TiltScrewGeometry.CurvatureSignForCwDirection(false)));
+        });
+    }
 }

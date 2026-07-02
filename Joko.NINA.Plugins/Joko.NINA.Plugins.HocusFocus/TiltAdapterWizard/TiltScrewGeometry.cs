@@ -132,6 +132,35 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             if (activeMicrons <= 0 || measuredMicrons <= 0) return false;
             return Math.Abs(activeMicrons - measuredMicrons) / measuredMicrons > fraction;
         }
+
+        // ---- Adapter direction ⇄ curvature sign --------------------------------------------------
+        //
+        // Clockwise (tighten) always advances a screw; the rig-specific unknown is whether that
+        // advance moves the adapter's plate toward the telescope objective ("inward") or toward the
+        // camera ("outward"). ScrewInwardCurvatureSign stores the measurable consequence: the sign
+        // of the curvature-effect response to a CW turn (+1 = raises it).
+        //
+        // EMPIRICAL ANCHOR (user measurement, 2026-07-02): moving the adapter toward the objective
+        // DECREASES the curvature effect. Therefore a rig where CW drives the adapter toward the
+        // objective has CW lowering the effect: sign -1.
+        public const int CurvatureSignWhenCwMovesAdapterTowardObjective = -1;
+
+        /// <summary>The stored curvature sign implied by the mechanical setting.</summary>
+        public static int CurvatureSignForCwDirection(bool cwMovesAdapterTowardObjective) =>
+            cwMovesAdapterTowardObjective
+                ? CurvatureSignWhenCwMovesAdapterTowardObjective
+                : -CurvatureSignWhenCwMovesAdapterTowardObjective;
+
+        /// <summary>The mechanical reading of a stored curvature sign (sign must be non-zero).</summary>
+        public static bool CwMovesAdapterTowardObjectiveForSign(int curvatureSign) =>
+            curvatureSign * CurvatureSignWhenCwMovesAdapterTowardObjective > 0;
+
+        // Default assumption when the direction was never measured or chosen: CW moves the adapter
+        // toward the camera (outward) — the common push-screw design; matches the tilt-domain doc
+        // ("turning a screw inward pushes that corner of the sensor away from the telescope").
+        // With the anchor above this makes the default stored sign +1 (CW raises the curvature
+        // effect; adapter motion toward the objective decreases it).
+        public static int DefaultScrewInwardCurvatureSign => CurvatureSignForCwDirection(false);
     }
 
     public readonly struct ScrewAxialCorrection {
