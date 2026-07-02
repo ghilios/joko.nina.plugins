@@ -1125,19 +1125,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         // Description shown on each summary row, reflecting the single move performed for the step.
-        // Arrow convention matches the guidance legend (⬆ = clockwise / + steps): ↑ = the screw was
-        // turned CLOCKWISE (+ steps), ↓ = COUNTER-CLOCKWISE (− steps) — screw motion, never
-        // adapter-plate motion. So the perturbation steps (all CW per StepInstructionsText) carry ↑
-        // and the re-baseline undo moves carry ↓. Internal for tests.
+        // Rotation glyphs match the guidance legend (⟳ = clockwise / + steps, ⟲ = counter-clockwise
+        // / − steps) — screw rotation, never adapter-plate motion (⬆/⬇ are reserved for motion in
+        // the guidance table). Perturbation steps (all CW per StepInstructionsText) carry ⟳ and the
+        // re-baseline undo moves carry ⟲. Internal for tests.
         internal string StepDescription(WizardStep step) {
             bool four = tiltAdapterOptions.ScrewCount == 4;
             switch (step) {
                 case WizardStep.Baseline: return "Baseline";
-                case WizardStep.AllInward: return "All screws ↑";
-                case WizardStep.ReBaseline1: return "Re-baseline (all ↓)";
-                case WizardStep.Screw1: return four ? "Screw 1 ↑, Screw 3 ↓" : "Screw 1 ↑";
-                case WizardStep.ReBaseline2: return four ? "Re-baseline (Screw 1 ↓, Screw 3 ↑)" : "Re-baseline (Screw 1 ↓)";
-                case WizardStep.Screw2: return four ? "Screw 2 ↑, Screw 4 ↓" : "Screw 2 ↑";
+                case WizardStep.AllInward: return "All screws ⟳";
+                case WizardStep.ReBaseline1: return "Re-baseline (all ⟲)";
+                case WizardStep.Screw1: return four ? "Screw 1 ⟳, Screw 3 ⟲" : "Screw 1 ⟳";
+                case WizardStep.ReBaseline2: return four ? "Re-baseline (Screw 1 ⟲, Screw 3 ⟳)" : "Re-baseline (Screw 1 ⟲)";
+                case WizardStep.Screw2: return four ? "Screw 2 ⟳, Screw 4 ⟲" : "Screw 2 ⟳";
                 default: return step.ToString();
             }
         }

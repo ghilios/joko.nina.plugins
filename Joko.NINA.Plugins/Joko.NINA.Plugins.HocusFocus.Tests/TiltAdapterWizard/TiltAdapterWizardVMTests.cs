@@ -475,21 +475,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void StepDescription_ArrowsFollowClockwiseUpConvention() {
-            // Summary-row arrows must match the guidance legend (⬆ = clockwise / + steps): the
-            // perturbation steps are CLOCKWISE moves per StepInstructionsText, so they carry ↑;
-            // the re-baseline undo moves are counter-clockwise and carry ↓.
+        public void StepDescription_UsesRotationGlyphs() {
+            // Summary-row glyphs must match the guidance legend (⟳ = clockwise / + steps,
+            // ⟲ = counter-clockwise / − steps): the perturbation steps are CLOCKWISE moves per
+            // StepInstructionsText, so they carry ⟳; the re-baseline undo moves carry ⟲.
             var (vm3, _, _, _) = Build(screwCount: 3);
             var (vm4, _, _, _) = Build(screwCount: 4);
             Assert.Multiple(() => {
                 Assert.That(vm3.StepDescription(WizardStep.Baseline), Is.EqualTo("Baseline"));
-                Assert.That(vm3.StepDescription(WizardStep.AllInward), Is.EqualTo("All screws ↑"));
-                Assert.That(vm3.StepDescription(WizardStep.ReBaseline1), Is.EqualTo("Re-baseline (all ↓)"));
-                Assert.That(vm3.StepDescription(WizardStep.Screw1), Is.EqualTo("Screw 1 ↑"));
-                Assert.That(vm3.StepDescription(WizardStep.Screw2), Is.EqualTo("Screw 2 ↑"));
-                Assert.That(vm4.StepDescription(WizardStep.Screw1), Is.EqualTo("Screw 1 ↑, Screw 3 ↓"));
-                Assert.That(vm4.StepDescription(WizardStep.ReBaseline2), Is.EqualTo("Re-baseline (Screw 1 ↓, Screw 3 ↑)"));
-                Assert.That(vm4.StepDescription(WizardStep.Screw2), Is.EqualTo("Screw 2 ↑, Screw 4 ↓"));
+                Assert.That(vm3.StepDescription(WizardStep.AllInward), Is.EqualTo("All screws ⟳"));
+                Assert.That(vm3.StepDescription(WizardStep.ReBaseline1), Is.EqualTo("Re-baseline (all ⟲)"));
+                Assert.That(vm3.StepDescription(WizardStep.Screw1), Is.EqualTo("Screw 1 ⟳"));
+                Assert.That(vm3.StepDescription(WizardStep.ReBaseline2), Is.EqualTo("Re-baseline (Screw 1 ⟲)"));
+                Assert.That(vm3.StepDescription(WizardStep.Screw2), Is.EqualTo("Screw 2 ⟳"));
+                Assert.That(vm4.StepDescription(WizardStep.Screw1), Is.EqualTo("Screw 1 ⟳, Screw 3 ⟲"));
+                Assert.That(vm4.StepDescription(WizardStep.ReBaseline2), Is.EqualTo("Re-baseline (Screw 1 ⟲, Screw 3 ⟳)"));
+                Assert.That(vm4.StepDescription(WizardStep.Screw2), Is.EqualTo("Screw 2 ⟳, Screw 4 ⟲"));
             });
         }
 
