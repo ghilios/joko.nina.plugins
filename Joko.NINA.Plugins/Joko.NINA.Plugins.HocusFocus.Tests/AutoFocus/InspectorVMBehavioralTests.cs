@@ -2,6 +2,8 @@ using NINA.Equipment.Equipment.MyCamera;
 using NINA.Equipment.Equipment.MyFocuser;
 using NINA.Equipment.Equipment.MyTelescope;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Inspection;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -146,10 +148,10 @@ public class InspectorVMBehavioralTests {
     [Test]
     public void TiltGuidance_CalibratedButUnmeasured_ShowsNoDirectionLegend() {
         // The legend is gated in RebuildTiltGuidance: it renders only when the rows it annotates exist
-        // (HasTiltGuidance / HasNumericGuidance). Driving those true needs a fitted tilt/sensor model,
-        // which would take heavy scaffolding — so this pins the reachable half of the gate: with a
+        // (HasTiltGuidance / HasNumericGuidance). This pins the suppression half of the gate: with a
         // valid calibration and a non-zero sign but no measurement, the legend must stay hidden even
-        // though BuildDirectionLegend would produce text for that sign.
+        // though BuildDirectionLegend would produce text for that state. The positive half (legend
+        // rendered once rows exist) is pinned by TiltGuidance_SigmaFlip_FlipsMotionArrowsNotTiltGlyphs.
         var bundle = new MediatorBundle();
         bundle.TiltAdapterOptions.IsCalibrated.Returns(true);
         bundle.TiltAdapterOptions.ScrewCount.Returns(3);
@@ -160,12 +162,114 @@ public class InspectorVMBehavioralTests {
 
         Assert.Multiple(() => {
             Assert.That(vm.HasTiltAdapterCalibration, Is.True, "precondition: the calibration is valid");
-            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, curvatureSign: 1, signIsMeasured: false), Is.Not.Empty,
-                "precondition: the legend text itself would be non-empty for this sign");
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: false), Is.Not.Empty,
+                "precondition: the legend text itself would be non-empty for this state");
             Assert.That(vm.TiltGuidance.HasTiltGuidance, Is.False, "no measurement -> no arrow rows");
             Assert.That(vm.TiltGuidance.HasNumericGuidance, Is.False, "no sensor model -> no numeric rows");
             Assert.That(vm.TiltGuidance.DirectionLegend, Is.Empty, "the gate must suppress the legend when no rows exist");
             Assert.That(vm.TiltGuidance.HasDirectionLegend, Is.False);
+        });
+    }
+
+    [Test]
+    public void TiltGuidance_SigmaFlip_FlipsMotionArrowsNotTiltGlyphs() {
+        // The σ-flip matrix from docs/tilt-guidance-motion-arrows-design.md, run with identical model
+        // inputs at σ = +1 then σ = −1:
+        //   • tilt MOTION arrows  = −σ·turns            → FLIP with σ
+        //   • backfocus MOTION arrow = sign(CurvatureEffectMicrons) — rig-independent physics → IDENTICAL
+        //   • tilt rotation glyph = sign(TiltMicrons)   → IDENTICAL
+        //   • backfocus rotation glyph = sign(σ·BackfocusMicrons) → FLIPS with σ
+        // This is the robustness property: a wrong direction setting can flip an arrow OR a glyph,
+        // but never both of the same row, so the two vocabularies cannot contradict each other.
+        // Also pinned here: the defensive σ = 0 fallback (renders as the default +1) and the
+        // legend's positive path (rows rendered ⇒ the fixed legend text renders).
+        var bundle = new MediatorBundle();
+        bundle.TiltAdapterOptions.IsCalibrated.Returns(true);
+        bundle.TiltAdapterOptions.ScrewCount.Returns(3);
+        bundle.TiltAdapterOptions.CalibratedScrewCount.Returns(3);
+        bundle.TiltAdapterOptions.ScrewInwardCurvatureSign.Returns(1);
+        bundle.TiltAdapterOptions.Screw1AngleDegrees.Returns(0.0);
+        bundle.TiltAdapterOptions.Screw2AngleDegrees.Returns(120.0);
+        bundle.TiltAdapterOptions.Screw3AngleDegrees.Returns(240.0);
+        bundle.TiltAdapterOptions.AdjustmentType.Returns(TiltAdjustmentType.Screws);
+        bundle.TiltAdapterOptions.ThreadPitchMicrons.Returns(100.0);
+        bundle.TiltAdapterOptions.ScrewRadiusMillimeters.Returns(30.0);
+
+        var vm = bundle.BuildInspectorVM();
+
+        // Tilt plane with a pure +Y gradient (A = 0, B = 10): screw 1 (top, θ = 0°) gets the largest
+        // CW-positive correction turns (+6.67; screws 2/3 get −3.33), so it is the observation point.
+        var imageSize = new System.Drawing.Size(1000, 1000);
+        var tiltPlane = TiltPlaneModel.Create(
+            imageSize: imageSize, fRatio: 5.0, focuserStepSizeMicrons: 1.0,
+            centerFocuser: 5.0, topLeftFocuser: 0.0, topRightFocuser: 0.0,
+            bottomLeftFocuser: 10.0, bottomRightFocuser: 10.0);
+        vm.TiltModel.SelectedTiltHistoryModel = new SensorTiltHistoryModel(
+            historyId: 1, tiltPlaneModel: tiltPlane, backfocusFocuserPositionDelta: 0.0);
+
+        // Fitted paraboloid with positive curvature (K > 0) and the same +Y tilt gradient: the corner
+        // curvature effect is 1e-5·(2000² + 2000²) = +80 µm (≥ the 50 µm large-arrow threshold), and
+        // screw 1's corrections are tilt = +30 µm (0.30 turns CW) / backfocus = −9000 µm (−90 turns).
+        var paraboloid = new SensorParaboloidModel(x0: 0, y0: 0, z0: 0, gx: 0, gy: 1e-3, k: 1e-5);
+        vm.SensorModel.SelectedTiltHistoryModel = new SensorParaboloidTiltHistoryModel(
+            historyId: 1, imageSize: imageSize, pixelSizeMicrons: 4.0, fRatio: 5.0,
+            focuserSizeMicrons: 1.0, finalFocusPosition: 0.0, tiltEffectMicrons: 0.0,
+            curvatureEffectMicrons: 0.0, autoFocusOffset: 0.0, tiltPlaneModel: null,
+            sensorModel: paraboloid);
+
+        TiltAdapterGuidanceVM Rebuild() {
+            bundle.TiltAdapterOptions.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+                bundle.TiltAdapterOptions, new PropertyChangedEventArgs(nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)));
+            return vm.TiltGuidance;
+        }
+
+        var plusSigma = Rebuild();
+        bundle.TiltAdapterOptions.ScrewInwardCurvatureSign.Returns(-1);
+        var minusSigma = Rebuild();
+        bundle.TiltAdapterOptions.ScrewInwardCurvatureSign.Returns(0);
+        var zeroSigma = Rebuild();
+
+        Assert.Multiple(() => {
+            Assert.That(vm.SensorModel.DisplayedSensorModel, Is.Not.Null, "precondition: the sensor model injection must stick");
+            Assert.That(vm.SensorModel.SensorModelResult.CurvatureEffectMicrons, Is.EqualTo(80.0).Within(1e-6),
+                "precondition: positive curvature effect above the large-arrow threshold");
+            Assert.That(plusSigma.HasTiltGuidance, Is.True, "precondition: tilt arrow row rendered");
+            Assert.That(plusSigma.HasBackfocusRow, Is.True, "precondition: backfocus arrow row rendered");
+            Assert.That(plusSigma.HasNumericGuidance, Is.True, "precondition: numeric rows rendered");
+
+            // On a default (σ = +1) rig CW moves the adapter toward the camera; screw 1 needs a CW
+            // rotation, so its MOTION is toward the camera: ⬇ under the fixed "⬆ = toward the
+            // objective" legend. Flipping σ flips the motion the same rotation produces.
+            Assert.That(plusSigma.Screw1TiltArrow, Is.EqualTo("⬇"), "σ=+1: CW-needed screw moves toward the camera");
+            Assert.That(minusSigma.Screw1TiltArrow, Is.EqualTo("⬆"), "tilt MOTION arrows flip with σ");
+
+            // Positive curvature effect ⇒ the local best-focus position must decrease ⇒ the adapter
+            // moves toward the objective — identical on every rig.
+            Assert.That(plusSigma.Screw1BackfocusArrow, Is.EqualTo("⬆"), "effect > 0 ⇒ toward the objective");
+            Assert.That(minusSigma.Screw1BackfocusArrow, Is.EqualTo("⬆"), "backfocus MOTION arrow is σ-independent");
+
+            // Rotation glyphs are the inverse matrix: tilt rotation is σ-free, backfocus rotation flips.
+            Assert.That(plusSigma.Screw1TiltAmount, Is.EqualTo("0.30 ⟳"));
+            Assert.That(minusSigma.Screw1TiltAmount, Is.EqualTo("0.30 ⟳"), "tilt rotation glyph is σ-independent");
+            Assert.That(plusSigma.Screw1BackfocusAmount, Is.EqualTo("90.00 ⟲"));
+            Assert.That(minusSigma.Screw1BackfocusAmount, Is.EqualTo("90.00 ⟳"), "backfocus rotation glyph flips with σ");
+
+            // Defensive σ = 0 (unreachable from persisted options): resolves to
+            // TiltScrewGeometry.DefaultScrewInwardCurvatureSign (+1), so the guidance renders
+            // exactly as the σ = +1 run — arrows and glyphs alike — rather than suppressing rows.
+            Assert.That(zeroSigma.HasTiltGuidance, Is.True, "σ=0 must not suppress the tilt arrows");
+            Assert.That(zeroSigma.HasBackfocusRow, Is.True, "σ=0 must not suppress the backfocus arrows");
+            Assert.That(zeroSigma.Screw1TiltArrow, Is.EqualTo(plusSigma.Screw1TiltArrow));
+            Assert.That(zeroSigma.Screw1BackfocusArrow, Is.EqualTo(plusSigma.Screw1BackfocusArrow));
+            Assert.That(zeroSigma.Screw1TiltAmount, Is.EqualTo(plusSigma.Screw1TiltAmount));
+            Assert.That(zeroSigma.Screw1BackfocusAmount, Is.EqualTo(plusSigma.Screw1BackfocusAmount));
+            Assert.That(zeroSigma.Screw1TotalAmount, Is.EqualTo(plusSigma.Screw1TotalAmount));
+
+            // Legend positive path: rows exist, so the fixed screws legend renders, with the
+            // "(assumed)" suffix because the fixture never marks the direction as wizard-measured.
+            Assert.That(plusSigma.HasDirectionLegend, Is.True, "rows rendered ⇒ legend rendered");
+            Assert.That(plusSigma.DirectionLegend, Is.EqualTo(
+                "⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in turns (assumed — set or measure in the Tilt Adapter Wizard)"));
         });
     }
 

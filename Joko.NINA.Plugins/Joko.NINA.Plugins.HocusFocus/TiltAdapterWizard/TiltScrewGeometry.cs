@@ -109,7 +109,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         /// stored at θ raises the local gradient along +θ by construction of the calibration), so it
         /// takes NO sign factor; the backfocus component is a physical axial requirement from the
         /// curvature model, so the configured/measured curvature sign converts it to a rotation
-        /// direction. A zero sign treats backfocus as +1 (callers then display magnitude only).
+        /// direction. A zero sign treats backfocus as +1 (defensive only — callers pre-resolve σ
+        /// to the default).
         /// </summary>
         public static double SignedTotalAdjustment(double tiltMicrons, double backfocusMicrons, double unitMicrons, int curvatureSign) {
             if (unitMicrons <= 0) return double.NaN;

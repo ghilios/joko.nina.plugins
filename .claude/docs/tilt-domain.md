@@ -21,6 +21,10 @@ Each screw has a physical orientation relative to the sensor that determines how
 
 Example: a screw at 0° (straight up from center) — turning it inward tilts the sensor plane along the vertical axis, pushing the top of the sensor away from the telescope.
 
+## Guidance arrows vs rotation glyphs
+
+The inspector's Tilt Adapter Guidance table uses two glyph vocabularies that answer different questions. The ⬆/⬇ arrows describe adapter-plate **motion** (⬆ = that corner moves toward the objective) — pure physics, identical on every rig. The ⟳/⟲ glyphs (screws) and +/− step signs (steppers) on the numeric rows carry the rig-specific **rotation** that produces that motion, which depends on the adapter's direction setting (`ScrewInwardCurvatureSign`). Never present ⬆/⬇ as a rotation. The full contract and sign derivations are in `docs/tilt-guidance-motion-arrows-design.md`.
+
 ## Image mirroring
 
 Camera images may be mirrored horizontally and/or vertically depending on the optical train (e.g., a star diagonal introduces a mirror). **Do not assume that screws numbered clockwise around the physical adapter will appear clockwise around the sensor image.** The screw orientations must be determined from the actual image coordinates after accounting for any mirroring. Plans and features that involve tilt correction must track orientation in image-space, not physical-space.

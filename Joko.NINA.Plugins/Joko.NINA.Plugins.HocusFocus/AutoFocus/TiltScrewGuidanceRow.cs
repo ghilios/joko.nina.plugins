@@ -10,7 +10,6 @@
 
 #endregion "copyright"
 
-using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using System;
 
 namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
@@ -42,8 +41,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public bool HasNumericGuidance { get; set; }
         public bool UnitsAreSteps { get; set; }
 
-        // Per-screw tilt and backfocus magnitudes (direction is shown by the arrows above), and the
-        // signed total with an explicit direction (CW/CCW turns for screws, +/− steps for steppers).
+        // Per-screw signed adjustments, all three rows carrying their own rotation direction
+        // (⟳/⟲ glyphs for screws, +/− signs for steppers). The arrows grid above describes adapter
+        // MOTION (⬆ = toward the objective), not rotation — the two answer different questions.
         public string Screw1TiltAmount { get; set; } = "—";
         public string Screw2TiltAmount { get; set; } = "—";
         public string Screw3TiltAmount { get; set; } = "—";
@@ -63,53 +63,38 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public string PitchMismatchWarning { get; set; } = string.Empty;
         public bool HasPitchMismatch => !string.IsNullOrEmpty(PitchMismatchWarning);
 
-        // One-line legend tying the arrows/totals to physical adapter motion; empty when unknown.
+        // One-line legend defining the motion arrows and rotation glyphs; empty until guidance renders.
         public string DirectionLegend { get; set; } = string.Empty;
         public bool HasDirectionLegend => !string.IsNullOrEmpty(DirectionLegend);
 
         /// <summary>
-        /// Legend for the guidance table. The adapter-motion wording comes from the configured or
-        /// measured curvature sign; "(assumed)" flags a sign never measured by the wizard.
+        /// Fixed legend for the guidance table: ⬆/⬇ describe adapter-plate motion (toward the
+        /// objective / toward the camera — pure physics, identical on every rig), and ⟳/⟲ (screws)
+        /// or the +/− step sign (steppers) describe the rig-specific rotation that produces it.
+        /// "(assumed)" flags a direction setting never verified by a wizard measurement.
         /// </summary>
-        public static string BuildDirectionLegend(bool steps, int curvatureSign, bool signIsMeasured) {
-            if (curvatureSign == 0) return string.Empty;
-            bool cwTowardObjective = TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(curvatureSign);
-            string inwardWord = steps ? "+ steps" : "clockwise";
-            string plateWord = cwTowardObjective ? "toward the objective" : "toward the camera";
+        public static string BuildDirectionLegend(bool steps, bool signIsMeasured) {
+            string body = steps
+                ? "⬆ = adapter moves toward the objective · steps are signed as in the wizard prompts"
+                : "⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in turns";
             string assumed = signIsMeasured ? string.Empty : " (assumed — set or measure in the Tilt Adapter Wizard)";
-            return $"⬆ = {inwardWord} (adapter moves {plateWord}){assumed}";
+            return body + assumed;
         }
 
         /// <summary>
-        /// Format an unsigned per-screw magnitude. Steppers round to whole steps (the user's choice);
-        /// screws show two decimals of a turn. Values that round to nothing render as an em dash.
+        /// Format a signed per-screw adjustment. Positive = clockwise / the wizard-prompt "+" step
+        /// direction. Screws render the magnitude with a rotation glyph ("1.25 ⟳" / "0.50 ⟲" — units
+        /// live in the legend); steppers render signed whole steps ("+35 steps"). Values that round
+        /// to nothing render as an em dash with no direction mark.
         /// </summary>
-        public static string FormatMagnitude(double amount, bool steps) {
-            double a = Math.Abs(amount);
+        public static string FormatAmount(double signedAmount, bool steps) {
             if (steps) {
-                long rounded = (long)Math.Round(a, MidpointRounding.AwayFromZero);
-                return rounded == 0 ? "—" : $"{rounded} steps";
-            }
-            return a < 0.005 ? "—" : $"{a:0.00} turns";
-        }
-
-        /// <summary>
-        /// Format the signed total adjustment with an explicit direction: clockwise/counter-clockwise
-        /// for screws, signed (+/−) steps for steppers. Positive input = the calibration "inward"
-        /// direction (a CW screw turn / + steps). When no direction is known
-        /// (<paramref name="hasDirection"/> false) only the magnitude is shown.
-        /// </summary>
-        public static string FormatTotal(double inwardAmount, bool steps, bool hasDirection) {
-            if (steps) {
-                long rounded = (long)Math.Round(Math.Abs(inwardAmount), MidpointRounding.AwayFromZero);
+                long rounded = (long)Math.Round(Math.Abs(signedAmount), MidpointRounding.AwayFromZero);
                 if (rounded == 0) return "—";
-                if (!hasDirection) return $"{rounded} steps";
-                return inwardAmount >= 0 ? $"+{rounded} steps" : $"−{rounded} steps";
+                return signedAmount >= 0 ? $"+{rounded} steps" : $"−{rounded} steps";
             }
-            if (Math.Abs(inwardAmount) < 0.005) return "—";
-            string magnitude = $"{Math.Abs(inwardAmount):0.00} turns";
-            if (!hasDirection) return magnitude;
-            return $"{magnitude} {(inwardAmount >= 0 ? "CW" : "CCW")}";
+            if (Math.Abs(signedAmount) < 0.005) return "—";
+            return $"{Math.Abs(signedAmount):0.00} {(signedAmount >= 0 ? "⟳" : "⟲")}";
         }
     }
 }
