@@ -42,23 +42,24 @@
     <hfconverters:EmptyCollectionToVisibilityConverter x:Key="HF_EmptyCollectionToVisibilityCollapsedConverter" />
 
     <!--
-        Clockwise rotation icon: a ~300° filled annular arc (outer r=34, inner r=22 about center
-        50,50) opening at the top, capped by a LARGE triangular arrowhead whose tip points clockwise
-        (up-and-right). The oversized head is deliberate — it makes the turn direction legible even
-        at ~14 px inline, which the old ⟳ glyph was not. Pairs with HF_RotationCcwSVG. Consume as a
-        Path with Stretch="Uniform" and a themed Fill.
+        Clockwise rotation icon: a filled ring (outer r=32, inner r=22 about center 50,50) open near
+        the lower-right, plus a separate LARGE triangular arrowhead at ~120° (4–5 o'clock) whose tip
+        points clockwise (down-and-left, tangent to the ring). The oversized head placed on the arc
+        is deliberate — it keeps the turn direction legible even at ~14 px inline, which the old ⟳
+        glyph was not. Pairs with HF_RotationCcwSVG. Consume as a Path with Stretch="Uniform" and a
+        themed Fill.
     -->
     <GeometryGroup x:Key="HF_RotationCwSVG">
-        <PathGeometry Figures="M 67,20.56 A 34,34 0 1 1 33,20.56 L 29,13.63 L 46.1,22.34 L 43,37.88 L 39,30.95 A 22,22 0 1 0 61,30.95 Z" />
+        <PathGeometry Figures="M 47.21,81.88 A 32,32 0 1 1 77.71,66 L 69.05,61 A 22,22 0 1 0 48.08,71.92 Z M 84.64,70 L 64.38,79.1 L 62.12,57 Z" />
     </GeometryGroup>
 
     <!--
         Counter-clockwise rotation icon: the horizontal mirror (x → 100−x) of HF_RotationCwSVG, so
-        the arrowhead points counter-clockwise (up-and-left). Arc sweep flags are inverted relative
-        to the CW variant because mirroring reverses the winding. Replaces the ⟲ glyph.
+        the arrowhead sits at ~240° (7–8 o'clock) and points counter-clockwise. Arc sweep flags are
+        inverted relative to the CW variant because mirroring reverses the winding. Replaces the ⟲ glyph.
     -->
     <GeometryGroup x:Key="HF_RotationCcwSVG">
-        <PathGeometry Figures="M 33,20.56 A 34,34 0 1 0 67,20.56 L 71,13.63 L 53.9,22.34 L 57,37.88 L 61,30.95 A 22,22 0 1 1 39,30.95 Z" />
+        <PathGeometry Figures="M 52.79,81.88 A 32,32 0 1 0 22.29,66 L 30.95,61 A 22,22 0 1 1 51.92,71.92 Z M 15.36,70 L 35.62,79.1 L 37.88,57 Z" />
     </GeometryGroup>
 
     <!--

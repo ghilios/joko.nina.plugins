@@ -164,7 +164,7 @@
             Foreground="{StaticResource PrimaryBrush}"
             Opacity="0.8"
             TextWrapping="Wrap"
-            controls:IconizedText.Text="Rectangle = image as shown in NINA (top = top of image). 0° points up; angles increase clockwise ⟳." />
+            controls:IconizedText.Text="Rectangle = image as shown in NINA. 0° points up; angles increase clockwise ⟳." />
         </StackPanel>
     </DataTemplate>
 
@@ -505,7 +505,7 @@
                         <ComboBox
                             Grid.Row="2"
                             Grid.Column="1"
-                            MinWidth="180"
+                            MinWidth="130"
                             VerticalAlignment="Center"
                             SelectedValuePath="Tag"
                             SelectedValue="{Binding CwMovesAdapterTowardObjective}">
