@@ -3,10 +3,10 @@
 The objective's [star-count term](objective-function.md) is a *proxy* for good detection. It rewards keeping
 enough stars on every frame, but it cannot tell a real faint star from a noise blob, or know that a particular
 accepted "star" is actually a hot column. When you want the optimizer to chase **measured** detection quality
-instead of a proxy, you give it ground truth: hand-drawn **labels**. With labels present, the objective gains a
-fourth term, \(S_{\text{label}}\), scored directly against the boxes you drew.
+instead of a proxy, you give it ground truth: hand-drawn **labels**. With labels present, the objective gains an
+additional term, \(S_{\text{label}}\), scored directly against the boxes you drew.
 
-This is entirely optional. Without labels the optimizer runs on the focus / star-count / curve-fit terms alone.
+This is entirely optional. Without labels the optimizer runs on the focus / star-count / curve-fit / coverage terms alone.
 
 !!! note "Labels vs golden star sets"
     Labels are *interactive* ground truth: a handful of boxes you draw, scored live inside the optimizer. To
@@ -32,10 +32,10 @@ candidate you think should have been kept, or click an accepted candidate that s
 
 Recall and precision are measured by whether an **accepted star center** falls inside each box:
 
-- **Recall** — the fraction of *recall-target* boxes (missed ∪ wrongly-rejected) that now contain at least one
+- **Recall** = the fraction of *recall-target* boxes (missed ∪ wrongly-rejected) that now contain at least one
   accepted star center. If you labeled nothing to recover, recall is 1.0 by definition.
-- **Precision** — the fraction of *should-reject* boxes that now contain **no** accepted star center, i.e. the
-  spurious detection has successfully been excluded. If you labeled no false positives, precision is 1.0.
+- **Precision** = the fraction of *should-reject* boxes that now contain **no** accepted star center, i.e. the
+  spurious detection has been excluded. If you labeled no false positives, precision is 1.0.
 
 A point \((c_x, c_y)\) is inside a box \((x, y, w, h)\) when \(x \le c_x \le x+w\) and \(y \le c_y \le y+h\).
 Recall and precision are averaged across all labeled focuser positions, then combined with equal weight:

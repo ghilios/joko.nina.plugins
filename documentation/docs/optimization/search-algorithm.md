@@ -38,7 +38,7 @@ The whole search is built around three properties that the design relies on.
 ![Staged compass / pattern search trajectory on a 2D objective surface](../assets/figures/compass-search.png){ width=620 }
 
 *The compass search starts at the seed, probes each axis by \(\pm\)step, steps to the best improving
-neighbor, and halves the step when a sweep finds nothing — converging on a local optimum.*
+neighbor, and halves the step when a sweep finds nothing, converging on a local optimum.*
 
 ## The search, end to end
 
@@ -73,8 +73,8 @@ The curated axes are partitioned into two groups by their effect on the detectio
 
 | Group | What a move does | Members |
 |---|---|---|
-| **EARLY** | Forces a full re-detect: rebuilds *and* evicts the cached per-frame detection context (the expensive wavelet / binarization / candidate-collection stage) | `HotpixelThresholdingEnabled`, `HotpixelThreshold`, `NoiseReductionRadius`, `NoiseClippingMultiplier`, `StructureLayers`, `DefocusAwareStructure` (plus internal context keys such as the saturation threshold and region) |
-| **LATE** | Re-runs only the cheap gate-and-measure step against an already-built context (a cache hit) | everything else — the gate/measure knobs and the synthetic `DefocusAwareGates` switch |
+| **EARLY** | Forces a full re-detect: rebuilds *and* evicts the cached per-frame detection context (the expensive wavelet / binarization / candidate-collection stage) | `HotpixelThresholdingEnabled`, `HotpixelThreshold`, `NoiseReductionRadius`, `NoiseClippingMultiplier`, `StructureLayers`, `DefocusAwareStructure`, and `DonutMorphCloseSize` when donut recovery is on (plus internal context keys such as the saturation threshold and region) |
+| **LATE** | Re-runs only the cheap gate-and-measure step against an already-built context (a cache hit) | everything else: the gate/measure knobs and the synthetic `DefocusAwareGates` switch |
 
 Each stage is itself a full compass over its subset:
 
@@ -131,10 +131,10 @@ One evaluation scores a candidate against the run the wizard is optimizing. The 
    early stage without exhausting memory. Results are assembled by frame index, so the outcome is
    identical to a sequential loop regardless of how the frames interleave.
 2. **Pools frames** that share a focuser position into one scatter point (mean HFR, SEM-pooled error),
-   matching the auto-focus engine's averaging.
+   matching the autofocus engine's averaging.
 3. **Fits the focus curve** with your run's actual AF fit settings, requiring at least
    `MinPositionsForFit = 3` distinct focuser positions; too few yields a NaN focus σ and the objective
-   hard-fails that run gracefully.
+   hard-fails that run to a score of 0.
 4. Reads \(\sigma_{\text{focus}}\), \(R^2\), and reduced \(\chi^2\) off the winning fit, plus recall
    and precision when labels exist.
 
@@ -165,7 +165,7 @@ so the speedup is free. Measured end to end, the early/late split plus bounded p
 
 ## Step-size recommendation
 
-The recommended auto-focus step size is **derived from the winning fit, not searched** — it is not one
+The recommended autofocus step size is **derived from the winning fit, not searched**: it is not one
 of the optimizer's variables. From the fitted curve, the recommender finds the focus-sensitive
 half-width \(W\): the offset from best focus at which the modeled HFR reaches three times the minimum HFR
 (averaged over the two sides to handle an asymmetric model). It then sets the step to

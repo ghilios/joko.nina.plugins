@@ -1,6 +1,6 @@
-# Search Variables — the Curated Search Space
+# Search Variables: The Curated Search Space
 
-The optimizer does **not** tune every star-detection parameter. It tunes a deliberately small, **curated set** of knobs that have the largest, most predictable effect on the autofocus curve, and it leaves everything else at your profile's current values. Keeping the search space small is what lets a derivative-free search converge inside a fixed evaluation budget (`MaxEvaluations = 250` by default, raised to `400` when *Recover out-of-focus donut stars* is enabled).
+The optimizer does **not** tune every star-detection parameter. It tunes a deliberately small, **curated set** of knobs that have the largest, most predictable effect on the autofocus curve, and it leaves the rest out of the search entirely. Keeping the search space small is what lets a derivative-free search converge inside a fixed evaluation budget (`MaxEvaluations = 250` by default, raised to `400` when *Recover out-of-focus donut stars* is enabled).
 
 This page is the reference for that curated set: every variable, its bounds, the setting it maps to, the two *synthetic* variables that drive more than one parameter at once, how values are quantized, and the EARLY/LATE split that makes the search fast.
 
@@ -28,7 +28,7 @@ Each row is one tunable axis. **Type** governs quantization (see [Quantization r
 | `DefocusAwareGates` | Boolean (synthetic) | 0 | 1 | — | Two gate-relaxation params at once (see below) |
 | `DefocusAwareStructure` | Integer (synthetic) | 0 | 4 | 1 | Defocus-aware structure flag + layer boost (see below) |
 
-That is the **12** always-on axes. The two synthetic rows in the table above (`DefocusAwareGates`, `DefocusAwareStructure`) plus seven further defocus-tuning knobs (`DefocusDistortionSizeReference`, `DefocusDistortionMinFactor`, `DefocusCenteringToleranceFactor`, `DonutMorphCloseSize`, `DonutMinAnnularityHoleFraction`, `DonutMaxStreakEccentricity`, `DonutSaturationBloomRadius`) are added only when *Recover out-of-focus donut stars* is enabled, taking the curated set to **21** axes; with that master toggle off (the default) the optimizer never touches any defocus parameter. Several bounds are open-ended in the detector (there is no hard UI validation range), so the wizard applies pragmatic heuristic limits. For example, `Sensitivity` was widened from a 20 to a 50 ceiling and `StarClippingMultiplier` to a `[0.25, 10]` range because rich star fields kept pinning the older, tighter bounds. The two highest-impact axes, `Sensitivity` and `StarClippingMultiplier`, are also the pair the search grids over first in its coarse Phase A (see [search algorithm](search-algorithm.md)).
+Those are the **12** always-on axes. The two synthetic rows in the table above (`DefocusAwareGates`, `DefocusAwareStructure`) plus seven further defocus-tuning knobs (`DefocusDistortionSizeReference`, `DefocusDistortionMinFactor`, `DefocusCenteringToleranceFactor`, `DonutMorphCloseSize`, `DonutMinAnnularityHoleFraction`, `DonutMaxStreakEccentricity`, `DonutSaturationBloomRadius`) are added only when *Recover out-of-focus donut stars* is enabled, taking the curated set to **21** axes; with that master toggle off (the default) the optimizer never touches any defocus parameter. Several bounds are open-ended in the detector (there is no hard UI validation range), so the wizard applies pragmatic heuristic limits. For example, `Sensitivity` was widened from a 20 to a 50 ceiling and `StarClippingMultiplier` to a `[0.25, 10]` range because rich star fields kept pinning the older, tighter bounds. The two highest-impact axes, `Sensitivity` and `StarClippingMultiplier`, are also the pair the search grids over first in its coarse Phase A (see [search algorithm](search-algorithm.md)).
 
 ## The two synthetic variables
 
@@ -38,7 +38,7 @@ Most axes are a one-to-one alias for a single `StarDetectorParams` field. Two ar
 
 A single on/off switch that flips **both** defocus-aware gate relaxations together (`DefocusAwareDistortion` and `DefocusAwareCentering`) in lockstep. When enabled, these gates relax the distortion and centering checks for large candidates (large size is used as a defocus proxy), recovering bloated and donut-shaped defocused stars that the strict gates would reject (see [defocused stars](../settings/acceptance-gates.md)).
 
-The variable reads the distortion flag as its value and writes the same value to both flags. The seed reads your current params (both OFF by default), so the baseline is unchanged, and the search may flip the pair on if it helps the curve.
+The variable reads the distortion flag as its value and writes the same value to both flags. Both flags are OFF in the default seed parameters, so the baseline is unchanged, and the search may flip the pair on if it helps the curve.
 
 !!! warning "Why turning the gates on isn't free"
     Relaxing the gates can also admit large, low-fill junk blobs. The objective guards this with a multiplicative *near-focus precision penalty* (`SDefocusPrecision`): it is exactly `1.0` when no relaxation-admitted stars exist (so OFF is bit-identical), and it only bites when a near-focus frame shows a sustained relaxed fraction above `0.20`, the junk signature. Legitimate donut recovery on the defocused extremes is never penalized. See [the objective function](objective-function.md).
@@ -47,11 +47,11 @@ The variable reads the distortion flag as its value and writes the same value to
 
 A single integer that drives **both** the `DefocusAwareStructure` flag **and** the `StructureLayerBoost` count. A value of `0` means OFF (the bit-identical baseline); any value `> 0` enables defocus-aware structure detection with that many extra wavelet layers, recovering large/donut defocused stars that otherwise never form a candidate at all.
 
-The variable reads the *effective* boost (0 when the flag is off), so the seed's `J` is unchanged; the search may raise it. Note this knob is **structure-side** (it changes which candidates are formed), whereas `DefocusAwareGates` is **gate-side** (it changes which formed candidates survive).
+The variable reads the *effective* boost (0 when the flag is off), so the seed's \(J\) is unchanged; the search may raise it. Note this knob is **structure-side** (it changes which candidates are formed), whereas `DefocusAwareGates` is **gate-side** (it changes which formed candidates survive).
 
 ## Quantization rules
 
-Every proposal flows through the variable's descriptor as a `double`, which is then **clamped** to `[Lower, Upper]` and **quantized** to a legal value of its type before being stored:
+Every proposal flows through the variable's descriptor as a `double`, which is **quantized** to a legal value of its type and then **clamped** to `[Lower, Upper]` before being stored:
 
 - **Continuous** — identity (any real value in range).
 - **Integer** — `Math.Round(v, AwayFromZero)`, then clamped. Integer step moves use `max(1, round(step))`, so an integer axis always moves by at least 1.
@@ -63,7 +63,7 @@ Because the bounds live in exactly one place per variable and every write re-qua
 
 Detection is internally split into a cacheable **EARLY context** (image preparation, candidate regions, both noise sigmas, early metrics) and a cheap **LATE** gate-and-measure pass. The optimizer mirrors this split by classifying each curated axis using the detector's single source of truth, `StarDetector.IsEarlyCacheKeyParameter`:
 
-- **EARLY axes** feed `BuildDetectionContext`. Moving one **forces a full re-detect** of every frame *and* evicts the cached early context. The EARLY-keyed curated variables are: `NoiseClippingMultiplier`, `StructureLayers`, `NoiseReductionRadius`, `HotpixelThresholdingEnabled`, `HotpixelThreshold`, and the synthetic `DefocusAwareStructure` (it shares the early cache-key property name).
+- **EARLY axes** feed `BuildDetectionContext`. Moving one **forces a full re-detect** of every frame *and* evicts the cached early context. The EARLY-keyed curated variables are: `NoiseClippingMultiplier`, `StructureLayers`, `NoiseReductionRadius`, `HotpixelThresholdingEnabled`, `HotpixelThreshold`, the synthetic `DefocusAwareStructure` (it shares the early cache-key property name), and, when donut recovery is enabled, `DonutMorphCloseSize` (the early morphological close).
 - **LATE axes** are everything else: `Sensitivity`, `StarClippingMultiplier`, `PeakResponse`, `MaxDistortion`, `MinHFR`, `StarCenterTolerance`, `MinimumStarBoundingBoxSize`, and the synthetic `DefocusAwareGates`. A move on a LATE axis is a **per-frame cache hit**: it reuses the already-built early context and only re-runs the cheap gate/measure stage.
 
 !!! tip "Why this is ~10–13× faster"
@@ -75,4 +75,4 @@ Detection is internally split into a cacheable **EARLY context** (image preparat
 
 ## Bounds are a floor and a ceiling, not a target
 
-The optimizer starts from your **current** profile values (the seed) and only accepts strictly-improving moves, so the result can never be worse than where you started. The bounds above define how far each axis is *allowed* to travel; rich star fields tend to push `Sensitivity` and the clipping multipliers toward their upper ends, while sparse fields stay low. If you find an optimized value pinned exactly at a bound, that is a hint the true optimum may lie outside the curated range and the limit (not the data) stopped the search.
+The optimizer starts from the seed (the **default** detection parameters, or your **current** settings when you choose *"Start from my current settings"*) and only accepts strictly-improving moves, so the result can never score worse than the seed; on top of that, the wizard never hands back a result worse than your current settings (see [search algorithm](search-algorithm.md#three-guarantees)). The bounds above define how far each axis is *allowed* to travel; rich star fields tend to push `Sensitivity` and the clipping multipliers toward their upper ends, while sparse fields stay low. If you find an optimized value pinned exactly at a bound, that is a hint the true optimum may lie outside the curated range and the limit (not the data) stopped the search.
