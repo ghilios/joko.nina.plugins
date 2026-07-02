@@ -584,7 +584,7 @@
                                 <!--  Validation keeps the box in an error state on unparseable/out-of-range text: without it a
                                       failed LostFocus conversion silently leaves the last valid angle in the VM while the box
                                       shows the garbage text, and Apply would persist the stale angle.  -->
-                                <TextBox MinWidth="60">
+                                <TextBox x:Name="ManualScrew1AngleBox" MinWidth="60">
                                     <TextBox.Text>
                                         <Binding Path="ManualScrew1AngleDegrees" UpdateSourceTrigger="LostFocus">
                                             <Binding.ValidationRules>
@@ -618,6 +618,15 @@
                                 Margin="0,8,0,0"
                                 HorizontalAlignment="Left"
                                 Command="{Binding ApplyManualCalibrationCommand}">
+                                <Button.Style>
+                                    <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ElementName=ManualScrew1AngleBox, Path=(Validation.HasError)}" Value="True">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
                                 <TextBlock
                                     Margin="10,5,10,5"
                                     Foreground="{StaticResource ButtonForegroundBrush}"
