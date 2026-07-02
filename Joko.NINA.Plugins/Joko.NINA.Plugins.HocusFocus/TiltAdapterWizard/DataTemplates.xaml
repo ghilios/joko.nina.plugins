@@ -2,6 +2,7 @@
     x:Class="NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard.DataTemplates"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:s="clr-namespace:System;assembly=mscorlib"
     xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces">
     <ResourceDictionary.MergedDictionaries>
@@ -128,7 +129,7 @@
         Calibration info rows shared between Panel A and Panel C.
         Matches inspector UniformGrid Columns="2" label+value pattern.
         Screw 4 row collapses for 3-screw setups.
-        Curvature row collapses until curvature sign is calibrated.
+        Curvature row shows the configured/measured direction of the curvature response.
     -->
     <DataTemplate x:Key="HF_TiltScrewCalibrationInfo">
         <StackPanel>
@@ -159,7 +160,7 @@
                 <TextBlock HorizontalAlignment="Center" Text="Screw 4" />
                 <TextBlock HorizontalAlignment="Center" Text="{Binding TiltAdapterOptions.Screw4AngleDegrees, StringFormat={}{0:F1}°}" />
             </UniformGrid>
-            <!--  Curvature row — collapses until curvature sign is calibrated  -->
+            <!--  Curvature row — shows the configured/measured direction of the curvature response  -->
             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
                 <UniformGrid.Style>
                     <Style TargetType="UniformGrid">
@@ -301,6 +302,150 @@
                         <TextBox MinWidth="60" Text="{Binding FocuserStepSizeMicronsValue, UpdateSourceTrigger=LostFocus}" />
                     </UniformGrid>
 
+                    <!--  Measurement cost & direction settings (shared Signal Amplification /
+                          Center Focuser First live in InspectorOptions — same values as the
+                          Aberration Inspector's controls)  -->
+                    <TextBlock
+                        Margin="0,10,0,5"
+                        FontWeight="Bold"
+                        Text="Measurement" />
+                    <Grid Margin="0,2">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="0"
+                            Margin="0,2,5,2"
+                            VerticalAlignment="Center"
+                            Text="Signal Amplification"
+                            ToolTip="Increases the resolution and signal of sensor-model / tilt calibration runs by capturing more, finer-spaced focuser points. Set to 1 to disable. Applies to live captures only." />
+                        <ninactrl:UnitTextBox
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            MinWidth="40"
+                            VerticalAlignment="Center"
+                            HorizontalContentAlignment="Left"
+                            VerticalContentAlignment="Center"
+                            Foreground="{StaticResource PrimaryBrush}"
+                            TextAlignment="Left"
+                            Unit="x">
+                            <Binding
+                                Mode="TwoWay"
+                                Path="Inspector.InspectorOptions.SignalAmplification"
+                                UpdateSourceTrigger="LostFocus" />
+                        </ninactrl:UnitTextBox>
+                        <TextBlock
+                            Grid.Row="0"
+                            Grid.Column="2"
+                            Margin="8,2,0,2"
+                            VerticalAlignment="Center"
+                            FontStyle="Italic"
+                            Opacity="0.7"
+                            Text="{Binding WizardSweepSummary}"
+                            TextWrapping="Wrap" />
+
+                        <TextBlock
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Margin="0,2,5,2"
+                            VerticalAlignment="Center"
+                            Text="Center Focuser First"
+                            ToolTip="When on, a quick standard AutoFocus is run before each live sweep to center the focuser at best focus. Off by default. No effect when replaying saved frames." />
+                        <CheckBox
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            IsChecked="{Binding Inspector.InspectorOptions.CenterFocuserBeforeRun}" />
+                        <TextBlock
+                            Grid.Row="1"
+                            Grid.Column="2"
+                            Margin="8,2,0,2"
+                            VerticalAlignment="Center"
+                            FontStyle="Italic"
+                            Opacity="0.7"
+                            Text="Adds one standard autofocus before every measurement sweep to re-center focus. Turn on if focus drifts between steps (e.g., temperature) or your focuser starts far from focus."
+                            TextWrapping="Wrap" />
+
+                        <TextBlock
+                            Grid.Row="2"
+                            Grid.Column="0"
+                            Margin="0,2,5,2"
+                            VerticalAlignment="Center"
+                            Text="{Binding CwDirectionLabel}"
+                            ToolTip="Whether tightening moves the adapter toward the camera or the objective depends on its design (push vs pull screws). Sets the direction of backfocus/curvature guidance." />
+                        <ComboBox
+                            Grid.Row="2"
+                            Grid.Column="1"
+                            MinWidth="180"
+                            VerticalAlignment="Center"
+                            SelectedValuePath="Tag"
+                            SelectedValue="{Binding CwMovesAdapterTowardObjective}">
+                            <ComboBox.Style>
+                                <Style BasedOn="{StaticResource {x:Type ComboBox}}" TargetType="ComboBox">
+                                    <Setter Property="IsEnabled" Value="True" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding TiltAdapterOptions.MeasureCurvatureDuringCalibration}" Value="True">
+                                            <Setter Property="IsEnabled" Value="False" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ComboBox.Style>
+                            <ComboBoxItem Content="Toward the camera — outward">
+                                <ComboBoxItem.Tag>
+                                    <s:Boolean>False</s:Boolean>
+                                </ComboBoxItem.Tag>
+                            </ComboBoxItem>
+                            <ComboBoxItem Content="Toward the objective — inward">
+                                <ComboBoxItem.Tag>
+                                    <s:Boolean>True</s:Boolean>
+                                </ComboBoxItem.Tag>
+                            </ComboBoxItem>
+                        </ComboBox>
+                        <TextBlock
+                            Grid.Row="2"
+                            Grid.Column="2"
+                            Margin="8,2,0,2"
+                            VerticalAlignment="Center"
+                            FontStyle="Italic"
+                            Opacity="0.7"
+                            Text="{Binding CurvatureSignProvenance}"
+                            TextWrapping="Wrap" />
+
+                        <TextBlock
+                            Grid.Row="3"
+                            Grid.Column="0"
+                            Margin="0,2,5,2"
+                            VerticalAlignment="Center"
+                            Text="Measure direction"
+                            ToolTip="Include the two curvature-direction steps in the calibration to determine the adapter direction automatically." />
+                        <CheckBox
+                            Grid.Row="3"
+                            Grid.Column="1"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            IsChecked="{Binding TiltAdapterOptions.MeasureCurvatureDuringCalibration}" />
+                        <TextBlock
+                            Grid.Row="3"
+                            Grid.Column="2"
+                            Margin="8,2,0,2"
+                            VerticalAlignment="Center"
+                            FontStyle="Italic"
+                            Opacity="0.7"
+                            Text="Adds 2 extra measurement steps (6 instead of 4 — about 50% longer) to determine the direction automatically. Turn on if you don't know how your adapter behaves, or to verify the setting above."
+                            TextWrapping="Wrap" />
+                    </Grid>
+
                     <!--  Calibrate + Replay side by side  -->
                     <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
                         <Button Command="{Binding StartCommand}">
@@ -382,6 +527,24 @@
                             </Style>
                         </StackPanel.Style>
 
+                        <TextBlock
+                            Margin="0,10,0,0"
+                            FontStyle="Italic"
+                            Opacity="0.7"
+                            Text="Manually entered calibration (not measured by the wizard)."
+                            TextWrapping="Wrap">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding TiltAdapterOptions.CalibrationIsManual}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+
                         <Grid Margin="0,10,0,0" HorizontalAlignment="Stretch">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -399,6 +562,49 @@
                                 Content="{Binding}" />
                         </Grid>
                     </StackPanel>
+
+                    <!--  Manual calibration entry: writes the same persisted state a wizard run
+                          does (screw angles + calibrated flags), tagged as manually entered.  -->
+                    <Expander Margin="0,10,0,0" Header="Manual Calibration Entry">
+                        <StackPanel Margin="0,5,0,0">
+                            <TextBlock
+                                Margin="0,0,0,5"
+                                FontStyle="Italic"
+                                Opacity="0.7"
+                                Text="If you already know where screw 1 sits, enter it here and skip the wizard. Angles and numbering direction are in image space — mirrors or diagonals in the optical train can flip them relative to the physical adapter. If guidance moves tilt the wrong way, flip the numbering direction. Set the adapter direction in the Measurement settings above if you know it."
+                                TextWrapping="Wrap" />
+                            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                                <TextBlock VerticalAlignment="Center" Text="Screw 1 angle (°)"
+                                    ToolTip="Position angle of screw 1 in the image: 0° = straight up (12 o'clock), increasing clockwise. Remaining screws are placed at equal spacing (120° for 3 screws, 90° for 4)." />
+                                <TextBox MinWidth="60" Text="{Binding ManualScrew1AngleDegrees, UpdateSourceTrigger=LostFocus}" />
+                            </UniformGrid>
+                            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                                <TextBlock VerticalAlignment="Center" Text="Numbering direction"
+                                    ToolTip="Whether screws 2 and up proceed clockwise or counter-clockwise from screw 1, as seen in the image." />
+                                <ComboBox MinWidth="120" SelectedValuePath="Tag" SelectedValue="{Binding ManualNumberingClockwise}">
+                                    <ComboBoxItem Content="Clockwise">
+                                        <ComboBoxItem.Tag>
+                                            <s:Boolean>True</s:Boolean>
+                                        </ComboBoxItem.Tag>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem Content="Counter-clockwise">
+                                        <ComboBoxItem.Tag>
+                                            <s:Boolean>False</s:Boolean>
+                                        </ComboBoxItem.Tag>
+                                    </ComboBoxItem>
+                                </ComboBox>
+                            </UniformGrid>
+                            <Button
+                                Margin="0,8,0,0"
+                                HorizontalAlignment="Left"
+                                Command="{Binding ApplyManualCalibrationCommand}">
+                                <TextBlock
+                                    Margin="10,5,10,5"
+                                    Foreground="{StaticResource ButtonForegroundBrush}"
+                                    Text="Apply" />
+                            </Button>
+                        </StackPanel>
+                    </Expander>
                 </StackPanel>
 
                 <!-- Panel B: Active wizard steps (visible when IsWizardRunning && !IsComplete) -->

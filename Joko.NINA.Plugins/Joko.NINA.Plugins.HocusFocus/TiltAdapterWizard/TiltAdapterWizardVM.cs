@@ -214,6 +214,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     e.PropertyName == nameof(ITiltAdapterOptions.MeasurementAverageCount)) {
                     RaisePropertyChanged(nameof(WizardSweepSummary));
                 }
+                if (e.PropertyName == nameof(ITiltAdapterOptions.MeasureCurvatureDuringCalibration)) {
+                    RaisePropertyChanged(nameof(CurvatureSignProvenance));
+                }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.CalibrationIsManual)) {
                     RaisePropertyChanged(nameof(IsCalibrationValid));
                 }
@@ -717,9 +720,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ? "Applying + steps moves the adapter"
             : "Turning screws clockwise moves the adapter";
 
-        public string CurvatureSignProvenance => tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured
-            ? "Direction was measured by a calibration run."
-            : "Direction is assumed — enable the measurement below (or run a 6-step calibration) to verify it.";
+        public string CurvatureSignProvenance =>
+            tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured
+                ? "Direction was measured by a calibration run."
+                : tiltAdapterOptions.MeasureCurvatureDuringCalibration
+                    ? "Direction will be measured on the next calibration run."
+                    : "Direction is assumed — enable the measurement below (or run a 6-step calibration) to verify it.";
 
         private double manualScrew1AngleDegrees;
 
