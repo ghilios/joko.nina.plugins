@@ -451,7 +451,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
                 string path = Path.Combine(ReportDirectory, $"{DateTime.Now:yyyy-MM-dd--HH-mm-ss}--{profileService.ActiveProfile.Id}.json");
-                File.WriteAllText(path, reportText);
+                // Atomic write: NINA core watches ReportDirectory and File.OpenText's new reports; a plain
+                // File.WriteAllText's open write handle races that reader into a sharing-violation IOException.
+                PathUtility.WriteAllTextAtomic(path, reportText);
                 return report;
             } catch (Exception ex) {
                 Logger.Error(ex);

@@ -47,4 +47,43 @@ public class PathUtilityTests {
             () => PathUtility.GetRelativePath(@"C:\foo", null),
             Throws.TypeOf<ArgumentNullException>());
     }
+
+    [Test]
+    public void WriteAllTextAtomic_WritesContent_AndLeavesNoTempFile() {
+        var dir = Path.Combine(Path.GetTempPath(), "hf-atomic-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try {
+            var path = Path.Combine(dir, "2026-07-03--22-53-42.json");
+            PathUtility.WriteAllTextAtomic(path, "{\"ok\":true}");
+
+            Assert.Multiple(() => {
+                Assert.That(File.ReadAllText(path), Is.EqualTo("{\"ok\":true}"));
+                // The rename must clean up after itself: no leftover temp file, and the final file keeps its extension.
+                Assert.That(Directory.GetFiles(dir, "*.tmp"), Is.Empty, "no temp file should remain after an atomic write");
+                Assert.That(Directory.GetFiles(dir), Has.Length.EqualTo(1));
+            });
+        } finally {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Test]
+    public void WriteAllTextAtomic_OverwritesExistingFile() {
+        var dir = Path.Combine(Path.GetTempPath(), "hf-atomic-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try {
+            var path = Path.Combine(dir, "report.json");
+            File.WriteAllText(path, "old");
+            PathUtility.WriteAllTextAtomic(path, "new");
+
+            Assert.That(File.ReadAllText(path), Is.EqualTo("new"));
+        } finally {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Test]
+    public void WriteAllTextAtomic_NullPath_Throws() {
+        Assert.That(() => PathUtility.WriteAllTextAtomic(null, "x"), Throws.TypeOf<ArgumentNullException>());
+    }
 }
