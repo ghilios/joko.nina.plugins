@@ -441,6 +441,123 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             });
         }
 
+        // --- HFR-improvement gate (region-0-only validation) ---
+        // The whole-run HFR-improvement check now gates on region 0 only; EvaluateHfrImprovement is the pure
+        // decision for a single region, unit-tested here since the full sweep can't be driven through the mocks.
+
+        [Test]
+        public void EvaluateHfrImprovement_FinalHfrNull_ReturnsFinalHfrMissing() {
+            Assert.That(AutoFocusEngine.EvaluateHfrImprovement(new MeasureAndError { Measure = 2.5 }, null, 0.1),
+                Is.EqualTo(AutoFocusEngine.AutoFocusFailureMode.FinalHfrMissing));
+        }
+
+        [Test]
+        public void EvaluateHfrImprovement_FinalHfrZero_ReturnsFinalHfrMissing() {
+            Assert.That(AutoFocusEngine.EvaluateHfrImprovement(new MeasureAndError { Measure = 2.5 }, new MeasureAndError { Measure = 0.0 }, 0.1),
+                Is.EqualTo(AutoFocusEngine.AutoFocusFailureMode.FinalHfrMissing));
+        }
+
+        [Test]
+        public void EvaluateHfrImprovement_InitialHfrZero_FinalOk_ReturnsInitialHfrFailed() {
+            // The incident's shape: a zero initial HFR with a healthy final HFR. Only fatal now when it's region 0.
+            Assert.That(AutoFocusEngine.EvaluateHfrImprovement(new MeasureAndError { Measure = 0.0 }, new MeasureAndError { Measure = 2.5 }, 0.1),
+                Is.EqualTo(AutoFocusEngine.AutoFocusFailureMode.InitialHfrFailed));
+        }
+
+        [Test]
+        public void EvaluateHfrImprovement_InitialHfrNull_FinalOk_ReturnsInitialHfrFailed() {
+            Assert.That(AutoFocusEngine.EvaluateHfrImprovement(null, new MeasureAndError { Measure = 2.5 }, 0.1),
+                Is.EqualTo(AutoFocusEngine.AutoFocusFailureMode.InitialHfrFailed));
+        }
+
+        [Test]
+        public void EvaluateHfrImprovement_FinalWorseBeyondThreshold_ReturnsHfrRegression() {
+            // initial 3.0, threshold 0.1 => reject when final > 3.3.
+            Assert.That(AutoFocusEngine.EvaluateHfrImprovement(new MeasureAndError { Measure = 3.0 }, new MeasureAndError { Measure = 3.4 }, 0.1),
+                Is.EqualTo(AutoFocusEngine.AutoFocusFailureMode.HfrRegression));
+        }
+
+        [Test]
+        public void EvaluateHfrImprovement_FinalWithinThreshold_ReturnsNone() {
+            // 3.3 == 3.0 * 1.1 exactly => accepted (strictly-greater rejection).
+            Assert.That(AutoFocusEngine.EvaluateHfrImprovement(new MeasureAndError { Measure = 3.0 }, new MeasureAndError { Measure = 3.3 }, 0.1),
+                Is.EqualTo(AutoFocusEngine.AutoFocusFailureMode.None));
+        }
+
+        [Test]
+        public void EvaluateHfrImprovement_FinalImproves_ReturnsNone() {
+            Assert.That(AutoFocusEngine.EvaluateHfrImprovement(new MeasureAndError { Measure = 3.0 }, new MeasureAndError { Measure = 2.5 }, 0.1),
+                Is.EqualTo(AutoFocusEngine.AutoFocusFailureMode.None));
+        }
+
+        // --- HFR-improvement validation failure diagnostics (expanded logging) ---
+        // The generic "Failed assessing HFR at the initial position" named neither the region nor the reason.
+        // DescribeHfrValidationFailure builds the enriched log line; verify it classifies the three causes and
+        // echoes the region index so a user can cross-reference the detector's "Region: N" lines.
+
+        [Test]
+        public void DescribeHfrValidationFailure_ZeroHfrFiniteStdev_SaysNoStars() {
+            // Genuine zero-star detection: EvaluateExposure returns {Measure: 0, Stdev: 0 (finite)}. This is the
+            // real incident — region 3 had <=1 usable star in the initial frame.
+            var subs = new List<MeasureAndError> { new MeasureAndError { Measure = 0.0, Stdev = 0.0 } };
+            var msg = AutoFocusEngine.DescribeHfrValidationFailure("initial position", 3, new MeasureAndError { Measure = 0.0, Stdev = 0.0 }, subs, framesPerPoint: 1);
+
+            Assert.Multiple(() => {
+                Assert.That(msg, Does.Contain("initial position"));
+                Assert.That(msg, Does.Contain("Region 3"));
+                Assert.That(msg, Does.Contain("found no usable stars"));
+                Assert.That(msg, Does.Contain("Measured HFR=0.00"));
+                Assert.That(msg, Does.Contain("sub-frames 1/1"));
+                Assert.That(msg, Does.Contain("Region: 3"), "must point the reader at the detector's Region line");
+                Assert.That(msg, Does.Not.Contain("NaN"));
+            });
+        }
+
+        [Test]
+        public void DescribeHfrValidationFailure_ZeroHfrNaNStdev_SaysAnalysisError() {
+            // AnalyzeExposure's catch injects {Measure: 0, Stdev: NaN} when detection threw for a sub-frame.
+            var subs = new List<MeasureAndError> { new MeasureAndError { Measure = 0.0, Stdev = double.NaN } };
+            var msg = AutoFocusEngine.DescribeHfrValidationFailure("final focus point", 2, new MeasureAndError { Measure = 0.0, Stdev = double.NaN }, subs, framesPerPoint: 1);
+
+            Assert.Multiple(() => {
+                Assert.That(msg, Does.Contain("final focus point"));
+                Assert.That(msg, Does.Contain("Region 2"));
+                Assert.That(msg, Does.Contain("analysis errored"));
+                Assert.That(msg, Does.Contain("σ=NaN"));
+            });
+        }
+
+        [Test]
+        public void DescribeHfrValidationFailure_NullHfr_SaysMeasurementIncomplete() {
+            // Null averaged HFR means the sub-frame loop never reached FramesPerPoint.
+            var subs = new List<MeasureAndError> { new MeasureAndError { Measure = 2.5, Stdev = 0.3 } };
+            var msg = AutoFocusEngine.DescribeHfrValidationFailure("initial position", 4, null, subs, framesPerPoint: 3);
+
+            Assert.Multiple(() => {
+                Assert.That(msg, Does.Contain("Region 4"));
+                Assert.That(msg, Does.Contain("no averaged HFR was recorded"));
+                Assert.That(msg, Does.Contain("1 of 3 sub-frame(s) completed"));
+                Assert.That(msg, Does.Contain("Measured HFR=null"));
+            });
+        }
+
+        [Test]
+        public void DescribeHfrValidationFailure_MultiFrame_ListsEachSubMeasurement() {
+            var subs = new List<MeasureAndError> {
+                new MeasureAndError { Measure = 0.0, Stdev = 0.0 },
+                new MeasureAndError { Measure = 0.0, Stdev = double.NaN },
+            };
+            var msg = AutoFocusEngine.DescribeHfrValidationFailure("initial position", 5, new MeasureAndError { Measure = 0.0, Stdev = 0.0 }, subs, framesPerPoint: 2);
+
+            Assert.Multiple(() => {
+                Assert.That(msg, Does.Contain("sub-frames 2/2"));
+                Assert.That(msg, Does.Contain("0.00 (σ=0.00)"));
+                Assert.That(msg, Does.Contain("0.00 (σ=NaN)"));
+                // Any NaN sub-frame means an analysis error dominated the classification.
+                Assert.That(msg, Does.Contain("analysis errored on 1 of 2"));
+            });
+        }
+
         private sealed class TempDir : IDisposable {
             public string Path { get; }
             public TempDir() {
