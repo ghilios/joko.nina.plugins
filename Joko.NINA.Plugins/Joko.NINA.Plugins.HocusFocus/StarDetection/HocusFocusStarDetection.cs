@@ -686,24 +686,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // curve point when enough unsaturated stars remain. When nothing is saturated this is the full starList,
             // so AverageHFR/HFRStdDev are bit-identical.
             var hfrStars = StarsForHfrAggregation(starList, detectorParams.ExcludeSaturatedStarsFromHFR, detectorParams.SaturationThreshold);
-            if (hfrStars.Count > 1) {
-                if (detectorParams.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
+            // AverageHFR/HFRStdDev need at least 2 usable stars to be meaningful; with 0 or 1 they stay 0 (a
+            // rejected curve point), which preserves the fit inputs exactly.
+            string hfrDispersionLabel;
+            if (detectorParams.MeasurementAverage == MeasurementAverageEnum.MeanOutliers) {
+                hfrDispersionLabel = "HFR σ";
+                if (hfrStars.Count > 1) {
                     result.AverageHFR = hfrStars.Average(s => s.HFR);
                     var hfrVariance = hfrStars.Sum(s => (s.HFR - result.AverageHFR) * (s.HFR - result.AverageHFR)) / (hfrStars.Count - 1);
                     result.HFRStdDev = Math.Sqrt(hfrVariance);
-
-                    if (!detectorParams.SuppressInfoLogging) {
-                        Logger.Info($"Average HFR: {result.AverageHFR}, HFR σ: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result?.Region.Index ?? 0}");
-                    }
-                } else {
+                }
+            } else {
+                hfrDispersionLabel = "HFR MAD";
+                if (hfrStars.Count > 1) {
                     var (hfrMedian, hfrMAD) = hfrStars.Select(s => s.HFR).MedianMAD();
                     result.AverageHFR = hfrMedian;
                     result.HFRStdDev = hfrMAD;
-
-                    if (!detectorParams.SuppressInfoLogging) {
-                        Logger.Info($"Average HFR: {result.AverageHFR}, HFR MAD: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result?.Region.Index ?? 0}");
-                    }
                 }
+            }
+
+            // Log EVERY region's result — including regions with too few usable stars, where AverageHFR stays 0 —
+            // so a region that dropped out (e.g. a transient no-star frame) is visible in the log rather than
+            // silently absent. Previously this line lived inside the "count > 1" guard, so a 0/1-star region logged
+            // nothing and its downstream HFR-validation failure had to be inferred from the missing line.
+            if (!detectorParams.SuppressInfoLogging) {
+                Logger.Info($"Average HFR: {result.AverageHFR}, {hfrDispersionLabel}: {result.HFRStdDev}, Detected Stars {result.StarList.Count}, Region: {result.Region?.Index ?? 0}");
             }
             result.DebugData = starDetectorResult.DebugData;
             result.Metrics = starDetectorResult.Metrics;

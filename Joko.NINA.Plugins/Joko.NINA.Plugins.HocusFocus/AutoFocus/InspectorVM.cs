@@ -1460,7 +1460,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             var reportText = JsonConvert.SerializeObject(regionReports[0], Formatting.Indented);
             string path = Path.Combine(HocusFocusVM.ReportDirectory, DateTime.Now.ToString("yyyy-MM-dd--HH-mm-ss") + ".json");
-            File.WriteAllText(path, reportText);
+            // Atomic write: NINA core watches ReportDirectory and File.OpenText's new reports; a plain
+            // File.WriteAllText's open write handle races that reader into a sharing-violation IOException.
+            PathUtility.WriteAllTextAtomic(path, reportText);
 
             var firstRegionReport = regionReports[0];
             var autoFocusInfo = new AutoFocusInfo(firstRegionReport.Temperature, firstRegionReport.CalculatedFocusPoint.Position, firstRegionReport.Filter, firstRegionReport.Timestamp);
@@ -1517,7 +1519,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var report = GenerateReportForRegion(e, 0);
             var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
             string path = Path.Combine(HocusFocusVM.ReportDirectory, DateTime.Now.ToString("yyyy-MM-dd--HH-mm-ss") + ".json");
-            File.WriteAllText(path, reportText);
+            // Atomic write (see the success-path write above): avoids the ReportDirectory read-while-write race
+            // with NINA core's AutoFocusToolVM.LoadChart. This is the exact site that produced the reported
+            // IOException on the AF-failed path.
+            PathUtility.WriteAllTextAtomic(path, reportText);
         }
 
         private HocusFocusReport GenerateReportForRegion(AutoFocusFinishedEventArgsBase e, int regionIndex) {

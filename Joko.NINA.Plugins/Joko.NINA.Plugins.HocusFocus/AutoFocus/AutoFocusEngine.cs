@@ -474,6 +474,66 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return calculatedPoint >= 0 && calculatedPoint != currentSweepCenter;
         }
 
+        // Builds the diagnostic explaining WHY the HFR-improvement validation rejected a region. The generic
+        // "Failed assessing HFR at the initial position" gave no way to tell which region failed or why; this
+        // names the region (the same integer the detector logs as "Region: N") and distinguishes the three
+        // causes recoverable from the region's measurement data:
+        //   - hfr == null            -> the sub-frame loop never reached FramesPerPoint (capture/analysis
+        //                               incomplete for this region, e.g. cancellation).
+        //   - Measure == 0, σ finite -> the detector ran but found no usable stars (AverageHFR stayed 0; see
+        //                               HocusFocusStarDetection's "hfrStars.Count > 1" guard).
+        //   - Measure == 0, σ = NaN  -> exposure analysis threw for a sub-frame (AnalyzeExposure's catch injects
+        //                               {Measure: 0, Stdev: NaN}).
+        // Pure/static so it is unit-testable in the same style as ShouldRetryFromCalculatedPoint.
+        internal static string DescribeHfrValidationFailure(
+            string phase,
+            int regionIndex,
+            MeasureAndError? hfr,
+            IReadOnlyList<MeasureAndError> subMeasurements,
+            int framesPerPoint) {
+            var subCount = subMeasurements?.Count ?? 0;
+            var nanCount = subMeasurements?.Count(m => double.IsNaN(m.Stdev)) ?? 0;
+
+            string cause;
+            if (!hfr.HasValue) {
+                cause = $"no averaged HFR was recorded ({subCount} of {framesPerPoint} sub-frame(s) completed; capture/analysis did not finish for this region)";
+            } else if (hfr.Value.Measure == 0.0) {
+                cause = nanCount > 0
+                    ? $"HFR measured 0 - exposure analysis errored on {nanCount} of {subCount} sub-frame(s) (σ=NaN)"
+                    : $"HFR measured 0 - the detector found no usable stars in this region across {subCount} sub-frame(s)";
+            } else {
+                // Defensive: the two call sites only invoke this on null-or-zero, but never assert a false reason.
+                cause = $"HFR {hfr.Value.Measure:0.00} was rejected";
+            }
+
+            var hfrText = hfr.HasValue ? hfr.Value.Measure.ToString("0.00") : "null";
+            var subList = subCount == 0
+                ? ""
+                : " [" + string.Join(", ", subMeasurements.Select(m =>
+                    $"{m.Measure:0.00} (σ={(double.IsNaN(m.Stdev) ? "NaN" : m.Stdev.ToString("0.00"))})")) + "]";
+
+            return $"Failed assessing HFR at the {phase} for Region {regionIndex}: {cause}. " +
+                   $"Measured HFR={hfrText}; sub-frames {subCount}/{framesPerPoint}{subList}. " +
+                   $"Cross-reference the \"Region: {regionIndex}\" star-detection lines.";
+        }
+
+        // The single-region HFR-improvement decision. Returns the specific rejection mode, or None when the region
+        // passes. The whole-run validation gates on region 0 only (see ValidateCalculatedFocusPosition), so a
+        // transient dropout in a corner/sub-region cannot discard an otherwise-good autofocus. Pure/static so the
+        // gate is unit-testable without the full sweep harness.
+        internal static AutoFocusFailureMode EvaluateHfrImprovement(MeasureAndError? initialHfr, MeasureAndError? finalHfr, double improvementThreshold) {
+            if (!finalHfr.HasValue || finalHfr.Value.Measure == 0.0) {
+                return AutoFocusFailureMode.FinalHfrMissing;
+            }
+            if (!initialHfr.HasValue || initialHfr.Value.Measure == 0.0) {
+                return AutoFocusFailureMode.InitialHfrFailed;
+            }
+            if (finalHfr.Value.Measure > initialHfr.Value.Measure * (1.0 + improvementThreshold)) {
+                return AutoFocusFailureMode.HfrRegression;
+            }
+            return AutoFocusFailureMode.None;
+        }
+
         private class AutoFocusState {
 
             public AutoFocusState(
@@ -515,6 +575,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             public AutoFocusFailureMode LastFailureMode { get; set; } = AutoFocusFailureMode.None;
             public int LastCalculatedFocusPoint { get; set; } = -1;
 
+            // Region index that tripped the last validation failure (HFR-improvement checks), so the metadata.json
+            // FailureReason can name it. Null when the failure has no single associated region.
+            public int? LastFailureRegionIndex { get; set; } = null;
+
             public List<Task> InitialHFRTasks { get; private set; } = new List<Task>();
             public List<Task> AnalysisTasks { get; private set; } = new List<Task>();
             public AsyncAutoResetEvent MeasurementCompleteEvent { get; private set; }
@@ -536,6 +600,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ResetFocusMeasurements();
                 LastFailureMode = AutoFocusFailureMode.None;
                 LastCalculatedFocusPoint = -1;
+                LastFailureRegionIndex = null;
                 ImageNumber = 0;
                 ++AttemptNumber;
             }
@@ -1563,30 +1628,33 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             if (autoFocusState.Options.AutoFocusMethod == AFMethodEnum.STARHFR && autoFocusState.Options.ValidateHfrImprovement) {
-                foreach (var autoFocusRegionState in autoFocusState.FocusRegionStates) {
-                    lock (autoFocusRegionState.SubMeasurementsLock) {
-                        if (!autoFocusRegionState.FinalHFR.HasValue || autoFocusRegionState.FinalHFR.Value.Measure == 0.0) {
-                            Logger.Warning("Failed assessing HFR at the final focus point");
-                            Notification.ShowWarning("Failed assessing HFR at the final focus point");
-                            autoFocusState.LastFailureMode = AutoFocusFailureMode.FinalHfrMissing;
-                            return false;
+                // Gate on region 0 — the primary/full-frame region that drives the focus decision — ONLY. A
+                // transient dropout in a corner/sub-region (e.g. one initial frame where a region momentarily
+                // detects no usable stars) must not discard an otherwise-good autofocus. This mirrors the
+                // region-0-only early guard in StartBlindFocusPoints. Every region's HFR is still logged by the
+                // detector for diagnosis; corner dropouts are simply non-fatal here.
+                var primaryRegionState = autoFocusState.FocusRegionStates[0];
+                lock (primaryRegionState.SubMeasurementsLock) {
+                    var hfrFailureMode = EvaluateHfrImprovement(primaryRegionState.InitialHFR, primaryRegionState.FinalHFR, autoFocusState.Options.HFRImprovementThreshold);
+                    if (hfrFailureMode != AutoFocusFailureMode.None) {
+                        autoFocusState.LastFailureMode = hfrFailureMode;
+                        autoFocusState.LastFailureRegionIndex = primaryRegionState.RegionIndex;
+                        switch (hfrFailureMode) {
+                            case AutoFocusFailureMode.FinalHfrMissing:
+                                Logger.Warning(DescribeHfrValidationFailure("final focus point", primaryRegionState.RegionIndex, primaryRegionState.FinalHFR, primaryRegionState.FinalHFRSubMeasurements, autoFocusState.Options.FramesPerPoint));
+                                Notification.ShowWarning($"Failed assessing HFR at the final focus point (Region {primaryRegionState.RegionIndex}). See log for details.");
+                                break;
+                            case AutoFocusFailureMode.InitialHfrFailed:
+                                Logger.Warning(DescribeHfrValidationFailure("initial position", primaryRegionState.RegionIndex, primaryRegionState.InitialHFR, primaryRegionState.InitialHFRSubMeasurements, autoFocusState.Options.FramesPerPoint));
+                                Notification.ShowWarning($"Failed assessing HFR at the initial position (Region {primaryRegionState.RegionIndex}). See log for details.");
+                                break;
+                            case AutoFocusFailureMode.HfrRegression:
+                                Logger.Warning($"New focus point HFR {primaryRegionState.FinalHFR?.Measure} is significantly worse than original HFR {primaryRegionState.InitialHFR?.Measure}");
+                                Notification.ShowWarning(string.Format(Loc.Instance["LblAutoFocusNewWorseThanOriginal"], primaryRegionState.FinalHFR?.Measure, primaryRegionState.InitialHFR?.Measure));
+                                autoFocusState.LastCalculatedFocusPoint = calculatedFocusPoint;
+                                break;
                         }
-                        if (!autoFocusRegionState.InitialHFR.HasValue || autoFocusRegionState.InitialHFR.Value.Measure == 0.0) {
-                            Logger.Warning("Failed assessing HFR at the initial position");
-                            Notification.ShowWarning("Failed assessing HFR at the initial position");
-                            autoFocusState.LastFailureMode = AutoFocusFailureMode.InitialHfrFailed;
-                            return false;
-                        }
-
-                        var finalHfr = autoFocusRegionState.FinalHFR?.Measure;
-                        var initialHFR = autoFocusRegionState.InitialHFR?.Measure;
-                        if (finalHfr > (initialHFR * (1.0 + autoFocusState.Options.HFRImprovementThreshold))) {
-                            Logger.Warning($"New focus point HFR {finalHfr} is significantly worse than original HFR {initialHFR}");
-                            Notification.ShowWarning(string.Format(Loc.Instance["LblAutoFocusNewWorseThanOriginal"], finalHfr, initialHFR));
-                            autoFocusState.LastFailureMode = AutoFocusFailureMode.HfrRegression;
-                            autoFocusState.LastCalculatedFocusPoint = calculatedFocusPoint;
-                            return false;
-                        }
+                        return false;
                     }
                 }
             }
@@ -2159,21 +2227,31 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         // Short human-readable reason for the metadata.json failure record, derived from the validation failure mode.
-        private static string FailureReasonText(AutoFocusFailureMode mode) {
+        // When the failure is attributable to a single region (the HFR-improvement checks), its index is appended so
+        // the replay record is self-describing; appended only when non-null to stay backward-compatible.
+        private static string FailureReasonText(AutoFocusFailureMode mode, int? regionIndex = null) {
+            string baseText;
             switch (mode) {
                 case AutoFocusFailureMode.HfrRegression:
-                    return "Final HFR worse than original";
+                    baseText = "Final HFR worse than original";
+                    break;
                 case AutoFocusFailureMode.FinalPointOutOfBounds:
-                    return "Calculated focus point outside the swept range";
+                    baseText = "Calculated focus point outside the swept range";
+                    break;
                 case AutoFocusFailureMode.FitQuality:
-                    return "Fit/data quality rejected (low R²/χ² or insufficient stars)";
+                    baseText = "Fit/data quality rejected (low R²/χ² or insufficient stars)";
+                    break;
                 case AutoFocusFailureMode.InitialHfrFailed:
-                    return "Initial HFR measurement failed";
+                    baseText = "Initial HFR measurement failed";
+                    break;
                 case AutoFocusFailureMode.FinalHfrMissing:
-                    return "Final HFR measurement failed";
+                    baseText = "Final HFR measurement failed";
+                    break;
                 default:
-                    return "AutoFocus failed";
+                    baseText = "AutoFocus failed";
+                    break;
             }
+            return regionIndex.HasValue ? $"{baseText}; Region {regionIndex.Value}" : baseText;
         }
 
         private void OnCompleted(
@@ -2242,7 +2320,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             TimeSpan duration) {
             // A failed run is still saved with a metadata.json (flagged as failed) so it can be inspected/replayed —
             // unlike OnIterationFailed, which is a mid-run retry boundary, this is the terminal failure.
-            WriteReplayMetadata(state, succeeded: false, failureReason: FailureReasonText(state.LastFailureMode));
+            WriteReplayMetadata(state, succeeded: false, failureReason: FailureReasonText(state.LastFailureMode, state.LastFailureRegionIndex));
             Failed?.Invoke(this, GetFailedEventArgs(state, temperature, duration));
         }
 
