@@ -59,6 +59,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double MeasuredHardwareMicrons { get; set; }
         public double RawAngleDiffDegrees { get; set; }
         public double MoveMagnitudeRatio { get; set; }
+
+        // ---- Confidence (persisted so a saved/replayed run carries its reliability) ----
+        public double SignalToNoise { get; set; } = double.NaN;
+        public double PredictedAngleUncertaintyDeg { get; set; } = double.NaN;
+        public double PitchUncertaintyMicrons { get; set; } = double.NaN;
+        public bool ConfidenceIsReliable { get; set; }
     }
 
     /// <summary>
@@ -70,7 +76,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// </summary>
     public sealed class TiltCalibrationMetadata {
 
-        public const int CurrentSchemaVersion = 1;
+        public const int CurrentSchemaVersion = 2;
 
         /// <summary>The six discrete measurement steps, in capture order. Same for 3- and 4-screw adapters.</summary>
         public static readonly string[] StepOrder = {
