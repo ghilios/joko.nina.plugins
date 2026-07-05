@@ -639,7 +639,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             bool four = screwCount == 4;
             switch (step) {
                 case WizardStep.Baseline:
-                    return "Label your screws 1, 2, and 3 (or 1–4 for a 4-screw adapter) in a consistent clockwise order. " +
+                    return (four
+                            ? "Label your screws 1, 2, 3, and 4 in a consistent clockwise order. "
+                            : "Label your screws 1, 2, and 3 in a consistent clockwise order. ") +
                         "Screw 1 does NOT need to be at any particular clock position — the wizard determines each screw's actual " +
                         "position from the measurements.\n\nEnsure all screws are at their starting position, then click Run Measurement to take a baseline reading.";
                 case WizardStep.AllInward:

@@ -131,17 +131,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void StepInstructions_DiffersByScrewCountAtAllScrewsStep() {
+        public void StepInstructions_BaselineLabelsExactScrewCount() {
             var (vm3, _, _, _) = Build(screwCount: 3);
             var (vm4, _, _, _) = Build(screwCount: 4);
 
-            // Manually advance to AllScrews via reflection-free path: update via PropertyChanged on options
-            // is ineffective for CurrentStep. Use only what we can verify at Baseline first.
-            // Baseline instructions are screw-count independent.
+            // The Baseline (first) step names the exact screws to label — the screw configuration
+            // is already known here, so it must not offer the "(or 1–4 for a 4-screw adapter)" hedge.
             var b3 = vm3.StepInstructions;
             var b4 = vm4.StepInstructions;
-            Assert.That(b3, Is.EqualTo(b4));
-            Assert.That(b3, Does.Contain("baseline"));
+            Assert.Multiple(() => {
+                Assert.That(b3, Does.Contain("Label your screws 1, 2, and 3 in a consistent clockwise order"));
+                Assert.That(b4, Does.Contain("Label your screws 1, 2, 3, and 4 in a consistent clockwise order"));
+                Assert.That(b3, Does.Not.Contain("4-screw"));
+                Assert.That(b4, Does.Not.Contain("3-screw"));
+                Assert.That(b3, Is.Not.EqualTo(b4));
+                Assert.That(b3, Does.Contain("baseline"));
+            });
         }
 
         [Test]
