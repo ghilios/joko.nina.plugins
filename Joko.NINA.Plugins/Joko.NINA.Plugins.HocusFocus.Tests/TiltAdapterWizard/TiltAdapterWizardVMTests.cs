@@ -5,6 +5,7 @@ using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
@@ -15,7 +16,12 @@ using NSubstitute;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
+// Import just the one type — the StarDetection.Optimization namespace also defines a WizardStep that would
+// collide with TiltAdapterWizard.WizardStep used elsewhere in this fixture.
+using OptimizedStarDetectionSettings = NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.OptimizedStarDetectionSettings;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
 
@@ -886,6 +892,58 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(drift, Does.Contain("MicronsPerFocuserStep"));
                 Assert.That(drift, Does.Not.Contain("FocalRatio"));
             });
+        }
+
+        [Test]
+        public void OverlayOptimizedSettings_AppliesEveryCuratedKnob_SoTheReplayOverlayCannotDriftFromTheDto() {
+            // Reproducibility guard: every detection knob a run persists in OptimizedStarDetectionSettings must be
+            // reapplied by the tilt replay overlay. A knob present in the DTO but missing from OverlayOptimizedSettings
+            // silently leaks the live-profile value on replay — the LocallyAdaptiveBinarization / AdaptiveNoiseBlockSize
+            // regression that made a replayed calibration disagree with the run it was captured from.
+            var metadataOnly = new HashSet<string> {
+                nameof(OptimizedStarDetectionSettings.CreatedAtUtc),
+                nameof(OptimizedStarDetectionSettings.RunCount),
+                nameof(OptimizedStarDetectionSettings.BaselineJ),
+                nameof(OptimizedStarDetectionSettings.FinalJ),
+                nameof(OptimizedStarDetectionSettings.RecommendedStepSize),
+                nameof(OptimizedStarDetectionSettings.RecommendedOffsetSteps),
+                nameof(OptimizedStarDetectionSettings.SchemaVersion),
+            };
+            var curatedKnobs = typeof(OptimizedStarDetectionSettings)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.CanRead && p.CanWrite && !metadataOnly.Contains(p.Name))
+                .ToList();
+            Assert.That(curatedKnobs, Is.Not.Empty, "Expected OptimizedStarDetectionSettings to expose curated knobs");
+
+            // Give each knob a sentinel that differs from a fresh snapshot's default (bools default false, ints default
+            // 0 except AdaptiveNoiseBlockSize=128, doubles default 0.0), so a copied knob is provably distinguishable
+            // from one the overlay left untouched.
+            var dto = new OptimizedStarDetectionSettings();
+            for (int i = 0; i < curatedKnobs.Count; i++) {
+                curatedKnobs[i].SetValue(dto, SentinelFor(curatedKnobs[i].PropertyType, i));
+            }
+
+            var snapshot = new StarDetectionSettingsSnapshot();
+            TiltAdapterWizardVM.OverlayOptimizedSettings(snapshot, dto);
+
+            var snapshotType = typeof(StarDetectionSettingsSnapshot);
+            Assert.Multiple(() => {
+                foreach (var knob in curatedKnobs) {
+                    var snapProp = snapshotType.GetProperty(knob.Name, BindingFlags.Public | BindingFlags.Instance);
+                    Assert.That(snapProp, Is.Not.Null, $"StarDetectionSettingsSnapshot has no '{knob.Name}' to receive the curated knob");
+                    if (snapProp != null) {
+                        Assert.That(snapProp.GetValue(snapshot), Is.EqualTo(knob.GetValue(dto)),
+                            $"OverlayOptimizedSettings did not copy '{knob.Name}' onto the replay snapshot");
+                    }
+                }
+            });
+        }
+
+        private static object SentinelFor(Type type, int index) {
+            if (type == typeof(bool)) return true;              // fresh snapshot bools default to false
+            if (type == typeof(int)) return 1000 + index;       // != 0 and != AdaptiveNoiseBlockSize's 128 default
+            if (type == typeof(double)) return 100.0 + index;   // != 0.0
+            throw new NotSupportedException($"Add a sentinel for curated knob type {type} in the OverlayOptimizedSettings guard test");
         }
     }
 }

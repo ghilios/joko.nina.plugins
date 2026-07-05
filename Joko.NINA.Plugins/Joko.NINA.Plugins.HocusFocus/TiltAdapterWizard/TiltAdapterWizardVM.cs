@@ -1961,8 +1961,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Overlays the curated optimized-settings subset onto a snapshot, mirroring
         // StarDetectionOptions.ApplyOptimizedSnapshotToLiveProperties (the curated knobs win; the rest keep the
-        // snapshot's current-options values).
-        private static void OverlayOptimizedSettings(StarDetectionSettingsSnapshot snapshot, OptimizedStarDetectionSettings s) {
+        // snapshot's current-options values). Internal so OverlayOptimizedSettings_AppliesEveryCuratedKnob can guard
+        // it against silently dropping a knob that OptimizedStarDetectionSettings persists.
+        internal static void OverlayOptimizedSettings(StarDetectionSettingsSnapshot snapshot, OptimizedStarDetectionSettings s) {
             snapshot.BrightnessSensitivity = s.BrightnessSensitivity;
             snapshot.StarClippingMultiplier = s.StarClippingMultiplier;
             snapshot.NoiseClippingMultiplier = s.NoiseClippingMultiplier;
@@ -1983,6 +1984,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             snapshot.StructureLayerBoost = s.StructureLayerBoost;
             snapshot.DefocusAwareDonutDetection = s.DefocusAwareDonutDetection;
             snapshot.DonutMorphCloseSize = s.DonutMorphCloseSize;
+            snapshot.LocallyAdaptiveBinarization = s.LocallyAdaptiveBinarization;
+            snapshot.AdaptiveNoiseBlockSize = s.AdaptiveNoiseBlockSize;
             snapshot.DonutMinAnnularityHoleFraction = s.DonutMinAnnularityHoleFraction;
             snapshot.DonutMaxStreakEccentricity = s.DonutMaxStreakEccentricity;
             snapshot.DonutSaturationBloomRadius = s.DonutSaturationBloomRadius;
