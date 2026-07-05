@@ -939,6 +939,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        [Test]
+        public void BuildTiltReplayDetectionOverride_PrefersRunLevelFullSnapshot_OverCuratedOverlay() {
+            // A run that stored the full snapshot pins detection directly from it, instead of overlaying only the
+            // curated subset onto the live profile. (Tilt captures never emit per-step AutoFocusReplayMetadata, so
+            // this run-level snapshot is the effective full-pin path for tilt replays.)
+            var fullSnapshot = new StarDetectionSettingsSnapshot { BrightnessSensitivity = 42, LocallyAdaptiveBinarization = true };
+            var metadata = new TiltCalibrationMetadata { StarDetectionSnapshot = fullSnapshot };
+            // A folder with no AutoFocus replay metadata.json, so the per-step branch is skipped.
+            var noPerStepMetadata = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-tilt-no-replay-metadata");
+
+            var result = TiltAdapterWizardVM.BuildTiltReplayDetectionOverride(noPerStepMetadata, metadata);
+
+            Assert.That(result, Is.SameAs(fullSnapshot));
+        }
+
         private static object SentinelFor(Type type, int index) {
             if (type == typeof(bool)) return true;              // fresh snapshot bools default to false
             if (type == typeof(int)) return 1000 + index;       // != 0 and != AdaptiveNoiseBlockSize's 128 default

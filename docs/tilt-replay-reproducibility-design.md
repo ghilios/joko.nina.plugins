@@ -82,10 +82,12 @@ Focuser step adds an orthogonal µm/turn-only error for legacy folders: those pr
 `MeasurementContext` capture, so on replay the sensor-model focuser size falls back to the live
 `InspectorOptions.MicronsPerFocuserStep` rather than the captured 3.6.
 
-Newer runs are already better off: runs captured after the replay-metadata feature write a per-step
-`AutoFocusReplayMetadata.StarDetection` holding the **full** 53-field snapshot, and
-`BuildTiltReplayDetectionOverride` prefers it. astrodet's folder predates that, so it falls back to
-the curated overlay.
+`BuildTiltReplayDetectionOverride` has a branch that *would* prefer a per-step
+`AutoFocusReplayMetadata.StarDetection` (the full 53-field snapshot), but **tilt captures do not emit
+per-step replay `metadata.json`** — verified across the whole calibration bank, where the only
+`metadata.json` is the run-level tilt file (the AF engine's `WriteReplayMetadata` is gated on a save
+folder / method the tilt capture path does not satisfy). So *every* tilt replay falls through to the
+curated overlay today, regardless of plugin version.
 
 ## Operational guidance (until reproducibility is fully fixed)
 
@@ -116,9 +118,12 @@ snapshot is sufficient — no per-step storage is needed.
   curated `optimizedStarDetectionSettings` (which stays for the optimizer/UI).
 - On replay, when this full snapshot is present, use it directly as the detection override — do not
   overlay the curated subset onto the live profile. This closes the ~28 non-curated knobs.
-- Fallback order for `BuildTiltReplayDetectionOverride`: per-step `AutoFocusReplayMetadata.StarDetection`
-  (already the richest) → run-level full snapshot (new) → curated-overlay-on-live (legacy, now correct)
-  → live profile (with the existing "no stored settings" warning).
+- Override resolution order in `BuildTiltReplayDetectionOverride`: per-step
+  `AutoFocusReplayMetadata.StarDetection` (kept, though tilt captures don't currently emit it) →
+  **run-level full snapshot (new — the effective full-pin path for tilt)** → curated-overlay-on-live
+  (legacy runs, now correct after #1) → live profile (with the existing "no stored settings" warning).
+- Because the snapshot serializes only when present, existing folders (no snapshot) deserialize it to
+  `null` and degrade to the legacy overlay — no schema bump needed.
 
 ### 3. Focuser step / geometry — already pinned, no change needed
 

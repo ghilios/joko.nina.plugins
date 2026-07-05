@@ -1075,6 +1075,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     inspector.InspectorOptions, HocusFocusPlugin.AutoFocusOptions,
                     profileService.ActiveProfile.TelescopeSettings.FocalRatio,
                     profileService.ActiveProfile.TelescopeSettings.FocalLength),
+                // Full detection config so a replay pins every knob, not just the curated OptimizedStarDetectionSettings.
+                StarDetectionSnapshot = StarDetectionSettingsSnapshot.FromOptions(HocusFocusPlugin.StarDetectionOptions),
                 RunStepMapping = new List<TiltRunStepMapping>(),
                 PerStep = new List<TiltPerStepResult>()
             };
@@ -1940,15 +1942,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         /// <summary>
-        /// Builds a detached, in-memory capture-time star-detection snapshot for the no-mutation tilt replay. Prefers
-        /// the full per-step replay <c>metadata.json</c> (runs captured after that feature shipped); falls back, for
-        /// older tilt runs, to overlaying the curated <see cref="OptimizedStarDetectionSettings"/> onto a snapshot of
-        /// the current options — reproducing the legacy "apply optimized settings" behavior without mutating the
-        /// profile. Returns null when there is nothing to override (the replay then uses current settings).
+        /// Builds a detached, in-memory capture-time star-detection override for the no-mutation tilt replay.
+        /// Resolution order: a per-step replay <c>metadata.json</c> if present (tilt captures don't currently emit
+        /// one); then the run-level full <see cref="TiltCalibrationMetadata.StarDetectionSnapshot"/>, which pins every
+        /// knob; then, for older runs, overlaying the curated <see cref="OptimizedStarDetectionSettings"/> onto a
+        /// snapshot of the current options (legacy "apply optimized settings" behavior, without mutating the profile).
+        /// Returns null when there is nothing to override (the replay then uses current settings).
         /// </summary>
-        private static IStarDetectionOptions BuildTiltReplayDetectionOverride(string stepFolder, TiltCalibrationMetadata tiltMetadata) {
+        internal static IStarDetectionOptions BuildTiltReplayDetectionOverride(string stepFolder, TiltCalibrationMetadata tiltMetadata) {
             if (AutoFocusReplayMetadata.TryLoad(stepFolder, out var replayMetadata, out _) && replayMetadata.StarDetection != null) {
                 return replayMetadata.StarDetection;
+            }
+            // Run-level full snapshot (all 53 knobs) — the effective full-pin path, since tilt captures don't emit
+            // per-step replay metadata. Preferred over the curated overlay so no non-curated knob leaks from the profile.
+            if (tiltMetadata?.StarDetectionSnapshot != null) {
+                return tiltMetadata.StarDetectionSnapshot;
             }
             var optimized = tiltMetadata?.OptimizedStarDetectionSettings;
             if (optimized == null) {

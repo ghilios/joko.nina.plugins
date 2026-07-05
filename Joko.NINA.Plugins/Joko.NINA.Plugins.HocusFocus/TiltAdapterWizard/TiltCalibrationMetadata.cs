@@ -12,6 +12,7 @@
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using System;
 using System.Collections.Generic;
@@ -130,6 +131,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public List<TiltRunStepMapping> RunStepMapping { get; set; }
         public OptimizedStarDetectionSettings OptimizedStarDetectionSettings { get; set; }
         public TiltMeasurementContext MeasurementContext { get; set; }
+
+        // Full capture-time star-detection configuration (all knobs, not just the curated optimizer subset), so a
+        // replay pins detection exactly. Null on runs saved before this shipped — they fall back to the curated
+        // OptimizedStarDetectionSettings overlay. Settings are constant across a run, so one run-level snapshot suffices.
+        public StarDetectionSettingsSnapshot StarDetectionSnapshot { get; set; }
 
         // ---- Results ----
         public List<TiltPerStepResult> PerStep { get; set; }

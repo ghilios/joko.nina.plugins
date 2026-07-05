@@ -1,3 +1,4 @@
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NUnit.Framework;
 using System;
@@ -166,6 +167,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             // A folder on a different volume can't be made relative; keep it absolute rather than emit "..\..".
             var other = @"D:\external\01_Baseline\AutoFocus_x";
             Assert.That(TiltCalibrationMetadata.ToRelativeStepFolder(@"C:\runs\run1", other), Is.EqualTo(other));
+        }
+
+        [Test]
+        public void StarDetectionSnapshot_RoundTrips() {
+            var meta = new TiltCalibrationMetadata {
+                NumberOfScrews = 3, ScrewRadiusMillimeters = 44, PixelSizeMicrons = 3.76,
+                FocuserStepSizeMicrons = 3.6, CalibrationAppliedAmount = 1.0,
+                StarDetectionSnapshot = new StarDetectionSettingsSnapshot {
+                    BrightnessSensitivity = 42.5, LocallyAdaptiveBinarization = true, AdaptiveNoiseBlockSize = 256
+                }
+            };
+            var back = TiltCalibrationMetadata.Deserialize(meta.Serialize());
+            Assert.That(back.StarDetectionSnapshot, Is.Not.Null);
+            Assert.Multiple(() => {
+                Assert.That(back.StarDetectionSnapshot.BrightnessSensitivity, Is.EqualTo(42.5).Within(1e-9));
+                Assert.That(back.StarDetectionSnapshot.LocallyAdaptiveBinarization, Is.True);
+                Assert.That(back.StarDetectionSnapshot.AdaptiveNoiseBlockSize, Is.EqualTo(256));
+            });
         }
     }
 }
