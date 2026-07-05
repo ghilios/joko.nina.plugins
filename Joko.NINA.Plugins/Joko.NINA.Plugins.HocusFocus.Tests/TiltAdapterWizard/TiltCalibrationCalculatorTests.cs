@@ -167,6 +167,38 @@ public class TiltCalibrationCalculatorTests {
     }
 
     [Test]
+    public void PitchUncertainty_IsHalfTheDifferenceOfPerScrewMoves() {
+        // Two single-screw moves of clearly unequal magnitude along different axes.
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            ReBaseline1 = new TiltGradient(0, 0, 0),
+            Screw1 = new TiltGradient(20, 0, 0),      // move along A
+            ReBaseline2 = new TiltGradient(0, 0, 0),
+            Screw2 = new TiltGradient(0, 10, 0),      // move along B
+            ImageWidthPixels = 6248, ImageHeightPixels = 4176,
+            PixelSizeMicrons = 3.76, FocuserStepMicrons = 3.6,
+            ScrewRadiusMillimeters = 44, CalibrationAppliedAmount = 1.0, IsStepperAdjustment = false
+        };
+        var (measured, d1, d2) = TiltCalibrationCalculator.RecoverHardwareDetailed(inputs);
+        Assert.Multiple(() => {
+            Assert.That(measured, Is.EqualTo(0.5 * (d1 + d2)).Within(1e-9));
+            var result = TiltCalibrationCalculator.Calibrate(inputs);
+            Assert.That(result.PitchUncertaintyMicrons, Is.EqualTo(Math.Abs(d1 - d2) / 2.0).Within(1e-9));
+            Assert.That(result.PitchUncertaintyMicrons, Is.GreaterThan(0));
+        });
+    }
+
+    [Test]
+    public void PitchUncertainty_IsNaN_WhenHardwareUncomputable() {
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3, ScrewRadiusMillimeters = 0 /* invalid */,
+            CalibrationAppliedAmount = 1.0, PixelSizeMicrons = 3.76, FocuserStepMicrons = 3.6,
+            ImageWidthPixels = 6248, ImageHeightPixels = 4176
+        };
+        Assert.That(TiltCalibrationCalculator.Calibrate(inputs).PitchUncertaintyMicrons, Is.NaN);
+    }
+
+    [Test]
     public void MoveMagnitudeRatio_OneForEqualMoves_GrowsWithImbalance() {
         // Two equal-magnitude moves -> ratio 1; a 3x longer second move -> ratio 3.
         Assert.Multiple(() => {

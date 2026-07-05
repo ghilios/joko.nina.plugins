@@ -84,6 +84,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         /// (uneven turning / backlash) and the recovered pitch/step size is unreliable. NaN if a magnitude is 0.</summary>
         public double MoveMagnitudeRatio { get; set; }
 
+        /// <summary>Half the absolute difference of the two single-screw recovered pitches (µm/turn or µm/step).
+        /// This is the physical-space 1σ on the recovered hardware — it captures screw-to-screw disagreement the
+        /// (A,B) <see cref="MoveMagnitudeRatio"/> misses because the plane→physical conversion is anisotropic.
+        /// NaN when the hardware is uncomputable.</summary>
+        public double PitchUncertaintyMicrons { get; set; }
+
         /// <summary>Signal-to-noise / reliability of the whole calibration, derived from the per-step tilt vectors.
         /// Populated by <see cref="TiltCalibrationCalculator.Calibrate"/>.</summary>
         public TiltCalibrationConfidence Confidence { get; set; }
@@ -238,14 +244,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             return (s1, s2, s3, s4);
         }
 
-        /// <summary>
-        /// Recovers the adapter hardware (µm per turn for screws, µm per step for steppers) from the two
-        /// single-screw moves' tilt-plane gradient changes and the known applied turns/steps. Mirrors the wizard's
-        /// CalculateAndSaveHardware: convert each gradient change to a physical gradient, derive the per-screw axial
-        /// move via the adapter lever arm, average the two, and divide by the applied amount. Returns NaN when any
-        /// required input is non-positive or the result is non-positive.
-        /// </summary>
-        public static double RecoverHardwareMicrons(TiltCalibrationInputs inputs) {
+        /// <summary>Per-screw recovered hardware: the average (µm/turn or µm/step) plus each screw's own recovered
+        /// value (delta_i / applied). Same math as the wizard's CalculateAndSaveHardware. All three are NaN when any
+        /// input is non-positive or the average is non-positive.</summary>
+        public static (double measured, double delta1PerApplied, double delta2PerApplied) RecoverHardwareDetailed(TiltCalibrationInputs inputs) {
             double pixelSize = inputs.PixelSizeMicrons;
             double fStep = inputs.FocuserStepMicrons;
             double radiusMm = inputs.ScrewRadiusMillimeters;
@@ -253,7 +255,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             double sensorW = inputs.ImageWidthPixels * pixelSize;
             double sensorH = inputs.ImageHeightPixels * pixelSize;
             if (radiusMm <= 0 || applied <= 0 || pixelSize <= 0 || fStep <= 0 || sensorW <= 0 || sensorH <= 0) {
-                return double.NaN;
+                return (double.NaN, double.NaN, double.NaN);
             }
 
             double radiusMicrons = radiusMm * 1000.0;
@@ -273,10 +275,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             double measured = 0.5 * (delta1 + delta2) / applied;
             if (double.IsNaN(measured) || measured <= 0) {
-                return double.NaN;
+                return (double.NaN, double.NaN, double.NaN);
             }
-            return measured;
+            return (measured, delta1 / applied, delta2 / applied);
         }
+
+        /// <summary>
+        /// Recovers the adapter hardware (µm per turn for screws, µm per step for steppers) from the two
+        /// single-screw moves' tilt-plane gradient changes and the known applied turns/steps. Mirrors the wizard's
+        /// CalculateAndSaveHardware: convert each gradient change to a physical gradient, derive the per-screw axial
+        /// move via the adapter lever arm, average the two, and divide by the applied amount. See
+        /// <see cref="RecoverHardwareDetailed"/>. Returns NaN when any required input is non-positive or the result
+        /// is non-positive.
+        /// </summary>
+        public static double RecoverHardwareMicrons(TiltCalibrationInputs inputs) => RecoverHardwareDetailed(inputs).measured;
 
         /// <summary>
         /// Drift of a re-baseline relative to its reference, as a fraction of the subsequent screw-move magnitude.
@@ -301,6 +313,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             double d2B = inputs.Screw2.B - inputs.ReBaseline2.B;
 
             var (s1, s2, s3, s4, rawDiff) = ComputeScrewAngles(d1A, d1B, d2A, d2B, inputs.ScrewCount);
+            var (measuredHardware, delta1PerApplied, delta2PerApplied) = RecoverHardwareDetailed(inputs);
 
             return new TiltCalibrationResult {
                 Screw1AngleDegrees = s1,
@@ -313,7 +326,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 CurvatureSign = inputs.HasCurvatureMeasurement
                     ? ComputeCurvatureSign(inputs.AllInward.MeanFocuserPosition, inputs.Baseline.MeanFocuserPosition)
                     : inputs.FallbackCurvatureSign,
-                MeasuredHardwareMicrons = RecoverHardwareMicrons(inputs),
+                MeasuredHardwareMicrons = measuredHardware,
+                PitchUncertaintyMicrons = double.IsNaN(delta1PerApplied)
+                    ? double.NaN
+                    : Math.Abs(delta1PerApplied - delta2PerApplied) / 2.0,
                 Screw1DirectionDegrees = NormalizeAngle(Math.Atan2(d1A, -d1B) * 180.0 / Math.PI),
                 Screw2DirectionDegrees = NormalizeAngle(Math.Atan2(d2A, -d2B) * 180.0 / Math.PI),
                 MoveMagnitudeRatio = MoveMagnitudeRatio(d1A, d1B, d2A, d2B),
