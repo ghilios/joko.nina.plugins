@@ -827,5 +827,31 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 options.Received().IsCalibrated = true;
             });
         }
+
+        [Test]
+        public void Confidence_DisplayProperties_PopulatedAfterCalibration() {
+            var (vm, _, _, _) = Build(screwCount: 3);
+            // Seed 6 step readings with a clean, unequal-enough pair so pitch σ > 0 (values in A,B plane units).
+            vm.SeedStepReading(WizardStep.Baseline, -9.5, 16.3, 7049);
+            vm.SeedStepReading(WizardStep.AllInward, -15.9, 14.5, 6957);
+            vm.SeedStepReading(WizardStep.ReBaseline1, -9.5, 16.3, 7049);
+            vm.SeedStepReading(WizardStep.Screw1, 11.7, 8.9, 7013);
+            vm.SeedStepReading(WizardStep.ReBaseline2, -9.5, 16.3, 7049);
+            vm.SeedStepReading(WizardStep.Screw2, -8.6, 40.3, 7016);
+            // The seed path bypasses the inspector/profile, so supply the sensor geometry a live run reads + a
+            // paraboloid tilt-plane model (RunCalibrationMath reads only its ImageSize) so the hardware-recovery
+            // branch runs. These seeds recover a positive per-turn pitch that is clearly unequal per screw
+            // (delta1 ≈ 242, delta2 ≈ 363 µm/turn → pitch σ ≈ 61 µm/turn > 0), so PitchUncertaintyDisplay is non-empty.
+            var tiltPlane = new TiltPlaneModel(new System.Drawing.Size(6248, 4176), fRatio: 7,
+                a: 0, b: 0, c: 0, mean: 7000, focuserStepSizeMicrons: 3.6,
+                centerPosition: 7000, topLeftPosition: 7000, topRightPosition: 7000,
+                bottomLeftPosition: 7000, bottomRightPosition: 7000);
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 3.76, focuserStepMicrons: 3.6, tiltPlaneOverride: tiltPlane);
+            Assert.Multiple(() => {
+                Assert.That(vm.HasConfidenceInfo, Is.True);
+                Assert.That(vm.ConfidenceSummaryDisplay, Does.Contain("Signal-to-noise"));
+                Assert.That(vm.PitchUncertaintyDisplay, Does.Contain("±"));
+            });
+        }
     }
 }
