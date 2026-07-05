@@ -1164,6 +1164,23 @@
                             TextWrapping="Wrap" />
                     </Border>
 
+                    <!--  Calibration confidence — always shown once a calibration exists (SNR + screw-direction σ).
+                          The red do-not-apply warning above (HasConfidenceWarning) still fires separately at SNR < 2.  -->
+                    <TextBlock Margin="0,0,0,5" TextWrapping="Wrap"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        Text="{Binding ConfidenceSummaryDisplay}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasConfidenceInfo}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
                     <Grid Margin="0,5,0,5" HorizontalAlignment="Stretch">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -1201,6 +1218,7 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="{Binding MeasuredHardwareDisplay}" />
                                 <TextBlock Margin="8,0,0,0" Opacity="0.7" Text="{Binding HardwareDeltaDisplay}" />
+                                <TextBlock Margin="8,0,0,0" Opacity="0.7" Text="{Binding PitchUncertaintyDisplay}" />
                             </StackPanel>
                             <TextBlock Text="Saved" />
                             <TextBlock Text="{Binding SavedHardwareDisplay}" />

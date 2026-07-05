@@ -59,6 +59,31 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double MeasuredHardwareMicrons { get; set; }
         public double RawAngleDiffDegrees { get; set; }
         public double MoveMagnitudeRatio { get; set; }
+
+        // ---- Confidence (persisted so a saved/replayed run carries its reliability) ----
+        public double SignalToNoise { get; set; } = double.NaN;
+        public double PredictedAngleUncertaintyDeg { get; set; } = double.NaN;
+        public double PitchUncertaintyMicrons { get; set; } = double.NaN;
+        public bool ConfidenceIsReliable { get; set; }
+    }
+
+    /// <summary>Snapshot of the profile/inspector inputs the tilt measurement reads from live state, so a replay
+    /// can reproduce the original calibration (or warn when the current profile has drifted). HyperbolicFitModel
+    /// is stored as its enum name for forward-compatibility.</summary>
+    public sealed class TiltMeasurementContext {
+        public double MicronsPerFocuserStep { get; set; } = double.NaN;
+        public double FocalRatio { get; set; } = double.NaN;
+        public double FocalLengthMm { get; set; } = double.NaN;
+        public bool UseRANSAC { get; set; }
+        public bool FixedSensorCenter { get; set; }
+        public bool AstigmaticCurvatureEnabled { get; set; }
+        public double AcceptableRSquaredMin { get; set; } = double.NaN;
+        public bool WeightedHyperbolicFitEnabled { get; set; }
+        public int MaxOutlierRejections { get; set; }
+        public double OutlierRejectionConfidence { get; set; } = double.NaN;
+        public string HyperbolicFitModel { get; set; }
+        public double SensorROI { get; set; } = double.NaN;
+        public double CornersROI { get; set; } = double.NaN;
     }
 
     /// <summary>
@@ -70,7 +95,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// </summary>
     public sealed class TiltCalibrationMetadata {
 
-        public const int CurrentSchemaVersion = 1;
+        public const int CurrentSchemaVersion = 2;
 
         /// <summary>The six discrete measurement steps, in capture order. Same for 3- and 4-screw adapters.</summary>
         public static readonly string[] StepOrder = {
@@ -104,6 +129,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // ---- Replay payload ----
         public List<TiltRunStepMapping> RunStepMapping { get; set; }
         public OptimizedStarDetectionSettings OptimizedStarDetectionSettings { get; set; }
+        public TiltMeasurementContext MeasurementContext { get; set; }
 
         // ---- Results ----
         public List<TiltPerStepResult> PerStep { get; set; }

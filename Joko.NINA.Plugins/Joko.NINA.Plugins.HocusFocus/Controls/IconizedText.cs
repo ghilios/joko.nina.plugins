@@ -77,10 +77,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 Stretch = Stretch.Uniform,
                 Width = size,
                 Height = size,
-                Fill = tb.Foreground,
                 Margin = new Thickness(1, 0, 1, 0),
                 SnapsToDevicePixels = true
             };
+            // Bind the fill to the TextBlock's Foreground so the icon always tracks the resolved theme
+            // brush. A one-time snapshot (Fill = tb.Foreground) can freeze to the near-black default if
+            // it runs before the theme brush resolves; the Run text inherits Foreground dynamically, but
+            // a Shape's Fill does not — so without this binding the icon goes dim/invisible in dark theme.
+            path.SetBinding(System.Windows.Shapes.Shape.FillProperty,
+                new System.Windows.Data.Binding { Source = tb, Path = new PropertyPath(TextBlock.ForegroundProperty) });
             return new InlineUIContainer(path) { BaselineAlignment = BaselineAlignment.Center };
         }
     }

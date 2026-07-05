@@ -131,17 +131,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void StepInstructions_DiffersByScrewCountAtAllScrewsStep() {
+        public void StepInstructions_BaselineLabelsExactScrewCount() {
             var (vm3, _, _, _) = Build(screwCount: 3);
             var (vm4, _, _, _) = Build(screwCount: 4);
 
-            // Manually advance to AllScrews via reflection-free path: update via PropertyChanged on options
-            // is ineffective for CurrentStep. Use only what we can verify at Baseline first.
-            // Baseline instructions are screw-count independent.
+            // The Baseline (first) step names the exact screws to label — the screw configuration
+            // is already known here, so it must not offer the "(or 1–4 for a 4-screw adapter)" hedge.
             var b3 = vm3.StepInstructions;
             var b4 = vm4.StepInstructions;
-            Assert.That(b3, Is.EqualTo(b4));
-            Assert.That(b3, Does.Contain("baseline"));
+            Assert.Multiple(() => {
+                Assert.That(b3, Does.Contain("Label your screws 1, 2, and 3 in a consistent clockwise order"));
+                Assert.That(b4, Does.Contain("Label your screws 1, 2, 3, and 4 in a consistent clockwise order"));
+                Assert.That(b3, Does.Not.Contain("4-screw"));
+                Assert.That(b4, Does.Not.Contain("3-screw"));
+                Assert.That(b3, Is.Not.EqualTo(b4));
+                Assert.That(b3, Does.Contain("baseline"));
+            });
         }
 
         [Test]
@@ -820,6 +825,66 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 options.DidNotReceive().ScrewInwardCurvatureSign = Arg.Any<int>();
                 options.DidNotReceive().ScrewInwardCurvatureSignIsMeasured = Arg.Any<bool>();
                 options.Received().IsCalibrated = true;
+            });
+        }
+
+        [Test]
+        public void Confidence_DisplayProperties_PopulatedAfterCalibration() {
+            var (vm, _, _, _) = Build(screwCount: 3);
+            // Seed 6 step readings with a clean, unequal-enough pair so pitch σ > 0 (values in A,B plane units).
+            vm.SeedStepReading(WizardStep.Baseline, -9.5, 16.3, 7049);
+            vm.SeedStepReading(WizardStep.AllInward, -15.9, 14.5, 6957);
+            vm.SeedStepReading(WizardStep.ReBaseline1, -9.5, 16.3, 7049);
+            vm.SeedStepReading(WizardStep.Screw1, 11.7, 8.9, 7013);
+            vm.SeedStepReading(WizardStep.ReBaseline2, -9.5, 16.3, 7049);
+            vm.SeedStepReading(WizardStep.Screw2, -8.6, 40.3, 7016);
+            // The seed path bypasses the inspector/profile, so supply the sensor geometry a live run reads + a
+            // paraboloid tilt-plane model (RunCalibrationMath reads only its ImageSize) so the hardware-recovery
+            // branch runs. These seeds recover a positive per-turn pitch that is clearly unequal per screw
+            // (delta1 ≈ 242, delta2 ≈ 363 µm/turn → pitch σ ≈ 61 µm/turn > 0), so PitchUncertaintyDisplay is non-empty.
+            var tiltPlane = new TiltPlaneModel(new System.Drawing.Size(6248, 4176), fRatio: 7,
+                a: 0, b: 0, c: 0, mean: 7000, focuserStepSizeMicrons: 3.6,
+                centerPosition: 7000, topLeftPosition: 7000, topRightPosition: 7000,
+                bottomLeftPosition: 7000, bottomRightPosition: 7000);
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 3.76, focuserStepMicrons: 3.6, tiltPlaneOverride: tiltPlane);
+            Assert.Multiple(() => {
+                Assert.That(vm.HasConfidenceInfo, Is.True);
+                Assert.That(vm.ConfidenceSummaryDisplay, Does.Contain("Signal-to-noise"));
+                Assert.That(vm.PitchUncertaintyDisplay, Does.Contain("±"));
+            });
+        }
+
+        [Test]
+        public void CaptureMeasurementContext_ReadsInspectorAndProfileValues() {
+            var inspector = Substitute.For<IInspectorOptions>();
+            inspector.MicronsPerFocuserStep.Returns(3.6);
+            inspector.UseRANSAC.Returns(true);
+            inspector.AcceptableRSquaredMin.Returns(0.8);
+            inspector.SensorROI.Returns(1.0); inspector.CornersROI.Returns(1.0);
+            var af = Substitute.For<IAutoFocusOptions>();
+            af.WeightedHyperbolicFitEnabled.Returns(true);
+            af.MaxOutlierRejections.Returns(3);
+            af.OutlierRejectionConfidence.Returns(0.9);
+            af.HyperbolicFitModel.Returns(HyperbolicFitModel.Hybrid);
+
+            var ctx = TiltAdapterWizardVM.CaptureMeasurementContext(inspector, af, fRatio: 7, focalLengthMm: 703);
+
+            Assert.Multiple(() => {
+                Assert.That(ctx.MicronsPerFocuserStep, Is.EqualTo(3.6));
+                Assert.That(ctx.FocalRatio, Is.EqualTo(7));
+                Assert.That(ctx.HyperbolicFitModel, Is.EqualTo("Hybrid"));
+                Assert.That(ctx.UseRANSAC, Is.True);
+            });
+        }
+
+        [Test]
+        public void MeasurementContextDrift_ListsChangedFields() {
+            var captured = new TiltMeasurementContext { MicronsPerFocuserStep = 3.6, FocalRatio = 7, UseRANSAC = true };
+            var current  = new TiltMeasurementContext { MicronsPerFocuserStep = 0.26, FocalRatio = 7, UseRANSAC = true };
+            var drift = TiltAdapterWizardVM.DescribeMeasurementContextDrift(captured, current);
+            Assert.Multiple(() => {
+                Assert.That(drift, Does.Contain("MicronsPerFocuserStep"));
+                Assert.That(drift, Does.Not.Contain("FocalRatio"));
             });
         }
     }

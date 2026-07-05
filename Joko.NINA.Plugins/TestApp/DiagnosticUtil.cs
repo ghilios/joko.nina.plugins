@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using NINA.Core.Enum;
 using NINA.Image.FileFormat.FITS;
 using NINA.Image.FileFormat.XISF;
 using NINA.Image.ImageAnalysis;
@@ -22,6 +23,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Media;
 
 namespace TestApp {
 
@@ -51,8 +53,13 @@ namespace TestApp {
         /// <summary>
         /// Loads an image file as a CV_32F Mat normalized to [0,1]. .tif/.tiff are read directly; .xisf/.fits/.fit
         /// go through NINA's loaders (which need a profile). profileService may be null for .tif-only callers.
+        ///
+        /// When <paramref name="debayerToLuminance"/> is true and the loaded frame is bayered, it is debayered to a
+        /// luminance Mat — the SAME representation the live app feeds star detection when ImageSettings.DebayerImage
+        /// is on (see <c>StarDetector.PrepareSrcImageFromRenderedImage</c>). Headless runners otherwise detect on the
+        /// raw Bayer mosaic, which biases the per-star sensor-model tilt the Tilt Adapter Wizard calibrates from.
         /// </summary>
-        public static async Task<Mat> LoadFloatMat(string path, IProfileService profileService) {
+        public static async Task<Mat> LoadFloatMat(string path, IProfileService profileService, bool debayerToLuminance = false) {
             var ext = Path.GetExtension(path).ToLowerInvariant();
             if (ext == ".tif" || ext == ".tiff") {
                 using var src = new Mat(path, ImreadModes.Unchanged);
@@ -66,12 +73,36 @@ namespace TestApp {
                 }
                 var factory = new ImageDataFactory(profileService, new StubBehaviorSelector<IStarDetection>(new StubStarDetection()), new StubBehaviorSelector<IStarAnnotator>());
                 var uri = new Uri(Path.GetFullPath(path));
+                // The second arg is isBayered. Loading with false (the raw-mosaic default the other runners use)
+                // clears IsBayered and drops the CFA pattern, which would silently skip the debayer path below.
+                // When the caller wants luminance, load AS bayered so the CFA pattern is populated for the debayer.
                 IImageData imageData = ext == ".xisf"
-                    ? await XISF.Load(uri, false, factory, CancellationToken.None)
-                    : await FITS.Load(uri, false, factory, CancellationToken.None);
+                    ? await XISF.Load(uri, debayerToLuminance, factory, CancellationToken.None)
+                    : await FITS.Load(uri, debayerToLuminance, factory, CancellationToken.None);
+                if (debayerToLuminance && imageData.Properties.IsBayered) {
+                    return DebayerToLuminanceMat(imageData);
+                }
                 return CvImageUtility.ToOpenCVMat(imageData);
             }
             throw new NotSupportedException($"Unsupported image extension '{ext}'. Supported: .tif/.tiff, .xisf, .fits/.fit");
+        }
+
+        /// <summary>
+        /// Debayers a bayered <see cref="IImageData"/> to a luminance Mat, mirroring the detector's own
+        /// <c>StarDetector.PrepareSrcImageFromRenderedImage</c> conversion (CFA → 16-bit luminance) so the headless
+        /// representation matches the live app. The concrete CFA pattern comes from the frame's own metadata (the
+        /// FITS BAYERPAT), defaulting to RGGB when the metadata reports none but the properties say bayered.
+        /// </summary>
+        private static Mat DebayerToLuminanceMat(IImageData imageData) {
+            var props = imageData.Properties;
+            var sensorType = imageData.MetaData?.Camera?.SensorType ?? SensorType.RGGB;
+            if (sensorType == SensorType.Monochrome) {
+                sensorType = SensorType.RGGB;
+            }
+            var bitmapSource = ImageUtility.CreateSourceFromArray(imageData.Data, props, PixelFormats.Gray16);
+            var debayered = ImageUtility.Debayer(bitmapSource, pf: System.Drawing.Imaging.PixelFormat.Format16bppGrayScale,
+                saveColorChannels: false, saveLumChannel: true, bayerPattern: sensorType);
+            return CvImageUtility.ToOpenCVMat(debayered.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
         }
     }
 }

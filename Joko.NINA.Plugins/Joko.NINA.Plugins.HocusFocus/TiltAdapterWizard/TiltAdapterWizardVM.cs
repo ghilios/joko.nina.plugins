@@ -113,6 +113,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private double calibrationAppliedAmount = 1.0;
         private double measuredHardwareMicrons = double.NaN;
+        private TiltCalibrationConfidence lastConfidence;
+        private double pitchUncertaintyMicrons = double.NaN;
         private double calibrationPixelSizeMicrons;
         private double calibrationFocuserStepMicrons;
         private double calibrationScrewRadiusMm;
@@ -639,7 +641,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             bool four = screwCount == 4;
             switch (step) {
                 case WizardStep.Baseline:
-                    return "Label your screws 1, 2, and 3 (or 1–4 for a 4-screw adapter) in a consistent clockwise order. " +
+                    return (four
+                            ? "Label your screws 1, 2, 3, and 4 in a consistent clockwise order. "
+                            : "Label your screws 1, 2, and 3 in a consistent clockwise order. ") +
                         "Screw 1 does NOT need to be at any particular clock position — the wizard determines each screw's actual " +
                         "position from the measurements.\n\nEnsure all screws are at their starting position, then click Run Measurement to take a baseline reading.";
                 case WizardStep.AllInward:
@@ -858,6 +862,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // rows — the same state Restart clears) that would otherwise describe the previous run next
             // to a manually entered calibration.
             measuredHardwareMicrons = double.NaN;
+            lastConfidence = null;
+            pitchUncertaintyMicrons = double.NaN;
             lastRawAngleDiff = double.NaN;
             lastMoveMagnitudeRatio = double.NaN;
             HasWarning = false;
@@ -918,6 +924,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public string CalibrationFocuserStepDisplay => calibrationFocuserStepMicrons > 0 ? $"{calibrationFocuserStepMicrons:0.###} µm" : "—";
         public string CalibrationScrewRadiusDisplay => calibrationScrewRadiusMm > 0 ? $"{calibrationScrewRadiusMm:0.##} mm" : "not set";
         public string CalibrationAppliedAmountDisplay => IsStepperAdjustment ? $"{calibrationAppliedAmount:0.##} steps" : $"{calibrationAppliedAmount:0.##} turns";
+
+        public bool HasConfidenceInfo => lastConfidence != null;
+
+        public bool ConfidenceIsReliable => lastConfidence?.IsReliable ?? false;
+
+        public string ConfidenceSummaryDisplay =>
+            lastConfidence == null ? string.Empty :
+            $"Signal-to-noise {lastConfidence.SignalToNoise:F1} · screw-direction ±{lastConfidence.PredictedAngleUncertaintyDeg:F0}°";
+
+        public string PitchUncertaintyDisplay =>
+            double.IsNaN(pitchUncertaintyMicrons) ? string.Empty :
+            $"± {pitchUncertaintyMicrons:F0} µm/{(IsStepperAdjustment ? "step" : "turn")}";
 
         // Config-panel bindings. They wrap the persisted options, presenting thread pitch in mm and
         // showing 0 for the unset (-1) sentinel so the textboxes read cleanly.
@@ -1053,6 +1071,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 CalibrationAppliedAmount = calibrationAppliedAmount,
                 MeasurementAverageCount = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount),
                 OptimizedStarDetectionSettings = CaptureDetectionSettings(),
+                MeasurementContext = CaptureMeasurementContext(
+                    inspector.InspectorOptions, HocusFocusPlugin.AutoFocusOptions,
+                    profileService.ActiveProfile.TelescopeSettings.FocalRatio,
+                    profileService.ActiveProfile.TelescopeSettings.FocalLength),
                 RunStepMapping = new List<TiltRunStepMapping>(),
                 PerStep = new List<TiltPerStepResult>()
             };
@@ -1064,6 +1086,43 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var p = HocusFocusStarDetection.BuildStarDetectorParams(HocusFocusPlugin.StarDetectionOptions);
             return OptimizedStarDetectionSettings.FromParams(p, runCount: 0, baselineJ: 0.0, finalJ: 0.0,
                 recommendedStepSize: 0, recommendedOffsetSteps: 0);
+        }
+
+        // Snapshot the live inputs the sensor-model measurement reads, so a replay can restore or warn on drift.
+        internal static TiltMeasurementContext CaptureMeasurementContext(
+            IInspectorOptions inspector, IAutoFocusOptions af, double fRatio, double focalLengthMm) {
+            return new TiltMeasurementContext {
+                MicronsPerFocuserStep = inspector.MicronsPerFocuserStep,
+                FocalRatio = fRatio,
+                FocalLengthMm = focalLengthMm,
+                UseRANSAC = inspector.UseRANSAC,
+                FixedSensorCenter = inspector.FixedSensorCenter,
+                AstigmaticCurvatureEnabled = inspector.AstigmaticCurvatureEnabled,
+                AcceptableRSquaredMin = inspector.AcceptableRSquaredMin,
+                WeightedHyperbolicFitEnabled = af.WeightedHyperbolicFitEnabled,
+                MaxOutlierRejections = af.MaxOutlierRejections,
+                OutlierRejectionConfidence = af.OutlierRejectionConfidence,
+                HyperbolicFitModel = af.HyperbolicFitModel.ToString(),
+                SensorROI = inspector.SensorROI,
+                CornersROI = inspector.CornersROI
+            };
+        }
+
+        // Human-readable list of context fields that differ between capture and the current profile (empty if none).
+        internal static string DescribeMeasurementContextDrift(TiltMeasurementContext captured, TiltMeasurementContext current) {
+            if (captured == null || current == null) return string.Empty;
+            var diffs = new List<string>();
+            void D(string name, double a, double b) { if (!(double.IsNaN(a) && double.IsNaN(b)) && Math.Abs(a - b) > 1e-9) diffs.Add($"{name} ({a:0.###} → {b:0.###})"); }
+            void B(string name, bool a, bool b) { if (a != b) diffs.Add($"{name} ({a} → {b})"); }
+            D("MicronsPerFocuserStep", captured.MicronsPerFocuserStep, current.MicronsPerFocuserStep);
+            D("FocalRatio", captured.FocalRatio, current.FocalRatio);
+            D("AcceptableRSquaredMin", captured.AcceptableRSquaredMin, current.AcceptableRSquaredMin);
+            B("UseRANSAC", captured.UseRANSAC, current.UseRANSAC);
+            B("FixedSensorCenter", captured.FixedSensorCenter, current.FixedSensorCenter);
+            B("WeightedHyperbolicFit", captured.WeightedHyperbolicFitEnabled, current.WeightedHyperbolicFitEnabled);
+            if (!string.Equals(captured.HyperbolicFitModel, current.HyperbolicFitModel, StringComparison.Ordinal))
+                diffs.Add($"HyperbolicFitModel ({captured.HyperbolicFitModel} → {current.HyperbolicFitModel})");
+            return string.Join(", ", diffs);
         }
 
         private double EffectiveFocuserStepMicrons() {
@@ -1150,11 +1209,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private static string StepFolderName(WizardStep step) => $"{(int)step + 1:00}_{step}";
 
+        // Test seam: RunCalibrationForTest injects the tilt plane a live run would get from the inspector so the
+        // hardware-recovery path is exercisable without running the paraboloid fit. Always null in production, so
+        // CalibrationTiltPlane below is byte-for-byte the live inspector chain.
+        private TiltPlaneModel calibrationTiltPlaneOverrideForTest;
+
         // The wizard calibrates from the per-star sensor-curve model's tilt (the paraboloid Gx/Gy, expressed as a
         // TiltPlaneModel by SensorModelAberrationResult.CreateTiltPlaneModel) — NEVER the 4-corner region plane. The
         // sensor model is force-generated around each measurement (inspector.ForceSensorCurveModelGeneration); this is
         // null when the paraboloid could not be fit (too few stars), in which case the measurement fails.
-        private TiltPlaneModel CalibrationTiltPlane => inspector.SensorModel?.SensorModelResult?.TiltPlaneModel;
+        private TiltPlaneModel CalibrationTiltPlane =>
+            calibrationTiltPlaneOverrideForTest ?? inspector.SensorModel?.SensorModelResult?.TiltPlaneModel;
 
         // Runs the aberration inspector MeasurementAverageCount times, averages the tilt plane, appends summary
         // rows + the consistency warning, and captures the per-step field-curvature characterization. When saving
@@ -1372,6 +1437,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             SaveAFRuns = false; // saving must be re-enabled explicitly for each run
             stepReadings.Clear();
             measuredHardwareMicrons = double.NaN;
+            lastConfidence = null;
+            pitchUncertaintyMicrons = double.NaN;
             lastRawAngleDiff = double.NaN;
             lastMoveMagnitudeRatio = double.NaN;
             runRootFolder = null;
@@ -1473,6 +1540,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             // Recover the adapter hardware (µm/turn or µm/step).
             measuredHardwareMicrons = double.NaN;
+            lastConfidence = null;
+            pitchUncertaintyMicrons = double.NaN;
             calibrationScrewRadiusMm = radiusMm;
             calibrationPixelSizeMicrons = pixelSize;
             calibrationFocuserStepMicrons = fStep;
@@ -1499,7 +1568,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     CalibrationAppliedAmount = appliedAmount,
                     IsStepperAdjustment = isStepper
                 };
-                double measured = TiltCalibrationCalculator.RecoverHardwareMicrons(inputs);
+                var (measured, hwDelta1, hwDelta2) = TiltCalibrationCalculator.RecoverHardwareDetailed(inputs);
+                pitchUncertaintyMicrons = double.IsNaN(hwDelta1) ? double.NaN : Math.Abs(hwDelta1 - hwDelta2) / 2.0;
                 if (!double.IsNaN(measured)) {
                     measuredHardwareMicrons = measured;
                     if (isStepper) {
@@ -1511,7 +1581,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
 
             EvaluateRebaselineDrift();
-            EvaluateCalibrationConfidence(TiltCalibrationCalculator.ComputeConfidence(new TiltCalibrationInputs {
+            lastConfidence = TiltCalibrationCalculator.ComputeConfidence(new TiltCalibrationInputs {
                 ScrewCount = screwCount,
                 Baseline = measuredCurvature ? new TiltGradient(a.A, a.B, a.Mean) : default,
                 AllInward = measuredCurvature ? new TiltGradient(b.A, b.B, b.Mean) : default,
@@ -1521,7 +1591,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 Screw2 = new TiltGradient(f.A, f.B, f.Mean),
                 HasCurvatureMeasurement = measuredCurvature,
                 FallbackCurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign
-            }));
+            });
+            EvaluateCalibrationConfidence(lastConfidence);
             RaiseHardwareSummaryChanged();
         }
 
@@ -1534,6 +1605,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RaisePropertyChanged(nameof(CalibrationFocuserStepDisplay));
             RaisePropertyChanged(nameof(CalibrationScrewRadiusDisplay));
             RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
+            RaisePropertyChanged(nameof(HasConfidenceInfo));
+            RaisePropertyChanged(nameof(ConfidenceIsReliable));
+            RaisePropertyChanged(nameof(ConfidenceSummaryDisplay));
+            RaisePropertyChanged(nameof(PitchUncertaintyDisplay));
             OnUIThread(() => ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged());
         }
 
@@ -1621,6 +1696,27 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // stay private — this is the only external write path.
         internal void SeedStepReading(WizardStep step, double a, double b, double mean) {
             stepReadings[step] = new StepReading { A = a, B = b, Mean = mean };
+        }
+
+        // Test seam: run the calibration math over the seeded step readings (mirrors NextStep -> Complete). The
+        // optional overrides supply the sensor geometry a live run reads from the inspector/profile + the paraboloid
+        // tilt-plane model (all of which the seed path bypasses), so RunCalibrationMath's hardware-recovery + pitch
+        // branch can run under test.
+        internal void RunCalibrationForTest(
+            double? radiusMm = null, double? pixelSizeMicrons = null, double? focuserStepMicrons = null,
+            TiltPlaneModel tiltPlaneOverride = null) {
+            calibrationTiltPlaneOverrideForTest = tiltPlaneOverride;
+            try {
+                RunCalibrationMath(
+                    tiltAdapterOptions.ScrewCount,
+                    radiusMm ?? tiltAdapterOptions.ScrewRadiusMillimeters,
+                    pixelSizeMicrons ?? profileService.ActiveProfile.CameraSettings.PixelSize,
+                    focuserStepMicrons ?? EffectiveFocuserStepMicrons(),
+                    calibrationAppliedAmount,
+                    IsStepperAdjustment);
+            } finally {
+                calibrationTiltPlaneOverrideForTest = null;
+            }
         }
 
         // ---- Replay -----------------------------------------------------------------------------------------
@@ -1729,6 +1825,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             StatusText = string.Empty;
 
             bool completed = false;
+            var ctx = metadata.MeasurementContext;
+            var prevFocuserOverride = inspector.SensorModelFocuserSizeOverrideMicrons;
+            var prevFRatioOverride = inspector.SensorModelFRatioOverride;
+            if (mode.ApplyCaptureTimeOverridePerStep && ctx != null) {
+                if (!double.IsNaN(ctx.MicronsPerFocuserStep) && ctx.MicronsPerFocuserStep > 0)
+                    inspector.SensorModelFocuserSizeOverrideMicrons = ctx.MicronsPerFocuserStep;
+                if (!double.IsNaN(ctx.FocalRatio) && ctx.FocalRatio > 0)
+                    inspector.SensorModelFRatioOverride = ctx.FocalRatio;
+                var currentCtx = CaptureMeasurementContext(inspector.InspectorOptions, HocusFocusPlugin.AutoFocusOptions,
+                    profileService.ActiveProfile.TelescopeSettings.FocalRatio,
+                    profileService.ActiveProfile.TelescopeSettings.FocalLength);
+                var drift = DescribeMeasurementContextDrift(ctx, currentCtx);
+                if (!string.IsNullOrEmpty(drift))
+                    Notification.ShowWarning($"Replaying with captured measurement settings; your current profile differs: {drift}.");
+            }
             try {
                 foreach (var step in replaySteps) {
                     token.ThrowIfCancellationRequested();
@@ -1818,6 +1929,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 // never touches the profile either.
                 isReplaying = false;
                 IsMeasuring = false;
+                inspector.SensorModelFocuserSizeOverrideMicrons = prevFocuserOverride;
+                inspector.SensorModelFRatioOverride = prevFRatioOverride;
                 // A successful replay ends on the Complete panel (like a live run); a failed/cancelled replay
                 // returns to the idle config panel so the user can retry instead of being stuck mid-run.
                 if (!completed) {
@@ -1914,7 +2027,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 CurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign,
                 MeasuredHardwareMicrons = measuredHardwareMicrons,
                 RawAngleDiffDegrees = lastRawAngleDiff,
-                MoveMagnitudeRatio = lastMoveMagnitudeRatio
+                MoveMagnitudeRatio = lastMoveMagnitudeRatio,
+                SignalToNoise = lastConfidence?.SignalToNoise ?? double.NaN,
+                PredictedAngleUncertaintyDeg = lastConfidence?.PredictedAngleUncertaintyDeg ?? double.NaN,
+                PitchUncertaintyMicrons = pitchUncertaintyMicrons,
+                ConfidenceIsReliable = lastConfidence?.IsReliable ?? false,
             };
             WriteMetadata();
         }
