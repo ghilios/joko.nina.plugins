@@ -853,5 +853,28 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(vm.PitchUncertaintyDisplay, Does.Contain("±"));
             });
         }
+
+        [Test]
+        public void CaptureMeasurementContext_ReadsInspectorAndProfileValues() {
+            var inspector = Substitute.For<IInspectorOptions>();
+            inspector.MicronsPerFocuserStep.Returns(3.6);
+            inspector.UseRANSAC.Returns(true);
+            inspector.AcceptableRSquaredMin.Returns(0.8);
+            inspector.SensorROI.Returns(1.0); inspector.CornersROI.Returns(1.0);
+            var af = Substitute.For<IAutoFocusOptions>();
+            af.WeightedHyperbolicFitEnabled.Returns(true);
+            af.MaxOutlierRejections.Returns(3);
+            af.OutlierRejectionConfidence.Returns(0.9);
+            af.HyperbolicFitModel.Returns(HyperbolicFitModel.Hybrid);
+
+            var ctx = TiltAdapterWizardVM.CaptureMeasurementContext(inspector, af, fRatio: 7, focalLengthMm: 703);
+
+            Assert.Multiple(() => {
+                Assert.That(ctx.MicronsPerFocuserStep, Is.EqualTo(3.6));
+                Assert.That(ctx.FocalRatio, Is.EqualTo(7));
+                Assert.That(ctx.HyperbolicFitModel, Is.EqualTo("Hybrid"));
+                Assert.That(ctx.UseRANSAC, Is.True);
+            });
+        }
     }
 }

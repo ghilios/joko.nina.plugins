@@ -1071,6 +1071,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 CalibrationAppliedAmount = calibrationAppliedAmount,
                 MeasurementAverageCount = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount),
                 OptimizedStarDetectionSettings = CaptureDetectionSettings(),
+                MeasurementContext = CaptureMeasurementContext(
+                    inspector.InspectorOptions, HocusFocusPlugin.AutoFocusOptions,
+                    profileService.ActiveProfile.TelescopeSettings.FocalRatio,
+                    profileService.ActiveProfile.TelescopeSettings.FocalLength),
                 RunStepMapping = new List<TiltRunStepMapping>(),
                 PerStep = new List<TiltPerStepResult>()
             };
@@ -1082,6 +1086,26 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var p = HocusFocusStarDetection.BuildStarDetectorParams(HocusFocusPlugin.StarDetectionOptions);
             return OptimizedStarDetectionSettings.FromParams(p, runCount: 0, baselineJ: 0.0, finalJ: 0.0,
                 recommendedStepSize: 0, recommendedOffsetSteps: 0);
+        }
+
+        // Snapshot the live inputs the sensor-model measurement reads, so a replay can restore or warn on drift.
+        internal static TiltMeasurementContext CaptureMeasurementContext(
+            IInspectorOptions inspector, IAutoFocusOptions af, double fRatio, double focalLengthMm) {
+            return new TiltMeasurementContext {
+                MicronsPerFocuserStep = inspector.MicronsPerFocuserStep,
+                FocalRatio = fRatio,
+                FocalLengthMm = focalLengthMm,
+                UseRANSAC = inspector.UseRANSAC,
+                FixedSensorCenter = inspector.FixedSensorCenter,
+                AstigmaticCurvatureEnabled = inspector.AstigmaticCurvatureEnabled,
+                AcceptableRSquaredMin = inspector.AcceptableRSquaredMin,
+                WeightedHyperbolicFitEnabled = af.WeightedHyperbolicFitEnabled,
+                MaxOutlierRejections = af.MaxOutlierRejections,
+                OutlierRejectionConfidence = af.OutlierRejectionConfidence,
+                HyperbolicFitModel = af.HyperbolicFitModel.ToString(),
+                SensorROI = inspector.SensorROI,
+                CornersROI = inspector.CornersROI
+            };
         }
 
         private double EffectiveFocuserStepMicrons() {
