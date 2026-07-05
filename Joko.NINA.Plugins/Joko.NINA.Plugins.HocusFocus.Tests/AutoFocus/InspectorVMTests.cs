@@ -127,26 +127,39 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             });
         }
 
+        [Test]
+        public void ApplySignalAmplification_LiveRun_MultipliesTimeoutByFactor() {
+            // Amplification multiplies the exposure count (more, finer-spaced points), so the autofocus timeout must
+            // grow by the same factor or the longer sweep would time out. Scaling the per-run options override keeps
+            // this off the persisted timeout — no mutate-then-restore.
+            var options = new AutoFocusEngineOptions { AutoFocusTimeout = System.TimeSpan.FromSeconds(120) };
+            InspectorVM.ApplySignalAmplification(options, signalAmplification: 3, isLiveCapture: true);
+            Assert.That(options.AutoFocusTimeout, Is.EqualTo(System.TimeSpan.FromSeconds(360)));
+        }
+
         [TestCase(1)]   // factor of 1 disables amplification
         [TestCase(0)]   // clamped to 1 -> no-op
         [TestCase(-3)]  // clamped to 1 -> no-op
         public void ApplySignalAmplification_FactorOfOneOrLess_IsNoOp(int amp) {
-            var options = new AutoFocusEngineOptions { AutoFocusInitialOffsetSteps = 4, AutoFocusStepSize = 100 };
+            var options = new AutoFocusEngineOptions { AutoFocusInitialOffsetSteps = 4, AutoFocusStepSize = 100, AutoFocusTimeout = System.TimeSpan.FromSeconds(120) };
             InspectorVM.ApplySignalAmplification(options, signalAmplification: amp, isLiveCapture: true);
             Assert.Multiple(() => {
                 Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(4));
                 Assert.That(options.AutoFocusStepSize, Is.EqualTo(100));
+                Assert.That(options.AutoFocusTimeout, Is.EqualTo(System.TimeSpan.FromSeconds(120)));
             });
         }
 
         [Test]
         public void ApplySignalAmplification_Replay_IsNoOp() {
-            // On replay the saved frames' focuser positions are fixed, so amplification must not change the sweep.
-            var options = new AutoFocusEngineOptions { AutoFocusInitialOffsetSteps = 4, AutoFocusStepSize = 100 };
+            // On replay the saved frames' focuser positions are fixed, so amplification must not change the sweep — and
+            // the fixed exposure count means the timeout must not grow either.
+            var options = new AutoFocusEngineOptions { AutoFocusInitialOffsetSteps = 4, AutoFocusStepSize = 100, AutoFocusTimeout = System.TimeSpan.FromSeconds(120) };
             InspectorVM.ApplySignalAmplification(options, signalAmplification: 3, isLiveCapture: false);
             Assert.Multiple(() => {
                 Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(4));
                 Assert.That(options.AutoFocusStepSize, Is.EqualTo(100));
+                Assert.That(options.AutoFocusTimeout, Is.EqualTo(System.TimeSpan.FromSeconds(120)));
             });
         }
 

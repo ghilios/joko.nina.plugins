@@ -1122,13 +1122,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (inspectorOptions.StepSize > 0 && savedAutoFocusAttempt != null) {
                 options.AutoFocusStepSize = inspectorOptions.StepSize;
             }
-            // Signal amplification: capture more, finer-spaced points over the same sweep range by dividing the step
-            // size and multiplying the step count by the factor. Only meaningful for LIVE captures — a replay re-uses
-            // the saved frames' fixed focuser positions (savedAutoFocusAttempt != null), so those stay untouched.
-            ApplySignalAmplification(options, inspectorOptions.SignalAmplification, isLiveCapture: savedAutoFocusAttempt == null);
+            // Resolve the base autofocus timeout (inspector override, else the profile default GetOptions already put
+            // on the options) BEFORE amplification, so signal amplification scales the resolved value by its factor.
             if (inspectorOptions.TimeoutSeconds > 0) {
                 options.AutoFocusTimeout = TimeSpan.FromSeconds(inspectorOptions.TimeoutSeconds);
             }
+            // Signal amplification: capture more, finer-spaced points over the same sweep range by dividing the step
+            // size and multiplying the step count by the factor, and scale the autofocus timeout by that same factor so
+            // the longer sweep does not time out. Only meaningful for LIVE captures — a replay re-uses the saved frames'
+            // fixed focuser positions (savedAutoFocusAttempt != null), so those stay untouched.
+            ApplySignalAmplification(options, inspectorOptions.SignalAmplification, isLiveCapture: savedAutoFocusAttempt == null);
             if (inspectorOptions.DetailedAnalysisExposureSeconds > 0) {
                 options.OverrideAutoFocusExposureTime = TimeSpan.FromSeconds(inspectorOptions.DetailedAnalysisExposureSeconds);
             }
@@ -1146,13 +1149,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         // Applies the Signal Amplification factor to a live sensor-model / tilt sweep: divides the focuser step size
         // and multiplies the step count by the factor, so the same sweep range is covered with more, finer-spaced
-        // points (more signal, smaller defocus jumps between adjacent frames). No-op at factor <= 1 or on replay
-        // (isLiveCapture == false), since replay re-uses the saved frames' fixed focuser positions. Internal for tests.
+        // points (more signal, smaller defocus jumps between adjacent frames). Those extra points multiply the sweep's
+        // exposure count, so the autofocus timeout is scaled by the same factor to keep the longer sweep from timing
+        // out. The timeout is scaled on the per-run options override (never the persisted AutoFocusTimeoutSeconds), so
+        // there is nothing to restore afterward. No-op at factor <= 1 or on replay (isLiveCapture == false), since
+        // replay re-uses the saved frames' fixed focuser positions. Internal for tests.
         internal static void ApplySignalAmplification(AutoFocusEngineOptions options, int signalAmplification, bool isLiveCapture) {
             var amp = Math.Max(1, signalAmplification);
             if (amp > 1 && isLiveCapture) {
                 options.AutoFocusInitialOffsetSteps *= amp;
                 options.AutoFocusStepSize = Math.Max(1, (int)Math.Round(options.AutoFocusStepSize / (double)amp));
+                options.AutoFocusTimeout *= amp;
             }
         }
 
