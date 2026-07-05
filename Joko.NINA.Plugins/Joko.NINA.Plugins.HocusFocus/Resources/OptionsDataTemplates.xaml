@@ -1101,11 +1101,12 @@
 
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
 
-                <!-- 33 -->
+                <!--  34: Measurement Averaging (always visible); 35: Exclude Saturated Stars From HFR;
+                      36: Contamination Sensitivity; 37: Reject Contaminated Stars (35-37 advanced-only).  -->
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <RowDefinition />
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
 
                 <!--  38: Debug Mode (always visible); 39: Intermediate Path (only with Save Intermediate on)  -->
                 <RowDefinition />
@@ -1397,13 +1398,13 @@
             </ninactrl:UnitTextBox>
 
             <TextBlock
-                Grid.Row="35"
+                Grid.Row="36"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Contamination Sensitivity"
                 ToolTip="{StaticResource ContaminationSensitivity_Tooltip}" />
             <ninactrl:UnitTextBox
-                Grid.Row="35"
+                Grid.Row="36"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
@@ -1423,13 +1424,13 @@
             </ninactrl:UnitTextBox>
 
             <TextBlock
-                Grid.Row="36"
+                Grid.Row="37"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Text="Reject Contaminated Stars"
                 ToolTip="{StaticResource RejectContaminatedStars_Tooltip}" />
             <CheckBox
-                Grid.Row="36"
+                Grid.Row="37"
                 Grid.Column="1"
                 MinWidth="80"
                 Margin="5,5,0,0"
