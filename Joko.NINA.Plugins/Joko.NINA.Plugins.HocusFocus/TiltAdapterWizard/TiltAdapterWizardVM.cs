@@ -1108,6 +1108,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             };
         }
 
+        // Human-readable list of context fields that differ between capture and the current profile (empty if none).
+        internal static string DescribeMeasurementContextDrift(TiltMeasurementContext captured, TiltMeasurementContext current) {
+            if (captured == null || current == null) return string.Empty;
+            var diffs = new List<string>();
+            void D(string name, double a, double b) { if (!(double.IsNaN(a) && double.IsNaN(b)) && Math.Abs(a - b) > 1e-9) diffs.Add($"{name} ({a:0.###} → {b:0.###})"); }
+            void B(string name, bool a, bool b) { if (a != b) diffs.Add($"{name} ({a} → {b})"); }
+            D("MicronsPerFocuserStep", captured.MicronsPerFocuserStep, current.MicronsPerFocuserStep);
+            D("FocalRatio", captured.FocalRatio, current.FocalRatio);
+            D("AcceptableRSquaredMin", captured.AcceptableRSquaredMin, current.AcceptableRSquaredMin);
+            B("UseRANSAC", captured.UseRANSAC, current.UseRANSAC);
+            B("FixedSensorCenter", captured.FixedSensorCenter, current.FixedSensorCenter);
+            B("WeightedHyperbolicFit", captured.WeightedHyperbolicFitEnabled, current.WeightedHyperbolicFitEnabled);
+            if (!string.Equals(captured.HyperbolicFitModel, current.HyperbolicFitModel, StringComparison.Ordinal))
+                diffs.Add($"HyperbolicFitModel ({captured.HyperbolicFitModel} → {current.HyperbolicFitModel})");
+            return string.Join(", ", diffs);
+        }
+
         private double EffectiveFocuserStepMicrons() {
             var v = inspector.InspectorOptions?.MicronsPerFocuserStep ?? -1;
             if (v > 0) return v;
@@ -1808,6 +1825,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             StatusText = string.Empty;
 
             bool completed = false;
+            var ctx = metadata.MeasurementContext;
+            var prevFocuserOverride = inspector.SensorModelFocuserSizeOverrideMicrons;
+            var prevFRatioOverride = inspector.SensorModelFRatioOverride;
+            if (mode.ApplyCaptureTimeOverridePerStep && ctx != null) {
+                if (!double.IsNaN(ctx.MicronsPerFocuserStep) && ctx.MicronsPerFocuserStep > 0)
+                    inspector.SensorModelFocuserSizeOverrideMicrons = ctx.MicronsPerFocuserStep;
+                if (!double.IsNaN(ctx.FocalRatio) && ctx.FocalRatio > 0)
+                    inspector.SensorModelFRatioOverride = ctx.FocalRatio;
+                var currentCtx = CaptureMeasurementContext(inspector.InspectorOptions, HocusFocusPlugin.AutoFocusOptions,
+                    profileService.ActiveProfile.TelescopeSettings.FocalRatio,
+                    profileService.ActiveProfile.TelescopeSettings.FocalLength);
+                var drift = DescribeMeasurementContextDrift(ctx, currentCtx);
+                if (!string.IsNullOrEmpty(drift))
+                    Notification.ShowWarning($"Replaying with captured measurement settings; your current profile differs: {drift}.");
+            }
             try {
                 foreach (var step in replaySteps) {
                     token.ThrowIfCancellationRequested();
@@ -1897,6 +1929,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 // never touches the profile either.
                 isReplaying = false;
                 IsMeasuring = false;
+                inspector.SensorModelFocuserSizeOverrideMicrons = prevFocuserOverride;
+                inspector.SensorModelFRatioOverride = prevFRatioOverride;
                 // A successful replay ends on the Complete panel (like a live run); a failed/cancelled replay
                 // returns to the idle config panel so the user can retry instead of being stuck mid-run.
                 if (!completed) {

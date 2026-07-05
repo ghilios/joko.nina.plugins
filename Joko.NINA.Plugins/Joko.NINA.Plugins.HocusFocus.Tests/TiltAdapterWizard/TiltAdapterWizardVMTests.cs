@@ -876,5 +876,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(ctx.UseRANSAC, Is.True);
             });
         }
+
+        [Test]
+        public void MeasurementContextDrift_ListsChangedFields() {
+            var captured = new TiltMeasurementContext { MicronsPerFocuserStep = 3.6, FocalRatio = 7, UseRANSAC = true };
+            var current  = new TiltMeasurementContext { MicronsPerFocuserStep = 0.26, FocalRatio = 7, UseRANSAC = true };
+            var drift = TiltAdapterWizardVM.DescribeMeasurementContextDrift(captured, current);
+            Assert.Multiple(() => {
+                Assert.That(drift, Does.Contain("MicronsPerFocuserStep"));
+                Assert.That(drift, Does.Not.Contain("FocalRatio"));
+            });
+        }
     }
 }

@@ -551,6 +551,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // its robust tilt. Transient and not persisted; the wizard sets it only for the duration of each analysis call.
         public bool ForceSensorCurveModelGeneration { get; set; }
 
+        // Transient replay overrides for the sensor-model inputs otherwise read live (null = use profile/inspector).
+        public double? SensorModelFocuserSizeOverrideMicrons { get; set; }
+        public double? SensorModelFRatioOverride { get; set; }
+
         private bool ResolveSensorCurveModelEnabled() =>
             inspectorOptions.SensorCurveModelEnabled || ForceSensorCurveModelGeneration;
 
@@ -575,7 +579,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // Resolve the definitive review request from the SAME flag that gates this block (capture-time flag on replay).
             frameReviewRequestedForRun = IsFrameReviewRequested(inspectorOptions.FrameReviewEnabled, sensorCurveModelEnabled);
             if (sensorCurveModelEnabled) {
-                double focuserSizeMicrons = InspectorOptions.MicronsPerFocuserStep;
+                double focuserSizeMicrons = SensorModelFocuserSizeOverrideMicrons ?? InspectorOptions.MicronsPerFocuserStep;
                 if (double.IsNaN(focuserSizeMicrons) || focuserSizeMicrons <= 0.0) {
                     if (!focuserStepSizeWarningShowed) {
                         Notification.ShowWarning("Focuser Step Size not set. Assuming 1 micron per focuser step. This message won't be shown again.");
@@ -589,7 +593,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 try {
                     await SensorModel.UpdateModel(
                         FullSensorDetectedStars,
-                        fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio,
+                        fRatio: SensorModelFRatioOverride ?? profileService.ActiveProfile.TelescopeSettings.FocalRatio,
                         focuserSizeMicrons: focuserSizeMicrons,
                         finalFocusPosition: finalFocuserPosition,
                         stepSize: result.StepSize,
