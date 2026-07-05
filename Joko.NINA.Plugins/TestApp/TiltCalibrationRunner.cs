@@ -96,6 +96,10 @@ namespace TestApp {
 
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
             bool reoptimize = DiagnosticUtil.HasFlag(args, "--reoptimize");
+            // Match the live app: when the profile debayers (ImageSettings.DebayerImage), detection runs on the
+            // debayered luminance, not the raw Bayer mosaic. The wizard's per-star sensor-model tilt is sensitive
+            // to this, so replaying a bayered run faithfully requires it.
+            bool debayer = DiagnosticUtil.HasFlag(args, "--debayer");
             int? maxEvals = null;
             var maxEvalsArg = DiagnosticUtil.GetArg(args, "--max-evals");
             if (!string.IsNullOrWhiteSpace(maxEvalsArg)) {
@@ -178,10 +182,11 @@ namespace TestApp {
             // optimizer is forced via --reoptimize. The result is applied only to this transient params object.
             var (detectionParams, optimizationSource) = await ResolveDetectionParamsAsync(
                 metadata, metadataPath, outDir, reoptimize, maxEvals, orderedRuns,
-                profileService, starDetectionOptions, afOptions, alglibAPI, pixelScale).ConfigureAwait(false);
+                profileService, starDetectionOptions, afOptions, alglibAPI, pixelScale, debayer).ConfigureAwait(false);
             Console.WriteLine($"Detection params: source={optimizationSource}, Sensitivity={F(detectionParams.Sensitivity)}, " +
                 $"StarClippingMultiplier={F(detectionParams.StarClippingMultiplier)}, StructureLayers={detectionParams.StructureLayers}, " +
                 $"DefocusAwareDonutDetection={detectionParams.DefocusAwareDonutDetection}");
+            Console.WriteLine($"Debayer bayered frames to luminance (match live app): {debayer}");
 
             // Measure the tilt plane for each run.
             var detector = new StarDetector(alglibAPI);
@@ -194,7 +199,7 @@ namespace TestApp {
                 var sw4c = System.Diagnostics.Stopwatch.StartNew();
                 var stepResult = await MeasureTiltAsync(run, detector, detectionParams, regions, fRatio,
                     metadata.FocuserStepSizeMicrons, metadata.PixelSizeMicrons, starDetectionOptions.MeasurementAverage,
-                    profileService, alglibAPI, afOptions.HyperbolicFitModel).ConfigureAwait(false);
+                    profileService, alglibAPI, afOptions.HyperbolicFitModel, debayer).ConfigureAwait(false);
                 perStep.Add(stepResult);
                 Console.WriteLine($"    [4-corner {run.Step}] done in {sw4c.ElapsedMilliseconds} ms");
                 Console.WriteLine($"    A={F(stepResult.Gradient.A)}, B={F(stepResult.Gradient.B)}, " +
@@ -236,7 +241,7 @@ namespace TestApp {
                 Console.WriteLine($"Paraboloid (per-star) tilt for {run.Step} ...");
                 var mean = byStep[run.Step].Gradient.MeanFocuserPosition;
                 var ps = await MeasureTiltViaParaboloidAsync(run, detector, detectionParams, metadata.FocuserStepSizeMicrons,
-                    metadata.PixelSizeMicrons, mean, profileService, inspectorOptions, afOptions, alglibAPI).ConfigureAwait(false);
+                    metadata.PixelSizeMicrons, mean, profileService, inspectorOptions, afOptions, alglibAPI, debayer).ConfigureAwait(false);
                 paraboloidSteps.Add(ps);
                 Console.WriteLine(ps.Fitted
                     ? $"    A={F(ps.Gradient.A)}, B={F(ps.Gradient.B)}, stars={ps.StarsInModel}, R²={F(ps.RSquared)}"
@@ -363,7 +368,7 @@ namespace TestApp {
         private static async Task<(StarDetectorParams Params, string Source)> ResolveDetectionParamsAsync(
             TiltCalibrationMetadata metadata, string metadataPath, string outDir, bool reoptimize, int? maxEvals,
             List<RunStep> orderedRuns, ProfileService profileService, StarDetectionOptions starDetectionOptions,
-            AutoFocusOptions afOptions, AlglibAPI alglibAPI, double pixelScale) {
+            AutoFocusOptions afOptions, AlglibAPI alglibAPI, double pixelScale, bool debayer) {
 
             StarDetectorParams ApplyAfContext(StarDetectorParams p) {
                 p.PixelScale = pixelScale;
@@ -400,7 +405,7 @@ namespace TestApp {
             var loaded = new List<(RunStep Run, List<(int Focuser, Mat Mat)> Frames, RunEvaluationData Data)>();
             try {
                 foreach (var run in orderedRuns) {
-                    var mats = await LoadRunMatsAsync(run, profileService).ConfigureAwait(false);
+                    var mats = await LoadRunMatsAsync(run, profileService, debayer).ConfigureAwait(false);
                     var frames = mats.Select(m => new RunFrame { FrameId = m.Path, FocuserPosition = m.Focuser, Image = m.Mat }).ToList();
                     var stepSize = InferStepSize(run.Frames.Select(f => f.Focuser));
                     var fitConfig = new RunFitConfig {
@@ -512,9 +517,9 @@ namespace TestApp {
         private static async Task<StepResult> MeasureTiltAsync(
             RunStep run, StarDetector detector, StarDetectorParams baseParams, List<StarDetectionRegion> regions,
             double fRatio, double focuserStepMicrons, double pixelSizeMicrons, MeasurementAverageEnum measurementAverage,
-            ProfileService profileService, IAlglibAPI alglibAPI, HyperbolicFitModel hyperbolicModel) {
+            ProfileService profileService, IAlglibAPI alglibAPI, HyperbolicFitModel hyperbolicModel, bool debayer) {
 
-            var mats = await LoadRunMatsAsync(run, profileService).ConfigureAwait(false);
+            var mats = await LoadRunMatsAsync(run, profileService, debayer).ConfigureAwait(false);
             try {
                 var imageSize = new DrawingSize(mats[0].Mat.Width, mats[0].Mat.Height);
 
@@ -587,9 +592,9 @@ namespace TestApp {
         private static async Task<ParaboloidStepResult> MeasureTiltViaParaboloidAsync(
             RunStep run, StarDetector detector, StarDetectorParams baseParams, double focuserStepMicrons,
             double pixelSizeMicrons, double fourCornerMean, ProfileService profileService,
-            InspectorOptions inspectorOptions, AutoFocusOptions afOptions, IAlglibAPI alglibAPI) {
+            InspectorOptions inspectorOptions, AutoFocusOptions afOptions, IAlglibAPI alglibAPI, bool debayer) {
 
-            var mats = await LoadRunMatsAsync(run, profileService).ConfigureAwait(false);
+            var mats = await LoadRunMatsAsync(run, profileService, debayer).ConfigureAwait(false);
             try {
                 var imageSize = new DrawingSize(mats[0].Mat.Width, mats[0].Mat.Height);
                 var sensorFrames = new List<SensorDetectedStars>(mats.Count);
@@ -690,10 +695,10 @@ namespace TestApp {
 
         // ---- Image loading + regions ----------------------------------------------------------------------
 
-        private static async Task<List<(int Focuser, string Path, Mat Mat)>> LoadRunMatsAsync(RunStep run, ProfileService profileService) {
+        private static async Task<List<(int Focuser, string Path, Mat Mat)>> LoadRunMatsAsync(RunStep run, ProfileService profileService, bool debayer) {
             var result = new List<(int, string, Mat)>(run.Frames.Count);
             foreach (var (focuser, path) in run.Frames.OrderBy(f => f.Focuser)) {
-                var mat = await DiagnosticUtil.LoadFloatMat(path, profileService).ConfigureAwait(false);
+                var mat = await DiagnosticUtil.LoadFloatMat(path, profileService, debayer).ConfigureAwait(false);
                 result.Add((focuser, path, mat));
             }
             return result;
@@ -938,6 +943,7 @@ namespace TestApp {
             Console.Error.WriteLine("  --profile-id (default active) NINA profile id (settings + focal length).");
             Console.Error.WriteLine("  --out        (default %LOCALAPPDATA%\\NINA\\Logs\\hf-diag\\tilt\\<timestamp>) output directory.");
             Console.Error.WriteLine("  --reoptimize force re-running star-detection optimization and overwrite the stored settings in metadata.");
+            Console.Error.WriteLine("  --debayer    debayer bayered frames to luminance before detection (matches the live app when the profile debayers); required to reproduce the wizard's per-star sensor-model tilt on a bayered run.");
             Console.Error.WriteLine("  --max-evals  (optional) override the optimizer's MaxEvaluations budget.");
             Console.Error.WriteLine("Metadata lives at <parent>/<datasetName>.tilt.json; a template is written if it is missing.");
         }
