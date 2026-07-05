@@ -78,6 +78,28 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
+        public void MeasurementContext_RoundTrips() {
+            var meta = new TiltCalibrationMetadata {
+                NumberOfScrews = 3, ScrewRadiusMillimeters = 44, PixelSizeMicrons = 3.76,
+                FocuserStepSizeMicrons = 3.6, CalibrationAppliedAmount = 1.0,
+                MeasurementContext = new TiltMeasurementContext {
+                    MicronsPerFocuserStep = 3.6, FocalRatio = 7, FocalLengthMm = 703,
+                    UseRANSAC = true, FixedSensorCenter = false, AstigmaticCurvatureEnabled = false,
+                    AcceptableRSquaredMin = 0.8, WeightedHyperbolicFitEnabled = true,
+                    MaxOutlierRejections = 3, OutlierRejectionConfidence = 0.9,
+                    HyperbolicFitModel = "Hybrid", SensorROI = 1.0, CornersROI = 1.0
+                }
+            };
+            var back = TiltCalibrationMetadata.Deserialize(meta.Serialize());
+            Assert.Multiple(() => {
+                Assert.That(back.MeasurementContext.MicronsPerFocuserStep, Is.EqualTo(3.6).Within(1e-9));
+                Assert.That(back.MeasurementContext.FocalRatio, Is.EqualTo(7).Within(1e-9));
+                Assert.That(back.MeasurementContext.HyperbolicFitModel, Is.EqualTo("Hybrid"));
+                Assert.That(back.MeasurementContext.UseRANSAC, Is.True);
+            });
+        }
+
+        [Test]
         public void IsStepperAdjustment_FalseForScrews() {
             var md = new TiltCalibrationMetadata { AdjustmentType = "Screws" };
             Assert.That(md.IsStepperAdjustment, Is.False);
