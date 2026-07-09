@@ -54,32 +54,66 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         }
 
         /// <summary>
-        /// Writes text to <paramref name="path"/> atomically: the content is written to a sibling temp file which
-        /// is then renamed into place, so a concurrent reader never observes a half-written file or an open write
-        /// handle on the final path.
+        /// The suffix appended to a target directory's name to form the default staging directory.
         /// </summary>
+        public const string TempDirectorySuffix = ".hf-tmp";
+
+        /// <summary>
+        /// Writes text to <paramref name="path"/> atomically: the content is written to a temp file in a
+        /// staging directory outside the target directory, which is then renamed into place, so a concurrent
+        /// reader never observes a half-written file or an open write handle on the final path.
+        /// </summary>
+        /// <param name="path">The destination file.</param>
+        /// <param name="contents">The content to write.</param>
+        /// <param name="tempDirectory">
+        /// Staging directory for the temp file. It MUST be on the same volume as <paramref name="path"/> for the
+        /// rename to be atomic, and MUST NOT be the target directory itself (see remarks). Defaults to a sibling
+        /// of the target directory named <c>&lt;targetDirName&gt;<see cref="TempDirectorySuffix"/></c>.
+        /// </param>
         /// <remarks>
-        /// A plain <see cref="File.WriteAllText(string, string)"/> keeps a <see cref="FileAccess.Write"/> handle
-        /// open on the destination while serializing. NINA core's <c>AutoFocusToolVM.LoadChart</c> watches the
-        /// AutoFocus report directory and immediately <c>File.OpenText</c>s new reports with
-        /// <see cref="FileShare.Read"/>; that share mode does not admit the still-open write access, so the read
-        /// fails with a sharing violation ("being used by another process"). Writing a temp file and renaming means
-        /// the final report never has an open write handle, eliminating the race. The temp file carries a
-        /// non-<c>.json</c> extension so a directory watcher filtering on the real extension does not wake on it.
+        /// Two separate hazards are in play, and both must be respected.
+        /// <para>
+        /// First: a plain <see cref="File.WriteAllText(string, string)"/> keeps a <see cref="FileAccess.Write"/>
+        /// handle open on the destination. NINA core's <c>AutoFocusToolVM</c> watches the AutoFocus report
+        /// directory and immediately <c>File.OpenText</c>s new reports with <see cref="FileShare.Read"/>; that
+        /// share mode does not admit the still-open write access, so the read fails with a sharing violation
+        /// ("being used by another process"). Staging the content in a temp file and renaming it into place means
+        /// the final report never has an open write handle.
+        /// </para>
+        /// <para>
+        /// Second: the staging file must live OUTSIDE the target directory. Windows reports an intra-directory
+        /// rename as <c>FILE_ACTION_RENAMED_OLD_NAME</c>/<c>FILE_ACTION_RENAMED_NEW_NAME</c>, which .NET raises as
+        /// <see cref="FileSystemWatcher.Renamed"/> — not <see cref="FileSystemWatcher.Created"/>. NINA's watcher
+        /// subscribes only to Created and Deleted, so a same-directory rename publishes a report that NINA never
+        /// notices until it restarts. Renaming in from another directory makes the destination observe
+        /// <c>FILE_ACTION_ADDED</c>, which raises Created. Because the source and destination share a volume, the
+        /// move remains a true atomic rename rather than a copy.
+        /// </para>
+        /// <para>
+        /// Keeping the temp file out of the target directory also means a process crash between the write and the
+        /// rename cannot strand a <c>.tmp</c> file where NINA's unfiltered
+        /// <c>Directory.GetFiles(ReportDirectory)</c> would list it as a bogus chart.
+        /// </para>
         /// </remarks>
-        public static void WriteAllTextAtomic(string path, string contents) {
+        public static void WriteAllTextAtomic(string path, string contents, string tempDirectory = null) {
             if (string.IsNullOrEmpty(path)) {
                 throw new ArgumentNullException(nameof(path));
             }
 
-            var directory = Path.GetDirectoryName(path);
-            // The temp file MUST live in the same directory (volume) as the target so File.Move is a true atomic
-            // rename rather than a copy+delete.
-            var tempPath = Path.Combine(directory ?? string.Empty, Path.GetFileNameWithoutExtension(path) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+            var fullPath = Path.GetFullPath(path);
+            var targetDirectory = Path.GetDirectoryName(fullPath);
+            var stagingDirectory = string.IsNullOrEmpty(tempDirectory)
+                ? GetDefaultTempDirectory(targetDirectory)
+                : tempDirectory;
+            Directory.CreateDirectory(stagingDirectory);
+
+            var tempPath = Path.Combine(
+                stagingDirectory,
+                Path.GetFileNameWithoutExtension(fullPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
             try {
                 File.WriteAllText(tempPath, contents);
                 // overwrite: a stale report from the same second (filenames are second-resolution) must not block it.
-                File.Move(tempPath, path, overwrite: true);
+                File.Move(tempPath, fullPath, overwrite: true);
             } catch {
                 // Best-effort cleanup so a failed rename doesn't strand a temp file; preserve the original error.
                 try {
@@ -89,6 +123,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 } catch { }
                 throw;
             }
+        }
+
+        /// <summary>
+        /// A sibling of <paramref name="targetDirectory"/>, which is guaranteed to be on the same volume (same
+        /// parent) and outside the target directory regardless of whether a watcher sets IncludeSubdirectories.
+        /// Falls back to the target directory itself when it is a volume root and therefore has no sibling; in
+        /// that degenerate case the write is still atomic but no Created event is raised.
+        /// </summary>
+        private static string GetDefaultTempDirectory(string targetDirectory) {
+            var parent = Path.GetDirectoryName(targetDirectory);
+            if (string.IsNullOrEmpty(parent)) {
+                return targetDirectory;
+            }
+
+            return Path.Combine(parent, Path.GetFileName(targetDirectory) + TempDirectorySuffix);
         }
 
         private static string AppendDirectorySeparatorChar(string path) {
