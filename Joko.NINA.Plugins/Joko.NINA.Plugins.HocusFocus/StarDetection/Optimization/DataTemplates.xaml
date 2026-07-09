@@ -90,6 +90,83 @@
         </oxy:Plot>
     </DataTemplate>
 
+    <!--  Live auto-focus curve, streamed into the progress panel while the wizard's Live source runs a fresh
+          auto-focus. Unlike the OptimizationCurve chart above, the axes AUTO-SCALE (MinimumPadding/MaximumPadding,
+          no explicit bounds) exactly as the AF pane's chart does: points arrive one at a time, so the plot must
+          rescale as the sweep widens rather than being pinned to bounds computed from the first point or two.
+          The VM exposes only the ONE fit the profile uses (plus the two trend lines when the curve fitting is
+          trend-based), so each annotation is a single FunctionAnnotation and a null Equation simply draws nothing.  -->
+    <DataTemplate DataType="{x:Type local:LiveAutoFocusChartVM}">
+        <oxy:Plot
+            Background="{StaticResource BackgroundBrush}"
+            PlotAreaBackground="{StaticResource BackgroundBrush}"
+            PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
+            TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
+            <oxy:Plot.Axes>
+                <oxy:LinearAxis
+                    AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                    IsPanEnabled="False"
+                    IsZoomEnabled="False"
+                    MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
+                    MajorGridlineStyle="LongDash"
+                    MaximumPadding="0.1"
+                    MinimumPadding="0.1"
+                    Position="Left"
+                    TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                    TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
+                    Title="HFR" />
+                <oxy:LinearAxis
+                    AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                    IsPanEnabled="False"
+                    IsZoomEnabled="False"
+                    MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
+                    MajorGridlineStyle="LongDash"
+                    MaximumPadding="0.1"
+                    MinimumPadding="0.1"
+                    Position="Bottom"
+                    TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                    TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
+                    Title="Focuser position" />
+            </oxy:Plot.Axes>
+            <oxy:Plot.Series>
+                <oxy:ScatterErrorSeries
+                    ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
+                    ErrorBarStopWidth="2"
+                    ErrorBarStrokeThickness="2"
+                    ItemsSource="{Binding FocusPoints}"
+                    MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
+                    MarkerType="Circle"
+                    TrackerFormatString="Focuser: {2:0}, HFR: {4:0.000}" />
+                <oxy:LineSeries Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" ItemsSource="{Binding PlotFocusPoints}" />
+                <!--  Points the outlier rejection dropped from the fit.  -->
+                <oxy:ScatterSeries
+                    ItemsSource="{Binding PlotRejectedFocusPoints}"
+                    MarkerSize="8"
+                    MarkerStroke="Red"
+                    MarkerStrokeThickness="2"
+                    MarkerType="Cross" />
+                <!--  Horizontal error bar (ErrorX = σ(focus), or the leave-one-out fallback) on the final point.  -->
+                <oxy:ScatterErrorSeries
+                    ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
+                    ErrorBarStopWidth="4"
+                    ErrorBarStrokeThickness="2"
+                    ItemsSource="{Binding PlotFinalFocusPointWithError}"
+                    MarkerType="None" />
+            </oxy:Plot.Series>
+            <oxy:Plot.Annotations>
+                <oxy:FunctionAnnotation Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" Equation="{Binding CurveFitting}" />
+                <oxy:FunctionAnnotation Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=140}" Equation="{Binding LeftTrendFitting}" />
+                <oxy:FunctionAnnotation Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=140}" Equation="{Binding RightTrendFitting}" />
+                <oxy:PointAnnotation
+                    Fill="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
+                    Shape="Diamond"
+                    Stroke="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
+                    X="{Binding FinalFocusPoint.X}"
+                    Y="{Binding FinalFocusPoint.Y}" />
+            </oxy:Plot.Annotations>
+        </oxy:Plot>
+    </DataTemplate>
+
     <!--  Fitted focus graph for a registered star WITH an accepted fit (Review Frames hover): plain scatter (NO error
           bars — each point is a single detection, so there is no sample spread) + the fitted curve + best-focus marker.  -->
     <DataTemplate DataType="{x:Type review:FrameReviewFocusGraph}">
@@ -219,6 +296,12 @@
                 <Style TargetType="Grid">
                     <Setter Property="Width" Value="640" />
                     <Style.Triggers>
+                        <!--  Wider while the live auto-focus curve is streaming, so it gets the same room the
+                              results-page chart does. Mutually exclusive with the two triggers below (a live run
+                              is on the Acquire step).  -->
+                        <DataTrigger Binding="{Binding ShowLiveChart}" Value="True">
+                            <Setter Property="Width" Value="820" />
+                        </DataTrigger>
                         <!--  Wider on the results page so the auto-focus curve chart has room…  -->
                         <DataTrigger Binding="{Binding IsSummary}" Value="True">
                             <Setter Property="Width" Value="820" />
@@ -401,6 +484,15 @@
                         HorizontalAlignment="Center"
                         FontWeight="Bold"
                         Text="{Binding Phase}" />
+                    <!--  The live auto-focus curve, streaming while the Live source runs its fresh auto-focus.
+                          Collapsed in Saved Auto-Focus (replay), where there is no live run to chart, and again as
+                          soon as the run ends and "Loading frames" takes over.  -->
+                    <Border
+                        Height="240"
+                        Margin="0,0,0,10"
+                        Visibility="{Binding ShowLiveChart, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                        <ContentControl Content="{Binding LiveChart}" />
+                    </Border>
                     <ProgressBar
                         Height="18"
                         IsIndeterminate="{Binding IsProgressIndeterminate}"
