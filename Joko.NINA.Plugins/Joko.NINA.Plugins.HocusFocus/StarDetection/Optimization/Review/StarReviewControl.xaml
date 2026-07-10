@@ -178,7 +178,21 @@
                         <Border x:Name="Bd" Background="#FFD7DCE3" BorderBrush="#FF9AA5B3" BorderThickness="1"
                                 CornerRadius="3" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                                              TextElement.Foreground="{TemplateBinding Foreground}">
+                                <ContentPresenter.Resources>
+                                    <!--  A string Content is rendered by a TextBlock the ContentPresenter generates, and
+                                          NINA.WPF.Base ships a KEYLESS TextBlock style (Resources/Styles/TextBlock.xaml,
+                                          BasedOn StandardTextBlock => Foreground = PrimaryBrush) in Application.Resources.
+                                          A style setter outranks the inherited TextElement.Foreground above, so the label
+                                          painted in the theme's near-white text colour on this fixed light fill (~1.25:1).
+                                          The empty style below is found first (nearest dictionary wins the implicit-style
+                                          lookup) and carries no Foreground, so the inherited value — the button's own
+                                          Foreground, enabled or disabled — reaches the glyph again. The white TextBlock
+                                          style further down this file was never the culprit: a control-scope implicit
+                                          style does not reach template-generated content at all.  -->
+                                    <Style TargetType="TextBlock" />
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">

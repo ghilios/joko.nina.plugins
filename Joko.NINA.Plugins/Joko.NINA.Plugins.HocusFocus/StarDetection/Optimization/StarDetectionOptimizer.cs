@@ -44,6 +44,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int MaxEvaluations { get; set; }
         public double BestJ { get; set; }
         public double SeedJ { get; set; }
+
+        /// <summary>Mean focus σ of the current incumbent, aggregated over the runs that produced a finite σ (the
+        /// same aggregation the wizard's summary applies to the winning params). NaN when no run yielded one. The
+        /// wizard's live readout shows this, not a percent of <see cref="BestJ"/>, so it agrees with the summary.</summary>
+        public double BestSigmaFocus { get; set; } = double.NaN;
+
         public string Phase { get; set; }
     }
 
@@ -114,7 +120,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var bestTheta = (double[])theta0.Clone();
             var bestJ = seedJ;
 
-            ctx.Report("Seed", bestJ, seedJ);
+            ctx.Report("Seed", bestTheta, bestJ, seedJ);
 
             // Phase A — coarse grid over the two highest-impact axes.
             (bestTheta, bestJ) = await ctx.CoarseGrid(bestTheta, bestJ, seedJ).ConfigureAwait(false);
@@ -159,6 +165,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             private readonly IProgress<OptimizationProgress> progress;
             private readonly CancellationToken token;
             private readonly Dictionary<string, double> memo = new Dictionary<string, double>(StringComparer.Ordinal);
+
+            // σ of every evaluated candidate, keyed exactly like <see cref="memo"/>. Filled alongside J on a cache
+            // miss (free — the metrics are already in hand) so a Report can look up the incumbent's σ without
+            // re-evaluating, and without threading a second value through every search stage.
+            private readonly Dictionary<string, double> memoSigma = new Dictionary<string, double>(StringComparer.Ordinal);
 
             // Phase-B staging partition (T14): the curated axes split into EARLY (members of
             // StarDetector.EarlyCacheKeyProperties — each move both rebuilds AND evicts the per-frame early
@@ -236,18 +247,41 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
 
                 memo[key] = j;
+                memoSigma[key] = MeanFiniteSigmaFocus(runMetrics);
                 return j;
             }
+
+            /// <summary>Mean σ over the runs that produced a finite focus σ; NaN when none did. Mirrors the wizard's
+            /// baseline/best σ aggregation so the reported σ is directly comparable to the summary's.</summary>
+            private static double MeanFiniteSigmaFocus(IReadOnlyList<RunEvaluationMetrics> runMetrics) {
+                if (runMetrics == null) {
+                    return double.NaN;
+                }
+                var sum = 0.0;
+                var count = 0;
+                foreach (var m in runMetrics) {
+                    if (double.IsFinite(m.SigmaFocus)) {
+                        sum += m.SigmaFocus;
+                        count++;
+                    }
+                }
+                return count > 0 ? sum / count : double.NaN;
+            }
+
+            /// <summary>The memoized σ of an already-evaluated point. NaN if it was never evaluated.</summary>
+            private double SigmaFor(double[] theta) =>
+                memoSigma.TryGetValue(StarDetector.ComputeCacheKey(Materialize(theta)), out var s) ? s : double.NaN;
 
             /// <summary>True once the eval budget is spent. We never start an evaluation past the cap.</summary>
             public bool BudgetExhausted => Evaluations >= settings.MaxEvaluations;
 
-            public void Report(string phase, double bestJ, double seedJ) {
+            public void Report(string phase, double[] bestTheta, double bestJ, double seedJ) {
                 progress?.Report(new OptimizationProgress {
                     Evaluations = Evaluations,
                     MaxEvaluations = settings.MaxEvaluations,
                     BestJ = bestJ,
                     SeedJ = seedJ,
+                    BestSigmaFocus = SigmaFor(bestTheta),
                     Phase = phase
                 });
             }
@@ -281,7 +315,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         }
                     }
                 }
-                Report("CoarseGrid", bestJ, seedJ);
+                Report("CoarseGrid", bestTheta, bestJ, seedJ);
                 return (bestTheta, bestJ);
             }
 
@@ -339,7 +373,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     }
                 }
 
-                Report("PatternSearch", bestJ, seedJ);
+                Report("PatternSearch", bestTheta, bestJ, seedJ);
                 return (bestTheta, bestJ);
             }
 
@@ -395,7 +429,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         // Accept the single best strictly-improving move and re-sweep from there.
                         bestTheta = improvedTheta;
                         bestJ = improvedJ;
-                        Report("PatternSearch", bestJ, seedJ);
+                        Report("PatternSearch", bestTheta, bestJ, seedJ);
                     } else {
                         // No improving move: refine the subset's Continuous steps and sweep again.
                         HalveContinuousSteps(steps, axisIndices);

@@ -66,6 +66,55 @@ public class OptimizationSummaryTests {
         });
     }
 
+    // ---- Live progress readout ---------------------------------------------------------------------------
+    // It must never contradict the summary. The summary headlines σ (FocusPrecisionText → SigmaText), so the
+    // live line reports σ too — never a percent of the objective J, whose relative deltas are ~1e-5 on a
+    // saturated run (e.g. 0.999939 → 0.999919) and therefore always round to "0%".
+
+    [Test]
+    public void LiveImprovementText_StillSearching_UntilBestBeatsTheBaselineJ() {
+        // gateBaselineJ is the stricter of the pass's own baseline and the user's current settings (see
+        // StarDetectionOptimizerWizardVM.ProgressGateJ), so the live line can never promise an improvement the
+        // results page — which judges against the current settings — then retracts.
+        Assert.Multiple(() => {
+            Assert.That(OptimizationSummary.LiveImprovementText(gateBaselineJ: 0.9, bestJ: 0.0, baselineSigma: 2.20, bestSigma: double.NaN),
+                Is.EqualTo("Searching for a better fit…"), "no incumbent yet");
+            Assert.That(OptimizationSummary.LiveImprovementText(gateBaselineJ: 0.9, bestJ: 0.9, baselineSigma: 2.20, bestSigma: 1.50),
+                Is.EqualTo("Searching for a better fit…"), "a tie is not an improvement");
+            Assert.That(OptimizationSummary.LiveImprovementText(gateBaselineJ: 0.99994, bestJ: 0.99992, baselineSigma: 2.20, bestSigma: 1.50),
+                Is.EqualTo("Searching for a better fit…"),
+                "the saturated-plateau case: a tighter σ must NOT be advertised while J is below the current settings");
+            // The Continue pass: the incumbent beats the prior round (0.999919) but not the current settings
+            // (0.999939). ProgressGateJ hands us the stricter of the two, so nothing is claimed — matching the
+            // results page, which keeps Current and shows "could not improve on your current settings".
+            Assert.That(OptimizationSummary.LiveImprovementText(gateBaselineJ: 0.999939, bestJ: 0.999925, baselineSigma: 2.20, bestSigma: 2.05),
+                Is.EqualTo("Searching for a better fit…"));
+        });
+    }
+
+    [Test]
+    public void LiveImprovementText_ShowsSigmaBeforeAfter_WhenTightened() {
+        // Same F2 σ pair the summary's SigmaText shows, so the two agree digit for digit.
+        Assert.That(OptimizationSummary.LiveImprovementText(gateBaselineJ: 0.90, bestJ: 0.91, baselineSigma: 2.20, bestSigma: 1.85),
+            Is.EqualTo("Best so far: σ 2.20 → 1.85"));
+    }
+
+    [Test]
+    public void LiveImprovementText_FoundBetterSettings_WhenJImprovesWithoutTighteningSigma() {
+        // J can improve on star count alone (the aberration-inspection objective trades σ for stars), and σ may
+        // be missing entirely on a degenerate fit. Neither may render as a σ pair — that would read as a σ win.
+        Assert.Multiple(() => {
+            Assert.That(OptimizationSummary.LiveImprovementText(gateBaselineJ: 0.90, bestJ: 0.91, baselineSigma: 2.20, bestSigma: 2.40),
+                Is.EqualTo("Found better settings so far"), "σ got worse");
+            Assert.That(OptimizationSummary.LiveImprovementText(gateBaselineJ: 0.90, bestJ: 0.91, baselineSigma: 2.201, bestSigma: 2.199),
+                Is.EqualTo("Found better settings so far"), "σ inside SigmaText's 'unchanged' band");
+            Assert.That(OptimizationSummary.LiveImprovementText(gateBaselineJ: 0.90, bestJ: 0.91, baselineSigma: double.NaN, bestSigma: 1.50),
+                Is.EqualTo("Found better settings so far"), "no baseline σ");
+            Assert.That(OptimizationSummary.LiveImprovementText(gateBaselineJ: 0.90, bestJ: 0.91, baselineSigma: 2.20, bestSigma: double.NaN),
+                Is.EqualTo("Found better settings so far"), "no incumbent σ");
+        });
+    }
+
     [Test]
     public void SigmaText_NonFinite_FallsBackToBaseText_NoTighterOrUnchanged() {
         var s = new OptimizationSummary { SeedSigmaFocus = double.NaN, BestSigmaFocus = 1.0 }.SigmaText;

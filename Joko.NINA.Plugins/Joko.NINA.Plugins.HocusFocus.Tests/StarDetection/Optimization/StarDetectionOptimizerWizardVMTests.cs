@@ -189,7 +189,8 @@ public class StarDetectionOptimizerWizardVMTests {
         Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, IProgress<RunLoadProgress>, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null,
         Func<bool> isCameraConnected = null,
         Func<bool> isFocuserConnected = null,
-        IAutoFocusEngine autoFocusEngine = null) {
+        IAutoFocusEngine autoFocusEngine = null,
+        OptimizerSettings optimizerSettings = null) {
         options ??= Substitute.For<IStarDetectionOptions>();
         profileService ??= Substitute.For<IProfileService>();
         return new StarDetectionOptimizerWizardVM(
@@ -199,7 +200,7 @@ public class StarDetectionOptimizerWizardVMTests {
             autoFocusEngine: autoFocusEngine ?? Substitute.For<IAutoFocusEngine>(),
             folderPicker: () => @"C:\fake\attempt",
             region: StarDetectionRegion.Full,
-            optimizerSettings: new OptimizerSettings { MaxEvaluations = 200, CoarseGridLevels = 4, StepFloorFraction = 0.125 },
+            optimizerSettings: optimizerSettings ?? new OptimizerSettings { MaxEvaluations = 200, CoarseGridLevels = 4, StepFloorFraction = 0.125 },
             frameReviewBuilder: frameReviewBuilder,
             isCameraConnected: isCameraConnected,
             isFocuserConnected: isFocuserConnected);
@@ -971,12 +972,72 @@ public class StarDetectionOptimizerWizardVMTests {
         await vm.StartAsync(CancellationToken.None);
         vm.IsOptimizedVariant = true;            // read the optimized best regardless of the default selection
         var priorBestJ = vm.Result.BestJ;
+        var priorBestSigma = vm.Summary.BestSigmaFocus;
+        Assume.That(double.IsFinite(priorBestSigma), "the σ assertion below is only meaningful for a finite σ");
 
         await vm.ContinueOptimizationCommand.ExecuteAsync(null);
 
-        // The live "improved ~X%" baseline for a Continue pass is the PRIOR round's best (the seed for this pass),
-        // not the initial current-settings baseline — so ProgressSeedJ tracks where the last round left off.
-        Assert.That(vm.ProgressSeedJ, Is.EqualTo(priorBestJ).Within(1e-9));
+        // The live baseline for a Continue pass is the PRIOR round's best (the seed for this pass), not the initial
+        // current-settings baseline — so ProgressSeedJ/ProgressSeedSigma track where the last round left off, and the
+        // live "σ before → after" reads as the leg the continued search is adding to the summary's σ trajectory.
+        Assert.Multiple(() => {
+            Assert.That(vm.ProgressSeedJ, Is.EqualTo(priorBestJ).Within(1e-9));
+            Assert.That(vm.ProgressSeedSigma, Is.EqualTo(priorBestSigma).Within(1e-9));
+        });
+    }
+
+    [Test]
+    public async Task Continue_LiveImprovementGate_StaysAtCurrentSettings_WhenThePriorRoundLostToThem() {
+        // A Continue pass may be seeded from a round that never beat the user's current settings —
+        // CanContinueOptimization does not require OptimizerImprovedOverCurrent. Gating the live line on that losing
+        // round alone would let it announce a win while the results page still reports "could not improve on your
+        // current settings", so ProgressGateJ takes the stricter of the pass baseline and the current-settings J.
+        //
+        // Fixture: the current settings sit ON the synthetic optimum (Sensitivity 10) and the optimizer gets a
+        // one-evaluation budget, so it never leaves its seed (Sensitivity 2) and finishes strictly below current.
+        var vm = NewVM(
+            LoaderReturning(SeedBaselineSplitRun(baselineSensitivity: 10), SeedBaselineSplitRun(baselineSensitivity: 10)),
+            frameReviewBuilder: new FakeReviewBuilder().Build,
+            optimizerSettings: new OptimizerSettings { MaxEvaluations = 1, CoarseGridLevels = 4, StepFloorFraction = 0.125 });
+        vm.SourcePaths[0] = @"C:\gate-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        var currentSettingsJ = vm.Summary.SeedJ;   // BuildSummaryAsync sets SeedJ = currentBaselineJ
+        vm.IsOptimizedVariant = true;
+        var priorBestJ = vm.Result.BestJ;
+
+        Assert.Multiple(() => {
+            Assert.That(priorBestJ, Is.LessThan(currentSettingsJ), "the fixture must produce a round that LOSES to current");
+            Assert.That(vm.OptimizerImprovedOverCurrent, Is.False, "so the results page keeps Current");
+            Assert.That(vm.CanContinueOptimization, Is.True, "and Continue is still offered");
+        });
+
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            // The σ pair is still measured from the prior round (the leg this pass is adding)…
+            Assert.That(vm.ProgressSeedJ, Is.EqualTo(priorBestJ).Within(1e-9));
+            // …but the CLAIM gate is the current settings, the same baseline OptimizerImprovedOverCurrent uses.
+            Assert.That(vm.ProgressGateJ, Is.EqualTo(currentSettingsJ).Within(1e-12));
+            Assert.That(vm.ProgressGateJ, Is.GreaterThan(vm.ProgressSeedJ),
+                "gating on the losing prior round would let the live line promise what the page withholds");
+        });
+    }
+
+    [Test]
+    public async Task Start_LiveSigmaBaseline_IsTheCurrentSettingsSigma() {
+        // The summary's "Focus precision" row anchors at the CURRENT settings' σ (Summary.SeedSigmaFocus). The live
+        // readout must anchor at the same value, or the σ pair it shows mid-run won't match the summary's.
+        var vm = NewVM(new RecordingLoader(), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\sigma-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        vm.IsOptimizedVariant = true;
+
+        Assert.Multiple(() => {
+            Assert.That(double.IsFinite(vm.ProgressSeedSigma), Is.True, "a baseline σ was measured");
+            Assert.That(vm.ProgressSeedSigma, Is.EqualTo(vm.Summary.SeedSigmaFocus).Within(1e-9));
+        });
     }
 
     // ---- Optimize for aberration inspection -------------------------------------------------------------
@@ -1541,4 +1602,5 @@ public class StarDetectionOptimizerWizardVMTests {
         vm.SelectedVariant = OptimizationVariant.Optimized;
         Assert.That(vm.HasStarCountChanges, Is.False, "the comparison only shows on the feedback variant");
     }
+
 }
