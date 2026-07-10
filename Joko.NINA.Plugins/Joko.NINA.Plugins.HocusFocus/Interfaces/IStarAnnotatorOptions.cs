@@ -77,6 +77,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public interface IStarAnnotatorOptions : INotifyPropertyChanged {
         bool ShowAnnotations { get; set; }
+        bool ShowAnnotationsDuringAutoFocus { get; set; }
         bool ShowAllStars { get; set; }
         int MaxStars { get; set; }
         bool ShowStarBounds { get; set; }

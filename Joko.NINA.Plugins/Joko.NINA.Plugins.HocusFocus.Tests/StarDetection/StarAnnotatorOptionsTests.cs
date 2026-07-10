@@ -26,6 +26,7 @@ public class StarAnnotatorOptionsTests {
         var (options, _, _) = Build();
         Assert.Multiple(() => {
             Assert.That(options.ShowAnnotations, Is.True);
+            Assert.That(options.ShowAnnotationsDuringAutoFocus, Is.True);
             Assert.That(options.ShowAllStars, Is.True);
             Assert.That(options.MaxStars, Is.EqualTo(200));
             Assert.That(options.ShowStarBounds, Is.True);
@@ -53,6 +54,7 @@ public class StarAnnotatorOptionsTests {
     public void Setters_PersistToAccessor() {
         var (options, store, _) = Build();
         options.ShowAnnotations = false;
+        options.ShowAnnotationsDuringAutoFocus = false;
         options.ShowAllStars = false;
         options.MaxStars = 50;
         options.ShowStarBounds = false;
@@ -83,6 +85,7 @@ public class StarAnnotatorOptionsTests {
 
         Assert.Multiple(() => {
             Assert.That(store.Snapshot["ShowAnnotations"], Is.False);
+            Assert.That(store.Snapshot["ShowAnnotationsDuringAutoFocus"], Is.False);
             Assert.That(store.Snapshot["ShowAllStars"], Is.False);
             Assert.That(store.Snapshot["MaxStars"], Is.EqualTo(50));
             Assert.That(store.Snapshot["ShowStarBounds"], Is.False);
@@ -114,6 +117,7 @@ public class StarAnnotatorOptionsTests {
     }
 
     [TestCase(nameof(StarAnnotatorOptions.ShowAnnotations), false)]
+    [TestCase(nameof(StarAnnotatorOptions.ShowAnnotationsDuringAutoFocus), false)]
     [TestCase(nameof(StarAnnotatorOptions.ShowAllStars), false)]
     [TestCase(nameof(StarAnnotatorOptions.MaxStars), 25)]
     [TestCase(nameof(StarAnnotatorOptions.ShowStarBounds), false)]
@@ -144,6 +148,7 @@ public class StarAnnotatorOptionsTests {
         var (options, _, _) = Build();
         options.MaxStars = 5;
         options.ShowAnnotations = false;
+        options.ShowAnnotationsDuringAutoFocus = false;
         options.ShowStructureMap = ShowStructureMapEnum.Original;
         options.AnnotationFontFamily = new FontFamily("Tahoma");
 
@@ -152,6 +157,7 @@ public class StarAnnotatorOptionsTests {
         Assert.Multiple(() => {
             Assert.That(options.MaxStars, Is.EqualTo(200));
             Assert.That(options.ShowAnnotations, Is.True);
+            Assert.That(options.ShowAnnotationsDuringAutoFocus, Is.True);
             Assert.That(options.ShowStructureMap, Is.EqualTo(ShowStructureMapEnum.None));
             Assert.That(options.AnnotationFontFamily.FamilyNames.Values, Does.Contain("Arial"));
         });
