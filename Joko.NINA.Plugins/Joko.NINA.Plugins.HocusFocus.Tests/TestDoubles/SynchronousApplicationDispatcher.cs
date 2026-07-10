@@ -9,6 +9,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles {
 
         public T DispatchSynchronizationContext<T>(Func<T> func) => func();
 
+        public void PostSynchronizationContext(Action action) => action();
+
         public T GetResource<T>(string name, T fallback) => fallback;
     }
 }

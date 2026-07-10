@@ -448,11 +448,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public void UpdateDeviceInfo(CameraInfo deviceInfo) {
             // Marshal the whole update (state mutation + notifications) once at the consumer boundary so individual
             // setters need not each remember to wrap, and the high-frequency background broadcast is not blocked (F15).
-            OnUIThread(() => CameraInfo = deviceInfo);
+            PostToUIThread(() => CameraInfo = deviceInfo);
         }
 
         public void UpdateDeviceInfo(FocuserInfo deviceInfo) {
-            OnUIThread(() => FocuserInfo = deviceInfo);
+            PostToUIThread(() => FocuserInfo = deviceInfo);
         }
 
         public void UpdateEndAutoFocusRun(AutoFocusInfo info) {
@@ -2099,6 +2099,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // UI thread. DispatchSynchronizationContext is a synchronous Send with a same-context fast path, so calling
         // this from the UI thread is free and calling it from a DeviceMediator background broadcast marshals safely.
         private void OnUIThread(Action action) => applicationDispatcher.DispatchSynchronizationContext(action);
+
+        // Fire-and-forget marshaling for NINA's device-info broadcasts. Those arrive on the CameraVM/FocuserVM
+        // DeviceUpdateTimer, and ApplicationDeviceConnectionVM.Shutdown() awaits that timer to stop while the UI
+        // thread is blocked inside AsyncContext.Run — which pumps its own queue, never the WPF dispatcher. A
+        // blocking OnUIThread here would wait on a UI thread that is waiting on us: NINA hangs on exit. Only the
+        // UI cares about the result (bindings + CanExecute), so queueing it is sufficient.
+        private void PostToUIThread(Action action) => applicationDispatcher.PostSynchronizationContext(action);
 
         private void NotifyCommandsCanExecuteChanged() => OnUIThread(NotifyCommandsCanExecuteChangedCore);
 
