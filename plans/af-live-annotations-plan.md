@@ -6,7 +6,7 @@ During an auto-focus run HocusFocus displays every captured frame on NINA's imag
 
 The suppression is structural, not a flag. `AutoFocusEngine.PrepareExposure` calls `imagingMediator.PrepareImage(..., detectStars: false)`, so NINA's display pipeline runs neither detection nor `IStarAnnotator.GetAnnotatedImage`. Meanwhile the engine runs its *own* `IStarDetection.Detect` for the HFR measurement and throws the result at the AF curve — it never reaches the annotator. (Per-frame annotated TIFFs were removed in `ee9c5eb`; the Review-Frames UI re-renders overlays after the fact.)
 
-The outcome we want: a new, off-by-default star-annotator option — **"Annotate During Auto Focus"**, placed immediately after "Show Annotations" — that overlays the AF run's *actual* detection result onto the displayed frame, live, as each frame is measured. We reuse the detection AF already computed rather than running a second one, so the overlay shows exactly the stars that produced the HFR point.
+The outcome we want: a new star-annotator option — **"Annotate During Auto Focus"**, placed immediately after "Show Annotations" — that overlays the AF run's *actual* detection result onto the displayed frame, live, as each frame is measured. We reuse the detection AF already computed rather than running a second one, so the overlay shows exactly the stars that produced the HFR point.
 
 **Scope (decided):** live AF only, and only plain full-frame runs. Replay (`Rerun` over saved frames) is suppressed — its bounded prefetch prepares frames ahead of analysis, so the stale-frame guard would reject most of them and the overlay would appear erratically; Review Frames already covers that case. Multi-region runs (Aberration Inspector, Tilt Adapter Wizard) are suppressed too, so nine regions never fight over one display.
 
@@ -39,8 +39,8 @@ Add `bool ShowAnnotationsDuringAutoFocus { get; set; }` immediately after `ShowA
 
 Four touch points, mirroring `ShowAnnotations` exactly (`GetValueBoolean`/`SetValueBoolean`):
 
-- `InitializeOptions()` after line 50: `showAnnotationsDuringAutoFocus = optionsAccessor.GetValueBoolean("ShowAnnotationsDuringAutoFocus", false);`
-- `ResetDefaults()` after line 83: `ShowAnnotationsDuringAutoFocus = false;`
+- `InitializeOptions()` after line 50: `showAnnotationsDuringAutoFocus = optionsAccessor.GetValueBoolean("ShowAnnotationsDuringAutoFocus", true);`
+- `ResetDefaults()` after line 83: `ShowAnnotationsDuringAutoFocus = true;`
 - Backing field + property after the `ShowAnnotations` block (line 126), with the `if (x != value)` guard, `SetValueBoolean`, `RaisePropertyChanged()`.
 
 Do **not** add it to `AutoFocusFrameReviewVM.OverlayAffectingProperties` — that set governs the separate Review-Frames re-render.
@@ -122,7 +122,7 @@ An end-to-end engine test asserting `SetImage` was called is feasible but heavy 
 Add one row to the **Display options** table, directly after the "Show Annotations" row (line 31):
 
 ```markdown
-| Annotate During Auto Focus | Off | on / off | Draws the overlay on the live image during a plain Auto Focus run, so you can watch star detection as the sweep progresses. Requires **Show Annotations**. Off by default. |
+| Annotate During Auto Focus | On | on / off | Draws the overlay on the live image during a plain Auto Focus run, so you can watch star detection as the sweep progresses. Requires **Show Annotations**. On by default. |
 ```
 
 Follow `.claude/docs/documentation-style.md`. The page's opening paragraph already claims "The AutoFocus engine … pick[s] the active annotator through `IPluggableBehaviorSelector<IStarAnnotator>`" — after this change that becomes true for the first time, so no correction is needed there.

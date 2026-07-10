@@ -48,7 +48,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         private void InitializeOptions() {
             showAnnotations = optionsAccessor.GetValueBoolean("ShowAnnotations", true);
-            showAnnotationsDuringAutoFocus = optionsAccessor.GetValueBoolean("ShowAnnotationsDuringAutoFocus", false);
+            showAnnotationsDuringAutoFocus = optionsAccessor.GetValueBoolean("ShowAnnotationsDuringAutoFocus", true);
             showAllStars = optionsAccessor.GetValueBoolean("ShowAllStars", true);
             maxStars = optionsAccessor.GetValueInt32("MaxStars", 200);
             showStarBounds = optionsAccessor.GetValueBoolean("ShowStarBounds", true);
@@ -82,7 +82,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         public void ResetDefaults() {
             ShowAnnotations = true;
-            ShowAnnotationsDuringAutoFocus = false;
+            ShowAnnotationsDuringAutoFocus = true;
             ShowAllStars = false;
             MaxStars = 200;
             ShowStarBounds = true;

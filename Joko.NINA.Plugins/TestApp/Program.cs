@@ -325,6 +325,7 @@ namespace TestApp {
             public static StaticStarAnnotatorOptions CreateDefault() {
                 return new StaticStarAnnotatorOptions() {
                     ShowAnnotations = true,
+                    ShowAnnotationsDuringAutoFocus = true,
                     ShowAllStars = true,
                     MaxStars = 200,
                     ShowStarBounds = true,
