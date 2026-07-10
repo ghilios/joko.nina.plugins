@@ -92,7 +92,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         /// <summary>
-        /// The 13 curated tunable variables. Bounds/initial steps follow the validation ranges in
+        /// The curated tunable variables (15 base axes + 9 master-gated defocus-aware axes). Bounds/initial steps follow the validation ranges in
         /// StarDetectionOptions.cs where a UI range exists; where a range is open-ended the bound is a
         /// HEURISTIC (pragmatic, easily editable) value — see the named constants below.
         ///
@@ -162,6 +162,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     p => p.HotpixelThresholdingEnabled, (p, b) => p.HotpixelThresholdingEnabled = b),
                 Continuous(nameof(StarDetectorParams.HotpixelThreshold), HotpixelThresholdLower, HotpixelThresholdUpper, 0.001,
                     p => p.HotpixelThreshold, (p, v) => p.HotpixelThreshold = v),
+                // Detection-quality flags: default-ON in the profile and seeded ON at the start of every run (see
+                // StarDetectionOptimizerWizardVM.OptimizeAsync), but searchable so the optimizer can disable any of
+                // them on a rig where it costs J. LocallyAdaptiveBinarization is an EARLY axis (it changes candidate
+                // formation, so it is in StarDetector.EarlyCacheKeyProperties and the staged search treats it as an
+                // expensive rebuild); the two late gates refine via per-frame cache hits.
+                BooleanVar(nameof(StarDetectorParams.LocallyAdaptiveBinarization), 1,
+                    p => p.LocallyAdaptiveBinarization, (p, b) => p.LocallyAdaptiveBinarization = b),
+                BooleanVar(nameof(StarDetectorParams.RejectContaminatedStars), 1,
+                    p => p.RejectContaminatedStars, (p, b) => p.RejectContaminatedStars = b),
+                BooleanVar(nameof(StarDetectorParams.ExcludeSaturatedStarsFromHFR), 1,
+                    p => p.ExcludeSaturatedStarsFromHFR, (p, b) => p.ExcludeSaturatedStarsFromHFR = b),
             };
 
             // Defocus-aware axes — appended ONLY when the master donut toggle is ON (gated by the seed). When the

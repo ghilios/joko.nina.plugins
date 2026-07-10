@@ -109,6 +109,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             DonutMinAnnularityHoleFraction = s.DonutMinAnnularityHoleFraction;
             DonutMaxStreakEccentricity = s.DonutMaxStreakEccentricity;
             DonutSaturationBloomRadius = s.DonutSaturationBloomRadius;
+            // Detection-quality gates (schema v3). A pre-v3 snapshot deserializes these to their true defaults
+            // (both ON), matching the values this apply path used to leave untouched.
+            RejectContaminatedStars = s.RejectContaminatedStars;
+            ExcludeSaturatedStarsFromHFR = s.ExcludeSaturatedStarsFromHFR;
         }
 
         private void DerivePresetSettings() {

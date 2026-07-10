@@ -60,6 +60,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double DonutMinAnnularityHoleFraction { get; set; } = 0.15;
         public double DonutMaxStreakEccentricity { get; set; } = 1.0;
         public double DonutSaturationBloomRadius { get; set; } = 0.0;
+        // Detection-quality gates (added schema v3). Defaulted to the live-profile defaults (both ON) so an older
+        // snapshot missing these keys deserializes to the SAME values the pre-v3 apply path left untouched — i.e. no
+        // silent flip for an existing snapshot. The optimizer searches these axes and FromParams persists its result.
+        public bool RejectContaminatedStars { get; set; } = true;
+        public bool ExcludeSaturatedStarsFromHFR { get; set; } = true;
 
         // Metadata about the optimization run that produced this snapshot
         public DateTime CreatedAtUtc { get; set; }
@@ -68,7 +73,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double FinalJ { get; set; }
         public int RecommendedStepSize { get; set; }
         public int RecommendedOffsetSteps { get; set; }
-        public int SchemaVersion { get; set; } = 2;
+        public int SchemaVersion { get; set; } = 3;
 
         public OptimizedStarDetectionSettings Clone() {
             return (OptimizedStarDetectionSettings)MemberwiseClone();
@@ -118,6 +123,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 DonutMinAnnularityHoleFraction = p.DonutMinAnnularityHoleFraction,
                 DonutMaxStreakEccentricity = p.DonutMaxStreakEccentricity,
                 DonutSaturationBloomRadius = p.DonutSaturationBloomRadius,
+                RejectContaminatedStars = p.RejectContaminatedStars,
+                ExcludeSaturatedStarsFromHFR = p.ExcludeSaturatedStarsFromHFR,
 
                 CreatedAtUtc = DateTime.UtcNow,
                 RunCount = runCount,

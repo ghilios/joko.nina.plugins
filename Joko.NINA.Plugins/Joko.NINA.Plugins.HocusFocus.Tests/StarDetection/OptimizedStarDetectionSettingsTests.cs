@@ -23,6 +23,8 @@ public class OptimizedStarDetectionSettingsTests {
             MinStarBoundingBoxSize = 8,
             HotpixelThresholdingEnabled = false,
             HotpixelThreshold = 0.02,
+            RejectContaminatedStars = false,
+            ExcludeSaturatedStarsFromHFR = false,
             CreatedAtUtc = new DateTime(2026, 6, 14, 12, 0, 0, DateTimeKind.Utc),
             RunCount = 5,
             BaselineJ = 0.9,
@@ -34,9 +36,10 @@ public class OptimizedStarDetectionSettingsTests {
     }
 
     [Test]
-    public void DefaultSchemaVersion_IsTwo() {
-        // v2 added the defocus-aware axes (master + donut/spike knobs).
-        Assert.That(new OptimizedStarDetectionSettings().SchemaVersion, Is.EqualTo(2));
+    public void DefaultSchemaVersion_IsThree() {
+        // v2 added the defocus-aware axes (master + donut/spike knobs); v3 added the RejectContaminatedStars /
+        // ExcludeSaturatedStarsFromHFR gates as searchable, snapshot-carried knobs.
+        Assert.That(new OptimizedStarDetectionSettings().SchemaVersion, Is.EqualTo(3));
     }
 
     [Test]
@@ -59,6 +62,8 @@ public class OptimizedStarDetectionSettingsTests {
             Assert.That(restored.MinStarBoundingBoxSize, Is.EqualTo(original.MinStarBoundingBoxSize));
             Assert.That(restored.HotpixelThresholdingEnabled, Is.EqualTo(original.HotpixelThresholdingEnabled));
             Assert.That(restored.HotpixelThreshold, Is.EqualTo(original.HotpixelThreshold));
+            Assert.That(restored.RejectContaminatedStars, Is.EqualTo(original.RejectContaminatedStars));
+            Assert.That(restored.ExcludeSaturatedStarsFromHFR, Is.EqualTo(original.ExcludeSaturatedStarsFromHFR));
             Assert.That(restored.CreatedAtUtc, Is.EqualTo(original.CreatedAtUtc));
             Assert.That(restored.RunCount, Is.EqualTo(original.RunCount));
             Assert.That(restored.BaselineJ, Is.EqualTo(original.BaselineJ));
@@ -84,7 +89,9 @@ public class OptimizedStarDetectionSettingsTests {
             NoiseReductionRadius = 6,
             MinimumStarBoundingBoxSize = 8,
             HotpixelThresholdingEnabled = false,
-            HotpixelThreshold = 0.02
+            HotpixelThreshold = 0.02,
+            RejectContaminatedStars = false,        // non-default (true) so a mis-wire is caught
+            ExcludeSaturatedStarsFromHFR = false    // non-default (true) so a mis-wire is caught
         };
 
         var before = DateTime.UtcNow;
@@ -106,6 +113,8 @@ public class OptimizedStarDetectionSettingsTests {
             Assert.That(dto.MinStarBoundingBoxSize, Is.EqualTo(8));
             Assert.That(dto.HotpixelThresholdingEnabled, Is.False);
             Assert.That(dto.HotpixelThreshold, Is.EqualTo(0.02));
+            Assert.That(dto.RejectContaminatedStars, Is.False);
+            Assert.That(dto.ExcludeSaturatedStarsFromHFR, Is.False);
 
             // Metadata.
             Assert.That(dto.RunCount, Is.EqualTo(5));
@@ -113,7 +122,7 @@ public class OptimizedStarDetectionSettingsTests {
             Assert.That(dto.FinalJ, Is.EqualTo(0.4));
             Assert.That(dto.RecommendedStepSize, Is.EqualTo(25));
             Assert.That(dto.RecommendedOffsetSteps, Is.EqualTo(6));
-            Assert.That(dto.SchemaVersion, Is.EqualTo(2));
+            Assert.That(dto.SchemaVersion, Is.EqualTo(3));
             Assert.That(dto.CreatedAtUtc, Is.InRange(before, after));
             Assert.That(dto.CreatedAtUtc.Kind, Is.EqualTo(DateTimeKind.Utc));
         });

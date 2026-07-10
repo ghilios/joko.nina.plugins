@@ -1997,6 +1997,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             snapshot.DonutMinAnnularityHoleFraction = s.DonutMinAnnularityHoleFraction;
             snapshot.DonutMaxStreakEccentricity = s.DonutMaxStreakEccentricity;
             snapshot.DonutSaturationBloomRadius = s.DonutSaturationBloomRadius;
+            snapshot.RejectContaminatedStars = s.RejectContaminatedStars;
+            snapshot.ExcludeSaturatedStarsFromHFR = s.ExcludeSaturatedStarsFromHFR;
         }
 
         // ---- Metadata ---------------------------------------------------------------------------------------
