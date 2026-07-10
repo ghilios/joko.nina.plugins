@@ -7,8 +7,8 @@ them well for a given optical train, camera, and sky is expert work, and the pay
 therefore a more repeatable best-focus position. Left to guesswork, the defaults are rarely the best
 choice for your rig.
 
-The **Star Detection Optimization Wizard** automates that tuning. It replays one or more of your
-saved autofocus runs and searches for the detection settings that make the resulting stars trace the
+The **Star Detection Optimization Wizard** automates that tuning. It replays one of your saved
+autofocus runs and searches for the detection settings that make the resulting stars trace the
 cleanest, most repeatable focus V-curve. Because the wizard scores settings by the *quality of the
 focus curve they produce* (not by any single hand-picked metric), it optimizes the whole detection
 pipeline end-to-end against the outcome you actually care about.
@@ -39,7 +39,7 @@ The high-level loop has three steps:
    page to seed from those instead. Either way the wizard **never hands back a result worse than your
    current settings**: if the search cannot beat them, it returns them unchanged.
 2. **Search.** A staged compass/pattern search explores a curated set of detection parameters,
-   evaluating each candidate against your saved runs.
+   evaluating each candidate against your saved run.
 3. **Apply the best.** On confirm, the winning parameters are written into the live properties and a
    recommended autofocus step size is offered alongside them. From the summary you can press
    **"Continue optimizing"** to run another pass seeded from the result so far (up to three passes
@@ -114,10 +114,11 @@ This section documents every moving part of the optimizer:
 !!! tip "When the wizard helps most"
 
     Run it when you have switched cameras, scopes, or filters; when autofocus has felt unreliable; or
-    when you have never tuned star detection beyond the Simple-Mode presets. Because it optimizes
-    against *your* saved runs, the more representative the runs (and the more of them from the **same**
-    optical setup), the better the result. Do not mix runs from different cameras or scopes into one
-    joint optimization, because a shared objective across different rigs is meaningless.
+    when you have never tuned star detection beyond the Simple-Mode presets. The wizard optimizes
+    against one saved run at a time, which keeps its recommendation interpretable, so the more
+    representative that run is of how you actually autofocus (same camera, scope, filter, and
+    exposure), the better the result. If you have several saved runs, pick the cleanest, most typical
+    one; do not optimize against a run from a different rig and expect the settings to carry over.
 
 For the design rationale behind these choices (why a derivative-free pattern search rather than a
 smooth solver, why these weights, and why these exclusions), see
