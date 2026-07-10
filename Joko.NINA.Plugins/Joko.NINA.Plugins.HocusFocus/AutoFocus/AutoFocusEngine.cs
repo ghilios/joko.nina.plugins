@@ -57,7 +57,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IImagingMediator imagingMediator;
         private readonly IImageDataFactory imageDataFactory;
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
+        private readonly IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector;
         private readonly IAutoFocusOptions autoFocusOptions;
+        private readonly IStarAnnotatorOptions starAnnotatorOptions;
         private readonly IAlglibAPI alglibAPI;
 
         public AutoFocusEngine(
@@ -69,7 +71,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IImagingMediator imagingMediator,
             IImageDataFactory imageDataFactory,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
+            IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IAutoFocusOptions autoFocusOptions,
+            IStarAnnotatorOptions starAnnotatorOptions,
             IAlglibAPI alglibAPI) {
             this.profileService = profileService;
             this.cameraMediator = cameraMediator;
@@ -79,7 +83,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.guiderMediator = guiderMediator;
             this.imageDataFactory = imageDataFactory;
             this.starDetectionSelector = starDetectionSelector;
+            this.starAnnotatorSelector = starAnnotatorSelector;
             this.autoFocusOptions = autoFocusOptions;
+            this.starAnnotatorOptions = starAnnotatorOptions;
             this.alglibAPI = alglibAPI;
         }
 
@@ -534,6 +540,24 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return AutoFocusFailureMode.None;
         }
 
+        // Whether this frame's star detection should be drawn onto the live imaging display. Pure/static so the gate is
+        // unit-testable without the full sweep harness.
+        //
+        // showAnnotations is checked here rather than left to the annotator: GenerateAnnotatedImage no-ops when the master
+        // switch is off, so testing it up front skips the (expensive) full-frame render entirely. The overlay is limited to
+        // plain full-frame runs (isFullFrameRegion) because a multi-region run - the Aberration Inspector, the Tilt Adapter
+        // Wizard - would have every region racing to paint the one display. Replay runs are excluded (isLiveRun) because
+        // their bounded prefetch prepares frames ahead of analysis, so frameIsCurrentlyDisplayed would reject most of them;
+        // the Review Frames UI already re-renders those overlays on demand.
+        internal static bool ShouldAnnotateAutoFocusDisplay(
+            bool annotateDuringAutoFocus,
+            bool showAnnotations,
+            bool isFullFrameRegion,
+            bool isLiveRun,
+            bool frameIsCurrentlyDisplayed) {
+            return annotateDuringAutoFocus && showAnnotations && isFullFrameRegion && isLiveRun && frameIsCurrentlyDisplayed;
+        }
+
         private class AutoFocusState {
 
             public AutoFocusState(
@@ -583,6 +607,46 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             public List<Task> AnalysisTasks { get; private set; } = new List<Task>();
             public AsyncAutoResetEvent MeasurementCompleteEvent { get; private set; }
             public string SaveFolder { get; set; } = "";
+
+            // The IRenderedImage most recently handed to imagingMediator.PrepareImage - i.e. the frame currently on the
+            // imaging display. Written in PrepareExposure, read by the live-annotation stale-frame guard: analyses of
+            // different frames overlap (ExposureSemaphore allows MaxConcurrent), so a slow detection must not paint its
+            // overlay over a newer frame. Reference reads/writes are atomic; volatile for visibility across those tasks.
+            private volatile IRenderedImage lastDisplayedRenderedImage;
+
+            public IRenderedImage LastDisplayedRenderedImage {
+                get => lastDisplayedRenderedImage;
+                set => lastDisplayedRenderedImage = value;
+            }
+
+            // Fire-and-forget annotation renders spawned by MaybeDisplayAutoFocusAnnotation. Drained at run teardown so a
+            // late SetImage can never paint over the next, non-AutoFocus image.
+            private readonly List<Task> displayAnnotationTasks = new List<Task>();
+
+            public void TrackDisplayAnnotationTask(Task task) {
+                lock (StatesLock) {
+                    displayAnnotationTasks.Add(task);
+                }
+            }
+
+            public Task[] SnapshotDisplayAnnotationTasks() {
+                lock (StatesLock) {
+                    return displayAnnotationTasks.ToArray();
+                }
+            }
+
+            // At most one annotation render is in flight at a time. Analyses of different frames overlap, and until now
+            // IStarAnnotator.GetAnnotatedImage was only ever called from NINA's display pipeline, which serializes it. Two
+            // concurrent AutoFocus renders would both queue a full-frame conversion+draw AND race the annotator's own
+            // previousParams/previousResult/previousAnnotatedImageRef triple (which drives its live re-annotation on an
+            // option change). Dropping the newcomer rather than queueing it is right: the in-flight render is for this
+            // frame or a newer one, and a superseded render is discarded by the stale-frame re-check anyway. Under normal
+            // AutoFocus (exposure time greatly exceeds render time) this never contends.
+            private int annotationRenderInFlight;
+
+            public bool TryClaimAnnotationRender() => Interlocked.CompareExchange(ref annotationRenderInFlight, 1, 0) == 0;
+
+            public void ReleaseAnnotationRender() => Interlocked.Exchange(ref annotationRenderInFlight, 0);
 
             private volatile int measurementsInProgress;
             public int MeasurementsInProgress { get => measurementsInProgress; }
@@ -742,6 +806,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     imageState.PreservedExposure = image;
                 }
 
+                // cacheSource is non-null only on the replay path (RerunImpl always constructs one), so it doubles as the
+                // live/replay discriminator.
+                MaybeDisplayAutoFocusAnnotation(state, regionState, image, analysisParams, analysisResult, isLiveRun: cacheSource == null, token: token);
+
                 Logger.Debug($"Current Focus - Position: {imageState.FocuserPosition}, HFR: {analysisResult.AverageHFR}");
                 return new MeasureAndError() { Measure = analysisResult.AverageHFR, Stdev = analysisResult.HFRStdDev };
             } else {
@@ -762,6 +830,73 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var analysisResult = await analysis.Measure(image, analysisParams, progress: null, token);
                 return new MeasureAndError() { Measure = analysisResult.AverageContrast, Stdev = analysisResult.ContrastStdev };
             }
+        }
+
+        /// <summary>
+        /// Best-effort: draw this frame's star detection onto the live imaging display, reusing the detection auto focus
+        /// already ran rather than paying for a second one. Never throws (annotation must not fail an AF measurement) and
+        /// never blocks the caller - the render is a full-frame 16→8bpp conversion plus draw, so keeping it off the
+        /// measurement path leaves AF timing and the ExposureSemaphore slot untouched. The spawned task is tracked on the
+        /// state and drained at run teardown.
+        ///
+        /// annotationParams is only consulted by the annotator when the result is NOT a HocusFocusStarDetectionResult (the
+        /// HF result carries its own DetectorParams.Region for the ROI). This is the region==null branch, where
+        /// analysisParams carries the correct UseROI/InnerCropRatio/OuterCropRatio for NINA's built-in annotator.
+        /// </summary>
+        private void MaybeDisplayAutoFocusAnnotation(
+            AutoFocusState state,
+            AutoFocusRegionState regionState,
+            IRenderedImage image,
+            StarDetectionParams annotationParams,
+            StarDetectionResult analysisResult,
+            bool isLiveRun,
+            CancellationToken token) {
+            var originalImage = image?.OriginalImage;
+            if (originalImage == null) {
+                return;
+            }
+
+            if (!ShouldAnnotateAutoFocusDisplay(
+                    annotateDuringAutoFocus: starAnnotatorOptions.ShowAnnotationsDuringAutoFocus,
+                    showAnnotations: starAnnotatorOptions.ShowAnnotations,
+                    isFullFrameRegion: regionState.Region == null,
+                    isLiveRun: isLiveRun,
+                    frameIsCurrentlyDisplayed: ReferenceEquals(state.LastDisplayedRenderedImage, image))) {
+                return;
+            }
+
+            var annotator = starAnnotatorSelector.GetBehavior();
+            if (annotator == null) {
+                return;
+            }
+
+            if (!state.TryClaimAnnotationRender()) {
+                Logger.Trace("Skipping auto focus display annotation - another render is already in flight");
+                return;
+            }
+
+            // Mirrors NINA's RenderedImage.DetectStars. The Hocus Focus annotator ignores this in favor of its own MaxStars
+            // option, but a different selected annotator (e.g. NINA's built-in) honors it.
+            var maxStars = profileService.ActiveProfile.ImageSettings.AnnotateUnlimitedStars ? -1 : 200;
+
+            // The token is deliberately not passed to Task.Run: the delegate owns cancellation so its catch always runs.
+            var annotationTask = Task.Run(async () => {
+                try {
+                    var annotatedImage = await annotator.GetAnnotatedImage(annotationParams, analysisResult, originalImage, maxStars, token);
+
+                    // Re-check after the render: a newer frame may have been prepared and displayed in the meantime.
+                    if (annotatedImage != null && !token.IsCancellationRequested && ReferenceEquals(state.LastDisplayedRenderedImage, image)) {
+                        imagingMediator.SetImage(annotatedImage);
+                    }
+                } catch (OperationCanceledException) {
+                    // Auto focus was cancelled mid-render. Nothing to display.
+                } catch (Exception e) {
+                    Logger.Error(e, "Failed to render star detection annotations onto the auto focus display");
+                } finally {
+                    state.ReleaseAnnotationRender();
+                }
+            });
+            state.TrackDisplayAnnotationTask(annotationTask);
         }
 
         private async Task<IExposureData> TakeExposure(AutoFocusState state, int focuserPosition, CancellationToken token, IProgress<ApplicationStatus> progress) {
@@ -1017,7 +1152,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             var prepareParameters = new PrepareImageParameters(autoStretch: autoStretch, detectStars: false);
-            return await imagingMediator.PrepareImage(imageData, prepareParameters, token);
+            var preparedImage = await imagingMediator.PrepareImage(imageData, prepareParameters, token);
+
+            // This is what NINA assigns to ImageControlVM.RenderedImage, so recording it here gives the live-annotation
+            // stale-frame guard an exact "is this frame still on screen" test. Single choke point for live and replay.
+            state.LastDisplayedRenderedImage = preparedImage;
+            return preparedImage;
         }
 
         private async Task AnalyzeExposure(
@@ -1742,6 +1882,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Notification.ShowError($"Auto Focus Failure. {ex.Message}");
                     Logger.Error("Failure during AutoFocus", ex);
                 } finally {
+                    // Never let a live-display annotation outlive the run: a late SetImage would paint an auto focus frame
+                    // over whatever image is shown next. Each task already swallows its own exceptions.
+                    if (autoFocusState != null) {
+                        try {
+                            await Task.WhenAll(autoFocusState.SnapshotDisplayAnnotationTasks());
+                        } catch (Exception ex) {
+                            Logger.Warning($"Failure draining auto focus display annotations. {ex.Message}");
+                        }
+                    }
+
                     try {
                         await PerformPostAutoFocusActions(
                             successfulAutoFocus: completed, initialFocusPosition: autoFocusState?.InitialFocuserPosition, imagingFilter: imagingFilter, restoreTempComp: tempComp,

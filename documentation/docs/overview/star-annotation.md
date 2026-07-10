@@ -13,6 +13,8 @@ The annotator converts the displayed image to an 8-bit grayscale canvas, draws e
 
 If **Show Annotations** is off, the annotator returns the image untouched, and nothing else in this page applies until you turn it back on.
 
+Auto Focus is the exception: it measures each frame with its own detection pass and shows the frame unannotated. Turn on **Annotate During Auto Focus** and it overlays that same detection — the very stars that produced the HFR point — onto each frame as the sweep runs.
+
 By default the annotator draws *every* detected star. If you turn **Show All Stars** off, it keeps only the **Maximum Stars** brightest stars (sorted by average brightness) and labels those. The rejection boxes described later are drawn from the detector's metrics independently of this limit, so they always appear in full when their toggle is on.
 
 !!! tip "When this helps"
@@ -29,6 +31,7 @@ These controls govern the always-on overlay drawn for accepted stars. ("Property
 | Setting | Default | Range / values | What it does |
 |---|---|---|---|
 | Show Annotations | On | on / off | Master switch. *"Toggles the annotations on/off"*. When off, the unmodified image is returned. |
+| Annotate During Auto Focus | Off | on / off | Draws the overlay on the displayed image during an Auto Focus run, so you can watch star detection as the sweep progresses. Requires **Show Annotations**. Applies to a normal auto focus only — not to the Aberration Inspector's multi-region run, nor to a replayed run. |
 | Show All Stars | On | on / off | *"Whether to annotate all stars"*. When off, only the brightest **Maximum Stars** are labeled. |
 | Maximum Stars | 200 | ≥ 1 | *"The maximum number of stars to annotate (the brightest ones)"*. Only applies when **Show All Stars** is off. |
 | Show Star Bounds | On | on / off | *"Whether to draw the bounding box or ellipse around the star"*. |

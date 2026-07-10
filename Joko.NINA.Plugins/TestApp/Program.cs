@@ -290,6 +290,7 @@ namespace TestApp {
 
         public class StaticStarAnnotatorOptions : BaseINPC, IStarAnnotatorOptions {
             public bool ShowAnnotations { get; set; }
+            public bool ShowAnnotationsDuringAutoFocus { get; set; }
             public bool ShowAllStars { get; set; }
             public int MaxStars { get; set; }
             public bool ShowStarBounds { get; set; }

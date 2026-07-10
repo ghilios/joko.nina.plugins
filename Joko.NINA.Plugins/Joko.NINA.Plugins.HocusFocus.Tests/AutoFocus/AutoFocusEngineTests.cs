@@ -48,8 +48,32 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 imagingMediator: Substitute.For<IImagingMediator>(),
                 imageDataFactory: Substitute.For<IImageDataFactory>(),
                 starDetectionSelector: starDetectionSelector ?? Substitute.For<IPluggableBehaviorSelector<IStarDetection>>(),
+                starAnnotatorSelector: Substitute.For<IPluggableBehaviorSelector<IStarAnnotator>>(),
                 autoFocusOptions: autoFocusOptions ?? Substitute.For<IAutoFocusOptions>(),
+                starAnnotatorOptions: Substitute.For<IStarAnnotatorOptions>(),
                 alglibAPI: new AlglibAPI());
+        }
+
+        // The live-display annotation gate. Every input must be true for the overlay to be drawn; each false case below
+        // pins one reason the overlay is suppressed.
+        [Test]
+        public void ShouldAnnotateAutoFocusDisplay_AllConditionsMet_ReturnsTrue() {
+            Assert.That(
+                AutoFocusEngine.ShouldAnnotateAutoFocusDisplay(
+                    annotateDuringAutoFocus: true, showAnnotations: true, isFullFrameRegion: true, isLiveRun: true, frameIsCurrentlyDisplayed: true),
+                Is.True);
+        }
+
+        [TestCase(false, true, true, true, true, TestName = "ShouldAnnotateAutoFocusDisplay_OptionOff_ReturnsFalse")]
+        [TestCase(true, false, true, true, true, TestName = "ShouldAnnotateAutoFocusDisplay_MasterSwitchOff_ReturnsFalse")]
+        [TestCase(true, true, false, true, true, TestName = "ShouldAnnotateAutoFocusDisplay_MultiRegionRun_ReturnsFalse")]
+        [TestCase(true, true, true, false, true, TestName = "ShouldAnnotateAutoFocusDisplay_ReplayRun_ReturnsFalse")]
+        [TestCase(true, true, true, true, false, TestName = "ShouldAnnotateAutoFocusDisplay_StaleFrame_ReturnsFalse")]
+        public void ShouldAnnotateAutoFocusDisplay_AnyConditionUnmet_ReturnsFalse(
+            bool annotateDuringAutoFocus, bool showAnnotations, bool isFullFrameRegion, bool isLiveRun, bool frameIsCurrentlyDisplayed) {
+            Assert.That(
+                AutoFocusEngine.ShouldAnnotateAutoFocusDisplay(annotateDuringAutoFocus, showAnnotations, isFullFrameRegion, isLiveRun, frameIsCurrentlyDisplayed),
+                Is.False);
         }
 
         [Test]
