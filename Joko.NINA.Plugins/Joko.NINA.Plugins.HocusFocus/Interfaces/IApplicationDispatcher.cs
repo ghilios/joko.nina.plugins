@@ -20,6 +20,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         T DispatchSynchronizationContext<T>(Func<T> func);
 
+        /// <summary>
+        /// Queues <paramref name="action"/> onto the UI thread and returns immediately, without waiting for it to run.
+        /// Use this instead of <see cref="DispatchSynchronizationContext(Action)"/> on any path the UI thread may
+        /// transitively wait on — notably NINA's device-info broadcasts, which run on a DeviceUpdateTimer that
+        /// application shutdown awaits while the UI thread is blocked and not pumping.
+        /// </summary>
+        void PostSynchronizationContext(Action action);
+
         T GetResource<T>(string name, T fallback);
     }
 }

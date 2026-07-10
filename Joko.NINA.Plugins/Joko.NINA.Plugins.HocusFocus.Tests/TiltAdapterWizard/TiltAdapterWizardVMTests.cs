@@ -178,14 +178,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             // notifications must now flow through the dispatcher so they are marshaled to the UI thread.
             var dispatcher = new RecordingApplicationDispatcher();
             var (vm, _, _, _) = Build(dispatcher: dispatcher);
-            var before = dispatcher.DispatchCount;
+            var before = dispatcher.PostCount;
 
             Task.Run(() => {
                 vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
                 vm.UpdateDeviceInfo(new FocuserInfo { Connected = true });
             }).GetAwaiter().GetResult();
 
-            Assert.That(dispatcher.DispatchCount - before, Is.GreaterThanOrEqualTo(2));
+            Assert.That(dispatcher.PostCount - before, Is.GreaterThanOrEqualTo(2));
         }
 
         [Test]
@@ -195,12 +195,34 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             // not via a separate dispatch per notify site.
             var dispatcher = new RecordingApplicationDispatcher();
             var (vm, _, _, _) = Build(dispatcher: dispatcher);
-            var before = dispatcher.DispatchCount;
+            var before = dispatcher.PostCount;
 
             vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
 
-            Assert.That(dispatcher.DispatchCount - before, Is.EqualTo(1),
+            Assert.That(dispatcher.PostCount - before, Is.EqualTo(1),
                 "UpdateDeviceInfo(CameraInfo) should marshal exactly once at the consumer boundary");
+        }
+
+        [Test]
+        public void UpdateDeviceInfo_MarshalsWithoutBlockingTheBroadcastThread() {
+            // NINA hang on exit: ApplicationDeviceConnectionVM.Shutdown() blocks the UI thread inside
+            // AsyncContext.Run (which never pumps the WPF dispatcher) while awaiting CameraVM/FocuserVM to
+            // disconnect. Those disconnects await their DeviceUpdateTimer, whose in-flight callback is what
+            // broadcasts device info into this consumer. Marshaling with a blocking Invoke therefore parks the
+            // timer on a UI thread that is itself waiting for the timer — a deadlock. Post, never block.
+            var dispatcher = new RecordingApplicationDispatcher();
+            var (vm, _, _, _) = Build(dispatcher: dispatcher);
+
+            vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
+            vm.UpdateDeviceInfo(new FocuserInfo { Connected = true });
+
+            Assert.Multiple(() => {
+                Assert.That(dispatcher.PostCount, Is.EqualTo(2), "each device-info broadcast marshals by posting");
+                Assert.That(dispatcher.DispatchCount, Is.Zero,
+                    "the device-broadcast path must never block the calling thread on the UI thread");
+                Assert.That(vm.CameraInfo.Connected, Is.True);
+                Assert.That(vm.FocuserInfo.Connected, Is.True);
+            });
         }
 
         [Test]

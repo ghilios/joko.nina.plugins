@@ -22,7 +22,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         // Capture the WPF dispatcher directly. CheckAccess() lets us detect the UI thread reliably (a self-built
         // DispatcherSynchronizationContext never reference-equals the one WPF installs, so the old fast path never
         // fired — F12). The handle is null in headless/early-startup/test hosts, in which case we invoke inline (F13).
-        private readonly Dispatcher dispatcher = Application.Current?.Dispatcher;
+        private readonly Dispatcher dispatcher;
+
+        public ApplicationDispatcher() : this(Application.Current?.Dispatcher) {
+        }
+
+        // Lets a test drive a real dispatcher whose thread is alive but not pumping — the state NINA's UI thread is
+        // in during shutdown, and the one that makes a blocking Invoke deadlock.
+        public ApplicationDispatcher(Dispatcher dispatcher) {
+            this.dispatcher = dispatcher;
+        }
 
         public void DispatchSynchronizationContext(Action action) {
             // No dispatcher (headless/test host) or already on the UI thread: run inline (F12 fast path, F13 fallback).
@@ -61,6 +70,27 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 return default;
             } catch (InvalidOperationException) {
                 return default;
+            }
+        }
+
+        public void PostSynchronizationContext(Action action) {
+            if (dispatcher == null || dispatcher.CheckAccess()) {
+                action();
+                return;
+            }
+
+            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished) {
+                return;
+            }
+
+            try {
+                // Queue and return. A blocking Invoke here would park the caller on a UI thread that may itself be
+                // waiting on the caller — e.g. shutdown awaits the DeviceUpdateTimer whose broadcast lands here.
+                dispatcher.BeginInvoke(action);
+            } catch (OperationCanceledException) {
+                // Dispatcher shut down between the check above and the BeginInvoke; nothing to do.
+            } catch (InvalidOperationException) {
+                // Same race: "The Dispatcher has been shut down" surfaced as InvalidOperationException.
             }
         }
 
