@@ -16,7 +16,9 @@ using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
+using NINA.WPF.Base.ViewModel.AutoFocus;
 using NSubstitute;
+using NSubstitute.Core;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
@@ -186,14 +188,15 @@ public class StarDetectionOptimizerWizardVMTests {
         IProfileService profileService = null,
         Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, IProgress<RunLoadProgress>, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null,
         Func<bool> isCameraConnected = null,
-        Func<bool> isFocuserConnected = null) {
+        Func<bool> isFocuserConnected = null,
+        IAutoFocusEngine autoFocusEngine = null) {
         options ??= Substitute.For<IStarDetectionOptions>();
         profileService ??= Substitute.For<IProfileService>();
         return new StarDetectionOptimizerWizardVM(
             profileService,
             options,
             loader,
-            autoFocusEngine: Substitute.For<IAutoFocusEngine>(),
+            autoFocusEngine: autoFocusEngine ?? Substitute.For<IAutoFocusEngine>(),
             folderPicker: () => @"C:\fake\attempt",
             region: StarDetectionRegion.Full,
             optimizerSettings: new OptimizerSettings { MaxEvaluations = 200, CoarseGridLevels = 4, StepFloorFraction = 0.125 },
@@ -1180,6 +1183,93 @@ public class StarDetectionOptimizerWizardVMTests {
         Assert.Multiple(() => {
             Assert.That(vm.ErrorMessage, Does.Contain("focuser").IgnoreCase);
             Assert.That(vm.CurrentStep, Is.Not.EqualTo(WizardStep.Summary));
+        });
+    }
+
+    // ---- Live auto-focus chart -------------------------------------------------------------------------
+    //
+    // A bare Substitute.For<IAutoFocusEngine>() returns null from GetOptions(), which RunLiveAttemptAsync
+    // dereferences (options.Save) — so every test that actually reaches the live run must stub it, along with
+    // Run(...) returning a SaveFolder the fake loader will accept. The connection probes are stubbed connected
+    // so the pre-flight check passes, and UseCurrentSettings skips the optimization pass we are not testing.
+    private static IAutoFocusEngine LiveEngine(Func<CallInfo, AutoFocusResult> onRun) {
+        var engine = Substitute.For<IAutoFocusEngine>();
+        engine.GetOptions().Returns(_ => new AutoFocusEngineOptions());
+        engine.Run(default, default, default, default).ReturnsForAnyArgs(ci => Task.FromResult(onRun(ci)));
+        return engine;
+    }
+
+    private static StarDetectionOptimizerWizardVM NewLiveVM(IAutoFocusEngine engine) {
+        var vm = NewVM(LoaderReturning(GoodRun()), isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.OptimizeMode = WizardOptimizeMode.UseCurrentSettings;
+        return vm;
+    }
+
+    [Test]
+    public async Task ReplayMode_NeverShowsTheLiveChart() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        var everShown = false;
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.ShowLiveChart) && vm.ShowLiveChart) { everShown = true; } };
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(everShown, Is.False, "a replay has no live run to chart");
+            Assert.That(vm.ShowLiveChart, Is.False);
+            Assert.That(vm.LiveChart, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task LiveMode_ShowsChartDuringTheRunAndTearsItDownAfter() {
+        StarDetectionOptimizerWizardVM vm = null;
+        var shownDuringRun = false;
+        var chartDuringRun = (LiveAutoFocusChartVM)null;
+        var engine = LiveEngine(_ => {
+            shownDuringRun = vm.ShowLiveChart;
+            chartDuringRun = vm.LiveChart;
+            return new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" };
+        });
+        vm = NewLiveVM(engine);
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(shownDuringRun, Is.True, "the chart is up while the auto-focus is in flight");
+            Assert.That(chartDuringRun, Is.Not.Null);
+            Assert.That(vm.ShowLiveChart, Is.False, "and is gone once the run ends");
+            Assert.That(vm.LiveChart, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task LiveMode_ChartIsDetachedWhenTheRunThrows() {
+        StarDetectionOptimizerWizardVM vm = null;
+        var chartDuringRun = (LiveAutoFocusChartVM)null;
+        var engine = LiveEngine(_ => {
+            chartDuringRun = vm.LiveChart;
+            throw new InvalidOperationException("focuser exploded");
+        });
+        vm = NewLiveVM(engine);
+
+        await vm.StartAsync(CancellationToken.None);
+
+        // The failed run leaves no chart behind, and the engine no longer feeds the one it had.
+        engine.MeasurementPointCompleted += Raise.EventWith(new AutoFocusMeasurementPointCompletedEventArgs {
+            RegionIndex = 0,
+            FocuserPosition = 10000,
+            Measurement = new MeasureAndError { Measure = 1.5, Stdev = 0.1 },
+            Fittings = new AutoFocusFitting(),
+            RejectedPoints = Array.Empty<AutoFocusRegionPoint>()
+        });
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Does.Contain("focuser exploded"));
+            Assert.That(vm.LiveChart, Is.Null);
+            Assert.That(vm.ShowLiveChart, Is.False);
+            Assert.That(chartDuringRun.FocusPoints, Is.Empty, "the detached chart receives nothing further");
         });
     }
 

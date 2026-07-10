@@ -508,6 +508,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     sourceMode = value;
                     RaisePropertyChanged();
                     RaisePropertyChanged(nameof(IsReplay));
+                    RaisePropertyChanged(nameof(ShowLiveChart));
                     // Live needs no paths (Start enabled); Saved disables Start until paths are filled.
                     StartCommand.NotifyCanExecuteChanged();
                 }
@@ -717,6 +718,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             get => phase;
             private set { phase = value; RaisePropertyChanged(); }
         }
+
+        private LiveAutoFocusChartVM liveChart;
+
+        /// <summary>The streaming auto-focus curve, non-null only while a live auto-focus run is in flight.
+        /// Created and torn down by <see cref="RunLiveAttemptAsync"/>.</summary>
+        public LiveAutoFocusChartVM LiveChart {
+            get => liveChart;
+            private set { liveChart = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ShowLiveChart)); }
+        }
+
+        /// <summary>Whether the progress panel shows the live auto-focus chart. The chart is only ever created on
+        /// the Live path, so the SourceMode check is redundant by construction — it is here to make the invariant
+        /// the requirement states ("never in Saved Auto-Focus") explicit and directly testable.</summary>
+        public bool ShowLiveChart => SourceMode == SourceMode.Live && liveChart != null;
 
         #endregion Progress
 
@@ -1472,7 +1487,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>
         /// Triggers a live auto-focus run that saves its frames, then returns the saved attempt folder so the run
-        /// converges onto the same replay path. Kept minimal — hardware-dependent, manually verified later (T6).
+        /// converges onto the same replay path. For the duration of the run a <see cref="LiveAutoFocusChartVM"/> is
+        /// attached to the engine and published on <see cref="LiveChart"/>, so the progress panel streams the focus
+        /// curve instead of showing a bare marching bar. Replay never reaches here, hence never shows a chart.
         /// </summary>
         private async Task<string> RunLiveAttemptAsync(CancellationToken token) {
             if (autoFocusEngine == null) {
@@ -1481,8 +1498,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             Phase = "Running live auto-focus";
             var options = autoFocusEngine.GetOptions();
             options.Save = true; // ensure frames land on disk so we can load them like a replay
-            var afResult = await autoFocusEngine.Run(options, null, token, null).ConfigureAwait(true);
-            return afResult?.SaveFolder;
+
+            // Constructed here, on the UI thread — the chart's collections capture the dispatcher they are created
+            // on in order to marshal the engine's worker-thread events. See the LiveAutoFocusChartVM class doc.
+            var chart = new LiveAutoFocusChartVM();
+            chart.Attach(autoFocusEngine);
+            LiveChart = chart;
+            try {
+                var afResult = await autoFocusEngine.Run(options, null, token, null).ConfigureAwait(true);
+                return afResult?.SaveFolder;
+            } finally {
+                // Detach on every exit — success, engine failure, and cancellation alike — so the engine never
+                // holds this wizard alive through the chart's event handlers. Clearing LiveChart collapses the
+                // chart before the "Loading frames" phase takes over the progress panel.
+                chart.Detach();
+                LiveChart = null;
+            }
         }
 
         /// <summary>
@@ -2356,6 +2387,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             runStopwatch.Stop();
             cts?.Dispose();
             cts = null;
+            // Closing the window mid-run does not cancel the in-flight auto-focus, so sever the engine → chart →
+            // wizard subscription explicitly; the run finishes on its own and plots nowhere.
+            liveChart?.Detach();
+            liveChart = null;
         }
 
         private void Back() {
