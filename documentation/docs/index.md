@@ -67,5 +67,5 @@ Hocus Focus is provided 'as is' under the terms of the
 source code lives at [github.com/ghilios/hocus-focus](https://github.com/ghilios/hocus-focus).
 
 !!! tip "Getting help"
-    Questions are welcome in the **#plugin-discussions** channel on the NINA
+    Questions are welcome in the **#hocus-focus** channel on the NINA
     [Discord server](https://discord.com/invite/rWRbVbw).
