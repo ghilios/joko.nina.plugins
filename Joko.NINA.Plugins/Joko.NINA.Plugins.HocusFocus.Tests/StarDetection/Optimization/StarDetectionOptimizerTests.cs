@@ -268,6 +268,25 @@ public class StarDetectionOptimizerTests {
     }
 
     [Test]
+    public async Task Optimize_ReportsIncumbentSigmaFocus() {
+        // The wizard's live readout shows σ (focus precision) rather than a percent of J, so every progress report
+        // must carry the σ OF THE CURRENT INCUMBENT — the same σ BuildSummaryAsync later recomputes for BestParams.
+        var progress = new SynchronousProgress<OptimizationProgress>();
+        var variables = OptimizerVariable.CreateCuratedSet();
+        var result = await new StarDetectionOptimizer().OptimizeAsync(Seed(), variables, SyntheticEvaluator(), DefaultSettings(), progress, CancellationToken.None);
+
+        var last = progress.Reports.Last();
+        Assert.Multiple(() => {
+            Assert.That(progress.Reports.All(r => double.IsFinite(r.BestSigmaFocus)), Is.True,
+                "every report carries the incumbent's σ");
+            Assert.That(last.BestSigmaFocus, Is.EqualTo(SyntheticRunFor(result.BestParams).SigmaFocus).Within(1e-9),
+                "the final report's σ is the σ of the params the optimizer returns");
+            Assert.That(last.BestSigmaFocus, Is.LessThan(SyntheticRunFor(Seed()).SigmaFocus),
+                "this landscape ties higher J to tighter σ, so the incumbent's σ beats the seed's");
+        });
+    }
+
+    [Test]
     public async Task Optimize_ChangedVariables_OnlyListsDifferences() {
         var variables = OptimizerVariable.CreateCuratedSet();
         var seed = Seed();
