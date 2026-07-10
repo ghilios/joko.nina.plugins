@@ -9,9 +9,9 @@ also builds a full sensor tilt-and-curvature model so you can quantify and corre
 the field.
 
 !!! tip "New here? Start with the Quick Start"
-    The **[Quick Start](quick-start.md)** walks you from a fresh install through setting up detection,
-    autofocus, and annotation, optimizing star detection, and checking your rig for tilt and backfocus
-    errors, linking to the deeper reference pages as you go.
+    The **[Quick Start](quick-start.md)** walks you from a fresh install to a tuned autofocus setup:
+    get a first run working, save your runs, tune star detection against a saved run, and know exactly
+    what to share if you need help. It links to the deeper reference pages as you go.
 
 ![Star field with accepted stars circled in green and rejected detections in pink, each accepted star labeled with its measured HFR](assets/figures/annotation-overlay.png){ width=620 }
 
@@ -51,8 +51,8 @@ and **Autofocus** dropdowns.
 
 ## How this documentation is organized
 
-- **[Quick Start](quick-start.md)** — the recommended first-run path: set up detection, autofocus, and
-  annotation, optimize, then check for tilt and backfocus.
+- **[Quick Start](quick-start.md)** — the recommended first-run path: get autofocus working, save your
+  runs, then tune star detection from a saved run.
 - **[Overview](overview/index.md)** — a tour of star detection, annotation, autofocus, and the tilt /
   aberration inspector, with the concepts and figures behind each.
 - **[Star Detection Settings](settings/index.md)** — a complete reference for every star-detection
