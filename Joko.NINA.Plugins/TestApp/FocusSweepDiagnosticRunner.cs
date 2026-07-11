@@ -168,10 +168,26 @@ namespace TestApp {
                 return;
             }
 
+            bool debayerLuminance = DiagnosticUtil.HasFlag(args, "--debayer-luminance");
+            if (debayerLuminance) Console.WriteLine("Debayer-to-luminance ON (mirrors live AF OSC detection path)");
+            bool cfaHotpixel = DiagnosticUtil.HasFlag(args, "--cfa-hotpixel");
+            double cfaThreshold = baseParams.HotpixelThreshold;
+            if (cfaHotpixel) {
+                Console.WriteLine($"CFA hotpixel filter ON (threshold={cfaThreshold}); detector hotpixel filter disabled (mirrors live AF PrepareSrcImageFromRenderedImage)");
+                baseParams.HotpixelFiltering = false;
+            }
+            if (DiagnosticUtil.HasFlag(args, "--defocus-aware")) {
+                baseParams.DefocusAwareStructure = true;
+                baseParams.StructureLayerBoost = 2;
+                baseParams.DefocusAwareDonutDetection = true;
+                baseParams.DefocusAwareDistortion = true;
+                baseParams.DefocusAwareCentering = true;
+                Console.WriteLine("DefocusAware ON (structure boost +2 + donut detection + gate relaxation)");
+            }
             var byPosition = new SortedDictionary<int, PositionAccum>();
             var detector = new StarDetector(new AlglibAPI());
             foreach (var frame in frames) {
-                using var img = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService);
+                using var img = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService, debayerLuminance, cfaHotpixel, cfaThreshold);
                 var result = await detector.Detect(img, baseParams, null, CancellationToken.None);
                 if (!byPosition.TryGetValue(frame.FocuserPosition, out var accum)) {
                     accum = new PositionAccum { FocuserPosition = frame.FocuserPosition };
