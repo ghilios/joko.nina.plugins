@@ -263,6 +263,8 @@ Replaying SorenVance's saved AF run through the plugin ("Replay Saved AF", his f
 
 **Bearing on §13:** the original live `cand=1 / 0-star` collapse remains a separate (likely runtime) event that does not reproduce on replay — but the `BS=2` F4 default **does** independently degrade AF on his defocused frames, so the detector settings *are* implicated in the AF-quality failure, contrary to §13's stronger "not settings" wording. Net: the interim revert (NC=4 **and** BS=10) is warranted on its own merits, and the runtime `cand=1` question is now secondary.
 
+**Follow-up applied (whole grid now matches v3):** the `BrightnessSensitivity` WideRange/LongFocalLength deltas were flipped back to v3's `+= 2.0` (stricter: WideRange or LongFL → 12, both together → 14), so the **entire** Simple-mode BS grid now equals v3.0.0.26 — not just the Typical default. The two guard tests were renamed `SimpleMode_*_IsStricterThanTypical` and assert the raised value. This reverses the v4 "more sensitive at defocus" direction, which — per the mechanism above — admitted the small fragments that corrupt the HFR median exactly where WideRange is used (wide/defocused sweeps). NoiseClipping was already `4` for all combinations in both versions.
+
 ## Appendix — provenance
 
 Diagnosis and the mechanism/hardening study were produced by a multi-agent workflow (`simple-mode-upgrade-hardening`, run `wf_4b4844cb-71c`): a code-grounded mechanism investigation (v4 vs `release/v3.0.0.26`) plus five hardening lenses, each adversarially verified against the source before synthesis. Code anchors above were cited by those agents against the current tree; re-verify line numbers before implementing.
