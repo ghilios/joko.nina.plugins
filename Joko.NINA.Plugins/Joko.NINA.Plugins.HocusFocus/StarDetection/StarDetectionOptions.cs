@@ -148,9 +148,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             BrightnessSensitivity = 10.0 * sensitivityScale;
             if (Simple_FocusRange == FocusRangeEnum.WideRange) {
                 StructureLayers += 1;
-                // As we get further from focus, we want to be more sensitive as the chance for bad data
-                // increases. BrightnessSensitivity is a threshold where SMALLER = more sensitive, so we LOWER it.
-                BrightnessSensitivity -= 2.0 * sensitivityScale;
+                // WideRange reaches heavier defocus, where small noise / donut-fragment detections (tiny HFRs)
+                // would corrupt the median HFR. BrightnessSensitivity is a threshold where SMALLER = more sensitive,
+                // so we RAISE it to reject those fragments (matches v3.0.0.26; see the design doc §14 for evidence).
+                BrightnessSensitivity += 2.0 * sensitivityScale;
             }
 
             MinStarBoundingBoxSize = 5;
@@ -162,9 +163,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             } else if (Simple_PixelScale == PixelScaleEnum.LongFocalLength) {
                 StructureLayers += 1;
                 MinStarBoundingBoxSize += 1;
-                // Longer focal length spreads star flux over more pixels, so we want to be more sensitive.
-                // BrightnessSensitivity is a threshold where SMALLER = more sensitive, so we LOWER it.
-                BrightnessSensitivity -= 2.0 * sensitivityScale;
+                // Longer focal length spreads star flux over more pixels. RAISE BrightnessSensitivity (SMALLER =
+                // more sensitive) to reject faint fragments that would corrupt the HFR median (matches v3.0.0.26; §14).
+                BrightnessSensitivity += 2.0 * sensitivityScale;
             }
 
             if (HotpixelThresholdingEnabled && HotpixelFiltering) {

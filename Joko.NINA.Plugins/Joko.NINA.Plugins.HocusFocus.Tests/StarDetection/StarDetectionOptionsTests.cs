@@ -147,11 +147,10 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
-    public void SimpleMode_PixelScaleLongFocalLength_IncreasesSensitivity() {
-        // Longer focal length spreads star flux over more pixels, so detection must be MORE sensitive than
-        // Typical. BrightnessSensitivity is a threshold where SMALLER = more sensitive (regression guard for
-        // the previously-inverted sign: it used to be raised to 12, making LongFocalLength LESS sensitive).
-        // INTERIM (v3.0.0.26 revert): 10.0 unscaled base, deltas 2.0 (F4 sensitivityScale disabled).
+    public void SimpleMode_PixelScaleLongFocalLength_IsStricterThanTypical() {
+        // Longer focal length spreads star flux over more pixels; the preset RAISES BrightnessSensitivity to
+        // reject faint fragments that would corrupt the HFR median (BrightnessSensitivity is a threshold where
+        // SMALLER = more sensitive, so a HIGHER value = stricter). Matches v3.0.0.26 (see design doc §14).
         var (typical, _, _) = Build();
         typical.UseAdvanced = false;
         typical.Simple_PixelScale = PixelScaleEnum.Typical;
@@ -164,8 +163,8 @@ public class StarDetectionOptionsTests {
 
         Assert.Multiple(() => {
             Assert.That(typical.BrightnessSensitivity, Is.EqualTo(10.0));
-            Assert.That(longFl.BrightnessSensitivity, Is.EqualTo(8.0));
-            Assert.That(longFl.BrightnessSensitivity, Is.LessThan(typical.BrightnessSensitivity));
+            Assert.That(longFl.BrightnessSensitivity, Is.EqualTo(12.0));
+            Assert.That(longFl.BrightnessSensitivity, Is.GreaterThan(typical.BrightnessSensitivity));
         });
     }
 
@@ -179,11 +178,10 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
-    public void SimpleMode_FocusRangeWideRange_IncreasesSensitivity() {
-        // WideRange targets faint/defocused stars, so it must make detection MORE sensitive than Typical.
-        // BrightnessSensitivity is a threshold where SMALLER = more sensitive (regression guard for the
-        // previously-inverted sign: it used to be raised to 12, making WideRange LESS sensitive).
-        // INTERIM (v3.0.0.26 revert): 10.0 unscaled base, deltas 2.0 (F4 sensitivityScale disabled).
+    public void SimpleMode_FocusRangeWideRange_IsStricterThanTypical() {
+        // WideRange reaches heavier defocus, where small noise / donut-fragment detections (tiny HFRs) would
+        // corrupt the median HFR, so the preset RAISES BrightnessSensitivity to reject them (a threshold where
+        // SMALLER = more sensitive, so a HIGHER value = stricter). Matches v3.0.0.26 (see design doc §14).
         var (typical, _, _) = Build();
         typical.UseAdvanced = false;
         typical.Simple_PixelScale = PixelScaleEnum.Typical;
@@ -196,8 +194,8 @@ public class StarDetectionOptionsTests {
 
         Assert.Multiple(() => {
             Assert.That(typical.BrightnessSensitivity, Is.EqualTo(10.0));
-            Assert.That(wide.BrightnessSensitivity, Is.EqualTo(8.0));
-            Assert.That(wide.BrightnessSensitivity, Is.LessThan(typical.BrightnessSensitivity));
+            Assert.That(wide.BrightnessSensitivity, Is.EqualTo(12.0));
+            Assert.That(wide.BrightnessSensitivity, Is.GreaterThan(typical.BrightnessSensitivity));
         });
     }
 
