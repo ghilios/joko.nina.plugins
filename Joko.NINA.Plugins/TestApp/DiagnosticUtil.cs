@@ -59,7 +59,7 @@ namespace TestApp {
         /// is on (see <c>StarDetector.PrepareSrcImageFromRenderedImage</c>). Headless runners otherwise detect on the
         /// raw Bayer mosaic, which biases the per-star sensor-model tilt the Tilt Adapter Wizard calibrates from.
         /// </summary>
-        public static async Task<Mat> LoadFloatMat(string path, IProfileService profileService, bool debayerToLuminance = false) {
+        public static async Task<Mat> LoadFloatMat(string path, IProfileService profileService, bool debayerToLuminance = false, bool applyCfaHotpixel = false, double hotpixelThreshold = 0.001) {
             var ext = Path.GetExtension(path).ToLowerInvariant();
             if (ext == ".tif" || ext == ".tiff") {
                 using var src = new Mat(path, ImreadModes.Unchanged);
@@ -80,7 +80,7 @@ namespace TestApp {
                     ? await XISF.Load(uri, debayerToLuminance, factory, CancellationToken.None)
                     : await FITS.Load(uri, debayerToLuminance, factory, CancellationToken.None);
                 if (debayerToLuminance && imageData.Properties.IsBayered) {
-                    return DebayerToLuminanceMat(imageData);
+                    return DebayerToLuminanceMat(imageData, applyCfaHotpixel, hotpixelThreshold);
                 }
                 return CvImageUtility.ToOpenCVMat(imageData);
             }
@@ -93,13 +93,24 @@ namespace TestApp {
         /// representation matches the live app. The concrete CFA pattern comes from the frame's own metadata (the
         /// FITS BAYERPAT), defaulting to RGGB when the metadata reports none but the properties say bayered.
         /// </summary>
-        private static Mat DebayerToLuminanceMat(IImageData imageData) {
+        private static Mat DebayerToLuminanceMat(IImageData imageData, bool applyCfaHotpixel = false, double hotpixelThreshold = 0.001) {
             var props = imageData.Properties;
             var sensorType = imageData.MetaData?.Camera?.SensorType ?? SensorType.RGGB;
             if (sensorType == SensorType.Monochrome) {
                 sensorType = SensorType.RGGB;
             }
-            var bitmapSource = ImageUtility.CreateSourceFromArray(imageData.Data, props, PixelFormats.Gray16);
+            var dataArray = imageData.Data;
+            if (applyCfaHotpixel) {
+                // Mirror the live StarDetector.PrepareSrcImageFromRenderedImage OSC path: CFA hotpixel filter on the
+                // raw mosaic BEFORE debayer, so noise is rejected exactly as the live AF detector does.
+                var copy = new ushort[imageData.Data.FlatArray.Length];
+                Buffer.BlockCopy(imageData.Data.FlatArray, 0, copy, 0, copy.Length * sizeof(ushort));
+                var raw = new RawImageData(copy, width: props.Width, height: props.Height);
+                var threshold = (ushort)(hotpixelThreshold * (1 << props.BitDepth));
+                HotpixelFiltering.CFAHotpixelFilter(raw, sensorType, threshold);
+                dataArray = new ImageArray(copy);
+            }
+            var bitmapSource = ImageUtility.CreateSourceFromArray(dataArray, props, PixelFormats.Gray16);
             var debayered = ImageUtility.Debayer(bitmapSource, pf: System.Drawing.Imaging.PixelFormat.Format16bppGrayScale,
                 saveColorChannels: false, saveLumChannel: true, bayerPattern: sensorType);
             return CvImageUtility.ToOpenCVMat(debayered.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);

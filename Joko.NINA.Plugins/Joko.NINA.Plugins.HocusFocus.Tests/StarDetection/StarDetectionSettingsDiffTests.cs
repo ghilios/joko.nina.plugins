@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
@@ -34,7 +34,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
         [Test]
         public void BuildDiff_ReportsChangedDouble_WithFormatting() {
-            var current = NewOptions(); // BrightnessSensitivity default 2.0
+            var current = NewOptions(); // BrightnessSensitivity default 10.0 (interim v3 revert)
             var imported = Mirror(current);
             imported.BrightnessSensitivity = 9.1;
 
@@ -44,7 +44,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             var row = diff[0];
             Assert.Multiple(() => {
                 Assert.That(row.Name, Is.EqualTo("Brightness Sensitivity"));
-                Assert.That(row.CurrentValue, Is.EqualTo("2"));
+                Assert.That(row.CurrentValue, Is.EqualTo("10"));
                 Assert.That(row.NewValue, Is.EqualTo("9.1"));
             });
         }

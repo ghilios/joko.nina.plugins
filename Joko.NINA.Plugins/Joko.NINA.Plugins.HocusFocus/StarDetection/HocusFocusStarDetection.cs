@@ -380,14 +380,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 HotpixelFiltering = true,
                 HotpixelThresholdingEnabled = true,
                 NoiseReductionRadius = 3,
-                NoiseClippingMultiplier = 2.0, // lowered 4→2 per the golden-set recall audit (candidate-formation bottleneck)
+                NoiseClippingMultiplier = 4.0, // INTERIM revert to v3.0.0.26 (lockstep with ResetDefaults; drift-guard test)
                 StarClippingMultiplier = 2.0,
                 ContaminationSensitivity = 5.0,
                 RejectContaminatedStars = true,
                 StructureLayers = 4,
                 DefocusAwareStructure = false,
                 StructureLayerBoost = 0,
-                Sensitivity = 2.0,
+                Sensitivity = 10.0, // INTERIM revert to v3.0.0.26 (lockstep with ResetDefaults; drift-guard test)
                 PeakResponse = 0.75,
                 MaxDistortion = 0.5,
                 DefocusAwareDistortion = false,
