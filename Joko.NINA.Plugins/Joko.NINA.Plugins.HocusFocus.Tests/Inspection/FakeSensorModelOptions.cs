@@ -45,12 +45,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         public event PropertyChangedEventHandler PropertyChanged;
 
         public int MaxConcurrent { get; set; }
-        public bool FastFocusModeEnabled { get; set; }
-        public int FastStepSize { get; set; }
-        public int FastOffsetSteps { get; set; }
-        public int FastThreshold_Seconds { get; set; }
-        public int FastThreshold_Celcius { get; set; }
-        public int FastThreshold_FocuserPosition { get; set; }
         public bool ValidateHfrImprovement { get; set; }
         public double HFRImprovementThreshold { get; set; }
         public int AutoFocusTimeoutSeconds { get; set; }

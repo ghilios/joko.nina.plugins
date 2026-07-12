@@ -50,12 +50,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private void InitializeOptions() {
             maxConcurrent = optionsAccessor.GetValueInt32("MaxConcurrent", 0);
-            fastFocusModeEnabled = optionsAccessor.GetValueBoolean("FastFocusModeEnabled", false);
-            fastStepSize = optionsAccessor.GetValueInt32("FastStepSize", 1);
-            fastOffsetSteps = optionsAccessor.GetValueInt32("FastOffsetSteps", 4);
-            fastThreshold_Celcius = optionsAccessor.GetValueInt32("FastThreshold_Celcius", 5);
-            fastThreshold_FocuserPosition = optionsAccessor.GetValueInt32("FastThreshold_FocuserPosition", 100);
-            fastThreshold_Seconds = optionsAccessor.GetValueInt32("FastThreshold_Seconds", (int)TimeSpan.FromMinutes(60).TotalSeconds);
             autoFocusTimeoutSeconds = optionsAccessor.GetValueInt32("AutoFocusTimeoutSeconds", (int)TimeSpan.FromMinutes(10).TotalSeconds);
             validateHfrImprovement = optionsAccessor.GetValueBoolean("ValidateHfrImprovement", true);
             hfrImprovementThreshold = optionsAccessor.GetValueDouble("HFRImprovementThreshold", 0.15);
@@ -74,12 +68,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public void ResetDefaults() {
             maxConcurrent = 0;
-            FastFocusModeEnabled = false;
-            FastStepSize = 1;
-            FastOffsetSteps = 4;
-            FastThreshold_Celcius = 5;
-            FastThreshold_FocuserPosition = 100;
-            FastThreshold_Seconds = (int)TimeSpan.FromMinutes(60).TotalSeconds;
             AutoFocusTimeoutSeconds = (int)TimeSpan.FromMinutes(10).TotalSeconds;
             ValidateHfrImprovement = true;
             HFRImprovementThreshold = 0.15;
@@ -104,100 +92,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (maxConcurrent != value) {
                     maxConcurrent = value;
                     optionsAccessor.SetValueInt32("MaxConcurrent", maxConcurrent);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private bool fastFocusModeEnabled;
-
-        public bool FastFocusModeEnabled {
-            get => fastFocusModeEnabled;
-            set {
-                if (fastFocusModeEnabled != value) {
-                    fastFocusModeEnabled = value;
-                    optionsAccessor.SetValueBoolean("FastFocusModeEnabled", value);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private int fastStepSize;
-
-        public int FastStepSize {
-            get => fastStepSize;
-            set {
-                if (fastStepSize != value) {
-                    fastStepSize = value;
-                    optionsAccessor.SetValueInt32("FastStepSize", fastStepSize);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private int fastOffsetSteps;
-
-        public int FastOffsetSteps {
-            get => fastOffsetSteps;
-            set {
-                if (fastOffsetSteps != value) {
-                    if (value <= 1) {
-                        throw new ArgumentException("FastOffsetSteps must be at least 2", "FastOffsetSteps");
-                    }
-
-                    fastOffsetSteps = value;
-                    optionsAccessor.SetValueInt32("FastOffsetSteps", fastOffsetSteps);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private int fastThreshold_Seconds;
-
-        public int FastThreshold_Seconds {
-            get => fastThreshold_Seconds;
-            set {
-                if (fastThreshold_Seconds != value) {
-                    if (value < 0) {
-                        throw new ArgumentException("FastThreshold_Seconds must be non-negative", "FastThreshold_Seconds");
-                    }
-
-                    fastThreshold_Seconds = value;
-                    optionsAccessor.SetValueInt32("FastThreshold_Seconds", fastThreshold_Seconds);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private int fastThreshold_Celcius;
-
-        public int FastThreshold_Celcius {
-            get => fastThreshold_Celcius;
-            set {
-                if (fastThreshold_Celcius != value) {
-                    if (value < 0) {
-                        throw new ArgumentException("FastThreshold_Celcius must be non-negative", "FastThreshold_Celcius");
-                    }
-
-                    fastThreshold_Celcius = value;
-                    optionsAccessor.SetValueInt32("FastThreshold_Celcius", fastThreshold_Celcius);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private int fastThreshold_FocuserPosition;
-
-        public int FastThreshold_FocuserPosition {
-            get => fastThreshold_FocuserPosition;
-            set {
-                if (fastThreshold_FocuserPosition != value) {
-                    if (value < 0) {
-                        throw new ArgumentException("FastThreshold_FocuserPosition must be non-negative", "FastThreshold_FocuserPosition");
-                    }
-
-                    fastThreshold_FocuserPosition = value;
-                    optionsAccessor.SetValueInt32("FastThreshold_FocuserPosition", fastThreshold_FocuserPosition);
                     RaisePropertyChanged();
                 }
             }

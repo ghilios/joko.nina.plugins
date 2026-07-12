@@ -14,12 +14,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
     public interface IAutoFocusOptions {
         int MaxConcurrent { get; set; }
-        bool FastFocusModeEnabled { get; set; }
-        int FastStepSize { get; set; }
-        int FastOffsetSteps { get; set; }
-        int FastThreshold_Seconds { get; set; }
-        int FastThreshold_Celcius { get; set; }
-        int FastThreshold_FocuserPosition { get; set; }
         bool ValidateHfrImprovement { get; set; }
         double HFRImprovementThreshold { get; set; }
         int AutoFocusTimeoutSeconds { get; set; }
