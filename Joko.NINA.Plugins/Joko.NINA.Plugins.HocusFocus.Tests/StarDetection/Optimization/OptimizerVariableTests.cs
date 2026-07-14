@@ -137,12 +137,14 @@ public class OptimizerVariableTests {
     // ---- CreateCuratedSet ----
 
     [Test]
-    public void CreateCuratedSet_HasTwentyOneDistinctVariables() {
-        // 12 base axes + 9 defocus-aware axes (combined gate switch, structure boost, 3 gate knobs, 4 donut knobs).
-        // The no-arg form returns the FULL set (master gating is applied via the StarDetectorParams overload).
+    public void CreateCuratedSet_HasTwentyFourDistinctVariables() {
+        // 15 base axes (12 original + LocallyAdaptiveBinarization + RejectContaminatedStars +
+        // ExcludeSaturatedStarsFromHFR) + 9 defocus-aware axes (combined gate switch, structure boost, 3 gate
+        // knobs, 4 donut knobs). The no-arg form returns the FULL set (master gating is applied via the
+        // StarDetectorParams overload).
         var set = OptimizerVariable.CreateCuratedSet();
-        Assert.That(set.Count, Is.EqualTo(21));
-        Assert.That(set.Select(x => x.Name).Distinct().Count(), Is.EqualTo(21));
+        Assert.That(set.Count, Is.EqualTo(24));
+        Assert.That(set.Select(x => x.Name).Distinct().Count(), Is.EqualTo(24));
     }
 
     [Test]
@@ -150,12 +152,12 @@ public class OptimizerVariableTests {
         var masterOff = new StarDetectorParams { DefocusAwareDonutDetection = false };
         var masterOn = new StarDetectorParams { DefocusAwareDonutDetection = true };
         Assert.Multiple(() => {
-            // Master OFF ⇒ only the 12 base axes; no defocus axis is searchable.
-            Assert.That(OptimizerVariable.CreateCuratedSet(masterOff).Count, Is.EqualTo(12));
+            // Master OFF ⇒ only the 15 base axes; no defocus axis is searchable.
+            Assert.That(OptimizerVariable.CreateCuratedSet(masterOff).Count, Is.EqualTo(15));
             Assert.That(OptimizerVariable.CreateCuratedSet(masterOff).Any(v => v.Name == OptimizerVariable.DefocusAwareGatesName), Is.False);
-            Assert.That(OptimizerVariable.CreateCuratedSet((StarDetectorParams)null).Count, Is.EqualTo(12));
+            Assert.That(OptimizerVariable.CreateCuratedSet((StarDetectorParams)null).Count, Is.EqualTo(15));
             // Master ON ⇒ the full set incl. all defocus axes.
-            Assert.That(OptimizerVariable.CreateCuratedSet(masterOn).Count, Is.EqualTo(21));
+            Assert.That(OptimizerVariable.CreateCuratedSet(masterOn).Count, Is.EqualTo(24));
             Assert.That(OptimizerVariable.CreateCuratedSet(masterOn).Any(v => v.Name == nameof(StarDetectorParams.DonutMorphCloseSize)), Is.True);
         });
     }
@@ -176,6 +178,10 @@ public class OptimizerVariableTests {
             nameof(StarDetectorParams.MinimumStarBoundingBoxSize),
             nameof(StarDetectorParams.HotpixelThresholdingEnabled),
             nameof(StarDetectorParams.HotpixelThreshold),
+            // Detection-quality flags (searchable; seeded ON per run).
+            nameof(StarDetectorParams.LocallyAdaptiveBinarization),
+            nameof(StarDetectorParams.RejectContaminatedStars),
+            nameof(StarDetectorParams.ExcludeSaturatedStarsFromHFR),
             // Synthetic combined switch (drives DefocusAwareDistortion + DefocusAwareCentering together).
             OptimizerVariable.DefocusAwareGatesName,
             // Synthetic integer knob (drives DefocusAwareStructure + StructureLayerBoost together).

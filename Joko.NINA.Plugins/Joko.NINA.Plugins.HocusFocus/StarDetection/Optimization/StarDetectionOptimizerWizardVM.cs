@@ -1699,6 +1699,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // (the default Seed carries master=OFF, so without this the donut feature would never be searched when
             // not starting from current settings).
             seed.DefocusAwareDonutDetection = starDetectionOptions.DefocusAwareDonutDetection;
+            // Turn the detection-quality gates ON at the start of every run so the optimizer evaluates them enabled
+            // even if the user had disabled one in Advanced settings. They are also curated search axes, so the
+            // optimizer can turn any back OFF where it costs J. This runs AFTER ComputeBaselineJAsync scored the
+            // user's true current settings, so the "before" J the wizard reports is not affected by these stamps.
+            seed.LocallyAdaptiveBinarization = true;
+            seed.RejectContaminatedStars = true;
+            seed.ExcludeSaturatedStarsFromHFR = true;
             // Donut recovery widens the curated search space (the defocus axes are added only when the master is
             // on), so it needs more iterations to converge: use the larger budget when enabled, else the standard
             // one. Re-applied each call so toggling the donut master between builds takes effect.

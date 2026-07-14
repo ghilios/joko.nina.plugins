@@ -329,8 +329,9 @@ public class StarDetectionOptimizerTests {
     [Test]
     public void Partition_EarlyAxes_AreExactlyTheEarlyCacheKeyMembers_AndDefocusGatesIsLate() {
         // The optimizer partitions curated axes by StarDetector.IsEarlyCacheKeyParameter (single source of
-        // truth). Mirror that classification here and assert (a) the early set is EXACTLY the five expected
-        // early-cache-key axes present in the curated set, and (b) the synthetic DefocusAwareGates is LATE.
+        // truth). Mirror that classification here and assert (a) the early set is EXACTLY the expected
+        // early-cache-key axes present in the curated set, and (b) the synthetic DefocusAwareGates and the two
+        // late detection-quality gates are LATE.
         var variables = OptimizerVariable.CreateCuratedSet();
 
         var early = variables.Where(v => StarDetector.IsEarlyCacheKeyParameter(v.Name)).Select(v => v.Name).ToList();
@@ -342,6 +343,9 @@ public class StarDetectionOptimizerTests {
             nameof(StarDetectorParams.NoiseReductionRadius),
             nameof(StarDetectorParams.HotpixelThresholdingEnabled),
             nameof(StarDetectorParams.HotpixelThreshold),
+            // Locally-adaptive binarization swaps the scalar binarize threshold for a per-block surface — EARLY
+            // (changes candidate formation), so it is an EarlyCacheKeyProperties member.
+            nameof(StarDetectorParams.LocallyAdaptiveBinarization),
             // Synthetic defocus-aware-structure knob — named for the EARLY cache-key property it drives.
             OptimizerVariable.DefocusAwareStructureName,
             // Donut morphological-close kernel size — EARLY (changes candidate formation).
@@ -353,6 +357,9 @@ public class StarDetectionOptimizerTests {
             // DefocusAwareGates is a synthetic alias (drives late gates) — it must be LATE.
             Assert.That(late, Does.Contain(OptimizerVariable.DefocusAwareGatesName), "DefocusAwareGates must be a LATE axis");
             Assert.That(early, Does.Not.Contain(OptimizerVariable.DefocusAwareGatesName));
+            // The two post-detection gates only re-run the cheap late stage — they must be LATE.
+            Assert.That(late, Does.Contain(nameof(StarDetectorParams.RejectContaminatedStars)), "RejectContaminatedStars must be a LATE axis");
+            Assert.That(late, Does.Contain(nameof(StarDetectorParams.ExcludeSaturatedStarsFromHFR)), "ExcludeSaturatedStarsFromHFR must be a LATE axis");
             // Every curated axis is in exactly one partition.
             Assert.That(early.Count + late.Count, Is.EqualTo(variables.Count));
             // IsEarlyCacheKeyParameter is robust to synthetic/unknown/null names.
