@@ -141,6 +141,11 @@ built-in presets are:
 | ASG Electronic EAT - 90mm | Stepper Motors | 4 | — | 1.8 | 55 |
 | ASG Photon Cage - ZWO 461 | Screws | 4 | 212 | — | 54 |
 | ASG Electronic EAT - ZWO 461 | Stepper Motors | 4 | — | 1.8 | 62.75 |
+| OGMA Z'Tilter - 3-point configuration | Screws | 3 | 450 | — | 48.9 |
+| OGMA Z'Tilter - 4-point configuration | Screws | 4 | 450 | — | 48.9 |
+| OGMA O'Tilter | Screws | 3 | 450 | — | 43.25 |
+| OGMA +Tilter / OAG Pro - 3-point configuration | Screws | 3 | 450 | — | 40 |
+| OGMA +Tilter / OAG Pro - 4-point configuration | Screws | 4 | 450 | — | 40 |
 
 The ASG Photon Cage adjusters are 120 TPI, which is 211.7 µm per full turn (the manufacturer rounds
 this to ~212). For the motorized EAT units the Screw Radius column is the radius of the motors from
