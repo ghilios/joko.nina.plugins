@@ -24,12 +24,6 @@ public class AutoFocusOptionsTests {
         var (options, _, _) = Build();
         Assert.Multiple(() => {
             Assert.That(options.MaxConcurrent, Is.EqualTo(0));
-            Assert.That(options.FastFocusModeEnabled, Is.False);
-            Assert.That(options.FastStepSize, Is.EqualTo(1));
-            Assert.That(options.FastOffsetSteps, Is.EqualTo(4));
-            Assert.That(options.FastThreshold_Celcius, Is.EqualTo(5));
-            Assert.That(options.FastThreshold_FocuserPosition, Is.EqualTo(100));
-            Assert.That(options.FastThreshold_Seconds, Is.EqualTo((int)TimeSpan.FromMinutes(60).TotalSeconds));
             Assert.That(options.AutoFocusTimeoutSeconds, Is.EqualTo((int)TimeSpan.FromMinutes(10).TotalSeconds));
             Assert.That(options.ValidateHfrImprovement, Is.True);
             Assert.That(options.HFRImprovementThreshold, Is.EqualTo(0.15));
@@ -48,12 +42,6 @@ public class AutoFocusOptionsTests {
     public void Setters_PersistToAccessor() {
         var (options, store, _) = Build();
         options.MaxConcurrent = 4;
-        options.FastFocusModeEnabled = true;
-        options.FastStepSize = 3;
-        options.FastOffsetSteps = 6;
-        options.FastThreshold_Celcius = 7;
-        options.FastThreshold_FocuserPosition = 250;
-        options.FastThreshold_Seconds = 1800;
         options.AutoFocusTimeoutSeconds = 900;
         options.ValidateHfrImprovement = false;
         options.HFRImprovementThreshold = 0.25;
@@ -68,12 +56,6 @@ public class AutoFocusOptionsTests {
 
         Assert.Multiple(() => {
             Assert.That(store.Snapshot["MaxConcurrent"], Is.EqualTo(4));
-            Assert.That(store.Snapshot["FastFocusModeEnabled"], Is.True);
-            Assert.That(store.Snapshot["FastStepSize"], Is.EqualTo(3));
-            Assert.That(store.Snapshot["FastOffsetSteps"], Is.EqualTo(6));
-            Assert.That(store.Snapshot["FastThreshold_Celcius"], Is.EqualTo(7));
-            Assert.That(store.Snapshot["FastThreshold_FocuserPosition"], Is.EqualTo(250));
-            Assert.That(store.Snapshot["FastThreshold_Seconds"], Is.EqualTo(1800));
             Assert.That(store.Snapshot["AutoFocusTimeoutSeconds"], Is.EqualTo(900));
             Assert.That(store.Snapshot["ValidateHfrImprovement"], Is.False);
             Assert.That(store.Snapshot["HFRImprovementThreshold"], Is.EqualTo(0.25));
@@ -92,7 +74,6 @@ public class AutoFocusOptionsTests {
     public void ResetDefaults_RestoresDocumentedDefaults() {
         var (options, _, _) = Build();
         options.MaxConcurrent = 8;
-        options.FastFocusModeEnabled = true;
         options.HFRImprovementThreshold = 0.99;
         options.Save = true;
         options.KeepFramesForReview = true;
@@ -102,7 +83,6 @@ public class AutoFocusOptionsTests {
 
         Assert.Multiple(() => {
             Assert.That(options.MaxConcurrent, Is.EqualTo(0));
-            Assert.That(options.FastFocusModeEnabled, Is.False);
             Assert.That(options.HFRImprovementThreshold, Is.EqualTo(0.15));
             Assert.That(options.Save, Is.False);
             Assert.That(options.KeepFramesForReview, Is.False);
@@ -113,9 +93,6 @@ public class AutoFocusOptionsTests {
     }
 
     [TestCase(nameof(AutoFocusOptions.MaxConcurrent), 4)]
-    [TestCase(nameof(AutoFocusOptions.FastFocusModeEnabled), true)]
-    [TestCase(nameof(AutoFocusOptions.FastStepSize), 5)]
-    [TestCase(nameof(AutoFocusOptions.FastThreshold_Celcius), 7)]
     [TestCase(nameof(AutoFocusOptions.AutoFocusTimeoutSeconds), 1200)]
     [TestCase(nameof(AutoFocusOptions.ValidateHfrImprovement), false)]
     [TestCase(nameof(AutoFocusOptions.HFRImprovementThreshold), 0.5)]
@@ -134,18 +111,6 @@ public class AutoFocusOptionsTests {
         var prop = typeof(AutoFocusOptions).GetProperty(propertyName);
         prop.SetValue(options, Convert.ChangeType(newValue, prop.PropertyType));
         Assert.That(raised, Does.Contain(propertyName));
-    }
-
-    [Test]
-    public void FastOffsetSteps_RejectsValuesLessThanTwo() {
-        var (options, _, _) = Build();
-        Assert.Throws<ArgumentException>(() => options.FastOffsetSteps = 1);
-    }
-
-    [TestCase(-1)]
-    public void FastThreshold_SecondsRejectsNegative(int v) {
-        var (options, _, _) = Build();
-        Assert.Throws<ArgumentException>(() => options.FastThreshold_Seconds = v);
     }
 
     [Test]
