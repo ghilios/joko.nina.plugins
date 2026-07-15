@@ -335,6 +335,122 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        [Test]
+        public void SelectedDevice_EatPreset_SetsCalibrationAppliedAmountTo150Steps() {
+            // The ASG Electronic EAT stepper adapters default the per-screw calibration applied amount
+            // to 150 steps (TiltAdapterDevicePreset.DefaultCalibrationAmount) so the wizard prompts and
+            // any future hands-off automation start from a sane stepper-scale amount, not 1 (a turn-scale
+            // default that would be a no-op-sized move for a stepper motor).
+            var (vm, options, _, _) = Build();
+            // NSubstitute's auto-implemented DeviceName property starts at null; the ctor's own
+            // re-lock-on-load ApplyDevice(null) call resolves that to Manual and already writes
+            // CalibrationAppliedAmount once (null != "Manual", a "device changed" transition). Clear that
+            // call out so Received(1) below proves the write is caused by the user-driven SelectedDevice
+            // assignment below (a genuine Manual -> EAT transition), not the constructor.
+            options.ClearReceivedCalls();
+
+            vm.SelectedDevice = "ASG Electronic EAT - 90mm";
+
+            options.Received(1).CalibrationAppliedAmount = 150.0;
+        }
+
+        [Test]
+        public void SelectedDevice_ScrewPreset_SetsCalibrationAppliedAmountTo1Turn() {
+            var (vm, options, _, _) = Build();
+            // See comment in SelectedDevice_EatPreset_SetsCalibrationAppliedAmountTo150Steps above.
+            options.ClearReceivedCalls();
+
+            vm.SelectedDevice = "Neumann CTU XT48";
+
+            options.Received(1).CalibrationAppliedAmount = 1.0;
+        }
+
+        [Test]
+        public void SelectedDevice_Manual_ResetsCalibrationAppliedAmountTo1Turn() {
+            // Manual's own DefaultCalibrationAmount is 1.0 (screw-scale), so re-selecting Manual after an
+            // EAT preset must reset the applied amount back to 1, not leave a leftover stepper-scale value
+            // (e.g. 150) on screen — unlike ScrewCount/ThreadPitchMicrons/etc., which Manual leaves alone.
+            var (vm, options, _, _) = Build();
+            // NSubstitute's auto-implemented properties remember the LAST value set through the substitute
+            // (ClearReceivedCalls only clears call-verification history, not that remembered state) — and the
+            // ctor's own ApplyDevice(null) call already left DeviceName at "Manual". So a genuine "away from
+            // Manual" transition has to happen first, or "Manual" -> "Manual" below would be a no-op device
+            // change (correctly, per the fix) and never write CalibrationAppliedAmount at all.
+            vm.SelectedDevice = "ASG Electronic EAT - 90mm";
+            options.ClearReceivedCalls();
+
+            vm.SelectedDevice = "Manual";
+
+            options.Received(1).CalibrationAppliedAmount = 1.0;
+        }
+
+        [Test]
+        public void Constructor_ReAppliesPersistedDevice_DoesNotClobberCalibrationAppliedAmount() {
+            // Regression test for the fix: ApplyDevice is called both from the SelectedDevice setter
+            // (genuine user change) AND from the constructor's re-lock-on-load path
+            // (ApplyDevice(tiltAdapterOptions.DeviceName)). Simulate an app restart where the options
+            // store already has an EAT device persisted from a prior session -- the ctor's call
+            // re-asserts that SAME device, so it must NOT be treated as a device change and must not
+            // clobber the persisted CalibrationAppliedAmount with the preset default.
+            var (vm, options, _, _) = Build(
+                screwCount: 4,
+                configureOptions: o => o.DeviceName.Returns("ASG Electronic EAT - 90mm"));
+
+            options.DidNotReceive().CalibrationAppliedAmount = Arg.Any<double>();
+        }
+
+        [Test]
+        public void Constructor_ReAppliesPersistedDevice_PreservesUserEditedCalibrationAppliedAmount_WithRealOptions() {
+            // End-to-end proof using a REAL TiltAdapterOptions backed by InMemoryPluginOptionsAccessor
+            // (not a substitute): a profile that already has an EAT device selected and a user-customized
+            // applied amount (220, not the preset default of 150) must survive VM construction.
+            var profile = Substitute.For<IProfileService>();
+            var store = new InMemoryPluginOptionsAccessor();
+            store.SetValueString(nameof(TiltAdapterOptions.DeviceName), "ASG Electronic EAT - 90mm");
+            store.SetValueDouble(nameof(TiltAdapterOptions.CalibrationAppliedAmount), 220.0);
+            var options = new TiltAdapterOptions(profile, store);
+            var camera = Substitute.For<ICameraMediator>();
+            var focuser = Substitute.For<IFocuserMediator>();
+            var inspector = BuildInspector();
+
+            var vm = new TiltAdapterWizardVM(
+                profileService: profile,
+                applicationStatusMediator: Substitute.For<IApplicationStatusMediator>(),
+                cameraMediator: camera,
+                focuserMediator: focuser,
+                inspector: inspector,
+                applicationDispatcher: new SynchronousApplicationDispatcher(),
+                tiltAdapterOptions: options);
+
+            Assert.Multiple(() => {
+                Assert.That(options.CalibrationAppliedAmount, Is.EqualTo(220.0));
+                Assert.That(vm.CalibrationAppliedAmount, Is.EqualTo(220.0));
+            });
+        }
+
+        [Test]
+        public void CalibrationAppliedAmount_Getter_ResolvesUnsetToPresetDefault() {
+            // -1 (unset) must resolve to the currently-selected preset's DefaultCalibrationAmount.
+            var (vm, _, _, _) = Build(configureOptions: o => {
+                o.DeviceName.Returns("ASG Electronic EAT - 90mm");
+                o.CalibrationAppliedAmount.Returns(-1.0);
+            });
+
+            Assert.That(vm.CalibrationAppliedAmount, Is.EqualTo(150.0));
+        }
+
+        [Test]
+        public void CalibrationAppliedAmount_Getter_ReturnsZeroAsARealValue() {
+            // Boundary check on the getter's "raw >= 0" resolution branch: 0 is a real (if unusual)
+            // persisted value and must be returned as-is, not treated as "unset" like -1 is.
+            var (vm, _, _, _) = Build(configureOptions: o => {
+                o.DeviceName.Returns("Manual");
+                o.CalibrationAppliedAmount.Returns(0.0);
+            });
+
+            Assert.That(vm.CalibrationAppliedAmount, Is.EqualTo(0.0));
+        }
+
         // --- Failure-choice panel (Change 3) ---
 
         [Test]

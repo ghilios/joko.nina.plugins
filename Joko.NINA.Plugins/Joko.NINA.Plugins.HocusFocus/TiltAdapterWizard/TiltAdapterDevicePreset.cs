@@ -27,7 +27,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private TiltAdapterDevicePreset(
             string name, bool isManual, int screwCount, TiltAdjustmentType adjustmentType,
-            double threadPitchMicrons, double stepperStepSizeMicrons, double screwRadiusMillimeters) {
+            double threadPitchMicrons, double stepperStepSizeMicrons, double screwRadiusMillimeters,
+            double defaultCalibrationAmount) {
             Name = name;
             IsManual = isManual;
             ScrewCount = screwCount;
@@ -35,6 +36,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ThreadPitchMicrons = threadPitchMicrons;
             StepperStepSizeMicrons = stepperStepSizeMicrons;
             ScrewRadiusMillimeters = screwRadiusMillimeters;
+            DefaultCalibrationAmount = defaultCalibrationAmount;
         }
 
         public string Name { get; }
@@ -45,53 +47,70 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double StepperStepSizeMicrons { get; }
         public double ScrewRadiusMillimeters { get; }
 
+        // Amount (full turns for screw adapters, steps for stepper adapters) the wizard pre-fills as
+        // the per-screw calibration applied amount when this preset is selected. Screw adapters default
+        // to 1 full turn; the ASG Electronic EAT stepper adapters default to 150 steps.
+        public double DefaultCalibrationAmount { get; }
+
         public static readonly TiltAdapterDevicePreset Manual = new TiltAdapterDevicePreset(
             ManualName, isManual: true, screwCount: 3, adjustmentType: TiltAdjustmentType.Screws,
-            threadPitchMicrons: -1, stepperStepSizeMicrons: -1, screwRadiusMillimeters: -1);
+            threadPitchMicrons: -1, stepperStepSizeMicrons: -1, screwRadiusMillimeters: -1,
+            defaultCalibrationAmount: 1.0);
 
         public static readonly IReadOnlyList<TiltAdapterDevicePreset> All = new[] {
             Manual,
             new TiltAdapterDevicePreset(
                 "Neumann CTU XT48", isManual: false, screwCount: 3, adjustmentType: TiltAdjustmentType.Screws,
-                threadPitchMicrons: 400, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 44),
+                threadPitchMicrons: 400, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 44,
+                defaultCalibrationAmount: 1.0),
 
             // ASG 78mm series
             new TiltAdapterDevicePreset(
                 "ASG Photon Cage - 78mm", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.Screws,
-                threadPitchMicrons: 212, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 44),  // 120 TPI (~212 µm/turn)
+                threadPitchMicrons: 212, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 44,
+                defaultCalibrationAmount: 1.0),  // 120 TPI (~212 µm/turn)
 
             // ASG 90mm series
             new TiltAdapterDevicePreset(
                 "ASG Photon Cage - 90mm", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.Screws,
-                threadPitchMicrons: 212, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 50),  // 120 TPI (~212 µm/turn)
+                threadPitchMicrons: 212, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 50,
+                defaultCalibrationAmount: 1.0),  // 120 TPI (~212 µm/turn)
             new TiltAdapterDevicePreset(
                 "ASG Electronic EAT - 90mm", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.StepperMotors,
-                threadPitchMicrons: -1, stepperStepSizeMicrons: 1.8, screwRadiusMillimeters: 55),
+                threadPitchMicrons: -1, stepperStepSizeMicrons: 1.8, screwRadiusMillimeters: 55,
+                defaultCalibrationAmount: 150),
 
             // ASG ZWO 461 series
             new TiltAdapterDevicePreset(
                 "ASG Photon Cage - ZWO 461", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.Screws,
-                threadPitchMicrons: 212, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 54),  // 120 TPI (~212 µm/turn)
+                threadPitchMicrons: 212, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 54,
+                defaultCalibrationAmount: 1.0),  // 120 TPI (~212 µm/turn)
             new TiltAdapterDevicePreset(
                 "ASG Electronic EAT - ZWO 461", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.StepperMotors,
-                threadPitchMicrons: -1, stepperStepSizeMicrons: 1.8, screwRadiusMillimeters: 62.75),
+                threadPitchMicrons: -1, stepperStepSizeMicrons: 1.8, screwRadiusMillimeters: 62.75,
+                defaultCalibrationAmount: 150),
 
             // OGMA series
             new TiltAdapterDevicePreset(
                 "OGMA Z'Tilter - 3-point configuration", isManual: false, screwCount: 3, adjustmentType: TiltAdjustmentType.Screws,
-                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 48.9),
+                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 48.9,
+                defaultCalibrationAmount: 1.0),
             new TiltAdapterDevicePreset(
                 "OGMA Z'Tilter - 4-point configuration", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.Screws,
-                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 48.9),
+                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 48.9,
+                defaultCalibrationAmount: 1.0),
             new TiltAdapterDevicePreset(
                 "OGMA O'Tilter", isManual: false, screwCount: 3, adjustmentType: TiltAdjustmentType.Screws,
-                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 43.25),
+                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 43.25,
+                defaultCalibrationAmount: 1.0),
             new TiltAdapterDevicePreset(
                 "OGMA +Tilter / OAG Pro - 3-point configuration", isManual: false, screwCount: 3, adjustmentType: TiltAdjustmentType.Screws,
-                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 40),
+                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 40,
+                defaultCalibrationAmount: 1.0),
             new TiltAdapterDevicePreset(
                 "OGMA +Tilter / OAG Pro - 4-point configuration", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.Screws,
-                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 40),
+                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 40,
+                defaultCalibrationAmount: 1.0),
         };
 
         public static TiltAdapterDevicePreset ByName(string name) =>

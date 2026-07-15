@@ -111,7 +111,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
-        private double calibrationAppliedAmount = 1.0;
         private double measuredHardwareMicrons = double.NaN;
         private TiltCalibrationConfidence lastConfidence;
         private double pitchUncertaintyMicrons = double.NaN;
@@ -320,6 +319,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(AdjustmentType));
                 RaisePropertyChanged(nameof(IsStepperAdjustment));
                 RaisePropertyChanged(nameof(CalibrationAmountLabel));
+                // CalibrationAppliedAmount is now a wrapper over the persisted option (per-profile), so a
+                // profile swap can genuinely change its resolved value — re-raise it here for the same reason
+                // as the other wrapper properties above.
+                RaisePropertyChanged(nameof(CalibrationAppliedAmount));
                 // CalibrationAppliedAmountDisplay (turns/steps units) is intentionally not re-raised in this
                 // list: RaiseHardwareSummaryChanged() below already raises it on every ProfileChanged.
                 RaisePropertyChanged(nameof(ThreadPitchMicronsValue));
@@ -559,7 +562,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Per-step guidance for returning to baseline before retrying, shown in the failure panel.
         public string BaselineRecoveryInstructions =>
-            BaselineRecoveryText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, calibrationAppliedAmount);
+            BaselineRecoveryText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, CalibrationAppliedAmount);
 
         public bool HasRebaselineDriftWarning {
             get => hasRebaselineDriftWarning;
@@ -627,7 +630,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         public string StepInstructions =>
-            StepInstructionsText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, calibrationAppliedAmount);
+            StepInstructionsText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, CalibrationAppliedAmount);
 
         // Formats the calibration move amount: "1 full turn" / "1.5 turns" for screws, whole "+N"
         // magnitude for steppers (sign is added by the caller's wording).
@@ -749,13 +752,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public ICommand ApplyManualCalibrationCommand { get; }
         public ICommand ClearCalibrationCommand { get; }
 
-        // Known amount the user moves each screw during the per-screw calibration steps (full turns
-        // for screws, steps for steppers). Defaults to 1.0 to match the "1 full turn" instructions.
+        // Amount the user moves each screw during the per-screw calibration steps (full turns for
+        // screws, steps for steppers). Persisted per profile via tiltAdapterOptions; -1 (unset) resolves
+        // to the selected device preset's default (TiltAdapterDevicePreset.DefaultCalibrationAmount) so
+        // it still matches the "1 full turn" / "150 steps" instructions before the user ever edits it.
         public double CalibrationAppliedAmount {
-            get => calibrationAppliedAmount;
+            get {
+                var raw = tiltAdapterOptions.CalibrationAppliedAmount;
+                return raw >= 0 ? raw : TiltAdapterDevicePreset.ByName(tiltAdapterOptions.DeviceName).DefaultCalibrationAmount;
+            }
             set {
-                if (calibrationAppliedAmount != value) {
-                    calibrationAppliedAmount = value;
+                if (value != tiltAdapterOptions.CalibrationAppliedAmount) {
+                    tiltAdapterOptions.CalibrationAppliedAmount = value;
                     RaisePropertyChanged();
                     RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
                     // The prompts embed the applied amount, so editing it must refresh them.
@@ -962,7 +970,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public string CalibrationPixelSizeDisplay => calibrationPixelSizeMicrons > 0 ? $"{calibrationPixelSizeMicrons:0.##} µm" : "—";
         public string CalibrationFocuserStepDisplay => calibrationFocuserStepMicrons > 0 ? $"{calibrationFocuserStepMicrons:0.###} µm" : "—";
         public string CalibrationScrewRadiusDisplay => calibrationScrewRadiusMm > 0 ? $"{calibrationScrewRadiusMm:0.##} mm" : "not set";
-        public string CalibrationAppliedAmountDisplay => IsStepperAdjustment ? $"{calibrationAppliedAmount:0.##} steps" : $"{calibrationAppliedAmount:0.##} turns";
+        public string CalibrationAppliedAmountDisplay => IsStepperAdjustment ? $"{CalibrationAppliedAmount:0.##} steps" : $"{CalibrationAppliedAmount:0.##} turns";
 
         public bool HasConfidenceInfo => lastConfidence != null;
 
@@ -1107,7 +1115,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 ScrewRadiusMillimeters = tiltAdapterOptions.ScrewRadiusMillimeters,
                 PixelSizeMicrons = profileService.ActiveProfile.CameraSettings.PixelSize,
                 FocuserStepSizeMicrons = EffectiveFocuserStepMicrons(),
-                CalibrationAppliedAmount = calibrationAppliedAmount,
+                CalibrationAppliedAmount = CalibrationAppliedAmount,
                 MeasurementAverageCount = Math.Max(1, tiltAdapterOptions.MeasurementAverageCount),
                 OptimizedStarDetectionSettings = CaptureDetectionSettings(),
                 MeasurementContext = CaptureMeasurementContext(
@@ -1455,7 +1463,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     tiltAdapterOptions.ScrewRadiusMillimeters,
                     profileService.ActiveProfile.CameraSettings.PixelSize,
                     EffectiveFocuserStepMicrons(),
-                    calibrationAppliedAmount,
+                    CalibrationAppliedAmount,
                     IsStepperAdjustment);
                 RebuildDiagram();
                 FinalizeMetadata();
@@ -1500,6 +1508,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private void ApplyDevice(string name) {
             var preset = TiltAdapterDevicePreset.ByName(name);
+            // Captured BEFORE the DeviceName assignment below so the CalibrationAppliedAmount reset (further
+            // down) can tell a genuine user-driven device change apart from ApplyDevice's other call site --
+            // the constructor's re-lock-on-load path, which re-asserts the ALREADY-persisted device on every
+            // app start. Without this guard the ctor call would unconditionally overwrite a persisted, possibly
+            // user-edited CalibrationAppliedAmount with the preset default on every launch (this VM is a
+            // [PartCreationPolicy(CreationPolicy.Shared)] singleton, so the ctor runs exactly once per app run).
+            var previousName = tiltAdapterOptions.DeviceName;
             tiltAdapterOptions.DeviceName = preset.Name;
             if (!preset.IsManual) {
                 tiltAdapterOptions.ScrewCount = preset.ScrewCount;
@@ -1507,6 +1522,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 tiltAdapterOptions.ThreadPitchMicrons = preset.ThreadPitchMicrons;
                 tiltAdapterOptions.StepperStepSizeMicrons = preset.StepperStepSizeMicrons;
                 tiltAdapterOptions.ScrewRadiusMillimeters = preset.ScrewRadiusMillimeters;
+            }
+            // Reset the applied amount to the newly selected preset's default (still user-editable
+            // afterward) ONLY when the device actually changed. Applies to Manual too, so switching back to
+            // Manual resets to 1 full turn rather than leaving a leftover stepper value (e.g. 150) on screen --
+            // but re-asserting the SAME already-persisted device (the ctor path) must never clobber a value the
+            // user already customized for that device.
+            if (!string.Equals(preset.Name, previousName, System.StringComparison.Ordinal)) {
+                tiltAdapterOptions.CalibrationAppliedAmount = preset.DefaultCalibrationAmount;
             }
             RaisePropertyChanged(nameof(SelectedDevice));
             RaisePropertyChanged(nameof(IsManualDevice));
@@ -1516,6 +1539,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RaisePropertyChanged(nameof(ScrewRadiusMillimetersValue));
             RaisePropertyChanged(nameof(IsStepperAdjustment));
             RaisePropertyChanged(nameof(CalibrationAmountLabel));
+            RaisePropertyChanged(nameof(CalibrationAppliedAmount));
             RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
         }
 
@@ -1753,7 +1777,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     radiusMm ?? tiltAdapterOptions.ScrewRadiusMillimeters,
                     pixelSizeMicrons ?? profileService.ActiveProfile.CameraSettings.PixelSize,
                     focuserStepMicrons ?? EffectiveFocuserStepMicrons(),
-                    calibrationAppliedAmount,
+                    CalibrationAppliedAmount,
                     IsStepperAdjustment);
             } finally {
                 calibrationTiltPlaneOverrideForTest = null;
@@ -1930,7 +1954,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 }
 
                 if (mode.UseMetadataGeometry) {
-                    calibrationAppliedAmount = metadata.CalibrationAppliedAmount;
+                    // Written directly (not via the CalibrationAppliedAmount property setter) so the two
+                    // dependent properties below are ALWAYS re-raised, even if the replayed value happens
+                    // to match what's already persisted (the property setter's no-op guard would otherwise
+                    // skip the raise, leaving a stale value on screen if the user has a pending edit).
+                    tiltAdapterOptions.CalibrationAppliedAmount = metadata.CalibrationAppliedAmount;
                     RaisePropertyChanged(nameof(CalibrationAppliedAmount));
                     RaisePropertyChanged(nameof(CalibrationAppliedAmountDisplay));
                     RunCalibrationMath(
@@ -1947,7 +1975,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         tiltAdapterOptions.ScrewRadiusMillimeters,
                         profileService.ActiveProfile.CameraSettings.PixelSize,
                         EffectiveFocuserStepMicrons(),
-                        calibrationAppliedAmount,
+                        CalibrationAppliedAmount,
                         IsStepperAdjustment);
                 }
                 RebuildDiagram();
