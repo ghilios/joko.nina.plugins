@@ -9,10 +9,15 @@ using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
 using NSubstitute;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 
@@ -64,7 +69,11 @@ internal sealed class MediatorBundle {
         return this;
     }
 
-    public InspectorVM BuildInspectorVM() {
+    public InspectorVM BuildInspectorVM(
+        TiltDeviceConnectionService tiltDeviceConnectionService = null,
+        Func<string, string, Task<bool>> confirmPromptAsync = null,
+        Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync = null,
+        Func<CancellationToken, Task<bool>> reRunAnalysisAsync = null) {
         return new InspectorVM(
             profileService: ProfileService,
             applicationStatusMediator: ApplicationStatusMediator,
@@ -83,7 +92,11 @@ internal sealed class MediatorBundle {
             starAnnotatorSelector: StarAnnotatorSelector,
             applicationDispatcher: ApplicationDispatcher,
             alglibAPI: AlglibAPI,
-            tiltAdapterOptions: TiltAdapterOptions);
+            tiltAdapterOptions: TiltAdapterOptions,
+            tiltDeviceConnectionService: tiltDeviceConnectionService,
+            confirmPromptAsync: confirmPromptAsync,
+            showAdjustmentPromptAsync: showAdjustmentPromptAsync,
+            reRunAnalysisAsync: reRunAnalysisAsync);
     }
 
     public HocusFocusVM BuildHocusFocusVM() {

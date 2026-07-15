@@ -291,6 +291,174 @@
                         <ComboBox MinWidth="120" ItemsSource="{Binding DeviceNames}" SelectedItem="{Binding SelectedDevice}" />
                     </UniformGrid>
 
+                    <!--  Motorized device connection (visible only for presets with a registered motion
+                          controller, i.e. the ASG EAT presets — collapsed for Manual/screw presets):
+                          COM port + Connect/Disconnect, live per-corner motor position counters, and the
+                          persisted device safety limits. Deliberately NO zero-positions control — zeroing
+                          the counters is the vendor app's job.  -->
+                    <GroupBox Margin="0,8,0,2" Header="Motorized Device Connection">
+                        <GroupBox.Style>
+                            <Style TargetType="GroupBox">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMotorizedDevice}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </GroupBox.Style>
+                        <StackPanel Margin="5">
+
+                            <!--  COM port + rescan  -->
+                            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                                <TextBlock VerticalAlignment="Center" Text="Serial port"
+                                    ToolTip="COM port the device is attached to. Saved per profile. Use the ⟳ button to re-scan after plugging the device in." />
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Margin="6,0,0,0" Command="{Binding RefreshPortsCommand}"
+                                        ToolTip="Re-scan the available COM ports.">
+                                        <TextBlock Margin="8,3,8,3" Foreground="{StaticResource ButtonForegroundBrush}" Text="⟳" />
+                                    </Button>
+                                    <ComboBox MinWidth="90" ItemsSource="{Binding AvailablePortNames}" SelectedItem="{Binding SelectedPortName}" />
+                                </DockPanel>
+                            </UniformGrid>
+
+                            <!--  Connect / Disconnect + status line  -->
+                            <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
+                                <Button Command="{Binding ConnectDeviceCommand}">
+                                    <TextBlock Margin="10,5,10,5" Foreground="{StaticResource ButtonForegroundBrush}" Text="Connect" />
+                                </Button>
+                                <Button Margin="6,0,0,0" Command="{Binding DisconnectDeviceCommand}">
+                                    <TextBlock Margin="10,5,10,5" Foreground="{StaticResource ButtonForegroundBrush}" Text="Disconnect" />
+                                </Button>
+                                <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" FontStyle="Italic" Opacity="0.8"
+                                    Text="{Binding TiltDeviceStatusText}" />
+                            </StackPanel>
+
+                            <!--  Live per-corner motor positions (shown while connected; refreshed by the
+                                  connection service's position polling). 2×2 layout matches the physical
+                                  adapter corners. Device motor numbering per the vendor: TR=1, TL=2, BR=3,
+                                  BL=4. Wizard screw numbering per the device-connected calibration
+                                  convention: screw 1 ≡ TR, 2 ≡ TL, 3 ≡ BL, 4 ≡ BR. Counters read "unknown"
+                                  until a position query succeeds.  -->
+                            <StackPanel Margin="0,8,0,0"
+                                ToolTip="Current per-motor position counters, polled from the device. Corners use the device's own motor numbering (TR=1, TL=2, BR=3, BL=4); wizard screw numbers follow the device-connected calibration convention (screw 1 = TR, 2 = TL, 3 = BL, 4 = BR). Zero the counters in the vendor app if needed — the plugin never zeroes them.">
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsTiltDeviceConnected}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </StackPanel.Style>
+                                <TextBlock Margin="0,0,0,2" FontWeight="Bold" Text="Motor positions (steps)" />
+                                <Grid HorizontalAlignment="Left" MinWidth="280">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <!--  Top-left corner: device motor 2, wizard screw 2  -->
+                                    <Border Grid.Row="0" Grid.Column="0" Margin="0,0,2,2" Padding="6,4"
+                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                        <StackPanel>
+                                            <TextBlock FontWeight="Bold" Text="TL · Motor 2" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 2" />
+                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopLeftDisplay}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <!--  Top-right corner: device motor 1, wizard screw 1  -->
+                                    <Border Grid.Row="0" Grid.Column="1" Margin="2,0,0,2" Padding="6,4"
+                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                        <StackPanel>
+                                            <TextBlock FontWeight="Bold" Text="TR · Motor 1" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 1" />
+                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopRightDisplay}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <!--  Bottom-left corner: device motor 4, wizard screw 3  -->
+                                    <Border Grid.Row="1" Grid.Column="0" Margin="0,2,2,0" Padding="6,4"
+                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                        <StackPanel>
+                                            <TextBlock FontWeight="Bold" Text="BL · Motor 4" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 3" />
+                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomLeftDisplay}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <!--  Bottom-right corner: device motor 3, wizard screw 4  -->
+                                    <Border Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Padding="6,4"
+                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                        <StackPanel>
+                                            <TextBlock FontWeight="Bold" Text="BR · Motor 3" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 4" />
+                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomRightDisplay}" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+
+                            <!--  Persisted per-profile device safety limits (project invariant: every
+                                  persisted option gets a UI control — these three were deferred here
+                                  from the options task; the serial port option is the ComboBox above).  -->
+                            <TextBlock Margin="0,8,0,2" FontWeight="Bold" Text="Safety Limits" />
+                            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                                <TextBlock VerticalAlignment="Center" Text="Max steps per command"
+                                    ToolTip="Safety cap on the magnitude of a single commanded move, in device steps. Larger planned moves are split or refused." />
+                                <TextBox MinWidth="60">
+                                    <TextBox.Text>
+                                        <Binding Path="TiltAdapterOptions.TiltDeviceMaxStepsPerCommand" UpdateSourceTrigger="LostFocus">
+                                            <Binding.ValidationRules>
+                                                <rules:IntRangeRule>
+                                                    <rules:IntRangeRule.ValidRange>
+                                                        <rules:IntRangeChecker Maximum="100000" Minimum="1" />
+                                                    </rules:IntRangeRule.ValidRange>
+                                                </rules:IntRangeRule>
+                                            </Binding.ValidationRules>
+                                        </Binding>
+                                    </TextBox.Text>
+                                </TextBox>
+                            </UniformGrid>
+                            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                                <TextBlock VerticalAlignment="Center" Text="Max excursion (steps)"
+                                    ToolTip="Safety cap on the total cumulative travel (in device steps) a motor may move from its tracked home position before automation refuses to move it further." />
+                                <TextBox MinWidth="60">
+                                    <TextBox.Text>
+                                        <Binding Path="TiltAdapterOptions.TiltDeviceMaxExcursionSteps" UpdateSourceTrigger="LostFocus">
+                                            <Binding.ValidationRules>
+                                                <rules:IntRangeRule>
+                                                    <rules:IntRangeRule.ValidRange>
+                                                        <rules:IntRangeChecker Maximum="1000000" Minimum="1" />
+                                                    </rules:IntRangeRule.ValidRange>
+                                                </rules:IntRangeRule>
+                                            </Binding.ValidationRules>
+                                        </Binding>
+                                    </TextBox.Text>
+                                </TextBox>
+                            </UniformGrid>
+                            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                                <TextBlock VerticalAlignment="Center" Text="Settle time (s)"
+                                    ToolTip="Seconds to wait after each commanded move before treating the device as settled (before polling positions or sending the next command)." />
+                                <TextBox MinWidth="60">
+                                    <TextBox.Text>
+                                        <Binding Path="TiltAdapterOptions.TiltDeviceSettleSeconds" UpdateSourceTrigger="LostFocus">
+                                            <Binding.ValidationRules>
+                                                <rules:DoubleRangeRule>
+                                                    <rules:DoubleRangeRule.ValidRange>
+                                                        <rules:DoubleRangeChecker Maximum="600" Minimum="0" />
+                                                    </rules:DoubleRangeRule.ValidRange>
+                                                </rules:DoubleRangeRule>
+                                            </Binding.ValidationRules>
+                                        </Binding>
+                                    </TextBox.Text>
+                                </TextBox>
+                            </UniformGrid>
+                        </StackPanel>
+                    </GroupBox>
+
                     <!--  Adapter hardware: drives precise screw-turn amounts in the Aberration Inspector.
                           Disabled when a non-Manual device preset is selected.  -->
                     <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
@@ -810,6 +978,32 @@
                                 Foreground="{StaticResource ButtonForegroundBrush}"
                                 Text="Use Saved AF" />
                         </Button>
+                        <!--  Auto Run All (T11): only offered when a motorized device is connected — drives
+                              every remaining step (device move + measurement + advance) automatically through
+                              Complete, including the final restore-to-baseline move.  -->
+                        <Button
+                            Margin="6,0,0,0"
+                            Command="{Binding AutoRunAllCommand}"
+                            ToolTip="Drive every remaining calibration step automatically: the wizard sends each step's device move, runs the measurement, and advances — through Complete's restore-to-baseline move — without further clicks.">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding IsMotorizedDevice}" Value="True" />
+                                                <Condition Binding="{Binding IsTiltDeviceConnected}" Value="True" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Auto Run All" />
+                        </Button>
                     </StackPanel>
 
                     <!--  Device connection warning: shown when Run Measurement is visible but devices are not connected  -->
@@ -959,6 +1153,30 @@
                         </ContentControl.Style>
                     </ContentControl>
 
+                    <!--  Device-link dropped mid-run (a "Use Saved AF" step skipped a device move during what
+                          started as a device-driven run) — survives the advance to Complete (below), so it is
+                          rendered there too.  -->
+                    <Border
+                        Margin="0,6,0,0"
+                        Padding="5"
+                        BorderBrush="{StaticResource NotificationErrorBrush}"
+                        BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasDeviceLinkDroppedWarning}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock
+                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Text="{Binding DeviceLinkDroppedWarningText}"
+                            TextWrapping="Wrap" />
+                    </Border>
+
                     <!--  Consistency warning (shown when tilt measurements across runs diverge)  -->
                     <Border
                         Margin="0,6,0,0"
@@ -1103,6 +1321,29 @@
                             </Style>
                         </Border.Style>
                         <TextBlock Text="{Binding WarningText}" TextWrapping="Wrap" />
+                    </Border>
+
+                    <!--  Device-link dropped mid-run: it survives the advance to Complete (the step panel that
+                          raised it is already hidden), so it must render here too  -->
+                    <Border
+                        Margin="0,5"
+                        Padding="5"
+                        BorderBrush="{StaticResource NotificationErrorBrush}"
+                        BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasDeviceLinkDroppedWarning}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock
+                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Text="{Binding DeviceLinkDroppedWarningText}"
+                            TextWrapping="Wrap" />
                     </Border>
 
                     <!--  Consistency warning raised by the final step's repeats: it survives the advance to

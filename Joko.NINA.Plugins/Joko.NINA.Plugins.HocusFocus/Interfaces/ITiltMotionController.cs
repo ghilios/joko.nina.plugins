@@ -116,5 +116,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         /// <summary>Queries the device's current per-motor positions.</summary>
         Task<TiltDevicePositions> QueryPositionsAsync(CancellationToken ct);
+
+        /// <summary>
+        /// Orders <paramref name="moves"/> (a small plan) to minimize the peak per-motor excursion across
+        /// every intermediate state, starting from the device's current (shadow-tracked) position.
+        /// Pure/side-effect-free: does not touch device state and sends nothing. Callers (e.g. the
+        /// Aberration Inspector's Automatic Adjustment) call this once to decide send order via the
+        /// interface -- never by downcasting to a concrete driver -- then invoke
+        /// <see cref="ExecuteMoveAsync"/> for each move in the returned order (whose own per-move
+        /// validation remains the defensive, authoritative check). Throws
+        /// <see cref="NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat.TiltDeviceLimitException"/> if
+        /// any move exceeds the per-command cap (no ordering can fix that) or if even the best ordering's
+        /// peak excursion exceeds the configured max -- in either case nothing is sent.
+        /// </summary>
+        IReadOnlyList<TiltAdapterMove> OrderForMinimalPeakExcursion(IReadOnlyList<TiltAdapterMove> moves);
     }
 }

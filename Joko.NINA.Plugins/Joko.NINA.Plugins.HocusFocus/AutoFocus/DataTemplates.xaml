@@ -3082,6 +3082,28 @@
                                 Visibility="{Binding TiltGuidance.HasPitchMismatch, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                                 <TextBlock Text="{Binding TiltGuidance.PitchMismatchWarning}" TextWrapping="Wrap" />
                             </Border>
+
+                            <!--  Automatic Adjustment (T14): computes a move plan from this measurement and executes it on the
+                                  connected tilt-adapter device. Only shown while a device is connected; the CRITICAL device-linked
+                                  calibration gate is surfaced as a remediation hint rather than the button when it fails.  -->
+                            <StackPanel
+                                Margin="5,8,5,0"
+                                Visibility="{Binding IsTiltDeviceConnected, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <Button
+                                    Height="25"
+                                    HorizontalAlignment="Left"
+                                    Command="{Binding AutomaticAdjustmentCommand}"
+                                    ToolTip="Computes a move plan from this measurement's fitted sensor model, shows an approval dialog listing the exact device commands, and executes it on the connected tilt-adapter device. Disabled until a fresh measurement is available to adjust from, or if the current calibration is not linked to the connected device.">
+                                    <TextBlock Margin="5,0,5,0" Text="Automatic Adjustment" />
+                                </Button>
+                                <TextBlock
+                                    Margin="0,4,0,0"
+                                    FontStyle="Italic"
+                                    TextWrapping="Wrap"
+                                    Foreground="{StaticResource NotificationWarningBrush}"
+                                    Text="{Binding AutomaticAdjustmentRemediationText}"
+                                    Visibility="{Binding AutomaticAdjustmentRemediationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                            </StackPanel>
                         </StackPanel>
                     </StackPanel>
                 </Expander>

@@ -108,6 +108,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // entry, replay-driven recalculation, and disconnected runs must clear it back to "".
         string DeviceLinkedCalibrationDeviceName { get; set; }
 
+        // [CRITICAL AUTOMATION GATE] True only when the CURRENT stored calibration's own confidence/quality
+        // result (TiltCalibrationCalculator.ComputeConfidence's IsReliable — signal-to-noise across the
+        // per-step tilt vectors) passed. False for a noise-dominated calibration (SNR below
+        // TiltCalibrationCalculator.MinReliableSignalToNoise), a manual entry (ApplyManualCalibration has no
+        // confidence to evaluate), or any completion where reliability could not be established. Automation
+        // (the inspector's Automatic Adjustment, T14, and any future wizard auto-apply) MUST be blocked
+        // whenever this is false, even when the calibration IS device-linked: a device-linked-but-unreliable
+        // calibration is safe to review but not safe to trust unattended. Written at every calibration-math
+        // completion (RunCalibrationMath and ApplyManualCalibration — the same places that set/clear
+        // DeviceLinkedCalibrationDeviceName above); conservative by default (false) whenever reliability
+        // cannot be established. Internal state marker, not a user setting — it needs NO UI control, exactly
+        // like DeviceLinkedCalibrationDeviceName above (also intentionally absent from the options UI).
+        bool CalibrationIsReliable { get; set; }
+
         // Opaque serialized per-motor cumulative step counters + a validity flag, tracking each motor's
         // position relative to its last-known home/reference so absolute travel limits can be enforced
         // across app restarts. "" = no shadow position recorded yet. The serialization format is defined

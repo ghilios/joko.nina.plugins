@@ -72,6 +72,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             tiltDeviceMaxExcursionSteps = optionsAccessor.GetValueInt32(nameof(TiltDeviceMaxExcursionSteps), 500);
             tiltDeviceSettleSeconds = optionsAccessor.GetValueDouble(nameof(TiltDeviceSettleSeconds), 3.0);
             deviceLinkedCalibrationDeviceName = optionsAccessor.GetValueString(nameof(DeviceLinkedCalibrationDeviceName), string.Empty);
+            calibrationIsReliable = optionsAccessor.GetValueBoolean(nameof(CalibrationIsReliable), false);
             tiltDeviceShadowPositions = optionsAccessor.GetValueString(nameof(TiltDeviceShadowPositions), string.Empty);
             calibrationAppliedAmount = optionsAccessor.GetValueDouble(nameof(CalibrationAppliedAmount), -1.0);
         }
@@ -410,6 +411,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (deviceLinkedCalibrationDeviceName != value) {
                     deviceLinkedCalibrationDeviceName = value;
                     optionsAccessor.SetValueString(nameof(DeviceLinkedCalibrationDeviceName), deviceLinkedCalibrationDeviceName);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool calibrationIsReliable;
+
+        public bool CalibrationIsReliable {
+            get => calibrationIsReliable;
+            set {
+                if (calibrationIsReliable != value) {
+                    calibrationIsReliable = value;
+                    optionsAccessor.SetValueBoolean(nameof(CalibrationIsReliable), calibrationIsReliable);
                     RaisePropertyChanged();
                 }
             }

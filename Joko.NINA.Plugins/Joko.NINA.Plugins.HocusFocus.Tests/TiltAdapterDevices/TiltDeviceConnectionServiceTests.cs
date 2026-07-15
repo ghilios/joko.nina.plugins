@@ -422,6 +422,49 @@ public class TiltDeviceConnectionServiceTests {
         Assert.That(raised, Is.True, "Must resume firing normally once the lease is released and a full idle window elapses.");
     }
 
+    // Regression lock (T9 fix E): EndOperation used to release the lock / clear isOperationActive and only
+    // THEN call RecordUserActivity() -- a timer tick landing in that window (for a lease held past the idle
+    // timeout, e.g. a long T11 calibration run) would see isOperationActive == false together with a STALE
+    // LastActivityUtc and fire one spurious idle-disconnect prompt right as the operation ends. The fix
+    // reorders RecordUserActivity() to run BEFORE isOperationActive is cleared.
+    //
+    // FakeTiltDeviceTimeSource.Advance is single-threaded, so it can't land a tick "in the middle of" a
+    // synchronous method by wall-clock race the way the real Timer could -- but EndOperation raises
+    // PropertyChanged(IsOperationActive) synchronously partway through its own body (AFTER the flag clear in
+    // both the old and new ordering), which gives a precise, deterministic hook: firing a Tick from inside
+    // that notification lands exactly on the boundary the fix moves RecordUserActivity() across, so this
+    // reproduces the bug on the pre-fix ordering and proves it's gone on the fixed ordering.
+    [Test]
+    public async Task EndOperation_TickLandingAsOperationEnds_DoesNotRaiseSpuriousIdlePrompt() {
+        var (service, _, time, _) = Build();
+        await service.ConnectAsync("preset", "COM3", CancellationToken.None);
+
+        // Hold the lease well past the idle timeout (T11-style long calibration run) so LastActivityUtc,
+        // stamped when the lease began, is already stale by the time it ends.
+        var token = service.TryBeginOperation("long calibration");
+        Assert.That(token, Is.Not.Null);
+        time.Advance(TiltDeviceConnectionService.IdleTimeout + TimeSpan.FromMinutes(5));
+
+        bool raised = false;
+        service.IdlePromptRequested += (s, e) => raised = true;
+
+        void OnPropertyChanged(object s, System.ComponentModel.PropertyChangedEventArgs e) {
+            if (e.PropertyName == nameof(TiltDeviceConnectionService.IsOperationActive) && !service.IsOperationActive) {
+                // Zero-delta Advance still fires Tick synchronously at the current (already-past-threshold)
+                // virtual time -- simulating a timer tick landing right here, mid-EndOperation.
+                time.Advance(TimeSpan.Zero);
+            }
+        }
+        service.PropertyChanged += OnPropertyChanged;
+        try {
+            token.Dispose(); // -> EndOperation(), synchronously raising the INPC above partway through.
+        } finally {
+            service.PropertyChanged -= OnPropertyChanged;
+        }
+
+        Assert.That(raised, Is.False, "a tick landing exactly as the operation ends must not see stale activity and fire a spurious idle prompt");
+    }
+
     // Regression lock (fix #1): the idle-prompt check-and-set must be atomic. FakeTiltDeviceTimeSource.Advance
     // is single-threaded, so it cannot itself reproduce the race (a real System.Threading.Timer can re-enter
     // its callback on another pool thread if a previous tick hasn't returned) -- this test instead fires the

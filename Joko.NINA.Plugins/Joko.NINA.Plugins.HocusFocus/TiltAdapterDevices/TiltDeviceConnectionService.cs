@@ -307,13 +307,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
 
         private void EndOperation() {
             hardwareLock.Release();
+            // Record activity BEFORE clearing isOperationActive (mirrors the ConnectAsync ordering fix,
+            // which records activity before flipping Connected) -- a timer tick racing this method must
+            // never be able to observe isOperationActive == false together with a stale (possibly held past
+            // the 30-minute idle window, e.g. a long calibration run) LastActivityUtc, which would fire a
+            // spurious idle-disconnect prompt right as the operation ends. While isOperationActive is still
+            // true, CheckIdle returns early regardless of LastActivityUtc, so by the time the flag actually
+            // flips false below, activity is already fresh.
+            RecordUserActivity();
             lock (operationGate) {
                 isOperationActive = false;
             }
             CurrentOperationName = null;
             RaisePropertyChanged(nameof(IsOperationActive));
             RaisePropertyChanged(nameof(CurrentOperationName));
-            RecordUserActivity();
             // No explicit "resume" call needed: the next timer tick sees Connected && !IsOperationActive
             // and polls again on its own (see TryPollTick).
         }

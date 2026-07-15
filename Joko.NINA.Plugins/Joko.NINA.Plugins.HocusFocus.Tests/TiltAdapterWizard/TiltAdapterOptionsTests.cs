@@ -45,6 +45,7 @@ public class TiltAdapterOptionsTests {
             Assert.That(options.TiltDeviceMaxExcursionSteps, Is.EqualTo(500));
             Assert.That(options.TiltDeviceSettleSeconds, Is.EqualTo(3.0));
             Assert.That(options.DeviceLinkedCalibrationDeviceName, Is.EqualTo(""));
+            Assert.That(options.CalibrationIsReliable, Is.False);
             Assert.That(options.TiltDeviceShadowPositions, Is.EqualTo(""));
             Assert.That(options.CalibrationAppliedAmount, Is.EqualTo(-1.0));
         });
@@ -80,6 +81,7 @@ public class TiltAdapterOptionsTests {
         options.TiltDeviceMaxExcursionSteps = 900;
         options.TiltDeviceSettleSeconds = 4.5;
         options.DeviceLinkedCalibrationDeviceName = "ASG Electronic EAT - 90mm";
+        options.CalibrationIsReliable = true;
         options.TiltDeviceShadowPositions = "{\"positions\":[10,20,30,40],\"valid\":true}";
         options.CalibrationAppliedAmount = 150.0;
 
@@ -93,6 +95,7 @@ public class TiltAdapterOptionsTests {
             Assert.That(reloaded.TiltDeviceMaxExcursionSteps, Is.EqualTo(900));
             Assert.That(reloaded.TiltDeviceSettleSeconds, Is.EqualTo(4.5));
             Assert.That(reloaded.DeviceLinkedCalibrationDeviceName, Is.EqualTo("ASG Electronic EAT - 90mm"));
+            Assert.That(reloaded.CalibrationIsReliable, Is.True);
             Assert.That(reloaded.TiltDeviceShadowPositions, Is.EqualTo("{\"positions\":[10,20,30,40],\"valid\":true}"));
             Assert.That(reloaded.CalibrationAppliedAmount, Is.EqualTo(150.0));
         });
@@ -165,6 +168,7 @@ public class TiltAdapterOptionsTests {
     [TestCase(nameof(TiltAdapterOptions.TiltDeviceMaxExcursionSteps), 900)]
     [TestCase(nameof(TiltAdapterOptions.TiltDeviceSettleSeconds), 4.5)]
     [TestCase(nameof(TiltAdapterOptions.DeviceLinkedCalibrationDeviceName), "ASG Electronic EAT - 90mm")]
+    [TestCase(nameof(TiltAdapterOptions.CalibrationIsReliable), true)]
     [TestCase(nameof(TiltAdapterOptions.TiltDeviceShadowPositions), "{\"positions\":[1,2,3,4],\"valid\":true}")]
     [TestCase(nameof(TiltAdapterOptions.CalibrationAppliedAmount), 150.0)]
     public void Setter_RaisesPropertyChanged(string propertyName, object newValue) {
