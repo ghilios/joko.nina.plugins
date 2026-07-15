@@ -117,6 +117,29 @@ public class StarDetectionOptimizerWizardVMTests {
         return new LoadedRun { Data = data, Seed = seed, AfOptions = afOptions };
     }
 
+    // A run where detection finds stars ONLY at low Sensitivity: the optimizer SEED (2) yields a clean hyperbola,
+    // but the displayed BASELINE / current settings (8) are effectively blind (no stars, so no curve). This isolates
+    // which params the seed guard evaluates — the Live sweep must gate on the seed, not the failing current settings.
+    private static LoadedRun SeedGoodBaselineBlindRun(string id = "splitguard") {
+        Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
+            var pos = (int)image;
+            var blind = p.Sensitivity >= 5.0;
+            return Task.FromResult(new FrameDetectionResult {
+                AverageHFR = blind ? 0.0 : Hfr(pos),
+                HFRStdDev = 0.05,
+                StarCount = blind ? 0 : 15,
+                StarCenters = Array.Empty<(double X, double Y)>()
+            });
+        };
+        var data = new RunEvaluationData(id, NineFrames(), detect, NewAlglib(), DefaultFitConfig());
+        return new LoadedRun {
+            Data = data,
+            Seed = new StarDetectorParams { Sensitivity = 2, StarClippingMultiplier = 2.0 },
+            Baseline = new StarDetectorParams { Sensitivity = 8, StarClippingMultiplier = 2.0 },
+            AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 }
+        };
+    }
+
     private static IRunEvaluationLoader LoaderReturning(params LoadedRun[] runs) {
         var loader = Substitute.For<IRunEvaluationLoader>();
         var queue = new Queue<LoadedRun>(runs);
@@ -190,7 +213,8 @@ public class StarDetectionOptimizerWizardVMTests {
         Func<bool> isCameraConnected = null,
         Func<bool> isFocuserConnected = null,
         IAutoFocusEngine autoFocusEngine = null,
-        OptimizerSettings optimizerSettings = null) {
+        OptimizerSettings optimizerSettings = null,
+        IAutoFocusOptions autoFocusOptions = null) {
         options ??= Substitute.For<IStarDetectionOptions>();
         profileService ??= Substitute.For<IProfileService>();
         return new StarDetectionOptimizerWizardVM(
@@ -203,7 +227,8 @@ public class StarDetectionOptimizerWizardVMTests {
             optimizerSettings: optimizerSettings ?? new OptimizerSettings { MaxEvaluations = 200, CoarseGridLevels = 4, StepFloorFraction = 0.125 },
             frameReviewBuilder: frameReviewBuilder,
             isCameraConnected: isCameraConnected,
-            isFocuserConnected: isFocuserConnected);
+            isFocuserConnected: isFocuserConnected,
+            autoFocusOptions: autoFocusOptions);
     }
 
     // An HONEST fake review builder: it maps EACH supplied descriptor to one FrameReview (so the ReviewVM's queue
@@ -1197,11 +1222,20 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
-    public void CanStart_LiveMode_EnabledEvenWithoutPaths() {
+    public void CanStart_Live_DisabledUntilConfirmedAndSaveFolderSet() {
         var vm = NewVM(LoaderReturning(GoodRun()));
         vm.SourcePaths[0] = null;
         vm.SourceMode = SourceMode.Live;
-        Assert.That(vm.StartCommand.CanExecute(null), Is.True, "Live needs no source paths");
+        Assert.That(vm.StartCommand.CanExecute(null), Is.False, "Live needs rough-focus confirmation and a save folder");
+
+        vm.LiveConfirmedRoughFocus = true;
+        Assert.That(vm.StartCommand.CanExecute(null), Is.False, "still needs a save folder");
+
+        vm.SaveFolderPath = @"C:\live";
+        Assert.That(vm.StartCommand.CanExecute(null), Is.True, "confirmed and a save folder chosen");
+
+        vm.LiveConfirmedRoughFocus = false;
+        Assert.That(vm.StartCommand.CanExecute(null), Is.False, "un-confirming disables Start again");
     }
 
     [Test]
@@ -1247,23 +1281,27 @@ public class StarDetectionOptimizerWizardVMTests {
         });
     }
 
-    // ---- Live auto-focus chart -------------------------------------------------------------------------
+    // ---- Live sweep (fixed-sweep capture) ----------------------------------------------------------------
     //
     // A bare Substitute.For<IAutoFocusEngine>() returns null from GetOptions(), which RunLiveAttemptAsync
-    // dereferences (options.Save) — so every test that actually reaches the live run must stub it, along with
-    // Run(...) returning a SaveFolder the fake loader will accept. The connection probes are stubbed connected
-    // so the pre-flight check passes, and UseCurrentSettings skips the optimization pass we are not testing.
-    private static IAutoFocusEngine LiveEngine(Func<CallInfo, AutoFocusResult> onRun) {
+    // dereferences (options.Save) — so every test that reaches the live sweep must stub it, along with
+    // CaptureFixedSweepAsync(...) returning a SaveFolder the fake loader will accept. The connection probes are
+    // stubbed connected so the pre-flight check passes.
+    private static IAutoFocusEngine LiveEngine(Func<CallInfo, AutoFocusResult> onSweep) {
         var engine = Substitute.For<IAutoFocusEngine>();
         engine.GetOptions().Returns(_ => new AutoFocusEngineOptions());
-        engine.Run(default, default, default, default).ReturnsForAnyArgs(ci => Task.FromResult(onRun(ci)));
+        engine.CaptureFixedSweepAsync(default, default, default, default).ReturnsForAnyArgs(ci => Task.FromResult(onSweep(ci)));
         return engine;
     }
 
+    // Live source, confirmed + save folder set so Start passes the new gating. UseCurrentSettings skips the
+    // optimization pass the chart tests don't exercise.
     private static StarDetectionOptimizerWizardVM NewLiveVM(IAutoFocusEngine engine) {
         var vm = NewVM(LoaderReturning(GoodRun()), isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
         vm.SourceMode = SourceMode.Live;
         vm.OptimizeMode = WizardOptimizeMode.UseCurrentSettings;
+        vm.LiveConfirmedRoughFocus = true;
+        vm.SaveFolderPath = @"C:\live";
         return vm;
     }
 
@@ -1342,6 +1380,178 @@ public class StarDetectionOptimizerWizardVMTests {
         Assert.That(vm.IsReplay, Is.False, "Live mode hides the runs/browse inputs");
         vm.SourceMode = SourceMode.Replay;
         Assert.That(vm.IsReplay, Is.True);
+    }
+
+    [Test]
+    public void IsLive_TracksSourceMode() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.That(vm.IsLive, Is.False, "default source is Saved Auto-Focus (Replay)");
+        vm.SourceMode = SourceMode.Live;
+        Assert.That(vm.IsLive, Is.True, "Live mode shows the confirmation panel");
+    }
+
+    [Test]
+    public async Task Start_Live_MissingSaveFolder_SetsErrorAndDoesNotSweep() {
+        var swept = false;
+        var engine = LiveEngine(_ => { swept = true; return new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" }; });
+        var vm = NewVM(LoaderReturning(GoodRun()), isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.LiveConfirmedRoughFocus = true;
+        // No SaveFolderPath chosen.
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Does.Contain("save").IgnoreCase);
+            Assert.That(swept, Is.False, "the sweep must not run without a save folder");
+            Assert.That(vm.CurrentStep, Is.Not.EqualTo(WizardStep.Summary));
+        });
+    }
+
+    [Test]
+    public async Task Live_FailedSweep_WithFolder_SurfacesCleanErrorAndDoesNotOptimize() {
+        // A failed/partial sweep can still return a (possibly empty) SaveFolder. The wizard must treat "not
+        // succeeded" as no capture and surface a clean message, not hand a broken folder to the loader.
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = false, SaveFolder = @"C:\live\attempt" });
+        var vm = NewLiveVM(engine);
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.SelectSource));
+            Assert.That(vm.ErrorMessage, Does.Contain("did not produce"));
+        });
+    }
+
+    [Test]
+    public async Task Apply_Live_NonPositiveExposure_DoesNotWriteProfileExposure() {
+        // A non-positive exposure is never actually used by the sweep (it falls back to the profile/filter exposure),
+        // so Accept must not write it back and corrupt the profile's AF exposure.
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.LiveConfirmedRoughFocus = true;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 0.0;
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        vm.ApplyExposureTime = true;
+
+        vm.AcceptCommand.Execute(null);
+
+        focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusExposureTime = default;
+    }
+
+    [Test]
+    public async Task Live_PassesChosenExposureAndSaveFolderToTheSweep() {
+        AutoFocusEngineOptions captured = null;
+        var engine = LiveEngine(ci => {
+            captured = ci.Arg<AutoFocusEngineOptions>();
+            return new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" };
+        });
+        var vm = NewLiveVM(engine);
+        vm.SaveFolderPath = @"D:\sweeps";
+        vm.LiveExposureSeconds = 7.5;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(captured, Is.Not.Null, "the sweep must be invoked");
+        Assert.Multiple(() => {
+            Assert.That(captured.Save, Is.True);
+            Assert.That(captured.SavePath, Is.EqualTo(@"D:\sweeps"));
+            Assert.That(captured.OverrideAutoFocusExposureTime, Is.EqualTo(TimeSpan.FromSeconds(7.5)));
+        });
+    }
+
+    [Test]
+    public void BrowseSaveFolder_SetsSaveFolderPathAndPersistsToOptions() {
+        var afOptions = Substitute.For<IAutoFocusOptions>();
+        var vm = NewVM(LoaderReturning(GoodRun()), autoFocusOptions: afOptions);
+
+        vm.BrowseSaveFolderCommand.Execute(null);
+
+        Assert.That(vm.SaveFolderPath, Is.EqualTo(@"C:\fake\attempt"), "the picked folder is shown");
+        afOptions.Received(1).SavePath = @"C:\fake\attempt";
+    }
+
+    [Test]
+    public async Task SeedGuard_LiveMode_GatesOnSeed_ProceedsWhenDefaultsFindStars() {
+        // Current settings (Baseline) are blind on this run, but the seed (defaults) find stars — a Live sweep must
+        // still be optimizable, because gating on the seed is the whole point of the live path.
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(SeedGoodBaselineBlindRun()), isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.LiveConfirmedRoughFocus = true;
+        vm.SaveFolderPath = @"C:\live";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Is.Null, "the seed finds stars, so the sweep is optimizable");
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        });
+    }
+
+    [Test]
+    public async Task SeedGuard_ReplayMode_GatesOnBaseline_AbortsWhenCurrentSettingsAreBlind() {
+        // The same run under Replay gates on the CURRENT settings (Baseline), which are blind here — so Replay
+        // correctly refuses (its premise is that a saved run already focused at the current settings).
+        var vm = NewVM(LoaderReturning(SeedGoodBaselineBlindRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.SelectSource));
+            Assert.That(vm.ErrorMessage, Does.Contain("usable focus curve"));
+        });
+    }
+
+    [Test]
+    public async Task Apply_Live_WhenApplyExposureTimeTrue_WritesProfileExposure() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.LiveConfirmedRoughFocus = true;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 9.0;
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "the live sweep should reach the summary");
+        vm.ApplyExposureTime = true;
+
+        vm.AcceptCommand.Execute(null);
+
+        focuserSettings.Received(1).AutoFocusExposureTime = 9.0;
+    }
+
+    [Test]
+    public async Task Apply_Replay_DoesNotWriteProfileExposure() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService);
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        vm.ApplyExposureTime = true; // even if toggled, a Replay run never chose a sweep exposure
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.That(vm.CanApplyExposureTime, Is.False, "Replay has no captured exposure to apply");
+        focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusExposureTime = default;
     }
 
     [Test]

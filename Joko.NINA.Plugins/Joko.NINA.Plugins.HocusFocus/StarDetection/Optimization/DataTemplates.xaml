@@ -25,6 +25,10 @@
     <TextBlock x:Key="SDOpt_DonutDetection_Tooltip" Text="When checked, the optimizer is allowed to recover out-of-focus DONUT stars — heavily defocused stars that appear as hollow rings — which the detector otherwise drops (they fragment or fail the fill-ratio test). It also unlocks diffraction-spike and saturated-bloom suppression so a bright star's rays aren't mistaken for stars. Recommended for telescopes with a central obstruction (Newtonians/SCTs) whose defocused stars become donuts; leave OFF for refractors (defocused stars are filled disks, not rings). Saved to your profile and default OFF. When OFF, star detection is exactly as before." />
     <TextBlock x:Key="SDOpt_Inspection_Tooltip" Text="When checked, the optimizer favors detecting MANY MORE stars spread across the frame, which the aberration inspector needs to measure sensor tilt and field curvature. It does this by trading away a little auto-focus-curve sharpness for star count — but the fit is bounded: settings that make the focus curve noticeably worse than your current settings are penalized, so focus stays usable. Leave OFF to optimize purely for the tightest auto-focus curve (the default). Only applies in Optimize mode; nothing is saved until you Accept." />
     <TextBlock x:Key="SDOpt_Continue_Tooltip" Text="Run another optimization pass starting from the settings just found, giving the search a fresh chance to refine further (it resets its step sizes, so it can make larger moves again). Useful when the last pass looks like it stopped just short. Limited to 3 total passes; the Changed parameters table shows the value of each setting after every pass." />
+    <TextBlock x:Key="SDOpt_LiveConfirm_Tooltip" Text="The sweep is centered on the CURRENT focuser position, so reach rough focus manually first (a Bahtinov mask or a careful manual pass is fine). Confirm here to enable Start. The wizard then moves the focuser out and steps back across a fixed range using your profile's auto-focus step size and offset steps, saving a frame at every point." />
+    <TextBlock x:Key="SDOpt_LiveExposure_Tooltip" Text="The exposure used for every frame of the sweep, seeded from your profile's auto-focus exposure. Lengthen it so stars stay visible at the defocused wings of the sweep, not just near focus — narrowband filters in particular often need a longer exposure at first. You can accept this exposure into your profile from the summary after a good result." />
+    <TextBlock x:Key="SDOpt_LiveSaveFolder_Tooltip" Text="The captured frames are saved here (in a timestamped AutoFocus_… subfolder), then loaded back exactly like a saved run so the optimizer can search them. A folder is required before Start. Choosing one also saves it as your Hocus Focus auto-focus save path." />
+    <TextBlock x:Key="SDOpt_ApplyExposure_Tooltip" Text="When checked, clicking Accept also writes the sweep exposure to your profile's auto-focus exposure time, alongside the recommended step size. Available only after a live sweep." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
           SelectedCurve, so toggling the variant rebuilds the plot from a fresh OptimizationCurve instance (a robust
@@ -355,7 +359,8 @@
                     <TextBlock
                         Margin="0,0,0,8"
                         Text="Choose a saved auto-focus run to tune star detection against. The optimizer re-runs detection on its frames with many parameter combinations and keeps the settings that best pin down focus."
-                        TextWrapping="Wrap" />
+                        TextWrapping="Wrap"
+                        Visibility="{Binding IsReplay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
                     <StackPanel Margin="0,4" Orientation="Horizontal">
                         <TextBlock
@@ -472,6 +477,96 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <!--  Live sweep confirmation (Live source only). The sweep is centered on the current focuser
+                          position, so the user confirms rough focus; they may lengthen the exposure for faint /
+                          narrowband stars; and they must choose a save folder. The read-only rows summarize the
+                          capture that will feed the optimizer.  -->
+                    <StackPanel Visibility="{Binding IsLive, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                        <TextBlock
+                            Margin="0,0,0,8"
+                            Text="This captures and saves a set of images across a fixed focus sweep centered on your current focuser position, then finds star-detection settings that build the best focus curve. It does not converge — it just captures — so it works even when your current settings can't focus yet. Reach rough focus manually first."
+                            TextWrapping="Wrap" />
+
+                        <StackPanel Margin="0,4" Orientation="Horizontal">
+                            <CheckBox
+                                VerticalAlignment="Center"
+                                IsChecked="{Binding LiveConfirmedRoughFocus}"
+                                ToolTip="{StaticResource SDOpt_LiveConfirm_Tooltip}" />
+                            <TextBlock
+                                Margin="6,0,0,0"
+                                VerticalAlignment="Center"
+                                Text="I have manually focused to rough focus"
+                                ToolTip="{StaticResource SDOpt_LiveConfirm_Tooltip}" />
+                        </StackPanel>
+
+                        <!--  Read-only capture summary: what the sweep will do (driven by the profile's AF settings).  -->
+                        <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                            <TextBlock Width="200" VerticalAlignment="Center" Text="Step size" />
+                            <TextBlock VerticalAlignment="Center" Text="{Binding SweepStepSize}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock Width="200" VerticalAlignment="Center" Text="Number of points" />
+                            <TextBlock VerticalAlignment="Center" Text="{Binding SweepPointCount}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock Width="200" VerticalAlignment="Center" Text="Binning" />
+                            <TextBlock VerticalAlignment="Center" Text="{Binding SweepBinning}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock Width="200" VerticalAlignment="Center" Text="Filter" />
+                            <TextBlock VerticalAlignment="Center" Text="{Binding SweepFilterName}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock Width="200" VerticalAlignment="Center" Text="Gain" />
+                            <TextBlock VerticalAlignment="Center" Text="{Binding SweepGain}" />
+                        </StackPanel>
+
+                        <!--  Editable exposure: the one capture setting the user tunes here (lengthen it to keep stars
+                              visible at the defocused wings of the sweep — important for narrowband).  -->
+                        <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                            <TextBlock Width="200" VerticalAlignment="Center" Text="Exposure" />
+                            <ninactrl:UnitTextBox
+                                MinWidth="80"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                ToolTip="{StaticResource SDOpt_LiveExposure_Tooltip}"
+                                Unit="s">
+                                <Binding Path="LiveExposureSeconds" UpdateSourceTrigger="LostFocus">
+                                    <Binding.ValidationRules>
+                                        <rules:GreaterThanZeroRule />
+                                    </Binding.ValidationRules>
+                                </Binding>
+                            </ninactrl:UnitTextBox>
+                        </StackPanel>
+
+                        <StackPanel Margin="0,8,0,2" Orientation="Horizontal">
+                            <TextBlock Width="200" VerticalAlignment="Center" Text="Total frames" />
+                            <TextBlock VerticalAlignment="Center" Text="{Binding SweepEstimatedFrames}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock Width="200" VerticalAlignment="Center" Text="Estimated time" />
+                            <TextBlock VerticalAlignment="Center" Text="{Binding SweepEstimatedDurationText}" />
+                        </StackPanel>
+
+                        <!--  Save folder: the sweep must save frames so the optimizer can load them. Required before
+                              Start; the Browse button also persists the choice back to the AF options.  -->
+                        <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                            <TextBlock Width="200" VerticalAlignment="Center" Text="Save captured frames to" />
+                            <Button
+                                Width="80"
+                                Command="{Binding BrowseSaveFolderCommand}"
+                                Content="Browse…"
+                                ToolTip="{StaticResource SDOpt_LiveSaveFolder_Tooltip}" />
+                            <TextBlock
+                                Width="360"
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Center"
+                                Text="{Binding SaveFolderPath}"
+                                TextTrimming="CharacterEllipsis"
+                                ToolTip="{Binding SaveFolderPath}" />
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
 
                 <!--  Determinate progress: shown whenever the wizard is busy (loading frames / analyzing frames /
@@ -654,6 +749,26 @@
                                 IsEnabled="{Binding CanApplyRecommendedStepSize}"
                                 Text="Apply these auto-focus settings to my profile when I click Accept"
                                 ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
+                        </StackPanel>
+
+                        <!--  Live sweep only: the exposure the sweep captured with, plus the toggle to adopt it as the
+                              profile's auto-focus exposure on Accept. Hidden after a Replay run (no chosen exposure).  -->
+                        <StackPanel Visibility="{Binding CanApplyExposureTime, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <StackPanel Orientation="Horizontal" Margin="0,2">
+                                <TextBlock Width="200" Text="Sweep exposure" />
+                                <TextBlock Text="{Binding SweepExposureText, Mode=OneWay}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+                                <CheckBox
+                                    VerticalAlignment="Center"
+                                    IsChecked="{Binding ApplyExposureTime}"
+                                    ToolTip="{StaticResource SDOpt_ApplyExposure_Tooltip}" />
+                                <TextBlock
+                                    Margin="6,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Text="Apply this exposure time to my profile when I click Accept"
+                                    ToolTip="{StaticResource SDOpt_ApplyExposure_Tooltip}" />
+                            </StackPanel>
                         </StackPanel>
 
                         <!--  Changed parameters table  -->

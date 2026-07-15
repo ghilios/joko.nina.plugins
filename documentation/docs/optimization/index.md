@@ -7,11 +7,11 @@ them well for a given optical train, camera, and sky is expert work, and the pay
 therefore a more repeatable best-focus position. Left to guesswork, the defaults are rarely the best
 choice for your rig.
 
-The **Star Detection Optimization Wizard** automates that tuning. It replays one of your saved
-autofocus runs and searches for the detection settings that make the resulting stars trace the
-cleanest, most repeatable focus V-curve. Because the wizard scores settings by the *quality of the
-focus curve they produce* (not by any single hand-picked metric), it optimizes the whole detection
-pipeline end-to-end against the outcome you actually care about.
+The **Star Detection Optimization Wizard** automates that tuning. It searches for the detection
+settings that make your stars trace the cleanest, most repeatable focus V-curve, working from a set of
+autofocus frames — either a run you saved earlier or one it captures live. Because the wizard scores
+settings by the *quality of the focus curve they produce* (not by any single hand-picked metric), it
+optimizes the whole detection pipeline end-to-end against the outcome you actually care about.
 
 The wizard launches from the top of the Star Detection options page. Its optimized settings are
 stored **separately** from your presets and are activated by a single Simple-Mode toggle ("Use
@@ -69,6 +69,48 @@ fraction of accepted detections that are real). This term is decisive for dim or
 *The search begins at the seed (the default settings, or your current settings if you choose) and walks
 the parameter space one coordinate move at a time, accepting only moves that improve the score and
 refining its step size as it homes in on a maximum.*
+
+## Where the frames come from: saved or live
+
+The **Source** dropdown on the start page picks how the wizard gets the frames it optimizes against.
+
+**Saved Auto-Focus** replays a run you saved earlier (autofocus saves its frames when **Save** is
+enabled in the Hocus Focus auto-focus options). Point the wizard at the run's folder and it re-detects
+those frames with every candidate setting. Use this when you already have a run that focused well and
+want to squeeze more out of your detection settings.
+
+**Live Auto-Focus** captures a fresh set of frames now, then optimizes them. This is the mode to use
+when your *current* settings cannot build a focus curve yet — faint narrowband stars, heavily
+defocused donuts, a new filter — so you have no good saved run to replay. Rather than run a full
+autofocus (which would fail for the same reason detection is failing), the wizard sweeps the focuser
+across a fixed range and just saves every frame, whether or not any stars are found. It then searches
+those frames for settings that *do* build a clean curve.
+
+A live run works like this:
+
+1. **Reach rough focus manually** (a Bahtinov mask or a careful manual pass is fine). The sweep is
+   centered on the current focuser position, so it needs to start near focus.
+2. On the start page, choose **Live Auto-Focus**, tick **I have manually focused to rough focus**, set
+   the **Exposure**, and choose the folder to **Save captured frames to** (the camera and focuser must
+   be connected, and a save folder is required before **Start** enables). The panel also shows the step
+   size, number of points, binning, filter, and gain the sweep will use — these come from your profile's
+   auto-focus settings.
+3. Press **Start**. The wizard moves the focuser out and steps back across a fixed range (using your
+   profile's auto-focus step size and offset steps), saving a frame at every point, then returns the
+   focuser to where it started. Because the sweep does not try to converge, it captures a full set of
+   frames even when the current settings detect nothing.
+4. The saved frames are optimized exactly like a replayed run, and the summary appears as usual.
+
+!!! tip "Make the exposure long enough for the wings of the sweep"
+    The optimizer needs stars across the *whole* sweep, not just near focus, so pick an exposure that
+    keeps stars visible at the heavily defocused ends. Narrowband filters in particular often need a
+    longer exposure at first. Once a live run succeeds you can shorten the exposure and run it again to
+    see how far you can push it (see the [Quick Start](../quick-start.md) narrowband tip).
+
+On the summary, a live run adds one extra option next to the recommended step size: **Apply this
+exposure time to my profile when I click Accept**. Tick it to adopt the sweep exposure as your
+auto-focus exposure time, so the settings you optimized against are the ones you will actually focus
+with.
 
 ## How a candidate is scored
 
