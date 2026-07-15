@@ -1,0 +1,316 @@
+<UserControl
+    x:Class="NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt.TiltDeviceAdjustmentPromptControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="#FF1E2125">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <!--  Self-contained palette so the dialog reads clearly regardless of the active NINA theme
+              (same approach as ReplaySettingsPromptControl).  -->
+        <SolidColorBrush x:Key="Fg" Color="White" />
+        <SolidColorBrush x:Key="FgDim" Color="#FFB8BEC6" />
+        <SolidColorBrush x:Key="PanelBg" Color="#FF262B31" />
+        <SolidColorBrush x:Key="PanelBorder" Color="#FF3E4650" />
+        <SolidColorBrush x:Key="CommandBg" Color="#FF10151B" />
+        <SolidColorBrush x:Key="CommandFg" Color="#FFFFD37E" />
+        <SolidColorBrush x:Key="WarnFg" Color="#FFE8C170" />
+        <SolidColorBrush x:Key="WarnBorder" Color="#FF8A6D2F" />
+        <SolidColorBrush x:Key="WarnBg" Color="#FF2E2A1D" />
+        <SolidColorBrush x:Key="DangerFg" Color="#FFF2938C" />
+        <SolidColorBrush x:Key="DangerBorder" Color="#FFA85049" />
+        <SolidColorBrush x:Key="DangerBg" Color="#FF33211F" />
+
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource FgDim}" />
+            <Setter Property="Margin" Value="0,12,0,4" />
+        </Style>
+
+        <!--  Advisory (amber) warning panel: user should read it, but may still proceed.  -->
+        <Style x:Key="WarningPanel" TargetType="Border">
+            <Setter Property="Margin" Value="0,6,0,0" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="{StaticResource WarnBg}" />
+            <Setter Property="BorderBrush" Value="{StaticResource WarnBorder}" />
+        </Style>
+
+        <!--  Blocking (red) warning panel: Proceed is disabled while this is visible.  -->
+        <Style x:Key="DangerPanel" TargetType="Border" BasedOn="{StaticResource WarningPanel}">
+            <Setter Property="Background" Value="{StaticResource DangerBg}" />
+            <Setter Property="BorderBrush" Value="{StaticResource DangerBorder}" />
+        </Style>
+
+        <Style x:Key="WarningText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource WarnFg}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="DangerText" TargetType="TextBlock" BasedOn="{StaticResource WarningText}">
+            <Setter Property="Foreground" Value="{StaticResource DangerFg}" />
+        </Style>
+
+        <!--  Primary action: visually distinct so the point of no return is unmistakable, and clearly
+              grayed out when disabled (both groups off, or a hard travel limit is violated).  -->
+        <Style x:Key="ProceedButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="110" />
+            <Setter Property="Padding" Value="14,6" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            x:Name="Bg"
+                            Background="#FF2E6DA4"
+                            BorderBrush="#FF3E86C4"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#FF3A7DB8" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#FF285E8E" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bg" Property="Background" Value="#FF2A2F36" />
+                                <Setter TargetName="Bg" Property="BorderBrush" Value="#FF3E4650" />
+                                <Setter Property="Foreground" Value="#FF6E7681" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Width="560" Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock
+            Grid.Row="0"
+            FontSize="16"
+            FontWeight="Bold"
+            Foreground="{StaticResource Fg}"
+            Text="Review motor commands" />
+
+        <!--  The cautionary framing: physical, EEPROM-persisted, no automatic undo.  -->
+        <TextBlock
+            Grid.Row="1"
+            Margin="0,4,0,0"
+            Foreground="{StaticResource FgDim}"
+            TextWrapping="Wrap"
+            Text="The commands below physically move the tilt adapter's motors, and the device stores every move in EEPROM. There is no automatic undo — verify each signed command before proceeding." />
+
+        <!--  Group toggles. Toggling either recomputes the plan below, so what is displayed is always
+              exactly what will be sent.  -->
+        <StackPanel Grid.Row="2" Margin="0,12,0,0" Orientation="Horizontal">
+            <TextBlock
+                Margin="0,0,10,0"
+                VerticalAlignment="Center"
+                Foreground="{StaticResource FgDim}"
+                Text="Apply:" />
+            <CheckBox
+                VerticalAlignment="Center"
+                VerticalContentAlignment="Center"
+                IsChecked="{Binding ApplyTilt}">
+                <TextBlock Foreground="{StaticResource Fg}" Text="Tilt correction" />
+            </CheckBox>
+            <CheckBox
+                Margin="18,0,0,0"
+                VerticalAlignment="Center"
+                VerticalContentAlignment="Center"
+                IsChecked="{Binding ApplyBackfocus}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Foreground="{StaticResource Fg}" Text="Backfocus correction" />
+                    <!--  Anchors the assumed-direction caveat to the group it applies to; the full
+                          explanation is in the warnings below.  -->
+                    <TextBlock
+                        Margin="6,0,0,0"
+                        Foreground="{StaticResource WarnFg}"
+                        Text="⚠ (assumed direction)"
+                        Visibility="{Binding AssumedDirectionWarningVisible, Converter={StaticResource BoolToVis}}" />
+                </StackPanel>
+            </CheckBox>
+        </StackPanel>
+
+        <!--  Move list: the signed wire command is the most prominent element of each row.  -->
+        <StackPanel Grid.Row="3">
+            <TextBlock Style="{StaticResource SectionHeader}" Text="COMMANDS TO SEND" />
+            <Border
+                Background="{StaticResource PanelBg}"
+                BorderBrush="{StaticResource PanelBorder}"
+                BorderThickness="1"
+                CornerRadius="3"
+                Padding="10,8">
+                <StackPanel>
+                    <ItemsControl ItemsSource="{Binding Moves}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border
+                                        Grid.Column="0"
+                                        Background="{StaticResource CommandBg}"
+                                        BorderBrush="{StaticResource PanelBorder}"
+                                        BorderThickness="1"
+                                        CornerRadius="3"
+                                        Padding="8,3">
+                                        <TextBlock
+                                            HorizontalAlignment="Center"
+                                            FontFamily="Consolas"
+                                            FontSize="16"
+                                            FontWeight="Bold"
+                                            Foreground="{StaticResource CommandFg}"
+                                            Text="{Binding WireCommand}" />
+                                    </Border>
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Margin="10,0"
+                                        VerticalAlignment="Center"
+                                        Foreground="{StaticResource Fg}"
+                                        Text="{Binding Description}"
+                                        TextWrapping="Wrap" />
+                                    <Border
+                                        Grid.Column="2"
+                                        VerticalAlignment="Center"
+                                        BorderBrush="{StaticResource PanelBorder}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="8,1">
+                                        <TextBlock
+                                            FontSize="11"
+                                            Foreground="{StaticResource FgDim}"
+                                            Text="{Binding GroupLabel}" />
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock
+                        Foreground="{StaticResource FgDim}"
+                        Text="No commands will be sent."
+                        Visibility="{Binding HasNoMoves, Converter={StaticResource BoolToVis}}" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <!--  Per-corner residual after the commands above.  -->
+        <StackPanel Grid.Row="4">
+            <TextBlock Style="{StaticResource SectionHeader}" Text="RESIDUAL AFTER THESE COMMANDS" />
+            <Border
+                Background="{StaticResource PanelBg}"
+                BorderBrush="{StaticResource PanelBorder}"
+                BorderThickness="1"
+                CornerRadius="3"
+                Padding="10,8">
+                <StackPanel>
+                    <ItemsControl ItemsSource="{Binding CornerResiduals}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="4" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,2" HorizontalAlignment="Center">
+                                    <TextBlock
+                                        HorizontalAlignment="Center"
+                                        FontSize="11"
+                                        Foreground="{StaticResource FgDim}"
+                                        Text="{Binding Label}" />
+                                    <TextBlock
+                                        HorizontalAlignment="Center"
+                                        FontFamily="Consolas"
+                                        Foreground="{StaticResource Fg}"
+                                        Text="{Binding ValueText}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock
+                        Margin="0,6,0,0"
+                        FontSize="11"
+                        Foreground="{StaticResource FgDim}"
+                        TextWrapping="Wrap"
+                        Text="Error left at each screw after the commands above (step rounding plus anything the device cannot reach)." />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <!--  Warnings: red = blocking, amber = read before proceeding.  -->
+        <StackPanel Grid.Row="5">
+            <Border Style="{StaticResource DangerPanel}" Visibility="{Binding HardLimitWarningVisible, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <TextBlock
+                        FontWeight="Bold"
+                        Style="{StaticResource DangerText}"
+                        Text="⚠ Travel limit violated — Proceed is disabled" />
+                    <TextBlock
+                        Margin="0,3,0,0"
+                        Style="{StaticResource DangerText}"
+                        Text="{Binding LimitWarningText}" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource WarningPanel}" Visibility="{Binding SoftLimitWarningVisible, Converter={StaticResource BoolToVis}}">
+                <TextBlock Style="{StaticResource WarningText}" Text="{Binding LimitWarningText}" />
+            </Border>
+            <Border Style="{StaticResource WarningPanel}" Visibility="{Binding PositionsUnknownWarningVisible, Converter={StaticResource BoolToVis}}">
+                <TextBlock Style="{StaticResource WarningText}" Text="{Binding PositionsUnknownWarningText}" />
+            </Border>
+            <Border Style="{StaticResource WarningPanel}" Visibility="{Binding AssumedDirectionWarningVisible, Converter={StaticResource BoolToVis}}">
+                <TextBlock Style="{StaticResource WarningText}" Text="{Binding AssumedDirectionWarningText}" />
+            </Border>
+            <Border Style="{StaticResource WarningPanel}" Visibility="{Binding TwistWarningVisible, Converter={StaticResource BoolToVis}}">
+                <TextBlock Style="{StaticResource WarningText}" Text="{Binding TwistWarningText}" />
+            </Border>
+            <Border Style="{StaticResource WarningPanel}" Visibility="{Binding PitchMismatchWarningVisible, Converter={StaticResource BoolToVis}}">
+                <TextBlock Style="{StaticResource WarningText}" Text="{Binding PitchMismatchWarning}" />
+            </Border>
+        </StackPanel>
+
+        <!--  Footer: scale of the action (count + duration) sits beside the buttons so it is part of the
+              user's final glance before clicking Proceed.  -->
+        <Grid Grid.Row="6" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock VerticalAlignment="Center" Foreground="{StaticResource FgDim}">
+                <Run Text="{Binding MoveCountText, Mode=OneWay}" />
+                <Run Text=" · estimated " />
+                <Run FontWeight="SemiBold" Foreground="{StaticResource Fg}" Text="{Binding EstimatedDurationText, Mode=OneWay}" />
+            </TextBlock>
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button MinWidth="90" Command="{Binding CancelCommand}">
+                    <TextBlock Margin="12,6" Text="Cancel" />
+                </Button>
+                <Button
+                    Margin="8,0,0,0"
+                    Command="{Binding ProceedCommand}"
+                    Content="Proceed"
+                    Style="{StaticResource ProceedButton}" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

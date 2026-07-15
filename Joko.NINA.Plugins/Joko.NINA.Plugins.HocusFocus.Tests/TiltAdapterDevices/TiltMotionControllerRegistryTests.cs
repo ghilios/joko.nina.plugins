@@ -13,7 +13,9 @@
 using System;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
+using NSubstitute;
 using NUnit.Framework;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterDevices;
@@ -65,13 +67,16 @@ public class TiltMotionControllerRegistryTests {
         Assert.Throws<ArgumentException>(() => TiltMotionControllerRegistry.Create("Not A Real Device", null));
     }
 
-    // The real EatTiltMotionController factory is wired in T7; until then Create() for either EAT preset
-    // must throw NotImplementedException from the placeholder — pinning this makes T7's flip to a real
-    // controller a visible, intended change to this test (it will start failing until updated).
+    // T7 flip: the real EatTiltMotionController factory is now wired for both EAT presets (this test used
+    // to pin the placeholder NotImplementedException prior to T7 -- that placeholder is gone).
     [TestCase("ASG Electronic EAT - 90mm")]
     [TestCase("ASG Electronic EAT - ZWO 461")]
-    public void Create_EatPreset_PlaceholderThrowsNotImplemented(string presetName) {
-        Assert.Throws<NotImplementedException>(() => TiltMotionControllerRegistry.Create(presetName, null));
+    public void Create_EatPreset_ReturnsRealEatTiltMotionController(string presetName) {
+        var options = Substitute.For<ITiltAdapterOptions>();
+
+        var controller = TiltMotionControllerRegistry.Create(presetName, options);
+
+        Assert.That(controller, Is.InstanceOf<EatTiltMotionController>());
     }
 
     [Test]

@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -35,14 +36,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
         private const string AsgEat90mmName = "ASG Electronic EAT - 90mm";
         private const string AsgEatZwo461Name = "ASG Electronic EAT - ZWO 461";
 
-        // T7 replaces these placeholder factories with the real EatTiltMotionController factory.
-        private static ITiltMotionController ThrowNotYetWired(ITiltAdapterOptions options) =>
-            throw new NotImplementedException("EAT motion controller factory is wired in T7");
+        // Both current EAT presets share a single, identical driver (EatTiltMotionController) -- the two
+        // presets differ only in screw radius/geometry (TiltAdapterDevicePreset.cs), not in serial protocol
+        // or command vocabulary, so one factory suffices for both entries (T7).
+        private static ITiltMotionController CreateEatController(ITiltAdapterOptions options) =>
+            new EatTiltMotionController(options);
 
         private static readonly IReadOnlyDictionary<string, Func<ITiltAdapterOptions, ITiltMotionController>> Factories =
             new Dictionary<string, Func<ITiltAdapterOptions, ITiltMotionController>> {
-                [AsgEat90mmName] = ThrowNotYetWired,
-                [AsgEatZwo461Name] = ThrowNotYetWired,
+                [AsgEat90mmName] = CreateEatController,
+                [AsgEatZwo461Name] = CreateEatController,
             };
 
         /// <summary>True iff a motion controller factory is registered for the given device preset name.</summary>

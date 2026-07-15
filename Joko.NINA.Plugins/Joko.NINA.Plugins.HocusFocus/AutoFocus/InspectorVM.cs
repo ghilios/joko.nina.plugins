@@ -2075,21 +2075,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (n == 4) angles[3] = tiltAdapterOptions.Screw4AngleDegrees;
             if (angles.Any(double.IsNaN)) return;
 
+            // Per-screw signed targets come from the shared helper (also consumed by the motorized
+            // move planner, T14) so the display and the planner can never diverge. The curvature sign
+            // applies ONLY to the backfocus component within the helper: the tilt component's
+            // direction is already encoded by the stored response-convention screw angle (the same
+            // convention the tilt arrows invert), so multiplying the whole total by the sign would
+            // double-apply the rig direction to the tilt part on sign = -1 rigs.
+            var targets = TiltScrewTargets.ComputePerScrewTargets(
+                model.Gx, model.Gy, model.Kx, model.Ky, model.X0, model.Y0, angles, radiusMicrons, unitMicrons, resolvedSign);
+
             var tiltText = new string[n];
             var backText = new string[n];
             var totalText = new string[n];
             for (int i = 0; i < n; i++) {
-                var corr = TiltScrewGeometry.ScrewCorrectionMicrons(
-                    model.Gx, model.Gy, model.Kx, model.Ky, model.X0, model.Y0, angles[i], radiusMicrons);
-                tiltText[i] = TiltAdapterGuidanceVM.FormatAmount(corr.TiltMicrons / unitMicrons, steps, angleUnit);
-                backText[i] = TiltAdapterGuidanceVM.FormatAmount(resolvedSign * corr.BackfocusMicrons / unitMicrons, steps, angleUnit);
-                // The curvature sign applies ONLY to the backfocus component: the tilt component's
-                // direction is already encoded by the stored response-convention screw angle (the same
-                // convention the tilt arrows invert), so multiplying the whole total by the sign would
-                // double-apply the rig direction to the tilt part on sign = -1 rigs.
-                double totalSigned = TiltScrewGeometry.SignedTotalAdjustment(
-                    corr.TiltMicrons, corr.BackfocusMicrons, unitMicrons, resolvedSign);
-                totalText[i] = TiltAdapterGuidanceVM.FormatAmount(totalSigned, steps, angleUnit);
+                tiltText[i] = TiltAdapterGuidanceVM.FormatAmount(targets[i].TiltSteps, steps, angleUnit);
+                backText[i] = TiltAdapterGuidanceVM.FormatAmount(targets[i].BackfocusSteps, steps, angleUnit);
+                totalText[i] = TiltAdapterGuidanceVM.FormatAmount(targets[i].TotalSteps, steps, angleUnit);
             }
 
             guidance.Screw1TiltAmount = tiltText[0];

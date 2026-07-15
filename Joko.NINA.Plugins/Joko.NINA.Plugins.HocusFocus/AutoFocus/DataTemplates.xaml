@@ -9,6 +9,7 @@
     xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus"
     xmlns:afreview="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus.Review"
     xmlns:replay="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay"
+    xmlns:tiltprompt="clr-namespace:NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt"
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
     xmlns:oxy="clr-namespace:OxyPlot.Wpf;assembly=OxyPlot.Contrib.Wpf"
@@ -102,6 +103,12 @@
           saved run that has a metadata.json. Implicit DataType template resolved by the WindowService, same as above.  -->
     <DataTemplate DataType="{x:Type replay:ReplaySettingsPromptVM}">
         <replay:ReplaySettingsPromptControl />
+    </DataTemplate>
+
+    <!--  The tilt-device adjustment approval prompt: review/approve the exact motorized tilt-adapter commands before
+          they are sent to the device. Implicit DataType template resolved by the WindowService, same as above.  -->
+    <DataTemplate DataType="{x:Type tiltprompt:TiltDeviceAdjustmentPromptVM}">
+        <tiltprompt:TiltDeviceAdjustmentPromptControl />
     </DataTemplate>
 
     <!--  Shared chart + info "core": the AF plot plus the run's info rows (Time / Position / HFR / Temperature /
