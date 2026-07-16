@@ -11,11 +11,14 @@
 #endregion "copyright"
 
 using CommunityToolkit.Mvvm.Input;
+using NINA.Core.Model;
+using NINA.Core.MyMessageBox;
 using NINA.Core.Utility;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.FileFormat.FITS;
 using NINA.Image.FileFormat.XISF;
 using NINA.Image.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
@@ -303,6 +306,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private readonly Func<bool> isCameraConnected;
         private readonly Func<bool> isFocuserConnected;
 
+        // Live-sweep collaborators. confirmRoughFocus asks the user to confirm the current position is roughly focused
+        // (production shows an OK/Cancel dialog; tests default to confirmed). currentFilterName/currentGain report the
+        // actual filter and gain the sweep will expose with (from the filter wheel / camera), for the confirmation panel.
+        private readonly Func<bool> confirmRoughFocus;
+        private readonly Func<string> currentFilterName;
+        private readonly Func<int?> currentGain;
+
         // Snapshotted at the end of a successful run (BEFORE loadedRuns is disposed): the Mat-free per-frame
         // descriptors for every loaded run, the labels dir each run's labels persist to, and the in-memory label
         // models the review edits. These survive disposal so the Review step can detect from disk afterward.
@@ -356,6 +366,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             IImageDataFactory imageDataFactory,
             IImagingMediator imagingMediator,
             ICameraMediator cameraMediator,
+            IFilterWheelMediator filterWheelMediator,
             IFocuserMediator focuserMediator,
             IAutoFocusEngine autoFocusEngine,
             IHocusFocusStarDetection detection)
@@ -377,7 +388,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 isCameraConnected: () => cameraMediator?.GetInfo()?.Connected == true,
                 isFocuserConnected: () => focuserMediator?.GetInfo()?.Connected == true,
                 // The Live sweep saves its frames under this persisted folder; seed + persist the picker from it.
-                autoFocusOptions: HocusFocusPlugin.AutoFocusOptions) {
+                autoFocusOptions: HocusFocusPlugin.AutoFocusOptions,
+                // Confirm rough focus with an OK/Cancel dialog when Start is clicked (the sweep centers on the current position).
+                confirmRoughFocus: () => MyMessageBox.Show(
+                    "The focus sweep is centered on the current focuser position. Is the telescope approximately in focus?",
+                    "Confirm rough focus",
+                    System.Windows.MessageBoxButton.OKCancel,
+                    System.Windows.MessageBoxResult.Cancel) == System.Windows.MessageBoxResult.OK,
+                // Live capture readouts: the actual filter and gain the sweep will expose with.
+                currentFilterName: () => ResolveSweepFilterName(profileService, filterWheelMediator),
+                currentGain: () => ResolveSweepGain(profileService, filterWheelMediator, cameraMediator)) {
         }
 
         /// <summary>
@@ -394,7 +414,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, IProgress<RunLoadProgress>, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null,
             Func<bool> isCameraConnected = null,
             Func<bool> isFocuserConnected = null,
-            IAutoFocusOptions autoFocusOptions = null) {
+            IAutoFocusOptions autoFocusOptions = null,
+            Func<bool> confirmRoughFocus = null,
+            Func<string> currentFilterName = null,
+            Func<int?> currentGain = null) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.starDetectionOptions = starDetectionOptions ?? throw new ArgumentNullException(nameof(starDetectionOptions));
             this.loader = loader ?? throw new ArgumentNullException(nameof(loader));
@@ -407,6 +430,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             this.isCameraConnected = isCameraConnected ?? (() => true);
             this.isFocuserConnected = isFocuserConnected ?? (() => true);
             this.autoFocusOptions = autoFocusOptions;
+            // Live-sweep collaborators (delegates so the VM stays mediator-free/testable). Default confirm to true so
+            // tests and headless callers proceed without a dialog.
+            this.confirmRoughFocus = confirmRoughFocus ?? (() => true);
+            this.currentFilterName = currentFilterName;
+            this.currentGain = currentGain;
 
             sourcePaths = new ObservableCollection<string> { null };
             applyRecommendedStepSize = true;
@@ -571,7 +599,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     RaisePropertyChanged(nameof(IsReplay));
                     RaisePropertyChanged(nameof(IsLive));
                     RaisePropertyChanged(nameof(ShowLiveChart));
-                    // Live gates Start on the confirm checkbox + a save folder; Saved gates on the per-run folders.
+                    // Refresh the Live readouts against current equipment/profile state when the panel is shown.
+                    RaiseSweepReadoutsChanged();
+                    // Live gates Start on a save folder; Saved gates on the per-run folders.
                     StartCommand.NotifyCanExecuteChanged();
                 }
             }
@@ -588,21 +618,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool IsLive => SourceMode == SourceMode.Live;
 
         #region Live sweep (fixed-sweep capture)
-
-        private bool liveConfirmedRoughFocus;
-
-        /// <summary>Gates Start in Live mode: the user must confirm they have manually reached rough focus, because the
-        /// sweep is centered on the current focuser position. Resets to false each launch (VM-local).</summary>
-        public bool LiveConfirmedRoughFocus {
-            get => liveConfirmedRoughFocus;
-            set {
-                if (liveConfirmedRoughFocus != value) {
-                    liveConfirmedRoughFocus = value;
-                    RaisePropertyChanged();
-                    StartCommand.NotifyCanExecuteChanged();
-                }
-            }
-        }
 
         private double liveExposureSeconds;
 
@@ -650,20 +665,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
-        /// <summary>The gain the sweep will use: the AF filter's gain when one is designated with an explicit gain,
-        /// otherwise the camera default (the engine has no gain override — see TakeExposure).</summary>
+        /// <summary>The gain the sweep will actually expose with: the AF filter's gain when filter-wheel offsets
+        /// designate one with an explicit gain, otherwise the connected camera's current gain.</summary>
         public string SweepGain {
             get {
-                var af = profileService?.ActiveProfile?.FilterWheelSettings?.FilterWheelFilters?.FirstOrDefault(f => f.AutoFocusFilter);
-                return (af != null && af.AutoFocusGain > -1) ? af.AutoFocusGain.ToString() : "Camera default";
+                var gain = currentGain?.Invoke();
+                return gain.HasValue ? gain.Value.ToString() : "Unavailable";
             }
         }
 
-        /// <summary>The auto-focus filter name, or "Current filter" when none is designated.</summary>
+        /// <summary>The filter the sweep will actually expose through: the designated AF filter when offsets are on,
+        /// otherwise the currently loaded filter.</summary>
         public string SweepFilterName {
             get {
-                var af = profileService?.ActiveProfile?.FilterWheelSettings?.FilterWheelFilters?.FirstOrDefault(f => f.AutoFocusFilter);
-                return af?.Name ?? "Current filter";
+                var name = currentFilterName?.Invoke();
+                return string.IsNullOrEmpty(name) ? "Unavailable" : name;
             }
         }
 
@@ -679,6 +695,34 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     ? $"~{(int)ts.TotalMinutes}m {ts.Seconds}s (exposure only)"
                     : $"~{ts.TotalSeconds:0}s (exposure only)";
             }
+        }
+
+        private void RaiseSweepReadoutsChanged() {
+            RaisePropertyChanged(nameof(SweepStepSize));
+            RaisePropertyChanged(nameof(SweepPointCount));
+            RaisePropertyChanged(nameof(SweepBinning));
+            RaisePropertyChanged(nameof(SweepFilterName));
+            RaisePropertyChanged(nameof(SweepGain));
+            RaisePropertyChanged(nameof(SweepEstimatedFrames));
+            RaisePropertyChanged(nameof(SweepEstimatedDurationText));
+        }
+
+        private string captureContextText;
+
+        /// <summary>Which frame the sweep is on and where the focuser is, shown live during capture (e.g.
+        /// "Capturing frame 3 of 9 at focuser position 12345"). Fed by the engine's per-point progress reports.</summary>
+        public string CaptureContextText {
+            get => captureContextText;
+            private set { captureContextText = value; RaisePropertyChanged(); }
+        }
+
+        private string captureExposureText;
+
+        /// <summary>The camera's own exposure status for the current frame (e.g. the exposure countdown), shown live
+        /// during capture. Fed by the camera's progress reports forwarded through the sweep.</summary>
+        public string CaptureExposureText {
+            get => captureExposureText;
+            private set { captureExposureText = value; RaisePropertyChanged(); }
         }
 
         #endregion Live sweep (fixed-sweep capture)
@@ -1430,9 +1474,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return false;
             }
             if (SourceMode == SourceMode.Live) {
-                // The sweep is centered on the current focuser position and must save its frames somewhere, so Start
-                // stays disabled until the user confirms rough focus and a save folder is chosen.
-                return LiveConfirmedRoughFocus && !string.IsNullOrWhiteSpace(SaveFolderPath);
+                // The sweep must save its frames somewhere, so Start stays disabled until a save folder is chosen.
+                // Rough-focus confirmation is asked as an OK/Cancel dialog when Start is clicked (see StartAsync).
+                return !string.IsNullOrWhiteSpace(SaveFolderPath);
             }
             for (var i = 0; i < RunCount; i++) {
                 if (string.IsNullOrWhiteSpace(i < SourcePaths.Count ? SourcePaths[i] : null)) {
@@ -1505,6 +1549,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Pre-flight validation: Live needs the camera + focuser connected; Saved needs a distinct, non-empty
             // folder per run. On failure, surface the error and stay on SelectSource without starting a run.
             if (!ValidateSourceBeforeStart()) {
+                Interlocked.Exchange(ref running, 0);
+                return;
+            }
+            // The sweep is centered on the current focuser position, so confirm rough focus before moving anything.
+            // Declining leaves the wizard idle with no error (the user chose not to proceed).
+            if (SourceMode == SourceMode.Live && !confirmRoughFocus()) {
                 Interlocked.Exchange(ref running, 0);
                 return;
             }
@@ -1739,7 +1789,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (autoFocusEngine == null) {
                 throw new InvalidOperationException("Live mode requires an auto-focus engine.");
             }
-            Phase = "Capturing focus sweep";
+            Phase = "Capturing frames";
+            CaptureContextText = null;
+            CaptureExposureText = null;
             var options = autoFocusEngine.GetOptions();
             options.Save = true;                        // frames must land on disk so we can load them like a replay
             options.SavePath = SaveFolderPath;          // honor the folder chosen on the confirmation screen
@@ -1748,13 +1800,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             capturedLiveExposureSeconds = LiveExposureSeconds;   // remember what we captured with, for the Summary write-back
             RaisePropertyChanged(nameof(SweepExposureText));
 
+            // Route the sweep's progress: the engine's per-point reports (tagged with its source) carry the focuser
+            // position + frame count and drive the frame bar; the camera's own reports carry the exposure countdown.
+            var captureProgress = new Progress<ApplicationStatus>(HandleCaptureProgress);
+
             // Constructed here, on the UI thread — the chart's collections capture the dispatcher they are created
             // on in order to marshal the engine's worker-thread events. See the LiveAutoFocusChartVM class doc.
             var chart = new LiveAutoFocusChartVM();
             chart.Attach(autoFocusEngine);
             LiveChart = chart;
             try {
-                var afResult = await autoFocusEngine.CaptureFixedSweepAsync(options, null, token, null).ConfigureAwait(true);
+                var afResult = await autoFocusEngine.CaptureFixedSweepAsync(options, null, token, captureProgress).ConfigureAwait(true);
                 // A failed/partial sweep may still have created its timestamped folder; treat "not succeeded" as no
                 // usable capture (return null) so AcquireAsync surfaces a clean message rather than a confusing loader
                 // error on an empty or too-short attempt folder.
@@ -1765,6 +1821,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // chart before the "Loading frames" phase takes over the progress panel.
                 chart.Detach();
                 LiveChart = null;
+                CaptureContextText = null;
+                CaptureExposureText = null;
+            }
+        }
+
+        /// <summary>Routes a sweep progress report to the capture readouts. Reports tagged with the engine's live-sweep
+        /// source carry the focuser position + frame count (and drive the frame bar); everything else is the camera's
+        /// own exposure status for the current frame. Internal so the routing is directly unit-testable.</summary>
+        internal void HandleCaptureProgress(ApplicationStatus status) {
+            if (status == null) {
+                return;
+            }
+            if (status.Source == AutoFocusEngine.LiveSweepProgressSource) {
+                CaptureContextText = status.Status;
+                if (status.MaxProgress > 0) {
+                    SetProgress("Capturing frames", (int)status.Progress, status.MaxProgress);
+                }
+            } else if (!string.IsNullOrEmpty(status.Status)) {
+                CaptureExposureText = status.Status;
             }
         }
 
@@ -2715,6 +2790,34 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             while (SourcePaths.Count > runCount) {
                 SourcePaths.RemoveAt(SourcePaths.Count - 1);
             }
+        }
+
+        /// <summary>The filter the live sweep will expose through, for display: the designated AF filter when
+        /// filter-wheel offsets are enabled, otherwise the filter currently loaded in the wheel. Null when unknown.</summary>
+        private static string ResolveSweepFilterName(IProfileService profileService, IFilterWheelMediator filterWheelMediator) {
+            var focuserSettings = profileService?.ActiveProfile?.FocuserSettings;
+            if (focuserSettings != null && focuserSettings.UseFilterWheelOffsets) {
+                var af = profileService.ActiveProfile.FilterWheelSettings?.FilterWheelFilters?.FirstOrDefault(f => f.AutoFocusFilter);
+                if (af != null) {
+                    return af.Name;
+                }
+            }
+            return filterWheelMediator?.GetInfo()?.SelectedFilter?.Name;
+        }
+
+        /// <summary>The gain the live sweep will expose with, for display: the designated AF filter's gain when
+        /// offsets are enabled and it sets one, otherwise the connected camera's current gain. Null when the camera
+        /// isn't connected (the engine has no gain override — see AutoFocusEngine.TakeExposure).</summary>
+        private static int? ResolveSweepGain(IProfileService profileService, IFilterWheelMediator filterWheelMediator, ICameraMediator cameraMediator) {
+            var focuserSettings = profileService?.ActiveProfile?.FocuserSettings;
+            if (focuserSettings != null && focuserSettings.UseFilterWheelOffsets) {
+                var af = profileService.ActiveProfile.FilterWheelSettings?.FilterWheelFilters?.FirstOrDefault(f => f.AutoFocusFilter);
+                if (af != null && af.AutoFocusGain > -1) {
+                    return af.AutoFocusGain;
+                }
+            }
+            var cameraInfo = cameraMediator?.GetInfo();
+            return (cameraInfo != null && cameraInfo.Connected) ? cameraInfo.Gain : (int?)null;
         }
 
         /// <summary>The production folder picker (WinForms), mirroring InspectorVM's replay picker.</summary>

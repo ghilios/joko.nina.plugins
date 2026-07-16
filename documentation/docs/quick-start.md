@@ -123,15 +123,14 @@ computationally expensive and can take a while on a slow imaging computer.
     [exporting and importing settings](settings/index.md#exporting-and-importing-star-detection-settings).
 
 !!! tip "Narrowband filters: bootstrap with a live sweep, then shorten"
-    Through a narrowband filter, so few stars appear that autofocus may not converge at all, leaving you
-    with no working run to save and replay. Use the wizard's **Live Auto-Focus** source instead. Reach
-    rough focus manually, then let the wizard capture a fixed focus sweep and tune detection against it;
-    it does not need a working autofocus to start. Make the exposure long enough that stars stay visible
-    at the wings of the sweep (the heavily defocused ends), not just near focus, so the optimizer has
-    data across the whole curve. Once a run succeeds, shorten the exposure and run the live sweep again
-    to see how far you can push it; a properly tuned detector handles much fainter stars than the
-    defaults. Accept the exposure and settings you will actually autofocus with during imaging — the
-    summary can write the sweep exposure back to your profile for you.
+    Through a narrowband filter, so few stars appear that autofocus often won't converge, so you never get
+    a working run to save and replay. Use the wizard's **Live Auto-Focus** source instead: reach
+    rough focus manually, and it captures a fixed focus sweep and tunes detection against it without
+    needing a working autofocus first. Set the exposure long enough that stars stay visible out at the
+    wings of the sweep, so the optimizer has data across the whole curve. Once a run succeeds, shorten the
+    exposure and run the sweep again to find how far you can push it; a well-tuned detector handles much
+    fainter stars than the defaults. Finish with the exposure and settings you will actually autofocus
+    with; the summary can write the sweep exposure into your profile for you.
 
 → Full detail: [Star Detection Optimization](optimization/index.md).
 

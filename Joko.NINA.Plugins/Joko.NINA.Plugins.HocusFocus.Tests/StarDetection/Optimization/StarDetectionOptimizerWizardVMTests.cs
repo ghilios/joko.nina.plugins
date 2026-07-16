@@ -10,6 +10,8 @@
 
 #endregion "copyright"
 
+using NINA.Core.Model;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
@@ -214,7 +216,10 @@ public class StarDetectionOptimizerWizardVMTests {
         Func<bool> isFocuserConnected = null,
         IAutoFocusEngine autoFocusEngine = null,
         OptimizerSettings optimizerSettings = null,
-        IAutoFocusOptions autoFocusOptions = null) {
+        IAutoFocusOptions autoFocusOptions = null,
+        Func<bool> confirmRoughFocus = null,
+        Func<string> currentFilterName = null,
+        Func<int?> currentGain = null) {
         options ??= Substitute.For<IStarDetectionOptions>();
         profileService ??= Substitute.For<IProfileService>();
         return new StarDetectionOptimizerWizardVM(
@@ -228,7 +233,10 @@ public class StarDetectionOptimizerWizardVMTests {
             frameReviewBuilder: frameReviewBuilder,
             isCameraConnected: isCameraConnected,
             isFocuserConnected: isFocuserConnected,
-            autoFocusOptions: autoFocusOptions);
+            autoFocusOptions: autoFocusOptions,
+            confirmRoughFocus: confirmRoughFocus,
+            currentFilterName: currentFilterName,
+            currentGain: currentGain);
     }
 
     // An HONEST fake review builder: it maps EACH supplied descriptor to one FrameReview (so the ReviewVM's queue
@@ -1222,20 +1230,35 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
-    public void CanStart_Live_DisabledUntilConfirmedAndSaveFolderSet() {
+    public void CanStart_Live_DisabledUntilSaveFolderSet() {
         var vm = NewVM(LoaderReturning(GoodRun()));
         vm.SourcePaths[0] = null;
         vm.SourceMode = SourceMode.Live;
-        Assert.That(vm.StartCommand.CanExecute(null), Is.False, "Live needs rough-focus confirmation and a save folder");
-
-        vm.LiveConfirmedRoughFocus = true;
-        Assert.That(vm.StartCommand.CanExecute(null), Is.False, "still needs a save folder");
+        Assert.That(vm.StartCommand.CanExecute(null), Is.False, "Live needs a save folder");
 
         vm.SaveFolderPath = @"C:\live";
-        Assert.That(vm.StartCommand.CanExecute(null), Is.True, "confirmed and a save folder chosen");
+        Assert.That(vm.StartCommand.CanExecute(null), Is.True, "a save folder is chosen");
 
-        vm.LiveConfirmedRoughFocus = false;
-        Assert.That(vm.StartCommand.CanExecute(null), Is.False, "un-confirming disables Start again");
+        vm.SaveFolderPath = "  ";
+        Assert.That(vm.StartCommand.CanExecute(null), Is.False, "clearing the folder disables Start again");
+    }
+
+    [Test]
+    public async Task Start_Live_RoughFocusDeclined_DoesNotSweepAndStaysIdle() {
+        var swept = false;
+        var engine = LiveEngine(_ => { swept = true; return new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" }; });
+        // confirmRoughFocus returns false: the user declined the "is it in focus?" dialog.
+        var vm = NewVM(LoaderReturning(GoodRun()), isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine, confirmRoughFocus: () => false);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(swept, Is.False, "declining rough-focus must not move the focuser or capture");
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.SelectSource));
+            Assert.That(vm.ErrorMessage, Is.Null, "declining is a user choice, not an error");
+        });
     }
 
     [Test]
@@ -1300,7 +1323,6 @@ public class StarDetectionOptimizerWizardVMTests {
         var vm = NewVM(LoaderReturning(GoodRun()), isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
         vm.SourceMode = SourceMode.Live;
         vm.OptimizeMode = WizardOptimizeMode.UseCurrentSettings;
-        vm.LiveConfirmedRoughFocus = true;
         vm.SaveFolderPath = @"C:\live";
         return vm;
     }
@@ -1391,12 +1413,55 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
+    public void SweepFilterAndGain_ReflectInjectedProviders() {
+        var vm = NewVM(LoaderReturning(GoodRun()), currentFilterName: () => "Ha", currentGain: () => 139);
+        Assert.Multiple(() => {
+            Assert.That(vm.SweepFilterName, Is.EqualTo("Ha"));
+            Assert.That(vm.SweepGain, Is.EqualTo("139"));
+        });
+    }
+
+    [Test]
+    public void SweepFilterAndGain_Unavailable_WhenProvidersReturnNothing() {
+        var vm = NewVM(LoaderReturning(GoodRun()), currentFilterName: () => null, currentGain: () => (int?)null);
+        Assert.Multiple(() => {
+            Assert.That(vm.SweepFilterName, Is.EqualTo("Unavailable"));
+            Assert.That(vm.SweepGain, Is.EqualTo("Unavailable"));
+        });
+    }
+
+    [Test]
+    public void HandleCaptureProgress_ContextReport_SetsContextTextAndFrameBar() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.HandleCaptureProgress(new ApplicationStatus {
+            Source = AutoFocusEngine.LiveSweepProgressSource,
+            Status = "Capturing frame 3 of 9 at focuser position 12345",
+            Progress = 2,
+            MaxProgress = 9
+        });
+        Assert.Multiple(() => {
+            Assert.That(vm.CaptureContextText, Is.EqualTo("Capturing frame 3 of 9 at focuser position 12345"));
+            Assert.That(vm.ProgressCurrent, Is.EqualTo(2));
+            Assert.That(vm.ProgressTotal, Is.EqualTo(9));
+        });
+    }
+
+    [Test]
+    public void HandleCaptureProgress_CameraReport_SetsExposureTextOnly() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.HandleCaptureProgress(new ApplicationStatus { Source = "Camera", Status = "Exposing 3/5 s" });
+        Assert.Multiple(() => {
+            Assert.That(vm.CaptureExposureText, Is.EqualTo("Exposing 3/5 s"));
+            Assert.That(vm.CaptureContextText, Is.Null, "a camera report must not overwrite the frame/position line");
+        });
+    }
+
+    [Test]
     public async Task Start_Live_MissingSaveFolder_SetsErrorAndDoesNotSweep() {
         var swept = false;
         var engine = LiveEngine(_ => { swept = true; return new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" }; });
         var vm = NewVM(LoaderReturning(GoodRun()), isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
         vm.SourceMode = SourceMode.Live;
-        vm.LiveConfirmedRoughFocus = true;
         // No SaveFolderPath chosen.
 
         await vm.StartAsync(CancellationToken.None);
@@ -1435,7 +1500,6 @@ public class StarDetectionOptimizerWizardVMTests {
         var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
         var vm = NewVM(LoaderReturning(GoodRun()), options, profileService, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
         vm.SourceMode = SourceMode.Live;
-        vm.LiveConfirmedRoughFocus = true;
         vm.SaveFolderPath = @"C:\live";
         vm.LiveExposureSeconds = 0.0;
 
@@ -1487,7 +1551,6 @@ public class StarDetectionOptimizerWizardVMTests {
         var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
         var vm = NewVM(LoaderReturning(SeedGoodBaselineBlindRun()), isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
         vm.SourceMode = SourceMode.Live;
-        vm.LiveConfirmedRoughFocus = true;
         vm.SaveFolderPath = @"C:\live";
 
         await vm.StartAsync(CancellationToken.None);
@@ -1523,7 +1586,6 @@ public class StarDetectionOptimizerWizardVMTests {
         var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
         var vm = NewVM(LoaderReturning(GoodRun()), options, profileService, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
         vm.SourceMode = SourceMode.Live;
-        vm.LiveConfirmedRoughFocus = true;
         vm.SaveFolderPath = @"C:\live";
         vm.LiveExposureSeconds = 9.0;
 

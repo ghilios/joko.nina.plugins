@@ -25,9 +25,8 @@
     <TextBlock x:Key="SDOpt_DonutDetection_Tooltip" Text="When checked, the optimizer is allowed to recover out-of-focus DONUT stars — heavily defocused stars that appear as hollow rings — which the detector otherwise drops (they fragment or fail the fill-ratio test). It also unlocks diffraction-spike and saturated-bloom suppression so a bright star's rays aren't mistaken for stars. Recommended for telescopes with a central obstruction (Newtonians/SCTs) whose defocused stars become donuts; leave OFF for refractors (defocused stars are filled disks, not rings). Saved to your profile and default OFF. When OFF, star detection is exactly as before." />
     <TextBlock x:Key="SDOpt_Inspection_Tooltip" Text="When checked, the optimizer favors detecting MANY MORE stars spread across the frame, which the aberration inspector needs to measure sensor tilt and field curvature. It does this by trading away a little auto-focus-curve sharpness for star count — but the fit is bounded: settings that make the focus curve noticeably worse than your current settings are penalized, so focus stays usable. Leave OFF to optimize purely for the tightest auto-focus curve (the default). Only applies in Optimize mode; nothing is saved until you Accept." />
     <TextBlock x:Key="SDOpt_Continue_Tooltip" Text="Run another optimization pass starting from the settings just found, giving the search a fresh chance to refine further (it resets its step sizes, so it can make larger moves again). Useful when the last pass looks like it stopped just short. Limited to 3 total passes; the Changed parameters table shows the value of each setting after every pass." />
-    <TextBlock x:Key="SDOpt_LiveConfirm_Tooltip" Text="The sweep is centered on the CURRENT focuser position, so reach rough focus manually first (a Bahtinov mask or a careful manual pass is fine). Confirm here to enable Start. The wizard then moves the focuser out and steps back across a fixed range using your profile's auto-focus step size and offset steps, saving a frame at every point." />
-    <TextBlock x:Key="SDOpt_LiveExposure_Tooltip" Text="The exposure used for every frame of the sweep, seeded from your profile's auto-focus exposure. Lengthen it so stars stay visible at the defocused wings of the sweep, not just near focus — narrowband filters in particular often need a longer exposure at first. You can accept this exposure into your profile from the summary after a good result." />
-    <TextBlock x:Key="SDOpt_LiveSaveFolder_Tooltip" Text="The captured frames are saved here (in a timestamped AutoFocus_… subfolder), then loaded back exactly like a saved run so the optimizer can search them. A folder is required before Start. Choosing one also saves it as your Hocus Focus auto-focus save path." />
+    <TextBlock x:Key="SDOpt_LiveExposure_Tooltip" Text="The exposure for every frame of the sweep, starting from your profile's auto-focus exposure. Make it long enough that stars stay visible out at the defocused ends of the sweep. Narrowband filters usually need a longer exposure to start. After a good result you can adopt this exposure into your profile from the summary." />
+    <TextBlock x:Key="SDOpt_LiveSaveFolder_Tooltip" Text="The captured frames are saved here, in a timestamped AutoFocus_… subfolder, then loaded back like a saved run so the optimizer can search them. A folder is required before Start. Choosing one also saves it as your Hocus Focus auto-focus save path." />
     <TextBlock x:Key="SDOpt_ApplyExposure_Tooltip" Text="When checked, clicking Accept also writes the sweep exposure to your profile's auto-focus exposure time, alongside the recommended step size. Available only after a live sweep." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
@@ -485,20 +484,8 @@
                     <StackPanel Visibility="{Binding IsLive, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                         <TextBlock
                             Margin="0,0,0,8"
-                            Text="This captures and saves a set of images across a fixed focus sweep centered on your current focuser position, then finds star-detection settings that build the best focus curve. It does not converge — it just captures — so it works even when your current settings can't focus yet. Reach rough focus manually first."
+                            Text="This moves the focuser across a fixed sweep centered on the current position and saves an image at each step, then finds the star-detection settings that build the best focus curve from them. It does not try to reach focus itself, so it works even when your current settings cannot. Focus roughly by hand first; Start asks you to confirm the position is about right."
                             TextWrapping="Wrap" />
-
-                        <StackPanel Margin="0,4" Orientation="Horizontal">
-                            <CheckBox
-                                VerticalAlignment="Center"
-                                IsChecked="{Binding LiveConfirmedRoughFocus}"
-                                ToolTip="{StaticResource SDOpt_LiveConfirm_Tooltip}" />
-                            <TextBlock
-                                Margin="6,0,0,0"
-                                VerticalAlignment="Center"
-                                Text="I have manually focused to rough focus"
-                                ToolTip="{StaticResource SDOpt_LiveConfirm_Tooltip}" />
-                        </StackPanel>
 
                         <!--  Read-only capture summary: what the sweep will do (driven by the profile's AF settings).  -->
                         <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
@@ -588,6 +575,18 @@
                         Visibility="{Binding ShowLiveChart, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                         <ContentControl Content="{Binding LiveChart}" />
                     </Border>
+                    <!--  Live capture readouts (Live sweep only): which frame + focuser position, and the camera's
+                          exposure countdown for the current frame.  -->
+                    <TextBlock
+                        Margin="0,0,0,2"
+                        HorizontalAlignment="Center"
+                        Text="{Binding CaptureContextText}"
+                        Visibility="{Binding ShowLiveChart, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                    <TextBlock
+                        Margin="0,0,0,8"
+                        HorizontalAlignment="Center"
+                        Text="{Binding CaptureExposureText}"
+                        Visibility="{Binding ShowLiveChart, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                     <ProgressBar
                         Height="18"
                         IsIndeterminate="{Binding IsProgressIndeterminate}"

@@ -1845,6 +1845,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// handling). Unlike the blind trend-walk this list is fixed up front — no star detection is required to
         /// decide where to step — so a starless field still yields a full, loadable set of saved frames.
         /// </summary>
+        // Tags the fixed sweep's own per-point progress reports (focuser position + frame count) so the wizard can tell
+        // them apart from the camera's exposure-countdown reports that flow through the same IProgress.
+        internal const string LiveSweepProgressSource = "HocusFocus.LiveSweep";
+
         internal static IReadOnlyList<int> ComputeSweepPositions(int initial, int offsetSteps, int stepSize) {
             if (offsetSteps < 1) {
                 throw new ArgumentOutOfRangeException(nameof(offsetSteps), offsetSteps, "offsetSteps must be at least 1 so the sweep visits at least 3 positions.");
@@ -2102,6 +2106,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var stepSize = state.Options.AutoFocusStepSize;
                 var positions = ComputeSweepPositions(initialFocusPosition, offsetSteps, stepSize);
 
+                var framesPerPoint = Math.Max(1, state.Options.FramesPerPoint);
+                var totalFrames = positions.Count * framesPerPoint;
+                var capturedFrames = 0;
+
                 // Overshoot one extra step beyond the high extreme with NO capture, then step monotonically down
                 // through the positions, so every captured point is reached by a decreasing move — the same
                 // single-direction approach the blind sweep uses to keep backlash consistent (StartBlindFocusPoints).
@@ -2110,7 +2118,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 foreach (var targetPosition in positions) {
                     token.ThrowIfCancellationRequested();
                     var actualPosition = await focuserMediator.MoveFocuser(targetPosition, token);
+
+                    // Report the capture context (focuser position + frame count) for the wizard's live readout; the
+                    // camera's own exposure-progress reports flow through the same progress during StartAutoFocusPoint.
+                    progress?.Report(new ApplicationStatus() {
+                        Source = LiveSweepProgressSource,
+                        Status = framesPerPoint > 1
+                            ? $"Capturing frames {capturedFrames + 1}–{capturedFrames + framesPerPoint} of {totalFrames} at focuser position {actualPosition}"
+                            : $"Capturing frame {capturedFrames + 1} of {totalFrames} at focuser position {actualPosition}",
+                        Progress = capturedFrames,
+                        MaxProgress = totalFrames
+                    });
+
                     await StartAutoFocusPoint(actualPosition, state, FocusPointMeasurementAction, finalValidation: false, token, progress);
+                    capturedFrames += framesPerPoint;
                 }
 
                 Logger.Info("Waiting on fixed-sweep analysis tasks");
