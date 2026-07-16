@@ -25,6 +25,7 @@ using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile.Interfaces;
 using System;
@@ -75,6 +76,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private readonly AsyncObservableCollection<BinningMode> binningModes =
             new AsyncObservableCollection<BinningMode> { new BinningMode(1, 1) };
 
+        private readonly Lazy<SimulatedTiltAdapterVM> tiltAdapterVM;
+
         public HocusFocusSimulatorCamera(
             IProfileService profileService,
             IExposureDataFactory exposureDataFactory,
@@ -106,6 +109,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             this.options = options ?? throw new ArgumentNullException(nameof(options));
             this.compositor = compositor ?? throw new ArgumentNullException(nameof(compositor));
             this.temperatureSetPoint = options.SensorTemperatureCelsius;
+            tiltAdapterVM = new Lazy<SimulatedTiltAdapterVM>(() => new SimulatedTiltAdapterVM(this.options));
         }
 
         /// <summary>The datasheet definition for the currently-selected sensor. Re-resolved live so all
@@ -117,6 +121,21 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// is shown with the camera itself as its content, so the template reaches the options through here.
         /// </summary>
         public ICameraSimulatorOptions Options => options;
+
+        /// <summary>
+        /// Backs the simulated tilt-adapter panel hosted by the setup dialog. The Imaging dockable hosts the same
+        /// control but builds its own VM — the two share state through the options singleton, which is where the
+        /// injected plane actually lives.
+        /// </summary>
+        /// <remarks>
+        /// Built on first bind rather than in the constructor, deliberately. The equipment provider constructs a
+        /// fresh camera on every rescan, whereas this panel is only needed once the user opens the setup dialog;
+        /// and the VM subscribes to the plugin's process-lifetime options singletons for as long as it lives, so
+        /// constructing one per rescan would retain every one of them. Lazy&lt;T&gt; rather than a bare ??=: the
+        /// getter is a WPF binding evaluated on the dispatcher thread, but nothing in the type's contract promises
+        /// that, and the default Lazy mode makes the question moot.
+        /// </remarks>
+        public SimulatedTiltAdapterVM TiltAdapterVM => tiltAdapterVM.Value;
 
         #region Identity (IDevice)
 

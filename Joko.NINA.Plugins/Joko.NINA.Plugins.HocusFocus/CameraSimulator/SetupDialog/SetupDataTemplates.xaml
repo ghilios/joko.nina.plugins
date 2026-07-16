@@ -118,6 +118,21 @@
                     </Binding>
                 </ninactrl:UnitTextBox>
             </Grid>
+
+            <Separator Margin="0,10" />
+
+            <!--  The virtual tilt adapter — the same control the Imaging dockable hosts, so there is one
+                  implementation of the operate loop. Its VM hangs off the camera (TiltAdapterVM) because this
+                  template binds the camera itself.
+
+                  DynamicResource, not StaticResource: unlike every other resource this file names, the panel
+                  template lives in a DIFFERENT exported ResourceDictionary
+                  (CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml). StaticResource resolves at parse
+                  time and the merge order of separately-exported plugin dictionaries into
+                  Application.Current.Resources is not guaranteed, so it would be a load-order race; DynamicResource
+                  resolves at render time, once every plugin dictionary is merged. Same reasoning, and the same
+                  fix, as HF_TiltScrewDiagram in that dictionary.  -->
+            <ContentControl Content="{Binding TiltAdapterVM}" ContentTemplate="{DynamicResource HocusFocus_SimTiltAdapter_Panel}" />
         </StackPanel>
     </DataTemplate>
 </ResourceDictionary>
