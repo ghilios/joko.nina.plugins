@@ -10,32 +10,10 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
 
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors {
-
-    /// <summary>
-    /// The filters the synthetic camera can place in front of the sensor: broadband L/R/G/B and
-    /// narrowband Hα/OIII/SII at 3 nm and 5 nm. Wider bandpass passes more light → shorter exposure for
-    /// equal signal.
-    /// </summary>
-    /// <remarks>
-    /// Placed here for Phase 1 (options don't exist yet). A later phase moves this to
-    /// <c>Interfaces/ICameraSimulatorOptions.cs</c> and decorates it with
-    /// <c>[Description]</c> / <c>[TypeConverter]</c> for the options UI.
-    /// </remarks>
-    public enum SimulatorFilter {
-        L,
-        R,
-        G,
-        B,
-        Ha5,
-        Ha3,
-        OIII5,
-        OIII3,
-        SII5,
-        SII3
-    }
 
     /// <summary>
     /// Immutable description of a filter: central wavelength, bandwidth (FWHM), and peak transmission.

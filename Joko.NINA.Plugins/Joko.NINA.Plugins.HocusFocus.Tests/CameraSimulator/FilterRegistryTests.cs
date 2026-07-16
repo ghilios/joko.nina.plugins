@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NUnit.Framework;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator;

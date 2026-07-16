@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
 using NINA.Joko.Plugins.HocusFocus.Properties;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
@@ -109,6 +110,9 @@ namespace NINA.Joko.Plugins.HocusFocus {
             if (TiltAdapterOptions == null) {
                 TiltAdapterOptions = new TiltAdapterOptions(profileService);
             }
+            if (CameraSimulatorOptions == null) {
+                CameraSimulatorOptions = new CameraSimulatorOptions(profileService);
+            }
             if (AlglibAPI == null) {
                 AlglibAPI = new AlglibAPI();
             }
@@ -144,8 +148,10 @@ namespace NINA.Joko.Plugins.HocusFocus {
             ResetStarDetectionDefaultsCommand = new RelayCommand(StarDetectionOptions.ResetDefaults);
             ResetStarAnnotatorDefaultsCommand = new RelayCommand(StarAnnotatorOptions.ResetDefaults);
             ResetAutoFocusDefaultsCommand = new RelayCommand(AutoFocusOptions.ResetDefaults);
+            ResetCameraSimulatorDefaultsCommand = new RelayCommand(CameraSimulatorOptions.ResetDefaults);
             ChooseIntermediatePathDiagCommand = new RelayCommand(ChooseIntermediatePathDiag);
             ChooseSavePathDiagCommand = new RelayCommand(ChooseSavePathDiag);
+            ChooseAstapPathDiagCommand = new RelayCommand(ChooseAstapPathDiag);
             OptimizeStarDetectionCommand = new RelayCommand(OptimizeStarDetection);
             LaunchStarDetectionOptimizer = OptimizeStarDetection;
             ExportStarDetectionSettingsCommand = new RelayCommand(() => StarDetectionSettingsIO.Export(StarDetectionOptions));
@@ -224,6 +230,16 @@ namespace NINA.Joko.Plugins.HocusFocus {
             }
         }
 
+        private void ChooseAstapPathDiag() {
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
+                dialog.SelectedPath = CameraSimulatorOptions.AstapCatalogPath;
+
+                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK) {
+                    CameraSimulatorOptions.AstapCatalogPath = dialog.SelectedPath;
+                }
+            }
+        }
+
         private Task ImageSaveMediator_BeforeFinalizeImageSaved(object sender, BeforeFinalizeImageSavedEventArgs e) {
             var hfAnalysis = (e.Image?.RawImageData?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis);
             if (hfAnalysis != null) {
@@ -251,6 +267,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
 
         public static TiltAdapterOptions TiltAdapterOptions { get; private set; }
 
+        public static CameraSimulatorOptions CameraSimulatorOptions { get; private set; }
+
         public static AutoFocusEngineFactory AutoFocusEngineFactory { get; private set; }
 
         public static ApplicationDispatcher ApplicationDispatcher { get; private set; }
@@ -270,9 +288,13 @@ namespace NINA.Joko.Plugins.HocusFocus {
 
         public ICommand ResetAutoFocusDefaultsCommand { get; private set; }
 
+        public ICommand ResetCameraSimulatorDefaultsCommand { get; private set; }
+
         public ICommand ChooseIntermediatePathDiagCommand { get; private set; }
 
         public ICommand ChooseSavePathDiagCommand { get; private set; }
+
+        public ICommand ChooseAstapPathDiagCommand { get; private set; }
 
         public ICommand OptimizeStarDetectionCommand { get; private set; }
 

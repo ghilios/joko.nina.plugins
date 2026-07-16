@@ -10,25 +10,10 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
 
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors {
-
-    /// <summary>
-    /// The set of Sony CMOS sensors the synthetic camera can emulate. The chosen model fixes
-    /// resolution, pixel size, bit depth, full well, QE curve, read-noise/gain behavior, and dark current.
-    /// </summary>
-    /// <remarks>
-    /// Placed here for Phase 1 (options don't exist yet). A later phase moves this to
-    /// <c>Interfaces/ICameraSimulatorOptions.cs</c> and decorates it with
-    /// <c>[Description]</c> / <c>[TypeConverter]</c> for the options UI.
-    /// </remarks>
-    public enum SonySensorModel {
-        IMX455,
-        IMX571,
-        IMX533,
-        IMX294
-    }
 
     /// <summary>
     /// Immutable datasheet-derived description of a single Sony CMOS sensor, plus the physical laws that

@@ -2932,4 +2932,392 @@
             </xceed:ColorPicker>
         </Grid>
     </DataTemplate>
+
+    <!--  ===================== Camera Simulator options =====================  -->
+    <TextBlock x:Key="CamSim_OptimalFocuserPosition_Tooltip" Text="The focuser step position where best focus occurs (x0 in the defocus model). At this position stars render at their minimum HFR; moving the focuser away grows the donut. Set this to match the best-focus position of your connected (simulator) focuser." />
+    <TextBlock x:Key="CamSim_FocuserStepSizeMicrons_Tooltip" Text="How many microns of sensor-plane defocus one focuser step produces (k). Larger values make the HFR-vs-position curve steeper, so the star field defocuses faster as the focuser moves away from the optimal position." />
+    <TextBlock x:Key="CamSim_ApertureMillimeters_Tooltip" Text="Telescope aperture diameter D (mm). Drives the collecting area (star brightness) and the diffraction-limited in-focus star size." />
+    <TextBlock x:Key="CamSim_FocalLengthMillimeters_Tooltip" Text="Focal length (mm) used for plate scale and defocus geometry. Set to 0 to use the active NINA profile's telescope focal length; any positive value overrides it." />
+    <TextBlock x:Key="CamSim_CentralObstructionEnabled_Tooltip" Text="Whether the optics have a central obstruction (e.g. a secondary mirror). When on, defocused stars render as donuts with a central hole sized by the obstruction fraction." />
+    <TextBlock x:Key="CamSim_CentralObstructionFraction_Tooltip" Text="Central-obstruction fraction ε (0–1): the obstruction diameter as a fraction of the aperture. Sets the donut's inner-to-outer radius ratio far from focus. Typical Newtonian/SCT values are 0.3–0.5." />
+    <TextBlock x:Key="CamSim_OpticalThroughput_Tooltip" Text="Overall optical transmission T (0–1) of the system, multiplying collected star and sky electrons. Default 0.85." />
+    <TextBlock x:Key="CamSim_SensorModel_Tooltip" Text="The Sony CMOS sensor to emulate. The chosen model fixes resolution, pixel size, bit depth, full well, QE curve, read noise, dark current, and electrons-per-ADU — the camera's reported geometry changes immediately when you switch sensors." />
+    <TextBlock x:Key="CamSim_Gain_Tooltip" Text="Sensor gain in ZWO-style 0.1 dB units. Higher gain lowers electrons-per-ADU (and read noise, down to the sensor's floor) but tightens digital saturation." />
+    <TextBlock x:Key="CamSim_BiasPedestalAdu_Tooltip" Text="Bias/offset pedestal added to every pixel (ADU) so read noise never clips at zero, yielding calibratable bias/dark/flat frames. Design suggests 500 at 16-bit and 125 at 14-bit; default 500." />
+    <TextBlock x:Key="CamSim_SensorTemperatureCelsius_Tooltip" Text="Sensor temperature (°C), which drives dark current via the sensor's doubling law. Lower temperatures reduce dark noise." />
+    <TextBlock x:Key="CamSim_Filter_Tooltip" Text="The filter in front of the sensor. Wider bandpass (L) collects far more light than narrowband (Hα/OIII/SII), so narrowband needs proportionally longer exposures for equal signal." />
+    <TextBlock x:Key="CamSim_SkyBrightnessMagPerArcsec2_Tooltip" Text="Sky surface brightness (mag/arcsec², V-referenced). Lower numbers are brighter skies. Narrowband sky scales down with bandwidth automatically. Default 20.5." />
+    <TextBlock x:Key="CamSim_SeeingArcsec_Tooltip" Text="Atmospheric seeing FWHM (arcsec), combined in quadrature with diffraction to set the in-focus star size (HFR_min)." />
+    <TextBlock x:Key="CamSim_AstapCatalogPath_Tooltip" Text="Directory holding the ASTAP star database (the .1476 or .290 cell files). Real catalog stars are projected from the mount pointing onto the sensor. Defaults to %ProgramFiles%\astap." />
+    <TextBlock x:Key="CamSim_LimitingMagnitude_Tooltip" Text="Faintest star magnitude to render. Fainter stars are skipped; catalog reads stop early once records fall below this cutoff." />
+    <TextBlock x:Key="CamSim_RotationDegrees_Tooltip" Text="Field rotation (degrees) applied to the projected star field, so the same pointing can be rendered at different camera angles." />
+    <TextBlock x:Key="CamSim_NoiseSeed_Tooltip" Text="Seed for the noise RNG. A fixed seed makes each frame exactly repeatable; change it to draw a different (but statistically identical) noise realization." />
+    <TextBlock x:Key="CamSim_EnableAberrations_Tooltip" Text="Master toggle for the field-aberration model below (tilt / backfocus / optical-axis offset). When off, the sensor is a flat, uniformly-focused plane. When on, the injected best-focus surface can be recovered by the aberration inspector." />
+    <TextBlock x:Key="CamSim_TiltAngleDegrees_Tooltip" Text="Azimuth φ of the sensor tilt (degrees, inspector convention). Together with Tilt Amount it sets the gradient direction of the best-focus surface. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_TiltAmountMicrons_Tooltip" Text="Center-to-corner focus swing (µm) produced by sensor tilt. Larger values make the defocus vary more strongly across the frame. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_BackfocusErrorMicrons_Tooltip" Text="Corner-versus-center curvature offset (µm) from a backfocus error — an isotropic field-curvature term. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_OpticalAxisOffsetXMicrons_Tooltip" Text="X offset (µm) of the optical axis from the sensor center (X0), shifting where the best-focus surface is centered. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_OpticalAxisOffsetYMicrons_Tooltip" Text="Y offset (µm) of the optical axis from the sensor center (Y0), shifting where the best-focus surface is centered. Only used while aberrations are enabled." />
+
+    <DataTemplate x:Key="HocusFocus_CameraSimulator_Options">
+        <StackPanel Margin="5" Orientation="Vertical" VerticalAlignment="Top">
+
+            <!--  Focus & Optics  -->
+            <TextBlock Margin="5,5,5,2" FontWeight="Bold" Text="Focus &amp; Optics" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Optimal Focuser Position" ToolTip="{StaticResource CamSim_OptimalFocuserPosition_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_OptimalFocuserPosition_Tooltip}" Unit="steps">
+                    <Binding Path="CameraSimulatorOptions.OptimalFocuserPosition" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="1000000" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Focuser Step Size" ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}" Unit="µm/step">
+                    <Binding Path="CameraSimulatorOptions.FocuserStepSizeMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="1000" Minimum="0.001" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Aperture" ToolTip="{StaticResource CamSim_ApertureMillimeters_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_ApertureMillimeters_Tooltip}" Unit="mm">
+                    <Binding Path="CameraSimulatorOptions.ApertureMillimeters" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="2000" Minimum="1" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Focal Length (0 = use profile)" ToolTip="{StaticResource CamSim_FocalLengthMillimeters_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_FocalLengthMillimeters_Tooltip}" Unit="mm">
+                    <Binding Path="CameraSimulatorOptions.FocalLengthMillimeters" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="20000" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Central Obstruction" ToolTip="{StaticResource CamSim_CentralObstructionEnabled_Tooltip}" />
+                <CheckBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.CentralObstructionEnabled}" ToolTip="{StaticResource CamSim_CentralObstructionEnabled_Tooltip}" />
+
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Text="Obstruction Fraction" ToolTip="{StaticResource CamSim_CentralObstructionFraction_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="{Binding CameraSimulatorOptions.CentralObstructionEnabled}" ToolTip="{StaticResource CamSim_CentralObstructionFraction_Tooltip}">
+                    <Binding Path="CameraSimulatorOptions.CentralObstructionFraction" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="0.9" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Text="Optical Throughput" ToolTip="{StaticResource CamSim_OpticalThroughput_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="6" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_OpticalThroughput_Tooltip}">
+                    <Binding Path="CameraSimulatorOptions.OpticalThroughput" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="1" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+            </Grid>
+
+            <!--  Sensor & Filter  -->
+            <TextBlock Margin="5,15,5,2" FontWeight="Bold" Text="Sensor &amp; Filter" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Sensor Model" ToolTip="{StaticResource CamSim_SensorModel_Tooltip}" />
+                <ComboBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:SonySensorModel}}}" SelectedItem="{Binding CameraSimulatorOptions.SensorModel}" ToolTip="{StaticResource CamSim_SensorModel_Tooltip}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Gain" ToolTip="{StaticResource CamSim_Gain_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_Gain_Tooltip}">
+                    <!--  Coarse UI bound (widest sensor MaxGain is 400); CameraSimulatorOptions.Gain re-clamps to the
+                          selected sensor's exact [0, MaxGain] range on commit.  -->
+                    <Binding Path="CameraSimulatorOptions.Gain" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="400" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Bias Pedestal" ToolTip="{StaticResource CamSim_BiasPedestalAdu_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_BiasPedestalAdu_Tooltip}" Unit="ADU">
+                    <Binding Path="CameraSimulatorOptions.BiasPedestalAdu" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="65535" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Sensor Temperature" ToolTip="{StaticResource CamSim_SensorTemperatureCelsius_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_SensorTemperatureCelsius_Tooltip}" Unit="°C">
+                    <Binding Path="CameraSimulatorOptions.SensorTemperatureCelsius" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="50" Minimum="-50" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Filter" ToolTip="{StaticResource CamSim_Filter_Tooltip}" />
+                <ComboBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:SimulatorFilter}}}" SelectedItem="{Binding CameraSimulatorOptions.Filter}" ToolTip="{StaticResource CamSim_Filter_Tooltip}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+            </Grid>
+
+            <!--  Sky & Catalog  -->
+            <TextBlock Margin="5,15,5,2" FontWeight="Bold" Text="Sky &amp; Catalog" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Sky Brightness" ToolTip="{StaticResource CamSim_SkyBrightnessMagPerArcsec2_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_SkyBrightnessMagPerArcsec2_Tooltip}" Unit="mag/arcsec²">
+                    <Binding Path="CameraSimulatorOptions.SkyBrightnessMagPerArcsec2" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="25" Minimum="10" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Seeing" ToolTip="{StaticResource CamSim_SeeingArcsec_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_SeeingArcsec_Tooltip}" Unit="arcsec">
+                    <Binding Path="CameraSimulatorOptions.SeeingArcsec" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="20" Minimum="0.1" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="ASTAP Catalog Path" ToolTip="{StaticResource CamSim_AstapCatalogPath_Tooltip}" />
+                <TextBox Grid.Row="2" Grid.Column="1" MaxWidth="240" Margin="5,5,0,0" HorizontalAlignment="Stretch" VerticalAlignment="Center" VerticalContentAlignment="Center" Style="{StaticResource StandardTextbox}" Text="{Binding CameraSimulatorOptions.AstapCatalogPath, UpdateSourceTrigger=LostFocus}" ToolTip="{StaticResource CamSim_AstapCatalogPath_Tooltip}" />
+                <Button Grid.Row="2" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center" Command="{Binding ChooseAstapPathDiagCommand}" Style="{StaticResource StandardButton}">
+                    <Path Margin="2,10,2,0" Data="{StaticResource DotsSVG}" Fill="{StaticResource ButtonForegroundBrush}" Stretch="Uniform" />
+                </Button>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Limiting Magnitude" ToolTip="{StaticResource CamSim_LimitingMagnitude_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_LimitingMagnitude_Tooltip}" Unit="mag">
+                    <Binding Path="CameraSimulatorOptions.LimitingMagnitude" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="25" Minimum="5" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Field Rotation" ToolTip="{StaticResource CamSim_RotationDegrees_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_RotationDegrees_Tooltip}" Unit="°">
+                    <Binding Path="CameraSimulatorOptions.RotationDegrees" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="360" Minimum="-360" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Text="Noise Seed" ToolTip="{StaticResource CamSim_NoiseSeed_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_NoiseSeed_Tooltip}">
+                    <Binding Path="CameraSimulatorOptions.NoiseSeed" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="1000000000" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+            </Grid>
+
+            <!--  Field Aberrations  -->
+            <TextBlock Margin="5,15,5,2" FontWeight="Bold" Text="Field Aberrations" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Enable Aberrations" ToolTip="{StaticResource CamSim_EnableAberrations_Tooltip}" />
+                <CheckBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.EnableAberrations}" ToolTip="{StaticResource CamSim_EnableAberrations_Tooltip}" />
+            </Grid>
+            <Grid IsEnabled="{Binding CameraSimulatorOptions.EnableAberrations}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Angle" ToolTip="{StaticResource CamSim_TiltAngleDegrees_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_TiltAngleDegrees_Tooltip}" Unit="°">
+                    <Binding Path="CameraSimulatorOptions.TiltAngleDegrees" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="360" Minimum="-360" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Amount" ToolTip="{StaticResource CamSim_TiltAmountMicrons_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_TiltAmountMicrons_Tooltip}" Unit="µm">
+                    <Binding Path="CameraSimulatorOptions.TiltAmountMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="10000" Minimum="-10000" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Backfocus Error" ToolTip="{StaticResource CamSim_BackfocusErrorMicrons_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_BackfocusErrorMicrons_Tooltip}" Unit="µm">
+                    <Binding Path="CameraSimulatorOptions.BackfocusErrorMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="10000" Minimum="-10000" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Optical Axis Offset X" ToolTip="{StaticResource CamSim_OpticalAxisOffsetXMicrons_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_OpticalAxisOffsetXMicrons_Tooltip}" Unit="µm">
+                    <Binding Path="CameraSimulatorOptions.OpticalAxisOffsetXMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="100000" Minimum="-100000" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Optical Axis Offset Y" ToolTip="{StaticResource CamSim_OpticalAxisOffsetYMicrons_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_OpticalAxisOffsetYMicrons_Tooltip}" Unit="µm">
+                    <Binding Path="CameraSimulatorOptions.OpticalAxisOffsetYMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="100000" Minimum="-100000" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+            </Grid>
+        </StackPanel>
+    </DataTemplate>
 </ResourceDictionary>
