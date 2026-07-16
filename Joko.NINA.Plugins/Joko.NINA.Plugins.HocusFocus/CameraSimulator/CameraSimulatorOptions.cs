@@ -89,7 +89,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             backfocusErrorMicrons = optionsAccessor.GetValueDouble(nameof(BackfocusErrorMicrons), 0.0);
             opticalAxisOffsetXMicrons = optionsAccessor.GetValueDouble(nameof(OpticalAxisOffsetXMicrons), 0.0);
             opticalAxisOffsetYMicrons = optionsAccessor.GetValueDouble(nameof(OpticalAxisOffsetYMicrons), 0.0);
-            simScrewCount = optionsAccessor.GetValueInt32(nameof(SimScrewCount), 3);
+            // Heal a stored screw count outside 3|4 (a hand-edited or legacy profile). SimulatedTiltAdapter rejects
+            // anything else, so an unhealed value would surface as a panel-construction crash rather than a 3.
+            simScrewCount = optionsAccessor.GetValueInt32(nameof(SimScrewCount), 3) == 4 ? 4 : 3;
             simScrew1AngleDegrees = optionsAccessor.GetValueDouble(nameof(SimScrew1AngleDegrees), 0.0);
             simScrew2AngleDegrees = optionsAccessor.GetValueDouble(nameof(SimScrew2AngleDegrees), 120.0);
             simScrew3AngleDegrees = optionsAccessor.GetValueDouble(nameof(SimScrew3AngleDegrees), 240.0);

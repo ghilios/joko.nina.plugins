@@ -126,6 +126,8 @@ public class CameraSimulatorOptionsTests {
         options.TiltAmountMicrons = 42.0;
         options.OpticalThroughput = 0.5;
         options.AstapCatalogPath = @"D:\somewhere";
+        // Screw 4 resets to NaN, the one direction the NaN-aware setter guard could plausibly break (value -> NaN).
+        options.SimScrew4AngleDegrees = 270.0;
 
         options.ResetDefaults();
 
@@ -137,6 +139,7 @@ public class CameraSimulatorOptionsTests {
             Assert.That(options.TiltAmountMicrons, Is.EqualTo(0.0));
             Assert.That(options.OpticalThroughput, Is.EqualTo(0.85));
             Assert.That(options.AstapCatalogPath, Is.EqualTo(CameraSimulatorOptions.DefaultAstapCatalogPath));
+            Assert.That(double.IsNaN(options.SimScrew4AngleDegrees), Is.True);
         });
     }
 
@@ -235,6 +238,26 @@ public class CameraSimulatorOptionsTests {
             Assert.That(b.SimThreadPitchMicrons, Is.EqualTo(350.0));
             Assert.That(b.ShowSimulatorTiltAdapterPanel, Is.True);
         });
+    }
+
+    /// <summary>
+    /// A stored screw count outside 3|4 (hand-edited or legacy profile) must heal to 3 on load. The setter clamps,
+    /// but InitializeOptions assigns the backing field directly, so the stored value would otherwise survive and
+    /// reach SimulatedTiltAdapter, which rejects anything but 3 or 4.
+    /// </summary>
+    [TestCase(5, 3)]
+    [TestCase(0, 3)]
+    [TestCase(-1, 3)]
+    [TestCase(3, 3)]
+    [TestCase(4, 4)]
+    public void SimScrewCount_HealsOutOfRangeStoredValueOnLoad(int stored, int expected) {
+        var store = new InMemoryPluginOptionsAccessor();
+        // Seed through the accessor, bypassing the clamping property setter, as a hand-edited profile would.
+        store.SetValueInt32(nameof(CameraSimulatorOptions.SimScrewCount), stored);
+
+        var options = new CameraSimulatorOptions(Substitute.For<IProfileService>(), store);
+
+        Assert.That(options.SimScrewCount, Is.EqualTo(expected));
     }
 
     /// <summary>
