@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NUnit.Framework;
@@ -88,6 +89,27 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             var a = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(request, CancellationToken.None);
             var b = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(request, CancellationToken.None);
             Assert.That(a, Is.EqualTo(b).AsCollection);
+        }
+
+        [Test]
+        public void Render_IsPure_SameRequestRendersIdenticallyOnAnyThread() {
+            // The camera prefetches the render at StartExposure rather than at DownloadExposure. That is only
+            // safe because Render is a pure function of its request: same request => same pixels, no matter when,
+            // or on which thread, it runs. Stars are injected so this exercises the parallel stamp, not just the
+            // starless background.
+            var projection = SyntheticCameraTestScene.Projection();
+            var stars = new List<CatalogStar> {
+                SyntheticCameraTestScene.StarAtPixel(projection, 700, 700, 10.5),
+                SyntheticCameraTestScene.StarAtPixel(projection, 1504, 1504, 10.0),
+                SyntheticCameraTestScene.StarAtPixel(projection, 2200, 2300, 10.8),
+            };
+            var request = SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition + 30);
+            var compositor = new StarFieldCompositor(new FakeCatalogReader(stars));
+
+            var inline = compositor.Render(request, CancellationToken.None);
+            var offThread = Task.Run(() => compositor.Render(request, CancellationToken.None)).GetAwaiter().GetResult();
+
+            Assert.That(offThread, Is.EqualTo(inline).AsCollection);
         }
 
         [Test]

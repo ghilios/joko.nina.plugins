@@ -538,4 +538,88 @@ public class HocusFocusSimulatorCameraTests {
         Assert.That(captured[1].NoiseSeed, Is.EqualTo(captured[0].NoiseSeed),
             "reconnecting must reset the exposure counter, so the sequence replays identically");
     }
+
+    /// <summary>Records when Render begins and blocks there until cancelled, so a test can observe that the
+    /// render is already in flight while the camera is still exposing.</summary>
+    private sealed class BlockingCompositor : IStarFieldCompositor {
+        private readonly TaskCompletionSource<bool> started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ManualResetEventSlim cancelled = new(false);
+
+        public Task Started => started.Task;
+        public int RenderCount;
+
+        public bool WaitForCancellation(TimeSpan timeout) => cancelled.Wait(timeout);
+
+        public ushort[] Render(RenderRequest request, CancellationToken token) {
+            Interlocked.Increment(ref RenderCount);
+            started.TrySetResult(true);
+            // Cancellation is observed by waiting on the token's own handle, NOT via token.Register: Cancel()
+            // signals that handle BEFORE it runs registered callbacks, so a using-scoped registration gets
+            // disposed by this thread the moment the wait returns and its callback then never runs — the fake
+            // would report "never cancelled" for a render that was in fact cancelled correctly.
+            if (token.WaitHandle.WaitOne(TimeSpan.FromSeconds(10))) {
+                cancelled.Set();
+            }
+            token.ThrowIfCancellationRequested();
+            return new ushort[1];
+        }
+    }
+
+    /// <summary>
+    /// Waits for the prefetched render to begin. Bounded rather than a bare await: if the prefetch ever
+    /// regresses, these tests must FAIL, not hang the suite forever waiting on a render that never starts.
+    /// </summary>
+    private static async Task AwaitRenderStart(BlockingCompositor compositor) {
+        var winner = await Task.WhenAny(compositor.Started, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.That(winner, Is.SameAs(compositor.Started), "the render must begin at StartExposure, not at DownloadExposure");
+    }
+
+    [Test]
+    public async Task Render_StartsDuringTheExposure_NotAtDownload() {
+        var compositor = new BlockingCompositor();
+        var camera = BuildCameraWithCompositor(
+            BuildOptions(), compositor, Substitute.For<IExposureDataFactory>(),
+            FocuserAt(25000), ConnectedTelescope());
+        await camera.Connect(CancellationToken.None);
+
+        camera.StartExposure(new CaptureSequence { ExposureTime = 30.0 });
+
+        // The render must already be running while the camera is still nominally exposing. Before this change
+        // Render was not called until DownloadExposure, so this waits out the timeout.
+        await AwaitRenderStart(compositor);
+        camera.AbortExposure();
+    }
+
+    [Test]
+    public async Task AbortExposure_CancelsTheInFlightRender() {
+        var compositor = new BlockingCompositor();
+        var camera = BuildCameraWithCompositor(
+            BuildOptions(), compositor, Substitute.For<IExposureDataFactory>(),
+            FocuserAt(25000), ConnectedTelescope());
+        await camera.Connect(CancellationToken.None);
+
+        camera.StartExposure(new CaptureSequence { ExposureTime = 30.0 });
+        await AwaitRenderStart(compositor);
+        camera.AbortExposure();
+
+        Assert.That(compositor.WaitForCancellation(TimeSpan.FromSeconds(5)), Is.True,
+            "aborting must cancel the prefetched render rather than leave every core busy on a dead frame");
+    }
+
+    [Test]
+    public async Task DownloadWithoutFocuser_StillThrowsTheDescriptiveError_AndNeverRenders() {
+        var compositor = new BlockingCompositor();
+        var focuser = Substitute.For<IFocuserMediator>();
+        focuser.GetInfo().Returns(new FocuserInfo { Connected = false });
+        var camera = BuildCameraWithCompositor(
+            BuildOptions(), compositor, Substitute.For<IExposureDataFactory>(),
+            focuser, ConnectedTelescope());
+        await camera.Connect(CancellationToken.None);
+
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+
+        var ex = Assert.ThrowsAsync<CameraExposureFailedException>(() => camera.DownloadExposure(CancellationToken.None));
+        Assert.That(ex.Message, Does.Contain("no focuser is connected"), "the descriptive guard must survive prefetching");
+        Assert.That(compositor.RenderCount, Is.Zero, "a frame nobody can use must never be rendered");
+    }
 }

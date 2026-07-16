@@ -177,6 +177,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
 
         public void Disconnect() {
             pendingRender = null;
+            CancelPendingRender();
             CameraState = CameraStates.NoState;
             Connected = false;
         }
@@ -464,6 +465,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         }
 
         private RenderRequest pendingRender;
+        private Task<ushort[]> pendingRenderTask;
+        private CancellationTokenSource renderCts;
         private DateTime exposureStartTime;
         private double exposureLengthSeconds;
 
@@ -476,11 +479,45 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 throw new InvalidOperationException("Cannot start an exposure: the synthetic camera is not connected.");
             }
 
+            CancelPendingRender();
             exposureStartTime = DateTime.UtcNow;
             exposureLengthSeconds = sequence?.ExposureTime ?? 0.0;
             unchecked { ++exposureCounter; }
-            pendingRender = BuildRenderRequest(exposureLengthSeconds);
+            var request = BuildRenderRequest(exposureLengthSeconds);
+            pendingRender = request;
+
+            // Render NOW rather than in DownloadExposure. BuildRenderRequest has already snapshotted everything
+            // Render reads, and Render touches no ambient state, so the pixels are byte-identical either way —
+            // this only moves the render out from after the exposure and under it. Skipped when a required device
+            // is missing so DownloadExposure's descriptive guards still fire, unchanged, without burning cores on
+            // a frame nobody can use.
+            if (request.FocuserConnected && request.TelescopeConnected) {
+                var cts = new CancellationTokenSource();
+                var token = cts.Token;
+                renderCts = cts;
+                var task = Task.Run(() => compositor.Render(request, token), token);
+                pendingRenderTask = task;
+                // Observe the fault even if the exposure is aborted and nobody ever awaits this task, so a render
+                // failure cannot resurface later as an unobserved TaskException.
+                _ = task.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+            }
+
             CameraState = CameraStates.Exposing;
+        }
+
+        /// <summary>
+        /// Cancels any prefetched render and drops the references.
+        ///
+        /// <para>The CTS is deliberately not disposed: it carries no timer and no registered wait handle, so the
+        /// GC reclaims it, whereas disposing here would race the render task that is still observing its token
+        /// (<c>ThrowIfCancellationRequested</c> on a disposed source throws <see cref="ObjectDisposedException"/>,
+        /// which would surface as a spurious exposure failure).</para>
+        /// </summary>
+        private void CancelPendingRender() {
+            var cts = renderCts;
+            renderCts = null;
+            pendingRenderTask = null;
+            cts?.Cancel();
         }
 
         public async Task WaitUntilExposureIsReady(CancellationToken token) {
@@ -501,6 +538,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
 
         public void StopExposure() {
             pendingRender = null;
+            CancelPendingRender();
             if (Connected) {
                 CameraState = CameraStates.Idle;
             }
@@ -508,6 +546,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
 
         public void AbortExposure() {
             pendingRender = null;
+            CancelPendingRender();
             if (Connected) {
                 CameraState = CameraStates.Idle;
             }
@@ -552,7 +591,20 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 var width = snapshotSensor.Width;
                 var height = snapshotSensor.Height;
                 var bitDepth = snapshotSensor.BitDepth;
-                var pixels = await Task.Run(() => compositor.Render(request, token), token).ConfigureAwait(false);
+                // Normally already running since StartExposure; the inline fallback covers a caller that
+                // downloads an exposure whose prefetch was cancelled out from under it.
+                ushort[] pixels;
+                var prefetched = pendingRenderTask;
+                if (prefetched != null) {
+                    // Route the download's cancellation into the render that is actually doing the work, rather
+                    // than just abandoning the await and leaving every core busy on a frame nobody wants.
+                    var cts = renderCts;
+                    using (token.Register(() => cts?.Cancel())) {
+                        pixels = await prefetched.ConfigureAwait(false);
+                    }
+                } else {
+                    pixels = await Task.Run(() => compositor.Render(request, token), token).ConfigureAwait(false);
+                }
 
                 var metaData = new ImageMetaData();
                 metaData.FromCamera(this);
