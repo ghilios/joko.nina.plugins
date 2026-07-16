@@ -31,6 +31,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         public const double LimitingMagnitude = 16.0;
         public const double ExposureSeconds = 2.0;
         public const int NoiseSeed = 12345;
+        public const string AstapCatalogPath = "(fake)";
 
         public static SensorDefinition SensorDef => SensorRegistry.Get(Sensor);
 
@@ -48,7 +49,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 double tiltAmountMicrons = 0.0,
                 double backfocusErrorMicrons = 0.0,
                 double exposureSeconds = ExposureSeconds,
-                int noiseSeed = NoiseSeed) {
+                int noiseSeed = NoiseSeed,
+                string astapCatalogPath = AstapCatalogPath) {
             return new RenderRequest {
                 FocuserConnected = true,
                 FocuserPosition = focuserPosition,
@@ -69,7 +71,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 SeeingArcsec = SeeingArcsec,
                 OptimalFocuserPosition = OptimalFocuserPosition,
                 FocuserStepSizeMicrons = FocuserStepSizeMicrons,
-                AstapCatalogPath = "(fake)",
+                AstapCatalogPath = astapCatalogPath,
                 LimitingMagnitude = LimitingMagnitude,
                 RotationDegrees = 0.0,
                 NoiseSeed = noiseSeed,

@@ -20,8 +20,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// (aperture, focal length, obstruction), the sensor pixel pitch, the seeing, the observing wavelength,
     /// and the focuser step size, it produces the in-focus HFR floor and maps any defocus (in focuser steps
     /// or in microns of sensor displacement) to HFR, wavefront error W20, and geometric donut annulus radii.
-    /// Phase 3b's PSF generator calls this so the rendered PSF and the reported HFR-vs-focuser V-curve stay
-    /// consistent by construction.
+    /// <see cref="PsfKernelGenerator"/> calls this so the rendered PSF and the reported HFR-vs-focuser V-curve
+    /// stay consistent by construction.
     ///
     /// Formulas (design §Optics, spec §DefocusModel), with N = f/D, p = pixel µm, λ in µm:
     /// <list type="bullet">
@@ -163,11 +163,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         public double HfrAtDefocusMicrons(double defocusMicrons) {
             var defocusTerm = kappaPerMicron * defocusMicrons;
             return Math.Sqrt(HfrMinPixels * HfrMinPixels + defocusTerm * defocusTerm);
-        }
-
-        /// <summary>Sensor defocus Δ (µm) for a focuser step position: Δ = k·(steps − x0).</summary>
-        public double DefocusMicronsAtFocuserPosition(int steps) {
-            return focuserStepSizeMicrons * (steps - OptimalFocuserPosition);
         }
 
         /// <summary>Wavefront defocus W20 = Δ/(8N²), in µm, for a sensor defocus Δ (µm).</summary>

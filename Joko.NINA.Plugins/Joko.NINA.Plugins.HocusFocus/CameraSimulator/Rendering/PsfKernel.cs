@@ -20,7 +20,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>Analytic annulus⊛Gaussian radial LUT (default; HFR-exact, ~100× cheaper than the FFT path).</summary>
         Analytic,
 
-        /// <summary>High-fidelity <c>|Cv2.Dft(pupil·phase)|²</c> path (adds diffraction rings). Phase 3b seam; not implemented.</summary>
+        /// <summary>High-fidelity <c>|Cv2.Dft(pupil·phase)|²</c> path (adds diffraction rings). Reserved seam; not implemented.</summary>
         Fft
     }
 
@@ -42,8 +42,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         internal PsfKernel(
             int phasesPerAxis,
             int radius,
-            double sigmaPixels,
-            double innerRadiusPixels,
             double outerRadiusPixels,
             double measuredHfrPixels,
             double analyticHfrPixels,
@@ -53,8 +51,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             PhasesPerAxis = phasesPerAxis;
             Radius = radius;
             Size = 2 * radius + 1;
-            SigmaPixels = sigmaPixels;
-            InnerRadiusPixels = innerRadiusPixels;
             OuterRadiusPixels = outerRadiusPixels;
             MeasuredHfrPixels = measuredHfrPixels;
             AnalyticHfrPixels = analyticHfrPixels;
@@ -72,12 +68,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>Edge length of each phase kernel, 2R+1.</summary>
         public int Size { get; }
 
-        /// <summary>The combined in-focus σ (px) this PSF was built from.</summary>
-        public double SigmaPixels { get; }
-
-        /// <summary>Geometric donut inner radius r_in (px). 0 with no obstruction or at focus.</summary>
-        public double InnerRadiusPixels { get; }
-
         /// <summary>Geometric donut outer radius r_out (px). 0 at focus.</summary>
         public double OuterRadiusPixels { get; }
 
@@ -90,8 +80,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>
         /// The normalized (Σ=1) phase kernel for sub-pixel phase (phaseX, phaseY), row-major, Size×Size.
         /// <b>The returned array is this kernel's shared internal buffer — treat it as read-only and never
-        /// mutate it.</b> Phase 4 caches and shares <see cref="PsfKernel"/> instances across many stars, so an
-        /// in-place edit would corrupt every subsequent stamp.
+        /// mutate it.</b> The compositor caches and shares <see cref="PsfKernel"/> instances across many stars,
+        /// so an in-place edit would corrupt every subsequent stamp.
         /// </summary>
         public float[] GetPhaseKernel(int phaseX, int phaseY) {
             if (phaseX < 0 || phaseX >= PhasesPerAxis) throw new ArgumentOutOfRangeException(nameof(phaseX));

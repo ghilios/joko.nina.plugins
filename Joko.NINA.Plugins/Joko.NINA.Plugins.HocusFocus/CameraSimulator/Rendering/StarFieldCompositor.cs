@@ -23,11 +23,11 @@ using System.Threading.Tasks;
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
     /// <summary>
-    /// The Phase 4 render pipeline. Turns an immutable <see cref="RenderRequest"/> into a row-major
-    /// <c>ushort[width*height]</c> 16-bit frame by composing the prior phases:
+    /// The render pipeline. Turns an immutable <see cref="RenderRequest"/> into a row-major
+    /// <c>ushort[width*height]</c> 16-bit frame:
     /// <list type="number">
     /// <item>resolve the sensor/filter and build the radiometry, defocus, aberration-surface, and TAN-projection models;</item>
-    /// <item>query the ASTAP catalog for the sensor's diagonal field of view;</item>
+    /// <item>resolve the catalog reader for the request's catalog path and query it for the sensor's diagonal field of view;</item>
     /// <item>project each star, look up its <b>local</b> defocus Δ from the aberration surface, quantize Δ, and
     /// build (once, cached) the analytic PSF kernel for that level;</item>
     /// <item>stamp <c>kernel·flux</c> into a shared electron accumulator using a disjoint horizontal row-stripe
@@ -38,6 +38,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// coverage, a per-cell decode error, or simply zero stars never fails the exposure: the compositor logs a
     /// descriptive warning and renders a <b>starless</b> frame (sky + dark + noise only). The focuser/mount
     /// disconnected checks are the camera's hard errors, not the compositor's.</para>
+    ///
+    /// <para><b>Catalog path.</b> The reader is resolved <b>per exposure</b> from the request's
+    /// <see cref="RenderRequest.AstapCatalogPath"/> snapshot rather than latched at construction, so editing the
+    /// option takes effect on the very next exposure (no camera reconnect) and the missing-database warning always
+    /// names the path that was actually read.</para>
     ///
     /// <para><b>Concurrency.</b> <see cref="StarStamper.Stamp"/>'s accumulator write is a non-atomic <c>+=</c>
     /// and defocused donuts overlap, so stamping cannot be parallelized over stars into one shared buffer. This
@@ -76,12 +81,29 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>Target rows per stripe used to size the row-stripe partition (bounds boundary re-stamping).</summary>
         private const int TargetRowsPerStripe = 128;
 
-        private readonly IAstapCatalogReader catalogReader;
+        private readonly Func<string, IAstapCatalogReader> catalogReaderFactory;
 
-        /// <param name="catalogReader">The ASTAP catalog reader. The camera builds
-        /// <c>new AstapCatalogReader(options.AstapCatalogPath)</c>; tests inject a fake.</param>
-        public StarFieldCompositor(IAstapCatalogReader catalogReader) {
-            this.catalogReader = catalogReader ?? throw new ArgumentNullException(nameof(catalogReader));
+        /// <param name="catalogReaderFactory">Resolves the ASTAP catalog reader for a catalog directory. Invoked
+        /// once per <see cref="Render"/> with that exposure's <see cref="RenderRequest.AstapCatalogPath"/>, so the
+        /// reader always reads the path the user currently has configured. The camera passes
+        /// <c>path => new AstapCatalogReader(path)</c>; tests inject a fake.</param>
+        public StarFieldCompositor(Func<string, IAstapCatalogReader> catalogReaderFactory) {
+            this.catalogReaderFactory = catalogReaderFactory ?? throw new ArgumentNullException(nameof(catalogReaderFactory));
+        }
+
+        /// <summary>
+        /// Convenience overload that binds one reader for every catalog path — for callers (and tests) that
+        /// already hold the reader they want and do not care about the request's path.
+        /// </summary>
+        /// <param name="catalogReader">The ASTAP catalog reader to use regardless of the request's catalog path.</param>
+        public StarFieldCompositor(IAstapCatalogReader catalogReader)
+            : this(FixedReaderFactory(catalogReader)) {
+        }
+
+        /// <summary>Wraps a fixed reader as a path-ignoring factory, validating it eagerly (not at render time).</summary>
+        private static Func<string, IAstapCatalogReader> FixedReaderFactory(IAstapCatalogReader catalogReader) {
+            if (catalogReader == null) throw new ArgumentNullException(nameof(catalogReader));
+            return _ => catalogReader;
         }
 
         private readonly struct StampJob {
@@ -205,13 +227,18 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         }
 
         /// <summary>
-        /// Queries the catalog for the pointing, returning an empty list (never throwing) on any failure. A
-        /// missing/absent database is logged distinctly from a pointing that simply has no catalog stars, so the
-        /// user can tell "install an ASTAP database" apart from "this patch of sky is empty".
+        /// Resolves the reader for this exposure's catalog path and queries it for the pointing, returning an
+        /// empty list (never throwing) on any failure. A missing/absent database is logged distinctly from a
+        /// pointing that simply has no catalog stars, so the user can tell "install an ASTAP database" apart from
+        /// "this patch of sky is empty".
         /// </summary>
         private List<CatalogStar> QueryCatalogStars(RenderRequest request, double fovDeg) {
             try {
                 var stars = new List<CatalogStar>();
+                // Resolved here, from the request's path snapshot, so an options edit lands on the next exposure —
+                // and inside the try, so a factory that rejects the path is the same starless-frame warning as a
+                // path that simply has no database, rather than a failed exposure.
+                var catalogReader = catalogReaderFactory(request.AstapCatalogPath);
                 // Query() validates the folder/database eagerly; per-cell decode errors surface during enumeration,
                 // so the foreach is inside the try too.
                 foreach (var star in catalogReader.Query(request.RaDegreesJ2000, request.DecDegreesJ2000, fovDeg, request.LimitingMagnitude)) {

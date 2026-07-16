@@ -16,7 +16,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
 
     /// <summary>
     /// Renders a synthetic star field into a row-major 16-bit frame from an immutable <see cref="RenderRequest"/>.
-    /// The real physics pipeline (ASTAP query → projection → PSF → noise) is implemented in Phase 4.
+    /// The physics pipeline (ASTAP query → projection → PSF → noise) lives in
+    /// <see cref="NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering.StarFieldCompositor"/>; the interface is
+    /// the seam the camera renders through, so tests can substitute a frame without an ASTAP database.
     /// </summary>
     public interface IStarFieldCompositor {
 

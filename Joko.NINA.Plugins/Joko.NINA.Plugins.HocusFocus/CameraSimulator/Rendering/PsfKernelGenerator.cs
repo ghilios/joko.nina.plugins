@@ -60,7 +60,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             if (model == null) throw new ArgumentNullException(nameof(model));
             if (method == PsfKernelMethod.Fft) {
                 throw new NotSupportedException(
-                    "The FFT PSF path (|Cv2.Dft(pupil·phase)|²) is a Phase 3b seam and is not implemented; use PsfKernelMethod.Analytic.");
+                    "The FFT PSF path (|Cv2.Dft(pupil·phase)|²) is a reserved seam and is not implemented; use PsfKernelMethod.Analytic.");
             }
             var sigma = model.SigmaMinPixels;
             var rOut = model.OuterAnnulusRadiusPixels(defocusMicrons);
@@ -69,10 +69,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         }
 
         /// <summary>
-        /// Builds the PSF directly from σ, r_in, r_out (px) — the same math the model-based overload uses,
-        /// exposed for testing. <paramref name="innerRadiusPixels"/> must satisfy 0 ≤ r_in ≤ r_out.
+        /// Builds the PSF directly from the σ, r_in, r_out (px) that <see cref="Generate"/> resolved from the
+        /// model. <paramref name="innerRadiusPixels"/> must satisfy 0 ≤ r_in ≤ r_out.
         /// </summary>
-        public static PsfKernel GenerateAnalytic(double sigmaPixels, double innerRadiusPixels, double outerRadiusPixels, int phasesPerAxis = DefaultPhasesPerAxis) {
+        private static PsfKernel GenerateAnalytic(double sigmaPixels, double innerRadiusPixels, double outerRadiusPixels, int phasesPerAxis = DefaultPhasesPerAxis) {
             if (sigmaPixels <= 0.0) throw new ArgumentOutOfRangeException(nameof(sigmaPixels));
             if (outerRadiusPixels < 0.0) throw new ArgumentOutOfRangeException(nameof(outerRadiusPixels));
             if (innerRadiusPixels < 0.0 || innerRadiusPixels > outerRadiusPixels) throw new ArgumentOutOfRangeException(nameof(innerRadiusPixels));
@@ -161,15 +161,16 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             }
 
             var analyticHfr = isGaussian ? sigma * SigmaToHfr : RiceHfr(sigma, rIn, rOut);
-            return new PsfKernel(s, radius, sigma, rIn, rOut, measuredHfr, analyticHfr, phases, lut, radialStep);
+            return new PsfKernel(s, radius, rOut, measuredHfr, analyticHfr, phases, lut, radialStep);
         }
 
         /// <summary>
         /// Rice closed-form HFR of the annulus⊛Gaussian: the flux-weighted average of the Rice mean radius
-        /// E[r|R] over the uniform annulus. Independent of the raster, so tests compare it to
+        /// E[r|R] over the uniform annulus. Computed independently of the raster and surfaced as
+        /// <see cref="PsfKernel.AnalyticHfrPixels"/>, so tests can cross-check it against the rasterized
         /// <see cref="PsfKernel.MeasuredHfrPixels"/>.
         /// </summary>
-        public static double RiceHfr(double sigmaPixels, double innerRadiusPixels, double outerRadiusPixels) {
+        private static double RiceHfr(double sigmaPixels, double innerRadiusPixels, double outerRadiusPixels) {
             if (outerRadiusPixels - innerRadiusPixels <= GaussianLimitFraction * sigmaPixels) {
                 return sigmaPixels * SigmaToHfr;
             }

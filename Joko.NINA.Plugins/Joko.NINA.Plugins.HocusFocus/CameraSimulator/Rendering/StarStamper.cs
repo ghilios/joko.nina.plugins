@@ -17,7 +17,7 @@ using Size = OpenCvSharp.Size;
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
     /// <summary>
-    /// Additive star stamping into the Phase 4 electron accumulator, plus the analytic render primitives
+    /// Additive star stamping into the compositor's electron accumulator, plus the analytic render primitives
     /// (Gaussian star, uniform disk, annular donut, seeded Gaussian noise) that were previously test-only
     /// helpers. <see cref="Stamp"/> is the compositor core: it selects the sub-pixel-phase kernel matching a
     /// star's fractional centre and adds <c>kernel·flux</c> at the integer pixel position, so the total
@@ -33,8 +33,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// coordinate rounds up to the next phase). Contributions outside the sensor are clipped.
         /// </summary>
         /// <remarks>
-        /// The accumulator write is a non-atomic <c>+=</c>. If Phase 4 stamps in parallel, it must partition
-        /// stars so concurrent calls touch <b>disjoint</b> accumulator regions. The <paramref name="rowStart"/>
+        /// The accumulator write is a non-atomic <c>+=</c>. A caller stamping in parallel must partition stars so
+        /// concurrent calls touch <b>disjoint</b> accumulator regions. The <paramref name="rowStart"/>
         /// / <paramref name="rowEnd"/> row clip is exactly that seam: the compositor splits the frame into
         /// horizontal row-stripes and each parallel stripe passes its own <c>[rowStart, rowEnd)</c> so every
         /// stamp writes only that stripe's rows of the one shared accumulator — disjoint rows ⇒ no race. A star

@@ -37,8 +37,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
     /// and mount (pointing) and hands the immutable <see cref="RenderRequest"/> to an
     /// <see cref="IStarFieldCompositor"/>. Sensor-derived capabilities (resolution, pixel size, bit depth,
     /// electrons-per-ADU, gain bounds) track the selected <see cref="SonySensorModel"/> via
-    /// <see cref="SensorRegistry"/>. The render pipeline itself is stubbed in Phase 0 and filled in Phase 4;
-    /// an exposure fails with a descriptive error if the focuser or mount is disconnected.
+    /// <see cref="SensorRegistry"/>. An exposure fails with a descriptive error if the focuser or mount is
+    /// disconnected.
     /// </summary>
     /// <remarks>
     /// Sensor-derived capabilities read the selected sensor's definition live on each get, but the camera does
@@ -68,8 +68,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             ITelescopeMediator telescopeMediator,
             IFocuserMediator focuserMediator,
             ICameraSimulatorOptions options)
+            // The reader is built per exposure from the request's catalog-path snapshot (not latched here), so a
+            // change to the option takes effect on the next exposure without reconnecting the camera.
             : this(profileService, exposureDataFactory, imageDataFactory, telescopeMediator, focuserMediator, options,
-                  new StarFieldCompositor(new AstapCatalogReader(options?.AstapCatalogPath ?? CameraSimulatorOptions.DefaultAstapCatalogPath))) {
+                  new StarFieldCompositor(path => new AstapCatalogReader(path ?? CameraSimulatorOptions.DefaultAstapCatalogPath))) {
         }
 
         internal HocusFocusSimulatorCamera(
@@ -82,8 +84,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             IStarFieldCompositor compositor) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.exposureDataFactory = exposureDataFactory ?? throw new ArgumentNullException(nameof(exposureDataFactory));
-            // imageDataFactory is part of the DI signature (plan step 4) but not consumed by the camera itself
-            // (the ushort[] path returns via IExposureDataFactory). Validated for fail-fast wiring, not stored.
+            // imageDataFactory is part of the DI signature but not consumed by the camera itself (the ushort[]
+            // path returns via IExposureDataFactory). Validated for fail-fast wiring, not stored.
             _ = imageDataFactory ?? throw new ArgumentNullException(nameof(imageDataFactory));
             this.telescopeMediator = telescopeMediator ?? throw new ArgumentNullException(nameof(telescopeMediator));
             this.focuserMediator = focuserMediator ?? throw new ArgumentNullException(nameof(focuserMediator));
@@ -479,9 +481,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 CameraState = CameraStates.Idle;
                 return exposureData;
             } catch {
-                // The render (Phase-0 stub always; a transient failure in Phase 4) or the metadata/exposure-data
-                // build threw. Reset the state to Error — matching the disconnected guards above — so the camera
-                // never reports Download while it is actually idle, then propagate.
+                // The render or the metadata/exposure-data build threw. Reset the state to Error — matching the
+                // disconnected guards above — so the camera never reports Download while it is actually idle,
+                // then propagate.
                 CameraState = CameraStates.Error;
                 throw;
             }

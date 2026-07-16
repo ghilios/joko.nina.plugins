@@ -18,7 +18,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// <summary>
     /// The physical photon→electron→ADU sampling stage (design §"Noise model &amp; sampling"). Given a
     /// per-pixel <b>electron</b> accumulator whose value is the mean electron budget
-    /// <c>λ_e = N_star + N_sky + N_dark</c> (already summed by the Phase 4 compositor), it draws shot noise,
+    /// <c>λ_e = N_star + N_sky + N_dark</c> (already summed by the compositor), it draws shot noise,
     /// clips to the full well, adds read noise, converts to ADU with a bias pedestal, and applies the digital
     /// clip:
     /// <code>
@@ -70,7 +70,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// space (so <c>e^(−λ)</c> cannot underflow even well past the <see cref="PoissonToGaussianThreshold"/>).
         /// Returns 0 for λ ≤ 0.
         /// </summary>
-        public long NextPoisson(double lambda) {
+        private long NextPoisson(double lambda) {
             if (lambda <= 0.0) return 0L;
             var target = -lambda; // ln(e^(−λ))
             var logProduct = 0.0;

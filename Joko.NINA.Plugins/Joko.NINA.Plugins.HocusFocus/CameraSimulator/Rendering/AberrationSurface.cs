@@ -160,7 +160,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// Best-focus surface height at a centered sensor position, in µm of focuser travel:
         /// <c>Gx·(x−X0) + Gy·(y−Y0) + K·((x−X0)² + (y−Y0)²) + Z0</c>.
         /// </summary>
-        public double ZBestFocusMicrons(double xMicrons, double yMicrons) {
+        private double ZBestFocusMicrons(double xMicrons, double yMicrons) {
             var xPrime = xMicrons - X0;
             var yPrime = yMicrons - Y0;
             var tilt = Gx * xPrime + Gy * yPrime;

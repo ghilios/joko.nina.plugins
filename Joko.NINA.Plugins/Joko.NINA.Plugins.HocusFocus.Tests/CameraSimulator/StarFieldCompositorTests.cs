@@ -9,7 +9,7 @@ using NUnit.Framework;
 namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
 
     /// <summary>
-    /// Behavioural unit tests for the Phase 4 <see cref="StarFieldCompositor"/>: correct frame geometry,
+    /// Behavioural unit tests for the <see cref="StarFieldCompositor"/>: correct frame geometry,
     /// deterministic (race-free) parallel stamping, flux deposited at the projected star position, and the
     /// starless/dark fallbacks that must never fail an exposure.
     /// </summary>
@@ -41,6 +41,34 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
 
             Assert.That(starlessFromError.Length, Is.EqualTo(Width * Height));
             Assert.That(starlessFromError, Is.EqualTo(starlessFromEmpty).AsCollection);
+        }
+
+        [Test]
+        public void Render_ResolvesCatalogReaderFromRequestPath_NotFromConstructionTime() {
+            // Regression: the reader was latched at construction, so the request's AstapCatalogPath snapshot was
+            // ignored — a changed catalog path did nothing until the camera was reconnected, and the
+            // "no ASTAP database found at '<path>'" warning could name a path that was not the one being read.
+            // The factory must be handed each request's own path.
+            var pathsSeen = new List<string>();
+            var compositor = new StarFieldCompositor(path => {
+                pathsSeen.Add(path);
+                // No database at either path: the missing-DB path must still render starless, never throw.
+                return new FakeCatalogReader(() => throw new DirectoryNotFoundException($"no astap at '{path}'"));
+            });
+
+            var first = compositor.Render(
+                SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition, astapCatalogPath: @"D:\astap-old"),
+                CancellationToken.None);
+            var second = compositor.Render(
+                SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition, astapCatalogPath: @"D:\astap-new"),
+                CancellationToken.None);
+
+            Assert.Multiple(() => {
+                Assert.That(pathsSeen, Is.EqualTo(new[] { @"D:\astap-old", @"D:\astap-new" }).AsCollection,
+                    "each render resolves its reader from that request's catalog-path snapshot");
+                Assert.That(first.Length, Is.EqualTo(Width * Height), "a missing database still yields a starless frame");
+                Assert.That(second.Length, Is.EqualTo(Width * Height), "a missing database still yields a starless frame");
+            });
         }
 
         [Test]

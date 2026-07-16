@@ -16,7 +16,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// Constants shared across the render pipeline so that every stage computes the same physical quantity
     /// from the same value. In particular, the plate scale (arcsec/px) is used by three stages —
     /// <see cref="TanProjection"/> (star positions), <see cref="RadiometryCalculator"/> (pixel solid angle),
-    /// and <see cref="DefocusModel"/> (seeing σ) — which Phase 4's compositor combines, so they must all
+    /// and <see cref="DefocusModel"/> (seeing σ) — which the compositor combines, so they must all
     /// derive it from the one full-precision <see cref="ArcsecPerRadian"/> here rather than local literals.
     /// </summary>
     internal static class AstronomicalConstants {

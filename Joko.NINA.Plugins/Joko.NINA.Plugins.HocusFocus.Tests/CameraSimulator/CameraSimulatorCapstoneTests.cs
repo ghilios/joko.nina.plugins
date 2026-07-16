@@ -15,7 +15,7 @@ using OpenCvSharp;
 namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
 
     /// <summary>
-    /// Phase 4 capstones: prove the whole synthetic pipeline (ASTAP-shaped catalog → projection → local defocus →
+    /// Capstones: prove the whole synthetic pipeline (ASTAP-shaped catalog → projection → local defocus →
     /// PSF → stamp → noise → <c>ushort[]</c>) recovers the known truth it was built from, using the real
     /// <see cref="StarDetector"/> as an independent reader. Kept fast with the smallest sensor (IMX533) and a
     /// handful of stars.

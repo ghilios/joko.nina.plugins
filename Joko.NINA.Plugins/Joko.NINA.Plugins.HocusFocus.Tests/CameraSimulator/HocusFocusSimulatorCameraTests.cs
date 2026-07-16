@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using NINA.Core.Enum;
@@ -9,6 +11,7 @@ using NINA.Equipment.Model;
 using NINA.Image.ImageData;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Profile.Interfaces;
@@ -219,6 +222,53 @@ public class HocusFocusSimulatorCameraTests {
             pixels, 3008, 3008, 14, false, Arg.Any<ImageMetaData>());
         exposureDataFactory.DidNotReceive().CreateImageArrayExposureData(
             Arg.Any<ushort[]>(), 9576, 6388, 16, Arg.Any<bool>(), Arg.Any<ImageMetaData>());
+    }
+
+    [Test]
+    public async Task DownloadExposure_AstapCatalogPathChangedBetweenExposures_NextRenderQueriesNewPath() {
+        // Regression: the camera built its AstapCatalogReader once, in its constructor, so editing the ASTAP
+        // catalog path in options had no effect until the camera was reconnected. The reader is now resolved per
+        // exposure from the request snapshot, so an options edit lands on the very next exposure.
+        var focuser = Substitute.For<IFocuserMediator>();
+        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
+        var telescope = Substitute.For<ITelescopeMediator>();
+        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+
+        var options = BuildOptions();
+        options.SensorModel = SonySensorModel.IMX533; // smallest sensor: keeps the two real renders quick
+        options.FocalLengthMillimeters = 910.0;       // must be > 0, else the compositor short-circuits to a dark
+                                                      // frame and never reaches the catalog at all
+        options.AstapCatalogPath = @"D:\astap-old";
+
+        // The REAL compositor (where the fix lives) over a factory spy. No database exists at either path, so
+        // every render is a starless frame — the assertion is purely which path the reader was built for.
+        var pathsSeen = new List<string>();
+        var compositor = new StarFieldCompositor(path => {
+            pathsSeen.Add(path);
+            return new FakeCatalogReader(() => throw new DirectoryNotFoundException($"no astap at '{path}'"));
+        });
+
+        var exposureDataFactory = Substitute.For<IExposureDataFactory>();
+        var camera = BuildCameraWithCompositor(options, compositor, exposureDataFactory, focuser, telescope);
+        camera.Connect(CancellationToken.None).GetAwaiter().GetResult();
+
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+        await camera.DownloadExposure(CancellationToken.None);
+
+        // The user edits the catalog path in options — WITHOUT disconnecting/reconnecting the camera.
+        options.AstapCatalogPath = @"D:\astap-new";
+
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+        await camera.DownloadExposure(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(pathsSeen, Is.EqualTo(new[] { @"D:\astap-old", @"D:\astap-new" }).AsCollection,
+                "the exposure after an options edit must read the NEW catalog path, with no reconnect");
+            // Both exposures still completed: a missing database is a starless frame, never a failed exposure.
+            Assert.That(camera.CameraState, Is.EqualTo(CameraStates.Idle));
+        });
+        exposureDataFactory.Received(2).CreateImageArrayExposureData(
+            Arg.Any<ushort[]>(), 3008, 3008, 14, false, Arg.Any<ImageMetaData>());
     }
 
     [Test]

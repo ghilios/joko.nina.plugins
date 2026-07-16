@@ -174,7 +174,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog {
         /// Maximum FOV (radians) a single query may span before <c>find_areas</c> would risk missing a tile:
         /// one cell dimension (9.53° for .290, 5.142857° for .1476). Matches the reference crop.
         /// </summary>
-        public static double MaxFovRadians(AstapPartitioning partitioning) =>
+        private static double MaxFovRadians(AstapPartitioning partitioning) =>
             (partitioning == AstapPartitioning.Astap1476 ? 5.142857 : 9.53) * Deg;
 
         /// <summary>
