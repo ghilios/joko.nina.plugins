@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Profile.Interfaces;
 using NSubstitute;
 using NUnit.Framework;
@@ -197,5 +198,62 @@ public class CameraSimulatorOptionsTests {
     public void Constructor_ThrowsOnNullAccessor() {
         var profile = Substitute.For<IProfileService>();
         Assert.Throws<ArgumentNullException>(() => new CameraSimulatorOptions(profile, null));
+    }
+
+    [Test]
+    public void SimTiltAdapterDefaults_MatchDesign() {
+        var (options, _, _) = Build();
+        Assert.Multiple(() => {
+            Assert.That(options.SimScrewCount, Is.EqualTo(3));
+            Assert.That(options.SimScrew1AngleDegrees, Is.EqualTo(0.0));
+            Assert.That(options.SimScrew2AngleDegrees, Is.EqualTo(120.0));
+            Assert.That(options.SimScrew3AngleDegrees, Is.EqualTo(240.0));
+            Assert.That(double.IsNaN(options.SimScrew4AngleDegrees), Is.True);
+            Assert.That(options.SimScrewInwardCurvatureSign,
+                Is.EqualTo(TiltScrewGeometry.DefaultScrewInwardCurvatureSign));
+            Assert.That(options.SimAdjustmentType, Is.EqualTo(TiltAdjustmentType.Screws));
+            Assert.That(options.SimThreadPitchMicrons, Is.EqualTo(500.0));
+            Assert.That(options.SimStepperStepSizeMicrons, Is.EqualTo(1.0));
+            Assert.That(options.SimScrewRadiusMillimeters, Is.EqualTo(30.0));
+            Assert.That(options.ShowSimulatorTiltAdapterPanel, Is.False);
+        });
+    }
+
+    [Test]
+    public void SimTiltAdapterOptions_PersistAndReadBack() {
+        var store = new InMemoryPluginOptionsAccessor();
+        var a = new CameraSimulatorOptions(Substitute.For<IProfileService>(), store);
+        a.SimScrewCount = 4;
+        a.SimScrew4AngleDegrees = 270.0;
+        a.SimThreadPitchMicrons = 350.0;
+        a.ShowSimulatorTiltAdapterPanel = true;
+
+        var b = new CameraSimulatorOptions(Substitute.For<IProfileService>(), store);
+        Assert.Multiple(() => {
+            Assert.That(b.SimScrewCount, Is.EqualTo(4));
+            Assert.That(b.SimScrew4AngleDegrees, Is.EqualTo(270.0));
+            Assert.That(b.SimThreadPitchMicrons, Is.EqualTo(350.0));
+            Assert.That(b.ShowSimulatorTiltAdapterPanel, Is.True);
+        });
+    }
+
+    /// <summary>
+    /// Screw 4 defaults to <c>double.NaN</c> (the 3-screw convention), and <c>NaN != NaN</c> is always true — a
+    /// naive <c>if (field != value)</c> guard would fire on every set, re-persisting and raising forever. Setting
+    /// NaN over the NaN default must be a no-op.
+    /// </summary>
+    [Test]
+    public void SimScrew4Angle_SettingNaNOverNaNDefault_DoesNotRaiseOrPersist() {
+        var (options, store, _) = Build();
+        var raised = new List<string>();
+        options.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        options.SimScrew4AngleDegrees = double.NaN;
+
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Not.Contain(nameof(CameraSimulatorOptions.SimScrew4AngleDegrees)));
+            Assert.That(store.Snapshot.ContainsKey(nameof(CameraSimulatorOptions.SimScrew4AngleDegrees)), Is.False);
+            Assert.That(double.IsNaN(options.SimScrew4AngleDegrees), Is.True);
+        });
     }
 }

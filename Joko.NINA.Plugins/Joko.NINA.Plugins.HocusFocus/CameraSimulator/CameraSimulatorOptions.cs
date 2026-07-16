@@ -14,6 +14,7 @@ using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
@@ -88,6 +89,18 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             backfocusErrorMicrons = optionsAccessor.GetValueDouble(nameof(BackfocusErrorMicrons), 0.0);
             opticalAxisOffsetXMicrons = optionsAccessor.GetValueDouble(nameof(OpticalAxisOffsetXMicrons), 0.0);
             opticalAxisOffsetYMicrons = optionsAccessor.GetValueDouble(nameof(OpticalAxisOffsetYMicrons), 0.0);
+            simScrewCount = optionsAccessor.GetValueInt32(nameof(SimScrewCount), 3);
+            simScrew1AngleDegrees = optionsAccessor.GetValueDouble(nameof(SimScrew1AngleDegrees), 0.0);
+            simScrew2AngleDegrees = optionsAccessor.GetValueDouble(nameof(SimScrew2AngleDegrees), 120.0);
+            simScrew3AngleDegrees = optionsAccessor.GetValueDouble(nameof(SimScrew3AngleDegrees), 240.0);
+            simScrew4AngleDegrees = optionsAccessor.GetValueDouble(nameof(SimScrew4AngleDegrees), double.NaN);
+            simScrewInwardCurvatureSign = optionsAccessor.GetValueInt32(nameof(SimScrewInwardCurvatureSign),
+                TiltScrewGeometry.DefaultScrewInwardCurvatureSign);
+            simAdjustmentType = optionsAccessor.GetValueEnum(nameof(SimAdjustmentType), TiltAdjustmentType.Screws);
+            simThreadPitchMicrons = optionsAccessor.GetValueDouble(nameof(SimThreadPitchMicrons), 500.0);
+            simStepperStepSizeMicrons = optionsAccessor.GetValueDouble(nameof(SimStepperStepSizeMicrons), 1.0);
+            simScrewRadiusMillimeters = optionsAccessor.GetValueDouble(nameof(SimScrewRadiusMillimeters), 30.0);
+            showSimulatorTiltAdapterPanel = optionsAccessor.GetValueBoolean(nameof(ShowSimulatorTiltAdapterPanel), false);
         }
 
         public void ResetDefaults() {
@@ -115,6 +128,17 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             BackfocusErrorMicrons = 0.0;
             OpticalAxisOffsetXMicrons = 0.0;
             OpticalAxisOffsetYMicrons = 0.0;
+            SimScrewCount = 3;
+            SimScrew1AngleDegrees = 0.0;
+            SimScrew2AngleDegrees = 120.0;
+            SimScrew3AngleDegrees = 240.0;
+            SimScrew4AngleDegrees = double.NaN;
+            SimScrewInwardCurvatureSign = TiltScrewGeometry.DefaultScrewInwardCurvatureSign;
+            SimAdjustmentType = TiltAdjustmentType.Screws;
+            SimThreadPitchMicrons = 500.0;
+            SimStepperStepSizeMicrons = 1.0;
+            SimScrewRadiusMillimeters = 30.0;
+            ShowSimulatorTiltAdapterPanel = false;
         }
 
         private int optimalFocuserPosition;
@@ -433,6 +457,156 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 if (opticalAxisOffsetYMicrons != value) {
                     opticalAxisOffsetYMicrons = value;
                     optionsAccessor.SetValueDouble(nameof(OpticalAxisOffsetYMicrons), opticalAxisOffsetYMicrons);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int simScrewCount;
+
+        public int SimScrewCount {
+            get => simScrewCount;
+            set {
+                // The adapter model only knows 3- and 4-screw geometries; anything else is a config typo.
+                var clamped = value == 4 ? 4 : 3;
+                if (simScrewCount != clamped) {
+                    simScrewCount = clamped;
+                    optionsAccessor.SetValueInt32(nameof(SimScrewCount), simScrewCount);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double simScrew1AngleDegrees;
+
+        public double SimScrew1AngleDegrees {
+            get => simScrew1AngleDegrees;
+            set {
+                if (simScrew1AngleDegrees != value) {
+                    simScrew1AngleDegrees = value;
+                    optionsAccessor.SetValueDouble(nameof(SimScrew1AngleDegrees), simScrew1AngleDegrees);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double simScrew2AngleDegrees;
+
+        public double SimScrew2AngleDegrees {
+            get => simScrew2AngleDegrees;
+            set {
+                if (simScrew2AngleDegrees != value) {
+                    simScrew2AngleDegrees = value;
+                    optionsAccessor.SetValueDouble(nameof(SimScrew2AngleDegrees), simScrew2AngleDegrees);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double simScrew3AngleDegrees;
+
+        public double SimScrew3AngleDegrees {
+            get => simScrew3AngleDegrees;
+            set {
+                if (simScrew3AngleDegrees != value) {
+                    simScrew3AngleDegrees = value;
+                    optionsAccessor.SetValueDouble(nameof(SimScrew3AngleDegrees), simScrew3AngleDegrees);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double simScrew4AngleDegrees;
+
+        /// <summary>
+        /// Angle of the 4th screw, or <c>double.NaN</c> on a 3-screw adapter (the <see cref="Interfaces.ITiltAdapterOptions"/>
+        /// convention). The NaN default forces a NaN-aware guard: <c>NaN != NaN</c> is always true, so the usual
+        /// <c>if (field != value)</c> shape would re-persist and raise on every set of the default value.
+        /// </summary>
+        public double SimScrew4AngleDegrees {
+            get => simScrew4AngleDegrees;
+            set {
+                if (!(double.IsNaN(simScrew4AngleDegrees) && double.IsNaN(value)) && simScrew4AngleDegrees != value) {
+                    simScrew4AngleDegrees = value;
+                    optionsAccessor.SetValueDouble(nameof(SimScrew4AngleDegrees), simScrew4AngleDegrees);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int simScrewInwardCurvatureSign;
+
+        public int SimScrewInwardCurvatureSign {
+            get => simScrewInwardCurvatureSign;
+            set {
+                if (simScrewInwardCurvatureSign != value) {
+                    simScrewInwardCurvatureSign = value;
+                    optionsAccessor.SetValueInt32(nameof(SimScrewInwardCurvatureSign), simScrewInwardCurvatureSign);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private TiltAdjustmentType simAdjustmentType;
+
+        public TiltAdjustmentType SimAdjustmentType {
+            get => simAdjustmentType;
+            set {
+                if (simAdjustmentType != value) {
+                    simAdjustmentType = value;
+                    optionsAccessor.SetValueEnum(nameof(SimAdjustmentType), simAdjustmentType);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double simThreadPitchMicrons;
+
+        public double SimThreadPitchMicrons {
+            get => simThreadPitchMicrons;
+            set {
+                if (simThreadPitchMicrons != value) {
+                    simThreadPitchMicrons = value;
+                    optionsAccessor.SetValueDouble(nameof(SimThreadPitchMicrons), simThreadPitchMicrons);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double simStepperStepSizeMicrons;
+
+        public double SimStepperStepSizeMicrons {
+            get => simStepperStepSizeMicrons;
+            set {
+                if (simStepperStepSizeMicrons != value) {
+                    simStepperStepSizeMicrons = value;
+                    optionsAccessor.SetValueDouble(nameof(SimStepperStepSizeMicrons), simStepperStepSizeMicrons);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double simScrewRadiusMillimeters;
+
+        public double SimScrewRadiusMillimeters {
+            get => simScrewRadiusMillimeters;
+            set {
+                if (simScrewRadiusMillimeters != value) {
+                    simScrewRadiusMillimeters = value;
+                    optionsAccessor.SetValueDouble(nameof(SimScrewRadiusMillimeters), simScrewRadiusMillimeters);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool showSimulatorTiltAdapterPanel;
+
+        public bool ShowSimulatorTiltAdapterPanel {
+            get => showSimulatorTiltAdapterPanel;
+            set {
+                if (showSimulatorTiltAdapterPanel != value) {
+                    showSimulatorTiltAdapterPanel = value;
+                    optionsAccessor.SetValueBoolean(nameof(ShowSimulatorTiltAdapterPanel), showSimulatorTiltAdapterPanel);
                     RaisePropertyChanged();
                 }
             }

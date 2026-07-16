@@ -121,6 +121,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double OpticalAxisOffsetXMicrons { get; set; }
         double OpticalAxisOffsetYMicrons { get; set; }
 
+        // Simulated tilt adapter. Deliberately separate from the user's real ITiltAdapterOptions: the inspector
+        // guides from the REAL calibration, so the two must be comparable but must never implicitly overwrite
+        // each other. The panel surfaces a coherence badge + explicit copy commands instead.
+        int SimScrewCount { get; set; }                      // 3 or 4
+        double SimScrew1AngleDegrees { get; set; }           // clockwise from top, image space
+        double SimScrew2AngleDegrees { get; set; }
+        double SimScrew3AngleDegrees { get; set; }
+        double SimScrew4AngleDegrees { get; set; }           // double.NaN when 3-screw
+        int SimScrewInwardCurvatureSign { get; set; }        // +1 / -1
+        TiltAdjustmentType SimAdjustmentType { get; set; }
+        double SimThreadPitchMicrons { get; set; }           // axial µm per full turn
+        double SimStepperStepSizeMicrons { get; set; }       // axial µm per step
+        double SimScrewRadiusMillimeters { get; set; }       // screw distance from sensor center
+        bool ShowSimulatorTiltAdapterPanel { get; set; }
+
         void ResetDefaults();
     }
 }

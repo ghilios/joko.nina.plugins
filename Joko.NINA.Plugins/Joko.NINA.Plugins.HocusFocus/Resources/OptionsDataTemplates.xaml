@@ -2957,6 +2957,7 @@
     <TextBlock x:Key="CamSim_BackfocusErrorMicrons_Tooltip" Text="Corner-versus-center curvature offset (µm) from a backfocus error — an isotropic field-curvature term. Only used while aberrations are enabled." />
     <TextBlock x:Key="CamSim_OpticalAxisOffsetXMicrons_Tooltip" Text="X offset (µm) of the optical axis from the sensor center (X0), shifting where the best-focus surface is centered. Only used while aberrations are enabled." />
     <TextBlock x:Key="CamSim_OpticalAxisOffsetYMicrons_Tooltip" Text="Y offset (µm) of the optical axis from the sensor center (Y0), shifting where the best-focus surface is centered. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_ShowTiltAdapterPanel_Tooltip" Text="Show the simulated tilt adapter as a panel in the Imaging tab, so it can be operated next to the Aberration Inspector. Requires a NINA restart to appear the first time." />
 
     <DataTemplate x:Key="HocusFocus_CameraSimulator_Options">
         <StackPanel Margin="5" Orientation="Vertical" VerticalAlignment="Top">
@@ -3284,6 +3285,22 @@
                         </Binding.ValidationRules>
                     </Binding>
                 </ninactrl:UnitTextBox>
+            </Grid>
+
+            <!--  Tilt Adapter. Only the panel-visibility toggle lives here: the simulated adapter's own geometry
+                  (screw count/angles, curvature sign, thread pitch, screw radius) is edited in the tilt adapter
+                  panel itself, next to the buttons that turn those screws.  -->
+            <TextBlock Margin="5,15,5,2" FontWeight="Bold" Text="Tilt Adapter" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Show tilt adapter panel in Imaging" ToolTip="{StaticResource CamSim_ShowTiltAdapterPanel_Tooltip}" />
+                <CheckBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.ShowSimulatorTiltAdapterPanel}" ToolTip="{StaticResource CamSim_ShowTiltAdapterPanel_Tooltip}" />
             </Grid>
         </StackPanel>
     </DataTemplate>
