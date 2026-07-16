@@ -32,8 +32,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// limited only by floating-point precision.
     /// </summary>
     public sealed class TanProjection {
-        private const double ArcsecPerRadian = 206264.806247096355; // 3600 * 180 / π
-
         private readonly double centerRaRad;
         private readonly double centerDecRad;
         private readonly double sinDec0;
@@ -75,7 +73,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
             // radians/px = pixelµm / (1000 · focalMm); arcsec/px is derived from it, so 206.265 appears once.
             radiansPerPixel = pixelSizeMicrons / (1000.0 * focalLengthMm);
-            ArcsecPerPixel = radiansPerPixel * ArcsecPerRadian;
+            ArcsecPerPixel = radiansPerPixel * AstronomicalConstants.ArcsecPerRadian;
 
             Width = width;
             Height = height;

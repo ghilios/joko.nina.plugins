@@ -3272,7 +3272,7 @@
                         <Binding.ValidationRules>
                             <rules:FloatRangeRule>
                                 <rules:FloatRangeRule.ValidRange>
-                                    <rules:FloatRangeChecker Maximum="10000" Minimum="-10000" />
+                                    <rules:FloatRangeChecker Maximum="10000" Minimum="0" />
                                 </rules:FloatRangeRule.ValidRange>
                             </rules:FloatRangeRule>
                         </Binding.ValidationRules>
