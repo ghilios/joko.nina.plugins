@@ -18,6 +18,7 @@ using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
+using System.ComponentModel;
 using System.IO;
 
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
@@ -31,6 +32,22 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private readonly IProfileService profileService;
         private readonly IPluginOptionsAccessor optionsAccessor;
 
+        // EffectiveFocalLengthMillimeters/EffectiveApertureMillimeters read the ACTIVE profile's TelescopeSettings;
+        // these track the settings object currently subscribed so in-place edits refresh the inferred values and
+        // profile swaps re-hook cleanly. Mirrors InspectorVM/TiltAdapterWizardVM's FocuserSettings hook.
+        private readonly PropertyChangedEventHandler telescopeSettingsHandler;
+        private ITelescopeSettings hookedTelescopeSettings;
+
+        private void HookActiveProfileTelescopeSettings() {
+            if (hookedTelescopeSettings != null) {
+                hookedTelescopeSettings.PropertyChanged -= telescopeSettingsHandler;
+            }
+            hookedTelescopeSettings = profileService?.ActiveProfile?.TelescopeSettings;
+            if (hookedTelescopeSettings != null) {
+                hookedTelescopeSettings.PropertyChanged += telescopeSettingsHandler;
+            }
+        }
+
         public CameraSimulatorOptions(IProfileService profileService)
             : this(profileService, CreateDefaultAccessor(profileService)) {
         }
@@ -38,6 +55,20 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         internal CameraSimulatorOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.optionsAccessor = optionsAccessor ?? throw new ArgumentNullException(nameof(optionsAccessor));
+            // The inferred optics read the active profile's focal length / focal ratio, which the user can edit in
+            // place (Options → Equipment → Telescope) without swapping profiles — ProfileChanged alone would leave
+            // a bound hint showing the pre-edit number while the render, which re-reads per exposure, already uses
+            // the new one. Track the active profile's TelescopeSettings and re-hook on every profile change
+            // (unsubscribe old, subscribe new). Assigned before the first hook, which needs the handler.
+            telescopeSettingsHandler = (s, e) => {
+                if (e.PropertyName == nameof(ITelescopeSettings.FocalLength) ||
+                    e.PropertyName == nameof(ITelescopeSettings.FocalRatio)) {
+                    RaisePropertyChanged(nameof(EffectiveFocalLengthMillimeters));
+                    // The inferred aperture is focal length ÷ focal ratio, so EITHER edit moves it.
+                    RaisePropertyChanged(nameof(EffectiveApertureMillimeters));
+                }
+            };
+            HookActiveProfileTelescopeSettings();
             profileService.ProfileChanged += ProfileService_ProfileChanged;
             InitializeOptions();
         }
@@ -51,6 +82,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         }
 
         private void ProfileService_ProfileChanged(object sender, EventArgs e) {
+            // The swap replaces the TelescopeSettings instance, so the subscription must move to the new profile's
+            // object; the old one would otherwise keep reporting a profile that is no longer active.
+            HookActiveProfileTelescopeSettings();
             InitializeOptions();
             RaiseAllPropertiesChanged();
         }
@@ -234,8 +268,14 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// The focal length (mm) the next exposure will actually use: the option when set, else the active
         /// profile's telescope focal length, else <see cref="DefaultFocalLengthMillimeters"/>.
         ///
-        /// <para>This is the single resolution point — the render reads it and the setup dialog's hint text
-        /// displays it, so the number shown to the user is by construction the number that will be used.</para>
+        /// <para>This is the single resolution point: the render and the setup dialog's hint text both read it,
+        /// so a shown value and a rendered value can never be derived by different rules — the failure mode where
+        /// a hint lies because it was computed separately. That guarantee holds per <i>read</i>, which is not the
+        /// same as per <i>notification</i>: the render re-reads on every exposure, but a bound hint only updates
+        /// when told to. Every input this resolves over must therefore raise PropertyChanged for it — the option
+        /// setters do, a profile swap does, and in-place TelescopeSettings edits do via
+        /// <see cref="HookActiveProfileTelescopeSettings"/>. A new input needs the same treatment or the hint
+        /// goes stale while the render moves on.</para>
         /// </summary>
         public double EffectiveFocalLengthMillimeters {
             get {

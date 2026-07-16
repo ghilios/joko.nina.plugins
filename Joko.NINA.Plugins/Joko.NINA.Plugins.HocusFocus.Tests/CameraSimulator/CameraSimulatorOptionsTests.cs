@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
@@ -93,6 +94,50 @@ public class CameraSimulatorOptionsTests {
         options.FocalLengthMillimeters = 1000.0;
         Assert.That(raised, Does.Contain(nameof(CameraSimulatorOptions.EffectiveApertureMillimeters)),
             "an inferred aperture depends on the focal length, so its hint must refresh too");
+    }
+
+    /// <summary>
+    /// The user can edit focal length / focal ratio inside the ACTIVE profile (Options → Equipment → Telescope)
+    /// without swapping profiles, which raises no ProfileChanged. The render re-reads per exposure and would pick
+    /// the edit up, so without this the long-lived rig panel would keep showing the pre-edit number while the
+    /// render used the new one — the exact hint-vs-render drift this resolution point exists to prevent.
+    /// </summary>
+    [TestCase(nameof(ITelescopeSettings.FocalLength))]
+    [TestCase(nameof(ITelescopeSettings.FocalRatio))]
+    public void InPlaceProfileOpticsEdit_RaisesTheInferredOptics(string editedProperty) {
+        var (options, _, profile) = Build();
+        var telescopeSettings = profile.ActiveProfile.TelescopeSettings;
+        var raised = new List<string>();
+        options.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        telescopeSettings.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+            telescopeSettings, new PropertyChangedEventArgs(editedProperty));
+
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(CameraSimulatorOptions.EffectiveFocalLengthMillimeters)));
+            // The inferred aperture is focal length ÷ focal ratio, so either edit moves it.
+            Assert.That(raised, Does.Contain(nameof(CameraSimulatorOptions.EffectiveApertureMillimeters)));
+        });
+    }
+
+    /// <summary>A profile swap replaces the TelescopeSettings instance; the subscription must follow it.</summary>
+    [Test]
+    public void AfterProfileSwap_InPlaceEditOnTheNewProfileStillRaises() {
+        var profile = Substitute.For<IProfileService>();
+        var options = new CameraSimulatorOptions(profile, new InMemoryPluginOptionsAccessor());
+
+        // Swap in a whole new ActiveProfile, so ActiveProfile.TelescopeSettings is a different instance.
+        var newProfile = Substitute.For<IProfile>();
+        profile.ActiveProfile.Returns(newProfile);
+        profile.ProfileChanged += Raise.Event<EventHandler>(profile, EventArgs.Empty);
+
+        var raised = new List<string>();
+        options.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        newProfile.TelescopeSettings.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+            newProfile.TelescopeSettings, new PropertyChangedEventArgs(nameof(ITelescopeSettings.FocalLength)));
+
+        Assert.That(raised, Does.Contain(nameof(CameraSimulatorOptions.EffectiveFocalLengthMillimeters)),
+            "the hook must move to the new profile's TelescopeSettings");
     }
 
     [Test]

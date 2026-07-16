@@ -57,8 +57,13 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             double rotationDegrees,
             int width,
             int height) {
-            if (focalLengthMm <= 0) throw new ArgumentOutOfRangeException(nameof(focalLengthMm));
-            if (pixelSizeMicrons <= 0) throw new ArgumentOutOfRangeException(nameof(pixelSizeMicrons));
+            // `!(x > 0)` and not `x <= 0`: NaN fails BOTH, so the latter would wave NaN through into the plate
+            // scale and yield an all-NaN projection with no error anywhere. focalLengthMm arrives from the same
+            // request.FocalLengthMillimeters that DefocusModel and RadiometryCalculator guard this way, so the
+            // three must agree — a lone `<= 0` here would read as a deliberate claim that this input is known
+            // NaN-free, which nothing establishes. width/height are ints and cannot be NaN.
+            if (!(focalLengthMm > 0)) throw new ArgumentOutOfRangeException(nameof(focalLengthMm), focalLengthMm, "must be a positive number");
+            if (!(pixelSizeMicrons > 0)) throw new ArgumentOutOfRangeException(nameof(pixelSizeMicrons), pixelSizeMicrons, "must be a positive number");
             if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width));
             if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height));
 
