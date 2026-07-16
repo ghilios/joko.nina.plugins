@@ -1,9 +1,14 @@
 # Synthetic Star-Field Camera — Manual Smoke Test (Windows / NINA)
 
-Executes step 23 of `plans/synthetic-camera-plan.md`. Everything else in the plan is covered by the automated
-suite (1956 tests, incl. two capstones that render frames and recover star positions/HFR and the injected
-aberration surface through HocusFocus's own detector). This checklist covers what only a human at a running
-NINA can confirm: that the device shows up, connects, and behaves correctly in the real app.
+Executes step 23 of `plans/synthetic-camera-plan.md` and Task 10 of
+`plans/camera-simulator-interactive-tilt-plan.md`. Everything else in both plans is covered by the automated
+suite (2052 tests, incl. capstones that render frames and recover star positions/HFR and the injected aberration
+surface through HocusFocus's own detector, and one that drives the *real* screw-guidance math through the
+simulated tilt adapter). This checklist covers what only a human at a running NINA can confirm: that the device
+shows up, connects, renders, and that the UI binds and behaves in the real app.
+
+Checks (a)–(f) cover the camera itself. Checks (g)–(o) and the headline loop cover the rig setup dialog and the
+virtual tilt adapter.
 
 ## Prerequisites
 
@@ -25,6 +30,11 @@ NINA can confirm: that the device shows up, connects, and behaves correctly in t
 - **Equipment → Camera** → choose **"Hocus Focus Simulator"** → Connect.
 - Connect the simulator **Focuser** and **Mount**. Slew the mount to a star-rich field (e.g. near the galactic
   plane) so the catalog returns stars.
+
+> **Where the rig lives:** sensor, aperture, focal length, obstruction and throughput are **edited in the
+> camera's setup dialog** — the **gear** button beside the camera in **Equipment → Camera** — and render
+> read-only on the Camera Sim options tab. Everything you change per session stays on the options tab. Checks
+> (g)–(i) cover this.
 
 > **Configure-before-connect:** reported geometry (resolution / pixel size / bit depth) is latched at connect.
 > After changing **Sensor Model**, reconnect the camera.
@@ -97,6 +107,216 @@ Change **Sensor Model**, reconnect the camera, and check NINA's reported camera 
 
 ---
 
+## Rig setup dialog & virtual tilt adapter
+
+The screw math is pinned by the automated suite — including a capstone that asks the **real** guidance helper
+what to turn, turns exactly that on the simulated adapter, and asserts the residual is zero across 3/4 screws ×
+screws/steppers × both rig directions. So these checks are not about the math. They are about the surface no test
+can see: whether the windows open, the bindings bind, the gates gate, and **whether the glyphs the inspector
+prints are the glyphs the panel takes**.
+
+### Setup for these checks
+
+- **Options → Hocus Focus → Camera Sim → Tilt Adapter**: turn **`Show tilt adapter panel in Imaging`** on
+  (it's off by default), then **restart NINA** — see (l) for why.
+- Simulated adapter defaults (panel → **Adapter configuration**): **3 screws** at **0° / 120° / 240°**,
+  **Screws** (not steppers), **thread pitch 500 µm/turn**, **screw radius 30 mm**,
+  **`⟳ tighten moves adapter toward: camera`**.
+- The numbers below assume those defaults plus the camera defaults from **Setup** above (IMX455, focuser step
+  size 2.0 µm/step, optimal position 5000).
+
+### (g) The gear button opens the rig setup dialog
+**Equipment → Camera** → select **"Hocus Focus Simulator"** → click the **gear** button beside the dropdown.
+
+- **Expect:** a non-resizable tool window titled **"Hocus Focus Simulator Setup"**, containing a bold **Rig**
+  header, a one-line explainer, exactly **six** rows — **Sensor Model**, **Aperture** (mm), **Focal Length
+  (0 = use profile)** (mm), **Central Obstruction** (checkbox), **Obstruction Fraction**, **Optical
+  Throughput** — then a separator and the **virtual tilt adapter panel**.
+- Values edit and persist: set Aperture to **120**, close, reopen → **120**, and the Camera Sim options page
+  agrees (check (i)).
+- Out-of-range entries are rejected with a validation border, not a crash: aperture **1–2000 mm**, focal length
+  **0–20000 mm**, obstruction fraction **0–0.9**, throughput **0–1**.
+- **Obstruction Fraction greys out** when **Central Obstruction** is unchecked — it's inert then.
+- The gear stays clickable while connected, and clicking it twice opens a **second** window bound to the same
+  options. NINA's own `SimulatorCamera` behaves identically — expected, not a bug.
+
+### (h) Sensor Model locks while connected — the rest of the rig does not
+- **Connected:** **Sensor Model** is **disabled** (its tooltip says why: NINA latches resolution, pixel size and
+  bit depth at connect). The other five rig options stay **editable**.
+- **That's by design, not a gap.** Those five are read per exposure from the render snapshot, so they take
+  effect on the **next frame with no reconnect**. Prove it: connected, take an exposure, change **Optical
+  Throughput 0.85 → 0.1**, take another → visibly fainter stars, no reconnect. Only the geometry NINA latches
+  needs the lock.
+- **Disconnected:** Sensor Model is editable again.
+
+### (i) Rig options are read-only in plugin Options
+**Options → Hocus Focus → Camera Sim**:
+
+- **Aperture**, **Focal Length**, **Central Obstruction**, **Obstruction Fraction**, **Optical Throughput**
+  (Optics group) and **Sensor Model** (Sensor & Filter group) render **greyed out but readable**, showing the
+  live values.
+- **Expect the tooltip** on each: *"Rig settings are edited in the camera's setup dialog — click the gear icon
+  next to the camera in the Equipment > Camera pane. They are shown here for reference only."*
+- Change Aperture in the setup dialog → the read-only box here follows immediately (one options object, two
+  views).
+- Everything else on the page (filter, sky, seeing, gain, pedestal, temperature, ASTAP path, limiting mag,
+  rotation, seed, optimal position, step size, aberrations) stays **editable**.
+
+### (j) The aberration group collapses when aberrations are off
+**Options → Hocus Focus → Camera Sim → Aberrations**:
+
+- **Enable Aberrations off** → the checkbox stays put; everything below it (Tilt Angle, Tilt Amount, Backfocus
+  Error, optical-axis offsets) is **gone — collapsed, not greyed**. The page gets shorter.
+- Toggle back on → the group returns in place. No restart, no reopen.
+- The **panel** deliberately behaves differently: with aberrations off it shows the banner *"Aberrations are
+  disabled — the plane below has no effect on rendered frames"* plus an **Enable** button, and stays operable
+  (editing an inert plane is legal — it just doesn't render).
+
+### (k) The tilt-adapter panel renders in both hosts
+The setup dialog (below the separator) and the Imaging tab host the **same control**. Check both.
+
+- **Expect, out of the box:**
+  - state strip `Plane:  0.0 µm @ 0°   ·   Backfocus 0.0 µm` with a green **`✓ ≈ flat`**
+  - `Amount per click  [0.25 | turns]` and the dim hint **`≈ 125 µm axial`** (0.25 × 500 µm/turn)
+  - three rows — `Screw 1 · 0.0°`, `Screw 2 · 120.0°`, `Screw 3 · 240.0°` — each with a `⟲` and a `⟳` button,
+    and **no movement-type selector** (that's 4-screw only)
+  - `Net (turns):  1: 0.00  ·  2: 0.00  ·  3: 0.00` with **Re-zero**
+  - two **collapsed** expanders: `Injected aberration` and
+    `Adapter configuration (3 screws · Screws · 500 µm/turn · R 30 mm · ⟳ → camera · …)`
+- **Both hosts share the state that matters** — they read and write one options object. Click `⟳` on Screw 2 in
+  the dockable; the setup dialog's state strip follows.
+- Set **Screw count = 4** → a `Corner | Side | Backfocus` segmented radio appears above four rows, each naming
+  its coupled partner (`3 opposes`, `4 opposes`, …), and **Screw 3/4 angle** render **dimmed and derived**
+  (+180° of screws 1/2), not editable. Set it back to 3 → selector gone.
+
+### (l) The Imaging dockable is gated by the option
+With **`Show tilt adapter panel in Imaging` off**:
+
+- **Expect:** the panel is **not open** at startup, and clicking the **Simulator Tilt Adapter** sidebar button
+  **does nothing** — no open, and no flash of opening then closing.
+- Turn the option **on** while NINA runs → the button opens the panel normally. Turn it **off** with the panel
+  open → it closes immediately. Neither needs a restart.
+
+> **Two accepted NINA limitations. Both are expected, and neither is a bug — do not report them as one.**
+>
+> 1. **The 30×30 sidebar button always remains and cannot be removed.** Not with the option off, not after a
+>    restart, not ever. NINA builds the dockable list once at startup into a plain non-observable list and
+>    exposes no supported way to remove an entry. All the plugin can do is make the button **inert**, which is
+>    exactly what the check above verifies.
+> 2. **The button only appears after a NINA restart** following the plugin update — same root cause. The first
+>    time you run this build, it will not be in the sidebar until you restart, no matter what the option says.
+
+### (m) The glyph contract holds
+The one thing no automated test can see is what is actually painted on the buttons. Read this one carefully.
+
+- **Buttons carry rotation.** In **Screws** mode every row shows **`⟲`** and **`⟳`** (drawn as the plugin's
+  rotation icons — the same glyphs the inspector's guidance prints).
+- **Switch Adjustment type → Stepper Motors.** The buttons become **`−`** and **`+`**, the amount unit becomes
+  **`steps`**, the default amount jumps to **10**, the net strip reads steps — and **no rotation glyph appears
+  anywhere on the panel**. Motors abstract rotation away.
+- **Tooltips and feedback carry motion.** Hover `⟳` on Screw 2 (Screws mode, defaults) → *"⟳ 0.25 turns —
+  screw 2 moves toward the camera (⬇); tilt tips accordingly."* Click it → the last-action line reads
+  `Last: Screw 2 ⟳ 0.25 (S2 ⬇) — tilt 0.0 → … µm` with an **Undo**.
+- **⬆/⬇ must NEVER appear as a rotation** — not on a button, not in a "turn it this way" instruction. An
+  up/down arrow where a turn direction belongs is a real bug: it is precisely the confusion the two-vocabulary
+  contract exists to prevent.
+- **Direction comes only from the button.** Type **−0.5** into **Amount per click** → it must be **rejected**
+  (the box is strictly positive, 0.001–10000). There is no signed amount to contradict the glyph you clicked.
+- Flip **`⟳ tighten moves adapter toward`** from `camera` to `objective`. The **same `⟳` button** now reports
+  **⬆** where it reported ⬇. The glyph on the button must not change — only the motion it causes does.
+
+### (n) The coherence badge and the copy commands
+Expand **Adapter configuration**.
+
+- **On a fresh profile expect `⚠ differs from adapter settings`**, with a tooltip naming the differing fields:
+  **Screw 1 angle, Screw 2 angle, Screw 3 angle, Thread pitch, Screw radius**. That is correct — the real Tilt
+  Adapter options ship uncalibrated (angles NaN, pitch and radius −1), so there is nothing to match yet.
+- **Copy to adapter settings…** → an **inline** warning (never a modal) naming exactly what it will overwrite →
+  **Overwrite** → the badge flips to **`matches adapter ✓`**. Verify at **Options → Hocus Focus → Tilt
+  Adapter**: 3 screws at 0/120/240°, 500 µm/turn, R 30 mm, marked as a **manual** calibration.
+- **Cancel** leaves the real settings untouched. **Copy from adapter settings** goes the other way and never
+  writes the real settings.
+- Diverge on purpose — set the sim's **screw radius to 40 mm** → badge returns to `⚠ differs`, tooltip lists
+  **Screw radius**. Tolerances: angles **±2°**, pitch/radius **±5%**.
+- **This badge is the loop's precondition.** The inspector guides from the *real* adapter settings while the
+  simulator obeys the sim's. If they differ the loop will not converge, and the math will not be at fault.
+
+### (o) Setup-dialog sizing — please report what you see
+Flagged during implementation; it needs a human at a real display. The setup window is **`ResizeMode.NoResize`
+with no `ScrollViewer`**.
+
+- It opens **compact** — **Adapter configuration** is collapsed by default, so at first glance it's fine.
+- **Expand "Adapter configuration" in the setup dialog** (not the dockable). It adds a 10-row grid plus the
+  screw diagram, and the window **grows rather than scrolls**.
+- **Report back:** at your resolution and DPI scaling, does the expanded window still fit on screen, and are the
+  Copy buttons at the bottom reachable? If it overflows, say so **with your resolution and scaling** — the fix
+  is a `MaxHeight` + `ScrollViewer` on the setup panel.
+- The Imaging dockable is user-resizable, so this is specific to the setup dialog.
+
+---
+
+## The headline loop — inject, inspect, turn, re-inspect
+
+**This is the reason the feature exists.** Everything above is scaffolding for it. The capstone proves the
+*math* closes; only a human can confirm the loop closes **through the UI** — that what the inspector *prints* is
+what the panel *applies*, with no sign flip and no arithmetic in between. A presentation bug sails straight
+through an automated round-trip and gets caught only here.
+
+> **Precondition — do this first.** The inspector prints per-screw numbers only when the real adapter is
+> calibrated. On a fresh profile it isn't, and **the guidance cells will be blank**. One click fixes it: panel →
+> **Adapter configuration** → **Copy to adapter settings…** → **Overwrite**. The badge must read
+> **`matches adapter ✓`** before you start (check (n)).
+
+### The tilt loop
+
+1. **Inject.** Camera Sim options: **Enable Aberrations = on**, **Tilt Angle = 30°**, **Tilt Amount = 80 µm**,
+   **Backfocus Error = 0**. (The panel's **Injected aberration** expander edits the same three values.)
+   The state strip must read `Plane:  80.0 µm @ 30°   ·   Backfocus 0.0 µm` with **no** `✓ ≈ flat`.
+2. **Inspect.** Run the **Aberration Inspector**. It should recover ≈80 µm at ≈30° (check (d)) and its guidance
+   panel should now print a number in every screw cell.
+3. **Read.** Note the **Total** row for screws 1/2/3. With backfocus at 0 the Total and Tilt rows agree.
+   With the default rig expect roughly **`0.11 ⟳ · 0.22 ⟲ · 0.11 ⟳`** — two equal turns one way and one about
+   double the other way is the signature of a single-axis tilt on an evenly-spaced 3-screw adapter. The exact
+   cells follow what the inspector actually measured; don't chase them.
+4. **Turn.** For each screw: type the magnitude into **Amount per click** and click **the same glyph the
+   inspector printed**. Transcription, not translation — **if you find yourself converting a sign, that is the
+   finding**, and it's the whole point of doing this by hand.
+5. **Watch.** After each click the state strip's tilt number must **shrink**. If it grows, hit **Undo** and
+   re-read the row: a wrong-direction click is the classic tilt-adapter failure this loop exists to catch.
+6. **Re-inspect.** Re-run the inspector.
+   - **Expect: tilt ≈ 0** — down from 80 µm to ~1 µm or so. The residual is 2-decimal rounding on the guidance
+     cells plus the inspector's own measurement error, not a sign problem.
+   - **Expect `✓ ≈ flat`** on the state strip once tilt **and** |backfocus| are both **< 1 µm**. One more round
+     of guidance → clicks mops up any residual.
+   - **Backfocus and Optimal Focuser Position must not move** — a pure-tilt correction on evenly-spaced screws
+     sums to zero piston. If backfocus drifts, that's a finding.
+   - **Rounds must converge, not oscillate.** Growth or ping-ponging = a sign bug; stop and report.
+
+> **Tip:** if 2-decimal rounding keeps you just above the 1 µm flat threshold, drop the sim's **thread pitch** to
+> **100 µm/turn** (then 0.01 turns = 1 µm) and **Copy to adapter settings…** again so the badge stays
+> `matches adapter ✓`.
+
+### The backfocus variant — it must null, not double
+
+Worth doing by hand: **the sign here was wrong in an earlier draft and was caught in review.** The wrong sign
+doesn't wobble — it *doubles* the error, on both rig directions.
+
+1. **Inject.** **Tilt Amount = 0**, **Backfocus Error = 40 µm**, aberrations on. Strip: `Backfocus +40.0 µm`.
+2. **Inspect.** Run the inspector and read its **Backfocus** row. Curvature is rotationally symmetric, so all
+   three screws get the **same** cell — with the default rig, ≈ **`0.15 ⟲`**.
+3. **Apply.** Type the magnitude, click that glyph once on **each** of Screw 1, 2 and 3. (On a 4-screw rig this
+   is one click in **Backfocus** mode instead.)
+4. **Expect:**
+   - **Backfocus 40.0 → ≈0** (a µm or so of rounding residual), and `✓ ≈ flat` once it's under 1 µm.
+   - **Tilt stays 0** — an all-screws move is pure piston.
+   - **Optimal Focuser Position drops by a few tens of steps** (5000 → ≈4964 with the defaults). That is
+     **correct**: the sensor really moved axially, so best focus moved with it, exactly as it would on a real
+     rig. Re-run **Auto Focus** and it should converge on the new position.
+- **The failure to watch for: backfocus grows to ≈80 µm — double the injection, not zero.** That is the exact
+  bug this check exists for. If you see it, stop and report it.
+
+---
+
 ## Other things worth eyeballing
 
 - **Saturation is physical.** At D=100/f/8, gain 100, a mag-10 star saturates in ~6 s; in a 60 s L sub it
@@ -108,9 +328,35 @@ Change **Sensor Model**, reconnect the camera, and check NINA's reported camera 
   (deterministic regardless of CPU core count).
 - **No ASTAP DB / pointing outside coverage** ⇒ starless frame + a descriptive warning in the NINA log
   (the exposure still succeeds).
+- **Undo is single-level and free.** It reverts the last click's tilt, backfocus, focuser position **and** net
+  counters. Two clicks back is not undoable — that's deliberate; this is a misclick escape, not an edit history.
+- **Re-zero re-bases the counter display only.** It must never move a screw or change the plane: click it and
+  the state strip must not flinch. Counters are stored in axial µm, so editing thread pitch mid-session
+  **re-scales** the net strip rather than corrupting it — set 500 → 250 µm/turn and the numbers should double.
+- **Extreme states stay legal.** Drive tilt past **500 µm** → a passive `extreme tilt — expect heavy donuts`
+  badge, no dialog. Past **±10 000 µm** the value clamps and the last-action line appends `(clamped)`.
+- **Degenerate config is non-blocking.** Blank the thread pitch or radius → a banner
+  (*"Set thread pitch and screw radius to enable the adapter"*), the rows disable, and **Adapter configuration**
+  force-expands. Never a crash, never a modal.
 
 ## If something looks wrong
 
 The physics is pinned by the automated suite, so a manual-only discrepancy usually means a wiring/config issue:
 check the focal length actually in use (profile vs override), the ASTAP path + which cell set is installed,
 that you reconnected after changing the sensor, and the NINA log for the camera-simulator warnings.
+
+The same holds for the adapter — the screw math is pinned by the capstone, so a manual-only discrepancy is
+almost always wiring or config rather than geometry. In rough order of likelihood:
+
+1. **The badge doesn't say `matches adapter ✓`.** The inspector guides from the *real* adapter settings and the
+   simulator obeys the sim's; while they differ the loop cannot converge. Read the badge tooltip — it names the
+   fields.
+2. **Guidance cells are blank.** The real adapter isn't calibrated. `Copy to adapter settings…` → `Overwrite`.
+3. **The panel isn't in the sidebar.** Restart NINA. The button appears only after a restart following the
+   plugin update — and the button itself can never be removed (both are NINA limitations; see (l)).
+4. **Nothing changes in the rendered frame.** `Enable Aberrations` is off — the panel says so in a banner. The
+   plane is still being edited; it just isn't being rendered.
+5. **Tilt grows instead of shrinking.** Undo, then re-read the row. Check you clicked the glyph the inspector
+   printed rather than its opposite, and that the sim's `⟳ tighten moves adapter toward` matches the real
+   adapter's. A genuine wrong-direction bug would show up as the **backfocus doubling** check failing too — if
+   that one passes and only tilt diverges, suspect the transcription, not the code.
