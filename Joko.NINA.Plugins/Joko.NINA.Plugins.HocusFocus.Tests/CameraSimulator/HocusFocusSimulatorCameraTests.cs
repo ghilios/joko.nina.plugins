@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using NINA.Core.Enum;
 using NINA.Core.Utility.Converters;
 using NINA.Equipment.Equipment.MyFocuser;
+using NINA.Equipment.Exceptions;
 using NINA.Equipment.Equipment.MyTelescope;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Model;
@@ -142,7 +143,10 @@ public class HocusFocusSimulatorCameraTests {
 
         var camera = ConnectAndStart(BuildOptions(), focuser, telescope);
 
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(
+        // MUST be CameraExposureFailedException, not a bare exception: NINA's ImagingVM.CaptureImage routes typed
+        // camera exceptions to Notification.ShowError(ex.Message) (our text verbatim), while anything else lands in
+        // its generic branch, which prefixes "Unexpected error" and calls AbortExposure(). This pins the contract.
+        var ex = Assert.ThrowsAsync<CameraExposureFailedException>(
             async () => await camera.DownloadExposure(CancellationToken.None));
         Assert.That(ex.Message, Does.Contain("focuser"));
     }
@@ -156,7 +160,7 @@ public class HocusFocusSimulatorCameraTests {
 
         var camera = ConnectAndStart(BuildOptions(), focuser, telescope);
 
-        var ex = Assert.ThrowsAsync<InvalidOperationException>(
+        var ex = Assert.ThrowsAsync<CameraExposureFailedException>(
             async () => await camera.DownloadExposure(CancellationToken.None));
         Assert.That(ex.Message, Does.Contain("mount"));
     }

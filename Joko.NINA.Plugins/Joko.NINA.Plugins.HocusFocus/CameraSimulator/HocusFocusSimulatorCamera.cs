@@ -14,6 +14,7 @@ using NINA.Astrometry;
 using NINA.Core.Enum;
 using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
+using NINA.Equipment.Exceptions;
 using NINA.Equipment.Interfaces;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Model;
@@ -454,15 +455,24 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             // Descriptive failures: the synthetic camera cannot render without a focuser (defocus) or a mount
             // (pointing). These guards run BEFORE the compositor so a missing device produces a clear message
             // rather than a rendering error.
+            //
+            // These MUST be CameraExposureFailedException (NINA.Equipment.Exceptions), not a bare exception.
+            // NINA's ImagingVM.CaptureImage switches on the exception type:
+            //   catch (CameraExposureFailedException) -> Notification.ShowError(ex.Message)          // our text, verbatim
+            //   catch (Exception)                     -> Notification.ShowError("Unexpected error" + ex.Message);
+            //                                            cameraMediator.AbortExposure();
+            // A bare exception therefore renders a user-actionable "connect a focuser" prompt as an *unexpected
+            // plugin error* and triggers a spurious AbortExposure. The typed exception is the contract for
+            // "this exposure cannot be taken, and here's why".
             if (!request.FocuserConnected) {
                 CameraState = CameraStates.Error;
-                throw new InvalidOperationException(
+                throw new CameraExposureFailedException(
                     "Cannot render a synthetic exposure: no focuser is connected. The synthetic camera reads the " +
                     "focuser position to compute defocus — connect a focuser (e.g. the NINA simulator focuser).");
             }
             if (!request.TelescopeConnected) {
                 CameraState = CameraStates.Error;
-                throw new InvalidOperationException(
+                throw new CameraExposureFailedException(
                     "Cannot render a synthetic exposure: no telescope/mount is connected. The synthetic camera reads " +
                     "the mount pointing to project catalog stars — connect a mount (e.g. the NINA simulator telescope).");
             }
