@@ -484,7 +484,7 @@
                     <StackPanel Visibility="{Binding IsLive, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                         <TextBlock
                             Margin="0,0,0,8"
-                            Text="This moves the focuser across a fixed sweep centered on the current position and saves an image at each step, then finds the star-detection settings that build the best focus curve from them. It does not try to reach focus itself, so it works even when your current settings cannot. Focus roughly by hand first; Start asks you to confirm the position is about right."
+                            Text="This moves the focuser across a fixed sweep centered on the current position and saves an image at each step, then finds the star-detection settings that build the best focus curve from them. It does not try to reach focus itself, so it works even when your current settings cannot. Make sure your camera is already approximately in focus."
                             TextWrapping="Wrap" />
 
                         <!--  Read-only capture summary: what the sweep will do (driven by the profile's AF settings).  -->
