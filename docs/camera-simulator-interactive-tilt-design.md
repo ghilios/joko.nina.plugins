@@ -37,14 +37,22 @@ private reimplementation.
 ## Feasibility (verified against NINA's assemblies, not assumed)
 
 **Camera setup dialog — supported.** `IDevice` declares `bool HasSetupDialog { get; }` and `void SetupDialog()`.
-`DeviceChooserVM<T>.SetupDialog` invokes it on a **dedicated STA thread** and blocks on `Join()`. NINA's own
+`DeviceChooserVM<T>.SetupDialog` invokes it on a **dedicated STA thread** and blocks on `Join()` — but that thread
+and its `Join()` are wrapped in a `Task.Run`, so the `Join()` blocks a **pool** thread while the UI thread `await`s
+and keeps pumping. That is precisely why `WindowService.Show`'s blocking `dispatcher.Invoke` back onto the main
+dispatcher is safe here rather than a deadlock. NINA's own
 `NINA.WPF.Base.Model.Equipment.MyCamera.Simulator.SimulatorCamera` does exactly what we want —
 `WindowService.Show(this, "Simulator Setup", …)` plus an implicit `DataTemplate` keyed on the camera type — and
 it even uses `PluginOptionsAccessor`. Plugins reach the same place because `PluginLoader.Compose` merges exported
 `ResourceDictionary` parts into `Application.Current.Resources`; this plugin already exports five.
 
-- **Constraint:** the gear button is gated only by `IsEnabled="{Binding HasSetupDialog}"` — **not** by `Connected`
-  (unlike the device ComboBox). It is clickable while connected, so *we* must enforce any "before connect" rule.
+- **Constraint:** the gear button is gated by `IsEnabled="{Binding HasSetupDialog}"` and by its command's
+  `CanExecute` (`SetupDialogCommand` is an `AsyncRelayCommand` gated on `SetupDialogNotOpen`) — but **not** by
+  `Connected` (unlike the device ComboBox). It is clickable while connected, so *we* must enforce any "before
+  connect" rule. The `SetupDialogNotOpen` gate is effectively inert for us: a non-modal `Show()` returns as soon as
+  the window exists, so `SetupDialogOpen` flips straight back to false and a second gear click opens a *second*
+  window. NINA's own `SimulatorCamera` behaves identically and both windows bind the same options instance, so we
+  mirror it rather than gold-plating a guard.
 - **Constraint:** never build WPF on the STA thread NINA spawns. `WindowService` captures the main dispatcher, so
   `Show` (non-modal) marshals correctly and returns promptly.
 - There is **no** per-device settings-UI extension point. `PartsImport` (the authoritative list) exposes only:

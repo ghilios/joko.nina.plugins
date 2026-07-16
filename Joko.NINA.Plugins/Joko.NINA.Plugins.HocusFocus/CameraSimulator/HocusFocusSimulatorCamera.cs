@@ -14,6 +14,7 @@ using NINA.Astrometry;
 using NINA.Core.Enum;
 using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
+using NINA.Core.Utility.WindowService;
 using NINA.Equipment.Exceptions;
 using NINA.Equipment.Interfaces;
 using NINA.Equipment.Interfaces.Mediator;
@@ -30,6 +31,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
 
@@ -55,6 +57,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private readonly IFocuserMediator focuserMediator;
         private readonly ICameraSimulatorOptions options;
         private readonly IStarFieldCompositor compositor;
+
+        // WindowServiceFactory is not a MEF export (NINA exposes the concrete type with a default ctor only), so it
+        // is instantiated directly here, mirroring HocusFocusPlugin/StarDetectionOptionsVM. Constructing the factory
+        // is inert — the dispatcher capture happens in Create(), inside SetupDialog(); see the remarks there.
+        private readonly IWindowServiceFactory windowServiceFactory = new WindowServiceFactory();
 
         // These MUST be backed by a concrete List<T>, not an array. ICamera/IDevice declare them as IList<T>,
         // but NINA's binding layer hard-casts the bound value to List<T> — NINA.Core's
@@ -105,9 +112,22 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// sensor-derived capabilities change the moment the user picks a different sensor.</summary>
         private SensorDefinition SensorDef => SensorRegistry.Get(options.SensorModel);
 
+        /// <summary>
+        /// The simulator options, exposed so the setup dialog's DataTemplate can bind the rig fields. The dialog
+        /// is shown with the camera itself as its content, so the template reaches the options through here.
+        /// </summary>
+        public ICameraSimulatorOptions Options => options;
+
         #region Identity (IDevice)
 
-        public bool HasSetupDialog => false;
+        /// <summary>
+        /// True so NINA renders the gear button next to the camera in the Equipment &gt; Camera pane. The
+        /// physical-rig options (sensor + optics) are edited only there — they render read-only in the plugin
+        /// Options tab — so this is the sole entry point to them. NINA's <c>DeviceChooserVM.SetupDialog()</c>
+        /// early-returns when this is false.
+        /// </summary>
+        public bool HasSetupDialog => true;
+
         public string Id => "HocusFocus_SimulatorCamera";
         public string Name => "Hocus Focus Simulator";
         public string DisplayName => Name;
@@ -141,7 +161,27 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             Connected = false;
         }
 
+        /// <summary>
+        /// Shows the rig setup window. Rig settings live here rather than the plugin Options tab so they sit with
+        /// the device they describe.
+        /// </summary>
+        /// <remarks>
+        /// NINA invokes this on a dedicated STA thread that it then Joins (DeviceChooserVM.SetupDialog wraps the
+        /// thread + Join in a Task.Run, so the Join blocks a pool thread and the UI thread stays free to pump —
+        /// marshalling back to it here does not deadlock). We must NOT build WPF on that STA thread: it dies the
+        /// moment this returns, and anything created on it would die with it. NINA's WindowService is the safe
+        /// path — its constructor captures Application.Current.Dispatcher (the main dispatcher) regardless of the
+        /// thread that builds it, and Show() marshals the window creation there. Show is non-modal, so it returns
+        /// as soon as the window exists: the STA thread ends while the window stays up. This mirrors NINA's own
+        /// SimulatorCamera, which does exactly the same thing.
+        ///
+        /// The service is created here rather than held as a field so the capture happens against a live
+        /// Application (the camera itself is constructed during an equipment rescan, and in unit tests where
+        /// Application.Current is null), matching the IWindowServiceFactory pattern used elsewhere in the plugin.
+        /// </remarks>
         public void SetupDialog() {
+            windowServiceFactory.Create().Show(
+                this, "Hocus Focus Simulator Setup", ResizeMode.NoResize, WindowStyle.ToolWindow);
         }
 
         public string Action(string actionName, string actionParameters) => throw new NotImplementedException();

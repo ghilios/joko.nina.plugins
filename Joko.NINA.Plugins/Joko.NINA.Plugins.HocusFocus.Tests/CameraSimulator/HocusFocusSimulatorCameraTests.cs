@@ -300,6 +300,58 @@ public class HocusFocusSimulatorCameraTests {
     }
 
     [Test]
+    public void HasSetupDialog_IsTrue_SoNinaShowsTheGearButton() {
+        var camera = BuildCamera(BuildOptions());
+        // NINA's DeviceChooserVM.SetupDialog() early-returns unless HasSetupDialog is true, and the connector's
+        // gear button binds IsEnabled straight to it — false would hide our only rig-config entry point, since
+        // the rig options render read-only in the plugin Options tab.
+        Assert.That(camera.HasSetupDialog, Is.True);
+    }
+
+    [Test]
+    public async Task Options_EditsLandOnTheNextRenderSnapshot_AsTheSetupDialogRequires() {
+        // The setup dialog's DataTemplate binds Options.* against the camera itself (WindowService.Show(this, ...)),
+        // so an edit made in that dialog must reach the very options instance BuildRenderRequest snapshots — with no
+        // reconnect. Were Options ever to hand out a copy (or the request to be built from a different instance), the
+        // rig controls would silently do nothing and the dialog would be decorative.
+        var focuser = Substitute.For<IFocuserMediator>();
+        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
+        var telescope = Substitute.For<ITelescopeMediator>();
+        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+
+        var options = BuildOptions();
+        options.SensorModel = SonySensorModel.IMX533; // smallest sensor: keeps the fake render array small
+        options.ApertureMillimeters = 200.0;
+
+        RenderRequest captured = null;
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call => {
+                captured = call.Arg<RenderRequest>();
+                return new ushort[3008 * 3008];
+            });
+
+        var camera = BuildCameraWithCompositor(
+            options, compositor, Substitute.For<IExposureDataFactory>(), focuser, telescope);
+        camera.Connect(CancellationToken.None).GetAwaiter().GetResult();
+
+        // Stand in for the user editing Aperture in the setup dialog, which reaches the options only via this path.
+        camera.Options.ApertureMillimeters = 350.0;
+
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+        await camera.DownloadExposure(CancellationToken.None);
+
+        Assert.That(captured, Is.Not.Null, "the compositor must have been handed a render snapshot");
+        Assert.Multiple(() => {
+            Assert.That(captured.ApertureMillimeters, Is.EqualTo(350.0),
+                "an edit through camera.Options must reach the very next render snapshot");
+            // Pinpoints which link broke if the assertion above fails: a copy here, or a stale read there.
+            Assert.That(camera.Options, Is.SameAs(options),
+                "Options must expose the injected instance, not a copy");
+        });
+    }
+
+    [Test]
     public void Connect_SetsConnectedAndIdle() {
         var camera = BuildCamera(BuildOptions());
         var connected = camera.Connect(CancellationToken.None).GetAwaiter().GetResult();
