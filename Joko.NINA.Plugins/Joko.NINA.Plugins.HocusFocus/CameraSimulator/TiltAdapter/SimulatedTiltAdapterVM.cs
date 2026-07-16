@@ -881,6 +881,14 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         // ---- Rebuilds --------------------------------------------------------------------------------
 
         private void OnOptionsChanged(object sender, PropertyChangedEventArgs e) {
+            // A profile switch broadcasts an empty name (BaseINPC.RaiseAllPropertiesChanged, from
+            // CameraSimulatorOptions.ProfileService_ProfileChanged) — every field below may have changed at once,
+            // and none of the cases would match. Rebuild rather than silently keep the old profile's panel.
+            if (string.IsNullOrEmpty(e.PropertyName)) {
+                RebuildAll();
+                return;
+            }
+
             switch (e.PropertyName) {
                 case nameof(ICameraSimulatorOptions.SimScrewCount):
                     DeriveOppositeAngles();

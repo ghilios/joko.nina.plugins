@@ -812,4 +812,40 @@ public class SimulatedTiltAdapterVMTests {
             Assert.That(vm.ScrewConnectionLines, Has.Count.EqualTo(4));
         });
     }
+
+    // ---- Profile switches ---------------------------------------------------------------------------
+
+    [Test]
+    public void ProfileSwitch_RebuildsFromTheNewProfilesRig() {
+        // A profile switch is the one change that arrives with NO property name: CameraSimulatorOptions re-reads
+        // every field and then broadcasts RaiseAllPropertiesChanged(), which BaseINPC sends as
+        // PropertyChangedEventArgs(null). A panel that only switches on named properties matches nothing here and
+        // silently keeps rendering the OLD profile's adapter — three rows for a rig that now has four.
+        var profileService = Substitute.For<IProfileService>();
+        var accessor = new InMemoryPluginOptionsAccessor();
+        var options = new CameraSimulatorOptions(profileService, accessor);
+        options.SimScrewCount = 3;
+        options.SimScrew1AngleDegrees = 0.0;
+        options.SimScrew2AngleDegrees = 120.0;
+
+        var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
+        Assert.That(vm.Rows, Has.Count.EqualTo(3), "guard: the panel starts on the 3-screw profile");
+
+        // What the new profile has stored — all four angles, as a real 4-screw profile persists them (the derived
+        // 3/4 are written when the rig is configured, so a profile load never has to re-derive them). Written
+        // straight to the accessor, behind the options object's setters, so the only notification the VM sees is
+        // the nameless profile-change broadcast.
+        accessor.SetValueInt32(nameof(ICameraSimulatorOptions.SimScrewCount), 4);
+        accessor.SetValueDouble(nameof(ICameraSimulatorOptions.SimScrew1AngleDegrees), 45.0);
+        accessor.SetValueDouble(nameof(ICameraSimulatorOptions.SimScrew2AngleDegrees), 135.0);
+        accessor.SetValueDouble(nameof(ICameraSimulatorOptions.SimScrew3AngleDegrees), 225.0);
+        accessor.SetValueDouble(nameof(ICameraSimulatorOptions.SimScrew4AngleDegrees), 315.0);
+        profileService.ProfileChanged += Raise.Event<EventHandler>(profileService, EventArgs.Empty);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.IsFourScrew, Is.True);
+            Assert.That(vm.Rows, Has.Count.EqualTo(4));
+            Assert.That(vm.ScrewDiagramItems, Has.Count.EqualTo(4));
+        });
+    }
 }
