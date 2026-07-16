@@ -42,20 +42,18 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// the stamping stage. The <i>degree of parallelism</i> is free to vary with the machine; the
         /// <i>partition</i> is not.</para>
         ///
-        /// <para><b>Why 256 — headroom, not speed.</b> It is <i>not</i> faster than 64 today: measured at 61 MP on
-        /// 24 cores, 64 stripes runs a flat field in 382 ms against 256's 408 ms (64 ahead by ~6%), and the two tie
-        /// on a ragged one. There is no "last wave partly idle" effect to recover, because <see cref="Parallel.For"/>
-        /// hands stripes out <i>dynamically</i> — a worker takes the next stripe the moment it finishes one — so 64
-        /// stripes already balance ~24 workers to within a stripe. (The shortfall from the ideal ~24× to a measured
-        /// ~7.9× is memory bandwidth and all-core clock, which no partition can fix.) 256 is chosen anyway because
-        /// this constant is a <b>one-way door</b>: it is part of frame identity, so raising it later would
-        /// invalidate every stored reference frame. A partition can never occupy more cores than it has stripes, so
-        /// 64 would cap a 96-core box at ~2/3 and waste anything beyond 64 cores outright. ~6% on today's hardware
-        /// is a cheap premium for headroom that cannot be bought back later. The overhead is bounded: a seeded
-        /// <see cref="Random"/> is ~232 bytes, so 256 of them is ~60 KB per frame, and empty stripes return before
-        /// allocating one.</para>
+        /// <para><b>Why 64 — a floor, not a balancing knob.</b> This is not a tuning dial worth turning:
+        /// <see cref="Parallel.For"/> hands stripes out <i>dynamically</i> — a worker takes the next stripe the
+        /// moment it finishes one — so there is no wave quantisation to tune away, and 64 already balances ~24
+        /// workers to within ~1.5% (one stripe). Measured at 61 MP on 24 cores, 64 stripes beat 256 on the
+        /// representative flat field (382 ms vs 408 ms, ~6% faster) and tied on a ragged one; a finer partition
+        /// only costs per-stripe setup and locality. The residual gap from linear speedup (a measured ~7.9× of a
+        /// theoretical ~24×) is memory bandwidth and all-core clock — not partition granularity, so no stripe count
+        /// recovers it. The one real constraint is that a partition can never occupy more cores than it has
+        /// stripes, which makes 64 a floor set by expected core counts (NINA typically runs on 4–8 core mini-PCs)
+        /// rather than a knob to balance load.</para>
         /// </summary>
-        public const int StripeCount = 256;
+        public const int StripeCount = 64;
 
         /// <summary>Develops the accumulator into a freshly allocated ADU frame. See <see cref="DevelopToAdu(float[], ushort[], SensorDefinition, int, int, int, CancellationToken)"/>.</summary>
         public static ushort[] DevelopToAdu(float[] electronAccumulator, SensorDefinition sensor, int gain, int biasPedestalAdu, int seed, CancellationToken token) {
@@ -72,10 +70,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <para>Known and accepted: <see cref="Random"/>'s seeded legacy path folds the seed through
         /// <c>Math.Abs</c>, so seeds <c>s</c> and <c>−s</c> yield identical streams, halving the effective seed
         /// space to 2^31. Two stripes drawing such a pair would render as a duplicated band: with
-        /// <see cref="StripeCount"/> = 256 there are C(256,2) ≈ 32.6k pairs, so the chance is ~1.5e-5 per frame
-        /// (~1 in 66k). Judged not worth the complexity of masking or a different RNG. Considered, not missed —
-        /// but note this scales with <see cref="StripeCount"/>², so revisit it if the partition ever grows much
-        /// beyond 256.</para>
+        /// <see cref="StripeCount"/> = 64 there are C(64,2) ≈ 2k pairs, so the chance is ~1e-6 per frame. Judged
+        /// not worth the complexity of masking or a different RNG. Considered, not missed — but note this scales
+        /// with <see cref="StripeCount"/>², so revisit it if the partition ever grows much beyond 64.</para>
         /// </summary>
         public static void DevelopToAdu(float[] electronAccumulator, ushort[] output, SensorDefinition sensor, int gain, int biasPedestalAdu, int seed, CancellationToken token) {
             if (electronAccumulator == null) throw new ArgumentNullException(nameof(electronAccumulator));
@@ -99,8 +96,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 if (from >= to) {
                     // Frames shorter than StripeCount round several stripes onto the same index, leaving the
                     // empties at the front and interspersed — never trailing (stripe StripeCount-1 always ends
-                    // at length, so it is non-empty for any length >= 1). At length=7, stripes 0..35 are empty
-                    // and stripe 36 is the first to own a pixel.
+                    // at length, so it is non-empty for any length >= 1). At length=7, stripes 0..8 are empty
+                    // and stripe 9 is the first to own a pixel.
                     return;
                 }
                 options.CancellationToken.ThrowIfCancellationRequested();

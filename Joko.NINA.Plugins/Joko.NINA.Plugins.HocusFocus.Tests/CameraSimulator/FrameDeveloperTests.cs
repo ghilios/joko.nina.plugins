@@ -53,7 +53,7 @@ public class FrameDeveloperTests {
     // same seed renders differently on different machines and the plugin's determinism claim silently breaks.
     [Test]
     public void StripePartition_DoesNotDependOnProcessorCount() {
-        Assert.That(FrameDeveloper.StripeCount, Is.EqualTo(256),
+        Assert.That(FrameDeveloper.StripeCount, Is.EqualTo(64),
             "the partition must be a fixed constant, never Environment.ProcessorCount");
     }
 
