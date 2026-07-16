@@ -3006,14 +3006,14 @@
                     </Binding>
                 </ninactrl:UnitTextBox>
 
-                <!--  Rig (read-only here; edited in the camera's setup dialog). Bound OneWay because a disabled control
-                      can never commit, so the FloatRangeRule validation rules could not run — the setup dialog carries
-                      them where the values are actually edited.  -->
+                <!--  Rig (read-only here; edited in the camera's setup dialog). Bound to the Effective* values, not
+                      the raw options: the raw value is -1 when unset, and showing a bare "-1" as the aperture would
+                      be actively misleading. These are the numbers the next exposure will use.  -->
                 <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Aperture" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.ApertureMillimeters, Mode=OneWay}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" Unit="mm" />
+                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.EffectiveApertureMillimeters, Mode=OneWay, StringFormat={}{0:F1}}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" Unit="mm" />
 
-                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Focal Length (0 = use profile)" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.FocalLengthMillimeters, Mode=OneWay}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" Unit="mm" />
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Focal Length" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.EffectiveFocalLengthMillimeters, Mode=OneWay, StringFormat={}{0:F0}}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" Unit="mm" />
 
                 <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Central Obstruction" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
                 <CheckBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.CentralObstructionEnabled, Mode=OneWay}" IsEnabled="False" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />

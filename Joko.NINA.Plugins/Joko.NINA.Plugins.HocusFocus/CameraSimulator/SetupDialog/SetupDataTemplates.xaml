@@ -14,12 +14,13 @@
           Application.Current.Resources is not guaranteed, so a cross-dictionary lookup would be a load-order race.  -->
     <hfconverters:EnumStaticDescriptionValueConverter x:Key="HF_EnumStaticDescriptionValueConverter" />
     <hfconverters:InverseBooleanConverter x:Key="HF_InverseBooleanConverter" />
+    <hfconverters:DoubleNegativeToEmptyStringConverter x:Key="HF_DoubleNegativeToEmptyStringConverter" />
 
     <!--  Rig tooltips. These live here — with the only controls that edit these values — for the same reason: a
           StaticResource cannot safely reach across exported dictionaries.  -->
     <TextBlock x:Key="CamSimSetup_SensorModel_Tooltip" Text="The Sony CMOS sensor to emulate. The chosen model fixes resolution, pixel size, bit depth, full well, QE curve, read noise, dark current, and electrons-per-ADU. Disconnect the camera to change it: NINA latches the reported resolution, pixel size and bit depth when the camera connects, so a switch made while connected would leave NINA describing the old sensor." />
-    <TextBlock x:Key="CamSimSetup_ApertureMillimeters_Tooltip" Text="Telescope aperture diameter D (mm). Drives the collecting area (star brightness) and the diffraction-limited in-focus star size." />
-    <TextBlock x:Key="CamSimSetup_FocalLengthMillimeters_Tooltip" Text="Focal length (mm) used for plate scale and defocus geometry. Set to 0 to use the active NINA profile's telescope focal length; any positive value overrides it." />
+    <TextBlock x:Key="CamSimSetup_ApertureMillimeters_Tooltip" Text="Telescope aperture diameter D (mm). Drives the collecting area (star brightness) and the diffraction-limited in-focus star size. Leave it blank to hold your NINA telescope focal ratio against whatever focal length is in effect above; the greyed-out value is what the next exposure will use." />
+    <TextBlock x:Key="CamSimSetup_FocalLengthMillimeters_Tooltip" Text="Focal length (mm) used for plate scale and defocus geometry. Leave it blank to take the focal length from your NINA telescope settings; any value you enter overrides it. The greyed-out value is what the next exposure will use." />
     <TextBlock x:Key="CamSimSetup_CentralObstructionEnabled_Tooltip" Text="Whether the optics have a central obstruction (e.g. a secondary mirror). When on, defocused stars render as donuts with a central hole sized by the obstruction fraction." />
     <TextBlock x:Key="CamSimSetup_CentralObstructionFraction_Tooltip" Text="Central-obstruction fraction ε (0–1): the obstruction diameter as a fraction of the aperture. Sets the donut's inner-to-outer radius ratio far from focus. Typical Newtonian/SCT values are 0.3–0.5." />
     <TextBlock x:Key="CamSimSetup_OpticalThroughput_Tooltip" Text="Overall optical transmission T (0–1) of the system, multiplying collected star and sky electrons. Default 0.85." />
@@ -63,30 +64,52 @@
                 </ComboBox>
 
                 <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Aperture" ToolTip="{StaticResource CamSimSetup_ApertureMillimeters_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSimSetup_ApertureMillimeters_Tooltip}" Unit="mm">
-                    <Binding Path="Options.ApertureMillimeters" UpdateSourceTrigger="LostFocus">
-                        <Binding.ValidationRules>
-                            <rules:FloatRangeRule>
-                                <rules:FloatRangeRule.ValidRange>
-                                    <rules:FloatRangeChecker Maximum="2000" Minimum="1" />
-                                </rules:FloatRangeRule.ValidRange>
-                            </rules:FloatRangeRule>
-                        </Binding.ValidationRules>
-                    </Binding>
-                </ninactrl:UnitTextBox>
+                <StackPanel Grid.Row="1" Grid.Column="1" Margin="5,5,0,0" Orientation="Horizontal">
+                    <!--  Blank = "infer it". The hint renders the inferred value at 40% opacity, so the box always
+                          shows the number the next exposure will use — it is bound to the same property the
+                          renderer reads. No ValidationRules: they run on the raw text before the converter, so
+                          they would reject the empty (unset) box; CameraSimulatorOptions clamps on commit.  -->
+                    <ninactrl:HintTextBox
+                        MinWidth="80"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        HintText="{Binding Options.EffectiveApertureMillimeters, StringFormat={}{0:F1}}"
+                        TextAlignment="Left"
+                        ToolTip="{StaticResource CamSimSetup_ApertureMillimeters_Tooltip}">
+                        <ninactrl:HintTextBox.Text>
+                            <Binding
+                                Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                Mode="TwoWay"
+                                Path="Options.ApertureMillimeters"
+                                UpdateSourceTrigger="LostFocus" />
+                        </ninactrl:HintTextBox.Text>
+                    </ninactrl:HintTextBox>
+                    <TextBlock Margin="3,0,0,0" VerticalAlignment="Center" Text="mm" ToolTip="{StaticResource CamSimSetup_ApertureMillimeters_Tooltip}" />
+                </StackPanel>
 
-                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Focal Length (0 = use profile)" ToolTip="{StaticResource CamSimSetup_FocalLengthMillimeters_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSimSetup_FocalLengthMillimeters_Tooltip}" Unit="mm">
-                    <Binding Path="Options.FocalLengthMillimeters" UpdateSourceTrigger="LostFocus">
-                        <Binding.ValidationRules>
-                            <rules:FloatRangeRule>
-                                <rules:FloatRangeRule.ValidRange>
-                                    <rules:FloatRangeChecker Maximum="20000" Minimum="0" />
-                                </rules:FloatRangeRule.ValidRange>
-                            </rules:FloatRangeRule>
-                        </Binding.ValidationRules>
-                    </Binding>
-                </ninactrl:UnitTextBox>
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Focal Length" ToolTip="{StaticResource CamSimSetup_FocalLengthMillimeters_Tooltip}" />
+                <StackPanel Grid.Row="2" Grid.Column="1" Margin="5,5,0,0" Orientation="Horizontal">
+                    <ninactrl:HintTextBox
+                        MinWidth="80"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        HintText="{Binding Options.EffectiveFocalLengthMillimeters, StringFormat={}{0:F0}}"
+                        TextAlignment="Left"
+                        ToolTip="{StaticResource CamSimSetup_FocalLengthMillimeters_Tooltip}">
+                        <ninactrl:HintTextBox.Text>
+                            <Binding
+                                Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                Mode="TwoWay"
+                                Path="Options.FocalLengthMillimeters"
+                                UpdateSourceTrigger="LostFocus" />
+                        </ninactrl:HintTextBox.Text>
+                    </ninactrl:HintTextBox>
+                    <TextBlock Margin="3,0,0,0" VerticalAlignment="Center" Text="mm" ToolTip="{StaticResource CamSimSetup_FocalLengthMillimeters_Tooltip}" />
+                </StackPanel>
 
                 <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Central Obstruction" ToolTip="{StaticResource CamSimSetup_CentralObstructionEnabled_Tooltip}" />
                 <CheckBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding Options.CentralObstructionEnabled}" ToolTip="{StaticResource CamSimSetup_CentralObstructionEnabled_Tooltip}" />
