@@ -2936,7 +2936,7 @@
     <!--  ===================== Camera Simulator options =====================  -->
     <!--  Shared by the six physical-rig options (sensor + optics), which are shown here read-only and edited on the
           camera itself. Rig belongs with the device; only the observing settings are changed from this tab.  -->
-    <TextBlock x:Key="CamSim_RigReadOnly_Tooltip" Text="Rig settings are edited in the camera's setup dialog — click the gear icon next to the camera in the Equipment &gt; Camera pane. They are shown here for reference only." />
+    <TextBlock x:Key="CamSim_RigReadOnly_Tooltip" Text="Rig settings are edited in the camera's setup dialog — click the gear icon next to the camera in the Equipment &gt; Camera pane. They are shown here for reference only. Aperture and focal length show the value actually in effect, which is inferred from your NINA telescope settings when it has not been set explicitly." />
     <TextBlock x:Key="CamSim_OptimalFocuserPosition_Tooltip" Text="The focuser step position where best focus occurs (x0 in the defocus model). At this position stars render at their minimum HFR; moving the focuser away grows the donut. Set this to match the best-focus position of your connected (simulator) focuser." />
     <TextBlock x:Key="CamSim_FocuserStepSizeMicrons_Tooltip" Text="How many microns of sensor-plane defocus one focuser step produces (k). Larger values make the HFR-vs-position curve steeper, so the star field defocuses faster as the focuser moves away from the optimal position." />
     <!--  The per-field rig tooltips moved to CameraSimulator/SetupDialog/SetupDataTemplates.xaml, next to the only

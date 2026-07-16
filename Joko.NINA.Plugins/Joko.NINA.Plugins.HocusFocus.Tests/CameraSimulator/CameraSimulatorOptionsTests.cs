@@ -86,6 +86,84 @@ public class CameraSimulatorOptionsTests {
         });
     }
 
+    /// <summary>
+    /// The setup dialog's FloatRangeRules had to go (they run on the raw text before the converter, so they
+    /// rejected the empty "unset" box), which left the optics unbounded. That is not cosmetic: the outer radius
+    /// of a defocused star goes as |Δ| / (2N), so a 999999 mm aperture drives the f-number to ~0.001 and pushes
+    /// PsfKernelGenerator past its MaxKernelRadius=512px ceiling within about two focuser steps of best focus.
+    /// It throws a bare ArgumentOutOfRangeException, which NINA renders as "Unexpected error" plus a spurious
+    /// AbortExposure — a developer-facing message for a user typo. The bounds now live in the setter.
+    /// </summary>
+    [Test]
+    public void OverCapOptics_ClampToTheMaximumOnCommit() {
+        var options = OptionsFor(profileFocalLength: 430.0, profileFocalRatio: 5.0);
+        options.ApertureMillimeters = 999999.0;
+        options.FocalLengthMillimeters = 999999.0;
+        Assert.Multiple(() => {
+            Assert.That(options.ApertureMillimeters, Is.EqualTo(2000.0));
+            Assert.That(options.FocalLengthMillimeters, Is.EqualTo(20000.0));
+        });
+    }
+
+    [Test]
+    public void UnderMinimumButPositiveOptics_ClampUpToOne() {
+        var options = OptionsFor(profileFocalLength: 430.0, profileFocalRatio: 5.0);
+        options.ApertureMillimeters = 0.5;
+        options.FocalLengthMillimeters = 0.25;
+        Assert.Multiple(() => {
+            Assert.That(options.ApertureMillimeters, Is.EqualTo(1.0));
+            Assert.That(options.FocalLengthMillimeters, Is.EqualTo(1.0));
+        });
+    }
+
+    /// <summary>
+    /// The clamp must never swallow the sentinel. 0 and negatives mean "unset — infer it" (an empty box), so they
+    /// must stay -1 rather than clamping up to the 1 mm minimum: a blank aperture silently becoming a 1 mm
+    /// aperture would break inference, which is the entire point of leaving the box empty.
+    /// </summary>
+    [Test]
+    public void ZeroAndNegativeOptics_StayUnsetRatherThanClampingToTheMinimum() {
+        var options = OptionsFor(profileFocalLength: 430.0, profileFocalRatio: 5.0);
+        options.ApertureMillimeters = 0.0;
+        options.FocalLengthMillimeters = -5.0;
+        Assert.Multiple(() => {
+            Assert.That(options.ApertureMillimeters, Is.EqualTo(-1.0), "unset, NOT clamped to 1.0");
+            Assert.That(options.FocalLengthMillimeters, Is.EqualTo(-1.0), "unset, NOT clamped to 1.0");
+            Assert.That(options.EffectiveFocalLengthMillimeters, Is.EqualTo(430.0), "still infers from the profile");
+            Assert.That(options.EffectiveApertureMillimeters, Is.EqualTo(86.0).Within(1e-9), "still infers 430 / f5");
+        });
+    }
+
+    /// <summary>The clamp raises PropertyChanged, so the bound box visibly snaps to the cap — the feedback the
+    /// validation border used to give.</summary>
+    [Test]
+    public void ClampedAperture_RaisesPropertyChangedSoTheBoxSnapsToTheCap() {
+        var options = OptionsFor(profileFocalLength: 430.0, profileFocalRatio: 5.0);
+        var raised = new List<string>();
+        options.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        options.ApertureMillimeters = 999999.0;
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(CameraSimulatorOptions.ApertureMillimeters)));
+            Assert.That(raised, Does.Contain(nameof(CameraSimulatorOptions.EffectiveApertureMillimeters)));
+        });
+    }
+
+    [TestCase(999999.0, 2000.0)]
+    [TestCase(0.5, 1.0)]
+    [TestCase(0.0, -1.0)]
+    [TestCase(-5.0, -1.0)]
+    [TestCase(250.0, 250.0)]
+    public void Aperture_HealsOutOfRangeStoredValueOnLoad(double stored, double expected) {
+        var store = new InMemoryPluginOptionsAccessor();
+        // Seed through the accessor, bypassing the clamping property setter, as a profile written before the
+        // bounds moved into the setter would have.
+        store.SetValueDouble(nameof(CameraSimulatorOptions.ApertureMillimeters), stored);
+
+        var options = new CameraSimulatorOptions(Substitute.For<IProfileService>(), store);
+
+        Assert.That(options.ApertureMillimeters, Is.EqualTo(expected));
+    }
+
     [Test]
     public void ChangingFocalLength_RaisesTheInferredAperture() {
         var options = OptionsFor(profileFocalLength: 430.0, profileFocalRatio: 5.0);

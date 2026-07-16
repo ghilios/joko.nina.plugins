@@ -19,7 +19,7 @@
     <!--  Rig tooltips. These live here — with the only controls that edit these values — for the same reason: a
           StaticResource cannot safely reach across exported dictionaries.  -->
     <TextBlock x:Key="CamSimSetup_SensorModel_Tooltip" Text="The Sony CMOS sensor to emulate. The chosen model fixes resolution, pixel size, bit depth, full well, QE curve, read noise, dark current, and electrons-per-ADU. Disconnect the camera to change it: NINA latches the reported resolution, pixel size and bit depth when the camera connects, so a switch made while connected would leave NINA describing the old sensor." />
-    <TextBlock x:Key="CamSimSetup_ApertureMillimeters_Tooltip" Text="Telescope aperture diameter D (mm). Drives the collecting area (star brightness) and the diffraction-limited in-focus star size. Leave it blank to hold your NINA telescope focal ratio against whatever focal length is in effect above; the greyed-out value is what the next exposure will use." />
+    <TextBlock x:Key="CamSimSetup_ApertureMillimeters_Tooltip" Text="Telescope aperture diameter D (mm). Drives the collecting area (star brightness) and the diffraction-limited in-focus star size. Leave it blank to hold your NINA telescope focal ratio against whatever focal length is in effect; the greyed-out value is what the next exposure will use." />
     <TextBlock x:Key="CamSimSetup_FocalLengthMillimeters_Tooltip" Text="Focal length (mm) used for plate scale and defocus geometry. Leave it blank to take the focal length from your NINA telescope settings; any value you enter overrides it. The greyed-out value is what the next exposure will use." />
     <TextBlock x:Key="CamSimSetup_CentralObstructionEnabled_Tooltip" Text="Whether the optics have a central obstruction (e.g. a secondary mirror). When on, defocused stars render as donuts with a central hole sized by the obstruction fraction." />
     <TextBlock x:Key="CamSimSetup_CentralObstructionFraction_Tooltip" Text="Central-obstruction fraction ε (0–1): the obstruction diameter as a fraction of the aperture. Sets the donut's inner-to-outer radius ratio far from focus. Typical Newtonian/SCT values are 0.3–0.5." />
@@ -68,7 +68,9 @@
                     <!--  Blank = "infer it". The hint renders the inferred value at 40% opacity, so the box always
                           shows the number the next exposure will use — it is bound to the same property the
                           renderer reads. No ValidationRules: they run on the raw text before the converter, so
-                          they would reject the empty (unset) box; CameraSimulatorOptions clamps on commit.  -->
+                          they would reject the empty (unset) box. CameraSimulatorOptions.NormalizeOptic enforces
+                          the bounds the rules used to, clamping on commit — so the box visibly snaps to the cap
+                          instead of showing a validation border.  -->
                     <ninactrl:HintTextBox
                         MinWidth="80"
                         VerticalAlignment="Center"

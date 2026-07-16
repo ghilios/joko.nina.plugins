@@ -114,6 +114,38 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// <summary>Collapses anything non-positive (including NaN, which no ordinary comparison rejects) to <see cref="Unset"/>.</summary>
         private static double NormalizeUnset(double value) => value > 0.0 ? value : Unset;
 
+        /// <summary>
+        /// Upper bounds for the optics, previously enforced by the setup dialog's FloatRangeRules and now enforced
+        /// on commit (the rules had to go: they run on the raw text before the converter, so they rejected the
+        /// empty "unset" box).
+        ///
+        /// <para>These caps are not cosmetic. A defocused star's outer radius goes as |Δ| / (2N), so an absurd
+        /// aperture drives the f-number N toward zero and the radius through
+        /// <see cref="Rendering.PsfKernelGenerator"/>'s MaxKernelRadius ceiling — which throws a bare
+        /// ArgumentOutOfRangeException that NINA surfaces as "Unexpected error", plus a spurious AbortExposure,
+        /// rather than as an actionable message. At 2000 mm / 980 mm (N = 0.49) the ceiling needs ~1900 µm of
+        /// defocus, which an AutoFocus sweep never reaches; at an unclamped 999999 mm it needs ~4 µm, about two
+        /// focuser steps, so every exposure would throw.</para>
+        /// </summary>
+        private const double MaxApertureMillimeters = 2000.0;
+
+        /// <inheritdoc cref="MaxApertureMillimeters"/>
+        private const double MaxFocalLengthMillimeters = 20000.0;
+
+        /// <summary>
+        /// Resolves a user-entered optic to either <see cref="Unset"/> or a usable value in <c>[1, maximum]</c>,
+        /// mirroring <see cref="ClampGain"/>'s heal-on-commit precedent.
+        ///
+        /// <para>The <see cref="NormalizeUnset"/> sentinel check runs FIRST and wins: 0 and negatives mean
+        /// "unset — infer it" and must stay <see cref="Unset"/>, never clamp up to 1, or a blank box would
+        /// silently become a 1 mm aperture and inference — the whole point of the blank box — would break.
+        /// Only a value the user actually meant gets clamped.</para>
+        /// </summary>
+        private static double NormalizeOptic(double value, double maximum) {
+            var normalized = NormalizeUnset(value);
+            return normalized > 0.0 ? Math.Clamp(normalized, 1.0, maximum) : normalized;
+        }
+
         /// <summary>Clamp a raw gain into the usable <c>[0, MaxGain]</c> range of the given sensor.</summary>
         private static int ClampGain(int value, SonySensorModel model) {
             return Math.Clamp(value, 0, SensorRegistry.Get(model).MaxGain);
@@ -125,11 +157,14 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             // -1 means "unset — infer from the profile". The read default is now Unset rather than the old
             // hard-coded 0 mm focal length / 100 mm aperture, so an unwritten key (the common case — a profile
             // that never touched these) infers from the profile instead of silently rendering at 100 mm,
-            // ignoring the profile's focal ratio entirely. NormalizeUnset additionally heals a stored
-            // non-positive value, such as the 0 an older build's ResetDefaults wrote for the focal length.
-            // A value the user actually typed is > 0 and survives untouched — including a deliberate 100.
-            apertureMillimeters = NormalizeUnset(optionsAccessor.GetValueDouble(nameof(ApertureMillimeters), Unset));
-            focalLengthMillimeters = NormalizeUnset(optionsAccessor.GetValueDouble(nameof(FocalLengthMillimeters), Unset));
+            // ignoring the profile's focal ratio entirely. NormalizeOptic additionally heals a stored
+            // non-positive value, such as the 0 an older build's ResetDefaults wrote for the focal length, and
+            // a stored out-of-range one, which became reachable once the setup dialog's FloatRangeRules were
+            // dropped — same heal-on-read as ClampGain below, and for the same reason: the render must never be
+            // handed a value the current bounds would reject.
+            // A value the user actually typed is in range and survives untouched — including a deliberate 100.
+            apertureMillimeters = NormalizeOptic(optionsAccessor.GetValueDouble(nameof(ApertureMillimeters), Unset), MaxApertureMillimeters);
+            focalLengthMillimeters = NormalizeOptic(optionsAccessor.GetValueDouble(nameof(FocalLengthMillimeters), Unset), MaxFocalLengthMillimeters);
             centralObstructionEnabled = optionsAccessor.GetValueBoolean(nameof(CentralObstructionEnabled), true);
             centralObstructionFraction = optionsAccessor.GetValueDouble(nameof(CentralObstructionFraction), 0.3);
             opticalThroughput = optionsAccessor.GetValueDouble(nameof(OpticalThroughput), 0.85);
@@ -237,7 +272,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public double ApertureMillimeters {
             get => apertureMillimeters;
             set {
-                var normalized = NormalizeUnset(value);
+                var normalized = NormalizeOptic(value, MaxApertureMillimeters);
                 if (apertureMillimeters != normalized) {
                     apertureMillimeters = normalized;
                     optionsAccessor.SetValueDouble(nameof(ApertureMillimeters), apertureMillimeters);
@@ -252,7 +287,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public double FocalLengthMillimeters {
             get => focalLengthMillimeters;
             set {
-                var normalized = NormalizeUnset(value);
+                var normalized = NormalizeOptic(value, MaxFocalLengthMillimeters);
                 if (focalLengthMillimeters != normalized) {
                     focalLengthMillimeters = normalized;
                     optionsAccessor.SetValueDouble(nameof(FocalLengthMillimeters), focalLengthMillimeters);
