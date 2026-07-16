@@ -3240,7 +3240,10 @@
                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Enable Aberrations" ToolTip="{StaticResource CamSim_EnableAberrations_Tooltip}" />
                 <CheckBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.EnableAberrations}" ToolTip="{StaticResource CamSim_EnableAberrations_Tooltip}" />
             </Grid>
-            <Grid IsEnabled="{Binding CameraSimulatorOptions.EnableAberrations}">
+            <!--  Collapses rather than greys out: the aberration knobs are meaningless on a flat sensor, and hiding
+                  them keeps the panel short. The Enable Aberrations CheckBox lives in the grid above, outside this
+                  container, so it stays reachable to turn the group back on.  -->
+            <Grid Visibility="{Binding CameraSimulatorOptions.EnableAberrations, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
