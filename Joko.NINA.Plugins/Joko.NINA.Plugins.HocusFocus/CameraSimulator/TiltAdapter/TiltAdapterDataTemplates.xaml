@@ -624,4 +624,16 @@
             </Expander>
         </StackPanel>
     </DataTemplate>
+
+    <!--  The Imaging dockable's content. NINA resolves a dockable's visual by the string key
+          "<FullTypeName>_Dockable" — not by an {x:Type} DataType — matching every other dockable in this plugin.
+
+          StaticResource is safe for the panel here, unlike in the setup dialog's dictionary: it is declared above,
+          in THIS dictionary, so there is no cross-dictionary merge order to race with. The ScrollViewer follows the
+          other dockables — a docked panel is narrow and the configuration expander is tall.  -->
+    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter.SimulatorTiltAdapterDockableVM_Dockable">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ContentControl Content="{Binding TiltAdapterVM}" ContentTemplate="{StaticResource HocusFocus_SimTiltAdapter_Panel}" />
+        </ScrollViewer>
+    </DataTemplate>
 </ResourceDictionary>
