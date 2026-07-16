@@ -14,6 +14,7 @@ using NINA.Astrometry;
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -282,7 +283,14 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 float[] accumulator, int width, int height, IReadOnlyList<StampJob> jobs, float background, CancellationToken token) {
 
             var stripeCount = StripeCount(height);
-            var options = new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = stripeCount };
+            // Routed through the shared CPU governor for the same reason FrameDeveloper is: a render is kicked
+            // off at StartExposure and runs alongside the star detection of the previous autofocus point, so an
+            // ungoverned loop here would stack ProcessorCount threads on top of detection's. Passing stripeCount
+            // as the knob keeps the degree exactly what it was (it is already <= ProcessorCount), so this changes
+            // only which scheduler runs the loop. Value-neutral: each stripe writes just its own rows, so every
+            // pixel still sees its jobs applied in j-ascending order with the background last, whatever the
+            // scheduler or thread count does.
+            var options = ParallelExecution.CreateOptions(stripeCount, token);
             Parallel.For(0, stripeCount, options, stripe => {
                 var rowStart = (int)((long)stripe * height / stripeCount);
                 var rowEnd = (int)((long)(stripe + 1) * height / stripeCount);
