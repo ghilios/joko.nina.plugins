@@ -183,8 +183,14 @@ The setup dialog (below the separator) and the Imaging tab host the **same contr
   - `Net (turns):  1: 0.00  ·  2: 0.00  ·  3: 0.00` with **Re-zero**
   - two **collapsed** expanders: `Injected aberration` and
     `Adapter configuration (3 screws · Screws · 500 µm/turn · R 30 mm · ⟳ → camera · …)`
-- **Both hosts share the state that matters** — they read and write one options object. Click `⟳` on Screw 2 in
-  the dockable; the setup dialog's state strip follows.
+- **Both hosts share the state that matters — but not everything, and that's by design.** They read and write one
+  options object, so the *injected plane* is shared: click `⟳` on Screw 2 in the dockable and the setup dialog's
+  state strip (tilt / backfocus) follows.
+  **Expected NOT to follow — do not report these:** `Net (turns)`, **Undo**, and `Amount per click` are per-panel
+  (each host has its own view-model). So after that click the dockable shows `2: 0.25` while the setup dialog
+  still reads `2: 0.00`, and Undo in one host won't undo a turn made in the other. Net position is a *display*
+  odometer over the shared plane, not part of it — `Re-zero` re-bases only that host's counter and never touches
+  the rig.
 - Set **Screw count = 4** → a `Corner | Side | Backfocus` segmented radio appears above four rows, each naming
   its coupled partner (`3 opposes`, `4 opposes`, …), and **Screw 3/4 angle** render **dimmed and derived**
   (+180° of screws 1/2), not editable. Set it back to 3 → selector gone.

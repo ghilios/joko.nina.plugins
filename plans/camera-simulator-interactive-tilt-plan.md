@@ -26,7 +26,7 @@ adds the adapter and needs A's setup-dialog host. You can stop after A.
 NINA's decompiled assemblies), and green. This section records what actually shipped, because **the plan below was
 wrong in five places** and the corrections are the most useful thing in this document.
 
-**Final: 2051 tests passing** (from a 1960 baseline). The per-task "expected: N passed" numbers inline below are
+**Final: 2052 tests passing** (from a 1960 baseline). The per-task "expected: N passed" numbers inline below are
 pre-execution estimates and drifted as reviewers added tests — trust the trend (always green), not the integers.
 
 ### Divergence log — where the plan was wrong and the shipped code is right
@@ -1290,7 +1290,7 @@ GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.nor
 
 ## Definition of done
 
-- `rtk dotnet test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo` → all green. **As-built: 2051
+- `rtk dotnet test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo` → all green. **As-built: 2052
   passing** (from a 1960 baseline; the estimate here was ~1979 before reviewers added the tests that caught
   divergences #2 and #4).
 - The round-trip capstone passes across screw count × adjustment type × sign — this is the feature's real proof.
