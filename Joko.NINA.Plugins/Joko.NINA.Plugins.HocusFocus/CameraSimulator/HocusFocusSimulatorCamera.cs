@@ -468,7 +468,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private double exposureLengthSeconds;
 
         // Advanced once per StartExposure so repeated exposures at one focuser position get their own noise.
-        // Reset on Connect, so replaying a session from the same base NoiseSeed reproduces it frame for frame.
+        // Reset on Connect, so a fixed sequence of exposures taken after connecting replays identically.
         private int exposureCounter;
 
         public void StartExposure(CaptureSequence sequence) {
@@ -624,7 +624,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 LimitingMagnitude = options.LimitingMagnitude,
                 RotationDegrees = options.RotationDegrees,
                 // The option is the BASE seed, not the frame seed. Mixing in the focuser position and a
-                // per-exposure counter gives every frame its own noise while keeping the whole session
+                // per-exposure counter gives every frame its own noise while keeping a fixed exposure sequence
                 // reproducible from the base seed. It stays a property of the REQUEST rather than of the
                 // compositor, so Render remains a pure function of its request — which is what lets the render
                 // be started early (see StartExposure) without changing a single pixel.

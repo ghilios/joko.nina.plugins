@@ -512,11 +512,30 @@ public class HocusFocusSimulatorCameraTests {
 
     [Test]
     public async Task ReconnectingResetsTheCounter_SoASessionReplaysIdentically() {
-        // The counter resets on Connect, which is what keeps a run reproducible from the base seed.
+        // The counter resets on Connect, which is what keeps a fixed exposure sequence reproducible from the
+        // base seed. This must reconnect ONE camera: a fresh camera starts at 0 from field initialization, so
+        // comparing two cameras would pass even if Connect reset nothing.
+        var captured = new List<RenderRequest>();
         var options = BuildOptions();
         options.NoiseSeed = 42;
-        var first = await CaptureRequests(options, focuserPosition: 25000, exposures: 2);
-        var second = await CaptureRequests(options, focuserPosition: 25000, exposures: 2);
-        Assert.That(second.ConvertAll(r => r.NoiseSeed), Is.EqualTo(first.ConvertAll(r => r.NoiseSeed)));
+        options.SensorModel = SonySensorModel.IMX533;
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>())
+                  .Returns(call => { captured.Add(call.Arg<RenderRequest>()); return new ushort[3008 * 3008]; });
+
+        var camera = BuildCameraWithCompositor(
+            options, compositor, Substitute.For<IExposureDataFactory>(), FocuserAt(25000), ConnectedTelescope());
+
+        for (var session = 0; session < 2; ++session) {
+            await camera.Connect(CancellationToken.None);
+            camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+            await camera.WaitUntilExposureIsReady(CancellationToken.None);
+            await camera.DownloadExposure(CancellationToken.None);
+            camera.Disconnect();
+        }
+
+        Assert.That(captured, Has.Count.EqualTo(2));
+        Assert.That(captured[1].NoiseSeed, Is.EqualTo(captured[0].NoiseSeed),
+            "reconnecting must reset the exposure counter, so the sequence replays identically");
     }
 }
