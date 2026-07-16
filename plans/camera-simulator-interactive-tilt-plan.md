@@ -20,6 +20,44 @@ adds the adapter and needs A's setup-dialog host. You can stop after A.
 
 ---
 
+## AS-BUILT — read this before trusting any snippet below
+
+**Status: delivered.** Tasks 1-10 are implemented, reviewed (spec + quality, each independently verified against
+NINA's decompiled assemblies), and green. This section records what actually shipped, because **the plan below was
+wrong in five places** and the corrections are the most useful thing in this document.
+
+**Final: 2051 tests passing** (from a 1960 baseline). The per-task "expected: N passed" numbers inline below are
+pre-execution estimates and drifted as reviewers added tests — trust the trend (always green), not the integers.
+
+### Divergence log — where the plan was wrong and the shipped code is right
+
+| # | Plan said | Shipped | Why the plan was wrong |
+|---|---|---|---|
+| 1 | `private readonly IWindowService windowService = new WindowService();` (Task 3) | `IWindowServiceFactory`, created **inside** `SetupDialog()` | `WindowService..ctor` is `Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher`. A field initializer runs at camera construction — during an equipment rescan and in every unit test, where `Application.Current` is null — pinning a stray dispatcher to the NUnit worker. |
+| 2 | `AxialMicronsForUnits` multiplies by `CwMovesAdapterTowardObjectiveForSign(σ) ? 1.0 : -1.0` (Task 5) | **No rig factor at all** — `units * UnitMicrons` | That factor is exactly `−σ`: **backwards on default (σ=+1) rigs**, coincidentally right on σ=−1. The inspector's *tilt* guidance is sign-free (`InspectorVM.cs:2035`; `SignedTotalAdjustment` applies σ to backfocus only, with a regression pin saying so) because `PhysicalToStoredAngle` makes stored angles already carry rig direction (`p_stored = σ·p_phys`), so the two σ's cancel. **Flipping the ternary would also have been wrong.** |
+| 3 | Capstone feeds axial µm straight into `ApplyMoves` (Task 6) | Computes turns the way `InspectorVM.FillNumericGuidance` does, then routes through `AxialMicronsForUnits` | The original **bypassed the sign path entirely**, making `unitMicrons`/`curvatureSign` provably inert (6 of 8 combinatorial cases were duplicates). It was empirically shown to **pass against bug #2** — a capstone that certifies the bug it exists to catch. |
+| 4 | `ΔBackfocusErrorMicrons = −ΔZ0_phys·(…)` (Task 7 / design §3.2) | `+ΔZ0_phys·(…)` | Derived from the false premise "the inspector emits `backTurns = CurvatureAt(p)/pitch`". Shipped `ScrewCorrectionMicrons` returns **`−CurvatureAt`** (`TiltScrewGeometry.cs:102`), symmetric with its `−TiltAt`; `InspectorVM.cs:2004` says so in its own comment. The `−` form **doubles** the error (40 → 80) instead of nulling it, on both rigs. |
+| 5 | Dockable template keyed `{x:Type …DockableVM}` (Task 9) | String key `"<FullTypeName>_Dockable"` | NINA's `PaneTemplateSelector.SelectTemplate` looks up `item.GetType().FullName + "_Dockable"`. An `{x:Type}` key compiles cleanly and silently renders the type name instead of the panel. All 7 pre-existing dockable templates use the string key. |
+
+**Root cause of #2 and #4 — the lesson worth keeping.** Both signs were derived from *another design doc*
+(`docs/precise-screw-adjustments-design.md`) rather than from the shipped code, and both were self-consistently
+wrong. The structural fix is already in place: the capstone now consumes the **real** `TiltScrewGeometry` /
+`ScrewCorrectionMicrons` instead of hand-rolled expectations, so a doc that drifts from the code can no longer
+pass. **If you change the screw math, do not trust this plan or the design — read `TiltScrewGeometry` and
+`InspectorVM.FillNumericGuidance`.**
+
+### Smaller as-built divergences (all deliberate; repo was the truth)
+
+- **Task 2:** the plan's XAML row numbers were from the *setup dialog's* layout, not `OptionsDataTemplates.xaml`. Real rows differ; the six rig controls are at `:3016-3050`.
+- **Task 3:** the plan's inline tooltips were replaced by **moving** the six now-dead `CamSim_*_Tooltip` resources into the setup dictionary (keeping the prose, killing the dead keys, avoiding a cross-dictionary `StaticResource` parse-order race). The `FloatRangeRule` ranges the plan didn't supply were recovered from `5d6495a` (aperture 1–2000, focal 0–20000, fraction 0–0.9, throughput 0–1).
+- **Task 4:** the options fixture helper is `Build()` (returns a tuple), not `BuildOptions()`. The plan's two tests **pass against the buggy naive NaN guard**, so a third test was added that actually pins it. `SimScrewCount` is also healed on load (the setter clamps, but `InitializeOptions` didn't).
+- **Task 7:** `SimulatedTiltAdapterVM` has a **dual constructor** (1-arg public resolves `HocusFocusPlugin.TiltAdapterOptions`; `internal` 2-arg seam for tests) — touching `HocusFocusPlugin` runs its static ctor. `IsFlat` requires tilt **and** |backfocus| < 1 µm (per the UX doc, which is the named authority).
+- **Task 8:** the VM is built **lazily on first bind**, not in the camera ctor — the provider makes a fresh camera per equipment rescan and the VM subscribes to process-lifetime singletons without unsubscribing, so eager construction retains one VM per rescan.
+- **Task 9:** `IDockableVM` lives in `NINA.Equipment.Interfaces.ViewModel` (the plan's import didn't compile). The `DispatcherPriority.ApplicationIdle` gating the plan prescribed **does not guarantee ordering** — priority orders items queued *at the same time*, and NINA's layout restore is queued *later*; the shipped gate is order-independent instead (it re-closes whenever `IsVisible` goes true while disabled).
+- **Cross-dictionary lookups** use `DynamicResource`, never `StaticResource`: plugin `ResourceDictionary` exports are merged in unspecified order, so a parse-time lookup is a load-order race.
+
+---
+
 ## Background the engineer needs
 
 **Build & test (Windows toolchain from WSL — bare `dotnet` is NOT on PATH):**
@@ -250,7 +288,21 @@ public void SetupDialog() {
 Add the field + usings (`NINA.Core.Utility.WindowService`, `System.Windows`):
 
 ```csharp
-private readonly IWindowService windowService = new WindowService();
+// AS-BUILT (divergence #1): a factory, NOT a field-initialized WindowService. WindowService..ctor captures
+// `Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher`, so constructing it at camera-construction
+// time — every equipment rescan, and every unit test, where Application.Current is null — pins a stray
+// Dispatcher to the calling (NUnit worker) thread. The factory's ctor is inert; Create() runs inside
+// SetupDialog(), where a live Application is guaranteed. Matches 6 existing precedents in this plugin.
+private readonly IWindowServiceFactory windowServiceFactory = new WindowServiceFactory();
+```
+
+and `SetupDialog()` becomes:
+
+```csharp
+public void SetupDialog() {
+    windowServiceFactory.Create().Show(
+        this, "Hocus Focus Simulator Setup", ResizeMode.NoResize, WindowStyle.ToolWindow);
+}
 ```
 
 - [ ] **Step 4: Run the test**
@@ -512,12 +564,24 @@ public int SimScrewCount {
 always true for NaN — guard that setter with
 `if (!(double.IsNaN(simScrew4AngleDegrees) && double.IsNaN(value)) && simScrew4AngleDegrees != value)`.
 
+**AS-BUILT:** the two tests above are **not sufficient** — they pass against the naive buggy guard too
+(`InitializeOptions` assigns backing fields directly so no setter runs, and `NaN → 270` is the one case where the
+naive guard is coincidentally right). A third test was added — `SimScrew4Angle_SettingNaNOverNaNDefault_
+DoesNotRaiseOrPersist` — asserting no `PropertyChanged` **and** no store write. That one actually fails under the
+naive guard. Also: `InitializeOptions` heals `SimScrewCount` on load (`== 4 ? 4 : 3`), mirroring the `ClampGain`
+precedent — the setter clamps, but a hand-edited profile bypasses it and would reach Task 5's ctor guard.
+
 - [ ] **Step 5: Run the tests**
 
 Run: `rtk dotnet test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo --filter "FullyQualifiedName~SimTiltAdapter"`
-Expected: PASS (2 tests).
+Expected: PASS.
 
 - [ ] **Step 6: Add the UI control for `ShowSimulatorTiltAdapterPanel` (project invariant)**
+
+**AS-BUILT:** the `Grid.Row="26"` in the snippet below is stale — `HocusFocus_CameraSimulator_Options` is a
+`StackPanel` of small per-section grids (Focus & Optics, Sensor & Filter, Sky & Catalog, Field Aberrations), each
+with its own ~5-7 rows; there is no row 26. A new **"Tilt Adapter"** section was added instead, using the file's
+label-in-column-0 + bare-CheckBox-in-column-1 convention rather than the snippet's `Content="…"` form.
 
 The `Sim*` adapter fields get their controls in the panel itself (Task 7), but `ShowSimulatorTiltAdapterPanel` is a
 plugin-level option and needs a control in `HocusFocus_CameraSimulator_Options`:
@@ -1074,7 +1138,10 @@ In `HocusFocusSimulatorCamera.cs`:
 /// <summary>Backs the simulated tilt-adapter panel hosted by the setup dialog and the Imaging dockable.</summary>
 public SimulatedTiltAdapterVM TiltAdapterVM { get; }
 ```
-Construct it in the camera's constructor from `options`.
+**AS-BUILT:** construct it **lazily on first bind** (`Lazy<SimulatedTiltAdapterVM>`), not in the camera's
+constructor. `HocusFocusSimulatorCameraProvider.GetEquipment()` builds a fresh camera on every equipment rescan,
+and the VM subscribes to process-lifetime options singletons without ever unsubscribing — eager construction
+would retain one VM per rescan. It also keeps the plugin's static bootstrap out of the camera unit tests.
 
 - [ ] **Step 3: Build + suite + commit**
 
@@ -1171,6 +1238,13 @@ Application.Current?.Dispatcher.BeginInvoke(
 
 - [ ] **Step 3: Add the panel content**
 
+**AS-BUILT (divergence #5): the key below is WRONG — do not use `{x:Type …}`.** NINA's
+`PaneTemplateSelector.SelectTemplate` resolves a dockable's visual by the **string** key
+`item.GetType().FullName + "_Dockable"`, e.g.
+`x:Key="NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter.SimulatorTiltAdapterDockableVM_Dockable"`.
+An `{x:Type}` key compiles cleanly and silently renders the type's name instead of the panel. All 7 pre-existing
+dockable templates in this plugin use the string key — follow them.
+
 Add the dockable's `DataTemplate` (keyed `{x:Type ...SimulatorTiltAdapterDockableVM}`) to
 `TiltAdapterDataTemplates.xaml`, hosting `HocusFocus_SimTiltAdapter_Panel` bound to `TiltAdapterVM`.
 
@@ -1216,7 +1290,9 @@ GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.nor
 
 ## Definition of done
 
-- `rtk dotnet test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo` → all green (~1979).
+- `rtk dotnet test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo` → all green. **As-built: 2051
+  passing** (from a 1960 baseline; the estimate here was ~1979 before reviewers added the tests that caught
+  divergences #2 and #4).
 - The round-trip capstone passes across screw count × adjustment type × sign — this is the feature's real proof.
 - Every persisted option has a UI control (project invariant).
 - The manual checklist's headline loop converges in a real NINA session.
