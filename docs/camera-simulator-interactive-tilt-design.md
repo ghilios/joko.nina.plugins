@@ -152,7 +152,7 @@ Applied to the simulator's existing state:
    individual `Δz_i` — so a corner move (`ΔZ0 = 0` by symmetry) correctly leaves curvature untouched, while a
    backfocus move (`ΔZ0 = Δz`) changes it fully. Derived as the exact inverse of the inspector's backfocus row,
    which is `backTurns = σ·corr.BackfocusMicrons/unit` with
-   `corr.BackfocusMicrons = −CurvatureAt(p) = −K·R²` (`InspectorVM.cs:2038` feeding
+   `corr.BackfocusMicrons = −CurvatureAt(p) = −K·R²` (`InspectorVM.cs:2036` feeding
    `TiltScrewGeometry.ScrewCorrectionMicrons:102`). That row asks for a **physical axial**
    `ΔZ0_phys = −K·R²` per screw, and applying it must null `K` exactly, which fixes the constant:
    `ΔK = ΔZ0_phys/R²`, so
