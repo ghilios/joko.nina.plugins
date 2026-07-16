@@ -2,13 +2,13 @@
 
 Executes step 23 of `plans/synthetic-camera-plan.md` and Task 10 of
 `plans/camera-simulator-interactive-tilt-plan.md`. Everything else in both plans is covered by the automated
-suite (2052 tests, incl. capstones that render frames and recover star positions/HFR and the injected aberration
+suite (2105 tests, incl. capstones that render frames and recover star positions/HFR and the injected aberration
 surface through HocusFocus's own detector, and one that drives the *real* screw-guidance math through the
 simulated tilt adapter). This checklist covers what only a human at a running NINA can confirm: that the device
 shows up, connects, renders, and that the UI binds and behaves in the real app.
 
-Checks (a)–(f) cover the camera itself. Checks (g)–(o) and the headline loop cover the rig setup dialog and the
-virtual tilt adapter.
+Checks (a)–(f) cover the camera itself. Checks (g)–(q) and the headline loop cover the rig setup dialog and the
+virtual tilt adapter. Check (r) covers a full autofocus run — the loop everything else is in service of.
 
 ## Prerequisites
 
@@ -22,11 +22,12 @@ virtual tilt adapter.
 
 ## Setup
 
-- **Options → Hocus Focus → Camera Sim** tab. Defaults: IMX455, filter L, aperture 100 mm, focal length 0
-  (⇒ uses the profile's `TelescopeSettings.FocalLength`), obstruction on @ 0.3, throughput 0.85, gain 100,
+- **Options → Hocus Focus → Camera Sim** tab. Defaults: IMX455, filter L, aperture and focal length **blank**
+  (⇒ inferred from the profile — see (p)), obstruction on @ 0.3, throughput 0.85, gain 100,
   pedestal 500 ADU, −10 °C, sky 20.5 mag/arcsec², seeing 2.5″, ASTAP path, limiting mag 16, rotation 0,
   noise seed 42, aberrations off.
-- Set the profile's telescope focal length to **800 mm** (or set the Focal Length override) so the numbers below apply.
+- **Type Aperture = 100 and Focal Length = 800** into the setup dialog (⇒ f/8) so the numbers in checks (a)–(c)
+  apply. Left blank they infer from the profile instead and you will not get f/8 — see (p).
 - **Equipment → Camera** → choose **"Hocus Focus Simulator"** → Connect.
 - Connect the simulator **Focuser** and **Mount**. Slew the mount to a star-rich field (e.g. near the galactic
   plane) so the catalog returns stars.
@@ -129,13 +130,18 @@ prints are the glyphs the panel takes**.
 **Equipment → Camera** → select **"Hocus Focus Simulator"** → click the **gear** button beside the dropdown.
 
 - **Expect:** a non-resizable tool window titled **"Hocus Focus Simulator Setup"**, containing a bold **Rig**
-  header, a one-line explainer, exactly **six** rows — **Sensor Model**, **Aperture** (mm), **Focal Length
-  (0 = use profile)** (mm), **Central Obstruction** (checkbox), **Obstruction Fraction**, **Optical
-  Throughput** — then a separator and the **virtual tilt adapter panel**.
+  header, a one-line explainer, exactly **six** rows — **Sensor Model**, **Aperture** (mm), **Focal Length**
+  (mm), **Central Obstruction** (checkbox), **Obstruction Fraction**, **Optical Throughput** — then a separator
+  and the **virtual tilt adapter panel**.
 - Values edit and persist: set Aperture to **120**, close, reopen → **120**, and the Camera Sim options page
   agrees (check (i)).
-- Out-of-range entries are rejected with a validation border, not a crash: aperture **1–2000 mm**, focal length
-  **0–20000 mm**, obstruction fraction **0–0.9**, throughput **0–1**.
+- **Aperture and Focal Length clamp on commit rather than showing a validation border** — type **99999** into
+  Aperture, tab out, and the box visibly **snaps to 2000** (focal length caps at **20000**). That's the intended
+  behaviour, not a missing rule: the box has to accept an empty value to mean "infer it" (check (p)), and a
+  `ValidationRule` runs on the raw text before the converter, so it would reject the blank box. Clamping is what
+  replaced it.
+- **Obstruction Fraction (0–0.9) and Optical Throughput (0–1) do still use a validation border** — the two
+  behave differently on purpose, so don't report the difference as an inconsistency.
 - **Obstruction Fraction greys out** when **Central Obstruction** is unchecked — it's inert then.
 - The gear stays clickable while connected, and clicking it twice opens a **second** window bound to the same
   options. NINA's own `SimulatorCamera` behaves identically — expected, not a bug.
@@ -259,6 +265,57 @@ with no `ScrollViewer`**.
   is a `MaxHeight` + `ScrollViewer` on the setup panel.
 - The Imaging dockable is user-resizable, so this is specific to the setup dialog.
 
+### (p) Optics default to the profile
+With **Aperture** and **Focal Length** blank in the setup dialog, both boxes show a greyed-out number (40%
+opacity) — the value the next exposure will actually use, inferred from the active profile.
+
+- **Expect** on a **430 mm f/5** profile: **430** and **86.0**. Aperture is inferred from the profile's focal
+  ratio, not stored — 430/5.
+- **Expect** on a profile whose telescope settings are unset (NINA stores `NaN` for both): **980** and
+  **140.0** — the built-in default rig, a 980 mm f/7. There is no configuration in which the boxes read blank
+  and the camera renders at nothing.
+- Typing a value makes it **solid**; clearing the box returns it to **grey** and to the inferred number. Edit the
+  profile's focal length with the dialog open → the grey number follows without a reopen.
+- **The Camera Sim options page shows the same two numbers**, read-only (check (i)), and **never `-1`**. `-1` is
+  the stored "unset" sentinel; if it reaches a box, the converter is missing — that's a finding.
+
+### (q) The setup dialog still opens
+Click the camera **gear** button. The dialog must appear.
+
+- **This check has no interesting pass state — it exists entirely for its failure mode.** If a `{StaticResource}`
+  key in `SetupDataTemplates.xaml` is unresolvable, `WindowService.Show` swallows the `XamlParseException` and
+  **the only symptom is nothing happening**: no dialog, no error, no crash. A dead gear button is the whole
+  signal.
+- If it doesn't open, check the NINA log for `WindowService.cs|Show|41` — that line is the swallow site and names
+  the key.
+- The automated suite pins every `{StaticResource}` key in the plugin's XAML against the merged resource graph,
+  so this should not regress silently. Click it anyway: the test resolves keys, not the runtime dialog.
+
+---
+
+## Autofocus end to end
+
+### (r) Autofocus completes without timing out
+Run a real **Auto Focus** on the IMX455 at a star-rich pointing. This check exists because a user's run **timed
+out at the 10-minute limit**: at 61 MP the frame was rendered single-threaded *inside* the download, so every
+point cost focuser move ~3 s + exposure 5 s + **download ~35 s** + detection ~10 s.
+
+- **Expect: download is now essentially free.** The progress bar should pass straight through it rather than sit
+  there for ~35 s. The render now starts when the **exposure** does and runs on every core, so by the time NINA
+  asks for the frame it is normally already finished and the download is just a handover. A point should cost
+  about **expose + star detection**, with download no longer a term worth counting.
+- **Expect: the run completes** and converges (check (a)), rather than dying on the timeout.
+- **Frames at one focuser position must differ.** Take two exposures without touching anything and blink or
+  subtract them — the noise must change. It previously didn't: every exposure at a given position was
+  byte-identical, which meant **Frames per point > 1** was averaging a frame with itself and buying exactly no
+  SNR. That average now does real work.
+- On a slower box, or with a very short exposure, download costs only whatever render time is left over *after*
+  the exposure — not the whole render. What it must never do is go back to a flat ~35 s regardless of exposure
+  length; that would mean the prefetch isn't running.
+- **For reference:** one 61 MP IMX455 frame at the reporting user's settings renders in **~1.0–1.5 s** on a
+  24-core box (Debug build), down from a measured **13.1 s**. The win is parallelism, so a 4–8 core machine
+  gives back some of it — expect a few seconds there, not 35.
+
 ---
 
 ## The headline loop — inject, inspect, turn, re-inspect
@@ -330,8 +387,12 @@ doesn't wobble — it *doubles* the error, on both rig directions.
   exemplar (peak ≈ 42 kADU).
 - **Bias/dark/flat for free.** A 0 s dark should sit at ≈ the pedestal (500 ADU at 16-bit) plus read noise —
   the frames are calibratable.
-- **Repeatability.** With a fixed **Noise Seed** and identical settings, two exposures are bit-identical
-  (deterministic regardless of CPU core count).
+- **Repeatability is per-sequence, not per-exposure.** Two back-to-back exposures at identical settings are
+  **not** bit-identical any more — each one gets its own noise realization, which is what makes averaging
+  worthwhile (check (r)). What replays is the *sequence*: reconnect the camera and take the same exposures at the
+  same positions with the same **Noise Seed**, and you get the same frames back, because the per-exposure counter
+  resets on **Connect**. Still deterministic regardless of CPU core count — the render is parallel, but its
+  partition is fixed, so core count never changes a pixel.
 - **No ASTAP DB / pointing outside coverage** ⇒ starless frame + a descriptive warning in the NINA log
   (the exposure still succeeds).
 - **Undo is single-level and free.** It reverts the last click's tilt, backfocus, focuser position **and** net
