@@ -1656,6 +1656,66 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
+    public async Task Accept_LiveCurrentVariant_AppliesExposureButKeepsDetectorSettings() {
+        // When the optimizer can't beat the current detector settings the summary defaults to Current. A live run must
+        // still be able to accept just the recommended auto-focus settings (the chosen exposure) without switching to
+        // Optimized (which would swap in detector settings that were no better).
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 9.0;
+
+        await vm.StartAsync(CancellationToken.None);
+        vm.SelectedVariant = OptimizationVariant.Current; // keep current detector settings
+
+        Assert.That(vm.AcceptCommand.CanExecute(null), Is.True, "Current can be accepted to apply the exposure");
+        vm.AcceptCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            options.DidNotReceiveWithAnyArgs().ApplyOptimizedSettings(default); // detector settings untouched
+            focuserSettings.Received(1).AutoFocusExposureTime = 9.0;            // the chosen exposure is applied
+        });
+    }
+
+    [Test]
+    public async Task Accept_ReplayCurrentVariant_StaysDisabled() {
+        // Replay's Current variant has nothing to apply (no chosen exposure, step size unchanged), so Accept stays off.
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        vm.SelectedVariant = OptimizationVariant.Current;
+
+        Assert.That(vm.AcceptCommand.CanExecute(null), Is.False);
+    }
+
+    [Test]
+    public async Task CanAccept_LiveCurrentVariant_FollowsApplyAfSettingsToggle() {
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+        var vm = NewVM(LoaderReturning(GoodRun()), profileService: profileService, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 9.0;
+
+        await vm.StartAsync(CancellationToken.None);
+        vm.SelectedVariant = OptimizationVariant.Current;
+
+        vm.ApplyRecommendedStepSize = true;
+        Assert.That(vm.AcceptCommand.CanExecute(null), Is.True);
+        vm.ApplyRecommendedStepSize = false;
+        Assert.That(vm.AcceptCommand.CanExecute(null), Is.False, "nothing to apply when the AF-settings toggle is off");
+    }
+
+    [Test]
     public async Task CanApplyRecommendedStepSize_MatchesSummaryChange() {
         var vm = NewVM(LoaderReturning(GoodRun()));
         vm.SourcePaths[0] = @"C:\run1";

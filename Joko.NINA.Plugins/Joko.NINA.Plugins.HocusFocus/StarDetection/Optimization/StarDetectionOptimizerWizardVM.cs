@@ -1310,6 +1310,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     RaisePropertyChanged();
                     // The AF rows in the changed-parameters list appear only while this is on.
                     RaisePropertyChanged(nameof(ChangedParametersDisplay));
+                    // When Current is selected, this toggle is the only thing that makes Accept meaningful.
+                    AcceptCommand.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -2143,12 +2145,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// applying (it never mutates options) — though it still flushes labels, since those are user work product,
         /// not a settings mutation. Reachable from Summary AND Review.
         /// </summary>
-        /// <summary>Accept is enabled only on the finished Summary view, when the VM is idle, and when a non-Current
-        /// variant (something there is actually to apply) is selected. This keeps Accept disabled while the Start /
-        /// SelectSource view or a run-in-progress is showing, and in review-only (Current selected).</summary>
-        private bool CanAccept() =>
-            !IsBusy && IsSummary && selectedVariant != OptimizationVariant.Current
-            && SelectedResult != null && SelectedSummary != null;
+        /// <summary>Accept is enabled on the finished Summary view when the VM is idle and there is something to apply.
+        /// A non-Current variant always has its optimized detector settings to apply. The Current variant keeps the
+        /// detector settings untouched, so it can be accepted only to write the recommended auto-focus settings — for
+        /// a live sweep, the exposure you chose — i.e. when the AF-settings toggle is on and something actually changed.
+        /// This lets a live run whose optimizer could not beat the current detector still apply its exposure without
+        /// being forced to switch to the Optimized variant.</summary>
+        private bool CanAccept() {
+            if (IsBusy || !IsSummary || SelectedResult == null || SelectedSummary == null) {
+                return false;
+            }
+            if (selectedVariant != OptimizationVariant.Current) {
+                return true;
+            }
+            return ApplyRecommendedStepSize && CanApplyRecommendedStepSize;
+        }
 
         private void Accept() {
             PersistReviewLabels();
@@ -2168,17 +2179,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return;
             }
 
-            // Build the snapshot via the shared params->DTO mapping (the single source of truth shared with the
-            // headless harness) so the in-app and offline paths can never drift. CreatedAtUtc is stamped inside.
-            // Record the displayed (vs current-settings) before/after J in the snapshot + log, so the persisted record
-            // matches the improvement the user saw. summary.SeedJ is the current-settings baseline J; summary.BestJ is
-            // the optimizer's best (== result.BestJ).
-            var dto = OptimizedStarDetectionSettings.FromParams(
-                result.BestParams, summary.RunCount, summary.SeedJ, summary.BestJ,
-                summary.RecommendedStepSize, summary.RecommendedOffsetSteps);
+            // A non-Current variant applies its optimized detector settings. The Current variant keeps the current
+            // detector settings untouched (the optimizer did not beat them) and only writes the recommended auto-focus
+            // settings below. Build the snapshot via the shared params->DTO mapping (the single source of truth shared
+            // with the headless harness) so the in-app and offline paths can never drift.
+            if (selectedVariant != OptimizationVariant.Current) {
+                var dto = OptimizedStarDetectionSettings.FromParams(
+                    result.BestParams, summary.RunCount, summary.SeedJ, summary.BestJ,
+                    summary.RecommendedStepSize, summary.RecommendedOffsetSteps);
 
-            starDetectionOptions.ApplyOptimizedSettings(dto);
-            Logger.Info($"Applied optimized star-detection settings (J {summary.SeedJ:F3} -> {summary.BestJ:F3}, {summary.RunCount} run(s))");
+                starDetectionOptions.ApplyOptimizedSettings(dto);
+                Logger.Info($"Applied optimized star-detection settings (J {summary.SeedJ:F3} -> {summary.BestJ:F3}, {summary.RunCount} run(s))");
+            } else {
+                Logger.Info("Keeping current star-detection settings (the optimizer did not beat them); applying the recommended auto-focus settings only.");
+            }
 
             // The single "Apply these auto-focus settings" toggle writes the recommended step size / offset, and for a
             // Live sweep the exposure it captured with too (the user may have lengthened it to make focus work, so it
