@@ -55,9 +55,15 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private readonly ICameraSimulatorOptions options;
         private readonly IStarFieldCompositor compositor;
 
-        private readonly IList<string> supportedActions = Array.Empty<string>();
+        // These MUST be backed by a concrete List<T>, not an array. ICamera/IDevice declare them as IList<T>,
+        // but NINA's binding layer hard-casts the bound value to List<T> — NINA.Core's
+        // IntListToTextBlockListConverter does `((List<int>)value).Select(...)`, so an int[] (e.g.
+        // Array.Empty<int>()) satisfies the interface yet throws InvalidCastException on the UI thread and
+        // takes NINA down when the camera panel binds Gains. Keep the concrete type; see the tests that pin it.
+        private readonly IList<string> supportedActions = new List<string>();
         private readonly IList<string> readoutModes = new List<string> { "Default" };
-        private readonly IList<int> gains = Array.Empty<int>();
+        // Empty = no discrete gain steps; NINA falls back to the GainMin..GainMax slider (the ASI/QHY convention).
+        private readonly IList<int> gains = new List<int>();
         private readonly AsyncObservableCollection<BinningMode> binningModes =
             new AsyncObservableCollection<BinningMode> { new BinningMode(1, 1) };
 

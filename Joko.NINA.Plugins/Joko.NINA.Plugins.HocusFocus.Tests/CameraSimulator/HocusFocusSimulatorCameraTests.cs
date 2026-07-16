@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using NINA.Core.Enum;
+using NINA.Core.Utility.Converters;
 using NINA.Equipment.Equipment.MyFocuser;
 using NINA.Equipment.Equipment.MyTelescope;
 using NINA.Equipment.Interfaces.Mediator;
@@ -354,6 +356,37 @@ public class HocusFocusSimulatorCameraTests {
             Assert.That(camera.CanGetGain, Is.True);
             Assert.That(camera.CanSetGain, Is.True);
             Assert.That(camera.BinningModes, Has.Count.EqualTo(1));
+        });
+    }
+
+    /// <summary>
+    /// Regression: NINA crashed with an unhandled InvalidCastException on the UI thread when the camera panel
+    /// bound Gains. NINA.Core's IntListToTextBlockListConverter does `((List&lt;int&gt;)value).Select(...)` — a hard
+    /// cast to the CONCRETE List&lt;int&gt;, even though ICamera declares IList&lt;int&gt;. Backing Gains with an array
+    /// (Array.Empty&lt;int&gt;()) satisfied the interface but took NINA down on connect. This drives NINA's real
+    /// converter with our real Gains, so reverting the backing type to an array reproduces the original crash.
+    /// Convert() is not enumerated: the cast is eager (that's what threw), while Select is lazy and would
+    /// construct WPF TextBlocks off the STA thread.
+    /// </summary>
+    [Test]
+    public void Gains_SurvivesNinaIntListToTextBlockListConverter() {
+        var camera = BuildCamera(BuildOptions());
+        var converter = new IntListToTextBlockListConverter();
+        Assert.DoesNotThrow(() => converter.Convert(camera.Gains, typeof(object), null, CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// Pins the concrete List&lt;T&gt; backing of every IList-typed ICamera/IDevice member. NINA's binding layer
+    /// hard-casts these to List&lt;T&gt; (see <see cref="Gains_SurvivesNinaIntListToTextBlockListConverter"/>), so
+    /// "optimizing" any of them to an array is a NINA-crashing change, not a harmless one.
+    /// </summary>
+    [Test]
+    public void ListBackedMembers_AreConcreteListsForNinaBinding() {
+        var camera = BuildCamera(BuildOptions());
+        Assert.Multiple(() => {
+            Assert.That(camera.Gains, Is.InstanceOf<List<int>>());
+            Assert.That(camera.ReadoutModes, Is.InstanceOf<List<string>>());
+            Assert.That(camera.SupportedActions, Is.InstanceOf<List<string>>());
         });
     }
 }
