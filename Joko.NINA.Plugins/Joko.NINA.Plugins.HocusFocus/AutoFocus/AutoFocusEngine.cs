@@ -1212,7 +1212,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var imageNumber = state.ImageNumber;
                 var frameNumber = i;
-                var exposureData = await TakeExposure(state, focuserPosition, token, progress);
+                // For the capture-only sweep, synthesize a per-exposure countdown alongside the exposure (NINA doesn't
+                // forward the camera's countdown to our progress). The normal AF path is unchanged.
+                var exposureData = captureOnly
+                    ? await TakeExposureWithLiveCountdown(state, focuserPosition, token, progress)
+                    : await TakeExposure(state, focuserPosition, token, progress);
                 imageState.MeasurementStarted();
                 try {
                     var prepareExposureTask = PrepareExposure(state, imageState, exposureData, token);
@@ -1866,9 +1870,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// handling). Unlike the blind trend-walk this list is fixed up front — no star detection is required to
         /// decide where to step — so a starless field still yields a full, loadable set of saved frames.
         /// </summary>
-        // Tags the fixed sweep's own per-point progress reports (focuser position + frame count) so the wizard can tell
-        // them apart from the camera's exposure-countdown reports that flow through the same IProgress.
+        // Tags the fixed sweep's own per-point progress reports (focuser position + frame count).
         internal const string LiveSweepProgressSource = "HocusFocus.LiveSweep";
+
+        // Tags the fixed sweep's synthesized per-exposure countdown (Progress = elapsed seconds, MaxProgress = total).
+        // NINA's ImagingVM.CaptureImage drops the IProgress we hand it (it reports to its own status bar), so the sweep
+        // has to generate this countdown itself rather than relying on the camera's reports reaching the wizard.
+        internal const string LiveSweepExposureSource = "HocusFocus.LiveSweep.Exposure";
 
         internal static IReadOnlyList<int> ComputeSweepPositions(int initial, int offsetSteps, int stepSize) {
             if (offsetSteps < 1) {
@@ -2165,6 +2173,51 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 OnCompleted(state, focuserMediator.GetInfo().Temperature, stopWatch.Elapsed);
                 return true;
             }
+        }
+
+        // Wraps a capture-only exposure with a synthesized countdown reported to the wizard (LiveSweepExposureSource),
+        // because NINA's ImagingVM.CaptureImage drops the IProgress we pass and reports the camera countdown elsewhere.
+        private async Task<IExposureData> TakeExposureWithLiveCountdown(AutoFocusState state, int focuserPosition, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            var totalSeconds = ResolveSweepExposureSeconds(state);
+            if (progress == null || totalSeconds <= 0) {
+                return await TakeExposure(state, focuserPosition, token, progress);
+            }
+
+            using (var countdownCts = CancellationTokenSource.CreateLinkedTokenSource(token)) {
+                var countdown = RunExposureCountdown(progress, totalSeconds, countdownCts.Token);
+                try {
+                    return await TakeExposure(state, focuserPosition, token, progress);
+                } finally {
+                    countdownCts.Cancel();
+                    try { await countdown; } catch { /* best-effort readout */ }
+                }
+            }
+        }
+
+        // Reports elapsed / total seconds every quarter second until cancelled (when the exposure completes).
+        private static async Task RunExposureCountdown(IProgress<ApplicationStatus> progress, double totalSeconds, CancellationToken token) {
+            var maxProgress = Math.Max(1, (int)Math.Ceiling(totalSeconds));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            try {
+                while (!token.IsCancellationRequested) {
+                    var elapsed = Math.Min(totalSeconds, stopwatch.Elapsed.TotalSeconds);
+                    progress.Report(new ApplicationStatus() {
+                        Source = LiveSweepExposureSource,
+                        Progress = elapsed,
+                        MaxProgress = maxProgress
+                    });
+                    await Task.Delay(250, token).ConfigureAwait(false);
+                }
+            } catch (OperationCanceledException) {
+            }
+        }
+
+        // The exposure the sweep uses: the wizard's per-run override when set, else the profile's AF exposure.
+        private double ResolveSweepExposureSeconds(AutoFocusState state) {
+            if (state.Options.OverrideAutoFocusExposureTime > TimeSpan.Zero) {
+                return state.Options.OverrideAutoFocusExposureTime.TotalSeconds;
+            }
+            return profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime;
         }
 
         private async Task<IRenderedImage> ReloadSavedFile(

@@ -1427,19 +1427,26 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
-    public void HandleCaptureProgress_CameraReport_SetsExposureTextOnly() {
+    public void HandleCaptureProgress_UntaggedReport_Ignored() {
+        // NINA's own camera reports go to its status bar, not to the wizard (ImagingVM drops the IProgress we pass),
+        // so an untagged report must not touch either readout.
         var vm = NewVM(LoaderReturning(GoodRun()));
-        vm.HandleCaptureProgress(new ApplicationStatus { Source = "Camera", Status = "Exposing" });
+        vm.HandleCaptureProgress(new ApplicationStatus { Source = "Camera", Status = "Exposing", Progress = 2, MaxProgress = 5 });
         Assert.Multiple(() => {
-            Assert.That(vm.CaptureExposureText, Is.EqualTo("Exposing"));
-            Assert.That(vm.CaptureContextText, Is.Null, "a camera report must not overwrite the frame/position line");
+            Assert.That(vm.CaptureExposureText, Is.Null);
+            Assert.That(vm.CaptureContextText, Is.Null);
+            Assert.That(vm.HasExposureProgress, Is.False);
         });
     }
 
     [Test]
-    public void HandleCaptureProgress_CameraCountdown_DrivesExposureBarAndRemaining() {
+    public void HandleCaptureProgress_ExposureCountdown_DrivesExposureBarAndRemaining() {
         var vm = NewVM(LoaderReturning(GoodRun()));
-        vm.HandleCaptureProgress(new ApplicationStatus { Source = "Camera", Status = "Exposing", Progress = 2, MaxProgress = 5 });
+        vm.HandleCaptureProgress(new ApplicationStatus {
+            Source = AutoFocusEngine.LiveSweepExposureSource,
+            Progress = 2,
+            MaxProgress = 5
+        });
         Assert.Multiple(() => {
             Assert.That(vm.ExposureProgressCurrent, Is.EqualTo(2));
             Assert.That(vm.ExposureProgressMax, Is.EqualTo(5));

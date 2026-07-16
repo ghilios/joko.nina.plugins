@@ -1848,10 +1848,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
-        /// <summary>Routes a sweep progress report to the capture readouts. Reports tagged with the engine's live-sweep
-        /// source carry the focuser position + frame count (and drive the frame bar); everything else is the camera's
-        /// own exposure status for the current frame (status text + the exposure bar). Internal so the routing is
-        /// directly unit-testable.</summary>
+        /// <summary>Routes a sweep progress report to the capture readouts. The engine tags two streams: the frame
+        /// context (focuser position + frame count, driving the frame bar) and the per-exposure countdown (elapsed /
+        /// total seconds, driving the exposure bar). Any other report is NINA's own status, which goes to NINA's status
+        /// bar rather than here, so it is ignored. Internal so the routing is directly unit-testable.</summary>
         internal void HandleCaptureProgress(ApplicationStatus status) {
             if (status == null) {
                 return;
@@ -1861,22 +1861,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (status.MaxProgress > 0) {
                     SetProgress("Capturing frames", (int)status.Progress, status.MaxProgress);
                 }
-                return;
-            }
-
-            // A camera report. NINA reports a determinate exposure countdown as Progress = elapsed seconds and
-            // MaxProgress = total seconds; other states (e.g. "Exposure finished", download) leave Progress at its
-            // -1 sentinel. Only drive the bar for a real countdown; otherwise clear it and show the status text.
-            if (status.MaxProgress > 0 && status.Progress >= 0) {
+            } else if (status.Source == AutoFocusEngine.LiveSweepExposureSource) {
                 ExposureProgressCurrent = status.Progress;
                 ExposureProgressMax = status.MaxProgress;
                 var remaining = Math.Max(0, status.MaxProgress - status.Progress);
                 CaptureExposureText = $"Exposing, {remaining:0}s remaining";
-            } else {
-                ExposureProgressMax = 0;
-                if (!string.IsNullOrEmpty(status.Status)) {
-                    CaptureExposureText = status.Status;
-                }
             }
         }
 
