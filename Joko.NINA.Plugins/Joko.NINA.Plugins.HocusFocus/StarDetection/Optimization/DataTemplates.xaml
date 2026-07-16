@@ -18,7 +18,7 @@
     <TextBlock x:Key="SDOpt_OptimizeMode_Tooltip" Text="Optimize runs the parameter search and recommends improved settings. Use current settings skips the search entirely and jumps straight to a summary built from your current settings, so you can review (and label) today's detection without an optimization pass. Either way, after reviewing you can still run Optimize with feedback to recover the stars you labeled." />
     <TextBlock x:Key="SDOpt_StartFromCurrent_Tooltip" Text="When checked, the optimizer SEEDS from your current settings instead of the fully-default settings, so it refines your existing setup rather than re-deriving from scratch. Useful when you've already hand-tuned detection and want incremental improvement. The search still only accepts changes that improve on your current settings, and improvement is reported against them. Leave unchecked to explore from the defaults (recommended for a first run). Only applies in Optimize mode." />
     <TextBlock x:Key="SDOpt_FeedbackBreakdown_Tooltip" Text="How your labels map to the detector's gates: each row is the gate that rejected the stars you marked, and the setting change that would recover them — bounded so it doesn't admit too many unlabeled candidates (precision). Optimize with feedback starts the optimizer from these recommendations." />
-    <TextBlock x:Key="SDOpt_ApplyStepSize_Tooltip" Text="When checked, clicking Accept also writes the recommended auto-focus step size and offset steps to the active profile (they appear in the Changed parameters list above). The step size is sized so a sweep lands several measurement points across the focus-sensitive region of the curve. Disabled when the recommendation already matches your current settings (nothing to apply)." />
+    <TextBlock x:Key="SDOpt_ApplyStepSize_Tooltip" Text="When checked, clicking Accept also writes the recommended auto-focus step size and offset steps to the active profile, and for a live sweep the exposure it captured with. The step size is sized so a sweep lands several measurement points across the focus-sensitive region of the curve. Disabled when these already match your current settings (nothing to apply)." />
     <TextBlock x:Key="SDOpt_Review_Tooltip" Text="Optional: review the optimized detector boxes over every loaded frame and label any missed, falsely-accepted, or wrongly-rejected stars. The labels are saved next to the run and can drive a future re-optimization. Reviewing is not required — you can Accept directly." />
     <TextBlock x:Key="SDOpt_ReOptimize_Tooltip" Text="Re-run the optimization using the labels you just made in Review. Your missed / wrongly-rejected stars steer the optimizer to recover them (recall), and your should-reject stars steer it to exclude them (precision). The run is re-read from disk and the search re-runs, landing on an updated summary you can review again or accept." />
     <TextBlock x:Key="SDOpt_Variant_Tooltip" Text="Switch the chart and the summary below between your current settings, the optimized settings, and (after Optimize with feedback) the feedback-optimized settings. Accept applies whichever variant is shown (Current can't be accepted — it's your baseline)." />
@@ -27,7 +27,6 @@
     <TextBlock x:Key="SDOpt_Continue_Tooltip" Text="Run another optimization pass starting from the settings just found, giving the search a fresh chance to refine further (it resets its step sizes, so it can make larger moves again). Useful when the last pass looks like it stopped just short. Limited to 3 total passes; the Changed parameters table shows the value of each setting after every pass." />
     <TextBlock x:Key="SDOpt_LiveExposure_Tooltip" Text="The exposure for every frame of the sweep, starting from your profile's auto-focus exposure. Make it long enough that stars stay visible out at the defocused ends of the sweep. Narrowband filters usually need a longer exposure to start. After a good result you can adopt this exposure into your profile from the summary." />
     <TextBlock x:Key="SDOpt_LiveSaveFolder_Tooltip" Text="The captured frames are saved here, in a timestamped AutoFocus_… subfolder, then loaded back like a saved run so the optimizer can search them. A folder is required before Start. Choosing one also saves it as your Hocus Focus auto-focus save path." />
-    <TextBlock x:Key="SDOpt_ApplyExposure_Tooltip" Text="When checked, clicking Accept also writes the sweep exposure to your profile's auto-focus exposure time, alongside the recommended step size. Available only after a live sweep." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
           SelectedCurve, so toggling the variant rebuilds the plot from a fresh OptimizationCurve instance (a robust
@@ -89,83 +88,6 @@
                     Stroke="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
                     X="{Binding Minimum.X}"
                     Y="{Binding Minimum.Y}" />
-            </oxy:Plot.Annotations>
-        </oxy:Plot>
-    </DataTemplate>
-
-    <!--  Live auto-focus curve, streamed into the progress panel while the wizard's Live source runs a fresh
-          auto-focus. Unlike the OptimizationCurve chart above, the axes AUTO-SCALE (MinimumPadding/MaximumPadding,
-          no explicit bounds) exactly as the AF pane's chart does: points arrive one at a time, so the plot must
-          rescale as the sweep widens rather than being pinned to bounds computed from the first point or two.
-          The VM exposes only the ONE fit the profile uses (plus the two trend lines when the curve fitting is
-          trend-based), so each annotation is a single FunctionAnnotation and a null Equation simply draws nothing.  -->
-    <DataTemplate DataType="{x:Type local:LiveAutoFocusChartVM}">
-        <oxy:Plot
-            Background="{StaticResource BackgroundBrush}"
-            PlotAreaBackground="{StaticResource BackgroundBrush}"
-            PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
-            TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
-            <oxy:Plot.Axes>
-                <oxy:LinearAxis
-                    AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                    IsPanEnabled="False"
-                    IsZoomEnabled="False"
-                    MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
-                    MajorGridlineStyle="LongDash"
-                    MaximumPadding="0.1"
-                    MinimumPadding="0.1"
-                    Position="Left"
-                    TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                    TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
-                    Title="HFR" />
-                <oxy:LinearAxis
-                    AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                    IsPanEnabled="False"
-                    IsZoomEnabled="False"
-                    MajorGridlineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=60}"
-                    MajorGridlineStyle="LongDash"
-                    MaximumPadding="0.1"
-                    MinimumPadding="0.1"
-                    Position="Bottom"
-                    TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                    TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}"
-                    Title="Focuser position" />
-            </oxy:Plot.Axes>
-            <oxy:Plot.Series>
-                <oxy:ScatterErrorSeries
-                    ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
-                    ErrorBarStopWidth="2"
-                    ErrorBarStrokeThickness="2"
-                    ItemsSource="{Binding FocusPoints}"
-                    MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
-                    MarkerType="Circle"
-                    TrackerFormatString="Focuser: {2:0}, HFR: {4:0.000}" />
-                <oxy:LineSeries Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" ItemsSource="{Binding PlotFocusPoints}" />
-                <!--  Points the outlier rejection dropped from the fit.  -->
-                <oxy:ScatterSeries
-                    ItemsSource="{Binding PlotRejectedFocusPoints}"
-                    MarkerSize="8"
-                    MarkerStroke="Red"
-                    MarkerStrokeThickness="2"
-                    MarkerType="Cross" />
-                <!--  Horizontal error bar (ErrorX = σ(focus), or the leave-one-out fallback) on the final point.  -->
-                <oxy:ScatterErrorSeries
-                    ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
-                    ErrorBarStopWidth="4"
-                    ErrorBarStrokeThickness="2"
-                    ItemsSource="{Binding PlotFinalFocusPointWithError}"
-                    MarkerType="None" />
-            </oxy:Plot.Series>
-            <oxy:Plot.Annotations>
-                <oxy:FunctionAnnotation Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" Equation="{Binding CurveFitting}" />
-                <oxy:FunctionAnnotation Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=140}" Equation="{Binding LeftTrendFitting}" />
-                <oxy:FunctionAnnotation Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=140}" Equation="{Binding RightTrendFitting}" />
-                <oxy:PointAnnotation
-                    Fill="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
-                    Shape="Diamond"
-                    Stroke="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
-                    X="{Binding FinalFocusPoint.X}"
-                    Y="{Binding FinalFocusPoint.Y}" />
             </oxy:Plot.Annotations>
         </oxy:Plot>
     </DataTemplate>
@@ -299,12 +221,6 @@
                 <Style TargetType="Grid">
                     <Setter Property="Width" Value="640" />
                     <Style.Triggers>
-                        <!--  Wider while the live auto-focus curve is streaming, so it gets the same room the
-                              results-page chart does. Mutually exclusive with the two triggers below (a live run
-                              is on the Acquire step).  -->
-                        <DataTrigger Binding="{Binding ShowLiveChart}" Value="True">
-                            <Setter Property="Width" Value="820" />
-                        </DataTrigger>
                         <!--  Wider on the results page so the auto-focus curve chart has room…  -->
                         <DataTrigger Binding="{Binding IsSummary}" Value="True">
                             <Setter Property="Width" Value="820" />
@@ -566,33 +482,31 @@
                         HorizontalAlignment="Center"
                         FontWeight="Bold"
                         Text="{Binding Phase}" />
-                    <!--  The live auto-focus curve, streaming while the Live source runs its fresh auto-focus.
-                          Collapsed in Saved Auto-Focus (replay), where there is no live run to chart, and again as
-                          soon as the run ends and "Loading frames" takes over.  -->
-                    <Border
-                        Height="240"
-                        Margin="0,0,0,10"
-                        Visibility="{Binding ShowLiveChart, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                        <ContentControl Content="{Binding LiveChart}" />
-                    </Border>
-                    <!--  Live capture readouts (Live sweep only): which frame + focuser position, and the camera's
-                          exposure countdown for the current frame.  -->
+                    <!--  Live capture readout (Live sweep only): which frame and where the focuser is. The sweep runs
+                          no star detection, so there is no focus curve to draw here.  -->
                     <TextBlock
-                        Margin="0,0,0,2"
+                        Margin="0,0,0,6"
                         HorizontalAlignment="Center"
                         Text="{Binding CaptureContextText}"
-                        Visibility="{Binding ShowLiveChart, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
-                    <TextBlock
-                        Margin="0,0,0,8"
-                        HorizontalAlignment="Center"
-                        Text="{Binding CaptureExposureText}"
-                        Visibility="{Binding ShowLiveChart, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                        Visibility="{Binding IsCapturing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                     <ProgressBar
                         Height="18"
                         IsIndeterminate="{Binding IsProgressIndeterminate}"
                         Maximum="{Binding ProgressTotal}"
                         Minimum="0"
                         Value="{Binding ProgressCurrent, Mode=OneWay}" />
+                    <!--  Current-exposure countdown + bar for the frame being captured (Live sweep only).  -->
+                    <TextBlock
+                        Margin="0,6,0,2"
+                        HorizontalAlignment="Center"
+                        Text="{Binding CaptureExposureText}"
+                        Visibility="{Binding IsCapturing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                    <ProgressBar
+                        Height="14"
+                        Maximum="{Binding ExposureProgressMax}"
+                        Minimum="0"
+                        Value="{Binding ExposureProgressCurrent, Mode=OneWay}"
+                        Visibility="{Binding HasExposureProgress, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                     <!--  Count + elapsed clock on one line: "X / Y (MM:SS)" while a determinate count is known, else
                           just "(MM:SS)". Ticks once a second.  -->
                     <TextBlock
@@ -734,8 +648,16 @@
                             <TextBlock Width="200" Text="Recommended offset steps" />
                             <TextBlock Text="{Binding Summary.OffsetStepsText, Mode=OneWay}" />
                         </StackPanel>
+                        <!--  Exposure change (Live sweep only): the sweep exposure vs the profile's current AF exposure,
+                              as "before → after" or "N s (unchanged)". Hidden after a Replay run (no chosen exposure).  -->
+                        <StackPanel Orientation="Horizontal" Margin="0,2"
+                                    Visibility="{Binding CanApplyExposureTime, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <TextBlock Width="200" Text="Exposure" />
+                            <TextBlock Text="{Binding SweepExposureChangeText, Mode=OneWay}" />
+                        </StackPanel>
                         <!--  Separate TextBlock label (NINA's CheckBox style doesn't render Content as a visible
-                              label — every other checkbox in the plugin uses this label-beside-box pattern).  -->
+                              label — every other checkbox in the plugin uses this label-beside-box pattern). The one
+                              toggle writes the step size, offset steps, and (for a live sweep) the exposure.  -->
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
                             <CheckBox
                                 VerticalAlignment="Center"
@@ -748,26 +670,6 @@
                                 IsEnabled="{Binding CanApplyRecommendedStepSize}"
                                 Text="Apply these auto-focus settings to my profile when I click Accept"
                                 ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
-                        </StackPanel>
-
-                        <!--  Live sweep only: the exposure the sweep captured with, plus the toggle to adopt it as the
-                              profile's auto-focus exposure on Accept. Hidden after a Replay run (no chosen exposure).  -->
-                        <StackPanel Visibility="{Binding CanApplyExposureTime, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                            <StackPanel Orientation="Horizontal" Margin="0,2">
-                                <TextBlock Width="200" Text="Sweep exposure" />
-                                <TextBlock Text="{Binding SweepExposureText, Mode=OneWay}" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
-                                <CheckBox
-                                    VerticalAlignment="Center"
-                                    IsChecked="{Binding ApplyExposureTime}"
-                                    ToolTip="{StaticResource SDOpt_ApplyExposure_Tooltip}" />
-                                <TextBlock
-                                    Margin="6,0,0,0"
-                                    VerticalAlignment="Center"
-                                    Text="Apply this exposure time to my profile when I click Accept"
-                                    ToolTip="{StaticResource SDOpt_ApplyExposure_Tooltip}" />
-                            </StackPanel>
                         </StackPanel>
 
                         <!--  Changed parameters table  -->

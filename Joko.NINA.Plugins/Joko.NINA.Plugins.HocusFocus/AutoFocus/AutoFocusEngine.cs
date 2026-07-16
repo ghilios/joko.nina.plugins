@@ -1203,7 +1203,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Func<AutoFocusImageState, MeasureAndError, AutoFocusState, AutoFocusRegionState, Task> action,
             bool finalValidation,
             CancellationToken token,
-            IProgress<ApplicationStatus> progress) {
+            IProgress<ApplicationStatus> progress,
+            bool captureOnly = false) {
             var attemptNumber = state.AttemptNumber;
             for (int i = 0; i < state.Options.FramesPerPoint; ++i) {
                 var imageState = await state.OnNextImage(i, focuserPosition, finalValidation, token);
@@ -1214,38 +1215,58 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var exposureData = await TakeExposure(state, focuserPosition, token, progress);
                 imageState.MeasurementStarted();
                 try {
-                    var exposureAnalysisTasks = new List<Task>();
                     var prepareExposureTask = PrepareExposure(state, imageState, exposureData, token);
-                    foreach (var regionState in state.FocusRegionStates) {
-                        var analysisTask = Task.Run(async () => {
-                            var preparedExposure = await prepareExposureTask;
-                            await AnalyzeExposure(
-                                preparedExposure,
-                                imageState: imageState,
-                                state: state,
-                                regionState: regionState,
-                                action: action,
-                                token: token);
-                            lock (state.StatesLock) {
-                                var imageProperties = preparedExposure.RawImageData.Properties;
-                                state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
+                    if (captureOnly) {
+                        // Capture-only sweep: save the frame and record its size, but skip star detection entirely.
+                        // The optimizer re-detects the saved frames offline, so detecting here — with the current
+                        // settings that can't focus — is wasted work, and there is no curve to build.
+                        var saveTask = Task.Run(async () => {
+                            try {
+                                var preparedExposure = await prepareExposureTask;
+                                lock (state.StatesLock) {
+                                    var imageProperties = preparedExposure.RawImageData.Properties;
+                                    state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
+                                }
+                            } finally {
+                                imageState.Dispose();
                             }
                         }, token);
-                        exposureAnalysisTasks.Add(analysisTask);
                         lock (state.StatesLock) {
-                            state.AnalysisTasks.Add(analysisTask);
+                            state.AnalysisTasks.Add(saveTask);
                         }
-                    }
+                    } else {
+                        var exposureAnalysisTasks = new List<Task>();
+                        foreach (var regionState in state.FocusRegionStates) {
+                            var analysisTask = Task.Run(async () => {
+                                var preparedExposure = await prepareExposureTask;
+                                await AnalyzeExposure(
+                                    preparedExposure,
+                                    imageState: imageState,
+                                    state: state,
+                                    regionState: regionState,
+                                    action: action,
+                                    token: token);
+                                lock (state.StatesLock) {
+                                    var imageProperties = preparedExposure.RawImageData.Properties;
+                                    state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
+                                }
+                            }, token);
+                            exposureAnalysisTasks.Add(analysisTask);
+                            lock (state.StatesLock) {
+                                state.AnalysisTasks.Add(analysisTask);
+                            }
+                        }
 
-                    var releaseSemaphoreTask = Task.Run(async () => {
-                        try {
-                            await Task.WhenAll(exposureAnalysisTasks);
-                        } finally {
-                            imageState.Dispose();
+                        var releaseSemaphoreTask = Task.Run(async () => {
+                            try {
+                                await Task.WhenAll(exposureAnalysisTasks);
+                            } finally {
+                                imageState.Dispose();
+                            }
+                        }, token);
+                        lock (state.StatesLock) {
+                            state.AnalysisTasks.Add(releaseSemaphoreTask);
                         }
-                    }, token);
-                    lock (state.StatesLock) {
-                        state.AnalysisTasks.Add(releaseSemaphoreTask);
                     }
                 } catch (Exception e) {
                     imageState.Dispose();
@@ -2130,7 +2151,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         MaxProgress = totalFrames
                     });
 
-                    await StartAutoFocusPoint(actualPosition, state, FocusPointMeasurementAction, finalValidation: false, token, progress);
+                    await StartAutoFocusPoint(actualPosition, state, action: null, finalValidation: false, token, progress, captureOnly: true);
                     capturedFrames += framesPerPoint;
                 }
 

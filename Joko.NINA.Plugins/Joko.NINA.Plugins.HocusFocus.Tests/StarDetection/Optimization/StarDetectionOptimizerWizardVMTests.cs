@@ -1328,29 +1328,26 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
-    public async Task ReplayMode_NeverShowsTheLiveChart() {
+    public async Task Replay_NeverEntersCapturingState() {
         var vm = NewVM(LoaderReturning(GoodRun()));
-        var everShown = false;
-        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.ShowLiveChart) && vm.ShowLiveChart) { everShown = true; } };
+        var everCapturing = false;
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(vm.IsCapturing) && vm.IsCapturing) { everCapturing = true; } };
         vm.SourcePaths[0] = @"C:\run1";
 
         await vm.StartAsync(CancellationToken.None);
 
         Assert.Multiple(() => {
-            Assert.That(everShown, Is.False, "a replay has no live run to chart");
-            Assert.That(vm.ShowLiveChart, Is.False);
-            Assert.That(vm.LiveChart, Is.Null);
+            Assert.That(everCapturing, Is.False, "a replay captures nothing");
+            Assert.That(vm.IsCapturing, Is.False);
         });
     }
 
     [Test]
-    public async Task LiveMode_ShowsChartDuringTheRunAndTearsItDownAfter() {
+    public async Task Live_IsCapturingDuringTheSweepAndClearsAfter() {
         StarDetectionOptimizerWizardVM vm = null;
-        var shownDuringRun = false;
-        var chartDuringRun = (LiveAutoFocusChartVM)null;
+        var capturingDuringRun = false;
         var engine = LiveEngine(_ => {
-            shownDuringRun = vm.ShowLiveChart;
-            chartDuringRun = vm.LiveChart;
+            capturingDuringRun = vm.IsCapturing;
             return new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" };
         });
         vm = NewLiveVM(engine);
@@ -1358,39 +1355,22 @@ public class StarDetectionOptimizerWizardVMTests {
         await vm.StartAsync(CancellationToken.None);
 
         Assert.Multiple(() => {
-            Assert.That(shownDuringRun, Is.True, "the chart is up while the auto-focus is in flight");
-            Assert.That(chartDuringRun, Is.Not.Null);
-            Assert.That(vm.ShowLiveChart, Is.False, "and is gone once the run ends");
-            Assert.That(vm.LiveChart, Is.Null);
+            Assert.That(capturingDuringRun, Is.True, "IsCapturing is set while the sweep runs");
+            Assert.That(vm.IsCapturing, Is.False, "and cleared once the sweep ends");
         });
     }
 
     [Test]
-    public async Task LiveMode_ChartIsDetachedWhenTheRunThrows() {
+    public async Task Live_FailedSweep_ClearsCapturingState() {
         StarDetectionOptimizerWizardVM vm = null;
-        var chartDuringRun = (LiveAutoFocusChartVM)null;
-        var engine = LiveEngine(_ => {
-            chartDuringRun = vm.LiveChart;
-            throw new InvalidOperationException("focuser exploded");
-        });
+        var engine = LiveEngine(_ => throw new InvalidOperationException("focuser exploded"));
         vm = NewLiveVM(engine);
 
         await vm.StartAsync(CancellationToken.None);
 
-        // The failed run leaves no chart behind, and the engine no longer feeds the one it had.
-        engine.MeasurementPointCompleted += Raise.EventWith(new AutoFocusMeasurementPointCompletedEventArgs {
-            RegionIndex = 0,
-            FocuserPosition = 10000,
-            Measurement = new MeasureAndError { Measure = 1.5, Stdev = 0.1 },
-            Fittings = new AutoFocusFitting(),
-            RejectedPoints = Array.Empty<AutoFocusRegionPoint>()
-        });
-
         Assert.Multiple(() => {
             Assert.That(vm.ErrorMessage, Does.Contain("focuser exploded"));
-            Assert.That(vm.LiveChart, Is.Null);
-            Assert.That(vm.ShowLiveChart, Is.False);
-            Assert.That(chartDuringRun.FocusPoints, Is.Empty, "the detached chart receives nothing further");
+            Assert.That(vm.IsCapturing, Is.False);
         });
     }
 
@@ -1449,10 +1429,22 @@ public class StarDetectionOptimizerWizardVMTests {
     [Test]
     public void HandleCaptureProgress_CameraReport_SetsExposureTextOnly() {
         var vm = NewVM(LoaderReturning(GoodRun()));
-        vm.HandleCaptureProgress(new ApplicationStatus { Source = "Camera", Status = "Exposing 3/5 s" });
+        vm.HandleCaptureProgress(new ApplicationStatus { Source = "Camera", Status = "Exposing" });
         Assert.Multiple(() => {
-            Assert.That(vm.CaptureExposureText, Is.EqualTo("Exposing 3/5 s"));
+            Assert.That(vm.CaptureExposureText, Is.EqualTo("Exposing"));
             Assert.That(vm.CaptureContextText, Is.Null, "a camera report must not overwrite the frame/position line");
+        });
+    }
+
+    [Test]
+    public void HandleCaptureProgress_CameraCountdown_DrivesExposureBarAndRemaining() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.HandleCaptureProgress(new ApplicationStatus { Source = "Camera", Status = "Exposing", Progress = 2, MaxProgress = 5 });
+        Assert.Multiple(() => {
+            Assert.That(vm.ExposureProgressCurrent, Is.EqualTo(2));
+            Assert.That(vm.ExposureProgressMax, Is.EqualTo(5));
+            Assert.That(vm.HasExposureProgress, Is.True);
+            Assert.That(vm.CaptureExposureText, Is.EqualTo("Exposing, 3s remaining"));
         });
     }
 
@@ -1505,7 +1497,6 @@ public class StarDetectionOptimizerWizardVMTests {
 
         await vm.StartAsync(CancellationToken.None);
         Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
-        vm.ApplyExposureTime = true;
 
         vm.AcceptCommand.Execute(null);
 
@@ -1577,7 +1568,8 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
-    public async Task Apply_Live_WhenApplyExposureTimeTrue_WritesProfileExposure() {
+    public async Task Apply_Live_WritesProfileExposureWithAfSettings() {
+        // The single "apply auto-focus settings" toggle (on by default) writes the sweep exposure too.
         var options = Substitute.For<IStarDetectionOptions>();
         var profileService = Substitute.For<IProfileService>();
         var focuserSettings = Substitute.For<IFocuserSettings>();
@@ -1591,11 +1583,31 @@ public class StarDetectionOptimizerWizardVMTests {
 
         await vm.StartAsync(CancellationToken.None);
         Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "the live sweep should reach the summary");
-        vm.ApplyExposureTime = true;
 
         vm.AcceptCommand.Execute(null);
 
         focuserSettings.Received(1).AutoFocusExposureTime = 9.0;
+    }
+
+    [Test]
+    public async Task Apply_Live_ExposureNotWrittenWhenAfSettingsToggleOff() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 9.0;
+
+        await vm.StartAsync(CancellationToken.None);
+        vm.ApplyRecommendedStepSize = false; // declining the combined toggle skips the exposure too
+
+        vm.AcceptCommand.Execute(null);
+
+        focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusExposureTime = default;
     }
 
     [Test]
@@ -1608,12 +1620,32 @@ public class StarDetectionOptimizerWizardVMTests {
         var vm = NewVM(LoaderReturning(GoodRun()), options, profileService);
         vm.SourcePaths[0] = @"C:\run1";
         await vm.StartAsync(CancellationToken.None);
-        vm.ApplyExposureTime = true; // even if toggled, a Replay run never chose a sweep exposure
 
         vm.AcceptCommand.Execute(null);
 
-        Assert.That(vm.CanApplyExposureTime, Is.False, "Replay has no captured exposure to apply");
+        Assert.That(vm.CanApplyExposureTime, Is.False, "Replay never chose a sweep exposure, so no exposure row/write-back");
         focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusExposureTime = default;
+    }
+
+    [Test]
+    public async Task SweepExposureChangeText_ShowsBeforeAfterAndUnchanged() {
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        focuserSettings.AutoFocusExposureTime.Returns(5.0);
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(GoodRun()), profileService: profileService, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 12.0;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CanApplyExposureTime, Is.True, "the exposure row shows for a live run");
+            Assert.That(vm.SweepExposureChangeText, Is.EqualTo("5 s → 12 s"));
+        });
     }
 
     [Test]

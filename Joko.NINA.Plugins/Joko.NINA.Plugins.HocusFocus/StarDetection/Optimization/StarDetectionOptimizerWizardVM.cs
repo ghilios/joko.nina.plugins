@@ -391,8 +391,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 autoFocusOptions: HocusFocusPlugin.AutoFocusOptions,
                 // Confirm rough focus with an OK/Cancel dialog when Start is clicked (the sweep centers on the current position).
                 confirmRoughFocus: () => MyMessageBox.Show(
-                    "The focus sweep is centered on the current focuser position. Is the telescope approximately in focus?",
-                    "Confirm rough focus",
+                    "The focus sweep is centered on the current focuser position. Is the telescope in focus?",
+                    "Confirm in focus",
                     System.Windows.MessageBoxButton.OKCancel,
                     System.Windows.MessageBoxResult.Cancel) == System.Windows.MessageBoxResult.OK,
                 // Live capture readouts: the actual filter and gain the sweep will expose with.
@@ -438,7 +438,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             sourcePaths = new ObservableCollection<string> { null };
             applyRecommendedStepSize = true;
-            applyExposureTime = true;
             // Seed the Live sweep's editable exposure from the profile's current AF exposure, and its save folder from
             // the persisted AF SavePath (both are just starting points the user can change on the confirmation screen).
             liveExposureSeconds = profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime;
@@ -598,7 +597,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     RaisePropertyChanged();
                     RaisePropertyChanged(nameof(IsReplay));
                     RaisePropertyChanged(nameof(IsLive));
-                    RaisePropertyChanged(nameof(ShowLiveChart));
                     // Refresh the Live readouts against current equipment/profile state when the panel is shown.
                     RaiseSweepReadoutsChanged();
                     // Live gates Start on a save folder; Saved gates on the per-run folders.
@@ -624,7 +622,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>The exposure the Live sweep uses, seeded from the profile's AF exposure but editable here so the
         /// user can lengthen it (e.g. narrowband) to keep stars visible at the defocused wings of the sweep. Applied
         /// per-run via <see cref="AutoFocusEngineOptions.OverrideAutoFocusExposureTime"/>; on Accept it can also be
-        /// written back to the profile (see <see cref="ApplyExposureTime"/>).</summary>
+        /// written back to the profile with the recommended step size (see <see cref="ApplyRecommendedStepSize"/>).</summary>
         public double LiveExposureSeconds {
             get => liveExposureSeconds;
             set {
@@ -952,19 +950,34 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             private set { phase = value; RaisePropertyChanged(); }
         }
 
-        private LiveAutoFocusChartVM liveChart;
+        private bool isCapturing;
 
-        /// <summary>The streaming auto-focus curve, non-null only while a live auto-focus run is in flight.
-        /// Created and torn down by <see cref="RunLiveAttemptAsync"/>.</summary>
-        public LiveAutoFocusChartVM LiveChart {
-            get => liveChart;
-            private set { liveChart = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ShowLiveChart)); }
+        /// <summary>True only while the live sweep is capturing frames. The sweep is a plain capture with no star
+        /// detection (the optimizer detects the saved frames afterward), so there is no focus curve to chart — the
+        /// progress panel instead shows the capture readouts (frame count, focuser position, exposure) gated on this.</summary>
+        public bool IsCapturing {
+            get => isCapturing;
+            private set { isCapturing = value; RaisePropertyChanged(); }
         }
 
-        /// <summary>Whether the progress panel shows the live auto-focus chart. The chart is only ever created on
-        /// the Live path, so the SourceMode check is redundant by construction — it is here to make the invariant
-        /// the requirement states ("never in Saved Auto-Focus") explicit and directly testable.</summary>
-        public bool ShowLiveChart => SourceMode == SourceMode.Live && liveChart != null;
+        private double exposureProgressCurrent;
+
+        /// <summary>Elapsed seconds of the current frame's exposure, straight from the camera's progress reports.</summary>
+        public double ExposureProgressCurrent {
+            get => exposureProgressCurrent;
+            private set { exposureProgressCurrent = value; RaisePropertyChanged(); }
+        }
+
+        private int exposureProgressMax;
+
+        /// <summary>Total seconds of the current frame's exposure. Zero between exposures, which hides the bar.</summary>
+        public int ExposureProgressMax {
+            get => exposureProgressMax;
+            private set { exposureProgressMax = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(HasExposureProgress)); }
+        }
+
+        /// <summary>Whether an exposure is in flight (so the exposure bar is meaningful).</summary>
+        public bool HasExposureProgress => exposureProgressMax > 0;
 
         #endregion Progress
 
@@ -1253,6 +1266,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(HasFeedback));
             RaisePropertyChanged(nameof(ApplyRecommendedStepSize));
             RaisePropertyChanged(nameof(CanApplyRecommendedStepSize));
+            RaisePropertyChanged(nameof(CanApplyExposureTime));
+            RaisePropertyChanged(nameof(SweepExposureChangeText));
             RaisePropertyChanged(nameof(ChangedParametersDisplay));
             RaisePropertyChanged(nameof(StarCountChanges));
             RaisePropertyChanged(nameof(HasStarCountChanges));
@@ -1302,7 +1317,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>Whether the "apply recommended AF step size" toggle is meaningful — true only when the
         /// recommended step size and/or offset steps actually differ from the current profile values. The
         /// checkbox binds its IsEnabled here so an unchanged recommendation can't be "applied".</summary>
-        public bool CanApplyRecommendedStepSize => Summary?.StepSizeOrOffsetChanged ?? false;
+        public bool CanApplyRecommendedStepSize => (Summary?.StepSizeOrOffsetChanged ?? false) || ExposureChangedForLiveRun;
 
         // Snapshotted when a Live sweep captures: the exposure it used (for the summary write-back) and a flag that a
         // live capture happened (gates the exposure write-back offer). A fresh Replay run clears the flag.
@@ -1314,32 +1329,44 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             set {
                 if (lastRunWasLive != value) {
                     lastRunWasLive = value;
-                    RaisePropertyChanged(nameof(CanApplyExposureTime));
+                    RaiseExposureRowChanged();
                 }
             }
         }
 
-        private bool applyExposureTime;
-
-        /// <summary>When set (default on), Accept also writes the Live sweep's chosen exposure to the profile's AF
-        /// exposure time, alongside the recommended step size/offset. Only meaningful after a Live run
-        /// (see <see cref="CanApplyExposureTime"/>).</summary>
-        public bool ApplyExposureTime {
-            get => applyExposureTime;
-            set {
-                if (applyExposureTime != value) {
-                    applyExposureTime = value;
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        /// <summary>Whether the "apply exposure time" toggle is meaningful — true only after a Live sweep, since a
-        /// Replay run never chose a sweep exposure.</summary>
+        /// <summary>Whether the summary shows the sweep-exposure row — true only after a Live sweep, since a Replay
+        /// run never chose a sweep exposure.</summary>
         public bool CanApplyExposureTime => lastRunWasLive;
 
-        /// <summary>The exposure the last Live sweep captured with, for the summary's read-only display.</summary>
-        public string SweepExposureText => $"{capturedLiveExposureSeconds:0.##} s";
+        /// <summary>The sweep exposure as a "before → after" change against the profile's current AF exposure (or
+        /// "N s (unchanged)"), shown in the auto-focus settings block for a Live run. The single Apply toggle writes it
+        /// alongside the recommended step size/offset.</summary>
+        public string SweepExposureChangeText {
+            get {
+                var current = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? 0.0;
+                return Math.Abs(current - capturedLiveExposureSeconds) < 1e-6
+                    ? $"{capturedLiveExposureSeconds:0.##} s (unchanged)"
+                    : $"{current:0.##} s → {capturedLiveExposureSeconds:0.##} s";
+            }
+        }
+
+        /// <summary>True when a Live sweep chose an exposure that differs from the profile's current AF exposure, so
+        /// the Apply-AF-settings toggle is enabled to write it even when the step size/offset are unchanged.</summary>
+        private bool ExposureChangedForLiveRun {
+            get {
+                if (!lastRunWasLive || capturedLiveExposureSeconds <= 0) {
+                    return false;
+                }
+                var current = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? 0.0;
+                return Math.Abs(current - capturedLiveExposureSeconds) > 1e-6;
+            }
+        }
+
+        private void RaiseExposureRowChanged() {
+            RaisePropertyChanged(nameof(CanApplyExposureTime));
+            RaisePropertyChanged(nameof(CanApplyRecommendedStepSize));
+            RaisePropertyChanged(nameof(SweepExposureChangeText));
+        }
 
         /// <summary>The changed-parameters rows shown on the summary: the optimized detector params, plus — only
         /// when <see cref="ApplyRecommendedStepSize"/> is on — the AF step size / offset-steps rows so the user
@@ -1781,9 +1808,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// Captures a fixed, non-convergent focuser sweep centered on the current (rough-focus) position, saving its
         /// frames, then returns the saved attempt folder so the run converges onto the same replay path. Unlike a full
         /// auto-focus this does NOT require the current settings to build a focus curve — that is the whole point, so
-        /// the wizard can then find settings that do. For the duration of the sweep a <see cref="LiveAutoFocusChartVM"/>
-        /// is attached to the engine and published on <see cref="LiveChart"/>, streaming the points as they land.
-        /// Replay never reaches here, hence never shows a chart.
+        /// the wizard can then find settings that do. The sweep runs no star detection (the optimizer detects the saved
+        /// frames afterward), so the progress panel shows capture readouts rather than a focus curve. Replay never
+        /// reaches here.
         /// </summary>
         private async Task<string> RunLiveAttemptAsync(CancellationToken token) {
             if (autoFocusEngine == null) {
@@ -1792,23 +1819,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             Phase = "Capturing frames";
             CaptureContextText = null;
             CaptureExposureText = null;
+            ExposureProgressMax = 0;
             var options = autoFocusEngine.GetOptions();
             options.Save = true;                        // frames must land on disk so we can load them like a replay
             options.SavePath = SaveFolderPath;          // honor the folder chosen on the confirmation screen
             // Use the exposure the user set on the confirmation screen (they can lengthen it for faint/narrowband stars).
             options.OverrideAutoFocusExposureTime = TimeSpan.FromSeconds(LiveExposureSeconds);
             capturedLiveExposureSeconds = LiveExposureSeconds;   // remember what we captured with, for the Summary write-back
-            RaisePropertyChanged(nameof(SweepExposureText));
+            RaiseExposureRowChanged();
 
             // Route the sweep's progress: the engine's per-point reports (tagged with its source) carry the focuser
             // position + frame count and drive the frame bar; the camera's own reports carry the exposure countdown.
             var captureProgress = new Progress<ApplicationStatus>(HandleCaptureProgress);
 
-            // Constructed here, on the UI thread — the chart's collections capture the dispatcher they are created
-            // on in order to marshal the engine's worker-thread events. See the LiveAutoFocusChartVM class doc.
-            var chart = new LiveAutoFocusChartVM();
-            chart.Attach(autoFocusEngine);
-            LiveChart = chart;
+            IsCapturing = true;
             try {
                 var afResult = await autoFocusEngine.CaptureFixedSweepAsync(options, null, token, captureProgress).ConfigureAwait(true);
                 // A failed/partial sweep may still have created its timestamped folder; treat "not succeeded" as no
@@ -1816,19 +1840,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // error on an empty or too-short attempt folder.
                 return afResult?.Succeeded == true ? afResult.SaveFolder : null;
             } finally {
-                // Detach on every exit — success, engine failure, and cancellation alike — so the engine never
-                // holds this wizard alive through the chart's event handlers. Clearing LiveChart collapses the
-                // chart before the "Loading frames" phase takes over the progress panel.
-                chart.Detach();
-                LiveChart = null;
+                // Collapse the capture readouts before the "Loading frames" phase takes over the progress panel.
+                IsCapturing = false;
                 CaptureContextText = null;
                 CaptureExposureText = null;
+                ExposureProgressMax = 0;
             }
         }
 
         /// <summary>Routes a sweep progress report to the capture readouts. Reports tagged with the engine's live-sweep
         /// source carry the focuser position + frame count (and drive the frame bar); everything else is the camera's
-        /// own exposure status for the current frame. Internal so the routing is directly unit-testable.</summary>
+        /// own exposure status for the current frame (status text + the exposure bar). Internal so the routing is
+        /// directly unit-testable.</summary>
         internal void HandleCaptureProgress(ApplicationStatus status) {
             if (status == null) {
                 return;
@@ -1838,8 +1861,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (status.MaxProgress > 0) {
                     SetProgress("Capturing frames", (int)status.Progress, status.MaxProgress);
                 }
-            } else if (!string.IsNullOrEmpty(status.Status)) {
-                CaptureExposureText = status.Status;
+                return;
+            }
+
+            // A camera report. NINA reports a determinate exposure countdown as Progress = elapsed seconds and
+            // MaxProgress = total seconds; other states (e.g. "Exposure finished", download) leave Progress at its
+            // -1 sentinel. Only drive the bar for a real countdown; otherwise clear it and show the status text.
+            if (status.MaxProgress > 0 && status.Progress >= 0) {
+                ExposureProgressCurrent = status.Progress;
+                ExposureProgressMax = status.MaxProgress;
+                var remaining = Math.Max(0, status.MaxProgress - status.Progress);
+                CaptureExposureText = $"Exposing, {remaining:0}s remaining";
+            } else {
+                ExposureProgressMax = 0;
+                if (!string.IsNullOrEmpty(status.Status)) {
+                    CaptureExposureText = status.Status;
+                }
             }
         }
 
@@ -2154,24 +2191,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             starDetectionOptions.ApplyOptimizedSettings(dto);
             Logger.Info($"Applied optimized star-detection settings (J {summary.SeedJ:F3} -> {summary.BestJ:F3}, {summary.RunCount} run(s))");
 
+            // The single "Apply these auto-focus settings" toggle writes the recommended step size / offset, and for a
+            // Live sweep the exposure it captured with too (the user may have lengthened it to make focus work, so it
+            // belongs with the other AF settings). Only write a positive exposure: a non-positive value was never
+            // actually used (the sweep fell back to the profile/filter exposure), so writing it would corrupt the profile.
             if (ApplyRecommendedStepSize) {
                 var focuserSettings = profileService?.ActiveProfile?.FocuserSettings;
                 if (focuserSettings != null) {
                     focuserSettings.AutoFocusStepSize = summary.RecommendedStepSize;
                     focuserSettings.AutoFocusInitialOffsetSteps = summary.RecommendedOffsetSteps;
                     Logger.Info($"Applied recommended AF step size {summary.RecommendedStepSize}, offset steps {summary.RecommendedOffsetSteps}");
-                }
-            }
 
-            // For a Live sweep, optionally adopt the exposure the sweep used as the profile's AF exposure — the user
-            // may have lengthened it to make focus work, so it belongs alongside the recommended step size/offset.
-            // Only write a positive exposure: a non-positive value was never actually used (the sweep fell back to the
-            // profile/filter exposure), so writing it back would corrupt the profile's AF exposure.
-            if (ApplyExposureTime && lastRunWasLive && capturedLiveExposureSeconds > 0) {
-                var focuserSettings = profileService?.ActiveProfile?.FocuserSettings;
-                if (focuserSettings != null) {
-                    focuserSettings.AutoFocusExposureTime = capturedLiveExposureSeconds;
-                    Logger.Info($"Applied AF exposure time {capturedLiveExposureSeconds}s to the active profile");
+                    if (lastRunWasLive && capturedLiveExposureSeconds > 0) {
+                        focuserSettings.AutoFocusExposureTime = capturedLiveExposureSeconds;
+                        Logger.Info($"Applied AF exposure time {capturedLiveExposureSeconds}s to the active profile");
+                    }
                 }
             }
         }
@@ -2748,10 +2782,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             runStopwatch.Stop();
             cts?.Dispose();
             cts = null;
-            // Closing the window mid-run does not cancel the in-flight auto-focus, so sever the engine → chart →
-            // wizard subscription explicitly; the run finishes on its own and plots nowhere.
-            liveChart?.Detach();
-            liveChart = null;
         }
 
         private void Back() {
