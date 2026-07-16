@@ -134,12 +134,23 @@ public class HocusFocusSimulatorCameraTests {
         return camera;
     }
 
+    private static IFocuserMediator FocuserAt(int position) {
+        var focuser = Substitute.For<IFocuserMediator>();
+        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = position });
+        return focuser;
+    }
+
+    private static ITelescopeMediator ConnectedTelescope() {
+        var telescope = Substitute.For<ITelescopeMediator>();
+        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+        return telescope;
+    }
+
     [Test]
     public void DownloadExposure_FocuserDisconnected_ThrowsDescriptiveErrorNamingFocuser() {
         var focuser = Substitute.For<IFocuserMediator>();
         focuser.GetInfo().Returns(new FocuserInfo { Connected = false });
-        var telescope = Substitute.For<ITelescopeMediator>();
-        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+        var telescope = ConnectedTelescope();
 
         var camera = ConnectAndStart(BuildOptions(), focuser, telescope);
 
@@ -153,8 +164,7 @@ public class HocusFocusSimulatorCameraTests {
 
     [Test]
     public void DownloadExposure_MountDisconnected_ThrowsDescriptiveErrorNamingMount() {
-        var focuser = Substitute.For<IFocuserMediator>();
-        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
+        var focuser = FocuserAt(5000);
         var telescope = Substitute.For<ITelescopeMediator>();
         telescope.GetInfo().Returns(new TelescopeInfo { Connected = false });
 
@@ -167,10 +177,8 @@ public class HocusFocusSimulatorCameraTests {
 
     [Test]
     public async Task DownloadExposure_BothConnected_RendersAndReturnsExposureData() {
-        var focuser = Substitute.For<IFocuserMediator>();
-        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
-        var telescope = Substitute.For<ITelescopeMediator>();
-        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+        var focuser = FocuserAt(5000);
+        var telescope = ConnectedTelescope();
 
         var options = BuildOptions();
         options.SensorModel = SonySensorModel.IMX533;
@@ -201,10 +209,8 @@ public class HocusFocusSimulatorCameraTests {
         // Regression: the rendered pixels are sized from the render-snapshot's SensorModel, so the width/height/
         // bit-depth handed to the exposure-data factory must come from the SAME snapshot — not the live options,
         // which the user can change between StartExposure and DownloadExposure.
-        var focuser = Substitute.For<IFocuserMediator>();
-        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
-        var telescope = Substitute.For<ITelescopeMediator>();
-        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+        var focuser = FocuserAt(5000);
+        var telescope = ConnectedTelescope();
 
         var options = BuildOptions();
         options.SensorModel = SonySensorModel.IMX533; // 3008², 14-bit at exposure start
@@ -235,10 +241,8 @@ public class HocusFocusSimulatorCameraTests {
         // Regression: the camera built its AstapCatalogReader once, in its constructor, so editing the ASTAP
         // catalog path in options had no effect until the camera was reconnected. The reader is now resolved per
         // exposure from the request snapshot, so an options edit lands on the very next exposure.
-        var focuser = Substitute.For<IFocuserMediator>();
-        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
-        var telescope = Substitute.For<ITelescopeMediator>();
-        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+        var focuser = FocuserAt(5000);
+        var telescope = ConnectedTelescope();
 
         var options = BuildOptions();
         options.SensorModel = SonySensorModel.IMX533; // smallest sensor: keeps the two real renders quick
@@ -279,10 +283,8 @@ public class HocusFocusSimulatorCameraTests {
 
     [Test]
     public void DownloadExposure_RenderThrows_LeavesCameraStateError() {
-        var focuser = Substitute.For<IFocuserMediator>();
-        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
-        var telescope = Substitute.For<ITelescopeMediator>();
-        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+        var focuser = FocuserAt(5000);
+        var telescope = ConnectedTelescope();
 
         var compositor = Substitute.For<IStarFieldCompositor>();
         compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>())
@@ -326,10 +328,8 @@ public class HocusFocusSimulatorCameraTests {
         // so an edit made in that dialog must reach the very options instance BuildRenderRequest snapshots — with no
         // reconnect. Were Options ever to hand out a copy (or the request to be built from a different instance), the
         // rig controls would silently do nothing and the dialog would be decorative.
-        var focuser = Substitute.For<IFocuserMediator>();
-        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
-        var telescope = Substitute.For<ITelescopeMediator>();
-        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+        var focuser = FocuserAt(5000);
+        var telescope = ConnectedTelescope();
 
         var options = BuildOptions();
         options.SensorModel = SonySensorModel.IMX533; // smallest sensor: keeps the fake render array small
@@ -382,10 +382,8 @@ public class HocusFocusSimulatorCameraTests {
 
     [Test]
     public void StartExposure_SetsExposingState() {
-        var focuser = Substitute.For<IFocuserMediator>();
-        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
-        var telescope = Substitute.For<ITelescopeMediator>();
-        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+        var focuser = FocuserAt(5000);
+        var telescope = ConnectedTelescope();
 
         var camera = ConnectAndStart(BuildOptions(), focuser, telescope);
         Assert.That(camera.CameraState, Is.EqualTo(CameraStates.Exposing));
@@ -404,10 +402,8 @@ public class HocusFocusSimulatorCameraTests {
 
     [Test]
     public async Task WaitUntilExposureIsReady_ZeroExposure_TransitionsToReading() {
-        var focuser = Substitute.For<IFocuserMediator>();
-        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
-        var telescope = Substitute.For<ITelescopeMediator>();
-        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+        var focuser = FocuserAt(5000);
+        var telescope = ConnectedTelescope();
 
         var camera = ConnectAndStart(BuildOptions(), focuser, telescope);
         await camera.WaitUntilExposureIsReady(CancellationToken.None);
@@ -456,5 +452,71 @@ public class HocusFocusSimulatorCameraTests {
             Assert.That(camera.ReadoutModes, Is.InstanceOf<List<string>>());
             Assert.That(camera.SupportedActions, Is.InstanceOf<List<string>>());
         });
+    }
+
+    /// <summary>Runs one full expose→download cycle and returns the RenderRequest the compositor was handed.</summary>
+    private static async Task<List<RenderRequest>> CaptureRequests(
+            CameraSimulatorOptions options, int focuserPosition, int exposures) {
+        var captured = new List<RenderRequest>();
+        options.SensorModel = SonySensorModel.IMX533; // smallest sensor: keeps the fake render array small
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>())
+                  .Returns(call => {
+                      captured.Add(call.Arg<RenderRequest>());
+                      return new ushort[3008 * 3008];
+                  });
+
+        var camera = BuildCameraWithCompositor(
+            options, compositor, Substitute.For<IExposureDataFactory>(),
+            FocuserAt(focuserPosition), ConnectedTelescope());
+        await camera.Connect(CancellationToken.None);
+
+        for (var i = 0; i < exposures; ++i) {
+            camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+            await camera.WaitUntilExposureIsReady(CancellationToken.None);
+            await camera.DownloadExposure(CancellationToken.None);
+        }
+        return captured;
+    }
+
+    [Test]
+    public async Task RepeatedExposures_AtOneFocuserPosition_GetDifferentSeeds() {
+        // MeasurementAverageCount > 1 averages several frames per autofocus point. With a constant seed those
+        // frames were byte-identical, so the averaging was averaging a frame with itself. The focuser position
+        // alone cannot fix this — repeat exposures share a position — so the counter is what separates them.
+        var options = BuildOptions();
+        options.NoiseSeed = 42;
+        var captured = await CaptureRequests(options, focuserPosition: 25000, exposures: 2);
+
+        Assert.That(captured, Has.Count.EqualTo(2));
+        Assert.That(captured[1].NoiseSeed, Is.Not.EqualTo(captured[0].NoiseSeed),
+            "the exposure counter must advance the seed between exposures at one position");
+    }
+
+    [Test]
+    public async Task ExposuresAtDifferentFocuserPositions_GetDifferentSeeds() {
+        var near = await CaptureRequests(BuildOptions(), focuserPosition: 24979, exposures: 1);
+        var far = await CaptureRequests(BuildOptions(), focuserPosition: 25000, exposures: 1);
+        Assert.That(near[0].NoiseSeed, Is.Not.EqualTo(far[0].NoiseSeed), "the focuser position must feed the seed");
+    }
+
+    [Test]
+    public async Task NoiseSeedOption_StillChangesTheFrameSeed() {
+        // The option must remain the BASE seed — otherwise a user setting it would have no effect at all.
+        var a = BuildOptions(); a.NoiseSeed = 42;
+        var b = BuildOptions(); b.NoiseSeed = 43;
+        var first = await CaptureRequests(a, focuserPosition: 25000, exposures: 1);
+        var second = await CaptureRequests(b, focuserPosition: 25000, exposures: 1);
+        Assert.That(first[0].NoiseSeed, Is.Not.EqualTo(second[0].NoiseSeed));
+    }
+
+    [Test]
+    public async Task ReconnectingResetsTheCounter_SoASessionReplaysIdentically() {
+        // The counter resets on Connect, which is what keeps a run reproducible from the base seed.
+        var options = BuildOptions();
+        options.NoiseSeed = 42;
+        var first = await CaptureRequests(options, focuserPosition: 25000, exposures: 2);
+        var second = await CaptureRequests(options, focuserPosition: 25000, exposures: 2);
+        Assert.That(second.ConvertAll(r => r.NoiseSeed), Is.EqualTo(first.ConvertAll(r => r.NoiseSeed)));
     }
 }

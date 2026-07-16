@@ -171,6 +171,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public Task<bool> Connect(CancellationToken token) {
             Connected = true;
             CameraState = CameraStates.Idle;
+            exposureCounter = 0;
             return Task.FromResult(true);
         }
 
@@ -466,6 +467,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private DateTime exposureStartTime;
         private double exposureLengthSeconds;
 
+        // Advanced once per StartExposure so repeated exposures at one focuser position get their own noise.
+        // Reset on Connect, so replaying a session from the same base NoiseSeed reproduces it frame for frame.
+        private int exposureCounter;
+
         public void StartExposure(CaptureSequence sequence) {
             if (!Connected) {
                 throw new InvalidOperationException("Cannot start an exposure: the synthetic camera is not connected.");
@@ -473,6 +478,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
 
             exposureStartTime = DateTime.UtcNow;
             exposureLengthSeconds = sequence?.ExposureTime ?? 0.0;
+            unchecked { ++exposureCounter; }
             pendingRender = BuildRenderRequest(exposureLengthSeconds);
             CameraState = CameraStates.Exposing;
         }
@@ -617,7 +623,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 AstapCatalogPath = options.AstapCatalogPath,
                 LimitingMagnitude = options.LimitingMagnitude,
                 RotationDegrees = options.RotationDegrees,
-                NoiseSeed = options.NoiseSeed,
+                // The option is the BASE seed, not the frame seed. Mixing in the focuser position and a
+                // per-exposure counter gives every frame its own noise while keeping the whole session
+                // reproducible from the base seed. It stays a property of the REQUEST rather than of the
+                // compositor, so Render remains a pure function of its request — which is what lets the render
+                // be started early (see StartExposure) without changing a single pixel.
+                NoiseSeed = SeedMixer.Combine(options.NoiseSeed, focuserPosition, exposureCounter),
                 AberrationsEnabled = options.EnableAberrations,
                 TiltAngleDegrees = options.TiltAngleDegrees,
                 TiltAmountMicrons = options.TiltAmountMicrons,
