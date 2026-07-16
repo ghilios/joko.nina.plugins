@@ -117,9 +117,17 @@ geometry constants.
 
 - Screw *i* sits at image-space point `p_i = (R·sinθ_i, −R·cosθ_i)` µm from sensor center, `R = SimScrewRadiusMillimeters·1000`
   (matching `docs/precise-screw-adjustments-design.md`).
-- A click of `N` units on screw *i* → axial displacement `Δz_i = N · unit · σ`, where `unit` is
-  `SimThreadPitchMicrons` (turns) or `SimStepperStepSizeMicrons` (steps), and `σ` is the direction sign from the
-  button (⟳/⟲, or +/−) combined with `SimScrewInwardCurvatureSign`.
+- A click of `N` units on screw *i* → axial displacement `Δz_i = N · unit`, where `unit` is
+  `SimThreadPitchMicrons` (turns) or `SimStepperStepSizeMicrons` (steps) and `N` is signed **by the button alone**
+  (⟳/⟲, or +/−).
+  **There is deliberately NO rig-direction factor here** — this was corrected after an earlier draft of this doc
+  and the plan both specified one, which would have driven the simulator backwards on default (σ=+1) rigs.
+  Verified from the shipped code: the inspector's *tilt* guidance is sign-free — `InspectorVM.cs:2035` emits
+  `corr.TiltMicrons / unitMicrons`, and `TiltScrewGeometry.SignedTotalAdjustment` (`:118`) applies σ to the
+  **backfocus term only**, pinned by the regression test *"a pure-tilt correction must render the same rotational
+  direction on every rig — the curvature sign must NOT touch it."* The reason is that `PhysicalToStoredAngle`
+  makes the **stored** angle already carry rig direction (`p_stored = σ·p_phys`), so in
+  `G ∝ Σ a_i·p_i` the two σ's cancel (σ²=1). Applying σ again here would double-count it.
 - The displacement set `{Δz_i}` defines a plane change `Δz(x,y) = ΔGx·x + ΔGy·y + ΔZ0` — exactly determined for
   3 screws, least-squares for 4.
 
@@ -128,15 +136,26 @@ Applied to the simulator's existing state:
 1. **Tilt.** Current `(Gx,Gy)` ← the existing inversion (`|G| = TiltAmount/(|cosφ|·halfW + |sinφ|·halfH)`,
    `Gx=|G|cosφ`, `Gy=|G|sinφ`). Add `(ΔGx,ΔGy)`, then invert back:
    `TiltAmountMicrons = |Gx|·halfW + |Gy|·halfH`, `TiltAngleDegrees = atan2(Gy,Gx)`.
-2. **Piston.** `ΔZ0` moves the sensor axially ⇒ best focus shifts:
-   `OptimalFocuserPosition += ΔZ0 / FocuserStepSizeMicrons`. (A single screw on a 3-screw adapter unavoidably
+> **The piston — and ONLY the piston — carries the rig sign.** The plane fit's `ΔZ0` is in the *response* frame.
+> On a σ=−1 rig the response frame is a point reflection of the physical one (`p_stored = −p_phys` **and**
+> `a_phys = −δ_resp`), so in the gradient both flips cancel and `G_phys = G_resp` — but the constant term has no
+> angle to absorb the flip, giving **`ΔZ0_phys = σ · ΔZ0_fit`**. This asymmetry is exactly why the inspector
+> applies σ to backfocus but not tilt. Steps 2-3 below therefore use the **physical** piston
+> `ΔZ0_phys = PistonDirectionSign · delta.PistonMicrons`; feeding the raw fitted `ΔZ0` in would get backfocus
+> *and* `OptimalFocuserPosition` backwards on σ=−1 rigs.
+
+2. **Piston.** `ΔZ0_phys` moves the sensor axially ⇒ best focus shifts:
+   `OptimalFocuserPosition += ΔZ0_phys / FocuserStepSizeMicrons`. (A single screw on a 3-screw adapter unavoidably
    pistons by `Δz/3`; a corner move pistons by 0 by symmetry. Modeling this keeps the sim honest — the AF
    re-finds focus exactly as it would on a real rig.)
-3. **Backfocus/curvature.** Curvature responds to the **piston** `ΔZ0` (the axial spacing change), not to any
+3. **Backfocus/curvature.** Curvature responds to the **piston** `ΔZ0_phys` (the axial spacing change), not to any
    individual `Δz_i` — so a corner move (`ΔZ0 = 0` by symmetry) correctly leaves curvature untouched, while a
    backfocus move (`ΔZ0 = Δz`) changes it fully. Derived as the exact inverse of the inspector's
-   `backTurns = CurvatureAt(p)/pitch`: removing `ΔZ0` µm of curvature at radius `R` means `Δ(K·R²) = −ΔZ0`, so
-   `ΔBackfocusErrorMicrons = ΔK·(halfW²+halfH²) = −ΔZ0·(halfW²+halfH²)/R²`.
+   `backTurns = CurvatureAt(p)/pitch`: removing `ΔZ0_phys` µm of curvature at radius `R` means
+   `Δ(K·R²) = −ΔZ0_phys`, so
+   `ΔBackfocusErrorMicrons = ΔK·(halfW²+halfH²) = −ΔZ0_phys·(halfW²+halfH²)/R²`.
+   The round trip closes on both rigs: guidance asks for `turns = σ·B/unit` ⇒ `ΔZ0_fit = σ·B` ⇒
+   `ΔZ0_phys = σ·(σ·B) = B` ⇒ `ΔBackfocusErrorMicrons = −B·(halfW²+halfH²)/R² = −BackfocusErrorMicrons`. ✓
    Note this makes steps 2 and 3 two consequences of the same piston: the sensor moving axially both shifts best
    focus *and* violates the optics' backfocus spacing.
 

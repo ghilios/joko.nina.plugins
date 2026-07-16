@@ -675,9 +675,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         public double UnitMicrons { get; }
         public int InwardCurvatureSign { get; }
 
-        /// <summary>Axial displacement (µm) for a signed user amount, honouring the adapter's direction sign.</summary>
-        public double AxialMicronsForUnits(double units) =>
-            units * UnitMicrons * (TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(InwardCurvatureSign) ? 1.0 : -1.0);
+        /// <summary>Axial displacement (µm) for a signed user amount. Direction comes from the button alone —
+        /// deliberately NO rig-direction factor; see the CORRECTION note below.</summary>
+        public double AxialMicronsForUnits(double units) => units * UnitMicrons;
 
         /// <summary>
         /// Fit the plane through the per-screw axial displacements. Exactly determined for 3 screws,
@@ -751,6 +751,23 @@ GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.nor
 
 This is what proves "exact inverse" and therefore that the interactive loop converges. It is the automated form
 of the whole feature.
+
+> **CORRECTION (found during execution — this plan was wrong twice here; both are fixed above and in the design).**
+> 1. **The sign factor was inverted.** An earlier draft of `AxialMicronsForUnits` multiplied by
+>    `CwMovesAdapterTowardObjectiveForSign(σ) ? 1.0 : -1.0`, which is exactly `−σ` — i.e. **backwards on default
+>    (σ=+1) rigs**, and only coincidentally right on σ=−1. The correct factor is identically **+1 on both rigs**, so
+>    *no* rig-dependent factor belongs there: the inspector's tilt guidance is sign-free (`InspectorVM.cs:2035`;
+>    `TiltScrewGeometry.SignedTotalAdjustment` applies σ to backfocus only, with a regression pin saying so),
+>    because `PhysicalToStoredAngle` makes stored angles already carry rig direction (`p_stored = σ·p_phys`) and the
+>    two σ's cancel (σ²=1). Merely flipping the ternary would ALSO have been wrong.
+> 2. **The capstone below was vacuous.** As originally written it fed axial µm straight into `ApplyMoves`,
+>    bypassing `AxialMicronsForUnits` — making `unitMicrons` and `curvatureSign` provably inert (6 of its 8
+>    combinatorial cases were duplicates). It was empirically shown to **pass against the buggy sign**. A capstone
+>    that certifies the bug it exists to catch is worse than none.
+>
+> **The capstone MUST compute turns the way `InspectorVM.FillNumericGuidance` does and route them through
+> `AxialMicronsForUnits`** — otherwise the sign path is never exercised. The shipped version does this and fails 16
+> cases (precisely the σ=+1 half) if the bad sign is restored.
 
 **Files:**
 - Create: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/CameraSimulator/SimulatedTiltAdapterCapstoneTests.cs`
