@@ -20,6 +20,7 @@ using NINA.Equipment.Model;
 using NINA.Equipment.Utility;
 using NINA.Image.ImageData;
 using NINA.Image.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -67,7 +68,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             ITelescopeMediator telescopeMediator,
             IFocuserMediator focuserMediator,
             ICameraSimulatorOptions options)
-            : this(profileService, exposureDataFactory, imageDataFactory, telescopeMediator, focuserMediator, options, new StarFieldCompositor()) {
+            : this(profileService, exposureDataFactory, imageDataFactory, telescopeMediator, focuserMediator, options,
+                  new StarFieldCompositor(new AstapCatalogReader(options?.AstapCatalogPath ?? CameraSimulatorOptions.DefaultAstapCatalogPath))) {
         }
 
         internal HocusFocusSimulatorCamera(
@@ -459,15 +461,21 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
 
             CameraState = CameraStates.Download;
             try {
-                var width = CameraXSize;
-                var height = CameraYSize;
+                // Geometry MUST come from the render SNAPSHOT's sensor, not the live options. The user can switch
+                // SensorModel between StartExposure and DownloadExposure; the rendered pixel array is sized from
+                // request.SensorModel, so reading width/height/bit-depth from the live CameraXSize/CameraYSize/BitDepth
+                // (which follow options.SensorModel) would desync the array from its declared dimensions.
+                var snapshotSensor = SensorRegistry.Get(request.SensorModel);
+                var width = snapshotSensor.Width;
+                var height = snapshotSensor.Height;
+                var bitDepth = snapshotSensor.BitDepth;
                 var pixels = await Task.Run(() => compositor.Render(request, token), token).ConfigureAwait(false);
 
                 var metaData = new ImageMetaData();
                 metaData.FromCamera(this);
                 metaData.Image.SetExposureTimes(exposureStartTime, DateTime.UtcNow);
                 var exposureData = exposureDataFactory.CreateImageArrayExposureData(
-                    pixels, width, height, BitDepth, isBayered: false, metaData);
+                    pixels, width, height, bitDepth, isBayered: false, metaData);
                 CameraState = CameraStates.Idle;
                 return exposureData;
             } catch {

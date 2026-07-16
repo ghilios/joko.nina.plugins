@@ -34,13 +34,23 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// </summary>
         /// <remarks>
         /// The accumulator write is a non-atomic <c>+=</c>. If Phase 4 stamps in parallel, it must partition
-        /// stars so concurrent calls touch <b>disjoint</b> accumulator regions (e.g. tile-bucketed with a
-        /// per-tile halo ≥ the kernel radius); stamping overlapping regions from multiple threads races.
+        /// stars so concurrent calls touch <b>disjoint</b> accumulator regions. The <paramref name="rowStart"/>
+        /// / <paramref name="rowEnd"/> row clip is exactly that seam: the compositor splits the frame into
+        /// horizontal row-stripes and each parallel stripe passes its own <c>[rowStart, rowEnd)</c> so every
+        /// stamp writes only that stripe's rows of the one shared accumulator — disjoint rows ⇒ no race. A star
+        /// spanning two stripes is stamped by both, each clipping to its rows (flux is conserved additively).
         /// </remarks>
-        public static void Stamp(float[] accumulator, int width, int height, double cx, double cy, PsfKernel kernel, double flux) {
+        /// <param name="rowStart">First accumulator row (inclusive) this call may write; clamped to 0.</param>
+        /// <param name="rowEnd">One past the last accumulator row this call may write; clamped to <paramref name="height"/>.
+        /// The default <c>[0, int.MaxValue)</c> clamps to <c>[0, height)</c>, i.e. the whole frame.</param>
+        public static void Stamp(float[] accumulator, int width, int height, double cx, double cy, PsfKernel kernel, double flux, int rowStart = 0, int rowEnd = int.MaxValue) {
             if (accumulator == null) throw new ArgumentNullException(nameof(accumulator));
             if (kernel == null) throw new ArgumentNullException(nameof(kernel));
             if (accumulator.Length != width * height) throw new ArgumentException("Accumulator length must equal width*height.", nameof(accumulator));
+
+            // The row clip subsumes the full-frame vertical bound: the default [0, +∞) clamps to [0, height).
+            var clampedRowStart = Math.Max(0, rowStart);
+            var clampedRowEnd = Math.Min(height, rowEnd);
 
             var s = kernel.PhasesPerAxis;
             var radius = kernel.Radius;
@@ -59,7 +69,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
             for (var jj = 0; jj < size; ++jj) {
                 var iy = yStart + jj;
-                if (iy < 0 || iy >= height) continue;
+                if (iy < clampedRowStart || iy >= clampedRowEnd) continue;
                 var kernelRow = jj * size;
                 var accRow = iy * width;
                 for (var ii = 0; ii < size; ++ii) {

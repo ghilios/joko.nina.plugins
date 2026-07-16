@@ -10,21 +10,338 @@
 
 #endregion "copyright"
 
+using NINA.Astrometry;
+using NINA.Core.Utility;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
     /// <summary>
-    /// Phase 0 stub. The real render pipeline (ASTAP query → TAN projection → per-star local defocus → PSF
-    /// kernel → stamp → sky/dark → Poisson/read noise → <c>ushort[]</c>) is filled in by Phase 4. This stub
-    /// exists so the device skeleton, options, MEF registration, and the disconnected-guard error paths can
-    /// be wired and tested now.
+    /// The Phase 4 render pipeline. Turns an immutable <see cref="RenderRequest"/> into a row-major
+    /// <c>ushort[width*height]</c> 16-bit frame by composing the prior phases:
+    /// <list type="number">
+    /// <item>resolve the sensor/filter and build the radiometry, defocus, aberration-surface, and TAN-projection models;</item>
+    /// <item>query the ASTAP catalog for the sensor's diagonal field of view;</item>
+    /// <item>project each star, look up its <b>local</b> defocus Δ from the aberration surface, quantize Δ, and
+    /// build (once, cached) the analytic PSF kernel for that level;</item>
+    /// <item>stamp <c>kernel·flux</c> into a shared electron accumulator using a disjoint horizontal row-stripe
+    /// partition (race-free — see below), add sky + dark, and develop to ADU with Poisson + read noise.</item>
+    /// </list>
+    ///
+    /// <para><b>Catalog robustness.</b> A missing/absent ASTAP database, a pointing outside the catalog's
+    /// coverage, a per-cell decode error, or simply zero stars never fails the exposure: the compositor logs a
+    /// descriptive warning and renders a <b>starless</b> frame (sky + dark + noise only). The focuser/mount
+    /// disconnected checks are the camera's hard errors, not the compositor's.</para>
+    ///
+    /// <para><b>Concurrency.</b> <see cref="StarStamper.Stamp"/>'s accumulator write is a non-atomic <c>+=</c>
+    /// and defocused donuts overlap, so stamping cannot be parallelized over stars into one shared buffer. This
+    /// compositor instead partitions the frame into horizontal <b>row-stripes</b>: each stripe owns a disjoint
+    /// block of output rows and, running in parallel, stamps every star whose kernel footprint intersects those
+    /// rows into <b>only its own rows</b> of the one shared accumulator (a star spanning two stripes is stamped
+    /// by both, each clipping to its rows). Because the stripes write disjoint rows, the shared-array
+    /// <c>+=</c> never races. Development then runs single-threaded over the whole accumulator with one
+    /// <see cref="NoiseGenerator"/>, so the noise is deterministic for a given seed.</para>
     /// </summary>
     public class StarFieldCompositor : IStarFieldCompositor {
 
+        /// <summary>
+        /// Defocus quantization resolution, expressed as the change in the geometric donut <b>outer radius</b>
+        /// (px) between adjacent quantized levels. One PSF kernel is built (and cached) per distinct level, so a
+        /// finer value builds more kernels but tracks the HFR-vs-focuser curve more smoothly. 0.25 px keeps the
+        /// per-star HFR error well under the detector's own bias while collapsing the smooth aberration surface
+        /// onto a small kernel set (adjacent field points share a level).
+        /// </summary>
+        private const double DonutRadiusQuantumPixels = 0.25;
+
+        /// <summary>Floor on the quantization step (µm) so a fast optic (small N) cannot produce a degenerate sub-µm quantum.</summary>
+        private const double MinDefocusQuantumMicrons = 0.5;
+
+        /// <summary>
+        /// Kernel-support cap used when clamping the quantized defocus. Kept a little below
+        /// <see cref="PsfKernelGenerator.MaxKernelRadius"/> so <c>ceil(r_out + 5σ)</c> stays within the hard cap
+        /// even after the σ tail is added. A physically-absurd defocus (far past any real focuser travel) is
+        /// clamped to the largest kernel rather than throwing.
+        /// </summary>
+        private const int MaxSafeKernelRadius = 500;
+
+        /// <summary>Fractional margin added to the diagonal FOV so stars just outside the exact frame edge are still queried.</summary>
+        private const double FovMarginFactor = 1.05;
+
+        /// <summary>Target rows per stripe used to size the row-stripe partition (bounds boundary re-stamping).</summary>
+        private const int TargetRowsPerStripe = 128;
+
+        private readonly IAstapCatalogReader catalogReader;
+
+        /// <param name="catalogReader">The ASTAP catalog reader. The camera builds
+        /// <c>new AstapCatalogReader(options.AstapCatalogPath)</c>; tests inject a fake.</param>
+        public StarFieldCompositor(IAstapCatalogReader catalogReader) {
+            this.catalogReader = catalogReader ?? throw new ArgumentNullException(nameof(catalogReader));
+        }
+
+        private readonly struct StampJob {
+            public StampJob(double cx, double cy, PsfKernel kernel, double flux) {
+                Cx = cx;
+                Cy = cy;
+                Kernel = kernel;
+                Flux = flux;
+            }
+
+            public double Cx { get; }
+            public double Cy { get; }
+            public PsfKernel Kernel { get; }
+            public double Flux { get; }
+        }
+
+        /// <inheritdoc/>
         public ushort[] Render(RenderRequest request, CancellationToken token) {
-            throw new NotImplementedException("Star-field rendering is implemented in Phase 4");
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            token.ThrowIfCancellationRequested();
+
+            var sensor = SensorRegistry.Get(request.SensorModel);
+            var filter = FilterRegistry.Get(request.Filter);
+            int width = sensor.Width;
+            int height = sensor.Height;
+
+            // The radiometry/defocus/aberration models and the TAN projection all require a positive focal length
+            // (plate scale). A focal length of 0 is a misconfiguration — the camera resolves it from the profile —
+            // but rather than crash the exposure we render a dark frame (bias + dark + read noise, no sky/stars).
+            double sky = 0.0, dark = 0.0;
+            List<StampJob> jobs;
+            if (request.FocalLengthMillimeters > 0.0) {
+                var radiometry = RadiometryCalculator.FromRequest(request, sensor, filter);
+                var defocusModel = DefocusModel.FromRequest(request, sensor, filter);
+                var aberration = AberrationSurface.FromRequest(request, sensor);
+                sky = radiometry.SkyElectronsPerPixel();
+                dark = radiometry.DarkElectronsPerPixel();
+                jobs = BuildStampJobs(request, sensor, radiometry, defocusModel, aberration, width, height, token);
+            } else {
+                Logger.Warning(
+                    $"Synthetic camera: focal length is {request.FocalLengthMillimeters} mm (must be > 0). " +
+                    "Rendering a dark frame (bias + dark + noise only, no sky or stars).");
+                dark = sensor.DarkElectronsPerPixelPerSecondAtTemperature(request.SensorTemperatureCelsius) * Math.Max(0.0, request.ExposureSeconds);
+                jobs = new List<StampJob>();
+            }
+
+            var accumulator = new float[width * height];
+
+            // Stamp every job into the shared accumulator via the disjoint row-stripe partition, then fold in the
+            // uniform sky + dark background. Both are per-stripe writes to disjoint rows, so the shared-array
+            // accumulation never races.
+            var background = (float)(sky + dark);
+            StampAndAddBackground(accumulator, width, height, jobs, background, token);
+
+            token.ThrowIfCancellationRequested();
+
+            // Single-threaded development so the seeded noise is deterministic (NoiseGenerator is not thread-safe).
+            return new NoiseGenerator(request.NoiseSeed)
+                .DevelopToAdu(accumulator, sensor, request.Gain, request.BiasPedestalAdu);
+        }
+
+        /// <summary>
+        /// Projects the catalog stars and turns each on-frame (or wing-spilling) star into a <see cref="StampJob"/>:
+        /// its sub-pixel centre, the cached PSF kernel for its quantized local defocus, and its total flux (e⁻).
+        /// </summary>
+        private List<StampJob> BuildStampJobs(
+                RenderRequest request, SensorDefinition sensor, RadiometryCalculator radiometry,
+                DefocusModel defocusModel, AberrationSurface aberration, int width, int height, CancellationToken token) {
+
+            var projection = new TanProjection(
+                request.RaDegreesJ2000, request.DecDegreesJ2000,
+                request.FocalLengthMillimeters, sensor.PixelSizeMicrons, request.RotationDegrees, width, height);
+
+            var fovDeg = DiagonalFovDegrees(width, height, sensor.PixelSizeMicrons, request.FocalLengthMillimeters) * FovMarginFactor;
+
+            var quantumMicrons = DefocusQuantumMicrons(defocusModel);
+            var maxAbsMicrons = MaxAbsDefocusMicrons(defocusModel);
+
+            // PSF margin: the worst-case kernel radius over the field (evaluated at the corners for this focuser
+            // position). Stars whose centres fall up to this far off-frame still spill their donut onto the sensor.
+            var psfMargin = WorstCaseKernelRadius(request, sensor, defocusModel, aberration, quantumMicrons, maxAbsMicrons);
+
+            var stars = QueryCatalogStars(request, fovDeg);
+
+            var jobs = new List<StampJob>(stars.Count);
+            var kernelCache = new Dictionary<long, PsfKernel>();
+            var processed = 0;
+            foreach (var star in stars) {
+                if ((++processed & 0x3FFF) == 0) {
+                    token.ThrowIfCancellationRequested();
+                }
+
+                var coordinates = star.Coordinates;
+                if (coordinates == null) {
+                    continue;
+                }
+                if (coordinates.Epoch != Epoch.J2000) {
+                    coordinates = coordinates.Transform(Epoch.J2000);
+                }
+
+                if (!projection.TryProject(coordinates.RADegrees, coordinates.Dec, out var x, out var y, psfMargin)) {
+                    continue;
+                }
+
+                var px = (int)Math.Round(x);
+                var py = (int)Math.Round(y);
+                var delta = aberration.LocalDefocusMicrons(px, py, request.FocuserPosition);
+                var level = QuantizeLevel(delta, quantumMicrons, maxAbsMicrons);
+                if (!kernelCache.TryGetValue(level, out var kernel)) {
+                    kernel = PsfKernelGenerator.Generate(defocusModel, level * quantumMicrons);
+                    kernelCache[level] = kernel;
+                }
+
+                var flux = radiometry.StarElectrons(star.Magnitude);
+                if (flux <= 0.0) {
+                    continue;
+                }
+                jobs.Add(new StampJob(x, y, kernel, flux));
+            }
+            return jobs;
+        }
+
+        /// <summary>
+        /// Queries the catalog for the pointing, returning an empty list (never throwing) on any failure. A
+        /// missing/absent database is logged distinctly from a pointing that simply has no catalog stars, so the
+        /// user can tell "install an ASTAP database" apart from "this patch of sky is empty".
+        /// </summary>
+        private List<CatalogStar> QueryCatalogStars(RenderRequest request, double fovDeg) {
+            try {
+                var stars = new List<CatalogStar>();
+                // Query() validates the folder/database eagerly; per-cell decode errors surface during enumeration,
+                // so the foreach is inside the try too.
+                foreach (var star in catalogReader.Query(request.RaDegreesJ2000, request.DecDegreesJ2000, fovDeg, request.LimitingMagnitude)) {
+                    stars.Add(star);
+                }
+                if (stars.Count == 0) {
+                    Logger.Warning(
+                        $"Synthetic camera: the pointing RA={request.RaDegreesJ2000:F4}°, Dec={request.DecDegreesJ2000:F4}° has no catalog stars " +
+                        $"down to magnitude {request.LimitingMagnitude:F1} within a {fovDeg:F2}° field. Rendering a starless frame.");
+                }
+                return stars;
+            } catch (Exception ex) when (ex is DirectoryNotFoundException or FileNotFoundException) {
+                Logger.Warning(
+                    $"Synthetic camera: no ASTAP database found at '{request.AstapCatalogPath}' ({ex.Message}). " +
+                    "Rendering a starless frame (sky + dark + noise only). Install an ASTAP star database and point the catalog path at it to render stars.");
+                return new List<CatalogStar>();
+            } catch (OperationCanceledException) {
+                throw;
+            } catch (Exception ex) {
+                Logger.Warning(
+                    $"Synthetic camera: the catalog query for RA={request.RaDegreesJ2000:F4}°, Dec={request.DecDegreesJ2000:F4}° " +
+                    $"failed ({ex.GetType().Name}: {ex.Message}). Rendering a starless frame.");
+                return new List<CatalogStar>();
+            }
+        }
+
+        /// <summary>
+        /// Stamps all jobs into <paramref name="accumulator"/> and adds the uniform background, both via a
+        /// disjoint horizontal row-stripe partition so the shared-array writes never race.
+        /// </summary>
+        private static void StampAndAddBackground(
+                float[] accumulator, int width, int height, IReadOnlyList<StampJob> jobs, float background, CancellationToken token) {
+
+            var stripeCount = StripeCount(height);
+            var options = new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = stripeCount };
+            Parallel.For(0, stripeCount, options, stripe => {
+                var rowStart = (int)((long)stripe * height / stripeCount);
+                var rowEnd = (int)((long)(stripe + 1) * height / stripeCount);
+                if (rowStart >= rowEnd) {
+                    return;
+                }
+                options.CancellationToken.ThrowIfCancellationRequested();
+
+                for (var j = 0; j < jobs.Count; ++j) {
+                    var job = jobs[j];
+                    // Vertical footprint of this star's kernel; skip jobs that do not touch this stripe.
+                    var y0 = (int)Math.Floor(job.Cy);
+                    var top = y0 - job.Kernel.Radius - 1;
+                    var bottom = y0 + job.Kernel.Radius + 1;
+                    if (bottom < rowStart || top >= rowEnd) {
+                        continue;
+                    }
+                    // The row clip is what makes the parallel stamp race-free: this stripe writes only its own
+                    // [rowStart, rowEnd) rows of the shared accumulator, disjoint from every other stripe.
+                    StarStamper.Stamp(accumulator, width, height, job.Cx, job.Cy, job.Kernel, job.Flux, rowStart, rowEnd);
+                }
+
+                if (background != 0f) {
+                    var from = rowStart * width;
+                    var to = rowEnd * width;
+                    for (var i = from; i < to; ++i) {
+                        accumulator[i] += background;
+                    }
+                }
+            });
+        }
+
+        /// <summary>Angular diagonal field of view (degrees) for a sensor at a focal length.</summary>
+        internal static double DiagonalFovDegrees(int width, int height, double pixelSizeMicrons, double focalLengthMm) {
+            var diagonalPixels = Math.Sqrt((double)width * width + (double)height * height);
+            var diagonalMm = 0.5 * diagonalPixels * (pixelSizeMicrons / 1000.0);
+            return 2.0 * Math.Atan(diagonalMm / focalLengthMm) * 180.0 / Math.PI;
+        }
+
+        /// <summary>Defocus quantization step (µm) sized for <see cref="DonutRadiusQuantumPixels"/> of donut-radius resolution.</summary>
+        private static double DefocusQuantumMicrons(DefocusModel model) {
+            // r_out(px) = |Δ| / (2·N·p); a q-px change in r_out ⇒ a (q·2·N·p) µm change in Δ.
+            var quantum = DonutRadiusQuantumPixels * 2.0 * model.FocalRatio * model.PixelSizeMicrons;
+            return Math.Max(MinDefocusQuantumMicrons, quantum);
+        }
+
+        /// <summary>
+        /// Largest |Δ| (µm) whose kernel support stays within <see cref="MaxSafeKernelRadius"/>. Quantized defocus
+        /// is clamped to this so a runaway field point can never allocate an unbounded kernel.
+        /// </summary>
+        private static double MaxAbsDefocusMicrons(DefocusModel model) {
+            // radius ≈ ceil(r_out + 5σ) ≤ MaxSafeKernelRadius ⇒ r_out ≤ MaxSafeKernelRadius − 5σ − 1 (px).
+            var maxOuterRadiusPixels = MaxSafeKernelRadius - 5.0 * model.SigmaMinPixels - 1.0;
+            if (maxOuterRadiusPixels <= 0.0) {
+                return 0.0;
+            }
+            return maxOuterRadiusPixels * 2.0 * model.FocalRatio * model.PixelSizeMicrons;
+        }
+
+        /// <summary>Quantizes a defocus Δ (µm) to an integer level after clamping to the safe range.</summary>
+        private static long QuantizeLevel(double deltaMicrons, double quantumMicrons, double maxAbsMicrons) {
+            var clamped = Math.Clamp(deltaMicrons, -maxAbsMicrons, maxAbsMicrons);
+            return (long)Math.Round(clamped / quantumMicrons);
+        }
+
+        /// <summary>
+        /// The worst-case kernel support radius (px) over the field for this focuser position, evaluated at the
+        /// sensor corners (where the tilted/curved best-focus surface is farthest from the current focus). Used as
+        /// the projection PSF margin so wing-spilling corner stars are not dropped.
+        /// </summary>
+        private static int WorstCaseKernelRadius(
+                RenderRequest request, SensorDefinition sensor, DefocusModel model, AberrationSurface aberration,
+                double quantumMicrons, double maxAbsMicrons) {
+
+            int w = sensor.Width, h = sensor.Height;
+            var corners = new (int px, int py)[] {
+                (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w / 2, h / 2)
+            };
+            var worstAbsDelta = 0.0;
+            foreach (var (px, py) in corners) {
+                var delta = Math.Abs(aberration.LocalDefocusMicrons(px, py, request.FocuserPosition));
+                if (delta > worstAbsDelta) {
+                    worstAbsDelta = delta;
+                }
+            }
+            var level = QuantizeLevel(worstAbsDelta, quantumMicrons, maxAbsMicrons);
+            var quantizedDelta = level * quantumMicrons;
+            var radius = (int)Math.Ceiling(model.OuterAnnulusRadiusPixels(quantizedDelta) + 5.0 * model.SigmaMinPixels);
+            return Math.Clamp(radius, 1, MaxSafeKernelRadius);
+        }
+
+        /// <summary>Number of row-stripes for the parallel stamp, bounded by the CPU count and the frame height.</summary>
+        private static int StripeCount(int height) {
+            var byHeight = Math.Max(1, height / TargetRowsPerStripe);
+            return Math.Clamp(Environment.ProcessorCount, 1, byHeight);
         }
     }
 }

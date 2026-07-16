@@ -6,6 +6,7 @@ using NINA.Equipment.Equipment.MyFocuser;
 using NINA.Equipment.Equipment.MyTelescope;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Model;
+using NINA.Image.ImageData;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -34,6 +35,22 @@ public class HocusFocusSimulatorCameraTests {
             telescope ?? Substitute.For<ITelescopeMediator>(),
             focuser ?? Substitute.For<IFocuserMediator>(),
             options);
+    }
+
+    private static HocusFocusSimulatorCamera BuildCameraWithCompositor(
+        ICameraSimulatorOptions options,
+        IStarFieldCompositor compositor,
+        IExposureDataFactory exposureDataFactory,
+        IFocuserMediator focuser,
+        ITelescopeMediator telescope) {
+        return new HocusFocusSimulatorCamera(
+            Substitute.For<IProfileService>(),
+            exposureDataFactory,
+            Substitute.For<IImageDataFactory>(),
+            telescope,
+            focuser,
+            options,
+            compositor);
     }
 
     [Test]
@@ -140,19 +157,68 @@ public class HocusFocusSimulatorCameraTests {
     }
 
     [Test]
-    public void DownloadExposure_BothConnected_ReachesCompositorStubAndThrowsPhase4() {
+    public async Task DownloadExposure_BothConnected_RendersAndReturnsExposureData() {
         var focuser = Substitute.For<IFocuserMediator>();
         focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
         var telescope = Substitute.For<ITelescopeMediator>();
         telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
 
-        var camera = ConnectAndStart(BuildOptions(), focuser, telescope);
+        var options = BuildOptions();
+        options.SensorModel = SonySensorModel.IMX533;
 
-        // Both devices connected: the disconnected guards pass and the call reaches the Phase-0 compositor
-        // stub, proving the wiring is correct and the guards run first.
-        var ex = Assert.ThrowsAsync<NotImplementedException>(
-            async () => await camera.DownloadExposure(CancellationToken.None));
-        Assert.That(ex.Message, Does.Contain("Phase 4"));
+        // Both devices connected: the disconnected guards pass and the call reaches the (now real) compositor,
+        // whose rendered ushort[] is plumbed through IExposureDataFactory. A fake compositor keeps the test fast
+        // and independent of any ASTAP database, proving the DownloadExposure wiring end-to-end.
+        var pixels = new ushort[3008 * 3008];
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>()).Returns(pixels);
+        var exposureDataFactory = Substitute.For<IExposureDataFactory>();
+
+        var camera = BuildCameraWithCompositor(options, compositor, exposureDataFactory, focuser, telescope);
+        camera.Connect(CancellationToken.None).GetAwaiter().GetResult();
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+
+        await camera.DownloadExposure(CancellationToken.None);
+
+        // The rendered ushort[] is handed to the factory with the selected sensor's geometry (IMX533: 3008², 14-bit,
+        // monochrome), and the camera returns to Idle.
+        Assert.That(camera.CameraState, Is.EqualTo(CameraStates.Idle));
+        exposureDataFactory.Received(1).CreateImageArrayExposureData(
+            pixels, 3008, 3008, 14, false, Arg.Any<ImageMetaData>());
+    }
+
+    [Test]
+    public async Task DownloadExposure_SensorModelChangedAfterStart_UsesSnapshotGeometry() {
+        // Regression: the rendered pixels are sized from the render-snapshot's SensorModel, so the width/height/
+        // bit-depth handed to the exposure-data factory must come from the SAME snapshot — not the live options,
+        // which the user can change between StartExposure and DownloadExposure.
+        var focuser = Substitute.For<IFocuserMediator>();
+        focuser.GetInfo().Returns(new FocuserInfo { Connected = true, Position = 5000 });
+        var telescope = Substitute.For<ITelescopeMediator>();
+        telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
+
+        var options = BuildOptions();
+        options.SensorModel = SonySensorModel.IMX533; // 3008², 14-bit at exposure start
+
+        var pixels = new ushort[3008 * 3008];
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>()).Returns(pixels);
+        var exposureDataFactory = Substitute.For<IExposureDataFactory>();
+
+        var camera = BuildCameraWithCompositor(options, compositor, exposureDataFactory, focuser, telescope);
+        camera.Connect(CancellationToken.None).GetAwaiter().GetResult();
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+
+        // User switches to a different sensor (IMX455: 9576×6388, 16-bit) mid-exposure.
+        options.SensorModel = SonySensorModel.IMX455;
+
+        await camera.DownloadExposure(CancellationToken.None);
+
+        // Must declare the SNAPSHOT geometry (IMX533), matching the pixel array — not the live IMX455.
+        exposureDataFactory.Received(1).CreateImageArrayExposureData(
+            pixels, 3008, 3008, 14, false, Arg.Any<ImageMetaData>());
+        exposureDataFactory.DidNotReceive().CreateImageArrayExposureData(
+            Arg.Any<ushort[]>(), 9576, 6388, 16, Arg.Any<bool>(), Arg.Any<ImageMetaData>());
     }
 
     [Test]
@@ -162,9 +228,16 @@ public class HocusFocusSimulatorCameraTests {
         var telescope = Substitute.For<ITelescopeMediator>();
         telescope.GetInfo().Returns(new TelescopeInfo { Connected = true });
 
-        var camera = ConnectAndStart(BuildOptions(), focuser, telescope);
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => throw new InvalidOperationException("boom"));
 
-        Assert.ThrowsAsync<NotImplementedException>(
+        var camera = BuildCameraWithCompositor(
+            BuildOptions(), compositor, Substitute.For<IExposureDataFactory>(), focuser, telescope);
+        camera.Connect(CancellationToken.None).GetAwaiter().GetResult();
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+
+        Assert.ThrowsAsync<InvalidOperationException>(
             async () => await camera.DownloadExposure(CancellationToken.None));
         // The render threw after CameraState advanced to Download; it must be reset to Error, not left in Download.
         Assert.That(camera.CameraState, Is.EqualTo(CameraStates.Error));
