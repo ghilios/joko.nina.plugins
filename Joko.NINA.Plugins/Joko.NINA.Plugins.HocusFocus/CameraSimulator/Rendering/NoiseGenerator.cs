@@ -22,7 +22,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// clips to the full well, adds read noise, converts to ADU with a bias pedestal, and applies the digital
     /// clip:
     /// <code>
-    /// ne  = λ_e &lt; 1000 ? Poisson(λ_e) : round(Normal(λ_e, √λ_e))   // Knuth exact vs CLT approximation
+    /// ne  = λ_e &lt; 40 ? Poisson(λ_e) : round(Normal(λ_e, √λ_e))   // Knuth exact vs CLT approximation
     /// ne  = min(ne, FullWell)
     /// e   = ne + Normal(0, σ_read(gain))
     /// adu = round(e / g_e(gain)) + pedestal
@@ -66,21 +66,35 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         }
 
         /// <summary>
-        /// One Poisson draw for mean <paramref name="lambda"/> using Knuth's multiplicative algorithm in log
-        /// space (so <c>e^(−λ)</c> cannot underflow even well past the <see cref="PoissonToGaussianThreshold"/>).
-        /// Returns 0 for λ ≤ 0.
+        /// One Poisson draw for mean <paramref name="lambda"/> using Knuth's multiplicative algorithm: one
+        /// <see cref="Math.Exp"/> up front, then one multiply per iteration. Returns 0 for λ ≤ 0.
+        ///
+        /// <para>This deliberately does <b>not</b> work in log space. Log space costs a <see cref="Math.Log"/>
+        /// per iteration — about λ of them per pixel, which at 61 MP is the single dominant cost of a frame — to
+        /// guard against <c>e^(−λ)</c> underflowing to zero. That cannot happen here: this branch only runs below
+        /// <see cref="PoissonToGaussianThreshold"/> (40), <c>e^(−40)</c> ≈ 4.2e−18, and a double does not
+        /// underflow until λ > 745. The guard was buying nothing and costing ~2× (measured).</para>
+        ///
+        /// <para>The two forms are equivalent, not merely similar: <c>log</c> is monotonic, so
+        /// <c>Σ log(uᵢ) &gt; −λ</c> and <c>Π uᵢ &gt; e^(−λ)</c> are the same predicate over the same uniforms.
+        /// Pinned draw-for-draw against the previous implementation by
+        /// <c>PoissonDraw_MatchesLegacyLogSpaceFormExactly</c>.</para>
         /// </summary>
         private long NextPoisson(double lambda) {
             if (lambda <= 0.0) return 0L;
-            var target = -lambda; // ln(e^(−λ))
-            var logProduct = 0.0;
+            var threshold = Math.Exp(-lambda); // > 0 for every λ this branch sees; see remarks
+            var product = 1.0;
             var k = 0L;
             do {
                 ++k;
-                logProduct += Math.Log(1.0 - rng.NextDouble()); // ln(uniform in (0,1])
-            } while (logProduct > target);
+                product *= 1.0 - rng.NextDouble(); // uniform in (0,1]
+            } while (product > threshold);
             return k - 1;
         }
+
+        /// <summary>Test seam for <see cref="NextPoisson"/> — the shot-noise draw is otherwise only reachable
+        /// through a whole frame, which cannot pin the draw sequence itself.</summary>
+        internal long NextPoissonForTest(double lambda) => NextPoisson(lambda);
 
         /// <summary>
         /// Develops a per-pixel electron accumulator into a row-major ADU frame. The accumulator holds the mean

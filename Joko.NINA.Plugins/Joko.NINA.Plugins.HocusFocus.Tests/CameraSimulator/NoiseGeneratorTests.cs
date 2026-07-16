@@ -132,5 +132,52 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 Assert.That(gen.NextGaussian(0.0, sigma), Is.EqualTo(expected).Within(1e-12));
             }
         }
+
+        // Reference log-space implementation — the form NoiseGenerator shipped before the multiplicative rewrite.
+        // Kept here so the rewrite is pinned against the exact algorithm it replaced, not against a re-derivation.
+        private static long ReferencePoissonLogSpace(Random rng, double lambda) {
+            if (lambda <= 0.0) return 0L;
+            var target = -lambda;
+            var logProduct = 0.0;
+            var k = 0L;
+            do {
+                ++k;
+                logProduct += Math.Log(1.0 - rng.NextDouble());
+            } while (logProduct > target);
+            return k - 1;
+        }
+
+        [Test]
+        [TestCase(0.5)]
+        [TestCase(5.0)]
+        [TestCase(14.62)]
+        [TestCase(39.9)]
+        public void PoissonDraw_MatchesLegacyLogSpaceFormExactly(double lambda) {
+            // Same seed => same uniform sequence => the two forms must agree draw for draw, because
+            // sum(log(u)) > -lambda and prod(u) > exp(-lambda) are the same predicate.
+            const int seed = 20260716;
+            const int draws = 50_000;
+
+            var reference = new Random(seed);
+            var expected = new long[draws];
+            for (var i = 0; i < draws; ++i) {
+                expected[i] = ReferencePoissonLogSpace(reference, lambda);
+            }
+
+            var generator = new NoiseGenerator(seed);
+            var actual = new long[draws];
+            for (var i = 0; i < draws; ++i) {
+                actual[i] = generator.NextPoissonForTest(lambda);
+            }
+
+            Assert.That(actual, Is.EqualTo(expected), $"multiplicative form must reproduce the log-space draws at lambda={lambda}");
+        }
+
+        [Test]
+        public void PoissonToGaussianThreshold_LeavesHugeUnderflowHeadroom() {
+            // The multiplicative form is only safe because exp(-lambda) cannot reach zero on this branch.
+            Assert.That(Math.Exp(-NoiseGenerator.PoissonToGaussianThreshold), Is.GreaterThan(0.0));
+            Assert.That(Math.Exp(-NoiseGenerator.PoissonToGaussianThreshold), Is.EqualTo(4.24e-18).Within(1e-19));
+        }
     }
 }
