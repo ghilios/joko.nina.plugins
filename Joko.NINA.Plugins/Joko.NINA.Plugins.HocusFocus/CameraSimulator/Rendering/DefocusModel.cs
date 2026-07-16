@@ -110,13 +110,16 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             double wavelengthNm,
             double focuserStepSizeMicrons,
             int optimalFocuserPosition) {
-            if (apertureMillimeters <= 0) throw new ArgumentOutOfRangeException(nameof(apertureMillimeters));
-            if (focalLengthMillimeters <= 0) throw new ArgumentOutOfRangeException(nameof(focalLengthMillimeters));
-            if (centralObstructionFraction < 0 || centralObstructionFraction >= 1) throw new ArgumentOutOfRangeException(nameof(centralObstructionFraction));
-            if (pixelSizeMicrons <= 0) throw new ArgumentOutOfRangeException(nameof(pixelSizeMicrons));
-            if (seeingArcsec < 0) throw new ArgumentOutOfRangeException(nameof(seeingArcsec));
-            if (wavelengthNm <= 0) throw new ArgumentOutOfRangeException(nameof(wavelengthNm));
-            if (focuserStepSizeMicrons <= 0) throw new ArgumentOutOfRangeException(nameof(focuserStepSizeMicrons));
+            // `!(x > 0)` and not `x <= 0`: NaN fails BOTH `>` and `<=`, so the old form waved NaN through into
+            // N = f/D and produced an all-NaN frame with no error anywhere. A fresh NINA profile stores NaN for
+            // the telescope focal length and ratio, so this is reachable, not theoretical.
+            if (!(apertureMillimeters > 0)) throw new ArgumentOutOfRangeException(nameof(apertureMillimeters), apertureMillimeters, "must be a positive number");
+            if (!(focalLengthMillimeters > 0)) throw new ArgumentOutOfRangeException(nameof(focalLengthMillimeters), focalLengthMillimeters, "must be a positive number");
+            if (!(centralObstructionFraction >= 0 && centralObstructionFraction < 1)) throw new ArgumentOutOfRangeException(nameof(centralObstructionFraction), centralObstructionFraction, "must be in [0, 1)");
+            if (!(pixelSizeMicrons > 0)) throw new ArgumentOutOfRangeException(nameof(pixelSizeMicrons), pixelSizeMicrons, "must be a positive number");
+            if (!(seeingArcsec >= 0)) throw new ArgumentOutOfRangeException(nameof(seeingArcsec), seeingArcsec, "must be a non-negative number");
+            if (!(wavelengthNm > 0)) throw new ArgumentOutOfRangeException(nameof(wavelengthNm), wavelengthNm, "must be a positive number");
+            if (!(focuserStepSizeMicrons > 0)) throw new ArgumentOutOfRangeException(nameof(focuserStepSizeMicrons), focuserStepSizeMicrons, "must be a positive number");
 
             var eps = centralObstructionFraction;
             var n = focalLengthMillimeters / apertureMillimeters;

@@ -28,6 +28,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
     /// internal constructor for tests (injected accessor). Defaults come from the design's config table.
     /// </summary>
     public class CameraSimulatorOptions : BaseINPC, ICameraSimulatorOptions {
+        private readonly IProfileService profileService;
         private readonly IPluginOptionsAccessor optionsAccessor;
 
         public CameraSimulatorOptions(IProfileService profileService)
@@ -35,6 +36,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         }
 
         internal CameraSimulatorOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor) {
+            this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.optionsAccessor = optionsAccessor ?? throw new ArgumentNullException(nameof(optionsAccessor));
             profileService.ProfileChanged += ProfileService_ProfileChanged;
             InitializeOptions();
@@ -57,6 +59,27 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public static string DefaultAstapCatalogPath =>
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "astap");
 
+        /// <summary>
+        /// The focal length (mm) used when neither the option nor the active profile supplies one. A fresh NINA
+        /// profile stores NaN for both telescope values, so this is the out-of-the-box rig, not a rare edge case.
+        /// Paired with <see cref="DefaultFocalRatio"/> it describes a 980 mm f/7 — which at 3.76 µm samples at
+        /// 0.79″/px and puts HFR_min near 1.8 px, comfortably above HocusFocus's own minimum-HFR detection gate.
+        /// </summary>
+        public const double DefaultFocalLengthMillimeters = 980.0;
+
+        /// <summary>
+        /// The focal ratio used to infer an aperture when the profile has none. Applied to the <b>effective</b>
+        /// focal length rather than yielding a flat aperture, so a long profile focal length cannot silently
+        /// produce an absurd f-ratio (the previous flat 100 mm default made a 2000 mm profile an f/20).
+        /// </summary>
+        public const double DefaultFocalRatio = 7.0;
+
+        /// <summary>The stored value meaning "unset — infer it". Matches the plugin's <c>DoubleNegativeToEmptyStringConverter</c> convention.</summary>
+        private const double Unset = -1.0;
+
+        /// <summary>Collapses anything non-positive (including NaN, which no ordinary comparison rejects) to <see cref="Unset"/>.</summary>
+        private static double NormalizeUnset(double value) => value > 0.0 ? value : Unset;
+
         /// <summary>Clamp a raw gain into the usable <c>[0, MaxGain]</c> range of the given sensor.</summary>
         private static int ClampGain(int value, SonySensorModel model) {
             return Math.Clamp(value, 0, SensorRegistry.Get(model).MaxGain);
@@ -65,8 +88,14 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private void InitializeOptions() {
             optimalFocuserPosition = optionsAccessor.GetValueInt32(nameof(OptimalFocuserPosition), 5000);
             focuserStepSizeMicrons = optionsAccessor.GetValueDouble(nameof(FocuserStepSizeMicrons), 2.0);
-            apertureMillimeters = optionsAccessor.GetValueDouble(nameof(ApertureMillimeters), 100.0);
-            focalLengthMillimeters = optionsAccessor.GetValueDouble(nameof(FocalLengthMillimeters), 0.0);
+            // -1 means "unset — infer from the profile". The read default is now Unset rather than the old
+            // hard-coded 0 mm focal length / 100 mm aperture, so an unwritten key (the common case — a profile
+            // that never touched these) infers from the profile instead of silently rendering at 100 mm,
+            // ignoring the profile's focal ratio entirely. NormalizeUnset additionally heals a stored
+            // non-positive value, such as the 0 an older build's ResetDefaults wrote for the focal length.
+            // A value the user actually typed is > 0 and survives untouched — including a deliberate 100.
+            apertureMillimeters = NormalizeUnset(optionsAccessor.GetValueDouble(nameof(ApertureMillimeters), Unset));
+            focalLengthMillimeters = NormalizeUnset(optionsAccessor.GetValueDouble(nameof(FocalLengthMillimeters), Unset));
             centralObstructionEnabled = optionsAccessor.GetValueBoolean(nameof(CentralObstructionEnabled), true);
             centralObstructionFraction = optionsAccessor.GetValueDouble(nameof(CentralObstructionFraction), 0.3);
             opticalThroughput = optionsAccessor.GetValueDouble(nameof(OpticalThroughput), 0.85);
@@ -108,8 +137,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public void ResetDefaults() {
             OptimalFocuserPosition = 5000;
             FocuserStepSizeMicrons = 2.0;
-            ApertureMillimeters = 100.0;
-            FocalLengthMillimeters = 0.0;
+            ApertureMillimeters = Unset;
+            FocalLengthMillimeters = Unset;
             CentralObstructionEnabled = true;
             CentralObstructionFraction = 0.3;
             OpticalThroughput = 0.85;
@@ -174,10 +203,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public double ApertureMillimeters {
             get => apertureMillimeters;
             set {
-                if (apertureMillimeters != value) {
-                    apertureMillimeters = value;
+                var normalized = NormalizeUnset(value);
+                if (apertureMillimeters != normalized) {
+                    apertureMillimeters = normalized;
                     optionsAccessor.SetValueDouble(nameof(ApertureMillimeters), apertureMillimeters);
                     RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(EffectiveApertureMillimeters));
                 }
             }
         }
@@ -187,11 +218,50 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public double FocalLengthMillimeters {
             get => focalLengthMillimeters;
             set {
-                if (focalLengthMillimeters != value) {
-                    focalLengthMillimeters = value;
+                var normalized = NormalizeUnset(value);
+                if (focalLengthMillimeters != normalized) {
+                    focalLengthMillimeters = normalized;
                     optionsAccessor.SetValueDouble(nameof(FocalLengthMillimeters), focalLengthMillimeters);
                     RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(EffectiveFocalLengthMillimeters));
+                    // An unset aperture is inferred FROM the focal length, so its hint moves with this.
+                    RaisePropertyChanged(nameof(EffectiveApertureMillimeters));
                 }
+            }
+        }
+
+        /// <summary>
+        /// The focal length (mm) the next exposure will actually use: the option when set, else the active
+        /// profile's telescope focal length, else <see cref="DefaultFocalLengthMillimeters"/>.
+        ///
+        /// <para>This is the single resolution point — the render reads it and the setup dialog's hint text
+        /// displays it, so the number shown to the user is by construction the number that will be used.</para>
+        /// </summary>
+        public double EffectiveFocalLengthMillimeters {
+            get {
+                if (focalLengthMillimeters > 0.0) {
+                    return focalLengthMillimeters;
+                }
+                // `> 0` and not `!(<= 0)`: a fresh NINA profile stores NaN, which fails BOTH comparisons.
+                var profileFocalLength = profileService.ActiveProfile.TelescopeSettings.FocalLength;
+                return profileFocalLength > 0.0 ? profileFocalLength : DefaultFocalLengthMillimeters;
+            }
+        }
+
+        /// <summary>
+        /// The aperture (mm) the next exposure will actually use: the option when set, else
+        /// <see cref="EffectiveFocalLengthMillimeters"/> divided by the profile's focal ratio (so leaving the
+        /// aperture blank simply means "my profile's focal ratio"), else by <see cref="DefaultFocalRatio"/>.
+        /// Never NaN and never non-positive, so the optics models always receive a usable diameter.
+        /// </summary>
+        public double EffectiveApertureMillimeters {
+            get {
+                if (apertureMillimeters > 0.0) {
+                    return apertureMillimeters;
+                }
+                var profileFocalRatio = profileService.ActiveProfile.TelescopeSettings.FocalRatio;
+                var focalRatio = profileFocalRatio > 0.0 ? profileFocalRatio : DefaultFocalRatio;
+                return EffectiveFocalLengthMillimeters / focalRatio;
             }
         }
 

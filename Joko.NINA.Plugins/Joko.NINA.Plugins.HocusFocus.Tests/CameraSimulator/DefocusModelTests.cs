@@ -27,6 +27,12 @@ public class DefocusModelTests {
     }
 
     [Test]
+    public void NaNOptics_AreRejected_NotPropagated() {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DefocusModel(double.NaN, 430.0, 0.3, 3.76, 2.5, 540.0, 2.0, 25000));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DefocusModel(100.0, double.NaN, 0.3, 3.76, 2.5, 540.0, 2.0, 25000));
+    }
+
+    [Test]
     public void DesignSanityVector_PlateScaleAndHfrMin() {
         var model = BuildSanityVector();
         Assert.Multiple(() => {

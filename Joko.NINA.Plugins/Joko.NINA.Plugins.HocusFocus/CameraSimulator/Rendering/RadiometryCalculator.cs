@@ -76,15 +76,18 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             double exposureSeconds,
             double skyBrightnessMagPerArcsec2,
             double darkElectronsPerPixelPerSecond) {
-            if (apertureMillimeters <= 0) throw new ArgumentOutOfRangeException(nameof(apertureMillimeters));
-            if (centralObstructionFraction < 0 || centralObstructionFraction >= 1) throw new ArgumentOutOfRangeException(nameof(centralObstructionFraction));
-            if (focalLengthMillimeters <= 0) throw new ArgumentOutOfRangeException(nameof(focalLengthMillimeters));
-            if (pixelSizeMicrons <= 0) throw new ArgumentOutOfRangeException(nameof(pixelSizeMicrons));
-            if (filterBandwidthNm <= 0) throw new ArgumentOutOfRangeException(nameof(filterBandwidthNm));
-            if (quantumEfficiencyAtCenter <= 0) throw new ArgumentOutOfRangeException(nameof(quantumEfficiencyAtCenter));
-            if (opticalThroughput <= 0) throw new ArgumentOutOfRangeException(nameof(opticalThroughput));
-            if (exposureSeconds < 0) throw new ArgumentOutOfRangeException(nameof(exposureSeconds));
-            if (darkElectronsPerPixelPerSecond < 0) throw new ArgumentOutOfRangeException(nameof(darkElectronsPerPixelPerSecond));
+            // `!(x > 0)` and not `x <= 0`: NaN fails BOTH `>` and `<=`, so the old form waved NaN through and
+            // produced an all-NaN frame with no error anywhere. A fresh NINA profile stores NaN for the telescope
+            // focal length and ratio, so this is reachable, not theoretical.
+            if (!(apertureMillimeters > 0)) throw new ArgumentOutOfRangeException(nameof(apertureMillimeters), apertureMillimeters, "must be a positive number");
+            if (!(centralObstructionFraction >= 0 && centralObstructionFraction < 1)) throw new ArgumentOutOfRangeException(nameof(centralObstructionFraction), centralObstructionFraction, "must be in [0, 1)");
+            if (!(focalLengthMillimeters > 0)) throw new ArgumentOutOfRangeException(nameof(focalLengthMillimeters), focalLengthMillimeters, "must be a positive number");
+            if (!(pixelSizeMicrons > 0)) throw new ArgumentOutOfRangeException(nameof(pixelSizeMicrons), pixelSizeMicrons, "must be a positive number");
+            if (!(filterBandwidthNm > 0)) throw new ArgumentOutOfRangeException(nameof(filterBandwidthNm), filterBandwidthNm, "must be a positive number");
+            if (!(quantumEfficiencyAtCenter > 0)) throw new ArgumentOutOfRangeException(nameof(quantumEfficiencyAtCenter), quantumEfficiencyAtCenter, "must be a positive number");
+            if (!(opticalThroughput > 0)) throw new ArgumentOutOfRangeException(nameof(opticalThroughput), opticalThroughput, "must be a positive number");
+            if (!(exposureSeconds >= 0)) throw new ArgumentOutOfRangeException(nameof(exposureSeconds), exposureSeconds, "must be a non-negative number");
+            if (!(darkElectronsPerPixelPerSecond >= 0)) throw new ArgumentOutOfRangeException(nameof(darkElectronsPerPixelPerSecond), darkElectronsPerPixelPerSecond, "must be a non-negative number");
 
             this.filterBandwidthNm = filterBandwidthNm;
             this.quantumEfficiencyAtCenter = quantumEfficiencyAtCenter;

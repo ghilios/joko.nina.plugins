@@ -20,14 +20,89 @@ public class CameraSimulatorOptionsTests {
         return (options, store, profile);
     }
 
+    private static CameraSimulatorOptions OptionsFor(double profileFocalLength, double profileFocalRatio) {
+        var (options, _, profile) = Build();
+        profile.ActiveProfile.TelescopeSettings.FocalLength.Returns(profileFocalLength);
+        profile.ActiveProfile.TelescopeSettings.FocalRatio.Returns(profileFocalRatio);
+        return options;
+    }
+
+    [Test]
+    public void UnsetOptics_InferFromTheProfile() {
+        var options = OptionsFor(profileFocalLength: 430.0, profileFocalRatio: 5.0);
+        Assert.Multiple(() => {
+            Assert.That(options.FocalLengthMillimeters, Is.EqualTo(-1.0), "unset sentinel");
+            Assert.That(options.ApertureMillimeters, Is.EqualTo(-1.0), "unset sentinel");
+            Assert.That(options.EffectiveFocalLengthMillimeters, Is.EqualTo(430.0));
+            Assert.That(options.EffectiveApertureMillimeters, Is.EqualTo(86.0).Within(1e-9), "430 / f5");
+        });
+    }
+
+    // A fresh NINA profile stores NaN — not 0, not -1. NaN passes `<= 0` guards, so it must be handled by
+    // a positive test, not by the absence of one.
+    [Test]
+    public void ProfileWithNaNOptics_FallsBackToTheDefaultRig() {
+        var options = OptionsFor(profileFocalLength: double.NaN, profileFocalRatio: double.NaN);
+        Assert.Multiple(() => {
+            Assert.That(options.EffectiveFocalLengthMillimeters, Is.EqualTo(980.0));
+            Assert.That(options.EffectiveApertureMillimeters, Is.EqualTo(140.0).Within(1e-9), "980 / f7");
+        });
+    }
+
+    [Test]
+    public void ProfileWithFocalLengthButNoRatio_KeepsTheDefaultRatio() {
+        var options = OptionsFor(profileFocalLength: 1400.0, profileFocalRatio: double.NaN);
+        Assert.That(options.EffectiveApertureMillimeters, Is.EqualTo(200.0).Within(1e-9), "1400 / f7");
+    }
+
+    [Test]
+    public void ExplicitOptics_WinOverTheProfile() {
+        var options = OptionsFor(profileFocalLength: 430.0, profileFocalRatio: 5.0);
+        options.FocalLengthMillimeters = 1000.0;
+        options.ApertureMillimeters = 250.0;
+        Assert.Multiple(() => {
+            Assert.That(options.EffectiveFocalLengthMillimeters, Is.EqualTo(1000.0));
+            Assert.That(options.EffectiveApertureMillimeters, Is.EqualTo(250.0));
+        });
+    }
+
+    [Test]
+    public void ExplicitFocalLength_WithUnsetAperture_KeepsTheProfileRatio() {
+        var options = OptionsFor(profileFocalLength: 430.0, profileFocalRatio: 5.0);
+        options.FocalLengthMillimeters = 1000.0;
+        Assert.That(options.EffectiveApertureMillimeters, Is.EqualTo(200.0).Within(1e-9), "1000 / f5");
+    }
+
+    [Test]
+    public void NonPositiveAssignment_HealsToTheUnsetSentinel() {
+        var options = OptionsFor(profileFocalLength: 430.0, profileFocalRatio: 5.0);
+        options.FocalLengthMillimeters = 0.0;   // the sentinel older builds stored
+        options.ApertureMillimeters = -5.0;
+        Assert.Multiple(() => {
+            Assert.That(options.FocalLengthMillimeters, Is.EqualTo(-1.0));
+            Assert.That(options.ApertureMillimeters, Is.EqualTo(-1.0));
+            Assert.That(options.EffectiveFocalLengthMillimeters, Is.EqualTo(430.0), "falls back to the profile");
+        });
+    }
+
+    [Test]
+    public void ChangingFocalLength_RaisesTheInferredAperture() {
+        var options = OptionsFor(profileFocalLength: 430.0, profileFocalRatio: 5.0);
+        var raised = new List<string>();
+        options.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        options.FocalLengthMillimeters = 1000.0;
+        Assert.That(raised, Does.Contain(nameof(CameraSimulatorOptions.EffectiveApertureMillimeters)),
+            "an inferred aperture depends on the focal length, so its hint must refresh too");
+    }
+
     [Test]
     public void Defaults_MatchDesignConfigTable() {
         var (options, _, _) = Build();
         Assert.Multiple(() => {
             Assert.That(options.OptimalFocuserPosition, Is.EqualTo(5000));
             Assert.That(options.FocuserStepSizeMicrons, Is.EqualTo(2.0));
-            Assert.That(options.ApertureMillimeters, Is.EqualTo(100.0));
-            Assert.That(options.FocalLengthMillimeters, Is.EqualTo(0.0));
+            Assert.That(options.ApertureMillimeters, Is.EqualTo(-1.0), "unset: inferred from the profile");
+            Assert.That(options.FocalLengthMillimeters, Is.EqualTo(-1.0), "unset: inferred from the profile");
             Assert.That(options.CentralObstructionEnabled, Is.True);
             Assert.That(options.CentralObstructionFraction, Is.EqualTo(0.3));
             Assert.That(options.OpticalThroughput, Is.EqualTo(0.85));

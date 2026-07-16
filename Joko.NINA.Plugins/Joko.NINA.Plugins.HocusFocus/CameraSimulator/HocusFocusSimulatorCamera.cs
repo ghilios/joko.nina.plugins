@@ -52,7 +52,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
     /// configure-before-connect device: pick the sensor/gain first, then connect.
     /// </remarks>
     public class HocusFocusSimulatorCamera : BaseINPC, ICamera {
-        private readonly IProfileService profileService;
         private readonly IExposureDataFactory exposureDataFactory;
         private readonly ITelescopeMediator telescopeMediator;
         private readonly IFocuserMediator focuserMediator;
@@ -99,7 +98,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             IFocuserMediator focuserMediator,
             ICameraSimulatorOptions options,
             IStarFieldCompositor compositor) {
-            this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
+            // profileService is part of the DI signature (HocusFocusSimulatorCameraProvider passes its MEF import)
+            // but is no longer consumed by the camera itself: the telescope focal-length/focal-ratio fallback moved
+            // into CameraSimulatorOptions, so the setup dialog's hint and the render resolve optics through one
+            // shared property and cannot drift apart. Validated for fail-fast wiring, not stored.
+            _ = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.exposureDataFactory = exposureDataFactory ?? throw new ArgumentNullException(nameof(exposureDataFactory));
             // imageDataFactory is part of the DI signature but not consumed by the camera itself (the ushort[]
             // path returns via IExposureDataFactory). Validated for fail-fast wiring, not stored.
@@ -665,18 +668,16 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 }
             }
 
-            var focalLength = options.FocalLengthMillimeters > 0.0
-                ? options.FocalLengthMillimeters
-                : profileService.ActiveProfile.TelescopeSettings.FocalLength;
-
             return new RenderRequest {
                 FocuserConnected = focuserConnected,
                 FocuserPosition = focuserPosition,
                 TelescopeConnected = telescopeConnected,
                 RaDegreesJ2000 = raDeg,
                 DecDegreesJ2000 = decDeg,
-                ApertureMillimeters = options.ApertureMillimeters,
-                FocalLengthMillimeters = focalLength,
+                // Resolved by the options object, which is also what the setup dialog's hint text displays —
+                // so what the user is shown and what is rendered cannot drift apart.
+                ApertureMillimeters = options.EffectiveApertureMillimeters,
+                FocalLengthMillimeters = options.EffectiveFocalLengthMillimeters,
                 CentralObstructionEnabled = options.CentralObstructionEnabled,
                 CentralObstructionFraction = options.CentralObstructionFraction,
                 OpticalThroughput = options.OpticalThroughput,

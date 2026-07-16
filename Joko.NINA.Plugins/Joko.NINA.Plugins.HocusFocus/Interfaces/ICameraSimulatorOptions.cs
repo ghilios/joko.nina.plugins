@@ -88,6 +88,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Optics
         double ApertureMillimeters { get; set; }
         double FocalLengthMillimeters { get; set; }
+
+        /// <summary>The aperture (mm) the next exposure will use, with the profile fallback already applied. Read-only: set <see cref="ApertureMillimeters"/> to override.</summary>
+        double EffectiveApertureMillimeters { get; }
+
+        /// <summary>The focal length (mm) the next exposure will use, with the profile fallback already applied. Read-only: set <see cref="FocalLengthMillimeters"/> to override.</summary>
+        double EffectiveFocalLengthMillimeters { get; }
+
         bool CentralObstructionEnabled { get; set; }
         double CentralObstructionFraction { get; set; }
         double OpticalThroughput { get; set; }
