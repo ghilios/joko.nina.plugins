@@ -2934,6 +2934,9 @@
     </DataTemplate>
 
     <!--  ===================== Camera Simulator options =====================  -->
+    <!--  Shared by the six physical-rig options (sensor + optics), which are shown here read-only and edited on the
+          camera itself. Rig belongs with the device; only the observing settings are changed from this tab.  -->
+    <TextBlock x:Key="CamSim_RigReadOnly_Tooltip" Text="Rig settings are edited in the camera's setup dialog — click the gear icon next to the camera in the Equipment &gt; Camera pane. They are shown here for reference only." />
     <TextBlock x:Key="CamSim_OptimalFocuserPosition_Tooltip" Text="The focuser step position where best focus occurs (x0 in the defocus model). At this position stars render at their minimum HFR; moving the focuser away grows the donut. Set this to match the best-focus position of your connected (simulator) focuser." />
     <TextBlock x:Key="CamSim_FocuserStepSizeMicrons_Tooltip" Text="How many microns of sensor-plane defocus one focuser step produces (k). Larger values make the HFR-vs-position curve steeper, so the star field defocuses faster as the focuser moves away from the optimal position." />
     <TextBlock x:Key="CamSim_ApertureMillimeters_Tooltip" Text="Telescope aperture diameter D (mm). Drives the collecting area (star brightness) and the diffraction-limited in-focus star size." />
@@ -3006,60 +3009,23 @@
                     </Binding>
                 </ninactrl:UnitTextBox>
 
-                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Aperture" ToolTip="{StaticResource CamSim_ApertureMillimeters_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_ApertureMillimeters_Tooltip}" Unit="mm">
-                    <Binding Path="CameraSimulatorOptions.ApertureMillimeters" UpdateSourceTrigger="LostFocus">
-                        <Binding.ValidationRules>
-                            <rules:FloatRangeRule>
-                                <rules:FloatRangeRule.ValidRange>
-                                    <rules:FloatRangeChecker Maximum="2000" Minimum="1" />
-                                </rules:FloatRangeRule.ValidRange>
-                            </rules:FloatRangeRule>
-                        </Binding.ValidationRules>
-                    </Binding>
-                </ninactrl:UnitTextBox>
+                <!--  Rig (read-only here; edited in the camera's setup dialog). Bound OneWay because a disabled control
+                      can never commit, so the FloatRangeRule validation rules could not run — the setup dialog carries
+                      them where the values are actually edited.  -->
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Aperture" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.ApertureMillimeters, Mode=OneWay}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" Unit="mm" />
 
-                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Focal Length (0 = use profile)" ToolTip="{StaticResource CamSim_FocalLengthMillimeters_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_FocalLengthMillimeters_Tooltip}" Unit="mm">
-                    <Binding Path="CameraSimulatorOptions.FocalLengthMillimeters" UpdateSourceTrigger="LostFocus">
-                        <Binding.ValidationRules>
-                            <rules:FloatRangeRule>
-                                <rules:FloatRangeRule.ValidRange>
-                                    <rules:FloatRangeChecker Maximum="20000" Minimum="0" />
-                                </rules:FloatRangeRule.ValidRange>
-                            </rules:FloatRangeRule>
-                        </Binding.ValidationRules>
-                    </Binding>
-                </ninactrl:UnitTextBox>
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Focal Length (0 = use profile)" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.FocalLengthMillimeters, Mode=OneWay}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" Unit="mm" />
 
-                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Central Obstruction" ToolTip="{StaticResource CamSim_CentralObstructionEnabled_Tooltip}" />
-                <CheckBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.CentralObstructionEnabled}" ToolTip="{StaticResource CamSim_CentralObstructionEnabled_Tooltip}" />
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Central Obstruction" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <CheckBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.CentralObstructionEnabled, Mode=OneWay}" IsEnabled="False" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
 
-                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Text="Obstruction Fraction" ToolTip="{StaticResource CamSim_CentralObstructionFraction_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="{Binding CameraSimulatorOptions.CentralObstructionEnabled}" ToolTip="{StaticResource CamSim_CentralObstructionFraction_Tooltip}">
-                    <Binding Path="CameraSimulatorOptions.CentralObstructionFraction" UpdateSourceTrigger="LostFocus">
-                        <Binding.ValidationRules>
-                            <rules:FloatRangeRule>
-                                <rules:FloatRangeRule.ValidRange>
-                                    <rules:FloatRangeChecker Maximum="0.9" Minimum="0" />
-                                </rules:FloatRangeRule.ValidRange>
-                            </rules:FloatRangeRule>
-                        </Binding.ValidationRules>
-                    </Binding>
-                </ninactrl:UnitTextBox>
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Text="Obstruction Fraction" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.CentralObstructionFraction, Mode=OneWay}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
 
-                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Text="Optical Throughput" ToolTip="{StaticResource CamSim_OpticalThroughput_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="6" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_OpticalThroughput_Tooltip}">
-                    <Binding Path="CameraSimulatorOptions.OpticalThroughput" UpdateSourceTrigger="LostFocus">
-                        <Binding.ValidationRules>
-                            <rules:FloatRangeRule>
-                                <rules:FloatRangeRule.ValidRange>
-                                    <rules:FloatRangeChecker Maximum="1" Minimum="0" />
-                                </rules:FloatRangeRule.ValidRange>
-                            </rules:FloatRangeRule>
-                        </Binding.ValidationRules>
-                    </Binding>
-                </ninactrl:UnitTextBox>
+                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Text="Optical Throughput" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="6" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.OpticalThroughput, Mode=OneWay}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
             </Grid>
 
             <!--  Sensor & Filter  -->
@@ -3078,8 +3044,10 @@
                     <RowDefinition />
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Sensor Model" ToolTip="{StaticResource CamSim_SensorModel_Tooltip}" />
-                <ComboBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:SonySensorModel}}}" SelectedItem="{Binding CameraSimulatorOptions.SensorModel}" ToolTip="{StaticResource CamSim_SensorModel_Tooltip}">
+                <!--  Rig: read-only here, edited in the camera's setup dialog (which also gates it on Connected —
+                      NINA latches resolution, pixel size and bit depth at connect).  -->
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Sensor Model" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ComboBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:SonySensorModel}}}" SelectedItem="{Binding CameraSimulatorOptions.SensorModel, Mode=OneWay}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
