@@ -176,8 +176,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         }
 
         public void Disconnect() {
-            pendingRender = null;
-            CancelPendingRender();
+            CancelPendingExposure();
             CameraState = CameraStates.NoState;
             Connected = false;
         }
@@ -464,9 +463,18 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             }
         }
 
-        private RenderRequest pendingRender;
-        private Task<ushort[]> pendingRenderTask;
-        private CancellationTokenSource renderCts;
+        /// <summary>
+        /// One exposure's render snapshot: the request, the render started for it, and the source that cancels
+        /// that render. These three MUST travel together — <see cref="DownloadExposure"/> sizes the frame from
+        /// <see cref="Request"/> but fills it from <see cref="RenderTask"/>, so reading them as separate fields
+        /// let a concurrent <see cref="StartExposure"/> land between the reads and pair one request's dimensions
+        /// with another request's pixels. Publishing them as a single reference makes that unrepresentable.
+        /// <see cref="RenderTask"/>/<see cref="Cts"/> are null exactly when the prefetch was skipped for a
+        /// missing device — the case <see cref="DownloadExposure"/>'s guards reject.
+        /// </summary>
+        private sealed record PendingExposure(RenderRequest Request, Task<ushort[]> RenderTask, CancellationTokenSource Cts);
+
+        private PendingExposure pending;
         private DateTime exposureStartTime;
         private double exposureLengthSeconds;
 
@@ -479,45 +487,51 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 throw new InvalidOperationException("Cannot start an exposure: the synthetic camera is not connected.");
             }
 
-            CancelPendingRender();
+            CancelPendingExposure();
             exposureStartTime = DateTime.UtcNow;
             exposureLengthSeconds = sequence?.ExposureTime ?? 0.0;
             unchecked { ++exposureCounter; }
             var request = BuildRenderRequest(exposureLengthSeconds);
-            pendingRender = request;
 
             // Render NOW rather than in DownloadExposure. BuildRenderRequest has already snapshotted everything
             // Render reads, and Render touches no ambient state, so the pixels are byte-identical either way —
             // this only moves the render out from after the exposure and under it. Skipped when a required device
             // is missing so DownloadExposure's descriptive guards still fire, unchanged, without burning cores on
             // a frame nobody can use.
+            Task<ushort[]> renderTask = null;
+            CancellationTokenSource cts = null;
             if (request.FocuserConnected && request.TelescopeConnected) {
-                var cts = new CancellationTokenSource();
+                cts = new CancellationTokenSource();
                 var token = cts.Token;
-                renderCts = cts;
-                var task = Task.Run(() => compositor.Render(request, token), token);
-                pendingRenderTask = task;
+                renderTask = Task.Run(() => compositor.Render(request, token), token);
                 // Observe the fault even if the exposure is aborted and nobody ever awaits this task, so a render
                 // failure cannot resurface later as an unobserved TaskException.
-                _ = task.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+                _ = renderTask.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
             }
+
+            // Published as one reference, only once the request/task/cts are all built, so a download can never
+            // observe a half-built exposure or mix two of them.
+            pending = new PendingExposure(request, renderTask, cts);
 
             CameraState = CameraStates.Exposing;
         }
 
         /// <summary>
-        /// Cancels any prefetched render and drops the references.
+        /// Drops the pending exposure and cancels its prefetched render. Clearing the snapshot and cancelling the
+        /// render are one operation because they are one object — no call site can drop the request but forget the
+        /// render, or vice versa.
         ///
-        /// <para>The CTS is deliberately not disposed: it carries no timer and no registered wait handle, so the
-        /// GC reclaims it, whereas disposing here would race the render task that is still observing its token
-        /// (<c>ThrowIfCancellationRequested</c> on a disposed source throws <see cref="ObjectDisposedException"/>,
-        /// which would surface as a spurious exposure failure).</para>
+        /// <para>The CTS is deliberately not disposed: disposing here would race the render task that is still
+        /// observing its token (<c>ThrowIfCancellationRequested</c> on a disposed source throws
+        /// <see cref="ObjectDisposedException"/>, which would surface as a spurious exposure failure). Letting the
+        /// GC reclaim it is safe because it carries no timer, and no wait handle so long as no
+        /// <see cref="IStarFieldCompositor.Render"/> implementation touches <c>token.WaitHandle</c> — a property of
+        /// the compositors, not of the CTS itself. The production compositor does not.</para>
         /// </summary>
-        private void CancelPendingRender() {
-            var cts = renderCts;
-            renderCts = null;
-            pendingRenderTask = null;
-            cts?.Cancel();
+        private void CancelPendingExposure() {
+            var snapshot = pending;
+            pending = null;
+            snapshot?.Cts?.Cancel();
         }
 
         public async Task WaitUntilExposureIsReady(CancellationToken token) {
@@ -537,24 +551,26 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         }
 
         public void StopExposure() {
-            pendingRender = null;
-            CancelPendingRender();
+            CancelPendingExposure();
             if (Connected) {
                 CameraState = CameraStates.Idle;
             }
         }
 
         public void AbortExposure() {
-            pendingRender = null;
-            CancelPendingRender();
+            CancelPendingExposure();
             if (Connected) {
                 CameraState = CameraStates.Idle;
             }
         }
 
         public async Task<IExposureData> DownloadExposure(CancellationToken token) {
-            var request = pendingRender
+            // Read the published snapshot exactly ONCE: the request that sizes the frame, the render that fills
+            // it, and the source that cancels that render must all belong to the same exposure. Re-reading the
+            // field would let a concurrent StartExposure swap it mid-method.
+            var snapshot = pending
                 ?? throw new InvalidOperationException("StartExposure must be called before DownloadExposure.");
+            var request = snapshot.Request;
 
             // Descriptive failures: the synthetic camera cannot render without a focuser (defocus) or a mount
             // (pointing). These guards run BEFORE the compositor so a missing device produces a clear message
@@ -591,19 +607,15 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 var width = snapshotSensor.Width;
                 var height = snapshotSensor.Height;
                 var bitDepth = snapshotSensor.BitDepth;
-                // Normally already running since StartExposure; the inline fallback covers a caller that
-                // downloads an exposure whose prefetch was cancelled out from under it.
+                // Running since StartExposure. RenderTask is non-null by construction here: StartExposure gates the
+                // prefetch on the very FocuserConnected/TelescopeConnected fields the guards above just tested, on
+                // this same snapshot's request — so a snapshot that reaches this line always carries its render.
+                //
+                // Route the download's cancellation into the render that is actually doing the work, rather than
+                // just abandoning the await and leaving every core busy on a frame nobody wants.
                 ushort[] pixels;
-                var prefetched = pendingRenderTask;
-                if (prefetched != null) {
-                    // Route the download's cancellation into the render that is actually doing the work, rather
-                    // than just abandoning the await and leaving every core busy on a frame nobody wants.
-                    var cts = renderCts;
-                    using (token.Register(() => cts?.Cancel())) {
-                        pixels = await prefetched.ConfigureAwait(false);
-                    }
-                } else {
-                    pixels = await Task.Run(() => compositor.Render(request, token), token).ConfigureAwait(false);
+                using (token.Register(() => snapshot.Cts?.Cancel())) {
+                    pixels = await snapshot.RenderTask.ConfigureAwait(false);
                 }
 
                 var metaData = new ImageMetaData();
@@ -611,6 +623,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 metaData.Image.SetExposureTimes(exposureStartTime, DateTime.UtcNow);
                 var exposureData = exposureDataFactory.CreateImageArrayExposureData(
                     pixels, width, height, bitDepth, isBayered: false, metaData);
+                // The frame now belongs to the caller, so stop rooting it: at 61 MP the array is ~122 MB, and
+                // holding it until the next StartExposure keeps it alive for as long as the camera sits idle.
+                // Conditional so a StartExposure that has already published the NEXT exposure is not wiped by this
+                // download's cleanup.
+                Interlocked.CompareExchange(ref pending, null, snapshot);
                 CameraState = CameraStates.Idle;
                 return exposureData;
             } catch {
