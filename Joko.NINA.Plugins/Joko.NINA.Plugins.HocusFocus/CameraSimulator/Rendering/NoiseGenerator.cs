@@ -12,6 +12,7 @@
 
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
 using System;
+using System.Diagnostics;
 
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
@@ -68,7 +69,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>
         /// One Poisson draw for mean <paramref name="lambda"/> using Knuth's multiplicative algorithm: one
         /// <see cref="Math.Exp"/> up front, then one multiply per iteration. Returns 0 for λ ≤ 0.
-        ///
+        /// </summary>
+        /// <remarks>
         /// <para>This deliberately does <b>not</b> work in log space. Log space costs a <see cref="Math.Log"/>
         /// per iteration — about λ of them per pixel, which at 61 MP is the single dominant cost of a frame — to
         /// guard against <c>e^(−λ)</c> underflowing to zero. That cannot happen here: this branch only runs below
@@ -79,10 +81,13 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <c>Σ log(uᵢ) &gt; −λ</c> and <c>Π uᵢ &gt; e^(−λ)</c> are the same predicate over the same uniforms.
         /// Pinned draw-for-draw against the previous implementation by
         /// <c>PoissonDraw_MatchesLegacyLogSpaceFormExactly</c>.</para>
-        /// </summary>
+        /// </remarks>
         private long NextPoisson(double lambda) {
             if (lambda <= 0.0) return 0L;
-            var threshold = Math.Exp(-lambda); // > 0 for every λ this branch sees; see remarks
+            Debug.Assert(lambda < PoissonToGaussianThreshold,
+                $"NextPoisson is only valid below the Gaussian threshold: e^(-lambda) underflows to 0 above ~745, " +
+                $"degenerating the loop guard and silently saturating the draw. lambda={lambda}");
+            var threshold = Math.Exp(-lambda); // > 0 below the Gaussian threshold; see remarks
             var product = 1.0;
             var k = 0L;
             do {

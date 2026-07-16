@@ -176,8 +176,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         [Test]
         public void PoissonToGaussianThreshold_LeavesHugeUnderflowHeadroom() {
             // The multiplicative form is only safe because exp(-lambda) cannot reach zero on this branch.
-            Assert.That(Math.Exp(-NoiseGenerator.PoissonToGaussianThreshold), Is.GreaterThan(0.0));
-            Assert.That(Math.Exp(-NoiseGenerator.PoissonToGaussianThreshold), Is.EqualTo(4.24e-18).Within(1e-19));
+            // Doubles underflow to exactly 0 at lambda > 745, so the threshold must stay far below that.
+            Assert.Multiple(() => {
+                Assert.That(Math.Exp(-NoiseGenerator.PoissonToGaussianThreshold), Is.GreaterThan(0.0),
+                    "exp(-threshold) must not underflow, or the loop guard degenerates to `product > 0`");
+                Assert.That(NoiseGenerator.PoissonToGaussianThreshold, Is.LessThan(745.0),
+                    "745 is where exp(-lambda) reaches 0 in double precision");
+            });
         }
     }
 }
