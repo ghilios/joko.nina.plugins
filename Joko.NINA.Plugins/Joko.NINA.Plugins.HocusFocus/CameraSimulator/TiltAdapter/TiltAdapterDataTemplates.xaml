@@ -101,11 +101,15 @@
                 <TextBlock VerticalAlignment="Center" FontWeight="Bold" Text="{Binding TiltDisplay}" />
                 <TextBlock VerticalAlignment="Center" Opacity="0.7" Text="   ·   Backfocus " />
                 <TextBlock VerticalAlignment="Center" FontWeight="Bold" Text="{Binding BackfocusDisplay}" />
+                <!--  PrimaryBrush, not a "success" brush: NINA has NotificationWarningBrush and
+                      NotificationErrorBrush but no Success counterpart, and StaticResource throws on a missing
+                      key — which WindowService swallows, so the whole setup dialog just never opens. PrimaryBrush
+                      is the plugin's established accent for a positive state. See XamlBrushResourceTests.  -->
                 <TextBlock
                     Margin="8,0,0,0"
                     VerticalAlignment="Center"
                     FontWeight="Bold"
-                    Foreground="{StaticResource NotificationSuccessBrush}"
+                    Foreground="{StaticResource PrimaryBrush}"
                     Text="{Binding FlatText}" />
                 <!--  Passive only: extreme states are legitimate detector-stress scenarios, and Undo is free.  -->
                 <TextBlock
