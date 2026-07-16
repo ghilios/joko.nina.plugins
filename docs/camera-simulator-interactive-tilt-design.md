@@ -150,14 +150,38 @@ Applied to the simulator's existing state:
    re-finds focus exactly as it would on a real rig.)
 3. **Backfocus/curvature.** Curvature responds to the **piston** `ΔZ0_phys` (the axial spacing change), not to any
    individual `Δz_i` — so a corner move (`ΔZ0 = 0` by symmetry) correctly leaves curvature untouched, while a
-   backfocus move (`ΔZ0 = Δz`) changes it fully. Derived as the exact inverse of the inspector's
-   `backTurns = CurvatureAt(p)/pitch`: removing `ΔZ0_phys` µm of curvature at radius `R` means
-   `Δ(K·R²) = −ΔZ0_phys`, so
-   `ΔBackfocusErrorMicrons = ΔK·(halfW²+halfH²) = −ΔZ0_phys·(halfW²+halfH²)/R²`.
-   The round trip closes on both rigs: guidance asks for `turns = σ·B/unit` ⇒ `ΔZ0_fit = σ·B` ⇒
-   `ΔZ0_phys = σ·(σ·B) = B` ⇒ `ΔBackfocusErrorMicrons = −B·(halfW²+halfH²)/R² = −BackfocusErrorMicrons`. ✓
+   backfocus move (`ΔZ0 = Δz`) changes it fully. Derived as the exact inverse of the inspector's backfocus row,
+   which is `backTurns = σ·corr.BackfocusMicrons/unit` with
+   `corr.BackfocusMicrons = −CurvatureAt(p) = −K·R²` (`InspectorVM.cs:2038` feeding
+   `TiltScrewGeometry.ScrewCorrectionMicrons:102`). That row asks for a **physical axial**
+   `ΔZ0_phys = −K·R²` per screw, and applying it must null `K` exactly, which fixes the constant:
+   `ΔK = ΔZ0_phys/R²`, so
+   **`ΔBackfocusErrorMicrons = ΔK·(halfW²+halfH²) = +ΔZ0_phys·(halfW²+halfH²)/R²`**.
+   The round trip closes on both rigs: guidance asks for `turns = σ·(−K·R²)/unit` ⇒ `ΔZ0_fit = σ·(−K·R²)` ⇒
+   `ΔZ0_phys = σ·σ·(−K·R²) = −K·R²` ⇒ `ΔBackfocusErrorMicrons = −K·(halfW²+halfH²) = −BackfocusErrorMicrons`. ✓
    Note this makes steps 2 and 3 two consequences of the same piston: the sensor moving axially both shifts best
    focus *and* violates the optics' backfocus spacing.
+
+> **CORRECTION (found while executing Task 7; this section had the OUTER sign of step 3 backwards).** An earlier
+> draft wrote `ΔBackfocusErrorMicrons = −ΔZ0_phys·(halfW²+halfH²)/R²`, derived from the premise that the inspector
+> emits `backTurns = CurvatureAt(p)/pitch`. **The shipped inspector emits the negative of that**:
+> `ScrewCorrectionMicrons` returns `backfocusCorrection = −(kx·cx² + ky·cy²)` — the axial move that brings the
+> best-focus surface at the screw *to zero*, exactly symmetric with its `tiltCorrection = −(gx·px + gy·py)`. With
+> the real formula, the `−` form doubles the backfocus error instead of nulling it, **on both rig directions**.
+> Three independent checks agree on `+`, and the first is decisive because it never mentions the inspector at all:
+> 1. **The definition of σ.** `ScrewInwardCurvatureSign` *is* "the sign of the curvature-effect response to a CW
+>    turn" (`TiltScrewGeometry`'s empirical anchor). An all-screws-CW move is a pure piston with
+>    `ΔZ0_phys = σ·(+δ)`, so `ΔBackfocusError` must carry the sign of σ. Only the `+` form does; the `−` form
+>    contradicts the option's own definition.
+> 2. **The empirical anchor itself**: "moving the adapter toward the objective DECREASES the curvature effect".
+>    Motion toward the objective is `ΔZ0_phys < 0`, so `ΔBackfocusError` must share `ΔZ0_phys`'s sign.
+> 3. **The round trip** above, against the real `ScrewCorrectionMicrons`.
+>
+> Pinned by `SimulatedTiltAdapterVMTests.BackfocusMove_ChangesBackfocusErrorWithTheSignOfTheRigDirection` and
+> `.InspectorBackfocusGuidance_AppliedThroughThePanel_ZeroesTheBackfocusError` (both screw counts × both σ),
+> which were verified to fail against the `−` form. **The σ factor on the piston — the subject of the callout
+> above — was and remains correct**; only this outer sign was wrong, and the two are independent (the σ=−1-vs-σ=+1
+> asymmetry survives an outer flip, which is why both tests are needed).
 
 ### 3.3 Movement semantics
 

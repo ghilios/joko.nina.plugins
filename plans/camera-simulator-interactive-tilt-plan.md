@@ -876,6 +876,21 @@ GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.nor
 Follow `docs/virtual-tilt-adapter-panel-ux-design.md` for layout and copy — it is the authority on the panel's
 shape. This task wires the VM that binds it.
 
+> **CORRECTION (found during execution — the `ApplyDelta` snippet below was wrong twice; both are fixed in the
+> shipped code and in design §3.2).**
+> 1. **It fed the raw fitted piston in.** `delta.PistonMicrons` is in the adapter's *response* frame; the physical
+>    piston is `PistonDirectionSign · delta.PistonMicrons`. The raw form is right only on σ=+1 rigs and silently
+>    backwards on σ=−1 ones — for **both** the `OptimalFocuserPosition` shift and the `BackfocusErrorMicrons` fold.
+> 2. **The backfocus fold's outer sign was inverted.** `-delta.PistonMicrons * (...)` doubles the backfocus error
+>    instead of nulling it, on **both** rigs. The correct fold is `+ΔZ0_phys · (halfW²+halfH²)/R²`, because
+>    `ScrewInwardCurvatureSign` is *defined* as the sign of the curvature-effect response to a CW turn (a pure
+>    piston with `ΔZ0_phys = σ·δ`). Design §3.2's corrected step 3 carries the full derivation and the two
+>    independent cross-checks.
+>
+> The two are independent: the σ=−1-vs-σ=+1 asymmetry survives an outer flip, so a test of that asymmetry alone
+> does **not** catch (2). The shipped tests pin both and were verified to fail against each bug in isolation —
+> (1) fails 5 cases, all σ=−1; (2) fails 6 cases across both rigs.
+
 **Files:**
 - Create: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/CameraSimulator/TiltAdapter/SimulatedTiltAdapterVM.cs`
 - Create: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` (+ `.cs`)
@@ -982,13 +997,15 @@ private void ApplyDelta(AberrationDelta delta) {
     options.TiltAmountMicrons = Math.Abs(gx) * halfW + Math.Abs(gy) * halfH;
     options.TiltAngleDegrees = NormalizeDegrees(Math.Atan2(gy, gx) * 180.0 / Math.PI);
 
-    // The piston both shifts best focus and violates the optics' backfocus spacing.
-    if (Math.Abs(delta.PistonMicrons) > 0) {
+    // The piston both shifts best focus and violates the optics' backfocus spacing. Both consequences take the
+    // PHYSICAL piston — the fitted constant is in the response frame (see the CORRECTION above).
+    var pistonMicrons = adapter.PistonDirectionSign * delta.PistonMicrons;
+    if (pistonMicrons != 0.0) {
         options.OptimalFocuserPosition +=
-            (int)Math.Round(delta.PistonMicrons / options.FocuserStepSizeMicrons);
+            (int)Math.Round(pistonMicrons / options.FocuserStepSizeMicrons);
         var r = options.SimScrewRadiusMillimeters * 1000.0;
         options.BackfocusErrorMicrons +=
-            -delta.PistonMicrons * (halfW * halfW + halfH * halfH) / (r * r);
+            pistonMicrons * (halfW * halfW + halfH * halfH) / (r * r);
     }
 }
 ```
