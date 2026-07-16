@@ -50,8 +50,16 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// block of output rows and, running in parallel, stamps every star whose kernel footprint intersects those
     /// rows into <b>only its own rows</b> of the one shared accumulator (a star spanning two stripes is stamped
     /// by both, each clipping to its rows). Because the stripes write disjoint rows, the shared-array
-    /// <c>+=</c> never races. Development then runs single-threaded over the whole accumulator with one
-    /// <see cref="NoiseGenerator"/>, so the noise is deterministic for a given seed.</para>
+    /// <c>+=</c> never races. Development then runs in parallel too, via <see cref="FrameDeveloper"/>: one
+    /// seeded <see cref="NoiseGenerator"/> per stripe over a disjoint index range, so the noise stays
+    /// deterministic for a given seed.</para>
+    ///
+    /// <para>Note the two partitions are <b>not</b> the same kind of thing and must not be harmonized. This
+    /// stamping partition is a pure execution detail — stripes only decide <i>who writes which rows</i>, never
+    /// what value lands there — so <see cref="StripeCount"/> is free to track
+    /// <see cref="Environment.ProcessorCount"/>. <see cref="FrameDeveloper.StripeCount"/> is a fixed constant
+    /// because each of its stripes draws from its own RNG stream, which makes that partition part of the frame's
+    /// identity.</para>
     /// </summary>
     public class StarFieldCompositor : IStarFieldCompositor {
 
@@ -160,9 +168,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
             token.ThrowIfCancellationRequested();
 
-            // Single-threaded development so the seeded noise is deterministic (NoiseGenerator is not thread-safe).
-            return new NoiseGenerator(request.NoiseSeed)
-                .DevelopToAdu(accumulator, sensor, request.Gain, request.BiasPedestalAdu);
+            // Development is ~90% of a 61 MP render, so it runs in parallel — deterministically, via a fixed
+            // stripe partition with one seeded generator per stripe. See FrameDeveloper.StripeCount.
+            return FrameDeveloper.DevelopToAdu(
+                accumulator, sensor, request.Gain, request.BiasPedestalAdu, request.NoiseSeed, token);
         }
 
         /// <summary>

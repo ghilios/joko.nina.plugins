@@ -32,9 +32,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// The RNG is seeded so a frame is reproducible; the Gaussian primitive (<see cref="NextGaussian"/>) is
     /// public so test helpers can reuse the exact Box-Muller draw.
     ///
-    /// <b>Thread-safety:</b> this type wraps a single <see cref="System.Random"/> and is <b>not</b> thread-safe.
-    /// If frame development is ever parallelized, use one <see cref="NoiseGenerator"/> instance per thread/tile
-    /// (each with its own seed) rather than sharing one across threads.
+    /// <b>Thread-safety:</b> this type wraps a single <see cref="System.Random"/> and is <b>not</b> thread-safe —
+    /// one instance must never be handed to two threads. Frame development <i>is</i> parallelized, but by
+    /// <see cref="FrameDeveloper"/>, which gives each stripe its own generator and its own disjoint index range
+    /// via <see cref="DevelopRange"/>. That is the sanctioned parallel path; use it rather than sharing an
+    /// instance or inventing another partition.
     /// </summary>
     public sealed class NoiseGenerator {
 
@@ -120,15 +122,31 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         public void DevelopToAdu(float[] electronAccumulator, ushort[] output, SensorDefinition sensor, int gain, int biasPedestalAdu) {
             if (electronAccumulator == null) throw new ArgumentNullException(nameof(electronAccumulator));
             if (output == null) throw new ArgumentNullException(nameof(output));
+            if (output.Length != electronAccumulator.Length) throw new ArgumentException("Output length must match the accumulator length.", nameof(output));
+            DevelopRange(electronAccumulator, output, 0, electronAccumulator.Length, sensor, gain, biasPedestalAdu);
+        }
+
+        /// <summary>
+        /// Develops the half-open index range <c>[from, to)</c> of the accumulator into the same range of
+        /// <paramref name="output"/>, drawing from <b>this</b> generator's RNG.
+        ///
+        /// <para>This is the seam <see cref="FrameDeveloper"/> parallelizes over: one generator per stripe, each
+        /// with its own seed, each writing a disjoint index range. This type remains non-thread-safe — a single
+        /// instance must never be handed to two threads.</para>
+        /// </summary>
+        public void DevelopRange(float[] electronAccumulator, ushort[] output, int from, int to, SensorDefinition sensor, int gain, int biasPedestalAdu) {
+            if (electronAccumulator == null) throw new ArgumentNullException(nameof(electronAccumulator));
+            if (output == null) throw new ArgumentNullException(nameof(output));
             if (sensor == null) throw new ArgumentNullException(nameof(sensor));
             if (output.Length != electronAccumulator.Length) throw new ArgumentException("Output length must match the accumulator length.", nameof(output));
+            if (from < 0 || to > electronAccumulator.Length || from > to) throw new ArgumentOutOfRangeException(nameof(from));
 
             var fullWell = sensor.FullWellElectrons;
             var readNoise = sensor.ReadNoiseElectronsAtGain(gain);
             var electronsPerAdu = sensor.ElectronsPerAduAtGain(gain);
             var maxAdu = sensor.MaxAdu;
 
-            for (var i = 0; i < electronAccumulator.Length; ++i) {
+            for (var i = from; i < to; ++i) {
                 double lambda = electronAccumulator[i];
                 double ne = lambda < PoissonToGaussianThreshold
                     ? NextPoisson(lambda)
