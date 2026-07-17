@@ -1915,6 +1915,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public TiltAdapterGuidanceVM TiltGuidance { get; private set; }
 
+        // Two-way bound by the Tilt Adapter Guidance dropdown. Writing it flips the persisted option,
+        // whose PropertyChanged is already subscribed to RebuildTiltGuidance() (see the constructor),
+        // so the numeric strings + legend regenerate in the new unit automatically.
+        public TiltGuidanceAngleUnit TiltGuidanceAngleUnit {
+            get => tiltAdapterOptions?.AngleDisplayUnit ?? TiltGuidanceAngleUnit.Turns;
+            set {
+                if (tiltAdapterOptions != null && tiltAdapterOptions.AngleDisplayUnit != value) {
+                    tiltAdapterOptions.AngleDisplayUnit = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         public bool IsAnalysisRunning => AnalysisRunning();
 
         public bool HasTiltAdapterCalibration =>
