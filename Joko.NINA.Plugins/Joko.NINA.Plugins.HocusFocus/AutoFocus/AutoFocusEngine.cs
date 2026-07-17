@@ -1203,7 +1203,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Func<AutoFocusImageState, MeasureAndError, AutoFocusState, AutoFocusRegionState, Task> action,
             bool finalValidation,
             CancellationToken token,
-            IProgress<ApplicationStatus> progress) {
+            IProgress<ApplicationStatus> progress,
+            bool captureOnly = false) {
             var attemptNumber = state.AttemptNumber;
             for (int i = 0; i < state.Options.FramesPerPoint; ++i) {
                 var imageState = await state.OnNextImage(i, focuserPosition, finalValidation, token);
@@ -1211,41 +1212,65 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var imageNumber = state.ImageNumber;
                 var frameNumber = i;
-                var exposureData = await TakeExposure(state, focuserPosition, token, progress);
+                // For the capture-only sweep, synthesize a per-exposure countdown alongside the exposure (NINA doesn't
+                // forward the camera's countdown to our progress). The normal AF path is unchanged.
+                var exposureData = captureOnly
+                    ? await TakeExposureWithLiveCountdown(state, focuserPosition, token, progress)
+                    : await TakeExposure(state, focuserPosition, token, progress);
                 imageState.MeasurementStarted();
                 try {
-                    var exposureAnalysisTasks = new List<Task>();
                     var prepareExposureTask = PrepareExposure(state, imageState, exposureData, token);
-                    foreach (var regionState in state.FocusRegionStates) {
-                        var analysisTask = Task.Run(async () => {
-                            var preparedExposure = await prepareExposureTask;
-                            await AnalyzeExposure(
-                                preparedExposure,
-                                imageState: imageState,
-                                state: state,
-                                regionState: regionState,
-                                action: action,
-                                token: token);
-                            lock (state.StatesLock) {
-                                var imageProperties = preparedExposure.RawImageData.Properties;
-                                state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
+                    if (captureOnly) {
+                        // Capture-only sweep: save the frame and record its size, but skip star detection entirely.
+                        // The optimizer re-detects the saved frames offline, so detecting here — with the current
+                        // settings that can't focus — is wasted work, and there is no curve to build.
+                        var saveTask = Task.Run(async () => {
+                            try {
+                                var preparedExposure = await prepareExposureTask;
+                                lock (state.StatesLock) {
+                                    var imageProperties = preparedExposure.RawImageData.Properties;
+                                    state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
+                                }
+                            } finally {
+                                imageState.Dispose();
                             }
                         }, token);
-                        exposureAnalysisTasks.Add(analysisTask);
                         lock (state.StatesLock) {
-                            state.AnalysisTasks.Add(analysisTask);
+                            state.AnalysisTasks.Add(saveTask);
                         }
-                    }
+                    } else {
+                        var exposureAnalysisTasks = new List<Task>();
+                        foreach (var regionState in state.FocusRegionStates) {
+                            var analysisTask = Task.Run(async () => {
+                                var preparedExposure = await prepareExposureTask;
+                                await AnalyzeExposure(
+                                    preparedExposure,
+                                    imageState: imageState,
+                                    state: state,
+                                    regionState: regionState,
+                                    action: action,
+                                    token: token);
+                                lock (state.StatesLock) {
+                                    var imageProperties = preparedExposure.RawImageData.Properties;
+                                    state.ImageSize = new DrawingSize(width: imageProperties.Width, height: imageProperties.Height);
+                                }
+                            }, token);
+                            exposureAnalysisTasks.Add(analysisTask);
+                            lock (state.StatesLock) {
+                                state.AnalysisTasks.Add(analysisTask);
+                            }
+                        }
 
-                    var releaseSemaphoreTask = Task.Run(async () => {
-                        try {
-                            await Task.WhenAll(exposureAnalysisTasks);
-                        } finally {
-                            imageState.Dispose();
+                        var releaseSemaphoreTask = Task.Run(async () => {
+                            try {
+                                await Task.WhenAll(exposureAnalysisTasks);
+                            } finally {
+                                imageState.Dispose();
+                            }
+                        }, token);
+                        lock (state.StatesLock) {
+                            state.AnalysisTasks.Add(releaseSemaphoreTask);
                         }
-                    }, token);
-                    lock (state.StatesLock) {
-                        state.AnalysisTasks.Add(releaseSemaphoreTask);
                     }
                 } catch (Exception e) {
                     imageState.Dispose();
@@ -1837,6 +1862,37 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // Test hook: force the process-wide guard back to free so a leaked flag cannot pollute other tests.
         internal static void ResetAutoFocusInProgressForTests() => Interlocked.Exchange(ref autoFocusInProgress, 0);
 
+        /// <summary>
+        /// The fixed focuser positions a non-convergent capture sweep visits, centered on <paramref name="initial"/>
+        /// (the user's rough-focus position) and spanning ±<paramref name="offsetSteps"/> steps of
+        /// <paramref name="stepSize"/>. Returns <c>2*offsetSteps + 1</c> positions in DESCENDING order so the sweep
+        /// approaches every point from the same direction (matching the blind sweep's single-direction backlash
+        /// handling). Unlike the blind trend-walk this list is fixed up front — no star detection is required to
+        /// decide where to step — so a starless field still yields a full, loadable set of saved frames.
+        /// </summary>
+        // Tags the fixed sweep's own per-point progress reports (focuser position + frame count).
+        internal const string LiveSweepProgressSource = "HocusFocus.LiveSweep";
+
+        // Tags the fixed sweep's synthesized per-exposure countdown (Progress = elapsed seconds, MaxProgress = total).
+        // NINA's ImagingVM.CaptureImage drops the IProgress we hand it (it reports to its own status bar), so the sweep
+        // has to generate this countdown itself rather than relying on the camera's reports reaching the wizard.
+        internal const string LiveSweepExposureSource = "HocusFocus.LiveSweep.Exposure";
+
+        internal static IReadOnlyList<int> ComputeSweepPositions(int initial, int offsetSteps, int stepSize) {
+            if (offsetSteps < 1) {
+                throw new ArgumentOutOfRangeException(nameof(offsetSteps), offsetSteps, "offsetSteps must be at least 1 so the sweep visits at least 3 positions.");
+            }
+            if (stepSize <= 0) {
+                throw new ArgumentOutOfRangeException(nameof(stepSize), stepSize, "stepSize must be positive.");
+            }
+
+            var positions = new List<int>(2 * offsetSteps + 1);
+            for (int i = offsetSteps; i >= -offsetSteps; i--) {
+                positions.Add(initial + i * stepSize);
+            }
+            return positions;
+        }
+
         private async Task<AutoFocusResult> RunImpl(AutoFocusEngineOptions options, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress) {
             if (!TryClaimAutoFocusInProgress()) {
                 Notification.ShowError("Another AutoFocus is already in progress");
@@ -1952,6 +2008,216 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 throw new ArgumentException($"Hocus Focus must be used as the star detector to auto focus with specific regions");
             }
             return RunImpl(options, imagingFilter, regions, token, progress);
+        }
+
+        public Task<AutoFocusResult> CaptureFixedSweepAsync(AutoFocusEngineOptions options, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            return CaptureFixedSweepImpl(options, imagingFilter, token, progress);
+        }
+
+        // A capture-only sibling of RunImpl. It reuses the exact same run scaffolding — the process-wide in-progress
+        // guard, temp-comp/guiding suspend+restore, filter change, save-folder setup, and focuser restore — but swaps
+        // the convergent trend-walk (StartBlindFocusPoints, with its initial-HFR gate and curve-fit validation that
+        // both throw on a starless field) for a fixed sweep that just captures and saves. That decoupling is the whole
+        // point: capture succeeds even when detection can't, and the optimizer searches the saved frames afterward.
+        private async Task<AutoFocusResult> CaptureFixedSweepImpl(AutoFocusEngineOptions options, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            // A sweep that saves nothing is useless — fail fast (and loudly) rather than moving the focuser and
+            // discarding every frame. InitializeSave only warns and no-ops on a missing path, so guard here too.
+            if (!options.Save || string.IsNullOrWhiteSpace(options.SavePath) || !Directory.Exists(options.SavePath)) {
+                Notification.ShowError("Choose an existing folder to save the captured frames before running a live sweep.");
+                Logger.Error($"Fixed-sweep capture aborted: invalid save path '{options.SavePath}' (Save={options.Save}).");
+                return new AutoFocusResult() { Succeeded = false, SaveFolder = null };
+            }
+
+            // Validate the sweep geometry up front (before InitializeSave creates a folder), so a misconfigured profile
+            // fails with a clear message instead of an empty save folder that later trips the "attemptXX" loader error.
+            if (options.AutoFocusInitialOffsetSteps < 1 || options.AutoFocusStepSize <= 0) {
+                Notification.ShowError("Set a positive auto-focus step size and at least one offset step before running a live sweep.");
+                Logger.Error($"Fixed-sweep capture aborted: offsetSteps={options.AutoFocusInitialOffsetSteps}, stepSize={options.AutoFocusStepSize}.");
+                return new AutoFocusResult() { Succeeded = false, SaveFolder = null };
+            }
+
+            if (!TryClaimAutoFocusInProgress()) {
+                Notification.ShowError("Another AutoFocus is already in progress");
+                Logger.Error("Another AutoFocus is already in progress");
+                return null;
+            }
+
+            // Mirror RunImpl's guard discipline: once claimed, EVERY path must release the static guard (the OUTER
+            // finally), because OnStarted() and the CancellationTokenSource ctor below can throw before the inner try.
+            try {
+                Logger.Trace("Starting fixed-sweep capture");
+                OnStarted();
+
+                var timeoutCts = new CancellationTokenSource(options.AutoFocusTimeout);
+                bool tempComp = false;
+                bool guidingStopped = false;
+                bool completed = false;
+                AutoFocusState autoFocusState = null;
+                try {
+                    if (focuserMediator.GetInfo().TempCompAvailable && focuserMediator.GetInfo().TempComp) {
+                        tempComp = true;
+                        focuserMediator.ToggleTempComp(false);
+                    }
+
+                    if (profileService.ActiveProfile.FocuserSettings.AutoFocusDisableGuiding) {
+                        guidingStopped = await this.guiderMediator.StopGuiding(token);
+                    }
+
+                    var sweepCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+                    autoFocusState = await InitializeState(options, imagingFilter, null, sweepCts.Token, progress);
+                    completed = await RunFixedSweep(autoFocusState, sweepCts.Token, progress);
+                } catch (OperationCanceledException) {
+                    if (timeoutCts.IsCancellationRequested) {
+                        Notification.ShowWarning($"Live sweep timed out after {options.AutoFocusTimeout}");
+                        Logger.Warning($"Live sweep timed out after {options.AutoFocusTimeout}");
+                    } else {
+                        Logger.Warning("Live sweep cancelled");
+                    }
+                } catch (Exception ex) {
+                    Notification.ShowError($"Live sweep failure. {ex.Message}");
+                    Logger.Error("Failure during live sweep", ex);
+                } finally {
+                    if (autoFocusState != null) {
+                        try {
+                            await Task.WhenAll(autoFocusState.SnapshotDisplayAnnotationTasks());
+                        } catch (Exception ex) {
+                            Logger.Warning($"Failure draining auto focus display annotations. {ex.Message}");
+                        }
+                    }
+
+                    try {
+                        // successfulAutoFocus: completed — on success RunFixedSweep already restored the focuser to the
+                        // rough-focus start (so this skips the move); on cancel/failure completed is false, so this
+                        // restores the focuser from wherever the sweep left it. Filter/temp-comp/guiding restore either way.
+                        await PerformPostAutoFocusActions(
+                            successfulAutoFocus: completed, initialFocusPosition: autoFocusState?.InitialFocuserPosition, imagingFilter: imagingFilter, restoreTempComp: tempComp,
+                            restoreGuiding: guidingStopped, progress: progress);
+                    } catch (Exception ex) {
+                        Logger.Warning($"Failure during post AF actions. {ex.Message}");
+                    } finally {
+                        progress?.Report(new ApplicationStatus() { Status = string.Empty });
+                    }
+                }
+
+                if (autoFocusState == null) {
+                    return null;
+                }
+
+                return new AutoFocusResult() {
+                    Succeeded = completed,
+                    InitialFocuserPosition = autoFocusState.InitialFocuserPosition,
+                    ImageSize = autoFocusState.ImageSize,
+                    StepSize = autoFocusState.Options.AutoFocusStepSize,
+                    SaveFolder = autoFocusState.SaveFolder
+                };
+            } finally {
+                ReleaseAutoFocusInProgress();
+            }
+        }
+
+        // The non-convergent sweep. Captures FramesPerPoint frames at each of the 2N+1 fixed positions and saves them
+        // into attempt01 (via OnNextAttempt), so the folder loads back exactly like any saved run. No trend logic, no
+        // stopping condition, no curve fit — a starless frame is saved just the same.
+        private async Task<bool> RunFixedSweep(AutoFocusState state, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            using (var stopWatch = MyStopWatch.Measure()) {
+                InitializeSave(state);
+
+                var initialFocusPosition = focuserMediator.GetInfo().Position;
+                state.InitialFocuserPosition = initialFocusPosition;
+                Logger.Info($"Starting fixed-sweep capture centered on position {initialFocusPosition}");
+
+                // AttemptNumber 0 -> 1 so frames land in an attempt01 subfolder (LoadSavedAutoFocusAttempt requires
+                // exactly one attempt* folder; the 'initial' folder AttemptNumber 0 would use does not match).
+                state.OnNextAttempt();
+                OnIterationStarted(state.AttemptNumber);
+
+                var offsetSteps = state.Options.AutoFocusInitialOffsetSteps;
+                var stepSize = state.Options.AutoFocusStepSize;
+                var positions = ComputeSweepPositions(initialFocusPosition, offsetSteps, stepSize);
+
+                var framesPerPoint = Math.Max(1, state.Options.FramesPerPoint);
+                var totalFrames = positions.Count * framesPerPoint;
+                var capturedFrames = 0;
+
+                // Overshoot one extra step beyond the high extreme with NO capture, then step monotonically down
+                // through the positions, so every captured point is reached by a decreasing move — the same
+                // single-direction approach the blind sweep uses to keep backlash consistent (StartBlindFocusPoints).
+                await focuserMediator.MoveFocuser(initialFocusPosition + (offsetSteps + 1) * stepSize, token);
+
+                foreach (var targetPosition in positions) {
+                    token.ThrowIfCancellationRequested();
+                    var actualPosition = await focuserMediator.MoveFocuser(targetPosition, token);
+
+                    // Report the capture context (focuser position + frame count) for the wizard's live readout; the
+                    // camera's own exposure-progress reports flow through the same progress during StartAutoFocusPoint.
+                    progress?.Report(new ApplicationStatus() {
+                        Source = LiveSweepProgressSource,
+                        Status = framesPerPoint > 1
+                            ? $"Capturing frames {capturedFrames + 1}–{capturedFrames + framesPerPoint} of {totalFrames} at focuser position {actualPosition}"
+                            : $"Capturing frame {capturedFrames + 1} of {totalFrames} at focuser position {actualPosition}",
+                        Progress = capturedFrames,
+                        MaxProgress = totalFrames
+                    });
+
+                    await StartAutoFocusPoint(actualPosition, state, action: null, finalValidation: false, token, progress, captureOnly: true);
+                    capturedFrames += framesPerPoint;
+                }
+
+                Logger.Info("Waiting on fixed-sweep analysis tasks");
+                await Task.WhenAll(state.AnalysisTasks);
+                token.ThrowIfCancellationRequested();
+
+                // The sweep computes no new focus point, so return the focuser to the user's rough-focus position.
+                await focuserMediator.MoveFocuser(initialFocusPosition, token);
+
+                OnCompleted(state, focuserMediator.GetInfo().Temperature, stopWatch.Elapsed);
+                return true;
+            }
+        }
+
+        // Wraps a capture-only exposure with a synthesized countdown reported to the wizard (LiveSweepExposureSource),
+        // because NINA's ImagingVM.CaptureImage drops the IProgress we pass and reports the camera countdown elsewhere.
+        private async Task<IExposureData> TakeExposureWithLiveCountdown(AutoFocusState state, int focuserPosition, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            var totalSeconds = ResolveSweepExposureSeconds(state);
+            if (progress == null || totalSeconds <= 0) {
+                return await TakeExposure(state, focuserPosition, token, progress);
+            }
+
+            using (var countdownCts = CancellationTokenSource.CreateLinkedTokenSource(token)) {
+                var countdown = RunExposureCountdown(progress, totalSeconds, countdownCts.Token);
+                try {
+                    return await TakeExposure(state, focuserPosition, token, progress);
+                } finally {
+                    countdownCts.Cancel();
+                    try { await countdown; } catch { /* best-effort readout */ }
+                }
+            }
+        }
+
+        // Reports elapsed / total seconds every quarter second until cancelled (when the exposure completes).
+        private static async Task RunExposureCountdown(IProgress<ApplicationStatus> progress, double totalSeconds, CancellationToken token) {
+            var maxProgress = Math.Max(1, (int)Math.Ceiling(totalSeconds));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            try {
+                while (!token.IsCancellationRequested) {
+                    var elapsed = Math.Min(totalSeconds, stopwatch.Elapsed.TotalSeconds);
+                    progress.Report(new ApplicationStatus() {
+                        Source = LiveSweepExposureSource,
+                        Progress = elapsed,
+                        MaxProgress = maxProgress
+                    });
+                    await Task.Delay(250, token).ConfigureAwait(false);
+                }
+            } catch (OperationCanceledException) {
+            }
+        }
+
+        // The exposure the sweep uses: the wizard's per-run override when set, else the profile's AF exposure.
+        private double ResolveSweepExposureSeconds(AutoFocusState state) {
+            if (state.Options.OverrideAutoFocusExposureTime > TimeSpan.Zero) {
+                return state.Options.OverrideAutoFocusExposureTime.TotalSeconds;
+            }
+            return profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime;
         }
 
         private async Task<IRenderedImage> ReloadSavedFile(

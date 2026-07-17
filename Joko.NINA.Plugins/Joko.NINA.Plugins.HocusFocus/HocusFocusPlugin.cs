@@ -52,6 +52,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
         // reuse for building its RunEvaluationLoader + detector.
         private readonly IProfileService profileService;
         private readonly ICameraMediator cameraMediator;
+        private readonly IFilterWheelMediator filterWheelMediator;
         private readonly IFocuserMediator focuserMediator;
         private readonly IImagingMediator imagingMediator;
         private readonly IImageDataFactory imageDataFactory;
@@ -86,6 +87,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector) {
             this.profileService = profileService;
             this.cameraMediator = cameraMediator;
+            this.filterWheelMediator = filterWheelMediator;
             this.focuserMediator = focuserMediator;
             this.imagingMediator = imagingMediator;
             this.imageDataFactory = imageDataFactory;
@@ -188,6 +190,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
                 imageDataFactory,
                 imagingMediator,
                 cameraMediator,
+                filterWheelMediator,
                 focuserMediator,
                 autoFocusEngine,
                 detection);

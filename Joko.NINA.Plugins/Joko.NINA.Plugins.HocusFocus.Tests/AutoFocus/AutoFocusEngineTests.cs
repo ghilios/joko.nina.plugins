@@ -38,12 +38,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
         private static AutoFocusEngine Build(
             IProfileService profileService = null,
             IAutoFocusOptions autoFocusOptions = null,
-            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector = null) {
+            IPluggableBehaviorSelector<IStarDetection> starDetectionSelector = null,
+            IFocuserMediator focuserMediator = null) {
             return new AutoFocusEngine(
                 profileService: profileService ?? Substitute.For<IProfileService>(),
                 cameraMediator: Substitute.For<ICameraMediator>(),
                 filterWheelMediator: Substitute.For<IFilterWheelMediator>(),
-                focuserMediator: Substitute.For<IFocuserMediator>(),
+                focuserMediator: focuserMediator ?? Substitute.For<IFocuserMediator>(),
                 guiderMediator: Substitute.For<IGuiderMediator>(),
                 imagingMediator: Substitute.For<IImagingMediator>(),
                 imageDataFactory: Substitute.For<IImageDataFactory>(),
@@ -123,6 +124,67 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 Assert.That(options.ValidateHfrImprovement, Is.True);
                 Assert.That(options.FocuserOffset, Is.EqualTo(10));
             });
+        }
+
+        // ---- Fixed-sweep capture (non-convergent live optimization) --------------------------------------
+        // ComputeSweepPositions is the load-bearing geometry for CaptureFixedSweepAsync: it maps the AF
+        // step-size / offset-steps settings to the exact focuser positions the sweep visits. It must center on
+        // the rough-focus position, be symmetric, descend (single-direction approach for backlash), and always
+        // yield >= 3 distinct positions so the saved run clears the loader's 3-image / 3-position minimum.
+        [Test]
+        public void ComputeSweepPositions_CentersOnInitial_SymmetricDescending() {
+            var positions = AutoFocusEngine.ComputeSweepPositions(initial: 1000, offsetSteps: 3, stepSize: 10);
+            Assert.That(positions, Is.EqualTo(new[] { 1030, 1020, 1010, 1000, 990, 980, 970 }));
+        }
+
+        [TestCase(1, 3)]
+        [TestCase(2, 5)]
+        [TestCase(5, 11)]
+        public void ComputeSweepPositions_ReturnsTwoNPlusOnePoints(int offsetSteps, int expectedCount) {
+            var positions = AutoFocusEngine.ComputeSweepPositions(initial: 5000, offsetSteps: offsetSteps, stepSize: 25);
+            Assert.Multiple(() => {
+                Assert.That(positions, Has.Count.EqualTo(expectedCount));
+                Assert.That(positions[0], Is.EqualTo(5000 + offsetSteps * 25), "first is the high extreme");
+                Assert.That(positions[positions.Count - 1], Is.EqualTo(5000 - offsetSteps * 25), "last is the low extreme");
+                Assert.That(positions, Does.Contain(5000), "the rough-focus center is captured");
+                Assert.That(positions, Is.Ordered.Descending, "descend so every point is approached from the same direction");
+            });
+        }
+
+        [TestCase(0)]
+        [TestCase(-1)]
+        public void ComputeSweepPositions_OffsetStepsBelowOne_Throws(int offsetSteps) {
+            Assert.Throws<ArgumentOutOfRangeException>(() => AutoFocusEngine.ComputeSweepPositions(1000, offsetSteps, 10));
+        }
+
+        [TestCase(0)]
+        [TestCase(-5)]
+        public void ComputeSweepPositions_NonPositiveStepSize_Throws(int stepSize) {
+            Assert.Throws<ArgumentOutOfRangeException>(() => AutoFocusEngine.ComputeSweepPositions(1000, 3, stepSize));
+        }
+
+        // A sweep that can't save is useless: guard before touching the focuser so we don't move the focuser and
+        // discard every frame. This is the engine-side belt to the wizard's UI suspenders.
+        [Test]
+        public async Task CaptureFixedSweepAsync_MissingSavePath_FailsWithoutMovingFocuser() {
+            var focuserMediator = Substitute.For<IFocuserMediator>();
+            var engine = Build(focuserMediator: focuserMediator);
+            var options = new AutoFocusEngineOptions {
+                Save = true,
+                SavePath = "",
+                AutoFocusInitialOffsetSteps = 3,
+                AutoFocusStepSize = 10,
+                AutoFocusTimeout = TimeSpan.FromMinutes(1)
+            };
+
+            var result = await engine.CaptureFixedSweepAsync(options, null, CancellationToken.None, null);
+
+            Assert.Multiple(() => {
+                Assert.That(result, Is.Not.Null);
+                Assert.That(result.Succeeded, Is.False);
+                Assert.That(result.SaveFolder, Is.Null);
+            });
+            _ = focuserMediator.DidNotReceive().MoveFocuser(Arg.Any<int>(), Arg.Any<CancellationToken>());
         }
 
         [Test]

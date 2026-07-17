@@ -123,6 +123,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         Task<AutoFocusResult> RunWithRegions(AutoFocusEngineOptions options, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress);
 
+        /// <summary>
+        /// Captures a fixed, non-convergent focuser sweep centered on the CURRENT focuser position (assumed to be
+        /// rough focus), saving every frame to disk regardless of whether any stars are detected, then restores the
+        /// focuser. Unlike <see cref="Run"/> this performs no trend-walk, no initial-HFR gate, and no curve-fit
+        /// validation, so it succeeds where the current star-detection settings cannot yet build a focus curve. The
+        /// returned <see cref="AutoFocusResult.SaveFolder"/> loads back through <c>LoadSavedAutoFocusAttempt</c> just
+        /// like a saved run, so the Star Detection Optimizer can search for settings that DO build a good curve.
+        /// </summary>
+        Task<AutoFocusResult> CaptureFixedSweepAsync(AutoFocusEngineOptions options, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
+
         Task<AutoFocusResult> Rerun(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
 
         Task<AutoFocusResult> RerunWithRegions(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress);
