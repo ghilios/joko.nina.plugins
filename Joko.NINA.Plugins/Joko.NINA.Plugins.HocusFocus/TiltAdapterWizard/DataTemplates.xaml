@@ -242,7 +242,7 @@
                             Fill="{StaticResource PrimaryBrush}"
                             Stretch="Uniform" />
                     </StackPanel>
-                    <TextBlock VerticalAlignment="Center" Text="Screws + steps">
+                    <TextBlock VerticalAlignment="Center" Foreground="{StaticResource PrimaryBrush}" Text="Screws + steps">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -657,7 +657,7 @@
                                     Stretch="Uniform" />
                                 <TextBlock VerticalAlignment="Center" Text="moves adapter" />
                             </StackPanel>
-                            <TextBlock VerticalAlignment="Center" Text="+ steps move adapter">
+                            <TextBlock VerticalAlignment="Center" Foreground="{StaticResource PrimaryBrush}" Text="+ steps move adapter">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
                                         <Setter Property="Visibility" Value="Collapsed" />
@@ -787,7 +787,7 @@
                         </Button>
                     </Grid>
 
-                    <TextBlock Margin="0,10,0,0" Text="No calibration saved.">
+                    <TextBlock Margin="0,10,0,0" Foreground="{StaticResource PrimaryBrush}" Text="No calibration saved.">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Visible" />
@@ -817,6 +817,7 @@
                             Margin="0,10,0,0"
                             FontStyle="Italic"
                             Opacity="0.7"
+                            Foreground="{StaticResource PrimaryBrush}"
                             Text="Manually entered calibration (not measured by the wizard)."
                             TextWrapping="Wrap">
                             <TextBlock.Style>
@@ -1080,6 +1081,7 @@
                     <!--  Post-measurement status (shown when not measuring)  -->
                     <TextBlock
                         Margin="0,4,0,0"
+                        Foreground="{StaticResource PrimaryBrush}"
                         Text="{Binding StatusText}"
                         TextWrapping="Wrap">
                         <TextBlock.Style>
@@ -1500,6 +1502,7 @@
                         Margin="0,10,0,0"
                         FontStyle="Italic"
                         Opacity="0.7"
+                        Foreground="{StaticResource PrimaryBrush}"
                         Text="Set a screw radius (and thread pitch / step size) in Settings to measure adapter hardware."
                         TextWrapping="Wrap">
                         <TextBlock.Style>
