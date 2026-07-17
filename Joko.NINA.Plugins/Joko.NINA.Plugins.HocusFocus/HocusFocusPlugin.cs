@@ -111,7 +111,10 @@ namespace NINA.Joko.Plugins.HocusFocus {
                 TiltAdapterOptions = new TiltAdapterOptions(profileService);
             }
             if (CameraSimulatorOptions == null) {
-                CameraSimulatorOptions = new CameraSimulatorOptions(profileService);
+                // Takes InspectorOptions: the simulator's FocuserStepSizeMicrons is a pass-through onto the
+                // Inspector's MicronsPerFocuserStep, not a copy. Constructed above, which this relies on — both for
+                // the non-null argument here and for ProfileChanged ordering (see MigrateLegacyFocuserStepSize).
+                CameraSimulatorOptions = new CameraSimulatorOptions(profileService, InspectorOptions);
             }
             if (AlglibAPI == null) {
                 AlglibAPI = new AlglibAPI();

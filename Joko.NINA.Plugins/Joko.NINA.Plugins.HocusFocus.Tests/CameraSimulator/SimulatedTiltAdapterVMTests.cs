@@ -36,8 +36,11 @@ public class SimulatedTiltAdapterVMTests {
     private const double PitchMicrons = 250.0;
     private const double RadiusMillimeters = 30.0;
 
-    private static CameraSimulatorOptions BuildOptions() =>
-        new CameraSimulatorOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
+    private static CameraSimulatorOptions BuildOptions() {
+        var profileService = Substitute.For<IProfileService>();
+        return new CameraSimulatorOptions(profileService, new InMemoryPluginOptionsAccessor(),
+            new NINA.Joko.Plugins.HocusFocus.AutoFocus.InspectorOptions(profileService, new InMemoryPluginOptionsAccessor()));
+    }
 
     private static TiltAdapterOptions BuildRealAdapterOptions() =>
         new TiltAdapterOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
@@ -823,7 +826,8 @@ public class SimulatedTiltAdapterVMTests {
         // silently keeps rendering the OLD profile's adapter — three rows for a rig that now has four.
         var profileService = Substitute.For<IProfileService>();
         var accessor = new InMemoryPluginOptionsAccessor();
-        var options = new CameraSimulatorOptions(profileService, accessor);
+        var options = new CameraSimulatorOptions(profileService, accessor,
+            new NINA.Joko.Plugins.HocusFocus.AutoFocus.InspectorOptions(profileService, new InMemoryPluginOptionsAccessor()));
         options.SimScrewCount = 3;
         options.SimScrew1AngleDegrees = 0.0;
         options.SimScrew2AngleDegrees = 120.0;

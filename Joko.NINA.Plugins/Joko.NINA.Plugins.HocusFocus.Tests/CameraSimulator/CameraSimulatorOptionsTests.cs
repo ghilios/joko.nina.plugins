@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
@@ -14,11 +15,26 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator;
 [TestFixture]
 public class CameraSimulatorOptionsTests {
 
+    /// <summary>
+    /// A REAL InspectorOptions over an in-memory store, never a substitute. FocuserStepSizeMicrons reads and writes
+    /// straight through to it, and its PropertyChanged is what drives the camera-sim notifications — so a mock here
+    /// would be testing the mock's auto-property, not the pass-through that is the entire point.
+    /// </summary>
+    private static InspectorOptions NewInspector(IProfileService profile, IPluginOptionsAccessor store = null) =>
+        new InspectorOptions(profile, store ?? new InMemoryPluginOptionsAccessor());
+
     private static (CameraSimulatorOptions options, InMemoryPluginOptionsAccessor store, IProfileService profile) Build() {
         var profile = Substitute.For<IProfileService>();
         var store = new InMemoryPluginOptionsAccessor();
-        var options = new CameraSimulatorOptions(profile, store);
+        var options = new CameraSimulatorOptions(profile, store, NewInspector(profile));
         return (options, store, profile);
+    }
+
+    /// <summary>For the tests that need to reach the far side of the pass-through.</summary>
+    private static (CameraSimulatorOptions options, InspectorOptions inspector) BuildWithInspector() {
+        var profile = Substitute.For<IProfileService>();
+        var inspector = NewInspector(profile);
+        return (new CameraSimulatorOptions(profile, new InMemoryPluginOptionsAccessor(), inspector), inspector);
     }
 
     private static CameraSimulatorOptions OptionsFor(double profileFocalLength, double profileFocalRatio) {
@@ -159,7 +175,8 @@ public class CameraSimulatorOptionsTests {
         // bounds moved into the setter would have.
         store.SetValueDouble(nameof(CameraSimulatorOptions.ApertureMillimeters), stored);
 
-        var options = new CameraSimulatorOptions(Substitute.For<IProfileService>(), store);
+        var profileService = Substitute.For<IProfileService>();
+        var options = new CameraSimulatorOptions(profileService, store, NewInspector(profileService));
 
         Assert.That(options.ApertureMillimeters, Is.EqualTo(expected));
     }
@@ -202,7 +219,7 @@ public class CameraSimulatorOptionsTests {
     [Test]
     public void AfterProfileSwap_InPlaceEditOnTheNewProfileStillRaises() {
         var profile = Substitute.For<IProfileService>();
-        var options = new CameraSimulatorOptions(profile, new InMemoryPluginOptionsAccessor());
+        var options = new CameraSimulatorOptions(profile, new InMemoryPluginOptionsAccessor(), NewInspector(profile));
 
         // Swap in a whole new ActiveProfile, so ActiveProfile.TelescopeSettings is a different instance.
         var newProfile = Substitute.For<IProfile>();
@@ -218,12 +235,183 @@ public class CameraSimulatorOptionsTests {
             "the hook must move to the new profile's TelescopeSettings");
     }
 
+    // ---- Focuser step size: ONE variable, shared with the Aberration Inspector. ----
+
+    /// <summary>
+    /// The bug this replaced: the camera rendered defocus at its own 2.0 µm/step default while the Aberration
+    /// Inspector interpreted the result at the user's calibrated 1.0 µm/step — a silent 2x that broke the
+    /// inject⇄recover loop the simulator exists to close. They are the same physical quantity (µm of sensor
+    /// defocus per focuser step) and must therefore be the same variable, not two kept in sync.
+    /// </summary>
+    [Test]
+    public void FocuserStepSize_WrittenOnTheCameraSim_IsVisibleOnTheInspector() {
+        var (options, inspector) = BuildWithInspector();
+        options.FocuserStepSizeMicrons = 3.5;
+        Assert.That(inspector.MicronsPerFocuserStep, Is.EqualTo(3.5));
+    }
+
+    [Test]
+    public void FocuserStepSize_WrittenOnTheInspector_IsVisibleOnTheCameraSim() {
+        var (options, inspector) = BuildWithInspector();
+        inspector.MicronsPerFocuserStep = 3.5;
+        Assert.That(options.FocuserStepSizeMicrons, Is.EqualTo(3.5));
+    }
+
+    [Test]
+    public void EffectiveFocuserStepSize_UnsetFallsBackToTheDefault() {
+        var (options, inspector) = BuildWithInspector();
+        Assert.That(inspector.MicronsPerFocuserStep, Is.EqualTo(-1.0), "precondition: uncalibrated");
+        Assert.That(options.EffectiveFocuserStepSizeMicrons,
+            Is.EqualTo(CameraSimulatorOptions.DefaultFocuserStepSizeMicrons).And.EqualTo(2.0));
+    }
+
+    [Test]
+    public void EffectiveFocuserStepSize_SetValueWins() {
+        var (options, _) = BuildWithInspector();
+        options.FocuserStepSizeMicrons = 3.5;
+        Assert.That(options.EffectiveFocuserStepSizeMicrons, Is.EqualTo(3.5));
+    }
+
+    /// <summary>
+    /// Non-positive means "uncalibrated" (the blank box), exactly as it does on the Inspector's own row — it must
+    /// NOT clamp up to some positive minimum, or a blank box would silently become a real calibration. NaN is
+    /// included because it fails both `&gt;` and `&lt;=`: a `&lt;= 0` guard would wave it through into DefocusModel
+    /// and render an all-NaN frame with no error anywhere, which is the bug class this branch has already paid for.
+    /// </summary>
+    [TestCase(0.0)]
+    [TestCase(-1.0)]
+    [TestCase(-7.5)]
+    [TestCase(double.NaN)]
+    public void NonPositiveFocuserStepSize_ResolvesToTheDefaultRatherThanClamping(double assigned) {
+        var (options, _) = BuildWithInspector();
+        options.FocuserStepSizeMicrons = assigned;
+        Assert.Multiple(() => {
+            Assert.That(options.EffectiveFocuserStepSizeMicrons, Is.EqualTo(2.0), "unset -> the default, not a clamp");
+            Assert.That(options.FocuserStepSizeMicrons, Is.EqualTo(assigned).Or.NaN,
+                "the raw value passes through untouched — the camera sim does not heal the Inspector's store");
+        });
+    }
+
+    /// <summary>
+    /// The camera sim's options page binds both of these, and the value can be edited from the Inspector's page.
+    /// Without the subscription the page would show a stale number while the render already used the new one.
+    /// </summary>
+    [Test]
+    public void InspectorFocuserStepSizeEdit_RaisesBothCameraSimProperties() {
+        var (options, inspector) = BuildWithInspector();
+        var raised = new List<string>();
+        options.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        inspector.MicronsPerFocuserStep = 4.25;
+
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(CameraSimulatorOptions.FocuserStepSizeMicrons)));
+            Assert.That(raised, Does.Contain(nameof(CameraSimulatorOptions.EffectiveFocuserStepSizeMicrons)),
+                "the hint text resolves through the same value and must refresh with it");
+        });
+    }
+
+    // ---- Migration off the simulator's old, separate FocuserStepSizeMicrons key. ----
+
+    [Test]
+    public void LegacyFocuserStepSizeKey_MigratesOntoAnUncalibratedInspector() {
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        // What an in-development build of this branch left behind.
+        store.SetValueDouble(nameof(CameraSimulatorOptions.FocuserStepSizeMicrons), 5.0);
+        var inspector = NewInspector(profile);
+
+        var options = new CameraSimulatorOptions(profile, store, inspector);
+
+        Assert.Multiple(() => {
+            Assert.That(inspector.MicronsPerFocuserStep, Is.EqualTo(5.0), "a tester's setting must not be dropped");
+            Assert.That(options.FocuserStepSizeMicrons, Is.EqualTo(5.0));
+        });
+    }
+
+    /// <summary>
+    /// The asymmetric half of the guard, and the one that matters: MicronsPerFocuserStep is very often a
+    /// measurement off a real rig. A leftover simulator value must never overwrite it.
+    /// </summary>
+    [Test]
+    public void LegacyFocuserStepSizeKey_DoesNotClobberACalibratedInspector() {
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        store.SetValueDouble(nameof(CameraSimulatorOptions.FocuserStepSizeMicrons), 5.0);
+        var inspectorStore = new InMemoryPluginOptionsAccessor();
+        inspectorStore.SetValueDouble(nameof(InspectorOptions.MicronsPerFocuserStep), 1.0);
+        var inspector = NewInspector(profile, inspectorStore);
+
+        var options = new CameraSimulatorOptions(profile, store, inspector);
+
+        Assert.Multiple(() => {
+            Assert.That(inspector.MicronsPerFocuserStep, Is.EqualTo(1.0), "the real-rig calibration wins");
+            Assert.That(options.FocuserStepSizeMicrons, Is.EqualTo(1.0));
+        });
+    }
+
+    /// <summary>
+    /// The user's actual profile: MicronsPerFocuserStep = 1, no stored simulator key. The migration must not
+    /// touch anything at all — this is the common case and the one it would be worst to get wrong.
+    /// </summary>
+    [Test]
+    public void NoLegacyKey_WithCalibratedInspector_MigrationIsANoOp() {
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        var inspectorStore = new InMemoryPluginOptionsAccessor();
+        inspectorStore.SetValueDouble(nameof(InspectorOptions.MicronsPerFocuserStep), 1.0);
+        var inspector = NewInspector(profile, inspectorStore);
+
+        var options = new CameraSimulatorOptions(profile, store, inspector);
+
+        Assert.Multiple(() => {
+            Assert.That(inspector.MicronsPerFocuserStep, Is.EqualTo(1.0));
+            Assert.That(options.FocuserStepSizeMicrons, Is.EqualTo(1.0));
+            Assert.That(options.EffectiveFocuserStepSizeMicrons, Is.EqualTo(1.0), "the render uses the user's 1, not 2");
+            Assert.That(store.Snapshot.ContainsKey(nameof(CameraSimulatorOptions.FocuserStepSizeMicrons)), Is.False,
+                "no legacy key existed, so the migration must not create one");
+        });
+    }
+
+    /// <summary>
+    /// Once consumed, the legacy value is cleared. Otherwise deliberately clearing the calibration on the
+    /// Inspector's page and restarting NINA would silently resurrect the old simulator number.
+    /// </summary>
+    [Test]
+    public void LegacyFocuserStepSizeKey_IsClearedOnceMigrated_SoItCannotComeBack() {
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        store.SetValueDouble(nameof(CameraSimulatorOptions.FocuserStepSizeMicrons), 5.0);
+
+        var first = new CameraSimulatorOptions(profile, store, NewInspector(profile));
+        Assert.That(first.FocuserStepSizeMicrons, Is.EqualTo(5.0), "precondition: it migrated once");
+
+        // The user later clears the calibration; a fresh load must leave it cleared.
+        var second = new CameraSimulatorOptions(profile, store, NewInspector(profile));
+        Assert.That(second.FocuserStepSizeMicrons, Is.EqualTo(-1.0),
+            "a consumed legacy value must not resurrect after the user clears the calibration");
+    }
+
+    [Test]
+    public void ResetDefaults_DoesNotClobberTheInspectorsCalibration() {
+        var (options, inspector) = BuildWithInspector();
+        inspector.MicronsPerFocuserStep = 1.0; // a measurement off the user's real rig
+
+        options.ResetDefaults();
+
+        Assert.That(inspector.MicronsPerFocuserStep, Is.EqualTo(1.0),
+            "resetting CAMERA SIMULATOR defaults must not destroy a real-rig Aberration Inspector calibration");
+    }
+
     [Test]
     public void Defaults_MatchDesignConfigTable() {
         var (options, _, _) = Build();
         Assert.Multiple(() => {
             Assert.That(options.OptimalFocuserPosition, Is.EqualTo(5000));
-            Assert.That(options.FocuserStepSizeMicrons, Is.EqualTo(2.0));
+            // The step size defaults to the Inspector's -1 "uncalibrated" sentinel, not to a number: it is the
+            // Inspector's setting now. The old 2.0 default survives as the Effective fallback.
+            Assert.That(options.FocuserStepSizeMicrons, Is.EqualTo(-1.0), "unset: the Inspector is uncalibrated");
+            Assert.That(options.EffectiveFocuserStepSizeMicrons, Is.EqualTo(2.0));
             Assert.That(options.ApertureMillimeters, Is.EqualTo(-1.0), "unset: inferred from the profile");
             Assert.That(options.FocalLengthMillimeters, Is.EqualTo(-1.0), "unset: inferred from the profile");
             Assert.That(options.CentralObstructionEnabled, Is.True);
@@ -251,7 +439,13 @@ public class CameraSimulatorOptionsTests {
 
     [Test]
     public void Setters_PersistToAccessorAndReadBack() {
-        var (options, store, _) = Build();
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        // FocuserStepSizeMicrons now persists into the INSPECTOR's store, under the Inspector's key — it IS the
+        // Inspector's setting. Holding that store explicitly is what lets the re-read below prove the round-trip
+        // goes through the shared variable rather than through a camera-sim copy of it.
+        var inspectorStore = new InMemoryPluginOptionsAccessor();
+        var options = new CameraSimulatorOptions(profile, store, NewInspector(profile, inspectorStore));
 
         options.OptimalFocuserPosition = 12345;
         options.FocuserStepSizeMicrons = 0.5;
@@ -278,14 +472,20 @@ public class CameraSimulatorOptionsTests {
         options.OpticalAxisOffsetXMicrons = 100.0;
         options.OpticalAxisOffsetYMicrons = -50.0;
 
-        // Re-read through a fresh options object over the same store to prove persistence round-trips.
-        var reread = new CameraSimulatorOptions(Substitute.For<IProfileService>(), store);
+        // Re-read through a fresh options object over the same stores to prove persistence round-trips.
+        var reread = new CameraSimulatorOptions(Substitute.For<IProfileService>(), store, NewInspector(profile, inspectorStore));
 
         Assert.Multiple(() => {
             Assert.That(store.Snapshot[nameof(CameraSimulatorOptions.OptimalFocuserPosition)], Is.EqualTo(12345));
             Assert.That(store.Snapshot[nameof(CameraSimulatorOptions.SensorModel)], Is.EqualTo(SonySensorModel.IMX294));
             Assert.That(store.Snapshot[nameof(CameraSimulatorOptions.Filter)], Is.EqualTo(SimulatorFilter.Ha5));
             Assert.That(store.Snapshot[nameof(CameraSimulatorOptions.AstapCatalogPath)], Is.EqualTo(@"D:\astap-db"));
+
+            // One variable, one storage location: the step size lands in the Inspector's store under the
+            // Inspector's key, and the camera sim keeps no key of its own for it.
+            Assert.That(inspectorStore.Snapshot[nameof(InspectorOptions.MicronsPerFocuserStep)], Is.EqualTo(0.5));
+            Assert.That(store.Snapshot.ContainsKey(nameof(CameraSimulatorOptions.FocuserStepSizeMicrons)), Is.False,
+                "the camera simulator must not keep a second copy of the focuser step size");
 
             Assert.That(reread.OptimalFocuserPosition, Is.EqualTo(12345));
             Assert.That(reread.FocuserStepSizeMicrons, Is.EqualTo(0.5));
@@ -385,7 +585,7 @@ public class CameraSimulatorOptionsTests {
     public void ProfileChanged_ReinitializesOptions() {
         var profile = Substitute.For<IProfileService>();
         var store = new InMemoryPluginOptionsAccessor();
-        var options = new CameraSimulatorOptions(profile, store);
+        var options = new CameraSimulatorOptions(profile, store, NewInspector(profile));
         options.OptimalFocuserPosition = 8888;
         Assert.That(options.OptimalFocuserPosition, Is.EqualTo(8888));
 
@@ -398,7 +598,14 @@ public class CameraSimulatorOptionsTests {
     [Test]
     public void Constructor_ThrowsOnNullAccessor() {
         var profile = Substitute.For<IProfileService>();
-        Assert.Throws<ArgumentNullException>(() => new CameraSimulatorOptions(profile, null));
+        Assert.Throws<ArgumentNullException>(() => new CameraSimulatorOptions(profile, null, NewInspector(profile)));
+    }
+
+    [Test]
+    public void Constructor_ThrowsOnNullInspectorOptions() {
+        var profile = Substitute.For<IProfileService>();
+        Assert.Throws<ArgumentNullException>(
+            () => new CameraSimulatorOptions(profile, new InMemoryPluginOptionsAccessor(), null));
     }
 
     [Test]
@@ -423,13 +630,15 @@ public class CameraSimulatorOptionsTests {
     [Test]
     public void SimTiltAdapterOptions_PersistAndReadBack() {
         var store = new InMemoryPluginOptionsAccessor();
-        var a = new CameraSimulatorOptions(Substitute.For<IProfileService>(), store);
+        var profileA = Substitute.For<IProfileService>();
+        var a = new CameraSimulatorOptions(profileA, store, NewInspector(profileA));
         a.SimScrewCount = 4;
         a.SimScrew4AngleDegrees = 270.0;
         a.SimThreadPitchMicrons = 350.0;
         a.ShowSimulatorTiltAdapterPanel = true;
 
-        var b = new CameraSimulatorOptions(Substitute.For<IProfileService>(), store);
+        var profileB = Substitute.For<IProfileService>();
+        var b = new CameraSimulatorOptions(profileB, store, NewInspector(profileB));
         Assert.Multiple(() => {
             Assert.That(b.SimScrewCount, Is.EqualTo(4));
             Assert.That(b.SimScrew4AngleDegrees, Is.EqualTo(270.0));
@@ -453,7 +662,8 @@ public class CameraSimulatorOptionsTests {
         // Seed through the accessor, bypassing the clamping property setter, as a hand-edited profile would.
         store.SetValueInt32(nameof(CameraSimulatorOptions.SimScrewCount), stored);
 
-        var options = new CameraSimulatorOptions(Substitute.For<IProfileService>(), store);
+        var profileService = Substitute.For<IProfileService>();
+        var options = new CameraSimulatorOptions(profileService, store, NewInspector(profileService));
 
         Assert.That(options.SimScrewCount, Is.EqualTo(expected));
     }

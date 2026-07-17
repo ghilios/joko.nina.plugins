@@ -689,7 +689,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 SkyBrightnessMagPerArcsec2 = options.SkyBrightnessMagPerArcsec2,
                 SeeingArcsec = options.SeeingArcsec,
                 OptimalFocuserPosition = options.OptimalFocuserPosition,
-                FocuserStepSizeMicrons = options.FocuserStepSizeMicrons,
+                // Effective, not raw: an uncalibrated Inspector leaves the raw value at the -1 "unset" sentinel, and
+                // DefocusModel throws on a non-positive k.
+                FocuserStepSizeMicrons = options.EffectiveFocuserStepSizeMicrons,
                 AstapCatalogPath = options.AstapCatalogPath,
                 LimitingMagnitude = options.LimitingMagnitude,
                 RotationDegrees = options.RotationDegrees,

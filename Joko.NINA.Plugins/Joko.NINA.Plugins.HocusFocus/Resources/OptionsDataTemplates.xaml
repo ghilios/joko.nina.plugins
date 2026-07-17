@@ -2938,7 +2938,7 @@
           camera itself. Rig belongs with the device; only the observing settings are changed from this tab.  -->
     <TextBlock x:Key="CamSim_RigReadOnly_Tooltip" Text="Rig settings are edited in the camera's setup dialog — click the gear icon next to the camera in the Equipment &gt; Camera pane. They are shown here for reference only. Aperture and focal length show the value actually in effect, which is inferred from your NINA telescope settings when it has not been set explicitly." />
     <TextBlock x:Key="CamSim_OptimalFocuserPosition_Tooltip" Text="The focuser step position where best focus occurs (x0 in the defocus model). At this position stars render at their minimum HFR; moving the focuser away grows the donut. Set this to match the best-focus position of your connected (simulator) focuser." />
-    <TextBlock x:Key="CamSim_FocuserStepSizeMicrons_Tooltip" Text="How many microns of sensor-plane defocus one focuser step produces (k). Larger values make the HFR-vs-position curve steeper, so the star field defocuses faster as the focuser moves away from the optimal position." />
+    <TextBlock x:Key="CamSim_FocuserStepSizeMicrons_Tooltip" Text="How many microns of sensor-plane defocus one focuser step produces (k). Larger values make the HFR-vs-position curve steeper, so the star field defocuses faster as the focuser moves away from the optimal position. This is the same setting as the Aberration Inspector's Focuser Step Size: editing it here changes it there, and editing it there changes it here. That sharing is deliberate — the simulator renders defocus at this step size and the Aberration Inspector has to interpret that defocus at the same step size, or everything it measures back is wrong by the ratio between the two. Leave it blank if you have not calibrated it, and the simulator renders at the 2 µm/step shown greyed out in the box." />
     <!--  The per-field rig tooltips moved to CameraSimulator/SetupDialog/SetupDataTemplates.xaml, next to the only
           controls that still edit those values. Here the rig renders read-only and shares CamSim_RigReadOnly_Tooltip.  -->
     <TextBlock x:Key="CamSim_Gain_Tooltip" Text="Sensor gain in ZWO-style 0.1 dB units. Higher gain lowers electrons-per-ADU (and read noise, down to the sensor's floor) but tightens digital saturation." />
@@ -2993,18 +2993,35 @@
                     </Binding>
                 </ninactrl:UnitTextBox>
 
+                <!--
+                    Mirrors the Aberration Inspector's own Focuser Step Size row (AutoFocus/DataTemplates.xaml),
+                    because it is literally the same setting — CameraSimulatorOptions.FocuserStepSizeMicrons is a
+                    pass-through onto InspectorOptions.MicronsPerFocuserStep. A HintTextBox, not a UnitTextBox:
+                    "unset" is a real state here (-1), which the converter shows as an empty box with the value the
+                    render will actually use as the hint. No FloatRangeRule: validation rules run on the RAW text
+                    before the converter, so one would reject the blank/unset box outright.
+                -->
                 <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Focuser Step Size" ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}" Unit="µm/step">
-                    <Binding Path="CameraSimulatorOptions.FocuserStepSizeMicrons" UpdateSourceTrigger="LostFocus">
-                        <Binding.ValidationRules>
-                            <rules:FloatRangeRule>
-                                <rules:FloatRangeRule.ValidRange>
-                                    <rules:FloatRangeChecker Maximum="1000" Minimum="0.001" />
-                                </rules:FloatRangeRule.ValidRange>
-                            </rules:FloatRangeRule>
-                        </Binding.ValidationRules>
-                    </Binding>
-                </ninactrl:UnitTextBox>
+                <StackPanel Grid.Row="1" Grid.Column="1" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Orientation="Horizontal">
+                    <ninactrl:HintTextBox
+                        MinWidth="80"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        HintText="{Binding CameraSimulatorOptions.EffectiveFocuserStepSizeMicrons, StringFormat=\{0:0.###\}, Mode=OneWay}"
+                        TextAlignment="Left"
+                        ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}">
+                        <ninactrl:HintTextBox.Text>
+                            <Binding
+                                Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                Mode="TwoWay"
+                                Path="CameraSimulatorOptions.FocuserStepSizeMicrons"
+                                UpdateSourceTrigger="LostFocus" />
+                        </ninactrl:HintTextBox.Text>
+                    </ninactrl:HintTextBox>
+                    <TextBlock Margin="3,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Text="µm/step" ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}" />
+                </StackPanel>
 
                 <!--  Rig (read-only here; edited in the camera's setup dialog). Bound to the Effective* values, not
                       the raw options: the raw value is -1 when unset, and showing a bare "-1" as the aperture would
@@ -3148,7 +3165,16 @@
 
                 <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="ASTAP Catalog Path" ToolTip="{StaticResource CamSim_AstapCatalogPath_Tooltip}" />
                 <TextBox Grid.Row="2" Grid.Column="1" MaxWidth="240" Margin="5,5,0,0" HorizontalAlignment="Stretch" VerticalAlignment="Center" VerticalContentAlignment="Center" Style="{StaticResource StandardTextbox}" Text="{Binding CameraSimulatorOptions.AstapCatalogPath, UpdateSourceTrigger=LostFocus}" ToolTip="{StaticResource CamSim_AstapCatalogPath_Tooltip}" />
-                <Button Grid.Row="2" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center" Command="{Binding ChooseAstapPathDiagCommand}" Style="{StaticResource StandardButton}">
+                <!--
+                    Width/Height are load-bearing, not cosmetic. The Path is Stretch="Uniform" with no intrinsic
+                    size, so its DesiredSize is whatever it is MEASURED against; every RowDefinition in this grid is
+                    "*", so an unsized Button measured the dots against the full row height and rendered a ~660x182
+                    blob. VerticalAlignment does NOT save it — that is an ARRANGE-time property, and the oversized
+                    DesiredSize is already fixed by then. Sizing the Button bounds the measure, which is what the
+                    other two DotsSVG browse buttons in this file (Grid.Row 5 and 39) already do; 20x20 keeps all
+                    three identical. Sizing the row to Auto instead would reflow all six rows for one button.
+                -->
+                <Button Grid.Row="2" Grid.Column="2" Width="20" Height="20" Margin="5,5,0,0" HorizontalAlignment="Center" VerticalAlignment="Center" Command="{Binding ChooseAstapPathDiagCommand}" Style="{StaticResource StandardButton}" ToolTip="{StaticResource CamSim_AstapCatalogPath_Tooltip}">
                     <Path Margin="2,10,2,0" Data="{StaticResource DotsSVG}" Fill="{StaticResource ButtonForegroundBrush}" Stretch="Uniform" />
                 </Button>
 

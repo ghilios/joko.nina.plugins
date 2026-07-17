@@ -32,6 +32,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private readonly IProfileService profileService;
         private readonly IPluginOptionsAccessor optionsAccessor;
 
+        // FocuserStepSizeMicrons is a pass-through onto this, not a copy of it — see the property. Held as the
+        // interface so tests can inject a real InspectorOptions over an in-memory store.
+        private readonly IInspectorOptions inspectorOptions;
+
         // EffectiveFocalLengthMillimeters/EffectiveApertureMillimeters read the ACTIVE profile's TelescopeSettings;
         // these track the settings object currently subscribed so in-place edits refresh the inferred values and
         // profile swaps re-hook cleanly. Mirrors InspectorVM/TiltAdapterWizardVM's FocuserSettings hook.
@@ -48,13 +52,21 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             }
         }
 
-        public CameraSimulatorOptions(IProfileService profileService)
-            : this(profileService, CreateDefaultAccessor(profileService)) {
+        public CameraSimulatorOptions(IProfileService profileService, IInspectorOptions inspectorOptions)
+            : this(profileService, CreateDefaultAccessor(profileService), inspectorOptions) {
         }
 
-        internal CameraSimulatorOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor) {
+        internal CameraSimulatorOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor, IInspectorOptions inspectorOptions) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.optionsAccessor = optionsAccessor ?? throw new ArgumentNullException(nameof(optionsAccessor));
+            this.inspectorOptions = inspectorOptions ?? throw new ArgumentNullException(nameof(inspectorOptions));
+
+            // FocuserStepSizeMicrons reads THROUGH to inspectorOptions, so a value edited on the Inspector's own
+            // page must re-raise here or this page shows a stale number while the render already uses the new one —
+            // the same staleness the TelescopeSettings hook below exists to prevent, for the same reason. The
+            // InspectorOptions instance never changes (unlike TelescopeSettings, which a profile swap replaces), so
+            // this subscribes once and never re-hooks.
+            inspectorOptions.PropertyChanged += InspectorOptions_PropertyChanged;
             // The inferred optics read the active profile's focal length / focal ratio, which the user can edit in
             // place (Options → Equipment → Telescope) without swapping profiles — ProfileChanged alone would leave
             // a bound hint showing the pre-edit number while the render, which re-reads per exposure, already uses
@@ -79,6 +91,14 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 throw new Exception($"Guid not found in assembly metadata");
             }
             return new PluginOptionsAccessor(profileService, guid.Value);
+        }
+
+        private void InspectorOptions_PropertyChanged(object sender, PropertyChangedEventArgs e) {
+            if (e.PropertyName == nameof(IInspectorOptions.MicronsPerFocuserStep)) {
+                RaisePropertyChanged(nameof(FocuserStepSizeMicrons));
+                // The hint text resolves through the same value, so it moves with it.
+                RaisePropertyChanged(nameof(EffectiveFocuserStepSizeMicrons));
+            }
         }
 
         private void ProfileService_ProfileChanged(object sender, EventArgs e) {
@@ -107,6 +127,14 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// produce an absurd f-ratio (the previous flat 100 mm default made a 2000 mm profile an f/20).
         /// </summary>
         public const double DefaultFocalRatio = 7.0;
+
+        /// <summary>
+        /// The focuser step size (µm/step) used when the Aberration Inspector's <c>MicronsPerFocuserStep</c> is
+        /// uncalibrated. This was the simulator's own default back when it had a second, independent copy of the
+        /// value; it survives as the fallback so an uncalibrated rig still renders a sane defocus ramp rather than
+        /// throwing out of <see cref="Rendering.DefocusModel"/>, which rejects a non-positive k.
+        /// </summary>
+        public const double DefaultFocuserStepSizeMicrons = 2.0;
 
         /// <summary>The stored value meaning "unset — infer it". Matches the plugin's <c>DoubleNegativeToEmptyStringConverter</c> convention.</summary>
         private const double Unset = -1.0;
@@ -151,9 +179,42 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             return Math.Clamp(value, 0, SensorRegistry.Get(model).MaxGain);
         }
 
+        /// <summary>
+        /// Rescues a focuser step size written under the simulator's own (now deleted) <c>FocuserStepSizeMicrons</c>
+        /// key, back when it was a second copy of the Inspector's <c>MicronsPerFocuserStep</c>. Only anyone who ran
+        /// an in-development build of this branch has one; for everyone else the key is absent and this is a no-op.
+        ///
+        /// <para>The guard is deliberately asymmetric: it copies ONLY into an uncalibrated Inspector. The Inspector's
+        /// value can be a measurement off a real rig, and a simulator leftover must never overwrite that — the
+        /// migration exists to avoid silently dropping a tester's setting, which does not justify silently
+        /// destroying a real one. `!(x > 0)` rather than `x <= 0` because NaN fails both comparisons.</para>
+        ///
+        /// <para>The legacy key is cleared once the value is copied, so this cannot resurrect the old number later
+        /// (e.g. after the user deliberately clears their calibration). Same heal-the-store-once precedent as
+        /// InspectorOptions' StepCount repair.</para>
+        ///
+        /// <para>Ordering note: on a profile swap this runs from <see cref="ProfileService_ProfileChanged"/> and
+        /// reads <c>inspectorOptions</c>, which reloads on the same event. HocusFocusPlugin constructs
+        /// InspectorOptions BEFORE CameraSimulatorOptions, so InspectorOptions subscribed first and has already
+        /// reloaded from the new profile by the time this runs.</para>
+        /// </summary>
+        private void MigrateLegacyFocuserStepSize() {
+            var legacy = optionsAccessor.GetValueDouble(nameof(FocuserStepSizeMicrons), Unset);
+            if (!(legacy > 0.0)) {
+                return;
+            }
+            if (!(inspectorOptions.MicronsPerFocuserStep > 0.0)) {
+                Logger.Info($"CameraSimulatorOptions: migrating the simulator's legacy FocuserStepSizeMicrons ({legacy} µm/step) onto the Aberration Inspector's uncalibrated MicronsPerFocuserStep — they are now one setting.");
+                inspectorOptions.MicronsPerFocuserStep = legacy;
+            } else {
+                Logger.Info($"CameraSimulatorOptions: discarding the simulator's legacy FocuserStepSizeMicrons ({legacy} µm/step); the Aberration Inspector is already calibrated at {inspectorOptions.MicronsPerFocuserStep} µm/step, which wins.");
+            }
+            optionsAccessor.SetValueDouble(nameof(FocuserStepSizeMicrons), Unset);
+        }
+
         private void InitializeOptions() {
             optimalFocuserPosition = optionsAccessor.GetValueInt32(nameof(OptimalFocuserPosition), 5000);
-            focuserStepSizeMicrons = optionsAccessor.GetValueDouble(nameof(FocuserStepSizeMicrons), 2.0);
+            MigrateLegacyFocuserStepSize();
             // -1 means "unset — infer from the profile". The read default is now Unset rather than the old
             // hard-coded 0 mm focal length / 100 mm aperture, so an unwritten key (the common case — a profile
             // that never touched these) infers from the profile instead of silently rendering at 100 mm,
@@ -205,7 +266,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
 
         public void ResetDefaults() {
             OptimalFocuserPosition = 5000;
-            FocuserStepSizeMicrons = 2.0;
+            // FocuserStepSizeMicrons is deliberately NOT reset. It is no longer the simulator's own setting — it is
+            // the Aberration Inspector's MicronsPerFocuserStep, which is very often a measurement off the user's
+            // real rig. "Reset camera simulator defaults" must stay inside the camera simulator; silently destroying
+            // a physical calibration from here would be a far worse surprise than leaving a shared value alone.
+            // Resetting it is still one click away, in the Inspector's own options, where it is labelled as such.
             ApertureMillimeters = Unset;
             FocalLengthMillimeters = Unset;
             CentralObstructionEnabled = true;
@@ -254,16 +319,29 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             }
         }
 
-        private double focuserStepSizeMicrons;
-
+        /// <inheritdoc cref="ICameraSimulatorOptions.FocuserStepSizeMicrons"/>
+        /// <remarks>
+        /// No backing field and no accessor key by design: this IS the Inspector's MicronsPerFocuserStep, stored
+        /// once, in the Inspector's own option store. A second copy kept "in sync" is the bug this replaced — the
+        /// camera rendered at its own default 2.0 µm/step while the Inspector interpreted the result at the user's
+        /// calibrated 1.0, so every recovered tilt came back 2x wrong with nothing to show for it.
+        ///
+        /// <para>The setter raises nothing itself: writing through re-enters via
+        /// <see cref="InspectorOptions_PropertyChanged"/>, which raises both this and the Effective value. One
+        /// notification path, so an edit here and an edit on the Inspector's page behave identically.</para>
+        /// </remarks>
         public double FocuserStepSizeMicrons {
-            get => focuserStepSizeMicrons;
-            set {
-                if (focuserStepSizeMicrons != value) {
-                    focuserStepSizeMicrons = value;
-                    optionsAccessor.SetValueDouble(nameof(FocuserStepSizeMicrons), focuserStepSizeMicrons);
-                    RaisePropertyChanged();
-                }
+            get => inspectorOptions.MicronsPerFocuserStep;
+            set => inspectorOptions.MicronsPerFocuserStep = value;
+        }
+
+        /// <inheritdoc cref="ICameraSimulatorOptions.EffectiveFocuserStepSizeMicrons"/>
+        public double EffectiveFocuserStepSizeMicrons {
+            get {
+                // `> 0` and not `!(<= 0)`: NaN fails BOTH comparisons, so the `<=` form would wave it through into
+                // DefocusModel and produce an all-NaN frame with no error anywhere (see DefocusModel's ctor guards).
+                var configured = inspectorOptions.MicronsPerFocuserStep;
+                return configured > 0.0 ? configured : DefaultFocuserStepSizeMicrons;
             }
         }
 

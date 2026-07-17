@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Equipment.Interfaces.ViewModel;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.ViewModel;
@@ -63,7 +64,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             // Mirrors HocusFocusSimulatorCameraProvider: the plugin's singleton in production, a throwaway when
             // no plugin instance has been constructed. Never null — the panel VM rejects that, and an exception
             // here would take the whole plugin down with it.
-            options = HocusFocusPlugin.CameraSimulatorOptions ?? new CameraSimulatorOptions(profileService);
+            options = HocusFocusPlugin.CameraSimulatorOptions
+                ?? new CameraSimulatorOptions(profileService, HocusFocusPlugin.InspectorOptions ?? new InspectorOptions(profileService));
 
             // The wizard's icon: this panel and the Tilt Adapter Wizard are the same subject, one measuring a real
             // adapter and one driving a synthetic one.

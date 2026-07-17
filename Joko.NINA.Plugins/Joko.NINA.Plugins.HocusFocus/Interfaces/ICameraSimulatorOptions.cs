@@ -83,7 +83,28 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         // Focus
         int OptimalFocuserPosition { get; set; }
+
+        /// <summary>
+        /// µm of sensor-plane defocus per focuser step (k). This is a <b>pass-through onto the Aberration
+        /// Inspector's <c>MicronsPerFocuserStep</c></b> — one variable, one storage location, deliberately shared.
+        ///
+        /// <para>It has to be. The simulator RENDERS defocus at k µm/step and the inspector RECOVERS tilt by
+        /// interpreting focuser-position deltas at k µm/step: the same k on both sides of an inverse. Two
+        /// independent copies do not "drift" in the harmless sense — they break the inject⇄recover loop the
+        /// simulator exists to close, by exactly their ratio, and silently.</para>
+        ///
+        /// <para><see cref="Unset"/> (any non-positive value) means "not calibrated"; read
+        /// <see cref="EffectiveFocuserStepSizeMicrons"/> for the value a render will actually use.</para>
+        /// </summary>
         double FocuserStepSizeMicrons { get; set; }
+
+        /// <summary>
+        /// The focuser step size (µm/step) the next exposure will actually use: <see cref="FocuserStepSizeMicrons"/>
+        /// when calibrated, else <c>CameraSimulatorOptions.DefaultFocuserStepSizeMicrons</c>. Always positive, so the
+        /// render always has a usable k (DefocusModel throws on a non-positive one). Read-only: set
+        /// <see cref="FocuserStepSizeMicrons"/> to override.
+        /// </summary>
+        double EffectiveFocuserStepSizeMicrons { get; }
 
         // Optics
         double ApertureMillimeters { get; set; }

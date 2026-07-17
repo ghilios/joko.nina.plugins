@@ -27,7 +27,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator;
 public class HocusFocusSimulatorCameraTests {
 
     private static CameraSimulatorOptions BuildOptions() {
-        return new CameraSimulatorOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
+        var profileService = Substitute.For<IProfileService>();
+        return new CameraSimulatorOptions(profileService, new InMemoryPluginOptionsAccessor(),
+            new NINA.Joko.Plugins.HocusFocus.AutoFocus.InspectorOptions(profileService, new InMemoryPluginOptionsAccessor()));
     }
 
     private static HocusFocusSimulatorCamera BuildCamera(
@@ -361,6 +363,40 @@ public class HocusFocusSimulatorCameraTests {
             Assert.That(camera.Options, Is.SameAs(options),
                 "Options must expose the injected instance, not a copy");
         });
+    }
+
+    /// <summary>
+    /// The render must be handed the EFFECTIVE focuser step size, not the raw one. The raw value is the Aberration
+    /// Inspector's MicronsPerFocuserStep, whose "uncalibrated" state is the -1 sentinel — and DefocusModel throws
+    /// ArgumentOutOfRangeException on a non-positive k, which NINA surfaces as "Unexpected error" plus a spurious
+    /// AbortExposure. So an uncalibrated rig must still render, at the 2.0 µm/step fallback.
+    /// </summary>
+    [TestCase(-1.0, 2.0, TestName = "BuildRenderRequest_UncalibratedStepSize_UsesTheFallback")]
+    [TestCase(3.5, 3.5, TestName = "BuildRenderRequest_CalibratedStepSize_UsesTheCalibration")]
+    public async Task BuildRenderRequest_UsesTheEffectiveFocuserStepSize(double configured, double expected) {
+        var focuser = FocuserAt(5000);
+        var telescope = ConnectedTelescope();
+
+        var options = BuildOptions();
+        options.SensorModel = SonySensorModel.IMX533; // smallest sensor: keeps the fake render array small
+        options.FocuserStepSizeMicrons = configured;
+
+        RenderRequest captured = null;
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call => {
+                captured = call.Arg<RenderRequest>();
+                return new ushort[3008 * 3008];
+            });
+
+        var camera = BuildCameraWithCompositor(
+            options, compositor, Substitute.For<IExposureDataFactory>(), focuser, telescope);
+        camera.Connect(CancellationToken.None).GetAwaiter().GetResult();
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+        await camera.DownloadExposure(CancellationToken.None);
+
+        Assert.That(captured, Is.Not.Null, "the compositor must have been handed a render snapshot");
+        Assert.That(captured.FocuserStepSizeMicrons, Is.EqualTo(expected));
     }
 
     [Test]

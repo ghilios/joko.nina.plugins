@@ -14,6 +14,7 @@ using NINA.Equipment.Interfaces;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Image.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Profile.Interfaces;
 using System;
 using System.Collections.Generic;
@@ -52,7 +53,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public string Name => "Hocus Focus";
 
         public IList<ICamera> GetEquipment() {
-            var options = HocusFocusPlugin.CameraSimulatorOptions ?? new CameraSimulatorOptions(profileService);
+            var options = HocusFocusPlugin.CameraSimulatorOptions
+                ?? new CameraSimulatorOptions(profileService, HocusFocusPlugin.InspectorOptions ?? new InspectorOptions(profileService));
             var camera = new HocusFocusSimulatorCamera(
                 profileService,
                 exposureDataFactory,

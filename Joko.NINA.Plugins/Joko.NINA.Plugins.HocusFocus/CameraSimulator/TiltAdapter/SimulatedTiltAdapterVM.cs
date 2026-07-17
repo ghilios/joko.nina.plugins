@@ -656,10 +656,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
             var pistonMicrons = adapter.PistonDirectionSign * delta.PistonMicrons;
             if (pistonMicrons != 0.0) {
-                // The sensor moving axially both shifts best focus...
-                if (options.FocuserStepSizeMicrons > 0) {
-                    options.OptimalFocuserPosition += (int)Math.Round(pistonMicrons / options.FocuserStepSizeMicrons);
-                }
+                // The sensor moving axially both shifts best focus... Effective, not raw: the raw value is the -1
+                // "unset" sentinel on an uncalibrated Inspector, and the render uses Effective, so converting the
+                // piston with anything else would move best focus somewhere the star field is not defocused about.
+                options.OptimalFocuserPosition += (int)Math.Round(pistonMicrons / options.EffectiveFocuserStepSizeMicrons);
 
                 // ...and violates the optics' backfocus spacing. The curvature responds to the PISTON, not to any
                 // individual screw move, so a corner move (piston 0 by symmetry) correctly leaves it untouched.
