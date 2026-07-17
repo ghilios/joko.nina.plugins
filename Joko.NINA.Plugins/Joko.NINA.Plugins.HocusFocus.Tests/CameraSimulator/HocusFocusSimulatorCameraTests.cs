@@ -8,6 +8,7 @@ using NINA.Core.Enum;
 using NINA.Core.Utility.Converters;
 using NINA.Equipment.Equipment.MyFocuser;
 using NINA.Equipment.Exceptions;
+using NINA.Equipment.Equipment.MyRotator;
 using NINA.Equipment.Equipment.MyTelescope;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Model;
@@ -389,6 +390,69 @@ public class HocusFocusSimulatorCameraTests {
 
         Assert.That(captured, Is.Not.Null, "the compositor must have been handed a render snapshot");
         Assert.That(captured.FocuserStepSizeMicrons, Is.EqualTo(expected));
+    }
+
+    private static IRotatorMediator RotatorAt(float mechanical) {
+        var rotator = Substitute.For<IRotatorMediator>();
+        rotator.GetInfo().Returns(new RotatorInfo { Connected = true, MechanicalPosition = mechanical });
+        return rotator;
+    }
+
+    [Test]
+    public async Task BuildRenderRequest_RotatorConnected_AddsMechanicalToManualRotation() {
+        var focuser = FocuserAt(5000);
+        var telescope = ConnectedTelescope();
+        var rotator = RotatorAt(30.0f);
+
+        var options = BuildOptions();
+        options.SensorModel = SonySensorModel.IMX533; // smallest sensor: keeps the fake render array small
+        options.RotationDegrees = 5.0; // manual value acts as the offset
+
+        RenderRequest captured = null;
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call => {
+                captured = call.Arg<RenderRequest>();
+                return new ushort[3008 * 3008];
+            });
+
+        var camera = BuildCameraWithCompositor(
+            options, compositor, Substitute.For<IExposureDataFactory>(), focuser, telescope, rotator);
+        camera.Connect(CancellationToken.None).GetAwaiter().GetResult();
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+        await camera.DownloadExposure(CancellationToken.None);
+
+        Assert.That(captured, Is.Not.Null, "the compositor must have been handed a render snapshot");
+        Assert.That(captured.RotationDegrees, Is.EqualTo(35.0).Within(1e-6));
+    }
+
+    [Test]
+    public async Task BuildRenderRequest_RotatorDisconnected_UsesManualRotationOnly() {
+        var focuser = FocuserAt(5000);
+        var telescope = ConnectedTelescope();
+        var rotator = Substitute.For<IRotatorMediator>();
+        rotator.GetInfo().Returns(new RotatorInfo { Connected = false, MechanicalPosition = 30.0f });
+
+        var options = BuildOptions();
+        options.SensorModel = SonySensorModel.IMX533;
+        options.RotationDegrees = 5.0;
+
+        RenderRequest captured = null;
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call => {
+                captured = call.Arg<RenderRequest>();
+                return new ushort[3008 * 3008];
+            });
+
+        var camera = BuildCameraWithCompositor(
+            options, compositor, Substitute.For<IExposureDataFactory>(), focuser, telescope, rotator);
+        camera.Connect(CancellationToken.None).GetAwaiter().GetResult();
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+        await camera.DownloadExposure(CancellationToken.None);
+
+        Assert.That(captured, Is.Not.Null, "the compositor must have been handed a render snapshot");
+        Assert.That(captured.RotationDegrees, Is.EqualTo(5.0).Within(1e-6));
     }
 
     [Test]
