@@ -92,4 +92,13 @@ public class TiltAdapterGuidanceVMTests {
             Assert.That(new TiltAdapterGuidanceVM { ScrewCount = 3, HasBackfocusRow = false }.HasFourScrewBackfocus, Is.False);
         });
     }
+
+    [Test]
+    public void ShowAngleUnitSelector_RequiresNumericGuidanceAndScrews() {
+        Assert.Multiple(() => {
+            Assert.That(new TiltAdapterGuidanceVM { HasNumericGuidance = true, UnitsAreSteps = false }.ShowAngleUnitSelector, Is.True);
+            Assert.That(new TiltAdapterGuidanceVM { HasNumericGuidance = true, UnitsAreSteps = true }.ShowAngleUnitSelector, Is.False);
+            Assert.That(new TiltAdapterGuidanceVM { HasNumericGuidance = false, UnitsAreSteps = false }.ShowAngleUnitSelector, Is.False);
+        });
+    }
 }

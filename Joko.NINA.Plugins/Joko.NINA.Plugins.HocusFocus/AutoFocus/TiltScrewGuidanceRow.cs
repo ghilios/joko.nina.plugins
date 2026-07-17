@@ -42,6 +42,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public bool HasNumericGuidance { get; set; }
         public bool UnitsAreSteps { get; set; }
 
+        // The Turns/Degrees dropdown is meaningful only for screw adapters with numeric guidance;
+        // steppers always show whole steps. Single derived bool so the XAML uses one plain Visibility
+        // binding (mirrors HasFourScrewBackfocus).
+        public bool ShowAngleUnitSelector => HasNumericGuidance && !UnitsAreSteps;
+
         // Per-screw signed adjustments, all three rows carrying their own rotation direction
         // (⟳/⟲ glyphs for screws, +/− signs for steppers). The arrows grid above describes adapter
         // MOTION (⬆ = toward the objective), not rotation — the two answer different questions.
