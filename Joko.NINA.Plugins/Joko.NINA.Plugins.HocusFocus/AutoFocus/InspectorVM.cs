@@ -690,7 +690,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // (ctor, tiltAdapterOptions.PropertyChanged, ClearAnalyses) — only a genuinely completed analysis
             // counts as a new measurement.
             measurementGeneration++;
-            AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+            // Marshal the requery: AnalyzeAutoFocusResult runs on the analysis background task and
+            // NotifyCanExecuteChanged raises through CanExecuteChangedEventManager, which requires the UI thread
+            // (same reason as RebuildTiltGuidance's own requery above).
+            applicationDispatcher.DispatchSynchronizationContext(() => AutomaticAdjustmentCommand?.NotifyCanExecuteChanged());
             AutoFocusCompleted = true;
             return true;
         }
@@ -2097,16 +2100,24 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     angleUnit: tiltAdapterOptions.AngleDisplayUnit);
             }
 
-            TiltGuidance = guidance;
-            RaisePropertyChanged(nameof(TiltGuidance));
+            // Publish to the UI on the UI thread. RebuildTiltGuidance runs on the analysis background task (via
+            // AnalyzeAutoFocusResult) as well as on the UI thread (ctor, tiltAdapterOptions.PropertyChanged), and
+            // AutomaticAdjustmentCommand.NotifyCanExecuteChanged() raises through CanExecuteChangedEventManager,
+            // which throws when called off the UI thread. DispatchSynchronizationContext is a synchronous Send
+            // with a same-thread fast path, so it runs inline for UI callers and marshals for the background task
+            // — the same pattern NotifyReviewFramesAvailabilityChanged uses.
+            applicationDispatcher.DispatchSynchronizationContext(() => {
+                TiltGuidance = guidance;
+                RaisePropertyChanged(nameof(TiltGuidance));
 
-            // Numeric guidance availability and the device-linked calibration marker (both read from
-            // tiltAdapterOptions, whose PropertyChanged is what drives every call to this method) both feed
-            // Automatic Adjustment's canExecute gate — re-raise its remediation text/visibility and
-            // canExecute here so they never go stale.
-            RaisePropertyChanged(nameof(AutomaticAdjustmentRemediationVisible));
-            RaisePropertyChanged(nameof(AutomaticAdjustmentRemediationText));
-            AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+                // Numeric guidance availability and the device-linked calibration marker (both read from
+                // tiltAdapterOptions, whose PropertyChanged is what drives every call to this method) both feed
+                // Automatic Adjustment's canExecute gate — re-raise its remediation text/visibility and
+                // canExecute here so they never go stale.
+                RaisePropertyChanged(nameof(AutomaticAdjustmentRemediationVisible));
+                RaisePropertyChanged(nameof(AutomaticAdjustmentRemediationText));
+                AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+            });
         }
 
         private const double PitchMismatchFraction = 0.15;
