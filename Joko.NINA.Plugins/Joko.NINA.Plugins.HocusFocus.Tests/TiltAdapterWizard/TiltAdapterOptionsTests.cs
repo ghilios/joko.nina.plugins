@@ -122,6 +122,7 @@ public class TiltAdapterOptionsTests {
     [TestCase(nameof(TiltAdapterOptions.MeasureCurvatureDuringCalibration), true)]
     [TestCase(nameof(TiltAdapterOptions.CalibrationIsManual), true)]
     [TestCase(nameof(TiltAdapterOptions.AdjustmentType), TiltAdjustmentType.StepperMotors)]
+    [TestCase(nameof(TiltAdapterOptions.AngleDisplayUnit), TiltGuidanceAngleUnit.Degrees)]
     [TestCase(nameof(TiltAdapterOptions.ThreadPitchMicrons), 500.0)]
     [TestCase(nameof(TiltAdapterOptions.StepperStepSizeMicrons), 1.25)]
     [TestCase(nameof(TiltAdapterOptions.ScrewRadiusMillimeters), 21.0)]
@@ -133,5 +134,23 @@ public class TiltAdapterOptionsTests {
         var prop = typeof(TiltAdapterOptions).GetProperty(propertyName);
         prop.SetValue(options, Convert.ChangeType(newValue, prop.PropertyType));
         Assert.That(raised, Does.Contain(propertyName));
+    }
+
+    [Test]
+    public void AngleDisplayUnit_DefaultsToTurns() {
+        var (options, _, _) = Build();
+        Assert.That(options.AngleDisplayUnit, Is.EqualTo(TiltGuidanceAngleUnit.Turns));
+    }
+
+    [Test]
+    public void AngleDisplayUnit_PersistsAndRoundTrips() {
+        var (options, store, _) = Build();
+        options.AngleDisplayUnit = TiltGuidanceAngleUnit.Degrees;
+        Assert.Multiple(() => {
+            Assert.That(store.GetValueEnum(nameof(TiltAdapterOptions.AngleDisplayUnit), TiltGuidanceAngleUnit.Turns),
+                Is.EqualTo(TiltGuidanceAngleUnit.Degrees));
+            var reloaded = new TiltAdapterOptions(Substitute.For<IProfileService>(), store);
+            Assert.That(reloaded.AngleDisplayUnit, Is.EqualTo(TiltGuidanceAngleUnit.Degrees));
+        });
     }
 }

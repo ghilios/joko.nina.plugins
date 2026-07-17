@@ -2957,6 +2957,25 @@
                                     Visibility="{Binding TiltGuidance.HasFourScrewBackfocus, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             </Grid>
 
+                            <!--  Turns/Degrees display selector — screw adapters only (steppers always show whole steps)  -->
+                            <StackPanel
+                                Margin="5,8,5,0"
+                                Orientation="Horizontal"
+                                Visibility="{Binding TiltGuidance.ShowAngleUnitSelector, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <TextBlock Margin="0,0,6,0" VerticalAlignment="Center" Text="Display:" />
+                                <ComboBox
+                                    MinWidth="90"
+                                    VerticalAlignment="Center"
+                                    ItemsSource="{Binding Source={util:EnumBindingSource {x:Type hfenum:TiltGuidanceAngleUnit}}}"
+                                    SelectedItem="{Binding TiltGuidanceAngleUnit, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </StackPanel>
+
                             <!--  Precise numeric adjustments, each with its rotation glyph / step sign — shown when adapter hardware is configured  -->
                             <Grid
                                 Margin="5,8,5,0"

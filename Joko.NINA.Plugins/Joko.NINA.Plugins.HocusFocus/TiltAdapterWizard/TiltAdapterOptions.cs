@@ -59,6 +59,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measureCurvatureDuringCalibration = optionsAccessor.GetValueBoolean(nameof(MeasureCurvatureDuringCalibration), false);
             calibrationIsManual = optionsAccessor.GetValueBoolean(nameof(CalibrationIsManual), false);
             adjustmentType = optionsAccessor.GetValueEnum(nameof(AdjustmentType), TiltAdjustmentType.Screws);
+            angleDisplayUnit = optionsAccessor.GetValueEnum(nameof(AngleDisplayUnit), TiltGuidanceAngleUnit.Turns);
             threadPitchMicrons = optionsAccessor.GetValueDouble(nameof(ThreadPitchMicrons), -1.0);
             stepperStepSizeMicrons = optionsAccessor.GetValueDouble(nameof(StepperStepSizeMicrons), -1.0);
             screwRadiusMillimeters = optionsAccessor.GetValueDouble(nameof(ScrewRadiusMillimeters), -1.0);
@@ -232,6 +233,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (adjustmentType != value) {
                     adjustmentType = value;
                     optionsAccessor.SetValueEnum(nameof(AdjustmentType), adjustmentType);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private TiltGuidanceAngleUnit angleDisplayUnit;
+
+        public TiltGuidanceAngleUnit AngleDisplayUnit {
+            get => angleDisplayUnit;
+            set {
+                if (angleDisplayUnit != value) {
+                    angleDisplayUnit = value;
+                    optionsAccessor.SetValueEnum(nameof(AngleDisplayUnit), angleDisplayUnit);
                     RaisePropertyChanged();
                 }
             }

@@ -54,6 +54,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private readonly IExposureDataFactory exposureDataFactory;
         private readonly ITelescopeMediator telescopeMediator;
         private readonly IFocuserMediator focuserMediator;
+        private readonly IRotatorMediator rotatorMediator;
         private readonly ICameraSimulatorOptions options;
         private readonly IStarFieldCompositor compositor;
 
@@ -80,10 +81,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             IImageDataFactory imageDataFactory,
             ITelescopeMediator telescopeMediator,
             IFocuserMediator focuserMediator,
+            IRotatorMediator rotatorMediator,
             ICameraSimulatorOptions options)
             // The reader is built per exposure from the request's catalog-path snapshot (not latched here), so a
             // change to the option takes effect on the next exposure without reconnecting the camera.
-            : this(profileService, exposureDataFactory, imageDataFactory, telescopeMediator, focuserMediator, options,
+            : this(profileService, exposureDataFactory, imageDataFactory, telescopeMediator, focuserMediator, rotatorMediator, options,
                   new StarFieldCompositor(path => new AstapCatalogReader(path ?? CameraSimulatorOptions.DefaultAstapCatalogPath))) {
         }
 
@@ -93,6 +95,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             IImageDataFactory imageDataFactory,
             ITelescopeMediator telescopeMediator,
             IFocuserMediator focuserMediator,
+            IRotatorMediator rotatorMediator,
             ICameraSimulatorOptions options,
             IStarFieldCompositor compositor) {
             // profileService is part of the DI signature (HocusFocusSimulatorCameraProvider passes its MEF import)
@@ -106,6 +109,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             _ = imageDataFactory ?? throw new ArgumentNullException(nameof(imageDataFactory));
             this.telescopeMediator = telescopeMediator ?? throw new ArgumentNullException(nameof(telescopeMediator));
             this.focuserMediator = focuserMediator ?? throw new ArgumentNullException(nameof(focuserMediator));
+            this.rotatorMediator = rotatorMediator ?? throw new ArgumentNullException(nameof(rotatorMediator));
             this.options = options ?? throw new ArgumentNullException(nameof(options));
             this.compositor = compositor ?? throw new ArgumentNullException(nameof(compositor));
             this.temperatureSetPoint = options.SensorTemperatureCelsius;
@@ -649,6 +653,18 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 }
             }
 
+            // A connected rotator drives the frame's field rotation from its mechanical angle; the manual
+            // RotationDegrees option then acts as a calibration offset (zero-point nudge). With no rotator,
+            // the manual value sets the rotation directly — the pre-rotator behavior. Only RotationDegrees
+            // changes: the sensor-tilt azimuth (TiltAngleDegrees) is fixed to the sensor, which rotates with
+            // the camera, so it stays put in image space. If the rendered field ever turns the wrong way as
+            // MechanicalPosition increases, negate it here (TanProjection: +deg rotates E,N CCW into x,up).
+            var rotatorInfo = rotatorMediator.GetInfo();
+            var rotatorConnected = rotatorInfo?.Connected ?? false;
+            double rotationDegrees = rotatorConnected
+                ? rotatorInfo.MechanicalPosition + options.RotationDegrees
+                : options.RotationDegrees;
+
             return new RenderRequest {
                 FocuserConnected = focuserConnected,
                 FocuserPosition = focuserPosition,
@@ -675,7 +691,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 FocuserStepSizeMicrons = options.EffectiveFocuserStepSizeMicrons,
                 AstapCatalogPath = options.AstapCatalogPath,
                 LimitingMagnitude = options.LimitingMagnitude,
-                RotationDegrees = options.RotationDegrees,
+                RotationDegrees = rotationDegrees,
                 // The option is the BASE seed, not the frame seed. Mixing in the focuser position and a
                 // per-exposure counter gives every frame its own noise while keeping a fixed exposure sequence
                 // reproducible from the base seed. It stays a property of the REQUEST rather than of the

@@ -1915,6 +1915,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public TiltAdapterGuidanceVM TiltGuidance { get; private set; }
 
+        // Two-way bound by the Tilt Adapter Guidance dropdown. Writing it flips the persisted option,
+        // whose PropertyChanged is already subscribed to RebuildTiltGuidance() (see the constructor),
+        // so the numeric strings + legend regenerate in the new unit automatically.
+        public TiltGuidanceAngleUnit TiltGuidanceAngleUnit {
+            get => tiltAdapterOptions?.AngleDisplayUnit ?? TiltGuidanceAngleUnit.Turns;
+            set {
+                if (tiltAdapterOptions != null && tiltAdapterOptions.AngleDisplayUnit != value) {
+                    tiltAdapterOptions.AngleDisplayUnit = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
         public bool IsAnalysisRunning => AnalysisRunning();
 
         public bool HasTiltAdapterCalibration =>
@@ -2022,7 +2035,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (guidance.HasTiltGuidance || guidance.HasNumericGuidance) {
                 guidance.DirectionLegend = TiltAdapterGuidanceVM.BuildDirectionLegend(
                     steps: tiltAdapterOptions.AdjustmentType == TiltAdjustmentType.StepperMotors,
-                    signIsMeasured: tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured);
+                    signIsMeasured: tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured,
+                    angleUnit: tiltAdapterOptions.AngleDisplayUnit);
             }
 
             TiltGuidance = guidance;
@@ -2043,6 +2057,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (model == null) return;
 
             bool steps = tiltAdapterOptions.AdjustmentType == TiltAdjustmentType.StepperMotors;
+            var angleUnit = tiltAdapterOptions.AngleDisplayUnit;
             double unitMicrons = steps ? tiltAdapterOptions.StepperStepSizeMicrons : tiltAdapterOptions.ThreadPitchMicrons;
             double radiusMm = tiltAdapterOptions.ScrewRadiusMillimeters;
             if (unitMicrons <= 0 || radiusMm <= 0) return;
@@ -2066,15 +2081,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             for (int i = 0; i < n; i++) {
                 var corr = TiltScrewGeometry.ScrewCorrectionMicrons(
                     model.Gx, model.Gy, model.Kx, model.Ky, model.X0, model.Y0, angles[i], radiusMicrons);
-                tiltText[i] = TiltAdapterGuidanceVM.FormatAmount(corr.TiltMicrons / unitMicrons, steps);
-                backText[i] = TiltAdapterGuidanceVM.FormatAmount(resolvedSign * corr.BackfocusMicrons / unitMicrons, steps);
+                tiltText[i] = TiltAdapterGuidanceVM.FormatAmount(corr.TiltMicrons / unitMicrons, steps, angleUnit);
+                backText[i] = TiltAdapterGuidanceVM.FormatAmount(resolvedSign * corr.BackfocusMicrons / unitMicrons, steps, angleUnit);
                 // The curvature sign applies ONLY to the backfocus component: the tilt component's
                 // direction is already encoded by the stored response-convention screw angle (the same
                 // convention the tilt arrows invert), so multiplying the whole total by the sign would
                 // double-apply the rig direction to the tilt part on sign = -1 rigs.
                 double totalSigned = TiltScrewGeometry.SignedTotalAdjustment(
                     corr.TiltMicrons, corr.BackfocusMicrons, unitMicrons, resolvedSign);
-                totalText[i] = TiltAdapterGuidanceVM.FormatAmount(totalSigned, steps);
+                totalText[i] = TiltAdapterGuidanceVM.FormatAmount(totalSigned, steps, angleUnit);
             }
 
             guidance.Screw1TiltAmount = tiltText[0];
