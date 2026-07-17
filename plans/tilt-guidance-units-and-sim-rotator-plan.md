@@ -178,6 +178,7 @@ GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.nor
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/AutoFocus/TiltScrewGuidanceRow.cs`
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/AutoFocus/InspectorVM.cs` (call sites)
 - Test: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/AutoFocus/TiltAdapterGuidanceVMTests.cs`
+- Test: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/AutoFocus/InspectorVMBehavioralTests.cs` — has a second caller of `BuildDirectionLegend` (~line 165) that must also gain `angleUnit: TiltGuidanceAngleUnit.Turns`; add `using NINA.Joko.Plugins.HocusFocus.Interfaces;` there if missing.
 
 Both static methods gain a required `TiltGuidanceAngleUnit angleUnit` parameter. Steppers ignore it.
 Screws in `Degrees` show whole degrees (`turns × 360`, rounded away-from-zero) with the `⟳/⟲` glyph,
