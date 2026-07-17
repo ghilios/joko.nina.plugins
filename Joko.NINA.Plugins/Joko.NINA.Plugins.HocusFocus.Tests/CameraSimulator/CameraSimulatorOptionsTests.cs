@@ -392,6 +392,40 @@ public class CameraSimulatorOptionsTests {
             "a consumed legacy value must not resurrect after the user clears the calibration");
     }
 
+    /// <summary>
+    /// The profile-swap ordering hazard, pinned. Both objects reload on ProfileChanged: InspectorOptions re-reads
+    /// MicronsPerFocuserStep, and the camera sim's migration reads that value back. A migration running against a
+    /// not-yet-reloaded inspector would see the PREVIOUS profile's value, mistake a calibrated profile for an
+    /// uncalibrated one, and copy the legacy simulator value straight over a real calibration — silently, and
+    /// persisted, because the setter writes through.
+    ///
+    /// <para>The order is structurally guaranteed rather than incidental: CameraSimulatorOptions cannot be
+    /// constructed without an IInspectorOptions, so InspectorOptions necessarily exists first, and it subscribes to
+    /// ProfileChanged inside its own constructor — putting its handler first in the multicast list. This test is
+    /// what makes that fail LOUDLY if InspectorOptions is ever refactored to subscribe or reload lazily.</para>
+    /// </summary>
+    [Test]
+    public void ProfileSwap_MigrationSeesTheNewProfilesInspectorValue_NotTheOldOne() {
+        var profile = Substitute.For<IProfileService>();
+        var store = new InMemoryPluginOptionsAccessor();
+        var inspectorStore = new InMemoryPluginOptionsAccessor();
+        var inspector = NewInspector(profile, inspectorStore);
+        var options = new CameraSimulatorOptions(profile, store, inspector);
+        Assert.That(inspector.MicronsPerFocuserStep, Is.EqualTo(-1.0), "precondition: uncalibrated before the swap");
+
+        // The profile being swapped TO: a real calibration, plus a stale legacy simulator key alongside it.
+        inspectorStore.SetValueDouble(nameof(InspectorOptions.MicronsPerFocuserStep), 1.0);
+        store.SetValueDouble(nameof(CameraSimulatorOptions.FocuserStepSizeMicrons), 5.0);
+        profile.ProfileChanged += Raise.Event<EventHandler>(profile, EventArgs.Empty);
+
+        Assert.Multiple(() => {
+            // Reading a stale inspector (-1, from before the swap) would have copied the legacy 5.0 over this.
+            Assert.That(inspector.MicronsPerFocuserStep, Is.EqualTo(1.0),
+                "the new profile's calibration must win over the legacy simulator value");
+            Assert.That(options.EffectiveFocuserStepSizeMicrons, Is.EqualTo(1.0), "the render must use the new profile's 1.0");
+        });
+    }
+
     [Test]
     public void ResetDefaults_DoesNotClobberTheInspectorsCalibration() {
         var (options, inspector) = BuildWithInspector();

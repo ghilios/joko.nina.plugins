@@ -3166,16 +3166,44 @@
                 <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="ASTAP Catalog Path" ToolTip="{StaticResource CamSim_AstapCatalogPath_Tooltip}" />
                 <TextBox Grid.Row="2" Grid.Column="1" MaxWidth="240" Margin="5,5,0,0" HorizontalAlignment="Stretch" VerticalAlignment="Center" VerticalContentAlignment="Center" Style="{StaticResource StandardTextbox}" Text="{Binding CameraSimulatorOptions.AstapCatalogPath, UpdateSourceTrigger=LostFocus}" ToolTip="{StaticResource CamSim_AstapCatalogPath_Tooltip}" />
                 <!--
-                    Width/Height are load-bearing, not cosmetic. The Path is Stretch="Uniform" with no intrinsic
-                    size, so its DesiredSize is whatever it is MEASURED against; every RowDefinition in this grid is
-                    "*", so an unsized Button measured the dots against the full row height and rendered a ~660x182
-                    blob. VerticalAlignment does NOT save it — that is an ARRANGE-time property, and the oversized
-                    DesiredSize is already fixed by then. Sizing the Button bounds the measure, which is what the
-                    other two DotsSVG browse buttons in this file (Grid.Row 5 and 39) already do; 20x20 keeps all
-                    three identical. Sizing the row to Auto instead would reflow all six rows for one button.
+                    Deliberately the same shape as the other two DotsSVG browse buttons in this file (Grid.Row 5 at
+                    ~:727, Grid.Row 39 at ~:2272), which render correctly: Style BasedOn StandardButton, pinned 20x20,
+                    Margin 5,5,0,0, over an unsized Stretch="Uniform" Path with Margin="2,10,2,0". This row was the
+                    odd one out — it used StandardButton but pinned no size — and rendered a ~660x182 blob.
+
+                    The 20x20 is what fixes it. The Path is Stretch="Uniform" with no intrinsic size, so its
+                    DesiredSize is simply whatever it is MEASURED against, and StandardButton (decompiled from
+                    NINA.WPF.Base) constrains nothing: no Width/Height/Padding setters, BorderThickness=0, and a
+                    ControlTemplate whose ContentPresenter has Margin=0 and no size constraint, so the button's whole
+                    constraint reaches the content. Every RowDefinition in this grid is "*", so an unsized button
+                    measured the dots against the full row height. VerticalAlignment cannot undo that — it is
+                    ARRANGE-time, and the oversized DesiredSize is already fixed during MEASURE.
+
+                    Pinning the button bounds the measure: content box 20x20 (border 0, presenter margin 0), less the
+                    Path's Margin="2,10,2,0", leaves 16x10; DotsSVG's real bounds are 435.2x108.8 (aspect 4.0003:1,
+                    read from NINA's decompiled SVG dictionary), so Uniform is width-limited and the dots land at
+                    16.0x4.0 px — the intended "...".
+
+                    Sizing the row to Auto instead would reflow all six rows for one button.
                 -->
-                <Button Grid.Row="2" Grid.Column="2" Width="20" Height="20" Margin="5,5,0,0" HorizontalAlignment="Center" VerticalAlignment="Center" Command="{Binding ChooseAstapPathDiagCommand}" Style="{StaticResource StandardButton}" ToolTip="{StaticResource CamSim_AstapCatalogPath_Tooltip}">
-                    <Path Margin="2,10,2,0" Data="{StaticResource DotsSVG}" Fill="{StaticResource ButtonForegroundBrush}" Stretch="Uniform" />
+                <Button
+                    Grid.Row="2"
+                    Grid.Column="2"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Command="{Binding ChooseAstapPathDiagCommand}">
+                    <Path
+                        Margin="2,10,2,0"
+                        Data="{StaticResource DotsSVG}"
+                        Fill="{StaticResource ButtonForegroundBrush}"
+                        Stretch="Uniform" />
+                    <Button.Style>
+                        <Style BasedOn="{StaticResource StandardButton}" TargetType="{x:Type Button}">
+                            <Setter Property="Width" Value="20" />
+                            <Setter Property="Height" Value="20" />
+                            <Setter Property="Margin" Value="5,5,0,0" />
+                        </Style>
+                    </Button.Style>
                 </Button>
 
                 <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Limiting Magnitude" ToolTip="{StaticResource CamSim_LimitingMagnitude_Tooltip}" />

@@ -193,10 +193,16 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// (e.g. after the user deliberately clears their calibration). Same heal-the-store-once precedent as
         /// InspectorOptions' StepCount repair.</para>
         ///
-        /// <para>Ordering note: on a profile swap this runs from <see cref="ProfileService_ProfileChanged"/> and
-        /// reads <c>inspectorOptions</c>, which reloads on the same event. HocusFocusPlugin constructs
-        /// InspectorOptions BEFORE CameraSimulatorOptions, so InspectorOptions subscribed first and has already
-        /// reloaded from the new profile by the time this runs.</para>
+        /// <para>Ordering: on a profile swap this runs from <see cref="ProfileService_ProfileChanged"/> and reads
+        /// <c>inspectorOptions</c>, which reloads on the SAME event — so a stale read here would mistake a
+        /// calibrated profile for an uncalibrated one and copy the legacy value over a real calibration. The order
+        /// is structurally guaranteed rather than incidental: this class cannot be constructed without an
+        /// IInspectorOptions instance, so InspectorOptions necessarily exists first, and it subscribes to
+        /// ProfileChanged inside its own constructor — putting its handler ahead of ours in the multicast list.
+        /// (A reordering in HocusFocusPlugin therefore cannot make this silently wrong either: it would pass a null
+        /// and fail loudly in the constructor.) Pinned by
+        /// CameraSimulatorOptionsTests.ProfileSwap_MigrationSeesTheNewProfilesInspectorValue_NotTheOldOne, which
+        /// fails if InspectorOptions ever stops subscribing or reloading eagerly.</para>
         /// </summary>
         private void MigrateLegacyFocuserStepSize() {
             var legacy = optionsAccessor.GetValueDouble(nameof(FocuserStepSizeMicrons), Unset);
