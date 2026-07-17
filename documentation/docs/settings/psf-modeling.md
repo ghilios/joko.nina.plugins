@@ -6,7 +6,7 @@ After a star is detected and its HFR measured, Hocus Focus can fit an analytic *
 
 *The PSF modeling block: model type, resolution, parallel batch size, and fit threshold.*
 
-These settings live under the **Advanced** star-detection options. They do not affect star *acceptance* (which stars pass the [acceptance gates](acceptance-gates.md)). They only shape the per-star *shape measurement* that PSF fitting produces.
+These settings live under the **Advanced** star-detection options. They do not affect star *acceptance* (which stars pass the [acceptance gates](acceptance-gates.md)). They only affect the per-star *shape measurement* that PSF fitting produces.
 
 ## What PSF modeling does
 
@@ -97,7 +97,7 @@ After a star is fit, its coefficient of determination \( R^2 \) is compared agai
     Keep **0.9** for clean, well-fit metrics. **Lower** it (e.g. toward 0.8) if too many real stars are getting no FWHM because their fits fall just short, common for noisy frames or unusual profiles. **Raise** it toward 1.0 to admit only near-perfect fits when you want the cleanest possible shape statistics and can afford fewer measured stars.
 
 !!! warning
-    Setting the threshold to 0 is not allowed (the valid range is open at zero). A very low threshold lets poorly-fit stars through with unreliable FWHM/eccentricity; a very high threshold can leave most stars with no shape metrics at all.
+    A very low threshold lets poorly-fit stars through with unreliable FWHM/eccentricity; a very high one can leave most stars with no shape metrics at all.
 
 ## PSF Pixel Integration
 

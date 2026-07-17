@@ -34,7 +34,7 @@ A focus sweep produces a set of (focuser position, HFR) points that form a V: sh
 
 **Finalization.** Once the sweep is complete:
 
-1. In **Hybrid** mode all four concrete hyperbolic models are refit on the final points (each rejecting its own outliers), and the model with the smallest expected best-focus uncertainty is chosen.
+1. In **Hybrid** mode all four concrete hyperbolic models are refit on the final points (with consensus outlier rejection: only points that every solved model flags are removed), and the model with the smallest expected best-focus uncertainty is chosen.
 2. A leave-one-out stability pass refits with each point omitted in turn, reporting the spread of predicted best-focus positions.
 3. The final focus position is read from the chosen model: the hyperbolic/parabolic minimum, the trendline intersection, or (for the blended trend models) the average of the two.
 4. The fit is checked against the active rejection gate (\(R^2\) or reduced \(\chi^2\)) and confirmed to lie inside the measured sweep, an optional *Focuser Offset* is applied, and the focuser moves there.

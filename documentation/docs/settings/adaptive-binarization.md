@@ -2,8 +2,8 @@
 
 Candidate formation begins by binarizing the structure map at a noise floor: a pixel must rise a set number of
 noise sigmas above the background to survive as part of a star candidate. That floor is the single biggest lever
-on [recall](precision-recall.md), because a star that never clears it never becomes a candidate. This page tells
-how the floor's default was lowered, and then made to vary across the frame.
+on [recall](precision-recall.md), because a star that never clears it never becomes a candidate. This page
+explains how the floor's default was lowered, and then made to vary across the frame.
 
 ## The settings
 
@@ -38,7 +38,7 @@ help recall in isolation.*
 
 A lower floor admits fainter stars, and fainter stars can carry noisier HFR, so the next question was whether
 this hurts the focus curve. It does not. The per-region HFR-versus-focuser curve was rebuilt at each multiplier
-and parabola-fit for best-focus position and goodness of fit:
+(NC) and parabola-fit for best-focus position and goodness of fit:
 
 | Region | NC = 4 (legacy) | NC = 2 (default) |
 |---|---|---|
@@ -53,8 +53,8 @@ stars but with slightly more corner scatter, so the setpoint landed at **2.0**.
 
 Why 2 and not 1.5? Three checks ran independently and agreed across a 17-run bank of saved focus runs:
 
-- Recall @ SNR≥12 rose bank-wide as the multiplier fell, with the median going from 0.797 at NC=4 to 0.870 at
-  NC=2.
+- Recall @ SNR≥12 rose bank-wide as the multiplier fell, with the median going from 0.797 at NC = 4 to 0.870 at
+  NC = 2.
 - On the run with the most complete golden (so its precision is trustworthy), dropping to 2 roughly doubled
   recall (0.189 → 0.459) for a negligible precision cost (0.849 → 0.811).
 - The per-run optimizer, which minimizes focus scatter and is therefore immune to the precision-measurement
@@ -65,7 +65,7 @@ So the default changed from **4 to 2**.
 
 ## A single global floor is the wrong shape
 
-A single global multiplier still leaves recall on the table. Recall was still climbing at NC=2 on the cleanest
+A single global multiplier still leaves recall on the table. Recall was still climbing at NC = 2 on the cleanest
 frames, yet a lower global value floods the noisy corners with false candidates. The reason is that the floor is
 one scalar applied to a frame that is not uniform. Vignetting, sky gradients, amp glow, and field-edge falloff
 make the local background and local noise vary by two to four times across a single frame. A global floor is
@@ -88,12 +88,12 @@ blocks by default) and upsampled to the full frame. The multiplier stays at 2, b
 where the background is clean, recovering faint stars, and high where it is noisy, rejecting noise. This is the
 same local-statistics approach the reference detector uses to define the recall target in the first place.
 
-Tested OFF against ON at NC=2 across the 17-run bank, the surface improves recall and precision *together*,
+Tested OFF against ON at NC = 2 across the 17-run bank, the surface improves recall and precision *together*,
 which no single global value can do:
 
 ![Adaptive binarization OFF versus ON: recall, precision, and focus scatter all improve](../assets/figures/nc-adaptive-ab.png){ width=700 }
 
-*OFF versus ON at NC=2. Bank-median recall @ SNR≥12 and precision both rise, and the autofocus fit tightens. On
+*OFF versus ON at NC = 2. Bank-median recall @ SNR≥12 and precision both rise, and the autofocus fit tightens. On
 the run with the most complete golden, recall jumps from 0.459 to 0.862 and the focus scatter is more than
 halved.*
 
@@ -104,9 +104,9 @@ default**. The multiplier stays at 2; the surface is what makes that 2 fair ever
 
 Two independent switches turn the change off:
 
-- **`LocallyAdaptiveBinarization = false`** reverts the floor's *shape* to the legacy single global scalar. With
-  it off, candidate formation is bit-for-bit identical to the pre-change detector.
-- **`NoiseClippingMultiplier = 4.0`** reverts the floor's *level* to the legacy default.
+- Turning **Locally Adaptive Binarization** off reverts the floor's *shape* to the legacy single global scalar.
+  With it off, candidate formation is bit-for-bit identical to the pre-change detector.
+- Setting **Noise Clipping Multiplier** back to **4.0** reverts the floor's *level* to the legacy default.
 
 Setting both restores the full legacy behavior. The only reason to do that is to reproduce or compare against the
 old detector. The validated defaults (NC = 2, adaptive on) beat the legacy settings on every rollout criterion

@@ -1,4 +1,4 @@
-# Hyperbolic Focus-Curve Fitting
+# Hyperbolic Curve Fitting
 
 A focus sweep produces a set of `(focuser position, HFR)` points that trace a V: HFR is large when the
 star is defocused and drops to a minimum at best focus. Hocus Focus fits a hyperbola to that V, reads

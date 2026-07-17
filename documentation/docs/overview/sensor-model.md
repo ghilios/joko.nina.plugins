@@ -20,11 +20,12 @@ is the focuser position (in microns) at which that point of the sensor reaches b
 
 The inspector fits the focus surface at two levels of detail.
 
-- The **4-corners model** is the simpler of the two, always computed. It measures best focus at the
-  center and the four corners, then reads tilt from how the corners differ and backfocus from how the
-  corners sit relative to the center. It is cheap and needs only those five focus curves, but it cannot
-  tell field curvature apart from backfocus, and it says nothing about sensor centering.
-- The **sensor surface model** (the **Sensor Curve Model** option) is the rigorous model. It fits a
+- The **4-corners model** (the [tilt plane](tilt-aberration-inspector.md#the-tilt-plane) on the
+  inspector page) is the simpler of the two, always computed. It measures best focus at the center
+  and the four corners, then reads tilt from how the corners differ and backfocus from how the
+  corners sit relative to the center. It is cheap and needs only those five focus curves, but it
+  cannot tell field curvature apart from backfocus, and it says nothing about sensor centering.
+- The **sensor surface model** (the **Sensor Curve Model Enabled** option) is the rigorous model. It fits a
   focus curve for *every* matched star across the frame, then fits a tilted paraboloid through all of
   those best-focus positions. That extra data lets it separate tilt, field curvature, and centering,
   and put an uncertainty on each result. It is also more demanding: it needs many well-fit stars, so it

@@ -58,7 +58,7 @@ An optional Gaussian blur (radius configurable) suppresses pixel-to-pixel noise 
 the floor and the structure step is cleaner. It can be applied to the image actually measured, to the
 structure-detection copy only, or to neither. Blurring trades a little positional precision for sensitivity,
 so it helps most on noisy, short, or high-gain subs and can hurt on already-clean, well-sampled frames. See
-[Pre-processing](../settings/preprocessing.md).
+[Preprocessing](../settings/preprocessing.md).
 
 ### 4. Wavelet structure detection (remove large-scale structures)
 
@@ -90,7 +90,7 @@ T = \text{median} + k_\sigma \cdot \sigma_{\text{noise}}
 Raising \( k_\sigma \) demands a stronger signal to count as a star (fewer, more reliable detections);
 lowering it admits fainter structure (more stars, more risk of noise). By default this threshold is computed
 *per region* rather than once for the whole frame (locally adaptive binarization), so the same multiplier stays
-fair across a vignetted or gradient-heavy frame. See [Pre-processing](../settings/preprocessing.md), and
+fair across a vignetted or gradient-heavy frame. See [Preprocessing](../settings/preprocessing.md), and
 [Adaptive Binarization](../settings/adaptive-binarization.md) for why the default multiplier is 2.
 
 ### 6. Optional dilation
@@ -129,7 +129,7 @@ For each candidate the detector measures, in order:
 does not require fitting a model.*
 
 The pixel sampling step controls the HFR grid: a finer step samples undersampled stars more faithfully at
-some cost in speed. See [Pre-processing](../settings/preprocessing.md) and
+some cost in speed. See [Preprocessing](../settings/preprocessing.md) and
 [PSF Modeling](../settings/psf-modeling.md) for the optional model fit (step 10).
 
 ### 9. Acceptance gates

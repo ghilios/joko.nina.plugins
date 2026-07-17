@@ -36,7 +36,7 @@ Most axes are a one-to-one alias for a single `StarDetectorParams` field. Two ar
 
 ### `DefocusAwareGates` (Boolean)
 
-A single on/off switch that flips **both** defocus-aware gate relaxations together (`DefocusAwareDistortion` and `DefocusAwareCentering`) in lockstep. When enabled, these gates relax the distortion and centering checks for large candidates (large size is used as a defocus proxy), recovering bloated and donut-shaped defocused stars that the strict gates would reject (see [defocused stars](../settings/acceptance-gates.md)).
+A single on/off switch that flips **both** defocus-aware gate relaxations together (`DefocusAwareDistortion` and `DefocusAwareCentering`) in lockstep. When enabled, these gates relax the distortion and centering checks for large candidates (large size is used as a defocus proxy), recovering bloated and donut-shaped defocused stars that the strict gates would reject (see [Defocus-Aware Gates](../settings/acceptance-gates.md#defocus-aware-gates)).
 
 The variable reads the distortion flag as its value and writes the same value to both flags. Both flags are OFF in the default seed parameters, so the baseline is unchanged, and the search may flip the pair on if it helps the curve.
 
@@ -67,7 +67,7 @@ Detection is internally split into a cacheable **EARLY context** (image preparat
 - **LATE axes** are everything else: `Sensitivity`, `StarClippingMultiplier`, `PeakResponse`, `MaxDistortion`, `MinHFR`, `StarCenterTolerance`, `MinimumStarBoundingBoxSize`, and, when donut recovery is enabled, the synthetic `DefocusAwareGates`. A move on a LATE axis is a **per-frame cache hit**: it reuses the already-built early context and only re-runs the cheap gate/measure stage.
 
 !!! tip "Why this is ~10–13× faster"
-    The staged compass search refines all the cheap LATE axes first (with the EARLY params pinned, so every probe is a cache hit), then runs one bounded EARLY stage, and only revisits EARLY if it keeps improving. This drastically cuts the number of full re-detects versus probing every axis on every sweep, without changing which points are reachable, only the order they're visited. See [the search algorithm](search-algorithm.md).
+    The staged compass search refines all the cheap LATE axes first (with the EARLY params pinned, so every probe is a cache hit), then runs one bounded EARLY stage, and only revisits EARLY if it keeps improving. This cuts the number of full re-detects versus probing every axis on every sweep, without changing which points are reachable, only the order they're visited. See [the search algorithm](search-algorithm.md).
 
 ![Staged compass/pattern search trajectory on a 2D objective surface](../assets/figures/compass-search.png){ width=620 }
 

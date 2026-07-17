@@ -14,7 +14,7 @@ settings by the *quality of the focus curve they produce* (not by any single han
 optimizes the whole detection pipeline against the outcome you actually care about.
 
 The wizard launches from the top of the Star Detection options page. Its optimized settings are
-stored **separately** from your presets and are activated by a single Simple-Mode toggle ("Use
+stored **separately** from your presets and are activated by a single Simple-mode toggle ("Use
 Optimized Settings") that only appears once a run has succeeded. Nothing is overwritten until you
 confirm, and the toggle is fully reversible.
 
@@ -26,7 +26,7 @@ reproducible and the optimizer can be exercised without launching NINA.
 
 ![The optimization wizard start page with the saved-run source picker, mode, and objective toggles](../assets/screenshots/optimizer-wizard-start.png){ width=620 }
 
-*The wizard's start page: choose a saved auto-focus run and the optimization objectives.*
+*The wizard's start page: choose a saved autofocus run and the optimization objectives.*
 
 The high-level loop has three steps:
 
@@ -47,7 +47,7 @@ The high-level loop has three steps:
 
 ![The optimization wizard summary with the focus curve, focus precision, stars per frame, and recommended step size](../assets/screenshots/optimizer-wizard-summary.png){ width=620 }
 
-*The summary shows the resulting focus curve, focus precision, and a recommended auto-focus step size.*
+*The summary shows the resulting focus curve, focus precision, and a recommended autofocus step size.*
 
 Optionally, you can label a handful of hard frames (missed stars, false positives) to add a
 **recall/precision** term to the score (recall = the fraction of real stars recovered; precision = the
@@ -104,11 +104,12 @@ A live run goes like this:
     The optimizer needs stars all the way out to the defocused ends of the sweep, so pick an exposure
     long enough to keep them visible there. Narrowband filters often need a longer exposure to start.
     Once a live run succeeds, shorten the exposure and run it again to find how far you can push it (see
-    the [Quick Start](../quick-start.md) narrowband tip).
+    the [Quick Start](../quick-start.md) narrowband section).
 
-On the summary, a live run adds one option beside the recommended step size: **Apply this exposure time
-to my profile when I click Accept**. Turn it on to adopt the sweep exposure as your auto-focus exposure
-time, so you focus with the exposure you optimized against.
+On the summary, a live run adds an **Exposure** row beside the recommended step size, and the **Apply
+these auto-focus settings to my profile when I click Accept** checkbox covers it: turn it on to adopt
+the sweep exposure as your auto-focus exposure time, so you focus with the exposure you optimized
+against.
 
 ## How a candidate is scored
 
@@ -154,7 +155,7 @@ This section documents every moving part of the optimizer:
 !!! tip "When the wizard helps most"
 
     Run it when you have switched cameras, scopes, or filters; when autofocus has felt unreliable; or
-    when you have never tuned star detection beyond the Simple-Mode presets. The wizard optimizes
+    when you have never tuned star detection beyond the Simple-mode presets. The wizard optimizes
     against one saved run at a time, which keeps its recommendation interpretable, so the more
     representative that run is of how you actually autofocus (same camera, scope, filter, and
     exposure), the better the result. If you have several saved runs, pick the cleanest, most typical

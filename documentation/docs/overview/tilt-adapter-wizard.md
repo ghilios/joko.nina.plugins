@@ -4,7 +4,9 @@ A measured tilt plane tells you which corners need to move and by how much, but 
 the sensor along that screw's own axis. To convert the [Tilt & Aberration
 Inspector](tilt-aberration-inspector.md) measurement into a concrete instruction (*"turn this screw
 clockwise ¼ turn"*), the wizard must know where each screw sits relative to the sensor and how far a
-turn moves it. That mapping is established once by the **Tilt Adapter Wizard**.
+turn moves it. That mapping is established once by the **Tilt Adapter Wizard**. (To practice the
+measure-and-correct loop before working on real hardware, see the
+[Camera Simulator](camera-simulator.md#rehearse-a-tilt-calibration-in-the-daytime).)
 
 ![The Tilt Adapter Guidance table giving the direction and number of turns for each screw](../assets/screenshots/inspector-tilt-guidance.png){ width=620 }
 
@@ -49,9 +51,9 @@ every step ends with a measurement. From the change in the tilt vector \((\Delta
 computes each screw's angle.
 
 The four-step run does not measure which way a clockwise turn moves the adapter. That direction
-comes from the adapter direction setting in the wizard's **Measurement** section, labeled **Turning
-screws clockwise moves the adapter** (or **Applying + steps moves the adapter** for steppers):
-either **Toward the camera — outward** (the default) or **Toward the objective — inward**. Until it
+comes from the adapter direction setting in the wizard's **Measurement** section, labeled **Screw ⟳
+moves adapter** (or **+ steps move adapter** for steppers):
+either **Toward the camera** (outward, the default) or **Toward the objective** (inward). Until it
 is measured, guidance marks the direction "(assumed)". To measure it, turn on **Measure direction**:
 this adds two steps (an all-screws-clockwise move plus a return to baseline) that determine the sign
 of the effect (`ScrewInwardCurvatureSign`) from the curvature change, and the saved calibration then
@@ -113,7 +115,7 @@ adapter direction setting, so guidance stays marked "(assumed)" until a **Measur
 verifies it. The entered angle is interpreted with the adapter direction setting in effect when you
 click **Apply**; if you change that setting later, click **Apply** again. If guidance moves the
 tilt the wrong way after a manual entry, the numbering direction is flipped: switch it and Apply
-again. A wrong adapter direction setting inverts guidance the same way — correct that setting and
+again. A wrong adapter direction setting inverts guidance the same way; correct that setting and
 click **Apply** again.
 
 ## Hardware model and device presets

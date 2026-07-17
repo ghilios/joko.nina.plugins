@@ -19,7 +19,7 @@ test fires and whether a flagged star is thrown out or merely marked.
 | Reject Contaminated Stars | On | On / Off | On removes flagged stars from the result; Off keeps them and only marks them. |
 
 These are Advanced-mode options. In Simple mode the preset derivation never overrides them,
-so they keep whatever value you (or a reset) last set, i.e. the defaults above.
+so they keep whatever value you (or a reset) last set (for most users, the defaults above).
 
 ## How the gradient-robust test works
 
@@ -104,7 +104,7 @@ Decides whether a flagged star is removed from the result or kept and only marke
 
 **Default:** On &nbsp;•&nbsp; **Range:** On / Off
 
-When **on**, a flagged star is dropped via the `Contaminated` rejection gate and never enters
+When **on**, a flagged star is dropped via the **Contaminated** rejection gate and never enters
 the HFR/PSF aggregation. When **off**, the same star stays in the detected set carrying its
 "contamination suspected" marker, useful for inspection and for the labeling/diagnostic
 tools, which keep flagged stars so they can be analyzed.

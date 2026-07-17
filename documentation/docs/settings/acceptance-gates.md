@@ -23,7 +23,7 @@ This page documents the gates exposed as **Advanced** star-detection options. Th
 !!! note
     These settings live under **Advanced** star detection. In **Simple** mode they are derived for you from the noise level, pixel scale, and focus-range presets, and the values below are what those presets resolve to. If you have run the [Optimization Wizard](../optimization/index.md), a curated subset of these gates is what it tunes.
 
-## Summary
+## Settings at a glance
 
 | Setting | Default | Range | Effect |
 |---|---|---|---|
@@ -47,13 +47,13 @@ Rejects candidates whose signal does not rise far enough above the local backgro
 
 > Given a star with a normalized brightness measure of **s**, a local background of **b**, and a background noise level of **n**, star sensitivity is measured as the ratio of the star brightness above the background relative to the background noise **(s-b)/n**. The noise level **n** is measured on the image actually used for star measurement, so this value is an honest multiple of the real noise and means the same thing regardless of noise-reduction settings. The default of 2 works well; if you find a large number of rejections due to low sensitivity, smaller values increase sensitivity
 
-A candidate is accepted only when its normalized brightness divided by the measurement-image noise σ exceeds this threshold, so the gate is a signal-to-noise floor:
+A candidate is accepted only when its brightness above background divided by the measurement-image noise \(n\) exceeds this threshold, so the gate is a signal-to-noise floor:
 
 \[
 \frac{s - b}{n} > \text{BrightnessSensitivity}
 \]
 
-**Smaller values are more sensitive** (they admit fainter stars); larger values are stricter. Because σ is measured on the image actually sampled for star measurement, the same threshold keeps its meaning whether or not noise reduction is enabled.
+**Smaller values are more sensitive** (they admit fainter stars); larger values are stricter. Because \(n\) is measured on the image actually sampled for star measurement, the same threshold keeps its meaning whether or not noise reduction is enabled.
 
 **Default:** 2.0. **Range:** ≥ 0 (must be non-negative)
 
