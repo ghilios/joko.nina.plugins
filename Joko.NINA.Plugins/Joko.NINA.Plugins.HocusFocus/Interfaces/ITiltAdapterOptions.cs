@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.Converters;
 using System.ComponentModel;
 
 namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
@@ -17,6 +18,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     public enum TiltAdjustmentType {
         Screws = 0,
         StepperMotors = 1
+    }
+
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum TiltGuidanceAngleUnit {
+
+        [Description("Turns")]
+        Turns = 0,
+
+        [Description("Degrees")]
+        Degrees = 1
     }
 
     public interface ITiltAdapterOptions : INotifyPropertyChanged {
@@ -47,6 +58,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Physical adapter hardware model, used to convert focus deviation into absolute
         // screw turns (or stepper steps). -1 = unset.
         TiltAdjustmentType AdjustmentType { get; set; }      // screws vs stepper motors
+
+        // Display unit for the Tilt Adapter Guidance numeric amounts on screw adapters:
+        // Turns (default) or Degrees (1 turn = 360°). Ignored for stepper adapters (always whole steps).
+        TiltGuidanceAngleUnit AngleDisplayUnit { get; set; }
+
         double ThreadPitchMicrons { get; set; }              // axial microns per full screw turn
         double StepperStepSizeMicrons { get; set; }          // axial microns per stepper step
         double ScrewRadiusMillimeters { get; set; }          // screw distance from sensor center
