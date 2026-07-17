@@ -131,11 +131,9 @@
             Margin="0,6,0,0"
             HorizontalAlignment="Right"
             Orientation="Horizontal">
-            <Button
-                MinWidth="90"
-                Padding="12,6"
-                Command="{Binding CloseCommand}"
-                Content="Cancel" />
+            <Button MinWidth="90" Command="{Binding CloseCommand}">
+                <TextBlock Margin="12,6" Text="Cancel" />
+            </Button>
         </StackPanel>
     </Grid>
 </UserControl>

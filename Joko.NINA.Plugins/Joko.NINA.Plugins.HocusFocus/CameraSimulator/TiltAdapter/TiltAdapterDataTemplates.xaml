@@ -60,13 +60,13 @@
                         TextWrapping="Wrap" />
                     <Button
                         Margin="8,0,0,0"
-                        Padding="6,1"
                         VerticalAlignment="Center"
                         Command="{Binding AutoFillAnglesCommand}"
-                        Content="Auto-fill evenly"
                         Style="{StaticResource StandardButton}"
                         ToolTip="{StaticResource HFSim_AutoFill_Tooltip}"
-                        Visibility="{Binding CanAutoFillFromBanner, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
+                        Visibility="{Binding CanAutoFillFromBanner, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
+                        <TextBlock Margin="6,1" Text="Auto-fill evenly" />
+                    </Button>
                 </WrapPanel>
             </Border>
 
@@ -85,11 +85,11 @@
                     <!--  Operate deliberately stays enabled: editing an inert state is legal, just inert.  -->
                     <Button
                         Margin="8,0,0,0"
-                        Padding="6,1"
                         VerticalAlignment="Center"
                         Command="{Binding EnableAberrationsCommand}"
-                        Content="Enable"
-                        Style="{StaticResource StandardButton}" />
+                        Style="{StaticResource StandardButton}">
+                        <TextBlock Margin="6,1" Text="Enable" />
+                    </Button>
                 </WrapPanel>
             </Border>
 
@@ -134,12 +134,12 @@
                     controls:IconizedText.Text="{Binding LastActionText}" />
                 <Button
                     Margin="8,0,0,0"
-                    Padding="6,1"
                     VerticalAlignment="Center"
                     Command="{Binding UndoCommand}"
-                    Content="Undo"
                     Style="{StaticResource StandardButton}"
-                    ToolTip="Reverts the last click — the injected plane, the best-focus position and the net counters." />
+                    ToolTip="Reverts the last click — the injected plane, the best-focus position and the net counters.">
+                    <TextBlock Margin="6,1" Text="Undo" />
+                </Button>
             </WrapPanel>
 
             <!--  ============ Operate: amount per click ============  -->
@@ -271,12 +271,12 @@
                 <TextBlock VerticalAlignment="Center" Text="{Binding NetPositionText}" />
                 <Button
                     Margin="8,0,0,0"
-                    Padding="6,1"
                     VerticalAlignment="Center"
                     Command="{Binding RezeroCommand}"
-                    Content="Re-zero"
                     Style="{StaticResource StandardButton}"
-                    ToolTip="{Binding RezeroTooltip}" />
+                    ToolTip="{Binding RezeroTooltip}">
+                    <TextBlock Margin="6,1" Text="Re-zero" />
+                </Button>
             </WrapPanel>
 
             <!--  ============ Inject ============  -->
@@ -348,12 +348,12 @@
                     </Grid>
                     <Button
                         Margin="0,6,0,0"
-                        Padding="6,2"
                         HorizontalAlignment="Left"
                         Command="{Binding ZeroAberrationsCommand}"
-                        Content="Zero all aberrations"
                         Style="{StaticResource StandardButton}"
-                        ToolTip="Flattens the injected plane instantly, for starting a fresh scenario." />
+                        ToolTip="Flattens the injected plane instantly, for starting a fresh scenario.">
+                        <TextBlock Margin="6,2" Text="Zero all aberrations" />
+                    </Button>
                 </StackPanel>
             </Expander>
 
@@ -552,12 +552,12 @@
 
                     <Button
                         Margin="0,6,0,0"
-                        Padding="6,2"
                         HorizontalAlignment="Left"
                         Command="{Binding AutoFillAnglesCommand}"
-                        Content="Auto-fill evenly"
                         Style="{StaticResource StandardButton}"
-                        ToolTip="{StaticResource HFSim_AutoFill_Tooltip}" />
+                        ToolTip="{StaticResource HFSim_AutoFill_Tooltip}">
+                        <TextBlock Margin="6,2" Text="Auto-fill evenly" />
+                    </Button>
 
                     <!--  The wizard's diagram, reused unchanged: it already solves the mirroring-education problem
                           (0° chevron, "top of image" caption, clockwise cue). It lives here and not in Operate
@@ -580,18 +580,18 @@
                         ToolTip="{Binding AdapterCoherenceTooltip}" />
                     <WrapPanel Margin="0,4,0,0">
                         <Button
-                            Padding="6,2"
                             Command="{Binding CopyFromAdapterCommand}"
-                            Content="Copy from adapter settings"
                             Style="{StaticResource StandardButton}"
-                            ToolTip="Replaces this simulated adapter's geometry with the real tilt-adapter settings. Does not touch the real settings." />
+                            ToolTip="Replaces this simulated adapter's geometry with the real tilt-adapter settings. Does not touch the real settings.">
+                            <TextBlock Margin="6,2" Text="Copy from adapter settings" />
+                        </Button>
                         <Button
                             Margin="6,0,0,0"
-                            Padding="6,2"
                             Command="{Binding CopyToAdapterCommand}"
-                            Content="Copy to adapter settings…"
                             Style="{StaticResource StandardButton}"
-                            ToolTip="Overwrites the real tilt-adapter calibration with this simulated adapter's geometry. Asks for confirmation first." />
+                            ToolTip="Overwrites the real tilt-adapter calibration with this simulated adapter's geometry. Asks for confirmation first.">
+                            <TextBlock Margin="6,2" Text="Copy to adapter settings…" />
+                        </Button>
                     </WrapPanel>
 
                     <!--  An inline confirmation rather than a modal: nothing in this panel is allowed to block.
@@ -610,17 +610,15 @@
                                 Text="{Binding CopyToAdapterConfirmText}"
                                 TextWrapping="Wrap" />
                             <WrapPanel Margin="0,4,0,0">
-                                <Button
-                                    Padding="6,2"
-                                    Command="{Binding ConfirmCopyToAdapterCommand}"
-                                    Content="Overwrite"
-                                    Style="{StaticResource StandardButton}" />
+                                <Button Command="{Binding ConfirmCopyToAdapterCommand}" Style="{StaticResource StandardButton}">
+                                    <TextBlock Margin="6,2" Text="Overwrite" />
+                                </Button>
                                 <Button
                                     Margin="6,0,0,0"
-                                    Padding="6,2"
                                     Command="{Binding CancelCopyToAdapterCommand}"
-                                    Content="Cancel"
-                                    Style="{StaticResource StandardButton}" />
+                                    Style="{StaticResource StandardButton}">
+                                    <TextBlock Margin="6,2" Text="Cancel" />
+                                </Button>
                             </WrapPanel>
                         </StackPanel>
                     </Border>
