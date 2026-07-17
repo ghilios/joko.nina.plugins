@@ -130,9 +130,11 @@ prints are the glyphs the panel takes**.
 **Equipment → Camera** → select **"Hocus Focus Simulator"** → click the **gear** button beside the dropdown.
 
 - **Expect:** a non-resizable tool window titled **"Hocus Focus Simulator Setup"**, containing a bold **Rig**
-  header, a one-line explainer, exactly **six** rows — **Sensor Model**, **Aperture** (mm), **Focal Length**
-  (mm), **Central Obstruction** (checkbox), **Obstruction Fraction**, **Optical Throughput** — then a separator
-  and the **virtual tilt adapter panel**.
+  header, a one-line explainer, and exactly **six** rows — **Sensor Model**, **Aperture** (mm), **Focal Length**
+  (mm), **Central Obstruction** (checkbox), **Obstruction Fraction**, **Optical Throughput**. **Nothing else** —
+  the dialog is sensor + optics only. The virtual tilt adapter is **not** here: it is rig state NINA latches at
+  connect, whereas the adapter is worked mid-session, so the adapter lives in the Imaging dockable (its panel)
+  and in **Options → Hocus Focus → Camera Sim → Tilt Adapter** (its configuration).
 - Values edit and persist: set Aperture to **120**, close, reopen → **120**, and the Camera Sim options page
   agrees (check (i)).
 - **Aperture and Focal Length clamp on commit rather than showing a validation border** — type **99999** into
@@ -178,8 +180,10 @@ prints are the glyphs the panel takes**.
   disabled — the plane below has no effect on rendered frames"* plus an **Enable** button, and stays operable
   (editing an inert plane is legal — it just doesn't render).
 
-### (k) The tilt-adapter panel renders in both hosts
-The setup dialog (below the separator) and the Imaging tab host the **same control**. Check both.
+### (k) The tilt-adapter panel renders in the dockable, and its configuration also on the options page
+The Imaging dockable hosts the **whole panel**. **Options → Hocus Focus → Camera Sim → Tilt Adapter** hosts the
+**same "Adapter configuration" markup** (one template, two hosts) — rendered inline there, always expanded, with
+no expander around it. Check both.
 
 - **Expect, out of the box:**
   - state strip `Plane:  0.0 µm @ 0°   ·   Backfocus 0.0 µm` with a green **`✓ ≈ flat`**
@@ -189,14 +193,12 @@ The setup dialog (below the separator) and the Imaging tab host the **same contr
   - `Net (turns):  1: 0.00  ·  2: 0.00  ·  3: 0.00` with **Re-zero**
   - two **collapsed** expanders: `Injected aberration` and
     `Adapter configuration (3 screws · Screws · 500 µm/turn · R 30 mm · ⟳ → camera · …)`
-- **Both hosts share the state that matters — but not everything, and that's by design.** They read and write one
-  options object, so the *injected plane* is shared: click `⟳` on Screw 2 in the dockable and the setup dialog's
-  state strip (tilt / backfocus) follows.
-  **Expected NOT to follow — do not report these:** `Net (turns)`, **Undo**, and `Amount per click` are per-panel
-  (each host has its own view-model). So after that click the dockable shows `2: 0.25` while the setup dialog
-  still reads `2: 0.00`, and Undo in one host won't undo a turn made in the other. Net position is a *display*
-  odometer over the shared plane, not part of it — `Re-zero` re-bases only that host's counter and never touches
-  the rig.
+- **Both hosts share the state that matters.** They read and write one options object, so the adapter *geometry*
+  is shared: set **Screw radius = 40 mm** on the options page and the dockable's `Adapter configuration` summary
+  follows live (and vice versa), with no restart. The same holds for the injected plane.
+  **Expected NOT to follow — do not report these:** `Net (turns)`, **Undo**, and `Amount per click` are per-host
+  (each host has its own view-model), and only the dockable has them at all. Net position is a *display* odometer
+  over the shared plane, not part of it — `Re-zero` re-bases only that host's counter and never touches the rig.
 - Set **Screw count = 4** → a `Corner | Side | Backfocus` segmented radio appears above four rows, each naming
   its coupled partner (`3 opposes`, `4 opposes`, …), and **Screw 3/4 angle** render **dimmed and derived**
   (+180° of screws 1/2), not editable. Set it back to 3 → selector gone.
@@ -253,17 +255,18 @@ Expand **Adapter configuration**.
 - **This badge is the loop's precondition.** The inspector guides from the *real* adapter settings while the
   simulator obeys the sim's. If they differ the loop will not converge, and the math will not be at fault.
 
-### (o) Setup-dialog sizing — please report what you see
-Flagged during implementation; it needs a human at a real display. The setup window is **`ResizeMode.NoResize`
-with no `ScrollViewer`**.
+### (o) Options-page layout for the adapter config — please report what you see
+Needs a human at a real display. The old version of this check asked about the **setup dialog** growing when
+`Adapter configuration` was expanded inside it (`ResizeMode.NoResize`, no `ScrollViewer`). **That is moot**: the
+adapter is no longer in that dialog, which is now six rows and always compact. The question moved with the markup.
 
-- It opens **compact** — **Adapter configuration** is collapsed by default, so at first glance it's fine.
-- **Expand "Adapter configuration" in the setup dialog** (not the dockable). It adds a 10-row grid plus the
-  screw diagram, and the window **grows rather than scrolls**.
-- **Report back:** at your resolution and DPI scaling, does the expanded window still fit on screen, and are the
-  Copy buttons at the bottom reachable? If it overflows, say so **with your resolution and scaling** — the fix
-  is a `MaxHeight` + `ScrollViewer` on the setup panel.
-- The Imaging dockable is user-resizable, so this is specific to the setup dialog.
+- **Options → Hocus Focus → Camera Sim → Tilt Adapter** renders the config **inline and always expanded** — a
+  10-row grid, the screw diagram, the coherence badge and the Copy buttons — under the section header, below
+  `Show tilt adapter panel in Imaging`.
+- **Report back:** does that section read as part of the page (label column aligned with the sections above it,
+  diagram not absurdly wide, page still scrolls to the Copy buttons)? It is the one place the config renders
+  *without* an expander around it, so it is the layout most likely to need a tweak.
+- The dockable is user-resizable and keeps its collapsed expander, so this is specific to the options page.
 
 ### (p) Optics default to the profile
 With **Aperture** and **Focal Length** blank in the setup dialog, both boxes show a greyed-out number (40%

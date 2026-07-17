@@ -313,18 +313,6 @@ public class HocusFocusSimulatorCameraTests {
     }
 
     [Test]
-    public void TiltAdapterVM_DrivesTheCamerasOwnOptions_SoThePanelAndTheRendererShareOnePlane() {
-        var options = BuildOptions();
-        var camera = BuildCamera(options);
-
-        // The setup dialog hosts the tilt-adapter panel via {Binding TiltAdapterVM}, and the panel writes the
-        // injected plane straight onto the options it was handed. Were it built from any other instance — the
-        // plugin's static singleton being the tempting one — every screw click would land on options the camera
-        // never snapshots, so the panel would move nothing and the loop would never converge.
-        Assert.That(camera.TiltAdapterVM.Options, Is.SameAs(options));
-    }
-
-    [Test]
     public async Task Options_EditsLandOnTheNextRenderSnapshot_AsTheSetupDialogRequires() {
         // The setup dialog's DataTemplate binds Options.* against the camera itself (WindowService.Show(this, ...)),
         // so an edit made in that dialog must reach the very options instance BuildRenderRequest snapshots — with no

@@ -3353,9 +3353,14 @@
                 </ninactrl:UnitTextBox>
             </Grid>
 
-            <!--  Tilt Adapter. Only the panel-visibility toggle lives here: the simulated adapter's own geometry
-                  (screw count/angles, curvature sign, thread pitch, screw radius) is edited in the tilt adapter
-                  panel itself, next to the buttons that turn those screws.  -->
+            <!--  Tilt Adapter: the panel-visibility toggle, plus the simulated adapter's geometry (screw
+                  count/angles, adapter direction, thread pitch, screw radius). The geometry belongs with the other
+                  live-editable options rather than in the camera's setup dialog, which is for the rig NINA latches
+                  at connect (sensor + optics) — this is edited mid-session, against a connected camera.
+
+                  The Imaging dockable's panel keeps its own copy of this same expander, so the operate loop stays
+                  self-contained; both hosts render the ONE HocusFocus_SimTiltAdapter_Config template and drive the
+                  one CameraSimulatorOptions singleton, so they cannot drift.  -->
             <TextBlock Margin="5,15,5,2" FontWeight="Bold" Text="Tilt Adapter" />
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -3368,6 +3373,16 @@
                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Show tilt adapter panel in Imaging" ToolTip="{StaticResource CamSim_ShowTiltAdapterPanel_Tooltip}" />
                 <CheckBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.ShowSimulatorTiltAdapterPanel}" ToolTip="{StaticResource CamSim_ShowTiltAdapterPanel_Tooltip}" />
             </Grid>
+
+            <!--  DynamicResource, not StaticResource: this key lives in a DIFFERENT exported ResourceDictionary
+                  (CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml), which this file does not merge.
+                  StaticResource resolves at parse time and plugin dictionaries are merged into
+                  Application.Current.Resources in no guaranteed order, so it would be a load-order race — and a
+                  parse-time throw inside a hosted window is swallowed, leaving no symptom but a blank page.
+                  DynamicResource resolves at render time, once every dictionary is merged. XamlResourceResolutionTests
+                  enforces this. Content={Binding SimTiltAdapterVM} because the config template binds a
+                  SimulatedTiltAdapterVM, while this page's DataContext is the plugin.  -->
+            <ContentControl Margin="0,5,0,0" Content="{Binding SimTiltAdapterVM}" ContentTemplate="{DynamicResource HocusFocus_SimTiltAdapter_Config}" />
         </StackPanel>
     </DataTemplate>
 </ResourceDictionary>

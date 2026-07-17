@@ -24,11 +24,16 @@ using System.Windows.Media;
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
     /// <summary>
-    /// The Imaging-tab host for the virtual tilt-adapter panel, so the adapter can be operated beside the
-    /// Aberration Inspector during a calibration run rather than through the camera's setup dialog. It hosts the
-    /// same control the setup dialog does (<c>HocusFocus_SimTiltAdapter_Panel</c>), backed by its own
-    /// <see cref="SimulatedTiltAdapterVM"/>: the two hosts share the state that matters — the injected plane and
-    /// the adapter geometry — because both VMs read and write the one options singleton.
+    /// The Imaging-tab host for the virtual tilt-adapter panel (<c>HocusFocus_SimTiltAdapter_Panel</c>), so the
+    /// adapter can be operated beside the Aberration Inspector during a calibration run. It is the panel's only
+    /// host: the camera's setup dialog is for the rig NINA latches at connect (sensor + optics), whereas the
+    /// adapter is worked mid-session.
+    ///
+    /// <para>Backed by its own <see cref="SimulatedTiltAdapterVM"/>. The plugin's Camera Simulator options page
+    /// builds a second one over the adapter's configuration (<c>HocusFocus_SimTiltAdapter_Config</c>, which this
+    /// panel's expander also renders). The two share the state that matters — the injected plane and the adapter
+    /// geometry — because every VM reads and writes the one options singleton and subscribes to its
+    /// PropertyChanged, so neither view can go stale against the other.</para>
     /// </summary>
     /// <remarks>
     /// This panel is off by default and gated on <see cref="ICameraSimulatorOptions.ShowSimulatorTiltAdapterPanel"/>,
