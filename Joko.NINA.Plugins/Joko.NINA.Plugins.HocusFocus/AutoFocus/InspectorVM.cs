@@ -11,6 +11,8 @@
 #endregion "copyright"
 
 using Accord.Imaging.Filters;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Newtonsoft.Json;
 using NINA.Astrometry;
 using NINA.Core.Enum;
@@ -62,11 +64,11 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
-using AsyncRelayCommand = CommunityToolkit.Mvvm.Input.AsyncRelayCommand;
 using static NINA.Joko.Plugins.HocusFocus.Inspection.SensorModel;
+using AsyncRelayCommand = CommunityToolkit.Mvvm.Input.AsyncRelayCommand;
 using DrawingColor = System.Drawing.Color;
 using Logger = NINA.Core.Utility.Logger;
+using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 using SPPlot = ScottPlot.Plot;
 using SPVector2 = ScottPlot.Statistics.Vector2;
 
@@ -235,7 +237,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return false;
             }
 
-            return analyzeTask.Status < TaskStatus.RanToCompletion;
+            return localAnalyzeTask.Status < TaskStatus.RanToCompletion;
         }
 
         public override bool IsTool { get; } = true;
@@ -358,7 +360,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return true;
             });
             analyzeTask = localAnalyzeTask;
-            RaisePropertyChanged(nameof(IsAnalysisRunning));
+            OnAnalysisRunningChanged();
 
             try {
                 return await localAnalyzeTask;
@@ -374,7 +376,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 DeactivateAutoFocusAnalysis();
                 return false;
             } finally {
-                RaisePropertyChanged(nameof(IsAnalysisRunning));
+                OnAnalysisRunningChanged();
             }
         }
 
@@ -515,7 +517,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }, localAnalyzeCts.Token);
             analyzeTask = localAnalyzeTask;
-            RaisePropertyChanged(nameof(IsAnalysisRunning));
+            OnAnalysisRunningChanged();
 
             try {
                 return await localAnalyzeTask;
@@ -531,7 +533,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             } finally {
                 analyzeTask = null;
                 analyzeCts = null;
-                RaisePropertyChanged(nameof(IsAnalysisRunning));
+                OnAnalysisRunningChanged();
             }
         }
 
@@ -1089,7 +1091,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return lastResult;
             });
             analyzeTask = localAnalyzeTask;
-            RaisePropertyChanged(nameof(IsAnalysisRunning));
+            OnAnalysisRunningChanged();
 
             try {
                 return await localAnalyzeTask;
@@ -1101,7 +1103,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Logger.Error("Inspection exposure analysis failed", e);
                 return false;
             } finally {
-                RaisePropertyChanged(nameof(IsAnalysisRunning));
+                OnAnalysisRunningChanged();
             }
         }
 
@@ -1349,7 +1351,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return true;
             });
             analyzeTask = localAnalyzeTask;
-            RaisePropertyChanged(nameof(IsAnalysisRunning));
+            OnAnalysisRunningChanged();
 
             try {
                 return await localAnalyzeTask;
@@ -1373,7 +1375,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 DeactivateAutoFocusAnalysis();
                 return false;
             } finally {
-                RaisePropertyChanged(nameof(IsAnalysisRunning));
+                OnAnalysisRunningChanged();
             }
         }
 
@@ -1690,6 +1692,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return await telescopeMediator.SlewToTopocentricCoordinates(coordinates, localCts.Token);
             }, localCts.Token);
             slewToZenithTask = localTask;
+            RefreshCommandStates();
 
             try {
                 return await localTask;
@@ -1701,17 +1704,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             } finally {
                 slewToZenithTask = null;
                 slewToZenithCts = null;
+                RefreshCommandStates();
             }
             return false;
         }
 
-        public ICommand RunAutoFocusAnalysisCommand { get; private set; }
-        public ICommand RerunSavedAutoFocusAnalysisCommand { get; private set; }
-        public ICommand RunExposureAnalysisCommand { get; private set; }
+        // These use CommunityToolkit AsyncRelayCommand/RelayCommand, whose CanExecute is only re-evaluated when we
+        // call NotifyCanExecuteChanged() (they do not hook CommandManager.RequerySuggested like NINA's MVVMLight
+        // RelayCommand did), so they are typed as IRelayCommand and refreshed via RefreshCommandStates().
+        public IRelayCommand RunAutoFocusAnalysisCommand { get; private set; }
+        public IRelayCommand RerunSavedAutoFocusAnalysisCommand { get; private set; }
+        public IRelayCommand RunExposureAnalysisCommand { get; private set; }
         public ICommand CancelAnalyzeCommand { get; private set; }
-        public ICommand ClearAnalysesCommand { get; private set; }
-        public ICommand SlewToZenithEastCommand { get; private set; }
-        public ICommand SlewToZenithWestCommand { get; private set; }
+        public IRelayCommand ClearAnalysesCommand { get; private set; }
+        public IRelayCommand SlewToZenithEastCommand { get; private set; }
+        public IRelayCommand SlewToZenithWestCommand { get; private set; }
         public ICommand CancelSlewToZenithCommand { get; private set; }
 
         // RelayCommand (not ICommand) so we can call NotifyCanExecuteChanged when the snapshot becomes (un)available.
@@ -1738,6 +1745,33 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 RaisePropertyChanged(nameof(ReviewFramesAvailable));
                 ReviewFramesCommand.NotifyCanExecuteChanged();
             });
+        }
+
+        // Re-evaluate CanExecute for the connection-/analysis-/slew-gated buttons. Their commands are CommunityToolkit
+        // AsyncRelayCommand/RelayCommand, which (unlike NINA's MVVMLight RelayCommand) do not hook
+        // CommandManager.RequerySuggested, so their CanExecute is only re-checked when we raise it here. Call whenever a
+        // CanExecute input changes: a device connects/disconnects, or an analysis/slew task starts or finishes.
+        // POST, not the blocking DispatchSynchronizationContext: device-info updates arrive on the DeviceUpdateTimer's
+        // broadcast, which shutdown awaits — a blocking Invoke back onto the tearing-down UI thread would deadlock the
+        // close (exactly the hazard ApplicationDispatcher.PostSynchronizationContext is documented to avoid). BeginInvoke
+        // queues the requery and returns; NotifyCanExecuteChanged only needs to update button IsEnabled eventually, not
+        // synchronously. Null-conditional so it is a no-op if a device snapshot arrives before the commands are built.
+        private void RefreshCommandStates() {
+            applicationDispatcher.PostSynchronizationContext(() => {
+                RunAutoFocusAnalysisCommand?.NotifyCanExecuteChanged();
+                RunExposureAnalysisCommand?.NotifyCanExecuteChanged();
+                RerunSavedAutoFocusAnalysisCommand?.NotifyCanExecuteChanged();
+                ClearAnalysesCommand?.NotifyCanExecuteChanged();
+                SlewToZenithEastCommand?.NotifyCanExecuteChanged();
+                SlewToZenithWestCommand?.NotifyCanExecuteChanged();
+            });
+        }
+
+        // Analysis start/stop changes both the IsAnalysisRunning binding and the CanExecute of the analysis-gated
+        // commands; update both together.
+        private void OnAnalysisRunningChanged() {
+            RaisePropertyChanged(nameof(IsAnalysisRunning));
+            RefreshCommandStates();
         }
 
         private void ClearReviewSnapshot() {
@@ -2140,6 +2174,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             private set {
                 this.cameraInfo = value;
                 RaisePropertyChanged();
+                RefreshCommandStates();
             }
         }
 
@@ -2150,6 +2185,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             private set {
                 this.telescopeInfo = value;
                 RaisePropertyChanged();
+                RefreshCommandStates();
             }
         }
 
@@ -2184,6 +2220,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             private set {
                 this.focuserInfo = value;
                 RaisePropertyChanged();
+                RefreshCommandStates();
             }
         }
 

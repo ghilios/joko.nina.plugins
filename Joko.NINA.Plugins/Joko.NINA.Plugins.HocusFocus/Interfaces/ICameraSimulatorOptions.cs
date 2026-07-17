@@ -153,10 +153,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // guides from the REAL calibration, so the two must be comparable but must never implicitly overwrite
         // each other. The panel surfaces a coherence badge + explicit copy commands instead.
         int SimScrewCount { get; set; }                      // 3 or 4
-        double SimScrew1AngleDegrees { get; set; }           // clockwise from top, image space
-        double SimScrew2AngleDegrees { get; set; }
-        double SimScrew3AngleDegrees { get; set; }
-        double SimScrew4AngleDegrees { get; set; }           // double.NaN when 3-screw
+        bool SimScrewNumberingClockwise { get; set; }        // true: screws numbered increasing clockwise in image space
+        double SimScrew1AngleDegrees { get; set; }           // clockwise from top, image space; the only entered screw
+        double SimScrew2AngleDegrees { get; set; }           // derived: Screw1 ± i·(360/N) per SimScrewNumberingClockwise
+        double SimScrew3AngleDegrees { get; set; }           // derived
+        double SimScrew4AngleDegrees { get; set; }           // derived; double.NaN when 3-screw
         int SimScrewInwardCurvatureSign { get; set; }        // +1 / -1
         TiltAdjustmentType SimAdjustmentType { get; set; }
         double SimThreadPitchMicrons { get; set; }           // axial µm per full turn

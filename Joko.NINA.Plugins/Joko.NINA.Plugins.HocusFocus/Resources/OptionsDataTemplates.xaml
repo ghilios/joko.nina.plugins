@@ -69,80 +69,25 @@
     <DataTemplate x:Key="HF_InspectorLiveView">
         <Grid>
             <Grid.Resources>
-                <SolidColorBrush x:Key="TopLeftBrush">
-                    <SolidColorBrush.Color>
-                        <MultiBinding Converter="{StaticResource HF_InterpolateColorConverter}">
-                            <Binding Path="Color" Source="{StaticResource SecondaryBrush}" />
-                            <Binding Path="Color" Source="{StaticResource BackgroundBrush}" />
-                            <Binding>
-                                <Binding.Source>
-                                    <s:Int32>0</s:Int32>
-                                </Binding.Source>
-                            </Binding>
-                            <Binding>
-                                <Binding.Source>
-                                    <s:Int32>4</s:Int32>
-                                </Binding.Source>
-                            </Binding>
-                        </MultiBinding>
-                    </SolidColorBrush.Color>
-                </SolidColorBrush>
-                <SolidColorBrush x:Key="TopRightBrush">
-                    <SolidColorBrush.Color>
-                        <MultiBinding Converter="{StaticResource HF_InterpolateColorConverter}">
-                            <Binding Path="Color" Source="{StaticResource SecondaryBrush}" />
-                            <Binding Path="Color" Source="{StaticResource BackgroundBrush}" />
-                            <Binding>
-                                <Binding.Source>
-                                    <s:Int32>1</s:Int32>
-                                </Binding.Source>
-                            </Binding>
-                            <Binding>
-                                <Binding.Source>
-                                    <s:Int32>4</s:Int32>
-                                </Binding.Source>
-                            </Binding>
-                        </MultiBinding>
-                    </SolidColorBrush.Color>
-                </SolidColorBrush>
-                <SolidColorBrush x:Key="BottomLeftBrush">
-                    <SolidColorBrush.Color>
-                        <MultiBinding Converter="{StaticResource HF_InterpolateColorConverter}">
-                            <Binding Path="Color" Source="{StaticResource SecondaryBrush}" />
-                            <Binding Path="Color" Source="{StaticResource BackgroundBrush}" />
-                            <Binding>
-                                <Binding.Source>
-                                    <s:Int32>2</s:Int32>
-                                </Binding.Source>
-                            </Binding>
-                            <Binding>
-                                <Binding.Source>
-                                    <s:Int32>4</s:Int32>
-                                </Binding.Source>
-                            </Binding>
-                        </MultiBinding>
-                    </SolidColorBrush.Color>
-                </SolidColorBrush>
-                <SolidColorBrush x:Key="BottomRightBrush">
-                    <SolidColorBrush.Color>
-                        <MultiBinding Converter="{StaticResource HF_InterpolateColorConverter}">
-                            <Binding Path="Color" Source="{StaticResource SecondaryBrush}" />
-                            <Binding Path="Color" Source="{StaticResource BackgroundBrush}" />
-                            <Binding>
-                                <Binding.Source>
-                                    <s:Int32>3</s:Int32>
-                                </Binding.Source>
-                            </Binding>
-                            <Binding>
-                                <Binding.Source>
-                                    <s:Int32>4</s:Int32>
-                                </Binding.Source>
-                            </Binding>
-                        </MultiBinding>
-                    </SolidColorBrush.Color>
-                </SolidColorBrush>
+                <!--
+                    Per-region focus-curve colors. Fixed, high-contrast categorical hues chosen so the
+                    four corner curves stay legible AND mutually distinguishable on every NINA theme
+                    (validated worst colorblind separation ΔE 15.9; each clears 3:1 on both pure-white and
+                    near-black theme surfaces). Previously interpolated SecondaryBrush → BackgroundBrush,
+                    which faded the lower regions into the plot background. Keep in sync with the identical
+                    palette in AutoFocus/DataTemplates.xaml. Center intentionally remains PrimaryBrush.
+                -->
+                <SolidColorBrush x:Key="TopLeftBrush" Color="#FF2E7BC4" />
+                <SolidColorBrush x:Key="TopRightBrush" Color="#FFD2691E" />
+                <SolidColorBrush x:Key="BottomLeftBrush" Color="#FF1E9E63" />
+                <SolidColorBrush x:Key="BottomRightBrush" Color="#FFD454A0" />
             </Grid.Resources>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
             <controls:OxyPlotExtended
+                Grid.Row="0"
                 MinWidth="400"
                 MinHeight="300"
                 Background="{StaticResource BackgroundBrush}"
@@ -150,12 +95,13 @@
                 PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
                 PlotModel="{Binding AutoFocusChartPlotModel, Mode=OneWayToSource, NotifyOnTargetUpdated=True}"
                 TextColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}">
-                <oxy:Plot.Legends>
-                    <oxy:Legend
-                        LegendOrientation="Vertical"
-                        LegendPlacement="Inside"
-                        LegendPosition="RightBottom" />
-                </oxy:Plot.Legends>
+                <!--
+                    The built-in OxyPlot legend is replaced by a native, theme-aware legend overlaid
+                    below (see after </controls:OxyPlotExtended>), so its swatches follow the theme and
+                    match the Tilt Adapter Wizard's native look. All five region series here are always
+                    visible, so the legend is static (no per-row gating).
+                -->
+
                 <oxy:Plot.Axes>
                     <oxy:LinearAxis
                         AxislineColor="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
@@ -428,6 +374,45 @@
                     </oxy:PointAnnotation>
                 </oxy:Plot.Annotations>
             </controls:OxyPlotExtended>
+            <!--
+                Native, theme-aware chart legend (replaces the built-in OxyPlot legend). Swatch fills
+                reuse the exact series brushes; labels use PrimaryBrush so they follow the theme. All
+                five region series are always visible here, so this legend is static. Placed in its own
+                row below the plot (not overlaid) so it never covers data and does not collide with the
+                plot in the grid.
+            -->
+            <Border
+                Grid.Row="1"
+                Margin="0,6,0,0"
+                Padding="6,3"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Background="{StaticResource BackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1">
+                <StackPanel Orientation="Horizontal">
+                    <StackPanel Margin="0,0,10,0" Orientation="Horizontal">
+                        <Rectangle Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center" Fill="{StaticResource PrimaryBrush}" />
+                        <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="Center" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,10,0" Orientation="Horizontal">
+                        <Rectangle Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center" Fill="{StaticResource TopLeftBrush}" />
+                        <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="Top Left" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,10,0" Orientation="Horizontal">
+                        <Rectangle Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center" Fill="{StaticResource TopRightBrush}" />
+                        <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="Top Right" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,10,0" Orientation="Horizontal">
+                        <Rectangle Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center" Fill="{StaticResource BottomLeftBrush}" />
+                        <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="Bottom Left" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Rectangle Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center" Fill="{StaticResource BottomRightBrush}" />
+                        <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="Bottom Right" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </Grid>
     </DataTemplate>
 

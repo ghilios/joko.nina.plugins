@@ -530,7 +530,9 @@ public class SimulatedTiltAdapterVMTests {
             Assert.That(vm.TiltAmountMicrons, Is.EqualTo(12.4));
             Assert.That(vm.TiltAngleDegrees, Is.EqualTo(214.0));
             Assert.That(vm.BackfocusErrorMicrons, Is.EqualTo(-5.0));
-            Assert.That(vm.TiltDisplay, Is.EqualTo("12.4 µm @ 214°"));
+            // The state strip now shows the tilt as the sensor-plane angle θ (not µm), at the injected azimuth.
+            Assert.That(vm.TiltAngleThetaDegrees, Is.GreaterThan(0.0), "a non-zero injected swing yields a positive tilt angle");
+            Assert.That(vm.TiltDisplay, Is.EqualTo($"{vm.TiltAngleThetaDegrees.ToString("0.000", System.Globalization.CultureInfo.CurrentCulture)}° @ 214°"));
             Assert.That(vm.BackfocusDisplay, Is.EqualTo("−5.0 µm"));
         });
     }
@@ -628,18 +630,39 @@ public class SimulatedTiltAdapterVMTests {
     }
 
     [Test]
-    public void AutoFillEvenly_WritesAValidGeometryInOneClick([Values(3, 4)] int screwCount) {
+    public void ScrewAngles_DeriveEvenlyFromScrew1Clockwise([Values(3, 4)] int screwCount) {
         var options = Configured(screwCount);
-        options.SimScrew1AngleDegrees = double.NaN;
         var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
-        Assert.That(vm.IsAdapterConfigured, Is.False, "guard: a NaN angle must gate the panel");
 
-        vm.AutoFillAnglesCommand.Execute(null);
+        options.SimScrewNumberingClockwise = true;
+        options.SimScrew1AngleDegrees = 0.0;
+
+        var step = 360.0 / screwCount;
+        Assert.Multiple(() => {
+            Assert.That(vm.IsAdapterConfigured, Is.True);
+            Assert.That(options.SimScrew2AngleDegrees, Is.EqualTo(step).Within(1e-9));
+            Assert.That(options.SimScrew3AngleDegrees, Is.EqualTo(2 * step).Within(1e-9));
+            if (screwCount == 4) {
+                Assert.That(options.SimScrew4AngleDegrees, Is.EqualTo(3 * step).Within(1e-9));
+            } else {
+                Assert.That(double.IsNaN(options.SimScrew4AngleDegrees), Is.True);
+            }
+        });
+    }
+
+    [Test]
+    public void ScrewNumbering_CounterClockwise_ReversesTheDerivedAngles() {
+        var options = Configured(screwCount: 3);
+        var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
+
+        options.SimScrew1AngleDegrees = 0.0;
+        options.SimScrewNumberingClockwise = false;
 
         Assert.Multiple(() => {
             Assert.That(vm.IsAdapterConfigured, Is.True);
-            Assert.That(options.SimScrew1AngleDegrees, Is.EqualTo(screwCount == 3 ? 0.0 : 45.0));
-            Assert.That(options.SimScrew2AngleDegrees, Is.EqualTo(screwCount == 3 ? 120.0 : 135.0));
+            // Counter-clockwise: screw i advances -i·(360/N) from screw 1, normalized to [0, 360).
+            Assert.That(options.SimScrew2AngleDegrees, Is.EqualTo(240.0).Within(1e-9));
+            Assert.That(options.SimScrew3AngleDegrees, Is.EqualTo(120.0).Within(1e-9));
         });
     }
 

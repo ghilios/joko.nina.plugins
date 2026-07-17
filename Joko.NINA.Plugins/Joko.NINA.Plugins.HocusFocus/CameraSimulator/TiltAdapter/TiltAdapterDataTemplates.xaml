@@ -25,7 +25,7 @@
     <TextBlock x:Key="HFSim_ScrewAngle_Tooltip" Text="Position angle of the screw in the image: 0° = straight up (12 o'clock), increasing clockwise. Image space — mirrors or diagonals in the optical train can flip these relative to the physical adapter." />
     <TextBlock x:Key="HFSim_DerivedAngle_Tooltip" Text="Derived, not entered: opposite screws on a coupled 4-screw adapter are 180° apart by construction, so this angle follows its partner automatically." />
     <TextBlock x:Key="HFSim_Direction_Tooltip" Text="Which way a clockwise (tightening) turn drives the adapter plate on this rig. This is the same setting the Tilt Adapter Wizard calls the adapter direction, and it decides whether ⟳ raises or lowers the simulated backfocus." />
-    <TextBlock x:Key="HFSim_AutoFill_Tooltip" Text="Writes 0/120/240° (3 screws) or 45/135/225/315° (4 screws). For a simulated rig the exact angles rarely matter; this gets a valid configuration in one click." />
+    <TextBlock x:Key="HFSim_Numbering_Tooltip" Text="The direction the screw numbers advance around the image (clockwise or counter-clockwise from Screw 1). Only Screw 1's angle is entered; screws 2…N are placed evenly (360°/N apart) in this direction. Pick the direction that matches how the screws appear in your image — a diagonal or flip can reverse the apparent handedness." />
 
     <!--
         The adapter's geometry, factored out of the panel so the plugin's Camera Simulator options page can host
@@ -50,6 +50,7 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
+                    <RowDefinition />
                     <RowDefinition />
                     <RowDefinition />
                     <RowDefinition />
@@ -146,8 +147,13 @@
                 <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" ToolTip="{StaticResource HFSim_Direction_Tooltip}" controls:IconizedText.Text="⟳ tighten moves adapter toward" />
                 <ComboBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ItemsSource="{Binding AdapterDirectionOptions}" SelectedItem="{Binding SelectedAdapterDirection}" ToolTip="{StaticResource HFSim_Direction_Tooltip}" />
 
-                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Text="Screw 1 angle" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="6" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" Unit="°">
+                <!--  Only Screw 1 is entered; the numbering direction places screws 2..N evenly. Image-space, because
+                      a diagonal or flip in the optical train can reverse the apparent handedness (docs/tilt-domain.md).  -->
+                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Text="Screw numbering" ToolTip="{StaticResource HFSim_Numbering_Tooltip}" />
+                <ComboBox Grid.Row="6" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ItemsSource="{Binding ScrewNumberingOptions}" SelectedItem="{Binding SelectedScrewNumbering}" ToolTip="{StaticResource HFSim_Numbering_Tooltip}" />
+
+                <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Text="Screw 1 angle" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="7" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" Unit="°">
                     <Binding Path="Options.SimScrew1AngleDegrees" UpdateSourceTrigger="LostFocus">
                         <Binding.ValidationRules>
                             <rules:FloatRangeRule>
@@ -159,86 +165,24 @@
                     </Binding>
                 </ninactrl:UnitTextBox>
 
-                <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Text="Screw 2 angle" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" />
-                <ninactrl:UnitTextBox Grid.Row="7" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" Unit="°">
-                    <Binding Path="Options.SimScrew2AngleDegrees" UpdateSourceTrigger="LostFocus">
-                        <Binding.ValidationRules>
-                            <rules:FloatRangeRule>
-                                <rules:FloatRangeRule.ValidRange>
-                                    <rules:FloatRangeChecker Maximum="360" Minimum="0" />
-                                </rules:FloatRangeRule.ValidRange>
-                            </rules:FloatRangeRule>
-                        </Binding.ValidationRules>
-                    </Binding>
-                </ninactrl:UnitTextBox>
+                <!--  Screws 2..N are derived from Screw 1 + the numbering direction — rendered dimmed, never edited.
+                      That kills an entire class of configuration typos and keeps the coupled-4-screw invariant.  -->
+                <TextBlock Grid.Row="8" Grid.Column="0" VerticalAlignment="Center" Text="Screw 2 angle" ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}" />
+                <TextBlock Grid.Row="8" Grid.Column="1" Margin="5,2,0,0" VerticalAlignment="Center" Opacity="0.55" Text="{Binding Screw2AngleDisplay}" ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}" />
 
-                <!--  3 screws: screw 3 is entered. 4 screws: screws 3 and 4 render dimmed as derived
-                      (+180°) values — opposite screws on a coupled adapter are 180° apart by construction,
-                      and deriving them kills an entire class of configuration typos.  -->
-                <TextBlock Grid.Row="8" Grid.Column="0" VerticalAlignment="Center" Text="Screw 3 angle" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" />
-                <ninactrl:UnitTextBox
-                    Grid.Row="8"
-                    Grid.Column="1"
-                    MinWidth="80"
-                    Margin="5,2,0,0"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Center"
-                    ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}"
-                    Unit="°"
-                    Visibility="{Binding IsThreeScrew, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
-                    <Binding Path="Options.SimScrew3AngleDegrees" UpdateSourceTrigger="LostFocus">
-                        <Binding.ValidationRules>
-                            <rules:FloatRangeRule>
-                                <rules:FloatRangeRule.ValidRange>
-                                    <rules:FloatRangeChecker Maximum="360" Minimum="0" />
-                                </rules:FloatRangeRule.ValidRange>
-                            </rules:FloatRangeRule>
-                        </Binding.ValidationRules>
-                    </Binding>
-                </ninactrl:UnitTextBox>
-                <TextBlock
-                    Grid.Row="8"
-                    Grid.Column="1"
-                    Margin="5,2,0,0"
-                    VerticalAlignment="Center"
-                    Opacity="0.55"
-                    Text="{Binding Screw3AngleDisplay}"
-                    ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}"
-                    Visibility="{Binding IsFourScrew, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
+                <TextBlock Grid.Row="9" Grid.Column="0" VerticalAlignment="Center" Text="Screw 3 angle" ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}" />
+                <TextBlock Grid.Row="9" Grid.Column="1" Margin="5,2,0,0" VerticalAlignment="Center" Opacity="0.55" Text="{Binding Screw3AngleDisplay}" ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}" />
 
-                <TextBlock
-                    Grid.Row="9"
-                    Grid.Column="0"
-                    VerticalAlignment="Center"
-                    Text="Screw 4 angle"
-                    ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}"
-                    Visibility="{Binding IsFourScrew, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
-                <TextBlock
-                    Grid.Row="9"
-                    Grid.Column="1"
-                    Margin="5,2,0,0"
-                    VerticalAlignment="Center"
-                    Opacity="0.55"
-                    Text="{Binding Screw4AngleDisplay}"
-                    ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}"
-                    Visibility="{Binding IsFourScrew, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
+                <TextBlock Grid.Row="10" Grid.Column="0" VerticalAlignment="Center" Text="Screw 4 angle" ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}" Visibility="{Binding IsFourScrew, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
+                <TextBlock Grid.Row="10" Grid.Column="1" Margin="5,2,0,0" VerticalAlignment="Center" Opacity="0.55" Text="{Binding Screw4AngleDisplay}" ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}" Visibility="{Binding IsFourScrew, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
             </Grid>
-
-            <Button
-                Margin="0,6,0,0"
-                HorizontalAlignment="Left"
-                Command="{Binding AutoFillAnglesCommand}"
-                Style="{StaticResource StandardButton}"
-                ToolTip="{StaticResource HFSim_AutoFill_Tooltip}">
-                <TextBlock Margin="6,2" Text="Auto-fill evenly" />
-            </Button>
 
             <!--  The wizard's diagram, reused unchanged: it already solves the mirroring-education problem
                   (0° chevron, "top of image" caption, clockwise cue). It lives here and not in Operate
                   because executing "screw 2 ⟳" needs no spatial reasoning — verifying angles does.  -->
             <ContentControl
                 Margin="0,8,0,0"
-                HorizontalAlignment="Center"
+                HorizontalAlignment="Left"
                 Content="{Binding}"
                 ContentTemplate="{DynamicResource HF_TiltScrewDiagram}" />
 
@@ -331,15 +275,6 @@
                         Foreground="{StaticResource NotificationWarningTextBrush}"
                         Text="{Binding ConfigurationBannerText}"
                         TextWrapping="Wrap" />
-                    <Button
-                        Margin="8,0,0,0"
-                        VerticalAlignment="Center"
-                        Command="{Binding AutoFillAnglesCommand}"
-                        Style="{StaticResource StandardButton}"
-                        ToolTip="{StaticResource HFSim_AutoFill_Tooltip}"
-                        Visibility="{Binding CanAutoFillFromBanner, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
-                        <TextBlock Margin="6,1" Text="Auto-fill evenly" />
-                    </Button>
                 </WrapPanel>
             </Border>
 
@@ -483,21 +418,19 @@
                     <DataTemplate>
                         <Grid Margin="0,1">
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-
-                            <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="{Binding Label}" />
 
                             <!--  RelativeSource reaches out of the row's DataContext to the panel VM that owns the
                                   command; CommandParameter carries which row and which direction as one value, so
-                                  a row's two buttons cannot disagree about anything but the sign.  -->
+                                  a row's two buttons cannot disagree about anything but the sign. The two buttons sit
+                                  together at the left, immediately before the row's screw description.  -->
                             <Button
-                                Grid.Column="1"
+                                Grid.Column="0"
                                 MinWidth="34"
-                                Margin="4,0,0,0"
                                 Command="{Binding DataContext.TurnCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                 CommandParameter="{Binding NegativeTurn}"
                                 Style="{StaticResource StandardButton}"
@@ -508,7 +441,7 @@
                                     controls:IconizedText.Text="{Binding DataContext.NegativeGlyph, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                             </Button>
                             <Button
-                                Grid.Column="2"
+                                Grid.Column="1"
                                 MinWidth="34"
                                 Margin="4,0,0,0"
                                 Command="{Binding DataContext.TurnCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
@@ -520,6 +453,8 @@
                                     Foreground="{StaticResource ButtonForegroundBrush}"
                                     controls:IconizedText.Text="{Binding DataContext.PositiveGlyph, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
                             </Button>
+
+                            <TextBlock Grid.Column="2" Margin="10,0,0,0" VerticalAlignment="Center" Text="{Binding Label}" />
 
                             <!--  Names the coupled partner this click counter-turns. With the net strip below
                                   counting that partner backwards, the coupling teaches itself on the first click.  -->
@@ -578,9 +513,9 @@
                             <RowDefinition />
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Azimuth" ToolTip="Azimuth φ of the sensor tilt (degrees, inspector convention: 0° = up, increasing clockwise)." />
-                        <ninactrl:UnitTextBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="Azimuth φ of the sensor tilt (degrees, inspector convention: 0° = up, increasing clockwise)." Unit="°">
-                            <Binding Path="Options.TiltAngleDegrees" UpdateSourceTrigger="LostFocus">
+                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Azimuth" ToolTip="Azimuth φ of the sensor tilt (degrees, inspector convention: 0° = up, increasing clockwise). Rotating it preserves the tilt angle θ." />
+                        <ninactrl:UnitTextBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="Azimuth φ of the sensor tilt (degrees, inspector convention: 0° = up, increasing clockwise). Rotating it preserves the tilt angle θ." Unit="°">
+                            <Binding Path="InjectedTiltAzimuthDegrees" StringFormat="{}{0:0.0}" UpdateSourceTrigger="LostFocus">
                                 <Binding.ValidationRules>
                                     <rules:FloatRangeRule>
                                         <rules:FloatRangeRule.ValidRange>
@@ -591,13 +526,13 @@
                             </Binding>
                         </ninactrl:UnitTextBox>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Amount" ToolTip="Center-to-corner focus swing (µm) produced by sensor tilt. A non-negative magnitude — the direction is the azimuth." />
-                        <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="Center-to-corner focus swing (µm) produced by sensor tilt. A non-negative magnitude — the direction is the azimuth." Unit="µm">
-                            <Binding Path="Options.TiltAmountMicrons" UpdateSourceTrigger="LostFocus">
+                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Angle" ToolTip="Sensor-plane tilt angle θ (degrees) — the same quantity the Aberration Inspector reports. A non-negative magnitude; direction is the azimuth. Stored as the underlying center-to-corner µm swing at the current azimuth." />
+                        <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="Sensor-plane tilt angle θ (degrees) — the same quantity the Aberration Inspector reports. A non-negative magnitude; direction is the azimuth. Stored as the underlying center-to-corner µm swing at the current azimuth." Unit="°">
+                            <Binding Path="InjectedTiltAngleDegrees" StringFormat="{}{0:0.000}" UpdateSourceTrigger="LostFocus">
                                 <Binding.ValidationRules>
                                     <rules:FloatRangeRule>
                                         <rules:FloatRangeRule.ValidRange>
-                                            <rules:FloatRangeChecker Maximum="10000" Minimum="0" />
+                                            <rules:FloatRangeChecker Maximum="45" Minimum="0" />
                                         </rules:FloatRangeRule.ValidRange>
                                     </rules:FloatRangeRule>
                                 </Binding.ValidationRules>
@@ -606,7 +541,7 @@
 
                         <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Backfocus Error" ToolTip="Corner-versus-center curvature offset (µm) from a backfocus error." />
                         <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="Corner-versus-center curvature offset (µm) from a backfocus error." Unit="µm">
-                            <Binding Path="Options.BackfocusErrorMicrons" UpdateSourceTrigger="LostFocus">
+                            <Binding Path="Options.BackfocusErrorMicrons" StringFormat="{}{0:0.0}" UpdateSourceTrigger="LostFocus">
                                 <Binding.ValidationRules>
                                     <rules:FloatRangeRule>
                                         <rules:FloatRangeRule.ValidRange>

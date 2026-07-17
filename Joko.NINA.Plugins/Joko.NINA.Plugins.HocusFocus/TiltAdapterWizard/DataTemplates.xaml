@@ -679,6 +679,14 @@
                                 ContentTemplate="{StaticResource HF_TiltScrewDiagram}"
                                 Content="{Binding}" />
                         </Grid>
+
+                        <Button
+                            Margin="0,10,0,0"
+                            HorizontalAlignment="Left"
+                            Command="{Binding ClearCalibrationCommand}"
+                            ToolTip="Clears the saved calibration (screw angles and the calibrated/manual flags), returning this pane to &quot;No calibration saved.&quot; The device selection and its configured hardware/direction are kept — re-run the wizard or use Manual Calibration Entry to set a new one.">
+                            <TextBlock Margin="6,2" Text="Clear Calibration" />
+                        </Button>
                     </StackPanel>
 
                     <!--  Manual calibration entry: writes the same persisted state a wizard run
