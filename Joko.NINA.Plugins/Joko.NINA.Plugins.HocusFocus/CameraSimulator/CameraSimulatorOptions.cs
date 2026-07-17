@@ -257,6 +257,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             // Heal a stored screw count outside 3|4 (a hand-edited or legacy profile). SimulatedTiltAdapter rejects
             // anything else, so an unhealed value would surface as a panel-construction crash rather than a 3.
             simScrewCount = optionsAccessor.GetValueInt32(nameof(SimScrewCount), 3) == 4 ? 4 : 3;
+            simScrewNumberingClockwise = optionsAccessor.GetValueBoolean(nameof(SimScrewNumberingClockwise), true);
             simScrew1AngleDegrees = optionsAccessor.GetValueDouble(nameof(SimScrew1AngleDegrees), 0.0);
             simScrew2AngleDegrees = optionsAccessor.GetValueDouble(nameof(SimScrew2AngleDegrees), 120.0);
             simScrew3AngleDegrees = optionsAccessor.GetValueDouble(nameof(SimScrew3AngleDegrees), 240.0);
@@ -300,6 +301,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             OpticalAxisOffsetXMicrons = 0.0;
             OpticalAxisOffsetYMicrons = 0.0;
             SimScrewCount = 3;
+            SimScrewNumberingClockwise = true;
             SimScrew1AngleDegrees = 0.0;
             SimScrew2AngleDegrees = 120.0;
             SimScrew3AngleDegrees = 240.0;
@@ -703,6 +705,19 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 if (simScrewCount != clamped) {
                     simScrewCount = clamped;
                     optionsAccessor.SetValueInt32(nameof(SimScrewCount), simScrewCount);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool simScrewNumberingClockwise;
+
+        public bool SimScrewNumberingClockwise {
+            get => simScrewNumberingClockwise;
+            set {
+                if (simScrewNumberingClockwise != value) {
+                    simScrewNumberingClockwise = value;
+                    optionsAccessor.SetValueBoolean(nameof(SimScrewNumberingClockwise), simScrewNumberingClockwise);
                     RaisePropertyChanged();
                 }
             }
