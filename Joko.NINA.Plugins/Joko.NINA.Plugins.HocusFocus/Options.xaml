@@ -193,6 +193,68 @@
                         </Grid>
                     </TabItem.Content>
                 </TabItem>
+                <TabItem>
+                    <TabItem.Header>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition />
+                                <RowDefinition Height="10" />
+                            </Grid.RowDefinitions>
+                            <Grid>
+                                <Grid Width="40" Height="40">
+                                    <Path
+                                        Margin="5"
+                                        Data="{StaticResource StarSVG}"
+                                        Stretch="Uniform"
+                                        Style="{StaticResource TabItemPath}" />
+                                </Grid>
+                            </Grid>
+                            <TextBlock
+                                Grid.Row="1"
+                                Style="{StaticResource SideBarTextBlock}"
+                                Text="Camera Sim" />
+                        </Grid>
+                    </TabItem.Header>
+                    <TabItem.Content>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition />
+                                <RowDefinition />
+                            </Grid.RowDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Vertical">
+                                <StackPanel Grid.Row="1" Orientation="Horizontal">
+                                    <Path
+                                        Width="25"
+                                        Margin="5"
+                                        Data="{StaticResource ExclamationCircledSVG}"
+                                        Fill="{StaticResource ButtonForegroundBrush}"
+                                        Stretch="Uniform" />
+                                    <TextBlock VerticalAlignment="Center">
+                                        <TextBlock.Text>
+                                            Synthetic star-field camera. Connect a focuser and mount, then select the "Hocus Focus" camera in the Equipment tab.
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                </StackPanel>
+                                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_CameraSimulator_Options}" />
+                                <Button
+                                    Margin="5"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Command="{Binding ResetCameraSimulatorDefaultsCommand}">
+                                    <TextBlock
+                                        Margin="10,5,10,5"
+                                        Foreground="{StaticResource ButtonForegroundBrush}"
+                                        Text="Reset Defaults"
+                                        TextWrapping="Wrap" />
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </TabItem.Content>
+                </TabItem>
             </TabControl>
         </Grid>
     </DataTemplate>

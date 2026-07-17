@@ -1,0 +1,663 @@
+<ResourceDictionary
+    x:Class="NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter.TiltAdapterDataTemplates"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:NINA.Joko.Plugins.HocusFocus.Controls"
+    xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
+    xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
+    xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core">
+
+    <!--  Declared locally rather than reached for across dictionaries: StaticResource resolves at parse time and
+          the merge order of separately-exported plugin ResourceDictionaries into Application.Current.Resources is
+          not guaranteed, so a cross-dictionary lookup would be a load-order race (see
+          CameraSimulator/SetupDialog/SetupDataTemplates.xaml). The one resource this panel does borrow —
+          HF_TiltScrewDiagram, from TiltAdapterWizard/DataTemplates.xaml — is fetched with DynamicResource for
+          exactly that reason: it resolves at render time, after every plugin dictionary has been merged.  -->
+    <BooleanToVisibilityConverter x:Key="HFSim_BooleanToVisibilityConverter" />
+
+    <!--  Tooltips live beside the only controls that use them, for the same load-order reason.  -->
+    <TextBlock x:Key="HFSim_AmountPerClick_Tooltip" Text="How much one click of a direction button applies. Strictly positive — direction comes from the button you click, never from a sign here, so the two can never contradict each other. Paste the magnitude straight from the Aberration Inspector's guidance cell." />
+    <TextBlock x:Key="HFSim_ScrewCount_Tooltip" Text="Number of adjustment screws on the simulated adapter. 3 screws move independently; on 4 screws the opposite screws are mechanically coupled, so a movement type is chosen first." />
+    <TextBlock x:Key="HFSim_AdjustmentType_Tooltip" Text="Whether the simulated adapter is turned by hand (screws, amounts in turns) or driven by stepper motors (amounts in whole steps). Motors abstract rotation away, so the buttons become + / − and no rotation glyphs are shown." />
+    <TextBlock x:Key="HFSim_ThreadPitch_Tooltip" Text="Axial microns the sensor moves per full turn of one screw. This is the scale that converts a click into physical travel." />
+    <TextBlock x:Key="HFSim_StepSize_Tooltip" Text="Axial microns the sensor moves per stepper step. This is the scale that converts a click into physical travel." />
+    <TextBlock x:Key="HFSim_ScrewRadius_Tooltip" Text="Distance from the sensor centre to each screw. With the thread pitch it sets how much tilt one turn produces — a larger radius means a given turn tilts less." />
+    <TextBlock x:Key="HFSim_ScrewAngle_Tooltip" Text="Position angle of the screw in the image: 0° = straight up (12 o'clock), increasing clockwise. Image space — mirrors or diagonals in the optical train can flip these relative to the physical adapter." />
+    <TextBlock x:Key="HFSim_DerivedAngle_Tooltip" Text="Derived, not entered: opposite screws on a coupled 4-screw adapter are 180° apart by construction, so this angle follows its partner automatically." />
+    <TextBlock x:Key="HFSim_Direction_Tooltip" Text="Which way a clockwise (tightening) turn drives the adapter plate on this rig. This is the same setting the Tilt Adapter Wizard calls the adapter direction, and it decides whether ⟳ raises or lowers the simulated backfocus." />
+    <TextBlock x:Key="HFSim_AutoFill_Tooltip" Text="Writes 0/120/240° (3 screws) or 45/135/225/315° (4 screws). For a simulated rig the exact angles rarely matter; this gets a valid configuration in one click." />
+
+    <!--
+        The adapter's geometry, factored out of the panel so the plugin's Camera Simulator options page can host
+        the SAME markup without duplicating it. DataContext is a SimulatedTiltAdapterVM, exactly as for the panel
+        below — this is the panel's "Adapter configuration" expander body, minus the Expander itself, so each host
+        supplies its own chrome (the panel wraps it in an Expander; the options page renders it inline under a
+        section header).
+
+        Two live instances of this template is the norm, not a hazard: every SimulatedTiltAdapterVM reads and
+        writes the one CameraSimulatorOptions singleton and subscribes to its PropertyChanged, so the dockable's
+        copy and the options page's copy stay in lockstep — the same contract that already let the panel be
+        double-hosted (see SimulatorTiltAdapterDockableVM's remarks).
+
+        Every StaticResource key below is either declared above in THIS dictionary or is NINA's own, so they stay in
+        scope after the lift; HF_TiltScrewDiagram remains DynamicResource because it alone crosses dictionaries.
+    -->
+    <DataTemplate x:Key="HocusFocus_SimTiltAdapter_Config">
+        <StackPanel Margin="10,5,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Screw count" ToolTip="{StaticResource HFSim_ScrewCount_Tooltip}" />
+                <ComboBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ItemsSource="{Binding ScrewCountOptions}" SelectedItem="{Binding Options.SimScrewCount}" ToolTip="{StaticResource HFSim_ScrewCount_Tooltip}" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Adjustment type" ToolTip="{StaticResource HFSim_AdjustmentType_Tooltip}" />
+                <ComboBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" SelectedValue="{Binding Options.SimAdjustmentType}" SelectedValuePath="Tag" ToolTip="{StaticResource HFSim_AdjustmentType_Tooltip}">
+                    <ComboBoxItem Content="Screws" Tag="{x:Static interfaces:TiltAdjustmentType.Screws}" />
+                    <ComboBoxItem Content="Stepper Motors" Tag="{x:Static interfaces:TiltAdjustmentType.StepperMotors}" />
+                </ComboBox>
+
+                <!--  Only the active hardware scale is shown: the other is inert and would only invite
+                      editing the wrong box.  -->
+                <TextBlock
+                    Grid.Row="2"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Thread pitch"
+                    ToolTip="{StaticResource HFSim_ThreadPitch_Tooltip}"
+                    Visibility="{Binding ShowThreadPitch, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
+                <ninactrl:UnitTextBox
+                    Grid.Row="2"
+                    Grid.Column="1"
+                    MinWidth="80"
+                    Margin="5,2,0,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    ToolTip="{StaticResource HFSim_ThreadPitch_Tooltip}"
+                    Unit="µm/turn"
+                    Visibility="{Binding ShowThreadPitch, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
+                    <Binding Path="Options.SimThreadPitchMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="5000" Minimum="1" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock
+                    Grid.Row="3"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Stepper step size"
+                    ToolTip="{StaticResource HFSim_StepSize_Tooltip}"
+                    Visibility="{Binding ShowStepperStepSize, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
+                <ninactrl:UnitTextBox
+                    Grid.Row="3"
+                    Grid.Column="1"
+                    MinWidth="80"
+                    Margin="5,2,0,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    ToolTip="{StaticResource HFSim_StepSize_Tooltip}"
+                    Unit="µm/step"
+                    Visibility="{Binding ShowStepperStepSize, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
+                    <Binding Path="Options.SimStepperStepSizeMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="1000" Minimum="0.001" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Screw radius" ToolTip="{StaticResource HFSim_ScrewRadius_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource HFSim_ScrewRadius_Tooltip}" Unit="mm">
+                    <Binding Path="Options.SimScrewRadiusMillimeters" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="500" Minimum="1" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <!--  The rig direction in mechanical words, never as ±1 — the words are the meaning.  -->
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" ToolTip="{StaticResource HFSim_Direction_Tooltip}" controls:IconizedText.Text="⟳ tighten moves adapter toward" />
+                <ComboBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ItemsSource="{Binding AdapterDirectionOptions}" SelectedItem="{Binding SelectedAdapterDirection}" ToolTip="{StaticResource HFSim_Direction_Tooltip}" />
+
+                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Text="Screw 1 angle" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="6" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" Unit="°">
+                    <Binding Path="Options.SimScrew1AngleDegrees" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="360" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Text="Screw 2 angle" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="7" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" Unit="°">
+                    <Binding Path="Options.SimScrew2AngleDegrees" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="360" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <!--  3 screws: screw 3 is entered. 4 screws: screws 3 and 4 render dimmed as derived
+                      (+180°) values — opposite screws on a coupled adapter are 180° apart by construction,
+                      and deriving them kills an entire class of configuration typos.  -->
+                <TextBlock Grid.Row="8" Grid.Column="0" VerticalAlignment="Center" Text="Screw 3 angle" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" />
+                <ninactrl:UnitTextBox
+                    Grid.Row="8"
+                    Grid.Column="1"
+                    MinWidth="80"
+                    Margin="5,2,0,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}"
+                    Unit="°"
+                    Visibility="{Binding IsThreeScrew, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
+                    <Binding Path="Options.SimScrew3AngleDegrees" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="360" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+                <TextBlock
+                    Grid.Row="8"
+                    Grid.Column="1"
+                    Margin="5,2,0,0"
+                    VerticalAlignment="Center"
+                    Opacity="0.55"
+                    Text="{Binding Screw3AngleDisplay}"
+                    ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}"
+                    Visibility="{Binding IsFourScrew, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
+
+                <TextBlock
+                    Grid.Row="9"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Screw 4 angle"
+                    ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}"
+                    Visibility="{Binding IsFourScrew, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
+                <TextBlock
+                    Grid.Row="9"
+                    Grid.Column="1"
+                    Margin="5,2,0,0"
+                    VerticalAlignment="Center"
+                    Opacity="0.55"
+                    Text="{Binding Screw4AngleDisplay}"
+                    ToolTip="{StaticResource HFSim_DerivedAngle_Tooltip}"
+                    Visibility="{Binding IsFourScrew, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
+            </Grid>
+
+            <Button
+                Margin="0,6,0,0"
+                HorizontalAlignment="Left"
+                Command="{Binding AutoFillAnglesCommand}"
+                Style="{StaticResource StandardButton}"
+                ToolTip="{StaticResource HFSim_AutoFill_Tooltip}">
+                <TextBlock Margin="6,2" Text="Auto-fill evenly" />
+            </Button>
+
+            <!--  The wizard's diagram, reused unchanged: it already solves the mirroring-education problem
+                  (0° chevron, "top of image" caption, clockwise cue). It lives here and not in Operate
+                  because executing "screw 2 ⟳" needs no spatial reasoning — verifying angles does.  -->
+            <ContentControl
+                Margin="0,8,0,0"
+                HorizontalAlignment="Center"
+                Content="{Binding}"
+                ContentTemplate="{DynamicResource HF_TiltScrewDiagram}" />
+
+            <!--  Coherence with the real adapter. The inspector guides from TiltAdapterOptions (the user's
+                  REAL calibration) while the simulator obeys these Sim* fields, so the loop converges only
+                  when the two agree — and a silent divergence would have the user blaming the math.
+                  Deliberate mismatch stays supported (flipping the sim's direction is how you test the
+                  inspector's glyph robustness); it is just never silent.  -->
+            <TextBlock
+                Margin="0,10,0,0"
+                FontWeight="Bold"
+                Text="{Binding AdapterCoherenceText}"
+                ToolTip="{Binding AdapterCoherenceTooltip}" />
+            <WrapPanel Margin="0,4,0,0">
+                <Button
+                    Command="{Binding CopyFromAdapterCommand}"
+                    Style="{StaticResource StandardButton}"
+                    ToolTip="Replaces this simulated adapter's geometry with the real tilt-adapter settings. Does not touch the real settings.">
+                    <TextBlock Margin="6,2" Text="Copy from adapter settings" />
+                </Button>
+                <Button
+                    Margin="6,0,0,0"
+                    Command="{Binding CopyToAdapterCommand}"
+                    Style="{StaticResource StandardButton}"
+                    ToolTip="Overwrites the real tilt-adapter calibration with this simulated adapter's geometry. Asks for confirmation first.">
+                    <TextBlock Margin="6,2" Text="Copy to adapter settings…" />
+                </Button>
+            </WrapPanel>
+
+            <!--  An inline confirmation rather than a modal: nothing in this panel is allowed to block.
+                  It names the fields it will overwrite, per the UX design.  -->
+            <Border
+                Margin="0,6,0,0"
+                Padding="6,4"
+                Background="{StaticResource NotificationWarningBrush}"
+                CornerRadius="3"
+                Visibility="{Binding IsCopyToAdapterPending, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
+                <StackPanel>
+                    <TextBlock
+                        MaxWidth="380"
+                        HorizontalAlignment="Left"
+                        Foreground="{StaticResource NotificationWarningTextBrush}"
+                        Text="{Binding CopyToAdapterConfirmText}"
+                        TextWrapping="Wrap" />
+                    <WrapPanel Margin="0,4,0,0">
+                        <Button Command="{Binding ConfirmCopyToAdapterCommand}" Style="{StaticResource StandardButton}">
+                            <TextBlock Margin="6,2" Text="Overwrite" />
+                        </Button>
+                        <Button
+                            Margin="6,0,0,0"
+                            Command="{Binding CancelCopyToAdapterCommand}"
+                            Style="{StaticResource StandardButton}">
+                            <TextBlock Margin="6,2" Text="Cancel" />
+                        </Button>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </DataTemplate>
+
+    <!--
+        The virtual tilt adapter. Hosted by the Imaging dockable. DataContext is a SimulatedTiltAdapterVM.
+
+        Three layers by cadence (docs/virtual-tilt-adapter-panel-ux-design.md): Operate is permanently visible and
+        on top; Injected aberration and Adapter configuration are collapsed Expanders carrying a live summary in
+        their header, so they can be verified without expanding. The configuration body itself lives in
+        HocusFocus_SimTiltAdapter_Config above, which the plugin's options page hosts on its own — the panel keeps
+        its expander so the operate loop stays self-contained, but there is only one copy of the markup.
+
+        GLYPH CONTRACT (non-negotiable — .claude/docs/tilt-domain.md): buttons carry ROTATION (⟳/⟲ for screws,
+        +/− for steppers — the same glyphs the inspector prints, so executing its guidance is transcription rather
+        than translation); tooltips and the last-action line carry MOTION (⬆/⬇ = that corner moves toward the
+        objective / the camera). The two are never mixed. IconizedText renders the ⟳/⟲ sentinels as the plugin's
+        vector rotation icons and passes ⬆/⬇ through unchanged as text.
+    -->
+    <DataTemplate x:Key="HocusFocus_SimTiltAdapter_Panel">
+        <StackPanel MinWidth="320" Margin="5" Orientation="Vertical" VerticalAlignment="Top">
+
+            <!--  Banners: non-blocking and inline. Controls disable rather than hide, and nothing is modal — a
+                  rapid-click loop must never be interrupted by a dialog.  -->
+            <Border
+                Margin="0,0,0,6"
+                Padding="6,4"
+                Background="{StaticResource NotificationWarningBrush}"
+                CornerRadius="3"
+                Visibility="{Binding HasConfigurationBanner, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
+                <WrapPanel>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Foreground="{StaticResource NotificationWarningTextBrush}"
+                        Text="{Binding ConfigurationBannerText}"
+                        TextWrapping="Wrap" />
+                    <Button
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        Command="{Binding AutoFillAnglesCommand}"
+                        Style="{StaticResource StandardButton}"
+                        ToolTip="{StaticResource HFSim_AutoFill_Tooltip}"
+                        Visibility="{Binding CanAutoFillFromBanner, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
+                        <TextBlock Margin="6,1" Text="Auto-fill evenly" />
+                    </Button>
+                </WrapPanel>
+            </Border>
+
+            <Border
+                Margin="0,0,0,6"
+                Padding="6,4"
+                Background="{StaticResource NotificationWarningBrush}"
+                CornerRadius="3"
+                Visibility="{Binding ShowAberrationsDisabledBanner, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
+                <WrapPanel>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Foreground="{StaticResource NotificationWarningTextBrush}"
+                        Text="Aberrations are disabled — the plane below has no effect on rendered frames"
+                        TextWrapping="Wrap" />
+                    <!--  Operate deliberately stays enabled: editing an inert state is legal, just inert.  -->
+                    <Button
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        Command="{Binding EnableAberrationsCommand}"
+                        Style="{StaticResource StandardButton}">
+                        <TextBlock Margin="6,1" Text="Enable" />
+                    </Button>
+                </WrapPanel>
+            </Border>
+
+            <!--  ============ Operate: state strip ============
+                  The loop is click → number shrinks → click, so convergence is read from this line's trend. No
+                  history graph: the Aberration Inspector next door is the rich visualization.  -->
+            <WrapPanel Margin="0,0,0,2">
+                <TextBlock VerticalAlignment="Center" Text="Plane:  " />
+                <TextBlock VerticalAlignment="Center" FontWeight="Bold" Text="{Binding TiltDisplay}" />
+                <TextBlock VerticalAlignment="Center" Opacity="0.7" Text="   ·   Backfocus " />
+                <TextBlock VerticalAlignment="Center" FontWeight="Bold" Text="{Binding BackfocusDisplay}" />
+                <!--  PrimaryBrush, not a "success" brush: NINA has NotificationWarningBrush and
+                      NotificationErrorBrush but no Success counterpart, and StaticResource throws on a missing
+                      key — which WindowService swallows, so the whole setup dialog just never opens. PrimaryBrush
+                      is the plugin's established accent for a positive state. See XamlBrushResourceTests.  -->
+                <TextBlock
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    FontWeight="Bold"
+                    Foreground="{StaticResource PrimaryBrush}"
+                    Text="{Binding FlatText}" />
+                <!--  Passive only: extreme states are legitimate detector-stress scenarios, and Undo is free.  -->
+                <TextBlock
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    FontStyle="Italic"
+                    Foreground="{StaticResource NotificationWarningBrush}"
+                    Text="{Binding ExtremeTiltText}"
+                    Visibility="{Binding HasExtremeTilt, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
+            </WrapPanel>
+
+            <!--  Last-action line: the rotation applied, the motion it produced, and the before→after of whatever
+                  changed. Misclicks in a rapid loop must be free, hence Undo right here.  -->
+            <WrapPanel
+                Margin="0,0,0,6"
+                Visibility="{Binding HasLastAction, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
+                <TextBlock
+                    MaxWidth="420"
+                    VerticalAlignment="Center"
+                    Opacity="0.85"
+                    TextWrapping="Wrap"
+                    controls:IconizedText.Text="{Binding LastActionText}" />
+                <Button
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    Command="{Binding UndoCommand}"
+                    Style="{StaticResource StandardButton}"
+                    ToolTip="Reverts the last click — the injected plane, the best-focus position and the net counters.">
+                    <TextBlock Margin="6,1" Text="Undo" />
+                </Button>
+            </WrapPanel>
+
+            <!--  ============ Operate: amount per click ============  -->
+            <WrapPanel Margin="0,0,0,6">
+                <TextBlock VerticalAlignment="Center" Text="Amount per click" ToolTip="{StaticResource HFSim_AmountPerClick_Tooltip}" />
+                <ninactrl:UnitTextBox
+                    MinWidth="70"
+                    Margin="5,0,0,0"
+                    VerticalAlignment="Center"
+                    IsEnabled="{Binding IsAdapterConfigured}"
+                    ToolTip="{StaticResource HFSim_AmountPerClick_Tooltip}"
+                    Unit="{Binding AmountUnit}">
+                    <!--  Strictly positive: banning negative amounts is what removes the "−0.5 with ⟲ means
+                          what?" double negative. One number, one meaning.  -->
+                    <Binding Path="AmountPerClick" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="10000" Minimum="0.001" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+                <TextBlock
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    FontStyle="Italic"
+                    Opacity="0.6"
+                    Text="{Binding AxialHintText}"
+                    ToolTip="The axial travel one click produces (amount × thread pitch / step size), so magnitudes get a feel without arithmetic." />
+            </WrapPanel>
+
+            <!--  ============ Operate: movement-type selector (4-screw only) ============
+                  A segmented radio rather than the ComboBox-for-enums idiom, deliberately: a hot-path mode switch
+                  should not cost open-then-pick, and seeing all three teaches that they exist.  -->
+            <WrapPanel
+                Margin="0,0,0,6"
+                ToolTip="{Binding MovementModeLegend}"
+                Visibility="{Binding ShowMovementModeSelector, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
+                <TextBlock VerticalAlignment="Center" Text="Move:" />
+                <RadioButton
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    Content="Corner"
+                    GroupName="HFSimMoveMode"
+                    IsChecked="{Binding IsCornerMode, Mode=TwoWay}"
+                    ToolTip="{Binding MovementModeLegend}" />
+                <RadioButton
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    Content="Side"
+                    GroupName="HFSimMoveMode"
+                    IsChecked="{Binding IsSideMode, Mode=TwoWay}"
+                    ToolTip="{Binding MovementModeLegend}" />
+                <RadioButton
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    Content="Backfocus"
+                    GroupName="HFSimMoveMode"
+                    IsChecked="{Binding IsBackfocusMode, Mode=TwoWay}"
+                    ToolTip="{Binding MovementModeLegend}" />
+            </WrapPanel>
+
+            <!--  ============ Operate: the rows ============  -->
+            <ItemsControl IsEnabled="{Binding IsAdapterConfigured}" ItemsSource="{Binding Rows}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="{Binding Label}" />
+
+                            <!--  RelativeSource reaches out of the row's DataContext to the panel VM that owns the
+                                  command; CommandParameter carries which row and which direction as one value, so
+                                  a row's two buttons cannot disagree about anything but the sign.  -->
+                            <Button
+                                Grid.Column="1"
+                                MinWidth="34"
+                                Margin="4,0,0,0"
+                                Command="{Binding DataContext.TurnCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                CommandParameter="{Binding NegativeTurn}"
+                                Style="{StaticResource StandardButton}"
+                                ToolTip="{Binding NegativeTooltip}">
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    Foreground="{StaticResource ButtonForegroundBrush}"
+                                    controls:IconizedText.Text="{Binding DataContext.NegativeGlyph, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                            </Button>
+                            <Button
+                                Grid.Column="2"
+                                MinWidth="34"
+                                Margin="4,0,0,0"
+                                Command="{Binding DataContext.TurnCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                CommandParameter="{Binding PositiveTurn}"
+                                Style="{StaticResource StandardButton}"
+                                ToolTip="{Binding PositiveTooltip}">
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    Foreground="{StaticResource ButtonForegroundBrush}"
+                                    controls:IconizedText.Text="{Binding DataContext.PositiveGlyph, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                            </Button>
+
+                            <!--  Names the coupled partner this click counter-turns. With the net strip below
+                                  counting that partner backwards, the coupling teaches itself on the first click.  -->
+                            <TextBlock
+                                Grid.Column="3"
+                                MinWidth="72"
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Opacity="0.6"
+                                Text="{Binding CouplingText}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!--  ============ Operate: net-position strip ============  The pencil mark on the screw head.  -->
+            <WrapPanel Margin="0,6,0,0" ToolTip="{Binding RezeroTooltip}">
+                <TextBlock VerticalAlignment="Center" Opacity="0.7"><Run Text="Net (" /><Run Text="{Binding NetUnitLabel, Mode=OneWay}" /><Run Text="):  " /></TextBlock>
+                <TextBlock VerticalAlignment="Center" Text="{Binding NetPositionText}" />
+                <Button
+                    Margin="8,0,0,0"
+                    VerticalAlignment="Center"
+                    Command="{Binding RezeroCommand}"
+                    Style="{StaticResource StandardButton}"
+                    ToolTip="{Binding RezeroTooltip}">
+                    <TextBlock Margin="6,1" Text="Re-zero" />
+                </Button>
+            </WrapPanel>
+
+            <!--  ============ Inject ============  -->
+            <Expander Margin="0,10,0,0" IsExpanded="{Binding IsInjectionExpanded, Mode=TwoWay}">
+                <Expander.Header>
+                    <WrapPanel>
+                        <TextBlock FontWeight="Bold" Text="Injected aberration" />
+                        <TextBlock Margin="8,0,0,0" Opacity="0.6" Text="{Binding InjectionSummary}" />
+                    </WrapPanel>
+                </Expander.Header>
+                <StackPanel Margin="10,5,0,0">
+                    <TextBlock
+                        MaxWidth="420"
+                        Margin="0,0,0,5"
+                        FontStyle="Italic"
+                        HorizontalAlignment="Left"
+                        Opacity="0.7"
+                        Text="Direct edit is injection: these boxes and the screw buttons above mutate the same three values, and the state strip is the single source of truth over both."
+                        TextWrapping="Wrap" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition />
+                            <RowDefinition />
+                            <RowDefinition />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Azimuth" ToolTip="Azimuth φ of the sensor tilt (degrees, inspector convention: 0° = up, increasing clockwise)." />
+                        <ninactrl:UnitTextBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="Azimuth φ of the sensor tilt (degrees, inspector convention: 0° = up, increasing clockwise)." Unit="°">
+                            <Binding Path="Options.TiltAngleDegrees" UpdateSourceTrigger="LostFocus">
+                                <Binding.ValidationRules>
+                                    <rules:FloatRangeRule>
+                                        <rules:FloatRangeRule.ValidRange>
+                                            <rules:FloatRangeChecker Maximum="360" Minimum="-360" />
+                                        </rules:FloatRangeRule.ValidRange>
+                                    </rules:FloatRangeRule>
+                                </Binding.ValidationRules>
+                            </Binding>
+                        </ninactrl:UnitTextBox>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Amount" ToolTip="Center-to-corner focus swing (µm) produced by sensor tilt. A non-negative magnitude — the direction is the azimuth." />
+                        <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="Center-to-corner focus swing (µm) produced by sensor tilt. A non-negative magnitude — the direction is the azimuth." Unit="µm">
+                            <Binding Path="Options.TiltAmountMicrons" UpdateSourceTrigger="LostFocus">
+                                <Binding.ValidationRules>
+                                    <rules:FloatRangeRule>
+                                        <rules:FloatRangeRule.ValidRange>
+                                            <rules:FloatRangeChecker Maximum="10000" Minimum="0" />
+                                        </rules:FloatRangeRule.ValidRange>
+                                    </rules:FloatRangeRule>
+                                </Binding.ValidationRules>
+                            </Binding>
+                        </ninactrl:UnitTextBox>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Backfocus Error" ToolTip="Corner-versus-center curvature offset (µm) from a backfocus error." />
+                        <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="Corner-versus-center curvature offset (µm) from a backfocus error." Unit="µm">
+                            <Binding Path="Options.BackfocusErrorMicrons" UpdateSourceTrigger="LostFocus">
+                                <Binding.ValidationRules>
+                                    <rules:FloatRangeRule>
+                                        <rules:FloatRangeRule.ValidRange>
+                                            <rules:FloatRangeChecker Maximum="10000" Minimum="-10000" />
+                                        </rules:FloatRangeRule.ValidRange>
+                                    </rules:FloatRangeRule>
+                                </Binding.ValidationRules>
+                            </Binding>
+                        </ninactrl:UnitTextBox>
+                    </Grid>
+                    <Button
+                        Margin="0,6,0,0"
+                        HorizontalAlignment="Left"
+                        Command="{Binding ZeroAberrationsCommand}"
+                        Style="{StaticResource StandardButton}"
+                        ToolTip="Flattens the injected plane instantly, for starting a fresh scenario.">
+                        <TextBlock Margin="6,2" Text="Zero all aberrations" />
+                    </Button>
+                </StackPanel>
+            </Expander>
+
+            <!--  ============ Configure ============  -->
+            <Expander Margin="0,6,0,0" IsExpanded="{Binding IsConfigurationExpanded, Mode=TwoWay}">
+                <Expander.Header>
+                    <WrapPanel>
+                        <TextBlock FontWeight="Bold" Text="Adapter configuration" />
+                        <TextBlock
+                            Margin="8,0,0,0"
+                            Opacity="0.6"
+                            ToolTip="{Binding AdapterCoherenceTooltip}"
+                            controls:IconizedText.Text="{Binding ConfigurationSummary}" />
+                    </WrapPanel>
+                </Expander.Header>
+                <!--  StaticResource is safe here: the key is declared above in THIS dictionary, so there is no
+                      cross-dictionary merge order to race with — the same reasoning as the dockable below. The
+                      options page reaches the same key with DynamicResource, because it is a different file.  -->
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource HocusFocus_SimTiltAdapter_Config}" />
+            </Expander>
+        </StackPanel>
+    </DataTemplate>
+
+    <!--  The Imaging dockable's content. NINA resolves a dockable's visual by the string key
+          "<FullTypeName>_Dockable" — not by an {x:Type} DataType — matching every other dockable in this plugin.
+
+          StaticResource is safe for the panel here, unlike from the plugin's options dictionary (which reaches
+          HocusFocus_SimTiltAdapter_Config with DynamicResource): it is declared above, in THIS dictionary, so there
+          is no cross-dictionary merge order to race with. The ScrollViewer follows the other dockables — a docked
+          panel is narrow and the configuration expander is tall.  -->
+    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter.SimulatorTiltAdapterDockableVM_Dockable">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ContentControl Content="{Binding TiltAdapterVM}" ContentTemplate="{StaticResource HocusFocus_SimTiltAdapter_Panel}" />
+        </ScrollViewer>
+    </DataTemplate>
+</ResourceDictionary>

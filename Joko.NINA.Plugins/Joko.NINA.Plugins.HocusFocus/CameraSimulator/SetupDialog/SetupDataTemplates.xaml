@@ -1,0 +1,148 @@
+<ResourceDictionary
+    x:Class="NINA.Joko.Plugins.HocusFocus.CameraSimulator.SetupDialog.SetupDataTemplates"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:camsim="clr-namespace:NINA.Joko.Plugins.HocusFocus.CameraSimulator"
+    xmlns:hfconverters="clr-namespace:NINA.Joko.Plugins.HocusFocus.Converters"
+    xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
+    xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
+    xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
+    xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core">
+
+    <!--  Converters are declared locally rather than pulled from OptionsDataTemplates.xaml: StaticResource resolves
+          at parse time, and the merge order of separately-exported plugin ResourceDictionaries into
+          Application.Current.Resources is not guaranteed, so a cross-dictionary lookup would be a load-order race.  -->
+    <hfconverters:EnumStaticDescriptionValueConverter x:Key="HF_EnumStaticDescriptionValueConverter" />
+    <hfconverters:InverseBooleanConverter x:Key="HF_InverseBooleanConverter" />
+    <hfconverters:DoubleNegativeToEmptyStringConverter x:Key="HF_DoubleNegativeToEmptyStringConverter" />
+
+    <!--  Rig tooltips. These live here — with the only controls that edit these values — for the same reason: a
+          StaticResource cannot safely reach across exported dictionaries.  -->
+    <TextBlock x:Key="CamSimSetup_SensorModel_Tooltip" Text="The Sony CMOS sensor to emulate. The chosen model fixes resolution, pixel size, bit depth, full well, QE curve, read noise, dark current, and electrons-per-ADU. Disconnect the camera to change it: NINA latches the reported resolution, pixel size and bit depth when the camera connects, so a switch made while connected would leave NINA describing the old sensor." />
+    <TextBlock x:Key="CamSimSetup_ApertureMillimeters_Tooltip" Text="Telescope aperture diameter D (mm). Drives the collecting area (star brightness) and the diffraction-limited in-focus star size. Leave it blank to hold your NINA telescope focal ratio against whatever focal length is in effect; the greyed-out value is what the next exposure will use." />
+    <TextBlock x:Key="CamSimSetup_FocalLengthMillimeters_Tooltip" Text="Focal length (mm) used for plate scale and defocus geometry. Leave it blank to take the focal length from your NINA telescope settings; any value you enter overrides it. The greyed-out value is what the next exposure will use." />
+    <TextBlock x:Key="CamSimSetup_CentralObstructionEnabled_Tooltip" Text="Whether the optics have a central obstruction (e.g. a secondary mirror). When on, defocused stars render as donuts with a central hole sized by the obstruction fraction." />
+    <TextBlock x:Key="CamSimSetup_CentralObstructionFraction_Tooltip" Text="Central-obstruction fraction ε (0–1): the obstruction diameter as a fraction of the aperture. Sets the donut's inner-to-outer radius ratio far from focus. Typical Newtonian/SCT values are 0.3–0.5." />
+    <TextBlock x:Key="CamSimSetup_OpticalThroughput_Tooltip" Text="Overall optical transmission T (0–1) of the system, multiplying collected star and sky electrons. Default 0.85." />
+
+    <!--  The camera's setup window. NINA's WindowService.Show(this, ...) presents the camera in a ContentPresenter,
+          which resolves this IMPLICIT (DataType-keyed, no x:Key) DataTemplate — PluginLoader.Compose merges every
+          exported ResourceDictionary into Application.Current.Resources, so it is in scope by the time the window
+          opens. Bindings run against the HocusFocusSimulatorCamera itself, hence Options.* and Connected.
+
+          Only SensorModel is gated on !Connected. The rest of the rig is read per exposure from the render snapshot
+          (see HocusFocusSimulatorCamera.BuildRenderRequest), so editing it live simply takes effect on the next
+          frame — disabling it would be a restriction the code does not need. Note the gear button that opens this
+          window is NOT gated on Connected by NINA, so the dialog is reachable while connected either way.  -->
+    <DataTemplate DataType="{x:Type camsim:HocusFocusSimulatorCamera}">
+        <StackPanel MinWidth="360" Margin="10" Orientation="Vertical" VerticalAlignment="Top">
+
+            <TextBlock Margin="5,5,5,2" FontWeight="Bold" Text="Rig" />
+            <TextBlock Margin="5,0,5,8" Text="Sensor and optics — the physical setup, set once. Everything you change per session (filter, sky, seeing, gain, aberrations) stays in the Hocus Focus plugin options." TextWrapping="Wrap" />
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Sensor Model" ToolTip="{StaticResource CamSimSetup_SensorModel_Tooltip}" />
+                <ComboBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="{Binding Connected, Converter={StaticResource HF_InverseBooleanConverter}}" ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:SonySensorModel}}}" SelectedItem="{Binding Options.SensorModel}" ToolTip="{StaticResource CamSimSetup_SensorModel_Tooltip}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Aperture" ToolTip="{StaticResource CamSimSetup_ApertureMillimeters_Tooltip}" />
+                <StackPanel Grid.Row="1" Grid.Column="1" Margin="5,5,0,0" Orientation="Horizontal">
+                    <!--  Blank = "infer it". The hint renders the inferred value at 40% opacity, so the box always
+                          shows the number the next exposure will use — it is bound to the same property the
+                          renderer reads. No ValidationRules: they run on the raw text before the converter, so
+                          they would reject the empty (unset) box. CameraSimulatorOptions.NormalizeOptic enforces
+                          the bounds the rules used to, clamping on commit — so the box visibly snaps to the cap
+                          instead of showing a validation border.  -->
+                    <ninactrl:HintTextBox
+                        MinWidth="80"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        HintText="{Binding Options.EffectiveApertureMillimeters, StringFormat={}{0:F1}}"
+                        TextAlignment="Left"
+                        ToolTip="{StaticResource CamSimSetup_ApertureMillimeters_Tooltip}">
+                        <ninactrl:HintTextBox.Text>
+                            <Binding
+                                Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                Mode="TwoWay"
+                                Path="Options.ApertureMillimeters"
+                                UpdateSourceTrigger="LostFocus" />
+                        </ninactrl:HintTextBox.Text>
+                    </ninactrl:HintTextBox>
+                    <TextBlock Margin="3,0,0,0" VerticalAlignment="Center" Text="mm" ToolTip="{StaticResource CamSimSetup_ApertureMillimeters_Tooltip}" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Focal Length" ToolTip="{StaticResource CamSimSetup_FocalLengthMillimeters_Tooltip}" />
+                <StackPanel Grid.Row="2" Grid.Column="1" Margin="5,5,0,0" Orientation="Horizontal">
+                    <ninactrl:HintTextBox
+                        MinWidth="80"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        HintText="{Binding Options.EffectiveFocalLengthMillimeters, StringFormat={}{0:F0}}"
+                        TextAlignment="Left"
+                        ToolTip="{StaticResource CamSimSetup_FocalLengthMillimeters_Tooltip}">
+                        <ninactrl:HintTextBox.Text>
+                            <Binding
+                                Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                Mode="TwoWay"
+                                Path="Options.FocalLengthMillimeters"
+                                UpdateSourceTrigger="LostFocus" />
+                        </ninactrl:HintTextBox.Text>
+                    </ninactrl:HintTextBox>
+                    <TextBlock Margin="3,0,0,0" VerticalAlignment="Center" Text="mm" ToolTip="{StaticResource CamSimSetup_FocalLengthMillimeters_Tooltip}" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Central Obstruction" ToolTip="{StaticResource CamSimSetup_CentralObstructionEnabled_Tooltip}" />
+                <CheckBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding Options.CentralObstructionEnabled}" ToolTip="{StaticResource CamSimSetup_CentralObstructionEnabled_Tooltip}" />
+
+                <!--  The fraction is inert while the obstruction is off, so it follows the toggle.  -->
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Obstruction Fraction" ToolTip="{StaticResource CamSimSetup_CentralObstructionFraction_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="{Binding Options.CentralObstructionEnabled}" ToolTip="{StaticResource CamSimSetup_CentralObstructionFraction_Tooltip}">
+                    <Binding Path="Options.CentralObstructionFraction" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="0.9" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Text="Optical Throughput" ToolTip="{StaticResource CamSimSetup_OpticalThroughput_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSimSetup_OpticalThroughput_Tooltip}">
+                    <Binding Path="Options.OpticalThroughput" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="1" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+            </Grid>
+        </StackPanel>
+    </DataTemplate>
+</ResourceDictionary>

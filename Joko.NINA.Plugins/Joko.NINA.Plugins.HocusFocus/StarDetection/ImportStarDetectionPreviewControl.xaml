@@ -70,19 +70,19 @@
                 <Button
                     MinWidth="100"
                     Margin="0,0,8,0"
-                    Padding="12,6"
                     Command="{Binding ApplyCommand}"
                     IsDefault="True">
                     <TextBlock
+                        Margin="12,6"
                         Foreground="{StaticResource ButtonForegroundBrush}"
                         Text="Apply" />
                 </Button>
                 <Button
                     MinWidth="100"
-                    Padding="12,6"
                     Command="{Binding CancelCommand}"
                     IsCancel="True">
                     <TextBlock
+                        Margin="12,6"
                         Foreground="{StaticResource ButtonForegroundBrush}"
                         Text="Cancel" />
                 </Button>

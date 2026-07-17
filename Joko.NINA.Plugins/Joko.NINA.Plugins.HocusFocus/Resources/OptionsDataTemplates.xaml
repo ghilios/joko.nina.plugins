@@ -2932,4 +2932,457 @@
             </xceed:ColorPicker>
         </Grid>
     </DataTemplate>
+
+    <!--  ===================== Camera Simulator options =====================  -->
+    <!--  Shared by the six physical-rig options (sensor + optics), which are shown here read-only and edited on the
+          camera itself. Rig belongs with the device; only the observing settings are changed from this tab.  -->
+    <TextBlock x:Key="CamSim_RigReadOnly_Tooltip" Text="Rig settings are edited in the camera's setup dialog — click the gear icon next to the camera in the Equipment &gt; Camera pane. They are shown here for reference only. Aperture and focal length show the value actually in effect, which is inferred from your NINA telescope settings when it has not been set explicitly." />
+    <TextBlock x:Key="CamSim_OptimalFocuserPosition_Tooltip" Text="The focuser step position where best focus occurs (x0 in the defocus model). At this position stars render at their minimum HFR; moving the focuser away grows the donut. Set this to match the best-focus position of your connected (simulator) focuser." />
+    <TextBlock x:Key="CamSim_FocuserStepSizeMicrons_Tooltip" Text="How many microns of sensor-plane defocus one focuser step produces (k). Larger values make the HFR-vs-position curve steeper, so the star field defocuses faster as the focuser moves away from the optimal position. This is the same setting as the Aberration Inspector's Focuser Step Size: editing it here changes it there, and editing it there changes it here. That sharing is deliberate — the simulator renders defocus at this step size and the Aberration Inspector has to interpret that defocus at the same step size, or everything it measures back is wrong by the ratio between the two. Leave it blank if you have not calibrated it, and the simulator renders at the 2 µm/step shown greyed out in the box." />
+    <!--  The per-field rig tooltips moved to CameraSimulator/SetupDialog/SetupDataTemplates.xaml, next to the only
+          controls that still edit those values. Here the rig renders read-only and shares CamSim_RigReadOnly_Tooltip.  -->
+    <TextBlock x:Key="CamSim_Gain_Tooltip" Text="Sensor gain in ZWO-style 0.1 dB units. Higher gain lowers electrons-per-ADU (and read noise, down to the sensor's floor) but tightens digital saturation." />
+    <TextBlock x:Key="CamSim_BiasPedestalAdu_Tooltip" Text="Bias/offset pedestal added to every pixel (ADU) so read noise never clips at zero, yielding calibratable bias/dark/flat frames. Design suggests 500 at 16-bit and 125 at 14-bit; default 500." />
+    <TextBlock x:Key="CamSim_SensorTemperatureCelsius_Tooltip" Text="Sensor temperature (°C), which drives dark current via the sensor's doubling law. Lower temperatures reduce dark noise." />
+    <TextBlock x:Key="CamSim_Filter_Tooltip" Text="The filter in front of the sensor. Wider bandpass (L) collects far more light than narrowband (Hα/OIII/SII), so narrowband needs proportionally longer exposures for equal signal." />
+    <TextBlock x:Key="CamSim_SkyBrightnessMagPerArcsec2_Tooltip" Text="Sky surface brightness (mag/arcsec², V-referenced). Lower numbers are brighter skies. Narrowband sky scales down with bandwidth automatically. Default 20.5." />
+    <TextBlock x:Key="CamSim_SeeingArcsec_Tooltip" Text="Atmospheric seeing FWHM (arcsec), combined in quadrature with diffraction to set the in-focus star size (HFR_min)." />
+    <TextBlock x:Key="CamSim_AstapCatalogPath_Tooltip" Text="Directory holding the ASTAP star database (the .1476 or .290 cell files). Real catalog stars are projected from the mount pointing onto the sensor. Defaults to %ProgramFiles%\astap." />
+    <TextBlock x:Key="CamSim_LimitingMagnitude_Tooltip" Text="Faintest star magnitude to render. Fainter stars are skipped; catalog reads stop early once records fall below this cutoff." />
+    <TextBlock x:Key="CamSim_RotationDegrees_Tooltip" Text="Field rotation (degrees) applied to the projected star field, so the same pointing can be rendered at different camera angles." />
+    <TextBlock x:Key="CamSim_NoiseSeed_Tooltip" Text="Base seed for the noise RNG. Each exposure mixes this with the focuser position and an exposure counter, so every frame gets its own noise realization (repeated frames at one focuser position differ, as on a real camera). Change it to draw a different sequence; a fixed exposure sequence after connecting replays identically." />
+    <TextBlock x:Key="CamSim_EnableAberrations_Tooltip" Text="Master toggle for the field-aberration model below (tilt / backfocus / optical-axis offset). When off, the sensor is a flat, uniformly-focused plane. When on, the injected best-focus surface can be recovered by the aberration inspector." />
+    <TextBlock x:Key="CamSim_TiltAngleDegrees_Tooltip" Text="Azimuth φ of the sensor tilt (degrees, inspector convention). Together with Tilt Amount it sets the gradient direction of the best-focus surface. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_TiltAmountMicrons_Tooltip" Text="Center-to-corner focus swing (µm) produced by sensor tilt. Larger values make the defocus vary more strongly across the frame. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_BackfocusErrorMicrons_Tooltip" Text="Corner-versus-center curvature offset (µm) from a backfocus error — an isotropic field-curvature term. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_OpticalAxisOffsetXMicrons_Tooltip" Text="X offset (µm) of the optical axis from the sensor center (X0), shifting where the best-focus surface is centered. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_OpticalAxisOffsetYMicrons_Tooltip" Text="Y offset (µm) of the optical axis from the sensor center (Y0), shifting where the best-focus surface is centered. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_ShowTiltAdapterPanel_Tooltip" Text="Show the simulated tilt adapter as a panel in the Imaging tab, so it can be operated next to the Aberration Inspector. Requires a NINA restart to appear the first time." />
+
+    <DataTemplate x:Key="HocusFocus_CameraSimulator_Options">
+        <StackPanel Margin="5" Orientation="Vertical" VerticalAlignment="Top">
+
+            <!--  Focus & Optics  -->
+            <TextBlock Margin="5,5,5,2" FontWeight="Bold" Text="Focus &amp; Optics" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Optimal Focuser Position" ToolTip="{StaticResource CamSim_OptimalFocuserPosition_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_OptimalFocuserPosition_Tooltip}" Unit="steps">
+                    <Binding Path="CameraSimulatorOptions.OptimalFocuserPosition" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="1000000" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <!--
+                    Mirrors the Aberration Inspector's own Focuser Step Size row (AutoFocus/DataTemplates.xaml),
+                    because it is literally the same setting — CameraSimulatorOptions.FocuserStepSizeMicrons is a
+                    pass-through onto InspectorOptions.MicronsPerFocuserStep. A HintTextBox, not a UnitTextBox:
+                    "unset" is a real state here (-1), which the converter shows as an empty box with the value the
+                    render will actually use as the hint. No FloatRangeRule: validation rules run on the RAW text
+                    before the converter, so one would reject the blank/unset box outright.
+                -->
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Focuser Step Size" ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}" />
+                <StackPanel Grid.Row="1" Grid.Column="1" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Orientation="Horizontal">
+                    <ninactrl:HintTextBox
+                        MinWidth="80"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        HintText="{Binding CameraSimulatorOptions.EffectiveFocuserStepSizeMicrons, StringFormat=\{0:0.###\}, Mode=OneWay}"
+                        TextAlignment="Left"
+                        ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}">
+                        <ninactrl:HintTextBox.Text>
+                            <Binding
+                                Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                Mode="TwoWay"
+                                Path="CameraSimulatorOptions.FocuserStepSizeMicrons"
+                                UpdateSourceTrigger="LostFocus" />
+                        </ninactrl:HintTextBox.Text>
+                    </ninactrl:HintTextBox>
+                    <TextBlock Margin="3,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Text="µm/step" ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}" />
+                </StackPanel>
+
+                <!--  Rig (read-only here; edited in the camera's setup dialog). Bound to the Effective* values, not
+                      the raw options: the raw value is -1 when unset, and showing a bare "-1" as the aperture would
+                      be actively misleading. These are the numbers the next exposure will use.  -->
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Aperture" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.EffectiveApertureMillimeters, Mode=OneWay, StringFormat={}{0:F1}}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" Unit="mm" />
+
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Focal Length" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.EffectiveFocalLengthMillimeters, Mode=OneWay, StringFormat={}{0:F0}}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" Unit="mm" />
+
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Central Obstruction" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <CheckBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.CentralObstructionEnabled, Mode=OneWay}" IsEnabled="False" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Text="Obstruction Fraction" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.CentralObstructionFraction, Mode=OneWay}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+
+                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Text="Optical Throughput" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="6" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" Text="{Binding CameraSimulatorOptions.OpticalThroughput, Mode=OneWay}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+            </Grid>
+
+            <!--  Sensor & Filter  -->
+            <TextBlock Margin="5,15,5,2" FontWeight="Bold" Text="Sensor &amp; Filter" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+
+                <!--  Rig: read-only here, edited in the camera's setup dialog (which also gates it on Connected —
+                      NINA latches resolution, pixel size and bit depth at connect).  -->
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Sensor Model" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}" />
+                <ComboBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="False" ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:SonySensorModel}}}" SelectedItem="{Binding CameraSimulatorOptions.SensorModel, Mode=OneWay}" ToolTip="{StaticResource CamSim_RigReadOnly_Tooltip}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Gain" ToolTip="{StaticResource CamSim_Gain_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_Gain_Tooltip}">
+                    <!--  Coarse UI bound (widest sensor MaxGain is 400); CameraSimulatorOptions.Gain re-clamps to the
+                          selected sensor's exact [0, MaxGain] range on commit.  -->
+                    <Binding Path="CameraSimulatorOptions.Gain" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="400" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Bias Pedestal" ToolTip="{StaticResource CamSim_BiasPedestalAdu_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_BiasPedestalAdu_Tooltip}" Unit="ADU">
+                    <Binding Path="CameraSimulatorOptions.BiasPedestalAdu" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="65535" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Sensor Temperature" ToolTip="{StaticResource CamSim_SensorTemperatureCelsius_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_SensorTemperatureCelsius_Tooltip}" Unit="°C">
+                    <Binding Path="CameraSimulatorOptions.SensorTemperatureCelsius" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="50" Minimum="-50" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Filter" ToolTip="{StaticResource CamSim_Filter_Tooltip}" />
+                <ComboBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:SimulatorFilter}}}" SelectedItem="{Binding CameraSimulatorOptions.Filter}" ToolTip="{StaticResource CamSim_Filter_Tooltip}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+            </Grid>
+
+            <!--  Sky & Catalog  -->
+            <TextBlock Margin="5,15,5,2" FontWeight="Bold" Text="Sky &amp; Catalog" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Sky Brightness" ToolTip="{StaticResource CamSim_SkyBrightnessMagPerArcsec2_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_SkyBrightnessMagPerArcsec2_Tooltip}" Unit="mag/arcsec²">
+                    <Binding Path="CameraSimulatorOptions.SkyBrightnessMagPerArcsec2" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="25" Minimum="10" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Seeing" ToolTip="{StaticResource CamSim_SeeingArcsec_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_SeeingArcsec_Tooltip}" Unit="arcsec">
+                    <Binding Path="CameraSimulatorOptions.SeeingArcsec" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="20" Minimum="0.1" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="ASTAP Catalog Path" ToolTip="{StaticResource CamSim_AstapCatalogPath_Tooltip}" />
+                <!--
+                    Column 1 is "*", so it is far wider than any field in this grid. Every other row keeps its editor
+                    HorizontalAlignment="Left" and therefore hugs the label. This row previously used Stretch with
+                    MaxWidth="240": once MaxWidth caps a Stretch, WPF CENTERS the element in its slot, so the box
+                    drifted into the middle of the star column and the Column 2 button was pushed to the far right.
+                    A Left-aligned StackPanel spanning both columns keeps the box and its browse button together and
+                    next to the label, matching the rows above and below. Nothing else in this grid uses Column 2.
+                -->
+                <StackPanel Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Left" Orientation="Horizontal">
+                    <TextBox
+                        Width="240"
+                        Margin="5,5,0,0"
+                        VerticalAlignment="Center"
+                        VerticalContentAlignment="Center"
+                        Style="{StaticResource StandardTextbox}"
+                        Text="{Binding CameraSimulatorOptions.AstapCatalogPath, UpdateSourceTrigger=LostFocus}"
+                        ToolTip="{StaticResource CamSim_AstapCatalogPath_Tooltip}" />
+                    <!--
+                        Deliberately the same shape as the other two DotsSVG browse buttons in this file (Grid.Row 5 at
+                        ~:727, Grid.Row 39 at ~:2272), which render correctly: Style BasedOn StandardButton, pinned 20x20,
+                        Margin 5,5,0,0, over an unsized Stretch="Uniform" Path with Margin="2,10,2,0". This row was the
+                        odd one out — it used StandardButton but pinned no size — and rendered a ~660x182 blob.
+
+                        The 20x20 is what fixes it. The Path is Stretch="Uniform" with no intrinsic size, so its
+                        DesiredSize is simply whatever it is MEASURED against, and StandardButton (decompiled from
+                        NINA.WPF.Base) constrains nothing: no Width/Height/Padding setters, BorderThickness=0, and a
+                        ControlTemplate whose ContentPresenter has Margin=0 and no size constraint, so the button's whole
+                        constraint reaches the content. Unsized, it measured the dots against the whole slot.
+                        VerticalAlignment cannot undo that — it is ARRANGE-time, and the oversized DesiredSize is
+                        already fixed during MEASURE.
+
+                        Pinning the button bounds the measure: content box 20x20 (border 0, presenter margin 0), less the
+                        Path's Margin="2,10,2,0", leaves 16x10; DotsSVG's real bounds are 435.2x108.8 (aspect 4.0003:1,
+                        read from NINA's decompiled SVG dictionary), so Uniform is width-limited and the dots land at
+                        16.0x4.0 px — the intended "...".
+                    -->
+                    <Button
+                        VerticalAlignment="Center"
+                        Command="{Binding ChooseAstapPathDiagCommand}">
+                        <Path
+                            Margin="2,10,2,0"
+                            Data="{StaticResource DotsSVG}"
+                            Fill="{StaticResource ButtonForegroundBrush}"
+                            Stretch="Uniform" />
+                        <Button.Style>
+                            <Style BasedOn="{StaticResource StandardButton}" TargetType="{x:Type Button}">
+                                <Setter Property="Width" Value="20" />
+                                <Setter Property="Height" Value="20" />
+                                <Setter Property="Margin" Value="5,5,0,0" />
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Limiting Magnitude" ToolTip="{StaticResource CamSim_LimitingMagnitude_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_LimitingMagnitude_Tooltip}" Unit="mag">
+                    <Binding Path="CameraSimulatorOptions.LimitingMagnitude" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="25" Minimum="5" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Field Rotation" ToolTip="{StaticResource CamSim_RotationDegrees_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_RotationDegrees_Tooltip}" Unit="°">
+                    <Binding Path="CameraSimulatorOptions.RotationDegrees" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="360" Minimum="-360" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Text="Noise Seed" ToolTip="{StaticResource CamSim_NoiseSeed_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_NoiseSeed_Tooltip}">
+                    <Binding Path="CameraSimulatorOptions.NoiseSeed" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="1000000000" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+            </Grid>
+
+            <!--  Field Aberrations  -->
+            <TextBlock Margin="5,15,5,2" FontWeight="Bold" Text="Field Aberrations" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Enable Aberrations" ToolTip="{StaticResource CamSim_EnableAberrations_Tooltip}" />
+                <CheckBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.EnableAberrations}" ToolTip="{StaticResource CamSim_EnableAberrations_Tooltip}" />
+            </Grid>
+            <!--  Collapses rather than greys out: the aberration knobs are meaningless on a flat sensor, and hiding
+                  them keeps the panel short. The Enable Aberrations CheckBox lives in the grid above, outside this
+                  container, so it stays reachable to turn the group back on.  -->
+            <Grid Visibility="{Binding CameraSimulatorOptions.EnableAberrations, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Angle" ToolTip="{StaticResource CamSim_TiltAngleDegrees_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_TiltAngleDegrees_Tooltip}" Unit="°">
+                    <Binding Path="CameraSimulatorOptions.TiltAngleDegrees" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="360" Minimum="-360" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Amount" ToolTip="{StaticResource CamSim_TiltAmountMicrons_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="1" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_TiltAmountMicrons_Tooltip}" Unit="µm">
+                    <Binding Path="CameraSimulatorOptions.TiltAmountMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="10000" Minimum="0" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Backfocus Error" ToolTip="{StaticResource CamSim_BackfocusErrorMicrons_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="2" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_BackfocusErrorMicrons_Tooltip}" Unit="µm">
+                    <Binding Path="CameraSimulatorOptions.BackfocusErrorMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="10000" Minimum="-10000" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" Text="Optical Axis Offset X" ToolTip="{StaticResource CamSim_OpticalAxisOffsetXMicrons_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="3" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_OpticalAxisOffsetXMicrons_Tooltip}" Unit="µm">
+                    <Binding Path="CameraSimulatorOptions.OpticalAxisOffsetXMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="100000" Minimum="-100000" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Text="Optical Axis Offset Y" ToolTip="{StaticResource CamSim_OpticalAxisOffsetYMicrons_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="4" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_OpticalAxisOffsetYMicrons_Tooltip}" Unit="µm">
+                    <Binding Path="CameraSimulatorOptions.OpticalAxisOffsetYMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="100000" Minimum="-100000" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+            </Grid>
+
+            <!--  Tilt Adapter: the panel-visibility toggle, plus the simulated adapter's geometry (screw
+                  count/angles, adapter direction, thread pitch, screw radius). The geometry belongs with the other
+                  live-editable options rather than in the camera's setup dialog, which is for the rig NINA latches
+                  at connect (sensor + optics) — this is edited mid-session, against a connected camera.
+
+                  The Imaging dockable's panel keeps its own copy of this same expander, so the operate loop stays
+                  self-contained; both hosts render the ONE HocusFocus_SimTiltAdapter_Config template and drive the
+                  one CameraSimulatorOptions singleton, so they cannot drift.  -->
+            <TextBlock Margin="5,15,5,2" FontWeight="Bold" Text="Tilt Adapter" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Show tilt adapter panel in Imaging" ToolTip="{StaticResource CamSim_ShowTiltAdapterPanel_Tooltip}" />
+                <CheckBox Grid.Row="0" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.ShowSimulatorTiltAdapterPanel}" ToolTip="{StaticResource CamSim_ShowTiltAdapterPanel_Tooltip}" />
+            </Grid>
+
+            <!--  DynamicResource, not StaticResource: this key lives in a DIFFERENT exported ResourceDictionary
+                  (CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml), which this file does not merge.
+                  StaticResource resolves at parse time and plugin dictionaries are merged into
+                  Application.Current.Resources in no guaranteed order, so it would be a load-order race — and a
+                  parse-time throw inside a hosted window is swallowed, leaving no symptom but a blank page.
+                  DynamicResource resolves at render time, once every dictionary is merged. XamlResourceResolutionTests
+                  enforces this. Content={Binding SimTiltAdapterVM} because the config template binds a
+                  SimulatedTiltAdapterVM, while this page's DataContext is the plugin.  -->
+            <ContentControl Margin="0,5,0,0" Content="{Binding SimTiltAdapterVM}" ContentTemplate="{DynamicResource HocusFocus_SimTiltAdapter_Config}" />
+        </StackPanel>
+    </DataTemplate>
 </ResourceDictionary>

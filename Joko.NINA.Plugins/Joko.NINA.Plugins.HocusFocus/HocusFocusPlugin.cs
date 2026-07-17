@@ -11,6 +11,8 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter;
 using NINA.Joko.Plugins.HocusFocus.Properties;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
@@ -109,6 +111,14 @@ namespace NINA.Joko.Plugins.HocusFocus {
             if (TiltAdapterOptions == null) {
                 TiltAdapterOptions = new TiltAdapterOptions(profileService);
             }
+            if (CameraSimulatorOptions == null) {
+                // Takes InspectorOptions: the simulator's FocuserStepSizeMicrons is a pass-through onto the
+                // Inspector's MicronsPerFocuserStep, not a copy. Constructed above, which this relies on — both for
+                // the non-null argument here and for ProfileChanged ordering (see MigrateLegacyFocuserStepSize).
+                CameraSimulatorOptions = new CameraSimulatorOptions(profileService, InspectorOptions);
+            }
+            // Must follow CameraSimulatorOptions: the VM reads it and subscribes to its PropertyChanged.
+            SimTiltAdapterVM = new SimulatedTiltAdapterVM(CameraSimulatorOptions);
             if (AlglibAPI == null) {
                 AlglibAPI = new AlglibAPI();
             }
@@ -144,8 +154,10 @@ namespace NINA.Joko.Plugins.HocusFocus {
             ResetStarDetectionDefaultsCommand = new RelayCommand(StarDetectionOptions.ResetDefaults);
             ResetStarAnnotatorDefaultsCommand = new RelayCommand(StarAnnotatorOptions.ResetDefaults);
             ResetAutoFocusDefaultsCommand = new RelayCommand(AutoFocusOptions.ResetDefaults);
+            ResetCameraSimulatorDefaultsCommand = new RelayCommand(CameraSimulatorOptions.ResetDefaults);
             ChooseIntermediatePathDiagCommand = new RelayCommand(ChooseIntermediatePathDiag);
             ChooseSavePathDiagCommand = new RelayCommand(ChooseSavePathDiag);
+            ChooseAstapPathDiagCommand = new RelayCommand(ChooseAstapPathDiag);
             OptimizeStarDetectionCommand = new RelayCommand(OptimizeStarDetection);
             LaunchStarDetectionOptimizer = OptimizeStarDetection;
             ExportStarDetectionSettingsCommand = new RelayCommand(() => StarDetectionSettingsIO.Export(StarDetectionOptions));
@@ -224,6 +236,16 @@ namespace NINA.Joko.Plugins.HocusFocus {
             }
         }
 
+        private void ChooseAstapPathDiag() {
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog()) {
+                dialog.SelectedPath = CameraSimulatorOptions.AstapCatalogPath;
+
+                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK) {
+                    CameraSimulatorOptions.AstapCatalogPath = dialog.SelectedPath;
+                }
+            }
+        }
+
         private Task ImageSaveMediator_BeforeFinalizeImageSaved(object sender, BeforeFinalizeImageSavedEventArgs e) {
             var hfAnalysis = (e.Image?.RawImageData?.StarDetectionAnalysis as HocusFocusStarDetectionAnalysis);
             if (hfAnalysis != null) {
@@ -251,6 +273,22 @@ namespace NINA.Joko.Plugins.HocusFocus {
 
         public static TiltAdapterOptions TiltAdapterOptions { get; private set; }
 
+        public static CameraSimulatorOptions CameraSimulatorOptions { get; private set; }
+
+        /// <summary>
+        /// Backs the simulated tilt adapter's configuration on the Camera Simulator options page, whose DataContext
+        /// is this plugin. An instance property, unlike the options singletons above: those predate this and are
+        /// static so non-VM code can reach them, whereas nothing but the options page needs this one.
+        /// </summary>
+        /// <remarks>
+        /// The Imaging dockable builds its own <see cref="SimulatedTiltAdapterVM"/> over the same
+        /// <see cref="CameraSimulatorOptions"/> singleton, and each VM subscribes to that singleton's
+        /// PropertyChanged, so the two views stay in lockstep without talking to each other. A second instance is
+        /// therefore the established design here, not duplicated state — the injected plane and the adapter
+        /// geometry live in the options, never in the VM.
+        /// </remarks>
+        public SimulatedTiltAdapterVM SimTiltAdapterVM { get; private set; }
+
         public static AutoFocusEngineFactory AutoFocusEngineFactory { get; private set; }
 
         public static ApplicationDispatcher ApplicationDispatcher { get; private set; }
@@ -270,9 +308,13 @@ namespace NINA.Joko.Plugins.HocusFocus {
 
         public ICommand ResetAutoFocusDefaultsCommand { get; private set; }
 
+        public ICommand ResetCameraSimulatorDefaultsCommand { get; private set; }
+
         public ICommand ChooseIntermediatePathDiagCommand { get; private set; }
 
         public ICommand ChooseSavePathDiagCommand { get; private set; }
+
+        public ICommand ChooseAstapPathDiagCommand { get; private set; }
 
         public ICommand OptimizeStarDetectionCommand { get; private set; }
 
