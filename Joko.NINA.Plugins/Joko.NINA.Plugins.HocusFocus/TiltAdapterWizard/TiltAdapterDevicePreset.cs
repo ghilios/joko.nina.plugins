@@ -75,6 +75,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             new TiltAdapterDevicePreset(
                 "ASG Electronic EAT - ZWO 461", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.StepperMotors,
                 threadPitchMicrons: -1, stepperStepSizeMicrons: 1.8, screwRadiusMillimeters: 62.75),
+
+            // OGMA series
+            new TiltAdapterDevicePreset(
+                "OGMA Z'Tilter - 3-point configuration", isManual: false, screwCount: 3, adjustmentType: TiltAdjustmentType.Screws,
+                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 48.9),
+            new TiltAdapterDevicePreset(
+                "OGMA Z'Tilter - 4-point configuration", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.Screws,
+                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 48.9),
+            new TiltAdapterDevicePreset(
+                "OGMA O'Tilter", isManual: false, screwCount: 3, adjustmentType: TiltAdjustmentType.Screws,
+                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 43.25),
+            new TiltAdapterDevicePreset(
+                "OGMA +Tilter / OAG Pro - 3-point configuration", isManual: false, screwCount: 3, adjustmentType: TiltAdjustmentType.Screws,
+                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 40),
+            new TiltAdapterDevicePreset(
+                "OGMA +Tilter / OAG Pro - 4-point configuration", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.Screws,
+                threadPitchMicrons: 450, stepperStepSizeMicrons: -1, screwRadiusMillimeters: 40),
         };
 
         public static TiltAdapterDevicePreset ByName(string name) =>

@@ -94,6 +94,71 @@ public class TiltAdapterDevicePresetTests {
     }
 
     [Test]
+    public void OgmaZTilter3Point_HasDocumentedValues() {
+        var preset = TiltAdapterDevicePreset.ByName("OGMA Z'Tilter - 3-point configuration");
+        Assert.Multiple(() => {
+            Assert.That(preset.IsManual, Is.False);
+            Assert.That(preset.ScrewCount, Is.EqualTo(3));
+            Assert.That(preset.AdjustmentType, Is.EqualTo(TiltAdjustmentType.Screws));
+            Assert.That(preset.ThreadPitchMicrons, Is.EqualTo(450));
+            Assert.That(preset.StepperStepSizeMicrons, Is.EqualTo(-1));
+            Assert.That(preset.ScrewRadiusMillimeters, Is.EqualTo(48.9));
+        });
+    }
+
+    [Test]
+    public void OgmaZTilter4Point_HasDocumentedValues() {
+        var preset = TiltAdapterDevicePreset.ByName("OGMA Z'Tilter - 4-point configuration");
+        Assert.Multiple(() => {
+            Assert.That(preset.IsManual, Is.False);
+            Assert.That(preset.ScrewCount, Is.EqualTo(4));
+            Assert.That(preset.AdjustmentType, Is.EqualTo(TiltAdjustmentType.Screws));
+            Assert.That(preset.ThreadPitchMicrons, Is.EqualTo(450));
+            Assert.That(preset.StepperStepSizeMicrons, Is.EqualTo(-1));
+            Assert.That(preset.ScrewRadiusMillimeters, Is.EqualTo(48.9));
+        });
+    }
+
+    [Test]
+    public void OgmaOTilter_HasDocumentedValues() {
+        var preset = TiltAdapterDevicePreset.ByName("OGMA O'Tilter");
+        Assert.Multiple(() => {
+            Assert.That(preset.IsManual, Is.False);
+            Assert.That(preset.ScrewCount, Is.EqualTo(3));
+            Assert.That(preset.AdjustmentType, Is.EqualTo(TiltAdjustmentType.Screws));
+            Assert.That(preset.ThreadPitchMicrons, Is.EqualTo(450));
+            Assert.That(preset.StepperStepSizeMicrons, Is.EqualTo(-1));
+            Assert.That(preset.ScrewRadiusMillimeters, Is.EqualTo(43.25));
+        });
+    }
+
+    [Test]
+    public void OgmaPlusTilterOagPro3Point_HasDocumentedValues() {
+        var preset = TiltAdapterDevicePreset.ByName("OGMA +Tilter / OAG Pro - 3-point configuration");
+        Assert.Multiple(() => {
+            Assert.That(preset.IsManual, Is.False);
+            Assert.That(preset.ScrewCount, Is.EqualTo(3));
+            Assert.That(preset.AdjustmentType, Is.EqualTo(TiltAdjustmentType.Screws));
+            Assert.That(preset.ThreadPitchMicrons, Is.EqualTo(450));
+            Assert.That(preset.StepperStepSizeMicrons, Is.EqualTo(-1));
+            Assert.That(preset.ScrewRadiusMillimeters, Is.EqualTo(40));
+        });
+    }
+
+    [Test]
+    public void OgmaPlusTilterOagPro4Point_HasDocumentedValues() {
+        var preset = TiltAdapterDevicePreset.ByName("OGMA +Tilter / OAG Pro - 4-point configuration");
+        Assert.Multiple(() => {
+            Assert.That(preset.IsManual, Is.False);
+            Assert.That(preset.ScrewCount, Is.EqualTo(4));
+            Assert.That(preset.AdjustmentType, Is.EqualTo(TiltAdjustmentType.Screws));
+            Assert.That(preset.ThreadPitchMicrons, Is.EqualTo(450));
+            Assert.That(preset.StepperStepSizeMicrons, Is.EqualTo(-1));
+            Assert.That(preset.ScrewRadiusMillimeters, Is.EqualTo(40));
+        });
+    }
+
+    [Test]
     public void ByName_UnknownFallsBackToManual() {
         Assert.That(TiltAdapterDevicePreset.ByName("does-not-exist"), Is.SameAs(TiltAdapterDevicePreset.Manual));
         Assert.That(TiltAdapterDevicePreset.ByName(null), Is.SameAs(TiltAdapterDevicePreset.Manual));
