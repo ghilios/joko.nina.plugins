@@ -632,7 +632,6 @@
                 Orientation="Horizontal">
                 <Button
                     Height="25"
-                    Padding="5,0,5,0"
                     VerticalAlignment="Center"
                     Command="{Binding ReviewFramesCommand}"
                     ToolTip="Open the Review Frames window to inspect each frame of the last auto-focus run started from this pane (a live run or a Replay Saved AF) — its detected stars with the Hocus Focus Star Annotator's bounds, per-star text, rejection-reason and ROI boxes, plus per-frame HFR statistics. Enabled after such a run completes with &quot;Keep frames for review&quot; turned on.">
