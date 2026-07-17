@@ -690,10 +690,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // (ctor, tiltAdapterOptions.PropertyChanged, ClearAnalyses) — only a genuinely completed analysis
             // counts as a new measurement.
             measurementGeneration++;
-            // Marshal the requery: AnalyzeAutoFocusResult runs on the analysis background task and
-            // NotifyCanExecuteChanged raises through CanExecuteChangedEventManager, which requires the UI thread
-            // (same reason as RebuildTiltGuidance's own requery above).
-            applicationDispatcher.DispatchSynchronizationContext(() => AutomaticAdjustmentCommand?.NotifyCanExecuteChanged());
+            // Marshal the requery to the UI thread (NotifyCanExecuteChanged raises through
+            // CanExecuteChangedEventManager, which requires it). Non-blocking Post, for the same
+            // deadlock-avoidance reason as RebuildTiltGuidance's publish above.
+            applicationDispatcher.PostSynchronizationContext(() => AutomaticAdjustmentCommand?.NotifyCanExecuteChanged());
             AutoFocusCompleted = true;
             return true;
         }
@@ -2100,13 +2100,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     angleUnit: tiltAdapterOptions.AngleDisplayUnit);
             }
 
-            // Publish to the UI on the UI thread. RebuildTiltGuidance runs on the analysis background task (via
-            // AnalyzeAutoFocusResult) as well as on the UI thread (ctor, tiltAdapterOptions.PropertyChanged), and
-            // AutomaticAdjustmentCommand.NotifyCanExecuteChanged() raises through CanExecuteChangedEventManager,
-            // which throws when called off the UI thread. DispatchSynchronizationContext is a synchronous Send
-            // with a same-thread fast path, so it runs inline for UI callers and marshals for the background task
-            // — the same pattern NotifyReviewFramesAvailabilityChanged uses.
-            applicationDispatcher.DispatchSynchronizationContext(() => {
+            // Publish to the UI on the UI thread. RebuildTiltGuidance runs on the UI thread (ctor) but ALSO on
+            // background threads: the analysis task (AnalyzeAutoFocusResult) and — via tiltAdapterOptions
+            // .PropertyChanged (subscribed in the ctor) — the connection service's 'cp' poll thread, because a
+            // poll persists shadow positions back into tiltAdapterOptions. AutomaticAdjustmentCommand
+            // .NotifyCanExecuteChanged() raises through CanExecuteChangedEventManager, which throws off the UI
+            // thread, so this must be marshaled. Use the NON-BLOCKING PostSynchronizationContext (BeginInvoke),
+            // NOT a blocking DispatchSynchronizationContext (Invoke): a blocking Invoke from the poll thread onto
+            // a busy UI thread (e.g. while it lays out the Imaging tab) deadlocks — the same hazard, and the same
+            // fix, as RefreshCommandStates. It still runs inline for UI-thread callers; the requery/publish only
+            // needs to reach the UI eventually, not synchronously.
+            applicationDispatcher.PostSynchronizationContext(() => {
                 TiltGuidance = guidance;
                 RaisePropertyChanged(nameof(TiltGuidance));
 
