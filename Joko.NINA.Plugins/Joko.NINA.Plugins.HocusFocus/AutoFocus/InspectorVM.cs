@@ -1750,12 +1750,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // Re-evaluate CanExecute for the connection-/analysis-/slew-gated buttons. Their commands are CommunityToolkit
         // AsyncRelayCommand/RelayCommand, which (unlike NINA's MVVMLight RelayCommand) do not hook
         // CommandManager.RequerySuggested, so their CanExecute is only re-checked when we raise it here. Call whenever a
-        // CanExecute input changes: a device connects/disconnects, or an analysis/slew task starts or finishes. Marshaled
-        // to the UI thread because NotifyCanExecuteChanged updates button IsEnabled (a DP); DispatchSynchronizationContext
-        // is a synchronous Send with a same-context fast path, so it is safe from either thread. Null-conditional so it is
-        // a no-op if a device snapshot arrives before the commands are constructed.
+        // CanExecute input changes: a device connects/disconnects, or an analysis/slew task starts or finishes.
+        // POST, not the blocking DispatchSynchronizationContext: device-info updates arrive on the DeviceUpdateTimer's
+        // broadcast, which shutdown awaits — a blocking Invoke back onto the tearing-down UI thread would deadlock the
+        // close (exactly the hazard ApplicationDispatcher.PostSynchronizationContext is documented to avoid). BeginInvoke
+        // queues the requery and returns; NotifyCanExecuteChanged only needs to update button IsEnabled eventually, not
+        // synchronously. Null-conditional so it is a no-op if a device snapshot arrives before the commands are built.
         private void RefreshCommandStates() {
-            applicationDispatcher.DispatchSynchronizationContext(() => {
+            applicationDispatcher.PostSynchronizationContext(() => {
                 RunAutoFocusAnalysisCommand?.NotifyCanExecuteChanged();
                 RunExposureAnalysisCommand?.NotifyCanExecuteChanged();
                 RerunSavedAutoFocusAnalysisCommand?.NotifyCanExecuteChanged();
