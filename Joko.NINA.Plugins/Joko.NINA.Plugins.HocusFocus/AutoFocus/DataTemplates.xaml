@@ -104,11 +104,16 @@
         <replay:ReplaySettingsPromptControl />
     </DataTemplate>
 
-    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
-        <Grid local:InteractiveHostBehavior.HostInteractive="True">
+    <!--  Shared chart + info "core": the AF plot plus the run's info rows (Time / Position / HFR / Temperature /
+          Filter and the fit-quality stats). Hosted BOTH by the imaging-pane template (…_Dockable below, which adds
+          the Replay Saved AF / Review Frames row) and by the sequence-item popup (the implicit by-type template,
+          which shows just this core — those pane-only controls are omitted there). InteractiveHostBehavior lives on
+          the …_Dockable wrapper, NOT here, so only the pane's VM is marked interactive; a sequence-created VM
+          rendered through this core stays non-interactive and never retains frames.  -->
+    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Core">
+        <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition MinHeight="150" />
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
@@ -611,8 +616,28 @@
                     <TextBlock Margin="5,0,0,0" Text="{Binding AutoFocusDuration, Converter={StaticResource TimeSpanToStringConverter}}" />
                 </UniformGrid>
             </StackPanel>
+        </Grid>
+    </DataTemplate>
+
+    <!--  Imaging-pane (dockable) template. NINA's GenericTemplateSelector resolves this by the
+          "<TypeFullName>_Dockable" key, so this — not the shared core — is what the AutoFocus pane renders. It wraps
+          the core and adds the Replay Saved AF / Review Frames + "Keep frames for review" row, which only makes sense
+          for interactive pane runs (auto-focus during an imaging sequence never keeps frames). HostInteractive lives
+          here so only the pane's VM is marked interactive; the sequence popup renders the core template directly.  -->
+    <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable">
+        <Grid local:InteractiveHostBehavior.HostInteractive="True">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <ContentControl
+                Grid.Row="0"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                Content="{Binding}"
+                ContentTemplate="{StaticResource NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Core}" />
             <ninactrl:CancellableButton
-                Grid.Row="3"
+                Grid.Row="1"
                 Height="25"
                 Margin="10,15,0,5"
                 Padding="5,0,5,0"
@@ -625,7 +650,7 @@
                 Command="{Binding LoadSavedAutoFocusRunCommand}"
                 ToolTip="Replays saved AutoFocus images (Save enabled in Hocus Focus -&gt; Auto Focus Options) to produce an auto focus curve using whatever the current star detection and fit settings are" />
             <StackPanel
-                Grid.Row="3"
+                Grid.Row="1"
                 Margin="0,15,10,5"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Bottom"
@@ -653,8 +678,27 @@
             </StackPanel>
         </Grid>
     </DataTemplate>
+    <!--  Implicit (by-type) template, used only when a HocusFocusVM is shown on its own — chiefly the "Run
+          Autofocus" sequence item, which NINA hosts in a SizeToContent CustomWindow floored at just 350x300. It
+          renders the shared CORE (chart + info) only: the Replay Saved AF / Review Frames row is deliberately
+          omitted here — those are pane-only controls, and sharing one grid cell they overlapped in the narrow popup.
+          The docked AutoFocus pane resolves the keyed *_Dockable template above instead (via NINA's
+          GenericTemplateSelector), which keeps that row. The Border's minimum size gives the chart a usable popup
+          without constraining the dock; its Padding keeps the chart and info text off the window edge; Stretch makes
+          the core fill it. CancelOnClose makes the window's close (X) cancel an in-progress run and close once it
+          stops (see CancelAutoFocusOnCloseBehavior) — this is the popup-only path, so the dock is unaffected.  -->
     <DataTemplate DataType="{x:Type local:HocusFocusVM}">
-        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Dockable}" />
+        <Border
+            MinWidth="500"
+            MinHeight="420"
+            Padding="10"
+            local:CancelAutoFocusOnCloseBehavior.CancelOnClose="True">
+            <ContentControl
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                Content="{Binding}"
+                ContentTemplate="{StaticResource NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Core}" />
+        </Border>
     </DataTemplate>
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectorDockable_Dockable">
         <ContentControl Content="{Binding StarDetectionOptions}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />
