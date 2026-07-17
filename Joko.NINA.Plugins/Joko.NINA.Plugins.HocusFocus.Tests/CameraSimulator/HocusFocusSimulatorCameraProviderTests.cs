@@ -17,7 +17,8 @@ public class HocusFocusSimulatorCameraProviderTests {
             Substitute.For<IExposureDataFactory>(),
             Substitute.For<IImageDataFactory>(),
             Substitute.For<ITelescopeMediator>(),
-            Substitute.For<IFocuserMediator>());
+            Substitute.For<IFocuserMediator>(),
+            Substitute.For<IRotatorMediator>());
     }
 
     [Test]

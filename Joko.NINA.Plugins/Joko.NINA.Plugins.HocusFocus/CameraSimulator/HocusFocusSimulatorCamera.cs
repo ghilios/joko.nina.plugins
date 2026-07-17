@@ -54,6 +54,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private readonly IExposureDataFactory exposureDataFactory;
         private readonly ITelescopeMediator telescopeMediator;
         private readonly IFocuserMediator focuserMediator;
+        private readonly IRotatorMediator rotatorMediator;
         private readonly ICameraSimulatorOptions options;
         private readonly IStarFieldCompositor compositor;
 
@@ -80,10 +81,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             IImageDataFactory imageDataFactory,
             ITelescopeMediator telescopeMediator,
             IFocuserMediator focuserMediator,
+            IRotatorMediator rotatorMediator,
             ICameraSimulatorOptions options)
             // The reader is built per exposure from the request's catalog-path snapshot (not latched here), so a
             // change to the option takes effect on the next exposure without reconnecting the camera.
-            : this(profileService, exposureDataFactory, imageDataFactory, telescopeMediator, focuserMediator, options,
+            : this(profileService, exposureDataFactory, imageDataFactory, telescopeMediator, focuserMediator, rotatorMediator, options,
                   new StarFieldCompositor(path => new AstapCatalogReader(path ?? CameraSimulatorOptions.DefaultAstapCatalogPath))) {
         }
 
@@ -93,6 +95,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             IImageDataFactory imageDataFactory,
             ITelescopeMediator telescopeMediator,
             IFocuserMediator focuserMediator,
+            IRotatorMediator rotatorMediator,
             ICameraSimulatorOptions options,
             IStarFieldCompositor compositor) {
             // profileService is part of the DI signature (HocusFocusSimulatorCameraProvider passes its MEF import)
@@ -106,6 +109,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             _ = imageDataFactory ?? throw new ArgumentNullException(nameof(imageDataFactory));
             this.telescopeMediator = telescopeMediator ?? throw new ArgumentNullException(nameof(telescopeMediator));
             this.focuserMediator = focuserMediator ?? throw new ArgumentNullException(nameof(focuserMediator));
+            this.rotatorMediator = rotatorMediator ?? throw new ArgumentNullException(nameof(rotatorMediator));
             this.options = options ?? throw new ArgumentNullException(nameof(options));
             this.compositor = compositor ?? throw new ArgumentNullException(nameof(compositor));
             this.temperatureSetPoint = options.SensorTemperatureCelsius;

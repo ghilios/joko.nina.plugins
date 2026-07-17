@@ -35,6 +35,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private readonly IImageDataFactory imageDataFactory;
         private readonly ITelescopeMediator telescopeMediator;
         private readonly IFocuserMediator focuserMediator;
+        private readonly IRotatorMediator rotatorMediator;
 
         [ImportingConstructor]
         public HocusFocusSimulatorCameraProvider(
@@ -42,12 +43,14 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             IExposureDataFactory exposureDataFactory,
             IImageDataFactory imageDataFactory,
             ITelescopeMediator telescopeMediator,
-            IFocuserMediator focuserMediator) {
+            IFocuserMediator focuserMediator,
+            IRotatorMediator rotatorMediator) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.exposureDataFactory = exposureDataFactory ?? throw new ArgumentNullException(nameof(exposureDataFactory));
             this.imageDataFactory = imageDataFactory ?? throw new ArgumentNullException(nameof(imageDataFactory));
             this.telescopeMediator = telescopeMediator ?? throw new ArgumentNullException(nameof(telescopeMediator));
             this.focuserMediator = focuserMediator ?? throw new ArgumentNullException(nameof(focuserMediator));
+            this.rotatorMediator = rotatorMediator ?? throw new ArgumentNullException(nameof(rotatorMediator));
         }
 
         public string Name => "Hocus Focus";
@@ -61,6 +64,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 imageDataFactory,
                 telescopeMediator,
                 focuserMediator,
+                rotatorMediator,
                 options);
             return new List<ICamera> { camera };
         }

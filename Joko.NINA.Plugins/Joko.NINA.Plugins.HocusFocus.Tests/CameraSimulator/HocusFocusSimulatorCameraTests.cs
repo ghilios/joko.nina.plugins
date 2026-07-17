@@ -35,13 +35,15 @@ public class HocusFocusSimulatorCameraTests {
     private static HocusFocusSimulatorCamera BuildCamera(
         ICameraSimulatorOptions options,
         IFocuserMediator focuser = null,
-        ITelescopeMediator telescope = null) {
+        ITelescopeMediator telescope = null,
+        IRotatorMediator rotator = null) {
         return new HocusFocusSimulatorCamera(
             Substitute.For<IProfileService>(),
             Substitute.For<IExposureDataFactory>(),
             Substitute.For<IImageDataFactory>(),
             telescope ?? Substitute.For<ITelescopeMediator>(),
             focuser ?? Substitute.For<IFocuserMediator>(),
+            rotator ?? Substitute.For<IRotatorMediator>(),
             options);
     }
 
@@ -50,13 +52,15 @@ public class HocusFocusSimulatorCameraTests {
         IStarFieldCompositor compositor,
         IExposureDataFactory exposureDataFactory,
         IFocuserMediator focuser,
-        ITelescopeMediator telescope) {
+        ITelescopeMediator telescope,
+        IRotatorMediator rotator = null) {
         return new HocusFocusSimulatorCamera(
             Substitute.For<IProfileService>(),
             exposureDataFactory,
             Substitute.For<IImageDataFactory>(),
             telescope,
             focuser,
+            rotator ?? Substitute.For<IRotatorMediator>(),
             options,
             compositor);
     }
