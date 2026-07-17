@@ -99,6 +99,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
         private readonly IProfileService profileService;
         private readonly ITiltAdapterOptions options;
         private readonly Func<string, ITiltAdapterOptions, ITiltMotionController> controllerFactory;
+        // Builds the controller used when the caller selects the SimulatedTiltPort sentinel instead of a real COM
+        // port (the plugin wires this to an EatTiltMotionController over a SimulatedEatTransport). Null when no
+        // simulator is available (e.g. a headless/test host that never wires one) -- the sentinel then simply
+        // falls through to the serial registry, so this stays inert for every existing caller.
+        private readonly Func<ITiltMotionController> simulatedControllerFactory;
         private readonly ITiltDeviceTimeSource timeSource;
 
         // Guards every actual device touch (connect/disconnect/poll) AND is held for the entire lifetime of
@@ -139,19 +144,22 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
 
         private IReadOnlyList<int> currentPositions = Array.Empty<int>();
 
-        public TiltDeviceConnectionService(IProfileService profileService, ITiltAdapterOptions options)
-            : this(profileService, options, TiltMotionControllerRegistry.Create, new SystemTiltDeviceTimeSource(PollInterval)) {
+        public TiltDeviceConnectionService(IProfileService profileService, ITiltAdapterOptions options,
+                Func<ITiltMotionController> simulatedControllerFactory = null)
+            : this(profileService, options, TiltMotionControllerRegistry.Create, new SystemTiltDeviceTimeSource(PollInterval), simulatedControllerFactory) {
         }
 
-        /// <summary>Test seam: injects the controller factory (so tests substitute an <see cref="ITiltMotionController"/> instead of the real, not-yet-implemented EAT factory) and the time source (so tests drive virtual time deterministically).</summary>
+        /// <summary>Test seam: injects the controller factory (so tests substitute an <see cref="ITiltMotionController"/> instead of the real, not-yet-implemented EAT factory) and the time source (so tests drive virtual time deterministically). The optional <paramref name="simulatedControllerFactory"/> is the branch taken when the caller selects the <see cref="SimulatedTiltPort"/> sentinel.</summary>
         internal TiltDeviceConnectionService(
             IProfileService profileService,
             ITiltAdapterOptions options,
             Func<string, ITiltAdapterOptions, ITiltMotionController> controllerFactory,
-            ITiltDeviceTimeSource timeSource) {
+            ITiltDeviceTimeSource timeSource,
+            Func<ITiltMotionController> simulatedControllerFactory = null) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.options = options ?? throw new ArgumentNullException(nameof(options));
             this.controllerFactory = controllerFactory ?? throw new ArgumentNullException(nameof(controllerFactory));
+            this.simulatedControllerFactory = simulatedControllerFactory; // nullable: sentinel routing is inert when unset
             this.timeSource = timeSource ?? throw new ArgumentNullException(nameof(timeSource));
 
             LastActivityUtc = this.timeSource.UtcNow;
@@ -212,7 +220,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
                     await DisconnectCoreAsync().ConfigureAwait(false);
                 }
 
-                var controller = controllerFactory(presetName, options)
+                // The SimulatedTiltPort sentinel routes to the simulated controller (camera simulator) instead of
+                // the serial registry; every real COM port goes through the registry unchanged. If no simulator
+                // factory was wired (e.g. a headless host), the sentinel falls through to the registry.
+                var useSimulator = SimulatedTiltPort.IsSimulator(portName) && simulatedControllerFactory != null;
+                var controller = (useSimulator ? simulatedControllerFactory() : controllerFactory(presetName, options))
                     ?? throw new InvalidOperationException($"Controller factory returned null for preset \"{presetName}\".");
                 try {
                     await controller.ConnectAsync(portName, ct).ConfigureAwait(false);

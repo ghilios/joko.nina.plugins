@@ -12,6 +12,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
 
@@ -129,6 +130,62 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
                 default:
                     throw new ArgumentOutOfRangeException(nameof(encoding), encoding, "Unknown sign encoding.");
             }
+        }
+
+        /// <summary>
+        /// The exact inverse of <see cref="Format(TiltMoveAxis, int, EatSignEncoding)"/>: decodes an ASG EAT
+        /// move wire command string (<c>&lt;mnemonic&gt;,&lt;value&gt;</c>) back into its axis + signed step
+        /// count under the same <paramref name="encoding"/>. This is what lets the simulated transport
+        /// (<c>SimulatedEatTransport</c>) recover the move a connected controller just formatted and drive the
+        /// virtual adapter with it -- so the identical mnemonic table is the single source of truth for both
+        /// directions and a round-trip against <see cref="Format"/> is exact by construction.
+        ///
+        /// Returns false (never throws) for anything that is not a move command: the position query
+        /// (<c>cp</c>), a null/blank string, a missing or non-integer value, an unknown mnemonic, or -- under
+        /// <see cref="EatSignEncoding.SignedArgument"/> -- an opposite-corner mnemonic that <see cref="Format"/>
+        /// would never emit in that encoding (e.g. <c>bl,5</c>). Callers that only ever pass this the output of
+        /// <see cref="Format"/> can treat a false return as a programming error.
+        /// </summary>
+        public static bool TryParse(string wire, out TiltMoveAxis axis, out int steps, EatSignEncoding encoding = DefaultSignEncoding) {
+            axis = default;
+            steps = 0;
+            if (string.IsNullOrWhiteSpace(wire)) {
+                return false;
+            }
+
+            var parts = wire.Split(',');
+            if (parts.Length != 2) {
+                return false; // rejects "cp", a bare mnemonic, or a malformed extra-comma command.
+            }
+
+            var mnemonic = parts[0].Trim();
+            if (!int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)) {
+                return false;
+            }
+
+            // Positive mnemonic: the SignedArgument path for every axis, the non-negative OppositeMnemonic path,
+            // and Backfocus under both encodings -- in all of these the value already carries the sign.
+            foreach (var kv in PositiveMnemonics) {
+                if (kv.Value == mnemonic) {
+                    axis = kv.Key;
+                    steps = value;
+                    return true;
+                }
+            }
+
+            // Opposite mnemonic: only meaningful under OppositeMnemonic, where Format encodes a negative move as
+            // the opposite corner/edge mnemonic plus the magnitude -- so the recovered step count is negated.
+            if (encoding == EatSignEncoding.OppositeMnemonic) {
+                foreach (var kv in OppositeMnemonics) {
+                    if (kv.Value == mnemonic) {
+                        axis = kv.Key;
+                        steps = -value;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
     }
 }

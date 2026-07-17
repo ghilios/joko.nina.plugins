@@ -178,4 +178,139 @@ public class EatCommandsTests {
     public void Format_UnknownEncoding_Throws() {
         Assert.Throws<ArgumentOutOfRangeException>(() => EatCommands.Format(TiltMoveAxis.DiagonalA, 5, (EatSignEncoding)999));
     }
+
+    // --- TryParse: the exact inverse of Format. The strongest guarantee we want is a round-trip, but round-
+    // tripping ALONE (parse(format(x)) == x) can't catch a table that is wrong in the SAME way in both
+    // directions, so the wire strings fed to TryParse below are the same hard-coded literals used in the
+    // Format tests (copied from the mnemonic table), not values produced by Format at test time. ---
+
+    [TestCase("tr,5", TiltMoveAxis.DiagonalA, 5)]
+    [TestCase("tr,-5", TiltMoveAxis.DiagonalA, -5)]
+    [TestCase("tl,5", TiltMoveAxis.DiagonalB, 5)]
+    [TestCase("tl,-5", TiltMoveAxis.DiagonalB, -5)]
+    [TestCase("tp,7", TiltMoveAxis.EdgeVertical, 7)]
+    [TestCase("tp,-7", TiltMoveAxis.EdgeVertical, -7)]
+    [TestCase("rt,2", TiltMoveAxis.EdgeHorizontal, 2)]
+    [TestCase("rt,-2", TiltMoveAxis.EdgeHorizontal, -2)]
+    [TestCase("bf,4", TiltMoveAxis.Backfocus, 4)]
+    [TestCase("bf,-4", TiltMoveAxis.Backfocus, -4)]
+    public void TryParse_SignedArgument_DecodesExactMove(string wire, TiltMoveAxis expectedAxis, int expectedSteps) {
+        var ok = EatCommands.TryParse(wire, out var axis, out var steps, EatSignEncoding.SignedArgument);
+        Assert.Multiple(() => {
+            Assert.That(ok, Is.True);
+            Assert.That(axis, Is.EqualTo(expectedAxis));
+            Assert.That(steps, Is.EqualTo(expectedSteps));
+        });
+    }
+
+    [TestCase("tr,5", TiltMoveAxis.DiagonalA, 5)]
+    [TestCase("bl,5", TiltMoveAxis.DiagonalA, -5)]
+    [TestCase("tl,5", TiltMoveAxis.DiagonalB, 5)]
+    [TestCase("br,5", TiltMoveAxis.DiagonalB, -5)]
+    [TestCase("tp,7", TiltMoveAxis.EdgeVertical, 7)]
+    [TestCase("bt,7", TiltMoveAxis.EdgeVertical, -7)]
+    [TestCase("rt,2", TiltMoveAxis.EdgeHorizontal, 2)]
+    [TestCase("lt,2", TiltMoveAxis.EdgeHorizontal, -2)]
+    [TestCase("bf,4", TiltMoveAxis.Backfocus, 4)]
+    [TestCase("bf,-4", TiltMoveAxis.Backfocus, -4)]
+    public void TryParse_OppositeMnemonic_DecodesExactMove(string wire, TiltMoveAxis expectedAxis, int expectedSteps) {
+        var ok = EatCommands.TryParse(wire, out var axis, out var steps, EatSignEncoding.OppositeMnemonic);
+        Assert.Multiple(() => {
+            Assert.That(ok, Is.True);
+            Assert.That(axis, Is.EqualTo(expectedAxis));
+            Assert.That(steps, Is.EqualTo(expectedSteps));
+        });
+    }
+
+    // Round-trip closure over the whole vocabulary under both encodings: TryParse(Format(axis,steps,enc),enc)
+    // recovers (axis, steps) exactly. Backfocus is included precisely because it is the one axis whose negative
+    // is signed under BOTH encodings.
+    [TestCase(TiltMoveAxis.DiagonalA, 5, EatSignEncoding.SignedArgument)]
+    [TestCase(TiltMoveAxis.DiagonalA, -5, EatSignEncoding.SignedArgument)]
+    [TestCase(TiltMoveAxis.DiagonalB, 12, EatSignEncoding.SignedArgument)]
+    [TestCase(TiltMoveAxis.DiagonalB, -12, EatSignEncoding.SignedArgument)]
+    [TestCase(TiltMoveAxis.EdgeVertical, 3, EatSignEncoding.SignedArgument)]
+    [TestCase(TiltMoveAxis.EdgeVertical, -3, EatSignEncoding.SignedArgument)]
+    [TestCase(TiltMoveAxis.EdgeHorizontal, 8, EatSignEncoding.SignedArgument)]
+    [TestCase(TiltMoveAxis.EdgeHorizontal, -8, EatSignEncoding.SignedArgument)]
+    [TestCase(TiltMoveAxis.Backfocus, 150, EatSignEncoding.SignedArgument)]
+    [TestCase(TiltMoveAxis.Backfocus, -150, EatSignEncoding.SignedArgument)]
+    [TestCase(TiltMoveAxis.DiagonalA, 5, EatSignEncoding.OppositeMnemonic)]
+    [TestCase(TiltMoveAxis.DiagonalA, -5, EatSignEncoding.OppositeMnemonic)]
+    [TestCase(TiltMoveAxis.DiagonalB, 12, EatSignEncoding.OppositeMnemonic)]
+    [TestCase(TiltMoveAxis.DiagonalB, -12, EatSignEncoding.OppositeMnemonic)]
+    [TestCase(TiltMoveAxis.EdgeVertical, 3, EatSignEncoding.OppositeMnemonic)]
+    [TestCase(TiltMoveAxis.EdgeVertical, -3, EatSignEncoding.OppositeMnemonic)]
+    [TestCase(TiltMoveAxis.EdgeHorizontal, 8, EatSignEncoding.OppositeMnemonic)]
+    [TestCase(TiltMoveAxis.EdgeHorizontal, -8, EatSignEncoding.OppositeMnemonic)]
+    [TestCase(TiltMoveAxis.Backfocus, 150, EatSignEncoding.OppositeMnemonic)]
+    [TestCase(TiltMoveAxis.Backfocus, -150, EatSignEncoding.OppositeMnemonic)]
+    public void TryParse_RoundTripsFormat(TiltMoveAxis axis, int steps, EatSignEncoding encoding) {
+        var wire = EatCommands.Format(axis, steps, encoding);
+        var ok = EatCommands.TryParse(wire, out var parsedAxis, out var parsedSteps, encoding);
+        Assert.Multiple(() => {
+            Assert.That(ok, Is.True, $"'{wire}' should parse");
+            Assert.That(parsedAxis, Is.EqualTo(axis));
+            Assert.That(parsedSteps, Is.EqualTo(steps));
+        });
+    }
+
+    // Default encoding overload parses SignedArgument (pinned to the same DefaultSignEncoding as Format).
+    [Test]
+    public void TryParse_DefaultEncoding_ParsesSignedArgument() {
+        var ok = EatCommands.TryParse("tr,-5", out var axis, out var steps);
+        Assert.Multiple(() => {
+            Assert.That(ok, Is.True);
+            Assert.That(axis, Is.EqualTo(TiltMoveAxis.DiagonalA));
+            Assert.That(steps, Is.EqualTo(-5));
+        });
+    }
+
+    // An opposite-corner mnemonic is not a legal command under SignedArgument (Format never emits one there),
+    // so TryParse must reject it rather than silently guessing the axis.
+    [Test]
+    public void TryParse_OppositeMnemonicUnderSignedArgument_ReturnsFalse() {
+        var ok = EatCommands.TryParse("bl,5", out _, out _, EatSignEncoding.SignedArgument);
+        Assert.That(ok, Is.False);
+    }
+
+    [TestCase("bf,-3", EatSignEncoding.SignedArgument)]
+    [TestCase("bf,-3", EatSignEncoding.OppositeMnemonic)]
+    public void TryParse_NegativeBackfocus_DecodesSigned_UnderBothEncodings(string wire, EatSignEncoding encoding) {
+        var ok = EatCommands.TryParse(wire, out var axis, out var steps, encoding);
+        Assert.Multiple(() => {
+            Assert.That(ok, Is.True);
+            Assert.That(axis, Is.EqualTo(TiltMoveAxis.Backfocus));
+            Assert.That(steps, Is.EqualTo(-3));
+        });
+    }
+
+    [Test]
+    public void TryParse_PositionQuery_ReturnsFalse() {
+        Assert.That(EatCommands.TryParse("cp", out _, out _), Is.False);
+    }
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("   ")]
+    [TestCase("tr")]
+    [TestCase("tr,")]
+    [TestCase("tr,x")]
+    [TestCase("zz,5")]
+    [TestCase("tr,5,6")]
+    [TestCase(",5")]
+    public void TryParse_Malformed_ReturnsFalse(string wire) {
+        Assert.That(EatCommands.TryParse(wire, out _, out _), Is.False);
+    }
+
+    // Whitespace tolerance: mnemonic/value are trimmed, so a padded command still decodes.
+    [Test]
+    public void TryParse_WithSurroundingWhitespace_Decodes() {
+        var ok = EatCommands.TryParse(" tr , 5 ", out var axis, out var steps);
+        Assert.Multiple(() => {
+            Assert.That(ok, Is.True);
+            Assert.That(axis, Is.EqualTo(TiltMoveAxis.DiagonalA));
+            Assert.That(steps, Is.EqualTo(5));
+        });
+    }
 }

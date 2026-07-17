@@ -135,7 +135,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// </summary>
         public bool HasSetupDialog => true;
 
-        public string Id => "HocusFocus_SimulatorCamera";
+        /// <summary>The stable device id NINA reports as <c>CameraInfo.DeviceId</c> for this camera. Exposed as a
+        /// constant so callers (e.g. the tilt wizard's "connect the simulator" gate) can identify the active
+        /// camera without a magic string.</summary>
+        public const string DeviceId = "HocusFocus_SimulatorCamera";
+
+        public string Id => DeviceId;
         public string Name => "Hocus Focus Simulator";
         public string DisplayName => Name;
         public string Category => "Hocus Focus";

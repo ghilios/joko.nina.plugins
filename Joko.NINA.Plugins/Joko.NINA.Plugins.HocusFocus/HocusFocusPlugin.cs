@@ -16,6 +16,7 @@ using NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter;
 using NINA.Joko.Plugins.HocusFocus.Properties;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Core.Utility;
@@ -123,7 +124,18 @@ namespace NINA.Joko.Plugins.HocusFocus {
             // Must follow CameraSimulatorOptions: the VM reads it and subscribes to its PropertyChanged.
             SimTiltAdapterVM = new SimulatedTiltAdapterVM(CameraSimulatorOptions);
             if (TiltDeviceConnectionService == null) {
-                TiltDeviceConnectionService = new TiltDeviceConnectionService(profileService, TiltAdapterOptions);
+                // The "Simulator" port connects the EAT automation to the camera simulator instead of real
+                // hardware, so the whole calibration/adjustment loop can run with nothing plugged in. A single
+                // shared actuator (created lazily on first Connect) keeps the per-motor counters and injected
+                // aberration coherent across reconnects; the closure runs only at Connect time, by which point
+                // the CameraSimulatorOptions and ApplicationDispatcher statics are both set.
+                SimulatedTiltActuator sharedSimActuator = null;
+                TiltDeviceConnectionService = new TiltDeviceConnectionService(
+                    profileService, TiltAdapterOptions,
+                    simulatedControllerFactory: () => {
+                        sharedSimActuator ??= new SimulatedTiltActuator(CameraSimulatorOptions, ApplicationDispatcher);
+                        return new EatTiltMotionController(new SimulatedEatTransport(sharedSimActuator), TiltAdapterOptions);
+                    });
             }
             if (AlglibAPI == null) {
                 AlglibAPI = new AlglibAPI();

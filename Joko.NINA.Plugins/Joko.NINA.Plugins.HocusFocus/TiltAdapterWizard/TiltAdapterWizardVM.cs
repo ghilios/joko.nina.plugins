@@ -24,6 +24,7 @@ using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Equipment.Model;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
@@ -89,6 +90,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // message box (ShowIdleDisconnectPromptAsync); tests inject a fake returning true/false and assert
         // the right TiltDeviceConnectionService method is called.
         private readonly Func<Task<bool>> confirmIdleDisconnectAsync;
+        // The simulator config the "Simulator" port checks against the selected EAT preset. Null-tolerant: a
+        // device-less test rig may not wire it, in which case the Simulator-port config check is skipped.
+        private readonly ICameraSimulatorOptions cameraSimulatorOptions;
+        // The "change the simulator config to match?" confirmation, injectable for tests (mirrors
+        // confirmIdleDisconnectAsync). Production default shows the NINA Yes/No message box (default No).
+        private readonly Func<string, string, Task<bool>> confirmSimConfigChangeAsync;
         private IReadOnlyList<string> availablePortNames;
         private string connectedPortName;
 
@@ -240,7 +247,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             InspectorVM inspector)
             : this(profileService, applicationStatusMediator, cameraMediator, focuserMediator, inspector,
                    HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.TiltAdapterOptions,
-                   HocusFocusPlugin.TiltDeviceConnectionService) { }
+                   HocusFocusPlugin.TiltDeviceConnectionService,
+                   cameraSimulatorOptions: HocusFocusPlugin.CameraSimulatorOptions) { }
 
         public TiltAdapterWizardVM(
             IProfileService profileService,
@@ -252,7 +260,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ITiltAdapterOptions tiltAdapterOptions,
             TiltDeviceConnectionService tiltDeviceConnectionService = null,
             ISerialPortProvider serialPortProvider = null,
-            Func<Task<bool>> confirmIdleDisconnectAsync = null)
+            Func<Task<bool>> confirmIdleDisconnectAsync = null,
+            ICameraSimulatorOptions cameraSimulatorOptions = null,
+            Func<string, string, Task<bool>> confirmSimConfigChangeAsync = null)
             : base(profileService) {
             this.inspector = inspector;
             this.tiltAdapterOptions = tiltAdapterOptions;
@@ -260,6 +270,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             this.tiltDeviceConnectionService = tiltDeviceConnectionService;
             this.serialPortProvider = serialPortProvider; // null => created lazily on first enumeration
             this.confirmIdleDisconnectAsync = confirmIdleDisconnectAsync ?? ShowIdleDisconnectPromptAsync;
+            this.cameraSimulatorOptions = cameraSimulatorOptions;
+            this.confirmSimConfigChangeAsync = confirmSimConfigChangeAsync ?? ShowSimConfigChangePromptAsync;
             this.progress = ProgressFactory.Create(applicationStatusMediator, "Tilt Adapter Wizard");
             this.moveProgress = new Progress<string>(text => this.progress.Report(new ApplicationStatus { Status = $"Tilt Adapter Wizard: {text}" }));
 
@@ -1269,14 +1281,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         private IReadOnlyList<string> EnumeratePortNames() {
+            // The simulated adapter is always offered first (and even if port enumeration fails), so a user with
+            // no hardware can still connect it. It's only ever visible when an EAT preset is selected -- the whole
+            // connection pane is gated on IsMotorizedDevice -- which is exactly when connecting the sim EAT applies.
+            var result = new List<string> { SimulatedTiltPort.PortName };
             try {
                 // Created here (not in the ctor): SerialPortProvider's constructor runs a WMI scan.
                 serialPortProvider ??= new SerialPortProvider();
-                return serialPortProvider.GetPortNames(deviceQuery: null, addDivider: false, addGenericPorts: true);
+                result.AddRange(serialPortProvider.GetPortNames(deviceQuery: null, addDivider: false, addGenericPorts: true));
             } catch (Exception ex) {
                 Logger.Error(ex, "Failed to enumerate serial ports for the tilt device connection");
-                return Array.Empty<string>();
             }
+            return result;
         }
 
         private void RefreshPorts() {
@@ -1293,6 +1309,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var svc = tiltDeviceConnectionService;
             var port = SelectedPortName;
             if (svc == null || string.IsNullOrEmpty(port)) return;
+
+            // Connecting the SIMULATOR port has extra preconditions (active sim camera, matching sim config,
+            // aberrations on); if any is unmet and the user declines to fix it, abort before touching the service.
+            if (SimulatedTiltPort.IsSimulator(port) && !await PrepareSimulatorConnectionAsync()) {
+                return;
+            }
+
             try {
                 await svc.ConnectAsync(tiltAdapterOptions.DeviceName, port, CancellationToken.None);
                 connectedPortName = port;
@@ -1407,6 +1430,81 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 "Tilt Adapter Device Idle",
                 System.Windows.MessageBoxButton.YesNo,
                 System.Windows.MessageBoxResult.No);
+            return Task.FromResult(result == System.Windows.MessageBoxResult.Yes);
+        }
+
+        // Pre-connect checks for the "Simulator" port. Returns false to ABORT the connect. The simulated adapter
+        // only affects the HocusFocus camera simulator's images, its geometry must match the selected EAT preset
+        // for the calibration loop to converge, and aberration rendering must be on or the loop is inert.
+        private async Task<bool> PrepareSimulatorConnectionAsync() {
+            // 1) Block unless the HocusFocus camera simulator is the active, connected camera.
+            var camInfo = CameraInfo;
+            if (camInfo == null || !camInfo.Connected ||
+                !string.Equals(camInfo.DeviceId, HocusFocusSimulatorCamera.DeviceId, StringComparison.Ordinal)) {
+                Notification.ShowError(
+                    "Connect the HocusFocus camera simulator before connecting the simulated tilt adapter — " +
+                    "the simulated adapter only changes the HocusFocus simulator's images.");
+                return false;
+            }
+
+            // No simulator options wired (device-less test rig): nothing to check or fix, allow the connect.
+            if (cameraSimulatorOptions == null) {
+                return true;
+            }
+
+            // 2) The simulator's tilt-adapter geometry must match the selected EAT preset or the loop can't
+            //    converge. If it differs, offer to change the simulator config to match; if declined, don't connect.
+            var preset = TiltAdapterDevicePreset.ByName(tiltAdapterOptions.DeviceName);
+            if (SimConfigDiffersFromPreset(preset)) {
+                var apply = await confirmSimConfigChangeAsync(
+                    "The camera simulator's tilt-adapter configuration (screw count, motor/screw type, step size, " +
+                    "screw radius) differs from the selected EAT preset, so the automated calibration loop can't " +
+                    "converge. Change the simulator configuration to match and connect?",
+                    "Simulated Tilt Adapter Configuration");
+                if (!apply) {
+                    return false;
+                }
+                // Mirror ApplyDevice's preset -> options copy, into the Sim* fields. Screw angles and adapter
+                // direction are deliberately NOT synced: the device-linked calibration measures them, and forcing
+                // them would both be discarded and remove the coverage the simulator exists to provide.
+                cameraSimulatorOptions.SimScrewCount = preset.ScrewCount;
+                cameraSimulatorOptions.SimAdjustmentType = preset.AdjustmentType;
+                cameraSimulatorOptions.SimStepperStepSizeMicrons = preset.StepperStepSizeMicrons;
+                cameraSimulatorOptions.SimScrewRadiusMillimeters = preset.ScrewRadiusMillimeters;
+            }
+
+            // 3) Aberration rendering must be on or every simulated exposure is flat and the loop measures nothing.
+            if (!cameraSimulatorOptions.EnableAberrations) {
+                cameraSimulatorOptions.EnableAberrations = true;
+                Notification.ShowInformation(
+                    "Enabled camera-simulator aberrations so the tilt calibration loop can measure changes.");
+            }
+
+            return true;
+        }
+
+        // Compares only the four hardware fields the user cares about (screw count, motor/screw type, step size,
+        // screw radius) between the simulator config and the selected EAT preset.
+        private bool SimConfigDiffersFromPreset(TiltAdapterDevicePreset preset) =>
+            cameraSimulatorOptions.SimScrewCount != preset.ScrewCount ||
+            cameraSimulatorOptions.SimAdjustmentType != preset.AdjustmentType ||
+            !HardwareValuesMatch(cameraSimulatorOptions.SimStepperStepSizeMicrons, preset.StepperStepSizeMicrons) ||
+            !HardwareValuesMatch(cameraSimulatorOptions.SimScrewRadiusMillimeters, preset.ScrewRadiusMillimeters);
+
+        // Tolerant compare for the hardware doubles (step size, radius): a benign rounding difference must not force
+        // the prompt. After a "Yes" the fields are set from the preset verbatim, so a later connect matches exactly.
+        private static bool HardwareValuesMatch(double a, double b) {
+            if (a <= 0 || b <= 0) {
+                return a <= 0 && b <= 0;
+            }
+            return Math.Abs(a - b) / b <= 0.001;
+        }
+
+        // Production "change the simulator config?" prompt: NINA's Yes/No message box, default No (a dismissed
+        // dialog must never silently rewrite the simulator's configuration).
+        private static Task<bool> ShowSimConfigChangePromptAsync(string message, string title) {
+            var result = MyMessageBox.Show(
+                message, title, System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxResult.No);
             return Task.FromResult(result == System.Windows.MessageBoxResult.Yes);
         }
 

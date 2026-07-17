@@ -8,6 +8,7 @@ using NINA.Image.ImageAnalysis;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
@@ -108,7 +109,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options, TiltDeviceConnectionService service,
             ITiltMotionController controller, FakeTiltDeviceTimeSource time, List<string> requestedPresets)
             BuildMotorized(string deviceName = "ASG Electronic EAT - 90mm",
-                Func<Task<bool>> confirmIdleDisconnectAsync = null, TiltDevicePositions polledPositions = null) {
+                Func<Task<bool>> confirmIdleDisconnectAsync = null, TiltDevicePositions polledPositions = null,
+                ICameraSimulatorOptions cameraSimulatorOptions = null,
+                Func<string, string, Task<bool>> confirmSimConfigChangeAsync = null) {
             var profile = Substitute.For<IProfileService>();
             var options = Substitute.For<ITiltAdapterOptions>();
             options.ScrewCount.Returns(4);
@@ -140,7 +143,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 tiltAdapterOptions: options,
                 tiltDeviceConnectionService: service,
                 serialPortProvider: ports,
-                confirmIdleDisconnectAsync: confirmIdleDisconnectAsync);
+                confirmIdleDisconnectAsync: confirmIdleDisconnectAsync,
+                cameraSimulatorOptions: cameraSimulatorOptions,
+                confirmSimConfigChangeAsync: confirmSimConfigChangeAsync);
             return (vm, options, service, controller, time, requestedPresets);
         }
 
@@ -1263,16 +1268,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                     new ReadOnlyCollection<string>(new[] { "COM3", "COM7" }));
             var (vm, _, _, _) = Build(serialPortProvider: ports);
 
-            Assert.That(vm.AvailablePortNames, Is.EqualTo(new[] { "COM3" }));
+            // The simulated adapter is always prepended to the enumerated serial ports.
+            Assert.That(vm.AvailablePortNames, Is.EqualTo(new[] { "Simulator", "COM3" }));
 
             var raised = new List<string>();
             vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
             vm.RefreshPortsCommand.Execute(null);
 
             Assert.Multiple(() => {
-                Assert.That(vm.AvailablePortNames, Is.EqualTo(new[] { "COM3", "COM7" }));
+                Assert.That(vm.AvailablePortNames, Is.EqualTo(new[] { "Simulator", "COM3", "COM7" }));
                 Assert.That(raised, Does.Contain(nameof(vm.AvailablePortNames)));
             });
+        }
+
+        [Test]
+        public void AvailablePortNames_ContainsSimulatorSentinelFirst() {
+            var (vm, _, _, _, _, _) = BuildMotorized();
+            Assert.That(vm.AvailablePortNames, Is.EqualTo(new[] { "Simulator", "COM3", "COM7" }));
         }
 
         [Test]
@@ -1321,6 +1333,147 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(vm.ConnectDeviceCommand.CanExecute(null), Is.False, "already connected");
                 Assert.That(vm.DisconnectDeviceCommand.CanExecute(null), Is.True);
                 Assert.That(vm.TiltDeviceStatusText, Does.Contain("Connected"));
+            });
+        }
+
+        // --- Simulator port: block-until-active gate, config-match prompt, aberration auto-enable -------------
+
+        // A substitute sim-options that matches the "ASG Electronic EAT - 90mm" preset (4 corners, steppers,
+        // 1.8 µm/step, 55 mm radius), aberrations on.
+        private static ICameraSimulatorOptions MatchingSimOptions(bool aberrationsEnabled = true) {
+            var sim = Substitute.For<ICameraSimulatorOptions>();
+            sim.SimScrewCount.Returns(4);
+            sim.SimAdjustmentType.Returns(TiltAdjustmentType.StepperMotors);
+            sim.SimStepperStepSizeMicrons.Returns(1.8);
+            sim.SimScrewRadiusMillimeters.Returns(55.0);
+            sim.EnableAberrations.Returns(aberrationsEnabled);
+            return sim;
+        }
+
+        private static void ActivateSimulatorCamera(TiltAdapterWizardVM vm) =>
+            vm.UpdateDeviceInfo(new CameraInfo { Connected = true, DeviceId = HocusFocusSimulatorCamera.DeviceId });
+
+        private static void ConnectSimulatorPort(TiltAdapterWizardVM vm) {
+            vm.SelectedPortName = SimulatedTiltPort.PortName;
+            ((AsyncRelayCommand)vm.ConnectDeviceCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+        }
+
+        [Test]
+        public void Connect_SimulatorPort_CameraSimulatorNotActive_DoesNotConnect() {
+            var sim = MatchingSimOptions();
+            var (vm, _, service, controller, _, _) = BuildMotorized(cameraSimulatorOptions: sim);
+            // No camera activated -> CameraInfo defaults to not-connected.
+
+            ConnectSimulatorPort(vm);
+
+            Assert.That(service.Connected, Is.False, "must not connect the sim adapter without the sim camera active");
+            controller.DidNotReceive().ConnectAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        }
+
+        [Test]
+        public void Connect_SimulatorPort_WrongActiveCamera_DoesNotConnect() {
+            var sim = MatchingSimOptions();
+            var (vm, _, service, controller, _, _) = BuildMotorized(cameraSimulatorOptions: sim);
+            vm.UpdateDeviceInfo(new CameraInfo { Connected = true, DeviceId = "Some.Other.Camera" });
+
+            ConnectSimulatorPort(vm);
+
+            Assert.That(service.Connected, Is.False);
+            controller.DidNotReceive().ConnectAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        }
+
+        [Test]
+        public void Connect_SimulatorPort_ConfigMatches_ConnectsWithoutPrompt() {
+            var sim = MatchingSimOptions();
+            var promptCount = 0;
+            var (vm, _, service, controller, _, _) = BuildMotorized(
+                cameraSimulatorOptions: sim,
+                confirmSimConfigChangeAsync: (m, t) => { promptCount++; return Task.FromResult(true); });
+            ActivateSimulatorCamera(vm);
+
+            ConnectSimulatorPort(vm);
+
+            Assert.Multiple(() => {
+                Assert.That(promptCount, Is.EqualTo(0), "matching config must not prompt");
+                Assert.That(service.Connected, Is.True);
+                controller.Received(1).ConnectAsync(SimulatedTiltPort.PortName, Arg.Any<CancellationToken>());
+            });
+        }
+
+        [Test]
+        public void Connect_SimulatorPort_ConfigDiffers_Yes_WritesSimConfigFromPreset_ThenConnects() {
+            var sim = MatchingSimOptions();
+            sim.SimScrewRadiusMillimeters.Returns(40.0); // mismatch vs the 55 mm preset
+            var (vm, _, service, controller, _, _) = BuildMotorized(
+                cameraSimulatorOptions: sim,
+                confirmSimConfigChangeAsync: (m, t) => Task.FromResult(true));
+            ActivateSimulatorCamera(vm);
+
+            ConnectSimulatorPort(vm);
+
+            Assert.Multiple(() => {
+                sim.Received().SimScrewCount = 4;
+                sim.Received().SimAdjustmentType = TiltAdjustmentType.StepperMotors;
+                sim.Received().SimStepperStepSizeMicrons = 1.8;
+                sim.Received().SimScrewRadiusMillimeters = 55.0;
+                Assert.That(service.Connected, Is.True);
+                controller.Received(1).ConnectAsync(SimulatedTiltPort.PortName, Arg.Any<CancellationToken>());
+            });
+        }
+
+        [Test]
+        public void Connect_SimulatorPort_ConfigDiffers_No_DoesNotConnect_NoWrites() {
+            var sim = MatchingSimOptions();
+            sim.SimAdjustmentType.Returns(TiltAdjustmentType.Screws); // mismatch vs the stepper preset
+            var (vm, _, service, controller, _, _) = BuildMotorized(
+                cameraSimulatorOptions: sim,
+                confirmSimConfigChangeAsync: (m, t) => Task.FromResult(false));
+            ActivateSimulatorCamera(vm);
+
+            ConnectSimulatorPort(vm);
+
+            Assert.Multiple(() => {
+                Assert.That(service.Connected, Is.False, "declining the config change must abort the connect");
+                controller.DidNotReceive().ConnectAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+                sim.DidNotReceive().SimScrewRadiusMillimeters = Arg.Any<double>();
+                sim.DidNotReceive().SimAdjustmentType = Arg.Any<TiltAdjustmentType>();
+            });
+        }
+
+        [Test]
+        public void Connect_SimulatorPort_AberrationsDisabled_AutoEnablesAndConnects() {
+            var sim = MatchingSimOptions(aberrationsEnabled: false);
+            var (vm, _, service, _, _, _) = BuildMotorized(
+                cameraSimulatorOptions: sim,
+                confirmSimConfigChangeAsync: (m, t) => Task.FromResult(true));
+            ActivateSimulatorCamera(vm);
+
+            ConnectSimulatorPort(vm);
+
+            Assert.Multiple(() => {
+                sim.Received().EnableAberrations = true;
+                Assert.That(service.Connected, Is.True);
+            });
+        }
+
+        [Test]
+        public void Connect_RealPort_NeverChecksSimConfigOrCameraGate() {
+            var sim = MatchingSimOptions();
+            sim.SimScrewRadiusMillimeters.Returns(40.0); // would mismatch, but a real port must not check it
+            var promptCount = 0;
+            var (vm, _, service, controller, _, _) = BuildMotorized(
+                cameraSimulatorOptions: sim,
+                confirmSimConfigChangeAsync: (m, t) => { promptCount++; return Task.FromResult(true); });
+            // Note: no sim camera activated; a real COM port must connect regardless.
+
+            vm.SelectedPortName = "COM7";
+            ((AsyncRelayCommand)vm.ConnectDeviceCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                Assert.That(promptCount, Is.EqualTo(0), "a real COM port must not trigger the sim config prompt");
+                Assert.That(service.Connected, Is.True);
+                controller.Received(1).ConnectAsync("COM7", Arg.Any<CancellationToken>());
+                sim.DidNotReceive().SimScrewRadiusMillimeters = Arg.Any<double>();
             });
         }
 

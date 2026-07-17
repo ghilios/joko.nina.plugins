@@ -134,6 +134,76 @@ public class TiltDeviceConnectionServiceTests {
         await second.Received(1).ConnectAsync("COM2", Arg.Any<CancellationToken>());
     }
 
+    // --- Simulated-port routing (connect to the camera simulator instead of a serial device) ----------
+
+    private static (TiltDeviceConnectionService service, List<ITiltMotionController> registryControllers, ITiltMotionController simController)
+            BuildWithSimulator() {
+        var profile = Substitute.For<IProfileService>();
+        var options = Substitute.For<ITiltAdapterOptions>();
+        var time = new FakeTiltDeviceTimeSource();
+        var registryControllers = new List<ITiltMotionController>();
+
+        ITiltMotionController Registry(string presetName, ITiltAdapterOptions opts) {
+            var controller = NewControllerSubstitute();
+            registryControllers.Add(controller);
+            return controller;
+        }
+
+        var simController = NewControllerSubstitute();
+        var service = new TiltDeviceConnectionService(profile, options, Registry, time, () => simController);
+        return (service, registryControllers, simController);
+    }
+
+    [Test]
+    public async Task ConnectAsync_SentinelPort_UsesSimulatedFactory_NotRegistry() {
+        var (service, registryControllers, simController) = BuildWithSimulator();
+
+        await service.ConnectAsync("ASG Electronic EAT - 90mm", SimulatedTiltPort.PortName, CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(service.Connected, Is.True);
+            Assert.That(service.Controller, Is.SameAs(simController));
+            Assert.That(registryControllers, Is.Empty, "the serial registry factory must NOT be used for the Simulator port");
+        });
+        await simController.Received(1).ConnectAsync(SimulatedTiltPort.PortName, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task ConnectAsync_RealPort_UsesRegistryFactory_NotSimulator() {
+        var (service, registryControllers, simController) = BuildWithSimulator();
+
+        await service.ConnectAsync("ASG Electronic EAT - 90mm", "COM7", CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(service.Controller, Is.SameAs(registryControllers[0]));
+            Assert.That(service.Controller, Is.Not.SameAs(simController));
+        });
+        await registryControllers[0].Received(1).ConnectAsync("COM7", Arg.Any<CancellationToken>());
+    }
+
+    // Documents the inert fallback: a host that wired no simulator factory (every existing caller) treats the
+    // sentinel like any other port name and routes it through the registry -- so existing behavior is unchanged.
+    [Test]
+    public async Task ConnectAsync_SentinelPort_NoSimulatorFactory_FallsBackToRegistry() {
+        var (service, _, _, controllers) = Build();
+
+        await service.ConnectAsync("ASG Electronic EAT - 90mm", SimulatedTiltPort.PortName, CancellationToken.None);
+
+        Assert.That(service.Controller, Is.SameAs(controllers[0]));
+        await controllers[0].Received(1).ConnectAsync(SimulatedTiltPort.PortName, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public void SimulatedTiltPort_IsSimulator_MatchesOnlyTheSentinel() {
+        Assert.Multiple(() => {
+            Assert.That(SimulatedTiltPort.PortName, Is.EqualTo("Simulator"));
+            Assert.That(SimulatedTiltPort.IsSimulator("Simulator"), Is.True);
+            Assert.That(SimulatedTiltPort.IsSimulator("COM3"), Is.False);
+            Assert.That(SimulatedTiltPort.IsSimulator(null), Is.False);
+            Assert.That(SimulatedTiltPort.IsSimulator("simulator"), Is.False, "sentinel match is case-sensitive");
+        });
+    }
+
     // Regression lock (fix #4): if the controller's own ConnectAsync throws AFTER it may have already
     // opened the underlying port, ConnectAsync must best-effort disconnect the controller before rethrowing
     // -- otherwise the COM port is leaked and the NEXT connect attempt fails with "port in use".
