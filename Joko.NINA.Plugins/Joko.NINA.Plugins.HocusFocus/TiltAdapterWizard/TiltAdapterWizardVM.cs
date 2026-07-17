@@ -215,6 +215,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ReplayCommand = new AsyncRelayCommand(ReplayAsync, () => !IsWizardRunning && !IsMeasuring);
             RetryMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => HasMeasurementFailureChoice && IsOnMeasurementStep && !IsMeasuring && AreDevicesConnected);
             ApplyManualCalibrationCommand = new RelayCommand(ApplyManualCalibration);
+            ClearCalibrationCommand = new RelayCommand(ClearCalibration);
 
             tiltAdapterOptions.PropertyChanged += (s, e) => OnUIThread(() => {
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)) {
@@ -746,6 +747,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public ICommand ReplayCommand { get; }
         public ICommand RetryMeasurementCommand { get; }
         public ICommand ApplyManualCalibrationCommand { get; }
+        public ICommand ClearCalibrationCommand { get; }
 
         // Known amount the user moves each screw during the per-screw calibration steps (full turns
         // for screws, steps for steppers). Defaults to 1.0 to match the "1 full turn" instructions.
@@ -861,6 +863,43 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // Clear stale wizard-run display state (measured-hardware panel, per-run warnings, summary
             // rows — the same state Restart clears) that would otherwise describe the previous run next
             // to a manually entered calibration.
+            measuredHardwareMicrons = double.NaN;
+            lastConfidence = null;
+            pitchUncertaintyMicrons = double.NaN;
+            lastRawAngleDiff = double.NaN;
+            lastMoveMagnitudeRatio = double.NaN;
+            HasWarning = false;
+            WarningText = string.Empty;
+            HasMeasurementConsistencyWarning = false;
+            MeasurementConsistencyWarningText = string.Empty;
+            HasRebaselineDriftWarning = false;
+            RebaselineDriftWarningText = string.Empty;
+            HasConfidenceWarning = false;
+            ConfidenceWarningText = string.Empty;
+            ClearSummaryRows();
+            RaiseHardwareSummaryChanged();
+            RebuildDiagram();
+        }
+
+        /// <summary>
+        /// Clears the saved calibration RESULTS — screw angles, the calibrated/manual flags, the calibrated screw
+        /// count, the measured-curvature-sign flag, and the measured-hardware sentinels — leaving the device
+        /// selection and its configured hardware/direction intact. Reverses <see cref="ApplyManualCalibration"/>'s
+        /// field writes and runs the same display-state cleanup, so the pane returns to the "No calibration saved"
+        /// state without a wizard run.
+        /// </summary>
+        private void ClearCalibration() {
+            tiltAdapterOptions.Screw1AngleDegrees = double.NaN;
+            tiltAdapterOptions.Screw2AngleDegrees = double.NaN;
+            tiltAdapterOptions.Screw3AngleDegrees = double.NaN;
+            tiltAdapterOptions.Screw4AngleDegrees = double.NaN;
+            tiltAdapterOptions.CalibratedScrewCount = 0;
+            tiltAdapterOptions.IsCalibrated = false;
+            tiltAdapterOptions.CalibrationIsManual = false;
+            tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured = false;
+            tiltAdapterOptions.LastMeasuredThreadPitchMicrons = -1;
+            tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = -1;
+
             measuredHardwareMicrons = double.NaN;
             lastConfidence = null;
             pitchUncertaintyMicrons = double.NaN;

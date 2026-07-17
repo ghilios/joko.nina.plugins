@@ -155,7 +155,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             RezeroCommand = new RelayCommand(Rezero);
             ZeroAberrationsCommand = new RelayCommand(ZeroAberrations);
             EnableAberrationsCommand = new RelayCommand(() => options.EnableAberrations = true);
-            AutoFillAnglesCommand = new RelayCommand(AutoFillAngles);
             CopyFromAdapterCommand = new RelayCommand(CopyFromAdapter, () => CanCopyAdapterSettings);
             CopyToAdapterCommand = new RelayCommand(() => IsCopyToAdapterPending = true, () => CanCopyAdapterSettings);
             ConfirmCopyToAdapterCommand = new RelayCommand(ConfirmCopyToAdapter);
@@ -178,7 +177,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         public ICommand RezeroCommand { get; }
         public ICommand ZeroAberrationsCommand { get; }
         public ICommand EnableAberrationsCommand { get; }
-        public ICommand AutoFillAnglesCommand { get; }
         public ICommand CopyFromAdapterCommand { get; }
         public ICommand CopyToAdapterCommand { get; }
         public ICommand ConfirmCopyToAdapterCommand { get; }
@@ -298,8 +296,57 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         public string FlatText => IsFlat ? "✓ ≈ flat" : string.Empty;
 
         public string TiltDisplay =>
-            $"{options.TiltAmountMicrons.ToString("0.0", CultureInfo.CurrentCulture)} µm @ " +
+            $"{TiltAngleThetaDegrees.ToString("0.000", CultureInfo.CurrentCulture)}° @ " +
             $"{TiltCalibrationCalculator.NormalizeAngle(options.TiltAngleDegrees).ToString("0", CultureInfo.CurrentCulture)}°";
+
+        /// <summary>
+        /// The sensor-plane tilt angle θ (degrees), the quantity the Aberration Inspector reports: θ = atan(|g|),
+        /// where the gradient magnitude |g| = <see cref="ICameraSimulatorOptions.TiltAmountMicrons"/> / den and
+        /// den = |cosφ|·halfW + |sinφ|·halfH is the same azimuth-dependent span AberrationSurface uses. Shown instead
+        /// of the raw µm swing so injection and recovery speak the same units.
+        /// </summary>
+        public double TiltAngleThetaDegrees {
+            get {
+                var den = TiltDen(options.TiltAngleDegrees);
+                var g = den > 0 ? options.TiltAmountMicrons / den : 0.0;
+                return Math.Atan(g) * 180.0 / Math.PI;
+            }
+        }
+
+        /// <summary>
+        /// Two-way injection of the tilt as an angle. Get is <see cref="TiltAngleThetaDegrees"/>; set converts back to
+        /// the persisted µm swing at the current azimuth (TiltAmount = tan θ · den). θ is a magnitude — direction is
+        /// the azimuth — so a negative entry is treated as 0.
+        /// </summary>
+        public double InjectedTiltAngleDegrees {
+            get => TiltAngleThetaDegrees;
+            set => SetTiltFromAngle(Math.Max(0.0, value), options.TiltAngleDegrees);
+        }
+
+        /// <summary>
+        /// Two-way injection of the tilt azimuth. Setting it preserves the current tilt angle θ (rotating the tilt
+        /// direction should not change how steep the plane is), so the persisted µm swing is recomputed for the new
+        /// azimuth's span.
+        /// </summary>
+        public double InjectedTiltAzimuthDegrees {
+            get => options.TiltAngleDegrees;
+            set {
+                var theta = TiltAngleThetaDegrees;
+                options.TiltAngleDegrees = value;
+                SetTiltFromAngle(theta, value);
+            }
+        }
+
+        private void SetTiltFromAngle(double thetaDegrees, double azimuthDegrees) {
+            var amount = Math.Tan(thetaDegrees * Math.PI / 180.0) * TiltDen(azimuthDegrees);
+            options.TiltAmountMicrons = Math.Clamp(amount, 0.0, AberrationBoundMicrons);
+        }
+
+        private double TiltDen(double azimuthDegrees) {
+            var (halfW, halfH) = SensorHalfDimensionsMicrons();
+            var phi = azimuthDegrees * Math.PI / 180.0;
+            return Math.Abs(Math.Cos(phi)) * halfW + Math.Abs(Math.Sin(phi)) * halfH;
+        }
 
         public string BackfocusDisplay => FormatSignedMicrons(options.BackfocusErrorMicrons);
 
@@ -376,8 +423,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
         public bool HasConfigurationBanner => !IsAdapterConfigured;
 
-        /// <summary>True when the banner's one-click fix (Auto-fill evenly) is the right offer.</summary>
-        public bool CanAutoFillFromBanner => !IsAdapterConfigured && UnitMicrons > 0 && options.SimScrewRadiusMillimeters > 0;
+        /// <summary>Auto-fill was removed: screws 2..N are derived from Screw 1 + the numbering direction, so there is
+        /// never an "invalid angles" state to one-click-fix. Kept as a stable false binding for the banner template.</summary>
+        public bool CanAutoFillFromBanner => false;
 
         public bool ShowAberrationsDisabledBanner => !options.EnableAberrations;
 
@@ -406,7 +454,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             }
         }
 
-        /// <summary>Screws 3 and 4 are derived (+180°) on a coupled 4-screw adapter — rendered dimmed, never edited.</summary>
+        /// <summary>Screws 2..N are derived from Screw 1 + the numbering direction — rendered dimmed, never edited.</summary>
+        public string Screw2AngleDisplay => FormatAngle(options.SimScrew2AngleDegrees);
+
         public string Screw3AngleDisplay => FormatAngle(options.SimScrew3AngleDegrees);
 
         public string Screw4AngleDisplay => FormatAngle(options.SimScrew4AngleDegrees);
@@ -431,6 +481,21 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         public string SelectedAdapterDirection {
             get => CwMovesAdapterTowardObjective ? TowardObjective : TowardCamera;
             set => CwMovesAdapterTowardObjective = string.Equals(value, TowardObjective, StringComparison.Ordinal);
+        }
+
+        private const string NumberingClockwise = "Clockwise";
+        private const string NumberingCounterClockwise = "Counter-clockwise";
+
+        public IReadOnlyList<string> ScrewNumberingOptions { get; } = new[] { NumberingClockwise, NumberingCounterClockwise };
+
+        /// <summary>
+        /// Bound by the "Screw numbering" ComboBox: the direction the screw numbers advance around the image. Only
+        /// Screw 1 is entered; screws 2..N follow evenly in this direction. Image-space, because a diagonal/flip in
+        /// the optical train can reverse the apparent handedness (see docs/tilt-domain.md).
+        /// </summary>
+        public string SelectedScrewNumbering {
+            get => options.SimScrewNumberingClockwise ? NumberingClockwise : NumberingCounterClockwise;
+            set => options.SimScrewNumberingClockwise = string.Equals(value, NumberingClockwise, StringComparison.Ordinal);
         }
 
         private int ResolvedCurvatureSign => options.SimScrewInwardCurvatureSign == 0
@@ -800,26 +865,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             options.BackfocusErrorMicrons = 0.0;
         }
 
-        private void AutoFillAngles() {
-            derivingAngles = true;
-            try {
-                if (ScrewCount == 3) {
-                    options.SimScrew1AngleDegrees = 0.0;
-                    options.SimScrew2AngleDegrees = 120.0;
-                    options.SimScrew3AngleDegrees = 240.0;
-                    options.SimScrew4AngleDegrees = double.NaN;
-                } else {
-                    options.SimScrew1AngleDegrees = 45.0;
-                    options.SimScrew2AngleDegrees = 135.0;
-                    options.SimScrew3AngleDegrees = 225.0;
-                    options.SimScrew4AngleDegrees = 315.0;
-                }
-            } finally {
-                derivingAngles = false;
-            }
-            RebuildAll();
-        }
-
         // ---- Copy from / to the real adapter ---------------------------------------------------------
 
         private void CopyFromAdapter() {
@@ -828,9 +873,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             try {
                 options.SimScrewCount = realAdapter.ScrewCount == 4 ? 4 : 3;
                 options.SimScrew1AngleDegrees = realAdapter.Screw1AngleDegrees;
-                options.SimScrew2AngleDegrees = realAdapter.Screw2AngleDegrees;
-                options.SimScrew3AngleDegrees = realAdapter.Screw3AngleDegrees;
-                options.SimScrew4AngleDegrees = options.SimScrewCount == 4 ? realAdapter.Screw4AngleDegrees : double.NaN;
+                options.SimScrewNumberingClockwise = InferNumberingClockwise(realAdapter);
+                // Only Screw 1 + the numbering direction are authoritative now; place screws 2..N evenly from them.
+                DeriveScrewAnglesCore();
                 options.SimScrewInwardCurvatureSign = ResolveSign(realAdapter.ScrewInwardCurvatureSign);
                 options.SimAdjustmentType = realAdapter.AdjustmentType;
                 if (realAdapter.ThreadPitchMicrons > 0) options.SimThreadPitchMicrons = realAdapter.ThreadPitchMicrons;
@@ -891,16 +936,13 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
             switch (e.PropertyName) {
                 case nameof(ICameraSimulatorOptions.SimScrewCount):
-                    DeriveOppositeAngles();
-                    RebuildAll();
-                    break;
-
                 case nameof(ICameraSimulatorOptions.SimScrew1AngleDegrees):
-                case nameof(ICameraSimulatorOptions.SimScrew2AngleDegrees):
-                    DeriveOppositeAngles();
+                case nameof(ICameraSimulatorOptions.SimScrewNumberingClockwise):
+                    DeriveScrewAngles();
                     RebuildAll();
                     break;
 
+                case nameof(ICameraSimulatorOptions.SimScrew2AngleDegrees):
                 case nameof(ICameraSimulatorOptions.SimScrew3AngleDegrees):
                 case nameof(ICameraSimulatorOptions.SimScrew4AngleDegrees):
                 case nameof(ICameraSimulatorOptions.SimScrewInwardCurvatureSign):
@@ -935,27 +977,39 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         private void OnRealAdapterChanged(object sender, PropertyChangedEventArgs e) => RaiseCoherenceChanged();
 
         /// <summary>
-        /// Opposite screws on a coupled 4-screw adapter are 180° apart by construction, so screws 3 and 4 are
-        /// derived rather than entered — that kills an entire class of configuration typos.
+        /// Only Screw 1 is entered; screws 2..N are placed evenly around the sensor (360/N apart), advancing in the
+        /// numbering direction the user picked. This yields a valid, coherent configuration from a single input and
+        /// still satisfies the coupled-4-screw invariant (screw i and i+2 land 180° apart by construction).
         /// </summary>
-        private void DeriveOppositeAngles() {
+        private void DeriveScrewAngles() {
             if (derivingAngles) return;
             derivingAngles = true;
             try {
-                if (ScrewCount == 4) {
-                    options.SimScrew3AngleDegrees = Opposite(options.SimScrew1AngleDegrees);
-                    options.SimScrew4AngleDegrees = Opposite(options.SimScrew2AngleDegrees);
-                } else {
-                    // Mirrors the existing convention: a 3-screw rig's 4th angle is NaN, never a stale value.
-                    options.SimScrew4AngleDegrees = double.NaN;
-                }
+                DeriveScrewAnglesCore();
             } finally {
                 derivingAngles = false;
             }
         }
 
-        private static double Opposite(double angle) =>
-            double.IsNaN(angle) ? double.NaN : TiltCalibrationCalculator.NormalizeAngle(angle + 180.0);
+        /// <summary>The derivation itself, callable from inside an existing <see cref="derivingAngles"/> guard (e.g. Copy from adapter).</summary>
+        private void DeriveScrewAnglesCore() {
+            var n = ScrewCount;
+            var sign = options.SimScrewNumberingClockwise ? 1.0 : -1.0;
+            var step = 360.0 / n;
+            var s1 = options.SimScrew1AngleDegrees;
+            options.SimScrew2AngleDegrees = EvenlySpaced(s1, sign, step, 1);
+            options.SimScrew3AngleDegrees = EvenlySpaced(s1, sign, step, 2);
+            options.SimScrew4AngleDegrees = n == 4 ? EvenlySpaced(s1, sign, step, 3) : double.NaN;
+        }
+
+        private static double EvenlySpaced(double screw1, double sign, double step, int index) =>
+            double.IsNaN(screw1) ? double.NaN : TiltCalibrationCalculator.NormalizeAngle(screw1 + sign * index * step);
+
+        /// <summary>Infers the numbering direction from the real adapter's screw 1→2 step (defaults to clockwise).</summary>
+        private static bool InferNumberingClockwise(ITiltAdapterOptions adapter) {
+            var delta = TiltCalibrationCalculator.NormalizeAngle(adapter.Screw2AngleDegrees - adapter.Screw1AngleDegrees);
+            return double.IsNaN(delta) || delta <= 180.0;
+        }
 
         private double[] SimAngles() => new[] {
             options.SimScrew1AngleDegrees, options.SimScrew2AngleDegrees,
@@ -988,6 +1042,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         private void AfterStateChanged() {
             RaisePropertyChanged(nameof(TiltAmountMicrons));
             RaisePropertyChanged(nameof(TiltAngleDegrees));
+            RaisePropertyChanged(nameof(TiltAngleThetaDegrees));
+            RaisePropertyChanged(nameof(InjectedTiltAngleDegrees));
+            RaisePropertyChanged(nameof(InjectedTiltAzimuthDegrees));
             RaisePropertyChanged(nameof(BackfocusErrorMicrons));
             RaisePropertyChanged(nameof(TiltDisplay));
             RaisePropertyChanged(nameof(BackfocusDisplay));
