@@ -1,4 +1,5 @@
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NUnit.Framework;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus;
@@ -7,41 +8,62 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus;
 public class TiltAdapterGuidanceVMTests {
 
     [Test]
-    public void FormatAmount_Screws_ShowsMagnitudeWithRotationGlyph() {
+    public void FormatAmount_ScrewsTurns_ShowsMagnitudeWithRotationGlyph() {
         Assert.Multiple(() => {
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(1.25, steps: false), Is.EqualTo("1.25 ⟳"));
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.5, steps: false), Is.EqualTo("0.50 ⟲"));
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.001, steps: false), Is.EqualTo("—"));
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.004, steps: false), Is.EqualTo("—"));
-            // Floor boundary: the dash threshold equals the smallest value that renders, so a
-            // misleading "0.00 ⟳" can never be displayed.
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.005, steps: false), Is.EqualTo("0.01 ⟳"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(1.25, steps: false, TiltGuidanceAngleUnit.Turns), Is.EqualTo("1.25 ⟳"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.5, steps: false, TiltGuidanceAngleUnit.Turns), Is.EqualTo("0.50 ⟲"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.001, steps: false, TiltGuidanceAngleUnit.Turns), Is.EqualTo("—"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.004, steps: false, TiltGuidanceAngleUnit.Turns), Is.EqualTo("—"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.005, steps: false, TiltGuidanceAngleUnit.Turns), Is.EqualTo("0.01 ⟳"));
         });
     }
 
     [Test]
-    public void FormatAmount_Steppers_ShowsSignedSteps() {
+    public void FormatAmount_ScrewsDegrees_RoundsToNearestDegreeWithGlyph() {
         Assert.Multiple(() => {
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(35.2, steps: true), Is.EqualTo("+35 steps"));
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-35.2, steps: true), Is.EqualTo("−35 steps"));
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.5, steps: true), Is.EqualTo("+1 steps"));
-            // Rounding is away-from-zero on BOTH sides of zero (|amount| is rounded, then signed).
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.5, steps: true), Is.EqualTo("−1 steps"));
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.4, steps: true), Is.EqualTo("—"));
-            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.2, steps: true), Is.EqualTo("—"));
+            // 1 turn = 360°, 0.5 turn = 180°, 0.125 turn = 45°.
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(1.0, steps: false, TiltGuidanceAngleUnit.Degrees), Is.EqualTo("360° ⟳"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.5, steps: false, TiltGuidanceAngleUnit.Degrees), Is.EqualTo("180° ⟲"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.125, steps: false, TiltGuidanceAngleUnit.Degrees), Is.EqualTo("45° ⟳"));
+            // Rounds to the nearest whole degree: 0.126 turn = 45.36° → 45°; 0.1264 turn = 45.504° → 46°.
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.126, steps: false, TiltGuidanceAngleUnit.Degrees), Is.EqualTo("45° ⟳"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.1264, steps: false, TiltGuidanceAngleUnit.Degrees), Is.EqualTo("46° ⟳"));
+            // Same physical noise floor as turns: |turns| < 0.005 (= 1.8°) renders as the dash.
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.004, steps: false, TiltGuidanceAngleUnit.Degrees), Is.EqualTo("—"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.004, steps: false, TiltGuidanceAngleUnit.Degrees), Is.EqualTo("—"));
+            // At the floor, 0.005 turn = 1.8° rounds up to 2°.
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.005, steps: false, TiltGuidanceAngleUnit.Degrees), Is.EqualTo("2° ⟳"));
         });
     }
 
     [Test]
-    public void BuildDirectionLegend_IsFixedTextWithProvenanceSuffix() {
+    public void FormatAmount_Steppers_IgnoreUnitAndShowSignedSteps() {
+        // The unit selector never applies to steppers; assert both units render identical whole steps.
+        foreach (var unit in new[] { TiltGuidanceAngleUnit.Turns, TiltGuidanceAngleUnit.Degrees }) {
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterGuidanceVM.FormatAmount(35.2, steps: true, unit), Is.EqualTo("+35 steps"));
+                Assert.That(TiltAdapterGuidanceVM.FormatAmount(-35.2, steps: true, unit), Is.EqualTo("−35 steps"));
+                Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.5, steps: true, unit), Is.EqualTo("+1 steps"));
+                Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.5, steps: true, unit), Is.EqualTo("−1 steps"));
+                Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.4, steps: true, unit), Is.EqualTo("—"));
+                Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.2, steps: true, unit), Is.EqualTo("—"));
+            });
+        }
+    }
+
+    [Test]
+    public void BuildDirectionLegend_UsesUnitWordAndProvenanceSuffix() {
         Assert.Multiple(() => {
-            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: true),
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: true, TiltGuidanceAngleUnit.Turns),
                 Is.EqualTo("⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in turns"));
-            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: false),
-                Is.EqualTo("⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in turns (assumed — set or measure in the Tilt Adapter Wizard)"));
-            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: true, signIsMeasured: true),
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: true, TiltGuidanceAngleUnit.Degrees),
+                Is.EqualTo("⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in degrees"));
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: false, TiltGuidanceAngleUnit.Degrees),
+                Is.EqualTo("⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in degrees (assumed — set or measure in the Tilt Adapter Wizard)"));
+            // Steppers ignore the unit word entirely.
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: true, signIsMeasured: true, TiltGuidanceAngleUnit.Degrees),
                 Is.EqualTo("⬆ = adapter moves toward the objective · steps are signed as in the wizard prompts"));
-            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: true, signIsMeasured: false),
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: true, signIsMeasured: false, TiltGuidanceAngleUnit.Turns),
                 Is.EqualTo("⬆ = adapter moves toward the objective · steps are signed as in the wizard prompts (assumed — set or measure in the Tilt Adapter Wizard)"));
         });
     }

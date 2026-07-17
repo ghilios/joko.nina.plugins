@@ -162,7 +162,7 @@ public class InspectorVMBehavioralTests {
 
         Assert.Multiple(() => {
             Assert.That(vm.HasTiltAdapterCalibration, Is.True, "precondition: the calibration is valid");
-            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: false), Is.Not.Empty,
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: false, angleUnit: TiltGuidanceAngleUnit.Turns), Is.Not.Empty,
                 "precondition: the legend text itself would be non-empty for this state");
             Assert.That(vm.TiltGuidance.HasTiltGuidance, Is.False, "no measurement -> no arrow rows");
             Assert.That(vm.TiltGuidance.HasNumericGuidance, Is.False, "no sensor model -> no numeric rows");
