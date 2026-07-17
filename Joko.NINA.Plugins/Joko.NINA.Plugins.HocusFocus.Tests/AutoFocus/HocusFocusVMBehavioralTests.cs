@@ -1,13 +1,19 @@
 using NINA.Core.Enum;
+using NINA.Core.Model;
+using NINA.Core.Model.Equipment;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.Synthetic;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NSubstitute;
 using NUnit.Framework;
 using OxyPlot;
 using OxyPlot.Series;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus;
 
@@ -156,5 +162,40 @@ public class HocusFocusVMBehavioralTests {
     public void LoadSavedAutoFocusRunCommand_IsAvailable() {
         var vm = new MediatorBundle().BuildHocusFocusVM();
         Assert.That(vm.LoadSavedAutoFocusRunCommand.CanExecute(null), Is.True);
+    }
+
+    [Test]
+    public void CancelAutoFocus_NoRunInFlight_DoesNothing() {
+        var vm = new MediatorBundle().BuildHocusFocusVM();
+        Assert.That(vm.AutoFocusInProgress, Is.False);
+        // Must be a safe no-op when nothing is running (e.g. the popup closed after the run already finished).
+        Assert.DoesNotThrow(() => vm.CancelAutoFocus());
+        Assert.That(vm.AutoFocusInProgress, Is.False);
+    }
+
+    [Test]
+    public void CancelAutoFocus_CancelsInFlightRun_AndClearsInProgress() {
+        var bundle = new MediatorBundle();
+        var engine = Substitute.For<IAutoFocusEngine>();
+        // The engine run blocks until the token it was handed is cancelled — i.e. until CancelAutoFocus() trips the
+        // linked source StartAutoFocus created. This proves the popup's close hook can actually stop a live run.
+        engine.Run(Arg.Any<AutoFocusEngineOptions>(), Arg.Any<FilterInfo>(), Arg.Any<CancellationToken>(), Arg.Any<IProgress<ApplicationStatus>>())
+            .Returns(ci => {
+                var runToken = ci.Arg<CancellationToken>();
+                var tcs = new TaskCompletionSource<AutoFocusResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                runToken.Register(() => tcs.TrySetCanceled(runToken));
+                return tcs.Task;
+            });
+        bundle.AutoFocusEngineFactory.Create().Returns(engine);
+        var vm = bundle.BuildHocusFocusVM();
+
+        var runTask = vm.StartAutoFocus(imagingFilter: null, token: CancellationToken.None, progress: null);
+        Assert.That(SpinWait.SpinUntil(() => vm.AutoFocusInProgress, 2000), Is.True, "run should have started");
+
+        vm.CancelAutoFocus();
+
+        // CatchAsync (not ThrowsAsync) so the derived TaskCanceledException also satisfies the expectation.
+        Assert.CatchAsync<OperationCanceledException>(async () => await runTask);
+        Assert.That(vm.AutoFocusInProgress, Is.False, "cancellation should clear the in-progress flag");
     }
 }

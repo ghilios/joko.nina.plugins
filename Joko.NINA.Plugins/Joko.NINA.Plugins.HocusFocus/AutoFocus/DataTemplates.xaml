@@ -683,16 +683,22 @@
           renders the shared CORE (chart + info) only: the Replay Saved AF / Review Frames row is deliberately
           omitted here — those are pane-only controls, and sharing one grid cell they overlapped in the narrow popup.
           The docked AutoFocus pane resolves the keyed *_Dockable template above instead (via NINA's
-          GenericTemplateSelector), which keeps that row. The minimum size gives the chart a usable popup without
-          constraining the dock; Stretch makes the core fill it.  -->
+          GenericTemplateSelector), which keeps that row. The Border's minimum size gives the chart a usable popup
+          without constraining the dock; its Padding keeps the chart and info text off the window edge; Stretch makes
+          the core fill it. CancelOnClose makes the window's close (X) cancel an in-progress run and close once it
+          stops (see CancelAutoFocusOnCloseBehavior) — this is the popup-only path, so the dock is unaffected.  -->
     <DataTemplate DataType="{x:Type local:HocusFocusVM}">
-        <ContentControl
+        <Border
             MinWidth="500"
             MinHeight="420"
-            HorizontalContentAlignment="Stretch"
-            VerticalContentAlignment="Stretch"
-            Content="{Binding}"
-            ContentTemplate="{StaticResource NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Core}" />
+            Padding="10"
+            local:CancelAutoFocusOnCloseBehavior.CancelOnClose="True">
+            <ContentControl
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch"
+                Content="{Binding}"
+                ContentTemplate="{StaticResource NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Core}" />
+        </Border>
     </DataTemplate>
     <DataTemplate x:Key="NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectorDockable_Dockable">
         <ContentControl Content="{Binding StarDetectionOptions}" ContentTemplate="{StaticResource HocusFocus_StarDetection_Options}" />

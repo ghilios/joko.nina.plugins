@@ -547,6 +547,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        // Cancellation source for the in-flight live AutoFocus run started via StartAutoFocus, linked to the caller's
+        // token (the sequence's or the pane's). CancelAutoFocus() trips it so the sequence-item popup's close (X)
+        // button can stop the run and then close. Null whenever no live run is in flight. The replay path has its own
+        // loadSavedAutoFocusRunCts.
+        private CancellationTokenSource autoFocusRunCts;
+
         public async Task<AutoFocusReport> StartAutoFocus(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
             IAutoFocusEngine autoFocusEngine = null;
             try {
@@ -554,6 +560,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Notification.ShowError("Another AutoFocus is already in progress");
                     return null;
                 }
+                // Link the caller's token so this run is independently cancelable (window-close cancel). Created before
+                // AutoFocusInProgress flips true so a cancel observed off that flag never races a null source.
+                autoFocusRunCts = CancellationTokenSource.CreateLinkedTokenSource(token);
                 AutoFocusInProgress = true;
 
                 autoFocusEngine = autoFocusEngineFactory.Create();
@@ -567,7 +576,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var options = autoFocusEngine.GetOptions();
 
                 ApplyFrameReviewOptions(options);
-                var result = await autoFocusEngine.Run(options, imagingFilter, token, progress);
+                var result = await autoFocusEngine.Run(options, imagingFilter, autoFocusRunCts.Token, progress);
                 if (result == null || !result.Succeeded) {
                     return null;
                 }
@@ -590,8 +599,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // covers cancellation / null-init paths where Completed/Failed never fired, so captured
                 // exposures aren't pinned until the next run. (F22)
                 ReleaseUnsnapshottedReviewFrames();
+                autoFocusRunCts?.Dispose();
+                autoFocusRunCts = null;
                 AutoFocusInProgress = false;
             }
+        }
+
+        /// <summary>
+        /// Cancels the in-flight live AutoFocus run started via <see cref="StartAutoFocus"/>, if any. The sequence-item
+        /// AutoFocus popup's close (X) button calls this so closing the window stops the run rather than orphaning it;
+        /// the window then closes once <see cref="AutoFocusInProgress"/> clears. No-op when no run is in flight.
+        /// </summary>
+        public void CancelAutoFocus() {
+            autoFocusRunCts?.Cancel();
         }
 
         public AutoFocusReport LastReport { get; private set; }
