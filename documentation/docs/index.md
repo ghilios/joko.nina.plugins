@@ -19,7 +19,7 @@ the field.
 
 ## Key features
 
-- **[Improved star detection](overview/star-detection.md)** — accurate, gradient-aware HFR measurement
+- **[Improved star detection](overview/star-detection.md)** — gradient-aware HFR measurement
   plus optional Gaussian and Moffat 4.0 PSF fitting for eccentricity and FWHM, with simple defaults and an
   advanced mode for fine tuning.
 - **[Customizable star annotation](overview/star-annotation.md)** — configurable colors and fonts, with
@@ -29,18 +29,21 @@ the field.
 - **[Tilt / aberration inspector](overview/tilt-aberration-inspector.md)** — generates a sensor tilt and
   curvature model, measuring backfocus error even in the presence of tilt, plus FWHM contour maps and
   eccentricity vector fields.
+- **[Camera simulator](overview/camera-simulator.md)** — a synthetic camera that renders physically
+  realistic star fields from an ASTAP star database, with defocus, donuts, and injectable sensor tilt,
+  so autofocus and tilt correction can be tested and rehearsed in the daytime.
 
 !!! note "Mix and match"
     You can use the new star detector or the new annotator independently; keep whichever you like.
     To enable the autofocus and aberration-inspector features, Hocus Focus must be selected for both
-    Autofocus and Star Detector.
+    Auto Focus and Star Detector.
 
 ## Installation
 
 Hocus Focus is published through NINA's in-app plugin manager: open **Plugins → Available**, find
 **Hocus Focus**, and install it. To turn on its features afterward, go to
 **Options → Imaging → Image Options** and select **Hocus Focus** in the **Star Detector**, **Star Annotator**,
-and **Autofocus** dropdowns.
+and **Auto Focus** dropdowns.
 
 ![Selecting Hocus Focus as the Star Detector in Options, Imaging, Image Options](assets/screenshots/image-options-dropdown.png){ width=488 }
 

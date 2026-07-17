@@ -23,7 +23,7 @@ The detector removes large-scale structure with an **à-trous (dyadic) B3-spline
 | Setting | Default | Range | Effect |
 |---|---|---|---|
 | Structure Layers | 4 | integer > 0 | Wavelet layers kept; structures larger than ~\(2^{\text{layers}}\) px are removed as background. More layers keep larger (e.g. defocused) stars. |
-| Defocus-Aware Structure | Off | On / Off | When on, removes background more coarsely so heavily-defocused donut stars survive and form candidates. Off ⇒ detection unchanged. |
+| Defocus-Aware Structure | Off | On / Off | When on, removes background more coarsely so heavily defocused donut stars survive and form candidates. Off ⇒ detection unchanged. |
 | Structure Layer Boost | 0 | 0–6 | Extra wavelet layers added *only* while Defocus-Aware Structure is on. Higher ⇒ coarser removal ⇒ bigger donuts survive. |
 | Structure Dilation Size | 3 | 3–30 px | Diameter of the morphological filter that grows candidate blobs in the structure map. |
 | Structure Dilation Iterations | 0 | ≥ 0 | How many times the dilation is applied. 0 disables dilation. |
@@ -58,7 +58,7 @@ When this is **off**, the effective layer count is exactly `StructureLayers`, so
 *A heavily defocused star becomes a large hollow donut, exactly the structure that aggressive background removal can erase before it is ever evaluated.*
 
 !!! tip "When to adjust"
-    **Enable it** only when collecting autofocus frames far from focus *and* you observe donut stars missing entirely (no candidate at all), not merely rejected by a gate. Pair it with a **Structure Layer Boost above 0**. On its own, with boost at 0, it changes nothing. If the donuts are present but rejected with a reason (TooDistorted / NotCentered), the fix is the **Defocus-Aware Gates** on the [Acceptance Gates](acceptance-gates.md) page, not this; if the donuts fragment into small arcs (rejected as **Too Small**), reach for the [Recover Out-of-Focus Donut Stars](acceptance-gates.md#recover-out-of-focus-donut-stars) group, which reconnects the ring. **Leave it off** for normal near-focus imaging; it adds nothing there and only widens what counts as a star.
+    **Enable it** only when collecting autofocus frames far from focus *and* you observe donut stars missing entirely (no candidate at all), not merely rejected by a gate. Pair it with a **Structure Layer Boost above 0**. On its own, with boost at 0, it changes nothing. If the donuts are present but rejected with a reason (**Too Distorted** / **Not Centered**), the fix is the **Defocus-Aware Gates** on the [Acceptance Gates](acceptance-gates.md) page, not this; if the donuts fragment into small arcs (rejected as **Too Small**), reach for the [Recover Out-of-Focus Donut Stars](acceptance-gates.md#recover-out-of-focus-donut-stars) group, which reconnects the ring. **Leave it off** for normal near-focus imaging; it adds nothing there and only widens what counts as a star.
 
 ## Structure Layer Boost
 
@@ -100,4 +100,4 @@ At the default of 0 the dilation step is skipped entirely, so **Structure Dilati
     **Raise it to 1+** when bounding boxes are too tight around stars at high focal length and a single dilation pass is not enough. **Leave it at 0** for typical sampling; most rigs never need dilation. It can hurt the same way as Structure Dilation Size, only faster: extra iterations compound the blob growth, so in dense star fields neighbors merge and small structures balloon.
 
 !!! warning
-    Structure Layers, Defocus-Aware Structure, and Structure Layer Boost are **early-stage** parameters: they change which candidates are formed in the first place. Structure Dilation Size and Iterations also reshape candidate geometry. Change these only when stars are missing or boxed wrong at the *structure* level. If a star is being **rejected with a reason** (too distorted, low sensitivity, too flat, not centered), the fix belongs on the [Acceptance Gates](acceptance-gates.md) page instead.
+    Structure Layers, Defocus-Aware Structure, and Structure Layer Boost are **early-stage** parameters: they change which candidates are formed in the first place, and the two dilation settings reshape candidate geometry. If a star is instead rejected with a reason (**Too Distorted**, **Low Sensitivity**, **Too Flat**, **Not Centered**), the fix belongs on the [Acceptance Gates](acceptance-gates.md) page.

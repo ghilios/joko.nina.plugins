@@ -49,8 +49,8 @@ multiplicative penalties default to exactly 1.0 (no effect) and only bite in spe
 their own sections below.
 
 !!! note "The aberration-inspection objective reweights these"
-    The weights above are the default, autofocus-tuned objective. When you select **"Optimize for
-    aberration inspection"** on the wizard's start page, the optimizer swaps in a star-count-favoring
+    The weights above are the default, autofocus-tuned objective. When you select **Optimize for
+    aberration inspection** on the wizard's start page, the optimizer swaps in a star-count-favoring
     objective (`ObjectiveConstants.ForAberrationInspection`) that recovers far more stars across the
     frame (what a [tilt / curvature model](../overview/tilt-aberration-inspector.md) needs), while a
     fit guard tied to your current settings' \(\sigma_{\text{focus}}\) keeps the focus curve usable.
@@ -189,7 +189,7 @@ a sub-score.
 The sub-scores above are combined by a weighted **average**. The defocus-precision term is different: it
 is a **multiplicative** penalty in \([0.5, 1.0]\) applied after the weighted sum. It guards the optional
 defocus-aware gates (which relax distortion/centering to recover bloated donut stars) from being abused to
-flood near-focus frames with junk.
+flood near-focus frames with junk, so the optimizer can safely explore turning them on.
 
 \[
 J_{\text{run}} \;\leftarrow\; J_{\text{run}} \times S_{\text{defocus-precision}}, \qquad
@@ -226,10 +226,6 @@ Two properties make this safe:
 *The penalty stays at 1.0 until the near-focus relaxed fraction exceeds the 0.20 threshold, then decays at
 strength 0.5 down to a floor of 0.5.*
 
-!!! warning "The defocus-aware gates are opt-in"
-    This penalty exists so the optimizer can safely explore turning the gates on (recovering bloated
-    donuts on the extremes) without learning to manufacture spurious near-focus stars.
-
 ## \(S_{\text{hfr-outlier}}\) — the bright-blob penalty
 
 A bright star whose core saturates measures a half-flux radius that reads too large, because its peak clips flat. If
@@ -246,7 +242,7 @@ The accepted-star HFRs from the near-focus frames are pooled, and a star counts 
 HFR clears **both** bars: at least \(4\times\) the robust scatter (median absolute deviation) above the median,
 **and** at least \(1.5\times\) the median. The first bar handles loose frames; the second guards the case where every
 star is nearly identical, so the scatter collapses toward zero. The penalty is then a function of the outlier
-**fraction** \(f\) — outliers over accepted stars in the near-focus pool:
+**fraction** \(f\) (outliers over accepted stars in the near-focus pool):
 
 \[
 S_{\text{hfr-outlier}} = \operatorname{clip}_{[0.5,\,1]}\!\bigl(\,1 - \text{Strength}\cdot\max(0,\; f - \text{Threshold})\,\bigr),

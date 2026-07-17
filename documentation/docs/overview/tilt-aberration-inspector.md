@@ -115,6 +115,10 @@ counter-clockwise (loosen); stepper adapters show signed steps (`+35 steps`) mat
 prompts. A legend at the top of the section defines both conventions and is marked "(assumed)" until
 the adapter direction has been measured in the wizard.
 
+The whole correction loop can be rehearsed in the daytime against the
+[Camera Simulator](camera-simulator.md#rehearse-a-tilt-calibration-in-the-daytime), which injects a
+known tilt and provides on-screen buttons standing in for the adapter's screws.
+
 ## Inspector options
 
 These settings live in the inspector panel (not the main Options page). Defaults and ranges are taken

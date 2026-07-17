@@ -31,7 +31,7 @@ Turn on the parts you want. Go to **Options → Imaging → Image Options** and,
 
 - **Star Detector** — the improved detector (see [Star Detection](overview/star-detection.md)).
 - **Star Annotator** — the customizable overlay (see [Star Annotation](overview/star-annotation.md)).
-- **Autofocus** — the concurrent autofocus engine (see [Autofocus](overview/autofocus.md)).
+- **Auto Focus** — the concurrent autofocus engine (see [Autofocus](overview/autofocus.md)).
 
 ![The Image Options dropdowns set to Hocus Focus for Star Detector, Star Annotator, and Autofocus](assets/screenshots/image-options-all.png){ width=510 }
 
@@ -39,7 +39,7 @@ Turn on the parts you want. Go to **Options → Imaging → Image Options** and,
 
 !!! note "Some features need both"
     The autofocus engine and the Aberration Inspector require Hocus Focus to be selected for both
-    **Autofocus** and **Star Detector**. You can otherwise mix and match, for example keeping only the detector.
+    **Auto Focus** and **Star Detector**. You can otherwise mix and match, for example keeping only the detector.
 
 ## 3. Get a first autofocus working
 
@@ -72,8 +72,8 @@ this stage.*
 If the curve looks flat, the step size is too small. If stars vanish at the ends of the sweep, the step
 size is too large; reduce it, or set **Focus Range** to **Wide Range** so heavily defocused donut stars
 are still detected. If few stars are found even near focus, increase the exposure time. Narrowband
-filters in particular can need much longer autofocus exposures at first; the tip in step 6 shows how to
-work back down.
+filters in particular can need much longer autofocus exposures at first; step 7 shows how to bootstrap
+them and work the exposure back down.
 
 → Full detail: [Autofocus](overview/autofocus.md).
 
@@ -122,19 +122,40 @@ computationally expensive and can take a while on a slow imaging computer.
     computer, **Import** the exported `.json` file, review exactly what will change, and apply. See
     [exporting and importing settings](settings/index.md#exporting-and-importing-star-detection-settings).
 
-!!! tip "Narrowband filters: bootstrap with a live sweep, then shorten"
-    Through a narrowband filter, so few stars appear that autofocus often won't converge, so you never get
-    a working run to save and replay. Use the wizard's **Live Auto-Focus** source instead: reach
-    rough focus manually, and it captures a fixed focus sweep and tunes detection against it without
-    needing a working autofocus first. Set the exposure long enough that stars stay visible out at the
-    wings of the sweep, so the optimizer has data across the whole curve. Once a run succeeds, shorten the
-    exposure and run the sweep again to find how far you can push it; a well-tuned detector handles much
-    fainter stars than the defaults. Finish with the exposure and settings you will actually autofocus
-    with; the summary can write the sweep exposure into your profile for you.
-
 → Full detail: [Star Detection Optimization](optimization/index.md).
 
-## 7. If you run into trouble
+## 7. Narrowband filters: tune with a live sweep
+
+Skip this step unless you autofocus through narrowband filters. Through Hα, OIII, or SII, so few
+stars appear that autofocus often will not converge at all, which leaves you with no saved run for
+the wizard to replay. The wizard's **Live Auto-Focus** source breaks that deadlock: instead of
+replaying a run, it captures one, without needing a working autofocus first.
+
+Reach focus manually before starting (a Bahtinov mask or a careful manual pass is fine); the sweep
+is centered on the current focuser position, so it has to begin near focus. Then, in the wizard:
+
+1. Choose **Live Auto-Focus** as the **Source**, and set the **Exposure**. Start with an exposure
+   time you know shows stars through this filter, even if it is far longer than you would ever
+   autofocus with. The sweep needs stars visible out at its defocused ends, and a too-short
+   exposure just produces empty frames that nothing can be tuned against.
+2. Choose the folder to **Save captured frames to** and press **Start**. The wizard sweeps the
+   focuser across a fixed range (built from your profile's auto-focus step size and offset steps),
+   saves an image at every point whether or not any stars are detected, returns the focuser to
+   where it started, and then searches for the detection settings that build the cleanest focus
+   curve from those frames.
+3. Once a run succeeds, run it again with a shorter exposure, and keep shortening until the result
+   degrades. This finds how far you can push this filter: a well-tuned detector handles much
+   fainter stars than the defaults, and narrowband autofocus exposures often end up several times
+   shorter than the safe starting value.
+4. Finish with the exposure you will actually autofocus with. On the summary, turn on **Apply
+   these auto-focus settings to my profile when I click Accept**: along with the recommended step
+   size, it writes the sweep's exposure into your profile as the auto-focus exposure time, so you
+   focus with the exposure you optimized against.
+
+→ Full detail: the live-run walkthrough in
+[Star Detection Optimization](optimization/index.md#saved-and-live-sources).
+
+## 8. If you run into trouble
 
 Saved runs replay deterministically, so sharing one lets the plugin author reproduce exactly what your
 rig did, frame by frame. If autofocus misbehaves or a result looks wrong:
@@ -161,6 +182,10 @@ With autofocus working and tuned, the same detector and saved-run machinery feed
 - **If you have a tilt adapter, calibrate it.** The **Tilt Adapter Wizard** learns where each screw sits
   relative to your sensor and how far a turn moves it, turning tilt measurements into concrete
   screw-turn guidance. → [Tilt Adapter Wizard](overview/tilt-adapter-wizard.md)
+- **Practice in the daytime.** The **Camera Simulator** renders realistic star fields from an ASTAP
+  star database, complete with defocus, donuts, and injectable sensor tilt, so you can test autofocus
+  settings or rehearse a full tilt calibration with no sky at all.
+  → [Camera Simulator](overview/camera-simulator.md)
 - **Customize the annotation overlay**: colors, fonts, and what gets drawn over accepted and rejected
   stars. → [Star Annotation](overview/star-annotation.md)
 - **Go deeper on the settings.** Every detection knob, and everything the optimizer searches over, is

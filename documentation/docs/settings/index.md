@@ -64,7 +64,7 @@ When **Use Optimized Settings** is on and a wizard result exists, Simple mode fi
 
 ### Exporting and importing star-detection settings
 
-Star-detection settings can move between machines. Two buttons at the bottom of the Star Detection options pane, **Export** and **Import**, write and read a single `.json` file (named `HocusFocusStarDetection_<timestamp>.json`). This is how you tune on one computer and image on another: run the [Optimization Wizard](../optimization/index.md) on a fast desktop, **Export**, then **Import** on the imaging computer.
+Star-detection settings can move between machines. Two buttons at the bottom of the **Star Detector** tab, **Export** and **Import**, write and read a single `.json` file (named `HocusFocusStarDetection_<timestamp>.json`). This is how you tune on one computer and image on another: run the [Optimization Wizard](../optimization/index.md) on a fast desktop, **Export**, then **Import** on the imaging computer.
 
 Only **star-detection** settings are written, not autofocus, inspector, or tilt settings. The wizard's optimized-settings snapshot is included too, so the imported profile can turn it on with **Use Optimized Settings**. A few values are deliberately left out because they belong to one computer: the intermediate-image path, the **Save Intermediate** flag, **Debug Mode**, and **PSF Parallel Size**. Those keep their local values on import.
 
@@ -145,11 +145,11 @@ Internally the detector splits into an **EARLY** phase (`BuildDetectionContext`)
 - **EARLY** parameters affect the prepared image, the candidate region set, and the noise estimates. Changing one forces a **full re-detect**. These are the hotpixel knobs (`HotpixelFiltering`, `HotpixelThresholdingEnabled`, `HotpixelThreshold`), noise reduction (`StarMeasurementNoiseReductionEnabled`, `NoiseReductionRadius`, `NoiseClippingMultiplier`, `LocallyAdaptiveBinarization`, `AdaptiveNoiseBlockSize`), the structure-map knobs (`StructureLayers`, `DefocusAwareStructure`, `StructureLayerBoost`, `StructureDilationSize`, `StructureDilationCount`), `SaturationThreshold`, and the detection `Region`.
 - **LATE** parameters only re-gate or re-measure the candidates that already exist (sensitivity, distortion, centering, min-HFR, PSF settings, the defocus-aware *gate* relaxations, contamination). They are cheap to change.
 
-You don't normally need to think about this when using NINA, since it changes whichever parameters you change. The distinction matters because the [Optimization Wizard](../optimization/index.md) and the headless tooling exploit it: an expensive early context is cached and reused across many late-only candidate moves, which is what makes the optimizer fast. The safe failure mode of the cache is always a redundant recompute, never stale reuse.
+You don't normally need to think about this when using NINA, where every detection runs the full pipeline anyway. The distinction matters because the [Optimization Wizard](../optimization/index.md) and the headless tooling exploit it: an expensive early context is cached and reused across many late-only candidate moves, which is what makes the optimizer fast. The safe failure mode of the cache is always a redundant recompute, never stale reuse.
 
 !!! note "Profile-scoped and auto-saved"
 
-    All star-detection settings are stored per NINA profile. Switching profiles re-derives Simple-mode settings from that profile's presets. There is also a **Reset Defaults** action that restores every parameter to its shipped value (Simple mode, Typical presets, PSF modeling on with Moffat 4.0, and so on) and clears any optimized snapshot.
+    All star-detection settings are stored per NINA profile, and changes are written to the active profile as you make them — there is no separate save step. Switching profiles re-derives Simple-mode settings from that profile's presets. There is also a **Reset Defaults** action that restores every parameter to its shipped value (Simple mode, Typical presets, PSF modeling on with Moffat 4.0, and so on) and clears any optimized snapshot.
 
 ## Reference sub-pages
 

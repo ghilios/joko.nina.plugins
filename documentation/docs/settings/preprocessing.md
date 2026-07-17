@@ -6,7 +6,7 @@ Before Hocus Focus can find and measure stars, it has to decide what is *signal*
 2. **Thresholding** — how far above the noise floor a pixel must sit to count as a star candidate (`NoiseClippingMultiplier`, applied as a per-region surface when `LocallyAdaptiveBinarization` is on) or to be included in a star's flux/HFR measurement (`StarClippingMultiplier`).
 3. **Sub-pixel sampling** — how finely star centers and HFR are sampled between whole pixels (`PixelSampleSize`).
 
-A key idea runs through all of these: Hocus Focus keeps **two images**. A *structure-detection image* is used to find where the candidate stars are, and a *measurement image* is used to measure each star's centroid, flux, HFR, and PSF. By default the noise reduction is applied **only** to the structure-detection image, so candidate-finding is robust to noise while the measurements stay on the sharp, unblurred pixels.
+A key idea runs through all of these: Hocus Focus keeps **two images**. A *structure-detection image* is used to find where the candidate stars are, and a *measurement image* is used to measure each star's centroid, flux, HFR, and PSF. By default the noise reduction is applied **only** to the structure-detection image, so candidate-finding tolerates noise while the measurements stay on the sharp, unblurred pixels.
 
 ![The preprocessing and noise settings highlighted in the advanced Star Detector list](../assets/screenshots/advanced-preprocessing.png){ width=375 }
 
@@ -55,7 +55,7 @@ The radius is a *half-size*: the convolution kernel spans roughly twice the radi
 
 This is the switch that controls Hocus Focus's two-image design. With it **off** (default), candidate *finding* runs on the blurred structure-detection image, but every measurement (centroid, flux, HFR, PSF) is taken from the sharp, unblurred image, so the blur cannot bias the numbers. With it **on**, the same blurred pixels feed both stages.
 
-Turning it on changes what the noise σ is measured against. Hocus Focus tracks two noise estimates: a structure σ (on the noise-reduced structure source, used only by the binarize threshold) and a measurement σ (on the image actually sampled). The brightness and star clipping multipliers are honest multiples of that **measurement** σ, so they keep their meaning regardless of this switch.
+Turning it on changes what the noise σ is measured against. Hocus Focus tracks two noise estimates: a structure σ (on the noise-reduced structure source, used only by the binarization threshold) and a measurement σ (on the image actually sampled). The brightness and star clipping multipliers are honest multiples of that **measurement** σ, so they keep their meaning regardless of this switch.
 
 !!! tip "When this helps"
     Enable it only for **very noisy** data where the unblurred pixels are too noisy to measure HFR reliably. The High noise preset turns it on for you and also raises the radius. It can hurt in normal conditions: blurring the measurement pixels inflates measured HFR and softens the PSF, biasing the autofocus curve. Leave it off unless you have a specific noise problem.

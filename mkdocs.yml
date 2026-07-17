@@ -90,6 +90,8 @@ nav:
       - Tilt & Aberration Inspector: overview/tilt-aberration-inspector.md
       - Tilt Adapter Wizard: overview/tilt-adapter-wizard.md
       - Sensor Model Fitting: overview/sensor-model.md
+      - Camera Simulator: overview/camera-simulator.md
+      - Camera Simulator Rendering Model: overview/camera-simulator-rendering.md
   - Star Detection Settings:
       - settings/index.md
       - Precision & Recall: settings/precision-recall.md

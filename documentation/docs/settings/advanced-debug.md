@@ -87,7 +87,7 @@ default), so the applied radius is 4/6. None stays 0 because filtering is off.
 The *sensitivity scale* compensates for how the noise σ is measured per preset, so that the same effective
 threshold is preserved across presets. It feeds into the derived **Brightness Sensitivity** described below.
 At **None** there is no blur and noise reduction is fully disabled; at **High**, noise reduction is also
-applied to the measurement image, not just the structure map.
+applied to the measurement image, not just the structure-detection image.
 
 !!! tip "When this helps"
 
@@ -205,9 +205,10 @@ or each star's own measured HFR.
 
 !!! tip "When this helps"
 
-    Leave on **Median** for almost all cases; it is robust without tuning. Use **Mean + Outlier Detection**
-    only if you specifically want a mean-based aggregate with an explicit, MAD-based outlier cut (e.g. when
-    comparing against tooling that reports a mean). On sparse fields the mean can be noisier than the median.
+    Leave on **Median** for almost all cases; it needs no tuning and a few bad stars do not move it. Use
+    **Mean + Outlier Detection** only if you specifically want a mean-based aggregate with an explicit,
+    MAD-based outlier cut (e.g. when comparing against tooling that reports a mean). On sparse fields the
+    mean can be noisier than the median.
 
 ## Use AutoFocus Crop
 

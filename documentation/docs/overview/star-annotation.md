@@ -13,7 +13,7 @@ The annotator converts the displayed image to an 8-bit grayscale canvas, draws e
 
 If **Show Annotations** is off, the annotator returns the image untouched, and nothing else in this page applies until you turn it back on.
 
-Auto Focus works a little differently: it measures each frame with its own detection pass, and **Annotate During Auto Focus** overlays that same detection — the very stars that produced the HFR point — onto each frame as the sweep runs. It is on by default; turn it off to watch the sweep on unmarked frames.
+Auto Focus works a little differently: it measures each frame with its own detection pass, and **Annotate During Auto Focus** overlays that same detection (the very stars that produced the HFR point) onto each frame as the sweep runs. It is on by default; turn it off to watch the sweep on unmarked frames.
 
 By default the annotator draws *every* detected star. If you turn **Show All Stars** off, it keeps only the **Maximum Stars** brightest stars (sorted by average brightness) and labels those. The rejection boxes described later are drawn from the detector's metrics independently of this limit, so they always appear in full when their toggle is on.
 
@@ -114,14 +114,10 @@ The mask pixels are blended onto the image in **Structure Map Color** (*"The col
 
 ## Practical recipes
 
-!!! example "Tuning detection quality"
-    Cap labels (**Show All Stars** off, **Maximum Stars** ≈ 50), then enable the rejection toggles one or two at a time with distinct colors. Walk the gates until the accepted set looks right for your focal ratio and seeing.
+**Tuning detection quality.** Cap labels (**Show All Stars** off, **Maximum Stars** ≈ 50), then enable the rejection toggles one or two at a time with distinct colors. Walk the gates until the accepted set looks right for your focal ratio and seeing.
 
-!!! example "Checking focus quality across the field"
-    Set **Show Property** to FWHM or Eccentricity (PSF modeling required) and watch for consistent, low values near best focus. The star-center reticule makes off-center or trailed stars at the defocus extremes easy to spot.
+**Checking focus quality across the field.** Set **Show Property** to FWHM or Eccentricity (PSF modeling required) and watch for consistent, low values near best focus. The star-center reticule makes off-center or trailed stars at the defocus extremes easy to spot.
 
-!!! example "Mapping the PSF across the sensor"
-    Combine **Star Bounds Type = PSF** with the Eccentricity or PSF Rotation label to overlay the actual fitted ellipse shape and orientation everywhere in the frame. Systematic stretch toward the corners points to tilt, coma, or curvature, the kind of thing the Tilt & Aberration Inspector quantifies.
+**Mapping the PSF across the sensor.** Combine **Star Bounds Type = PSF** with the Eccentricity or PSF Rotation label to overlay the actual fitted ellipse shape and orientation everywhere in the frame. Systematic stretch toward the corners points to tilt, coma, or curvature, the kind of thing the Tilt & Aberration Inspector quantifies.
 
-!!! example "Understanding contamination in nebulosity"
-    Turn on **Show Contaminated** while imaging over bright nebulosity. Because flagged stars draw whether or not they were rejected, you can immediately see which measurements a gradient or close neighbor may be biasing.
+**Understanding contamination in nebulosity.** Turn on **Show Contaminated** while imaging over bright nebulosity. Because flagged stars draw whether or not they were rejected, you can immediately see which measurements a gradient or close neighbor may be biasing.

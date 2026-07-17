@@ -21,12 +21,13 @@ categories:
 
 | Category | What it marks | Drives |
 |---|---|---|
-| **Missed** | A real star with no detection marker — a false negative | Recall |
+| **Missed** | A real star with no detection marker (a false negative) | Recall |
 | **Wrongly-rejected** | A star the detector found but a gate rejected, which you want kept | Recall |
 | **Should-reject** | An accepted detection you judge spurious — a false positive | Precision |
 
-You create these in the labeling tool: drag a box over a real star the detector missed, click a rejected
-candidate you think should have been kept, or click an accepted candidate that should have been thrown out.
+You create these in the review view (**"Review frames"** on the wizard summary): drag a box over a real star
+the detector missed, click a rejected candidate you think should have been kept, or click an accepted
+candidate that should have been thrown out.
 
 ## Scoring by box containment
 
@@ -59,10 +60,11 @@ Labeling turns the optimizer into a guided tool: you optimize, look at what it g
 and re-optimize so the new term pushes the search toward your judgment.
 
 1. **Optimize** once with no labels to get a baseline detection setting.
-2. **Review** the frames: drag boxes on missed stars, click false positives (*should-reject*), click
+2. **Review frames**: drag boxes on missed stars, click false positives (*should-reject*), click
    wrongly-rejected candidates you want back.
-3. **Re-optimize with labels.** The recall/precision term is now active, so moves that recover your missed
-   stars and suppress your false positives score higher.
+3. **Optimize with feedback.** Press **"Optimize with feedback"** (on the Review page, or from the prompt on
+   the summary) to re-run the search with your labels. The recall/precision term is now active, so moves that
+   recover your missed stars and suppress your false positives score higher.
 
 !!! tip "When labels are worth the effort"
     Reach for labels when the proxy terms have plateaued but you can still *see* problems: faint companions
