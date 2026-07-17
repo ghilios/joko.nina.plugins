@@ -274,6 +274,73 @@ public class InspectorVMBehavioralTests {
     }
 
     [Test]
+    public void TiltGuidance_AngleDisplayUnitDegrees_RendersAmountsInDegreesAndFlipsLegend() {
+        // End-to-end wiring for the Turns/Degrees selector: the ComboBox binds InspectorVM.TiltGuidanceAngleUnit
+        // (a passthrough over ITiltAdapterOptions.AngleDisplayUnit); changing that option must fire the same
+        // PropertyChanged -> RebuildTiltGuidance path that regenerates every numeric amount AND the legend in
+        // the selected unit. Reuses the deterministic fixture from TiltGuidance_SigmaFlip: screw 1 tilt is
+        // 0.30 turns CW = 108 degrees.
+        var bundle = new MediatorBundle();
+        bundle.TiltAdapterOptions.IsCalibrated.Returns(true);
+        bundle.TiltAdapterOptions.ScrewCount.Returns(3);
+        bundle.TiltAdapterOptions.CalibratedScrewCount.Returns(3);
+        bundle.TiltAdapterOptions.ScrewInwardCurvatureSign.Returns(1);
+        bundle.TiltAdapterOptions.Screw1AngleDegrees.Returns(0.0);
+        bundle.TiltAdapterOptions.Screw2AngleDegrees.Returns(120.0);
+        bundle.TiltAdapterOptions.Screw3AngleDegrees.Returns(240.0);
+        bundle.TiltAdapterOptions.AdjustmentType.Returns(TiltAdjustmentType.Screws);
+        bundle.TiltAdapterOptions.ThreadPitchMicrons.Returns(100.0);
+        bundle.TiltAdapterOptions.ScrewRadiusMillimeters.Returns(30.0);
+
+        var vm = bundle.BuildInspectorVM();
+
+        var imageSize = new System.Drawing.Size(1000, 1000);
+        var tiltPlane = TiltPlaneModel.Create(
+            imageSize: imageSize, fRatio: 5.0, focuserStepSizeMicrons: 1.0,
+            centerFocuser: 5.0, topLeftFocuser: 0.0, topRightFocuser: 0.0,
+            bottomLeftFocuser: 10.0, bottomRightFocuser: 10.0);
+        vm.TiltModel.SelectedTiltHistoryModel = new SensorTiltHistoryModel(
+            historyId: 1, tiltPlaneModel: tiltPlane, backfocusFocuserPositionDelta: 0.0);
+
+        var paraboloid = new SensorParaboloidModel(x0: 0, y0: 0, z0: 0, gx: 0, gy: 1e-3, k: 1e-5);
+        vm.SensorModel.SelectedTiltHistoryModel = new SensorParaboloidTiltHistoryModel(
+            historyId: 1, imageSize: imageSize, pixelSizeMicrons: 4.0, fRatio: 5.0,
+            focuserSizeMicrons: 1.0, finalFocusPosition: 0.0, tiltEffectMicrons: 0.0,
+            curvatureEffectMicrons: 0.0, autoFocusOffset: 0.0, tiltPlaneModel: null,
+            sensorModel: paraboloid);
+
+        // The rebuild handler is subscribed to ANY tilt-option PropertyChanged; raise AngleDisplayUnit's,
+        // mirroring what a real option change does, and read the freshly-swapped guidance POCO.
+        TiltAdapterGuidanceVM Rebuild() {
+            bundle.TiltAdapterOptions.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+                bundle.TiltAdapterOptions, new PropertyChangedEventArgs(nameof(ITiltAdapterOptions.AngleDisplayUnit)));
+            return vm.TiltGuidance;
+        }
+
+        var inTurns = Rebuild(); // mock returns the default (Turns)
+        bundle.TiltAdapterOptions.AngleDisplayUnit.Returns(TiltGuidanceAngleUnit.Degrees);
+        var inDegrees = Rebuild();
+
+        Assert.Multiple(() => {
+            Assert.That(inTurns.HasNumericGuidance, Is.True, "precondition: numeric rows rendered");
+            Assert.That(inTurns.ShowAngleUnitSelector, Is.True, "screw adapter with numeric guidance shows the selector");
+
+            // FormatAmount received the unit: 0.30 turns CW -> 108 degrees.
+            Assert.That(inTurns.Screw1TiltAmount, Is.EqualTo("0.30 ⟳"));
+            Assert.That(inDegrees.Screw1TiltAmount, Is.EqualTo("108° ⟳"));
+
+            // BuildDirectionLegend received the unit: the unit word flips.
+            Assert.That(inTurns.DirectionLegend, Does.Contain("amounts in turns"));
+            Assert.That(inDegrees.DirectionLegend, Does.Contain("amounts in degrees"));
+
+            // Passthrough property: getter proxies the option; setter writes back through it.
+            Assert.That(vm.TiltGuidanceAngleUnit, Is.EqualTo(TiltGuidanceAngleUnit.Degrees), "getter proxies the option");
+            vm.TiltGuidanceAngleUnit = TiltGuidanceAngleUnit.Turns;
+            bundle.TiltAdapterOptions.Received().AngleDisplayUnit = TiltGuidanceAngleUnit.Turns;
+        });
+    }
+
+    [Test]
     public void SignalAmplificationSummary_RefreshesOnInPlaceFocuserSettingEdits() {
         // The summary reads the ACTIVE profile's FocuserSettings; editing those values in place
         // (no profile swap) must re-raise it, filtered to the two properties it consumes.
