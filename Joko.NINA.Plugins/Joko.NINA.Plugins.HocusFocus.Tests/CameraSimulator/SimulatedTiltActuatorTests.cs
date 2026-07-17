@@ -145,6 +145,30 @@ public class SimulatedTiltActuatorTests {
     }
 
     [Test]
+    public void ApplyWizardScrewSteps_AccumulatesSharedNetCounters() {
+        var options = ConfiguredEat();
+        var actuator = new SimulatedTiltActuator(options, new RecordingApplicationDispatcher());
+
+        actuator.ApplyWizardScrewSteps(new[] { 150.0, 150.0, 150.0, 150.0 }); // bf,150 -> +150 steps per screw
+
+        // Net is stored in axial µm (steps x step size), the same convention the manual panel's "Net" strip uses.
+        Assert.That(options.SimNetAxialMicrons,
+            Is.EqualTo(new[] { 150 * StepMicrons, 150 * StepMicrons, 150 * StepMicrons, 150 * StepMicrons }).Within(1e-9),
+            "the shared net counters must reflect the automated move");
+    }
+
+    [Test]
+    public void ApplyWizardScrewSteps_Net_InverseReturnsToZero() {
+        var options = ConfiguredEat();
+        var actuator = new SimulatedTiltActuator(options, new RecordingApplicationDispatcher());
+
+        actuator.ApplyWizardScrewSteps(new[] { 50.0, 0.0, -50.0, 0.0 });
+        actuator.ApplyWizardScrewSteps(new[] { -50.0, 0.0, 50.0, 0.0 });
+
+        Assert.That(options.SimNetAxialMicrons, Is.EqualTo(new[] { 0.0, 0.0, 0.0, 0.0 }).Within(1e-9));
+    }
+
+    [Test]
     public void ApplyWizardScrewSteps_WrongLength_Throws() {
         var actuator = NewActuator(ConfiguredEat(), out _);
         Assert.Throws<ArgumentException>(() => actuator.ApplyWizardScrewSteps(new[] { 1.0, 2.0, 3.0 }));

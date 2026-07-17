@@ -1478,6 +1478,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
+        public void DeviceMove_UpdatesScrewPositionDisplayWithDeltaFromStart() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            // First read is the run baseline (captured before the first move); second is the post-move position.
+            controller.QueryPositionsAsync(Arg.Any<CancellationToken>()).Returns(
+                Task.FromResult(new TiltDevicePositions(new[] { 0, 0, 0, 0 }, known: true)),
+                Task.FromResult(new TiltDevicePositions(new[] { 150, 150, 150, 150 }, known: true)));
+
+            vm.SelectedPortName = "COM3";
+            ((AsyncRelayCommand)vm.ConnectDeviceCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            vm.ExecuteDeviceMoveForCurrentStepAsync(WizardStep.AllInward, CancellationToken.None).GetAwaiter().GetResult();
+
+            // TR = motor 1 = index 0: shows the live position plus the delta from the run's baseline.
+            Assert.That(vm.ScrewPositionTopRightDisplay, Does.Contain("150").And.Contain("Δ").And.Contain("+150"));
+        }
+
+        [Test]
         public void DisconnectDeviceCommand_DisconnectsThroughService() {
             var (vm, _, service, controller, _, _) = BuildMotorized();
             vm.SelectedPortName = "COM3";

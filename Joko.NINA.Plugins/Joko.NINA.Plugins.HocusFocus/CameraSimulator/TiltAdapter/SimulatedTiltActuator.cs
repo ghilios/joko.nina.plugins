@@ -75,9 +75,32 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
                 }
             }
 
-            // 2) Fold the optical effect into the injected aberration on the UI thread (synchronous), so the next
-            //    simulated exposure sees it. FoldIntoInjection is a no-op when the geometry can't build a plane.
-            dispatcher.DispatchSynchronizationContext(() => FoldIntoInjection(wizardOrderSteps));
+            // 2) On the UI thread (synchronous, so the next simulated exposure sees it): accumulate the shared
+            //    per-screw net counters (so every SimulatedTiltAdapterVM's "Net" strip reflects the automated
+            //    move, exactly as manual clicks do), then fold the optical effect into the injected aberration
+            //    (a no-op when the geometry can't build a plane).
+            dispatcher.DispatchSynchronizationContext(() => {
+                AccumulateNet(wizardOrderSteps);
+                FoldIntoInjection(wizardOrderSteps);
+            });
+        }
+
+        // Accumulate the applied per-screw steps into the shared net counters (axial µm), the same counters the
+        // manual panel's clicks update and the "Net" strip displays. Runs unconditionally (a real motor moves
+        // even when the geometry can't render an optical effect). sim screw i == wizard screw i, so the wizard-
+        // order vector maps straight onto the sim-screw-ordered net array.
+        private void AccumulateNet(IReadOnlyList<double> wizardOrderSteps) {
+            var unit = options.SimAdjustmentType == TiltAdjustmentType.StepperMotors
+                ? options.SimStepperStepSizeMicrons
+                : options.SimThreadPitchMicrons;
+            if (unit <= 0) {
+                return; // Can't scale steps to µm; the Net strip shows 0 in this state anyway.
+            }
+            var net = options.SimNetAxialMicrons;
+            for (int i = 0; i < net.Length && i < wizardOrderSteps.Count; i++) {
+                net[i] += wizardOrderSteps[i] * unit;
+            }
+            options.SimNetAxialMicrons = net;
         }
 
         private void FoldIntoInjection(IReadOnlyList<double> wizardOrderSteps) {

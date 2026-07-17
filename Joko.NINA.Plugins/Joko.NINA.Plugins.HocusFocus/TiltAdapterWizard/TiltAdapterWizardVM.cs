@@ -97,6 +97,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // confirmIdleDisconnectAsync). Production default shows the NINA Yes/No message box (default No).
         private readonly Func<string, string, Task<bool>> confirmSimConfigChangeAsync;
         private IReadOnlyList<string> availablePortNames;
+        // Live per-motor device positions for the connection pane (device order TR/TL/BR/BL). During a device-
+        // driven run the service's cp poll is paused (the run holds the operation lease), so these are refreshed
+        // per move from the controller; when idle they mirror the service's polled CurrentPositions.
+        private IReadOnlyList<int> deviceDisplayPositions;
+        // Per-motor positions captured at the start of the current calibration run, for the "Δ since start" display.
+        private int[] calibrationBaselinePositions;
         private string connectedPortName;
 
         // Fix 3: ConnectTiltDeviceAsync defaults MeasureCurvatureDuringCalibration ON, but only once per VM
@@ -1217,7 +1223,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         public bool IsTiltDeviceConnected => tiltDeviceConnectionService?.Connected ?? false;
 
-        public bool TiltDevicePositionsKnown => tiltDeviceConnectionService?.PositionsKnown ?? false;
+        public bool TiltDevicePositionsKnown => (deviceDisplayPositions != null && deviceDisplayPositions.Count >= 4)
+            || (tiltDeviceConnectionService?.PositionsKnown ?? false);
 
         public string TiltDeviceStatusText {
             get {
@@ -1273,11 +1280,54 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public string ScrewPositionBottomLeftDisplay => TiltDevicePositionDisplay(3);
 
         private string TiltDevicePositionDisplay(int deviceMotorIndex) {
-            var svc = tiltDeviceConnectionService;
-            if (svc == null || !svc.PositionsKnown) return "unknown";
-            var positions = svc.CurrentPositions;
+            // Prefer the wizard's per-move snapshot (kept fresh during a run, when the service poll is paused);
+            // fall back to the service's polled positions when idle.
+            IReadOnlyList<int> positions = deviceDisplayPositions;
+            if (positions == null || positions.Count <= deviceMotorIndex) {
+                var svc = tiltDeviceConnectionService;
+                positions = (svc != null && svc.PositionsKnown) ? svc.CurrentPositions : null;
+            }
             if (positions == null || positions.Count <= deviceMotorIndex) return "unknown";
-            return positions[deviceMotorIndex].ToString(CultureInfo.InvariantCulture);
+
+            var pos = positions[deviceMotorIndex];
+            var text = pos.ToString(CultureInfo.InvariantCulture);
+            // Delta from the position captured when this calibration run started.
+            if (calibrationBaselinePositions != null && calibrationBaselinePositions.Length > deviceMotorIndex) {
+                var delta = pos - calibrationBaselinePositions[deviceMotorIndex];
+                text += $"  (Δ {delta.ToString("+0;-0;0", CultureInfo.InvariantCulture)})";
+            }
+            return text;
+        }
+
+        private void RaiseScrewPositionDisplays() {
+            RaisePropertyChanged(nameof(TiltDevicePositionsKnown));
+            RaisePropertyChanged(nameof(ScrewPositionTopRightDisplay));
+            RaisePropertyChanged(nameof(ScrewPositionTopLeftDisplay));
+            RaisePropertyChanged(nameof(ScrewPositionBottomRightDisplay));
+            RaisePropertyChanged(nameof(ScrewPositionBottomLeftDisplay));
+        }
+
+        // Refresh the wizard's live device-position snapshot straight from the controller. Used during a run,
+        // when the connection service's cp poll is paused (the run holds the operation lease). Optionally
+        // (re)captures the "delta since start" baseline. Best-effort: a failed/unknown read leaves the last
+        // snapshot in place so the display simply keeps showing the previous value.
+        private async Task RefreshRunDevicePositionsAsync(ITiltMotionController controller, bool captureBaseline) {
+            if (controller == null) {
+                return;
+            }
+            try {
+                var positions = await controller.QueryPositionsAsync(CancellationToken.None).ConfigureAwait(true);
+                if (positions == null || !positions.Known) {
+                    return;
+                }
+                deviceDisplayPositions = positions.PerMotorSteps.ToArray();
+                if (captureBaseline || calibrationBaselinePositions == null) {
+                    calibrationBaselinePositions = deviceDisplayPositions.ToArray();
+                }
+                RaiseScrewPositionDisplays();
+            } catch (Exception ex) {
+                Logger.Warning($"Failed to read tilt device positions for the wizard display: {ex.Message}");
+            }
         }
 
         private IReadOnlyList<string> EnumeratePortNames() {
@@ -1366,6 +1416,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     // has a stale value to leak into TiltDeviceStatusText.
                     if (!IsTiltDeviceConnected) {
                         connectedPortName = string.Empty;
+                        // A disconnect invalidates the live positions and the delta baseline.
+                        deviceDisplayPositions = null;
+                        calibrationBaselinePositions = null;
+                        RaiseScrewPositionDisplays();
                     }
                     RaisePropertyChanged(nameof(IsTiltDeviceConnected));
                     RaisePropertyChanged(nameof(TiltDeviceStatusText));
@@ -1374,11 +1428,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 }
                 if (e.PropertyName == nameof(TiltDeviceConnectionService.CurrentPositions) ||
                     e.PropertyName == nameof(TiltDeviceConnectionService.PositionsKnown)) {
-                    RaisePropertyChanged(nameof(TiltDevicePositionsKnown));
-                    RaisePropertyChanged(nameof(ScrewPositionTopRightDisplay));
-                    RaisePropertyChanged(nameof(ScrewPositionTopLeftDisplay));
-                    RaisePropertyChanged(nameof(ScrewPositionBottomRightDisplay));
-                    RaisePropertyChanged(nameof(ScrewPositionBottomLeftDisplay));
+                    // Idle poll update (paused during a run — then per-move RefreshRunDevicePositionsAsync drives this).
+                    var svc = tiltDeviceConnectionService;
+                    if (svc != null && svc.PositionsKnown && svc.CurrentPositions?.Count >= 4) {
+                        deviceDisplayPositions = svc.CurrentPositions.ToArray();
+                    }
+                    RaiseScrewPositionDisplays();
                 }
                 if (e.PropertyName == nameof(TiltDeviceConnectionService.IsOperationActive) ||
                     e.PropertyName == nameof(TiltDeviceConnectionService.CurrentOperationName)) {
@@ -1549,10 +1604,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
 
             try {
+                if (calibrationBaselinePositions == null) {
+                    // Capture the "delta since start" baseline before this run's first move.
+                    await RefreshRunDevicePositionsAsync(controller, captureBaseline: true).ConfigureAwait(true);
+                }
                 progress.Report(new ApplicationStatus { Status = $"Tilt Adapter Wizard: {move.Description}" });
                 StatusText = move.Description;
                 await controller.ExecuteMoveAsync(move, moveProgress, ct).ConfigureAwait(true);
                 appliedDeviceMovesThisRun.Add(move);
+                // Refresh the live position display + delta after the move (the poll is paused during the run).
+                await RefreshRunDevicePositionsAsync(controller, captureBaseline: false).ConfigureAwait(true);
                 return true;
             } catch (Exception ex) {
                 Logger.Error(ex, $"Tilt adapter device move failed for wizard step {step}.");
@@ -1564,6 +1625,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 MeasurementFailureText = BuildDeviceMoveFailureText(move, ex, deviceMayHaveMoved);
                 HasMeasurementFailureChoice = true;
                 return false;
+            } finally {
+                // Clear the transient bottom-left status. moveProgress leaves the last move step (e.g.
+                // "bf,150 complete") showing, which otherwise lingers in NINA's status bar after the command
+                // finishes; the next step (or its AutoFocus run) reports its own status afresh.
+                progress.Report(new ApplicationStatus { Status = string.Empty });
             }
         }
 
@@ -1603,20 +1669,25 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             if (controller == null || moves.Length == 0) {
                 return;
             }
-            for (int i = moves.Length - 1; i >= 0; i--) {
-                var inverse = EatWizardMapping.InverseMove(moves[i]);
-                if (inverse == null) {
-                    continue;
+            try {
+                for (int i = moves.Length - 1; i >= 0; i--) {
+                    var inverse = EatWizardMapping.InverseMove(moves[i]);
+                    if (inverse == null) {
+                        continue;
+                    }
+                    try {
+                        progress.Report(new ApplicationStatus { Status = $"Tilt Adapter Wizard: recovering — {inverse.Description}" });
+                        await controller.ExecuteMoveAsync(inverse, moveProgress, CancellationToken.None).ConfigureAwait(true);
+                    } catch (Exception ex) {
+                        Logger.Error(ex, "Failed to fully recover tilt adapter device position after an automated-run cancellation/failure.");
+                        MeasurementFailureText = $"Recovery failed while returning the device to its original position: {ex.Message}. Verify screw/motor positions before continuing.";
+                        HasMeasurementFailureChoice = true;
+                        return;
+                    }
                 }
-                try {
-                    progress.Report(new ApplicationStatus { Status = $"Tilt Adapter Wizard: recovering — {inverse.Description}" });
-                    await controller.ExecuteMoveAsync(inverse, moveProgress, CancellationToken.None).ConfigureAwait(true);
-                } catch (Exception ex) {
-                    Logger.Error(ex, "Failed to fully recover tilt adapter device position after an automated-run cancellation/failure.");
-                    MeasurementFailureText = $"Recovery failed while returning the device to its original position: {ex.Message}. Verify screw/motor positions before continuing.";
-                    HasMeasurementFailureChoice = true;
-                    return;
-                }
+            } finally {
+                // Clear the transient "recovering — …" bottom-left status so it doesn't linger after recovery.
+                progress.Report(new ApplicationStatus { Status = string.Empty });
             }
         }
 
@@ -1781,6 +1852,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             currentRunIsDeviceDriven = deviceDriven;
             deviceMoveAppliedForStep = null;
             appliedDeviceMovesThisRun.Clear();
+            // Re-capture the position-delta baseline for this run on the first device move below (the cp poll is
+            // paused for the whole run, so live positions come from the controller per move).
+            calibrationBaselinePositions = null;
 
             StatusText = string.Empty;
             ClearMeasurementFailureChoice();

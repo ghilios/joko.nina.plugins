@@ -128,7 +128,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
         private readonly ICameraSimulatorOptions options;
         private readonly ITiltAdapterOptions realAdapter;
-        private readonly double[] netAxialMicrons = new double[4];
+        // Per-screw net counters live on the shared options (options.SimNetAxialMicrons), NOT in a local field,
+        // so automated moves (SimulatedTiltActuator) and every SimulatedTiltAdapterVM instance stay in lockstep.
 
         private SimulatedTiltAdapter adapter;
         private bool derivingAngles;
@@ -384,15 +385,16 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         /// Per-screw accumulated position since the last re-zero, in axial µm. Stored in µm — not turns — so a
         /// mid-session pitch edit re-scales the display instead of corrupting it.
         /// </summary>
-        public IReadOnlyList<double> NetAxialMicrons => netAxialMicrons.Take(ScrewCount).ToArray();
+        public IReadOnlyList<double> NetAxialMicrons => options.SimNetAxialMicrons.Take(ScrewCount).ToArray();
 
         public string NetPositionText {
             get {
                 var unit = UnitMicrons;
+                var net = options.SimNetAxialMicrons;
                 var sb = new StringBuilder();
                 for (var i = 0; i < ScrewCount; i++) {
                     if (i > 0) sb.Append("  ·  ");
-                    var value = unit > 0 ? netAxialMicrons[i] / unit : 0.0;
+                    var value = unit > 0 ? net[i] / unit : 0.0;
                     sb.Append(CultureInfo.CurrentCulture, $"{i + 1}: {FormatNet(value)}");
                 }
                 return sb.ToString();
@@ -641,9 +643,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             var backfocusBefore = options.BackfocusErrorMicrons;
             var clamped = ApplyDelta(delta);
 
+            var net = options.SimNetAxialMicrons;
             for (var i = 0; i < moves.Length; i++) {
-                netAxialMicrons[i] += moves[i];
+                net[i] += moves[i];
             }
+            options.SimNetAxialMicrons = net;
 
             undoSnapshot = snapshot;
             LastActionText = BuildLastActionText(turn, moves, tiltBefore, backfocusBefore, clamped);
@@ -798,7 +802,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
         private PanelSnapshot Capture() => new PanelSnapshot(
             options.TiltAmountMicrons, options.TiltAngleDegrees, options.BackfocusErrorMicrons,
-            options.OptimalFocuserPosition, (double[])netAxialMicrons.Clone(), LastActionText);
+            options.OptimalFocuserPosition, options.SimNetAxialMicrons, LastActionText);
 
         /// <summary>Single level: misclicks in a rapid loop must be free, but this is not an edit history.</summary>
         private void Undo() {
@@ -808,7 +812,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             options.TiltAngleDegrees = s.TiltAngleDegrees;
             options.BackfocusErrorMicrons = s.BackfocusErrorMicrons;
             options.OptimalFocuserPosition = s.OptimalFocuserPosition;
-            Array.Copy(s.NetAxialMicrons, netAxialMicrons, netAxialMicrons.Length);
+            options.SimNetAxialMicrons = s.NetAxialMicrons;
             undoSnapshot = null;
             LastActionText = s.LastActionText;
             AfterStateChanged();
@@ -816,7 +820,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
         /// <summary>Re-bases the counter display only — never the plane. Hence "Re-zero", not "Reset".</summary>
         private void Rezero() {
-            Array.Clear(netAxialMicrons, 0, netAxialMicrons.Length);
+            options.SimNetAxialMicrons = new double[4];
             RaisePropertyChanged(nameof(NetAxialMicrons));
             RaisePropertyChanged(nameof(NetPositionText));
         }
@@ -897,6 +901,13 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             }
 
             switch (e.PropertyName) {
+                case nameof(ICameraSimulatorOptions.SimNetAxialMicrons):
+                    // Shared net counters changed (a manual click on this or the other panel, or an automated
+                    // move via SimulatedTiltActuator) — refresh only the Net strip, not the whole panel.
+                    RaisePropertyChanged(nameof(NetAxialMicrons));
+                    RaisePropertyChanged(nameof(NetPositionText));
+                    break;
+
                 case nameof(ICameraSimulatorOptions.SimScrewCount):
                 case nameof(ICameraSimulatorOptions.SimScrew1AngleDegrees):
                 case nameof(ICameraSimulatorOptions.SimScrewNumberingClockwise):

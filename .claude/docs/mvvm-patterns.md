@@ -79,6 +79,45 @@ private readonly IProgress<ApplicationStatus> progress;
 // Created via: ProgressFactory.Create(applicationStatusMediator, "Aberration Inspector")
 ```
 
+## UI Threading & Dispatcher Marshaling
+
+VMs are driven from **three** kinds of threads: the UI thread (user actions, ctor), awaited task
+continuations (AF/analysis/calibration runs), and **background timers/broadcasts** (NINA's DeviceUpdateTimer
+device-info push; the tilt-device connection service's `cp` poll). Getting the marshaling wrong causes either a
+cross-thread **crash** or a **deadlock/hang** — both have bitten this codebase. Rules:
+
+- **`RaisePropertyChanged` is auto-marshaled by WPF data binding; `ICommand` requery is NOT.**
+  `IRelayCommand.NotifyCanExecuteChanged()` raises through `CanExecuteChangedEventManager`, which **throws
+  `InvalidOperationException` ("The calling thread cannot access this object…") off the UI thread.** Any
+  `NotifyCanExecuteChanged()` reachable from a non-UI thread must be marshaled.
+
+- **Marshal via `IApplicationDispatcher` — and default to the NON-blocking `PostSynchronizationContext`
+  (`BeginInvoke`).** Reach for the blocking `DispatchSynchronizationContext` (`Invoke`) **only** when the action
+  must complete before the method returns (e.g. the next step reads the value) **and** the caller is a task the
+  UI awaits — never a background timer/poll. A blocking `Invoke` from a background thread onto a busy or
+  tearing-down UI thread **deadlocks** (the UI thread may be laying out a tab, or, at shutdown, awaiting the very
+  timer that is trying to Invoke). Both dispatch methods run inline when already on the UI thread (and in tests,
+  where the dispatcher is null) — so UI-thread callers and unit tests are unaffected either way.
+  - Precedents: `InspectorVM.RefreshCommandStates` / `RebuildTiltGuidance` **Post** (they are reachable from the
+    `cp`-poll thread via `tiltAdapterOptions.PropertyChanged`); `NotifyReviewFramesAvailabilityChanged` **Dispatch**
+    (only ever called from an awaited analysis task).
+
+- **Watch what fires a subscribed `PropertyChanged` on a background thread.** An options setter written from a
+  poll/broadcast thread (e.g. `EatTiltMotionController` persists `TiltDeviceShadowPositions` during a `cp` poll)
+  runs every subscriber — including a `… .PropertyChanged += (s,e) => Rebuild()` handler — on **that** thread. So
+  `Rebuild()` must be background-safe (no blocking Invoke).
+
+- **Shared device / simulator state belongs in the shared options, not a per-VM field.** State that both a
+  background/automation writer and the UI mutate (e.g. per-screw net counters driven by *both* manual clicks and
+  the `SimulatedTiltActuator`) must live on the shared `*Options` object and be observed via INPC, so every VM
+  instance and every writer stay in lockstep. A per-VM field silently desyncs when a second VM or an automated
+  path bypasses it. (See `ICameraSimulatorOptions.SimNetAxialMicrons`.)
+
+- **Status-bar lines don't clear themselves.** `IProgress<ApplicationStatus>` shows the *last* reported status
+  until something reports an empty one. After a transient operation (a device move, a recovery sweep), clear it in
+  a `finally`: `progress.Report(new ApplicationStatus { Status = string.Empty })`, or the last message lingers in
+  NINA's bottom-left corner after the command finishes.
+
 ## Error Handling
 
 Custom domain exceptions extend `Exception` directly:
