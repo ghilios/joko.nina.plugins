@@ -456,7 +456,7 @@
                             </UniformGrid>
                             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
                                 <TextBlock VerticalAlignment="Center" Text="Max excursion (steps)"
-                                    ToolTip="Safety cap on the total cumulative travel (in device steps) a motor may move from its tracked home position before automation refuses to move it further." />
+                                    ToolTip="Safety cap on how far from zero a motor's absolute position counter may go, in device steps. The counters are stored in the adapter and carry over between sessions, so this bounds the magnitude in either direction (a cap of 2000 allows -2000 to +2000). Automation refuses a move that would carry any motor past the cap." />
                                 <TextBox MinWidth="60">
                                     <TextBox.Text>
                                         <Binding Path="TiltAdapterOptions.TiltDeviceMaxExcursionSteps" UpdateSourceTrigger="LostFocus">

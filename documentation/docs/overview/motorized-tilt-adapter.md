@@ -41,8 +41,9 @@ first successful position query, and during a calibration run each one also show
 since the run started.
 
 The counters are **absolute** and stored in the adapter's EEPROM: they survive power cycles and do
-not reset to zero between sessions (an EAT as shipped rests near 600 on every motor). The plugin
-never zeroes them; if you want the counters re-zeroed, do it in the vendor's app.
+not reset between sessions, so they carry whatever position your earlier adjustments left them at,
+and they may be positive or negative. The plugin never zeroes them; if you want the counters
+re-zeroed, do it in the vendor's app.
 
 ## Hands-off calibration
 
@@ -123,11 +124,12 @@ bound what automation may send:
 | **Settle time (s)** | 3 | Seconds to wait after each commanded move before polling positions or sending the next command. |
 
 The excursion limit is compared against the adapter's absolute, EEPROM-persisted counters, not
-against how far the current session has moved. Since those counters rest a few hundred steps from
-zero (near 600 per motor as shipped), the cap must exceed the resting value plus your working
-travel; that is why the default is 2000 rather than something small, and why lowering it near or
-below the resting counter value would refuse the very first move. A refused move names the motor
-and the position it would have reached, and nothing is sent.
+against how far the current session has moved. It bounds the *magnitude* of a counter, so it applies
+the same way in both directions: with the default of 2000, a motor may sit anywhere from -2000 to
++2000. Because those counters carry over between sessions and can sit well away from zero, the cap
+has to exceed wherever your motors currently are plus the travel you intend to use — a limit set
+tighter than a motor's current position refuses the very first move, however small that move is. A
+refused move names the motor and the position it would have reached, and nothing is sent.
 
 ## The Simulator port
 
@@ -171,9 +173,9 @@ completes.
 
 **A move was refused by a limit.** The error says which limit. For **Max steps per command**, either
 reduce the amount being sent (for calibration, **Steps applied per screw**) or raise the limit. For
-**Max excursion (steps)**, remember the check is against the absolute counters: an adapter whose
-counters already rest near the cap has no headroom, so either raise the cap or re-zero the counters
-in the vendor's app.
+**Max excursion (steps)**, remember the check is against the absolute counters: a motor already
+sitting near the cap in either direction has no headroom left, so either raise the cap or re-zero
+the counters in the vendor's app.
 
 **The Simulator port refuses to connect.** Connect the **Hocus Focus Simulator** camera first, and
 answer Yes when asked to change the simulator's tilt configuration to match the preset (or align the
