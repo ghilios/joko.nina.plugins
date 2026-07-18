@@ -13,6 +13,16 @@
     </ResourceDictionary.MergedDictionaries>
 
     <!--
+        THEME HAZARD — every local <TextBlock.Style> in this file must carry
+        BasedOn="{StaticResource StandardTextBlock}". NINA.WPF.Base ships a KEYLESS TextBlock style
+        (Resources/Styles/TextBlock.xaml, BasedOn StandardTextBlock => Foreground = PrimaryBrush) in
+        Application.Resources, and that implicit style applies only to elements with no explicit Style.
+        Setting <TextBlock.Style> — even one that just flips Visibility on a DataTrigger — replaces it
+        outright, so Foreground falls back to the WPF default of Black and the text renders black on the
+        dark theme background. BasedOn keeps the theme foreground while the trigger still applies.
+    -->
+
+    <!--
         Live per-corner motor positions + Δ-since-run-start, shared by Panel A (connection pane), Panel B
         (running steps) and Panel C (complete) so the display is visible DURING a device-driven run — Panel A
         collapses while running, exactly when the positions update per move and the deltas matter most. The
@@ -326,7 +336,7 @@
                     </StackPanel>
                     <TextBlock VerticalAlignment="Center" Foreground="{StaticResource PrimaryBrush}" Text="Screws + steps">
                         <TextBlock.Style>
-                            <Style TargetType="TextBlock">
+                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsStepperAdjustment}" Value="True">
@@ -681,7 +691,7 @@
                             </StackPanel>
                             <TextBlock VerticalAlignment="Center" Foreground="{StaticResource PrimaryBrush}" Text="+ steps move adapter">
                                 <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                                    <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                         <Setter Property="Visibility" Value="Collapsed" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsStepperAdjustment}" Value="True">
@@ -811,7 +821,7 @@
 
                     <TextBlock Margin="0,10,0,0" Foreground="{StaticResource PrimaryBrush}" Text="No calibration saved.">
                         <TextBlock.Style>
-                            <Style TargetType="TextBlock">
+                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Visible" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsCalibrationValid}" Value="True">
@@ -843,7 +853,7 @@
                             Text="Manually entered calibration (not measured by the wizard)."
                             TextWrapping="Wrap">
                             <TextBlock.Style>
-                                <Style TargetType="TextBlock">
+                                <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                     <Setter Property="Visibility" Value="Collapsed" />
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding TiltAdapterOptions.CalibrationIsManual}" Value="True">
@@ -1034,7 +1044,7 @@
                             Command="{Binding RunMeasurementCommand}">
                             <TextBlock Margin="10,5,10,5" Foreground="{StaticResource ButtonForegroundBrush}">
                                 <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                                    <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                         <Setter Property="Text" Value="Run Measurement" />
                                         <Style.Triggers>
                                             <MultiDataTrigger>
@@ -1066,7 +1076,7 @@
                         Text="{Binding TiltDeviceStatusText}"
                         TextWrapping="Wrap">
                         <TextBlock.Style>
-                            <Style TargetType="TextBlock">
+                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsTiltDeviceConnected}" Value="True">
@@ -1091,7 +1101,7 @@
                         Text="{Binding ConnectionWarningText}"
                         TextWrapping="Wrap">
                         <TextBlock.Style>
-                            <Style TargetType="TextBlock">
+                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <MultiDataTrigger>
@@ -1140,7 +1150,7 @@
                             </Button.Style>
                             <TextBlock Margin="10,5,10,5" Foreground="{StaticResource ButtonForegroundBrush}">
                                 <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                                    <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                         <Setter Property="Text" Value="Cancel" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsAutoRunningAll}" Value="True">
@@ -1181,7 +1191,7 @@
                         Text="{Binding StatusText}"
                         TextWrapping="Wrap">
                         <TextBlock.Style>
-                            <Style TargetType="TextBlock">
+                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Visible" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsMeasuring}" Value="True">
@@ -1524,7 +1534,7 @@
                         Foreground="{StaticResource PrimaryBrush}"
                         Text="{Binding ConfidenceSummaryDisplay}">
                         <TextBlock.Style>
-                            <Style TargetType="TextBlock">
+                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasConfidenceInfo}" Value="True">
@@ -1609,7 +1619,7 @@
                         Text="Set a screw radius (and thread pitch / step size) in Settings to measure adapter hardware."
                         TextWrapping="Wrap">
                         <TextBlock.Style>
-                            <Style TargetType="TextBlock">
+                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasMeasuredHardware}" Value="False">

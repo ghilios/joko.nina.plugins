@@ -48,7 +48,9 @@ The wizard establishes the screw-to-tilt mapping empirically. The default run is
 a known amount of motion, worded as clockwise/counter-clockwise (tighten/loosen) turns for screws
 (e.g., "Turn screw 1 CLOCKWISE exactly 1 full turn") and as signed +/− steps for stepper adapters;
 every step ends with a measurement. From the change in the tilt vector \((\Delta A, \Delta B)\) it
-computes each screw's angle.
+computes each screw's angle. With a connected [motorized
+adapter](motorized-tilt-adapter.md#hands-off-calibration), the wizard sends these moves itself
+instead of prompting for them.
 
 The four-step run does not measure which way a clockwise turn moves the adapter. That direction
 comes from the adapter direction setting in the wizard's **Measurement** section, labeled **Screw ⟳
@@ -151,7 +153,9 @@ built-in presets are:
 
 The ASG Photon Cage adjusters are 120 TPI, which is 211.7 µm per full turn (the manufacturer rounds
 this to ~212). For the motorized EAT units the Screw Radius column is the radius of the motors from
-the sensor center.
+the sensor center. The two **ASG Electronic EAT** presets are motorized: the wizard can connect to
+the adapter over a serial port, run the calibration hands-off, and let the inspector apply
+corrections automatically. See [Motorized Tilt Adapter](motorized-tilt-adapter.md).
 
 **Not in the list?** Pick the **"Manual"** entry. It leaves every hardware field editable, so you can
 enter your adapter's adjustment type, screw count, thread pitch (or stepper step size), and screw

@@ -2900,7 +2900,7 @@
                                 Margin="5"
                                 FontStyle="Italic">
                                 <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                                    <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                         <Setter Property="Visibility" Value="Collapsed" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding TiltGuidance.HasTiltGuidance}" Value="False">

@@ -115,6 +115,11 @@ counter-clockwise (loosen); stepper adapters show signed steps (`+35 steps`) mat
 prompts. A legend at the top of the section defines both conventions and is marked "(assumed)" until
 the adapter direction has been measured in the wizard.
 
+With a connected motorized adapter, the guidance section also shows the adapter's live motor
+positions and an **Automatic Adjustment** button: after you approve the planned motor moves in a
+review dialog, the inspector sends them to the adapter itself. See [Motorized Tilt
+Adapter](motorized-tilt-adapter.md#automatic-adjustment).
+
 The whole correction loop can be rehearsed in the daytime against the
 [Camera Simulator](camera-simulator.md#rehearse-a-tilt-calibration-in-the-daytime), which injects a
 known tilt and provides on-screen buttons standing in for the adapter's screws.
