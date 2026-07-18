@@ -142,6 +142,72 @@ public class EatResponsesTests {
         Assert.Throws<InvalidDeviceResponseException>(() => EatResponses.ParseCpPositions(exchange));
     }
 
+    // --- ParseCpPositions: the REAL device format (ASG EAT firmware 7.1.0), captured from hardware. ---
+    // See docs/asg-eat-serial-protocol-design.md. The four positions are bare integer lines wrapped between
+    // "***Get Current Positions***" and "***End Current Positions***", in WIRE order [TL, TR, BL, BR], amid
+    // {UI|SET|...} chatter; the parser reorders them into device motor order [TR, TL, BR, BL].
+
+    [Test]
+    public void ParseCpPositions_RealMarkedBlock_ReordersWireTLTRBLBR_ToDeviceTRTLBRBL() {
+        // Wire block [TL, TR, BL, BR] = [10, 20, 30, 40] -> device order [TR, TL, BR, BL] = [20, 10, 40, 30].
+        var exchange = new EatRawExchange("cp", new[] {
+            "{UI|SET|ready_light.IndicatorColor=Red}",
+            "{UI|SET|TR_curr_position.Text=20}",
+            "***Get Current Positions***",
+            "10",   // TL
+            "20",   // TR
+            "30",   // BL
+            "40",   // BR
+            "***End Current Positions***",
+            "{UI|SET|ready_light.IndicatorColor=green}",
+            "***Action Processed***",
+        }, timedOut: false);
+
+        var positions = EatResponses.ParseCpPositions(exchange);
+
+        Assert.Multiple(() => {
+            Assert.That(positions.Known, Is.True);
+            Assert.That(positions.PerMotorSteps, Is.EqualTo(new[] { 20, 10, 40, 30 }));
+        });
+    }
+
+    [Test]
+    public void ParseCpPositions_RealMarkedBlock_IgnoresUiChatterIntegersBeforeTheBlock() {
+        // The {UI|SET|..._input.Text=0} lines contain integers (0) BEFORE the block. A naive "first four
+        // integers" scan would return [0,0,0,0]; the marker-aware parser must instead take the block values.
+        var exchange = new EatRawExchange("cp", new[] {
+            "{UI|SET|TR_input.Text=0}",
+            "{UI|SET|TL_input.Text=0}",
+            "{UI|SET|BR_input.Text=0}",
+            "{UI|SET|BL_input.Text=0}",
+            "***Get Current Positions***",
+            "600",  // TL
+            "605",  // TR
+            "595",  // BL
+            "600",  // BR
+            "***End Current Positions***",
+        }, timedOut: false);
+
+        var positions = EatResponses.ParseCpPositions(exchange);
+
+        // Device order [TR, TL, BR, BL] = [605, 600, 600, 595].
+        Assert.That(positions.PerMotorSteps, Is.EqualTo(new[] { 605, 600, 600, 595 }));
+    }
+
+    [Test]
+    public void ParseCpPositions_MarkerPresentButFewerThanFourIntegers_Throws() {
+        // A real-device marker with a malformed body is a genuine parse failure -- must NOT silently fall back
+        // to scanning {UI|SET|...} integers for a bogus answer.
+        var exchange = new EatRawExchange("cp", new[] {
+            "***Get Current Positions***",
+            "600",
+            "605",
+            "***End Current Positions***",
+        }, timedOut: false);
+
+        Assert.Throws<InvalidDeviceResponseException>(() => EatResponses.ParseCpPositions(exchange));
+    }
+
     [Test]
     public void ParseCpPositions_NullExchange_Throws() {
         Assert.Throws<ArgumentNullException>(() => EatResponses.ParseCpPositions(null));

@@ -30,16 +30,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
     /// </summary>
     public static class EatResponses {
 
-        // LIVE-CAPTURE: the real ack format (success string, error string(s)) and WHEN it arrives (on
-        // command receipt vs on move completion) are unknown until T15's live transcript capture. Until
-        // then this recognizes no specific text at all -- it only distinguishes "the exchange did not time
-        // out" (tolerant success) from "it did" (failure). Structured as its own method (rather than being
-        // inlined at call sites) so T15 can add real ack/error-string recognition without changing this
-        // method's signature or any caller.
+        // Move-ack policy, confirmed against ASG EAT firmware 7.1.0 (see docs/asg-eat-serial-protocol-design.md):
+        // a successful move ends with a "***finished movement***" sentinel line, and EatSerialTransport's read
+        // loop returns as soon as it sees that sentinel (TimedOut=false). A move that never completes leaves the
+        // read loop to exhaust its timeout budget (TimedOut=true). So "did not time out" IS the ack signal here --
+        // the sentinel recognition has already happened one layer down, in the transport. SimulatedEatTransport
+        // likewise returns a non-timed-out exchange for a successful move. NOTE: an explicit device-side ERROR
+        // response format was not captured (see the doc's open items), so a rejected move that still returns a
+        // terminal sentinel is not yet distinguished; tighten here if such a response is ever captured.
         /// <summary>
-        /// Tolerant interpretation of a move command's response: true unless <paramref name="exchange"/>
-        /// timed out. Does NOT yet recognize any specific ack or error text -- see the LIVE-CAPTURE note
-        /// above.
+        /// Interpretation of a move command's response: success unless <paramref name="exchange"/> timed out.
+        /// The completion decision (reading through to "***finished movement***") lives in the transport's read
+        /// loop; this only maps that outcome to success/failure.
         /// </summary>
         public static bool ParseMoveAck(EatRawExchange exchange) {
             if (exchange == null) {
@@ -48,25 +50,34 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
             return !exchange.TimedOut;
         }
 
-        // LIVE-CAPTURE: assumed `cp` reply layout. The real EAT wire format -- delimiter(s), whether the
-        // four values are absolute counters or relative deltas, whether they arrive on one line or split
-        // across several, and even whether they're in TR/TL/BR/BL order at all -- is unconfirmed until
-        // T15's live transcript capture. The assumption implemented here: the first four integers found (in
-        // textual order, scanning the raw lines top to bottom) are taken directly as DEVICE motor order
-        // 1..4 = TR, TL, BR, BL (see TiltDevicePositions' own doc comment). Any non-digit character is
-        // treated as a delimiter, so this tolerates commas, spaces, or a mix, across one or many lines.
+        // `cp` reply layout, confirmed against ASG EAT firmware 7.1.0 (see docs/asg-eat-serial-protocol-design.md):
+        // the four positions are bare integer lines wrapped between "***Get Current Positions***" and
+        // "***End Current Positions***" marker lines, in WIRE order [TL, TR, BL, BR] (raster order), amid a stream
+        // of {UI|SET|...} GUI-driver lines that must be ignored. They are absolute EEPROM-persisted counters.
+        // SimulatedEatTransport and the pre-capture unit fixtures instead emit a plain integer list with no
+        // markers, already in device order [TR, TL, BR, BL]; those take the fallback path below (first four
+        // integers found, any non-digit char a delimiter -- tolerant of commas/spaces across one or many lines).
         private static readonly Regex IntegerToken = new Regex(@"-?\d+", RegexOptions.Compiled);
 
+        // Substring markers (matched with Contains, so the surrounding '***' and CR/LF framing are irrelevant).
+        private const string PositionBlockStartMarker = "Get Current Positions";
+        private const string PositionBlockEndMarker = "End Current Positions";
+
         /// <summary>
-        /// Tolerant extraction of the four per-motor position counters from a <c>cp</c> response. Throws
-        /// <see cref="InvalidDeviceResponseException"/> (with the raw lines included in the message, for
-        /// diagnosability) if fewer than four integers can be found -- expected to happen routinely on real
-        /// hardware before T15 confirms the real format; callers treat that as "positions unknown", not a
-        /// crash.
+        /// Extracts the four per-motor position counters from a <c>cp</c> response, in
+        /// <see cref="TiltDevicePositions"/> device motor order (TR, TL, BR, BL). Prefers the real device's
+        /// marked block (reordering its wire order [TL, TR, BL, BR] into device order); falls back to "the first
+        /// four integers found" for the simulator and pre-capture fixtures. Throws
+        /// <see cref="InvalidDeviceResponseException"/> (with the raw lines in the message) if neither yields
+        /// four integers; callers treat that as "positions unknown", not a crash.
         /// </summary>
         public static TiltDevicePositions ParseCpPositions(EatRawExchange exchange) {
             if (exchange == null) {
                 throw new ArgumentNullException(nameof(exchange));
+            }
+
+            if (TryParseMarkedPositionBlock(exchange, out var fromBlock)) {
+                return fromBlock;
             }
 
             var values = new List<int>();
@@ -95,6 +106,55 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
             }
 
             return new TiltDevicePositions(values, known: true);
+        }
+
+        /// <summary>
+        /// Parses the real ASG EAT's marked position block if present. Returns false (so the caller falls back to
+        /// the first-four-integers path) when there is no "***Get Current Positions***" marker at all. Throws
+        /// <see cref="InvalidDeviceResponseException"/> if the marker IS present but does not enclose exactly four
+        /// integers -- a genuinely malformed real-device response, not a "different format" case. The block's wire
+        /// order is [TL, TR, BL, BR]; it is reordered here into device motor order [TR, TL, BR, BL] to match
+        /// <see cref="TiltDevicePositions"/>.
+        /// </summary>
+        private static bool TryParseMarkedPositionBlock(EatRawExchange exchange, out TiltDevicePositions positions) {
+            positions = null;
+
+            int startIndex = -1;
+            for (int i = 0; i < exchange.Lines.Count; ++i) {
+                if (exchange.Lines[i] != null && exchange.Lines[i].Contains(PositionBlockStartMarker)) {
+                    startIndex = i;
+                    break;
+                }
+            }
+            if (startIndex < 0) {
+                return false;
+            }
+
+            var wire = new List<int>(4);
+            for (int i = startIndex + 1; i < exchange.Lines.Count && wire.Count < 4; ++i) {
+                var line = exchange.Lines[i];
+                if (line == null) {
+                    continue;
+                }
+                if (line.Contains(PositionBlockEndMarker)) {
+                    break;
+                }
+                if (int.TryParse(line.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)) {
+                    wire.Add(value);
+                }
+            }
+
+            if (wire.Count != 4) {
+                var rawLines = string.Join(" | ", exchange.Lines);
+                throw new InvalidDeviceResponseException(
+                    $"'cp' response had a '{PositionBlockStartMarker}' marker but did not enclose four integers (found {wire.Count}). " +
+                    $"Command: '{exchange.Command}'. Raw lines: [{rawLines}]");
+            }
+
+            // Wire order [TL, TR, BL, BR] -> device motor order [TR, TL, BR, BL].
+            var deviceOrder = new[] { wire[1], wire[0], wire[3], wire[2] };
+            positions = new TiltDevicePositions(deviceOrder, known: true);
+            return true;
         }
     }
 }

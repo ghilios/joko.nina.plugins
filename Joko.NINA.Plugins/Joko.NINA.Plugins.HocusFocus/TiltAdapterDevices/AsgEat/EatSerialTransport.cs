@@ -118,30 +118,37 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
 
         private const int DataBits = 8;
 
-        // LIVE-CAPTURE: outgoing-command line terminator, and (via the `newLine` parameter passed to
-        // GetSerialPort) the delimiter ReadLine() uses to frame INCOMING lines. The real EAT firmware's
-        // framing (\r vs \r\n vs \n) is unconfirmed until T15's live transcript capture. \r\n is the most
-        // common default for line-oriented serial devices and is used as the initial assumption.
+        // Outgoing-command line terminator, and (via the `newLine` parameter passed to GetSerialPort) the
+        // delimiter ReadLine() uses to frame INCOMING lines. Confirmed CRLF against ASG EAT firmware 7.1.0
+        // (Arduino Serial.println framing) -- see docs/asg-eat-serial-protocol-design.md.
         internal const string LineTerminator = "\r\n";
 
-        // LIVE-CAPTURE: whether the EAT needs DTR asserted to enumerate/stay open (common for Arduino-class
-        // USB-CDC devices), and whether asserting it triggers a reset-on-open + boot banner (also common on
-        // those boards -- this is exactly why OpenAsync drains for PostOpenSettleDuration below before the
-        // first real command). Defaulted to true as the more conservative assumption (a device that doesn't
-        // need DTR is normally unaffected by it being asserted; a device that DOES need it and doesn't get it
-        // may simply fail to respond at all). Confirm/flip in T15.
+        // Confirmed against ASG EAT firmware 7.1.0 (an Arduino Uno): asserting DTR on open triggers the classic
+        // Arduino auto-reset, so the MCU reboots and, after a ~1.5 s bootloader delay, emits a boot banner that
+        // ends in an "FW:<version>" line. DrainBootBannerAsync below waits that banner out before the first real
+        // command. See docs/asg-eat-serial-protocol-design.md.
         internal const bool DefaultDtrEnable = true;
 
-        // LIVE-CAPTURE: how long to drain and discard input immediately after Open(), to absorb a possible
-        // boot banner from an Arduino-class MCU resetting on port-open. The real settle time (if any banner
-        // exists at all) is unconfirmed until T15; this is a conservative but short guess.
-        internal static readonly TimeSpan PostOpenSettleDuration = TimeSpan.FromMilliseconds(500);
+        // Maximum time to drain the reset-on-open boot banner before giving up and proceeding. Confirmed against
+        // firmware 7.1.0: the MCU resets on open, is silent for ~1.5 s, then streams a banner ending ~2.5 s after
+        // open with an "FW:<version>" line. DrainBootBannerAsync stops as soon as it sees that marker (or the
+        // device goes quiet after the banner); this is only the safety cap.
+        internal static readonly TimeSpan PostOpenSettleTimeout = TimeSpan.FromSeconds(5);
 
-        // LIVE-CAPTURE: the "quiet window" -- both the per-poll ReadLine() timeout (passed as `readTimeout`
-        // to GetSerialPort) and the gap-since-last-line the read loop treats as "response complete" once at
-        // least one line has arrived. The real inter-line timing of a multi-line EAT response (if any) is
-        // unconfirmed until T15; also unconfirmed: whether the device echoes the command it received (an
-        // echo would show up as an ordinary line here -- EatResponses may need to learn to skip it in T15).
+        // The banner's final line (e.g. "FW:7.1.0"); its arrival means the sketch is running and ready.
+        internal const string BootBannerEndMarker = "FW:";
+
+        // Terminal sentinels the device prints at the end of a response (confirmed, firmware 7.1.0): a move ends
+        // with "***finished movement***", a query ('cp') with "***Action Processed***". The read loop returns as
+        // soon as it sees either, rather than relying on the quiet-window heuristic -- robust even if the device
+        // pauses mid-response (e.g. a slow multi-second move whose heartbeat gaps could otherwise look "quiet").
+        internal const string MoveCompleteSentinel = "***finished movement***";
+        internal const string QueryCompleteSentinel = "***Action Processed***";
+
+        // The "quiet window" -- the per-poll ReadLine() timeout (passed as `readTimeout` to GetSerialPort) and
+        // the gap-since-last-line the read loop treats as "response complete" once at least one line has arrived
+        // AND no terminal sentinel appeared (the fallback completion path). The device does NOT echo the command
+        // it received (confirmed 7.1.0), so no echo-skipping is needed.
         internal static readonly TimeSpan QuietWindow = TimeSpan.FromMilliseconds(200);
 
         // NOT a wire-format unknown -- derived directly from the plan's device facts (moves take 5-10 s).
@@ -182,16 +189,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
                     "The EAT transport is already open; call Close() before opening a new connection.");
             }
 
-            // EXACT port config per the plan's "Device facts" section: 9600 baud, no parity, 8 data bits,
-            // 1 stop bit, XON/XOFF flow control. DtrEnable/newLine/timeouts are the LIVE-CAPTURE-marked
-            // fields above.
+            // Port config confirmed against ASG EAT firmware 7.1.0: 9600 baud, no parity, 8 data bits, 1 stop
+            // bit, and NO flow control. The device is an Arduino Uno sketch with no software flow control, so
+            // Handshake.None is correct -- Handshake.XOnXOff would let the PC driver inject XON/XOFF (0x11/0x13)
+            // bytes into the sketch's command input. See docs/asg-eat-serial-protocol-design.md.
             var port = serialPortProvider.GetSerialPort(
                 portName,
                 BaudRate,
                 Parity.None,
                 DataBits,
                 StopBits.One,
-                Handshake.XOnXOff,
+                Handshake.None,
                 DefaultDtrEnable,
                 LineTerminator,
                 (int)QuietWindow.TotalMilliseconds,
@@ -209,9 +217,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
                 port.Open();
                 serialPort = port;
 
-                // Reset-on-open assumption (LIVE-CAPTURE, see PostOpenSettleDuration): drain and discard
-                // whatever arrives in the settle window before the first real command, in case opening the
-                // port reset an Arduino-class MCU and it's still emitting a boot banner.
+                // Reset-on-open (confirmed): opening asserts DTR, which resets the Arduino; drain and discard
+                // its boot banner (ending in "FW:<version>") before the first real command so the banner can't
+                // corrupt the first response.
                 await DrainBootBannerAsync(port, ct).ConfigureAwait(false);
             } catch {
                 // Half-open on failure: if ANY step above throws (DtrEnable set, Open, the boot-banner
@@ -307,19 +315,33 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
         }
 
         /// <summary>
-        /// Drains and discards input for <see cref="PostOpenSettleDuration"/> right after <see cref="OpenAsync"/>
-        /// opens the port. See the class remarks and the DefaultDtrEnable/PostOpenSettleDuration LIVE-CAPTURE
-        /// notes for why this exists (a possible boot banner from a reset-on-open MCU).
+        /// Drains and discards the reset-on-open boot banner right after <see cref="OpenAsync"/> opens the port
+        /// (see the class remarks). Returns as soon as the banner's terminating "FW:&lt;version&gt;" line is seen,
+        /// or once the device goes quiet after having emitted banner data, or after
+        /// <see cref="PostOpenSettleTimeout"/> as a safety cap. The Arduino is silent for ~1.5 s after the reset
+        /// before the banner streams, so an early quiet poll (before ANY data) must NOT end the drain -- only a
+        /// quiet poll AFTER data has arrived.
         /// </summary>
         private async Task DrainBootBannerAsync(ISerialPort port, CancellationToken ct) {
-            var deadline = DateTime.UtcNow + PostOpenSettleDuration;
+            var deadline = DateTime.UtcNow + PostOpenSettleTimeout;
+            var receivedAny = false;
             while (DateTime.UtcNow < deadline) {
                 ct.ThrowIfCancellationRequested();
                 try {
                     var line = await ReadLineOrThrowIfClosedAsync(port, ct).ConfigureAwait(false);
-                    Logger.Info($"EAT RX (post-open settle, discarded): {line}");
+                    Logger.Info($"EAT RX (post-open banner, discarded): {line}");
+                    receivedAny = true;
+                    if (line != null && line.Contains(BootBannerEndMarker)) {
+                        // Banner's final line ("FW:<version>") -- the sketch is up and idle; safe to send commands.
+                        return;
+                    }
                 } catch (TimeoutException) {
-                    // No data within this poll; keep polling until the settle window elapses.
+                    // The MCU is silent for ~1.5 s after the reset before the banner starts, so a quiet poll
+                    // before any data just means "still booting" -- keep waiting. A quiet poll AFTER the banner
+                    // has streamed means it is complete.
+                    if (receivedAny) {
+                        return;
+                    }
                 }
             }
         }
@@ -342,12 +364,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
                     var line = await ReadLineOrThrowIfClosedAsync(port, ct).ConfigureAwait(false);
                     Logger.Info($"EAT RX: {line}");
                     lines.Add(line);
+                    if (IsTerminalResponseLine(line)) {
+                        // The device signalled end-of-response -- return immediately instead of waiting out a
+                        // quiet window. Robust even if a slow move's "***moving***" heartbeats pause longer than
+                        // QuietWindow before the terminating sentinel arrives.
+                        return (lines, false);
+                    }
                 } catch (TimeoutException) {
                     if (lines.Count > 0) {
-                        // At least one line arrived and the device has now gone quiet for a full window --
-                        // treat the response as complete rather than waiting out the rest of the timeout
-                        // budget. LIVE-CAPTURE: assumes the device never pauses mid-response longer than
-                        // QuietWindow; unconfirmed until T15.
+                        // FALLBACK completion path: at least one line arrived, no terminal sentinel appeared, and
+                        // the device has now gone quiet for a full window. The normal path is the sentinel check
+                        // above; this only fires for a response that ends without a recognized sentinel.
                         return (lines, false);
                     }
                     // Nothing received yet -- a still-executing multi-second move with no output so far is
@@ -355,6 +382,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
                 }
             }
         }
+
+        /// <summary>True if <paramref name="line"/> is one of the device's end-of-response sentinels (see <see cref="MoveCompleteSentinel"/> / <see cref="QueryCompleteSentinel"/>).</summary>
+        private static bool IsTerminalResponseLine(string line) =>
+            line != null && (line.Contains(MoveCompleteSentinel) || line.Contains(QueryCompleteSentinel));
 
         /// <summary>
         /// Wraps the underlying (synchronous, blocking) <see cref="ISerialPort.ReadLine"/> in a background

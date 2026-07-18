@@ -49,10 +49,19 @@ public class EatSerialTransportTests {
             Arg.Any<Handshake>(), Arg.Any<bool>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>())
             .Returns(port);
 
-        // No boot banner by default -- every poll during OpenAsync's post-open settle drain times out
-        // immediately so tests don't need to wait out the full settle window themselves. Tests that care
-        // about SendAsync's own read behavior reassign readLine.Next AFTER OpenAsync completes.
+        // Default boot banner: emit the terminating "FW:" line once, then go quiet -- so OpenAsync's boot-banner
+        // drain stops promptly (on the FW: marker) instead of waiting out the full settle cap. Tests that care
+        // about SendAsync's own read behavior reassign readLine.Next AFTER OpenAsync completes; tests that force
+        // the drain to fail reassign it (to throw) BEFORE calling OpenAsync.
         var readLine = new ReadLineBehavior();
+        var emittedBanner = false;
+        readLine.Next = () => {
+            if (!emittedBanner) {
+                emittedBanner = true;
+                return "FW:7.1.0";
+            }
+            throw new TimeoutException();
+        };
         port.ReadLine().Returns(_ => readLine.Next());
         return (provider, port, readLine);
     }
@@ -72,7 +81,8 @@ public class EatSerialTransportTests {
             Parity.None,
             8,
             StopBits.One,
-            Handshake.XOnXOff,
+            // Handshake.None -- confirmed against firmware 7.1.0 (an Arduino Uno with no software flow control).
+            Handshake.None,
             Arg.Any<bool>(),
             Arg.Any<string>(),
             Arg.Any<int>(),
@@ -166,7 +176,8 @@ public class EatSerialTransportTests {
 
         // A failed open must not leave IsOpen == true (which would make every subsequent OpenAsync hit the
         // double-open guard forever) -- a fresh OpenAsync must be able to proceed normally.
-        readLine.Next = () => throw new TimeoutException(); // no banner this time
+        var reopenedBanner = false;
+        readLine.Next = () => { if (!reopenedBanner) { reopenedBanner = true; return "FW:7.1.0"; } throw new TimeoutException(); };
         Assert.DoesNotThrowAsync(async () => await transport.OpenAsync("COM7", CancellationToken.None));
         Assert.That(transport.IsOpen, Is.True);
     }
@@ -258,6 +269,86 @@ public class EatSerialTransportTests {
             Assert.That(exchange.Lines, Is.EqualTo(new[] { "OK", "cp,100,200,300,400" }));
             Assert.That(sw.Elapsed, Is.LessThan(TimeSpan.FromSeconds(5)),
                 "the quiet-period race should end the exchange well before the 10s overall budget elapses");
+        });
+    }
+
+    // --- Boot-banner drain + terminal-sentinel completion (confirmed against firmware 7.1.0). ---
+
+    [Test]
+    public async Task OpenAsync_DrainsBootBannerUntilFwLine_ThenFirstCommandSeesOnlyPostBannerLines() {
+        var (provider, port, readLine) = MakeFakeProvider();
+        var transport = new EatSerialTransport(provider);
+        // The Arduino is silent for ~1.5s after the reset-on-open, then streams a banner ending in "FW:...".
+        // The drain must wait through the silence and consume the banner up to and including the FW: line, so
+        // the FIRST real command sees only its own response, not leftover banner lines.
+        var script = new Queue<Func<string>>(new Func<string>[] {
+            () => throw new TimeoutException(),               // still resetting (silent)
+            () => "Initialize Setup",
+            () => "{UI|SET|ready_light.On=True}",
+            () => "FW:7.1.0",                                 // banner end -> drain stops here
+            () => "***Action Processed***",                   // belongs to the first real command ('cp')
+            () => throw new TimeoutException(),
+        });
+        readLine.Next = () => script.Count > 0 ? script.Dequeue()() : throw new TimeoutException();
+
+        await transport.OpenAsync("COM7", CancellationToken.None);
+        var exchange = await transport.SendAsync("cp", TimeSpan.FromSeconds(2), CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(exchange.TimedOut, Is.False);
+            Assert.That(exchange.Lines, Is.EqualTo(new[] { "***Action Processed***" }),
+                "the boot banner must be fully drained before the first command's read begins");
+        });
+    }
+
+    [Test]
+    public async Task SendAsync_ReturnsExactlyAtMoveCompleteSentinel_WithoutReadingPast() {
+        var (provider, port, readLine) = MakeFakeProvider();
+        var transport = new EatSerialTransport(provider);
+        await transport.OpenAsync("COM7", CancellationToken.None);
+        // A real move streams heartbeats then a terminating "***finished movement***". The read loop must
+        // return the instant it sees that sentinel -- not wait out a quiet window, and not read past it.
+        var script = new Queue<Func<string>>(new Func<string>[] {
+            () => "start_cmd: tr",
+            () => "***moving***",
+            () => "***moving***",
+            () => "***finished movement***",                 // terminal sentinel -> return here
+            () => "SHOULD_NOT_BE_READ",
+        });
+        readLine.Next = () => script.Count > 0 ? script.Dequeue()() : throw new TimeoutException();
+
+        // A generous 30s budget: if completion depended on the overall timeout rather than the sentinel, this
+        // would either hang or read past the sentinel.
+        var exchange = await transport.SendAsync("tr,5", TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(exchange.TimedOut, Is.False);
+            Assert.That(exchange.Lines[exchange.Lines.Count - 1], Is.EqualTo("***finished movement***"),
+                "the exchange must end exactly at the terminal sentinel");
+            Assert.That(exchange.Lines, Does.Not.Contain("SHOULD_NOT_BE_READ"));
+        });
+    }
+
+    [Test]
+    public async Task SendAsync_ReturnsOnQueryCompleteSentinel_IgnoringInterleavedUiChatter() {
+        var (provider, port, readLine) = MakeFakeProvider();
+        var transport = new EatSerialTransport(provider);
+        await transport.OpenAsync("COM7", CancellationToken.None);
+        var script = new Queue<Func<string>>(new Func<string>[] {
+            () => "{UI|SET|ready_light.IndicatorColor=Red}",
+            () => "***Get Current Positions***",
+            () => "600",
+            () => "***End Current Positions***",
+            () => "***Action Processed***",                   // query terminal sentinel -> return here
+            () => throw new TimeoutException(),
+        });
+        readLine.Next = () => script.Count > 0 ? script.Dequeue()() : throw new TimeoutException();
+
+        var exchange = await transport.SendAsync("cp", TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(exchange.TimedOut, Is.False);
+            Assert.That(exchange.Lines[exchange.Lines.Count - 1], Is.EqualTo("***Action Processed***"));
         });
     }
 
