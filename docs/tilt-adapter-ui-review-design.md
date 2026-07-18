@@ -127,10 +127,19 @@ wizard XAML/VM + `TiltScrewTargets.cs`.)
 
 ---
 
-## Implementation scope
+## Implementation scope — all implemented
 
-**Implementing now (the four explicit requests):** A.1 (semantic move rows), A.2 (toggle labels), B.1 (step
-number), B.2 (step header), B.3 (Auto-Run-All copy), B.4 (positions+deltas in the running view).
+Both the four explicit requests and every additional Fable suggestion have been implemented (branch
+`ghilios/motorized-tilt-adapter`, PR #140):
 
-**Offered as follow-ups (Fable's additional suggestions):** A.3–A.9 and B.5–B.10 above. These are real
-improvements but beyond the explicit asks; pull any into scope on request.
+- **Explicit requests:** A.1 (semantic move rows), A.2 (toggle labels), B.1 (step number), B.2 (step header),
+  B.3 (Auto-Run-All copy), B.4 (positions+deltas in the running/complete panels). — commit `31ea5c4`.
+- **Additional suggestions:** A.3 (corner labels + 2×2 residual grid), A.5 (titled/ordered warning panels), A.6
+  (dynamic Proceed label + disabled reason), A.7 (residual interpretation), A.8 (inline assumed-direction tag),
+  A.9 ("moves" wording); B.5 (Auto-Run-All primary/first + "Run This Step"), B.6 (Cancel Run + tooltip), B.7
+  (direction-measurement default notification), B.8 (visible screw↔corner mapping), B.9 (verb alignment →
+  "Calibrate"), B.10 (connection status in the running panel). — commit `da9d65a`.
+
+**Deferred (deliberately not done):** the twist warning's steps→µm translation (A.5) — it would require plumbing
+`unitMicrons` through the prompt VM ctor and the InspectorVM adjustment seam/tests; the wording was improved but
+kept in steps. Pull this in if wanted.
