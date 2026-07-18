@@ -614,6 +614,47 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        [TestCase(WizardStep.Baseline, "Baseline Measurement")]
+        [TestCase(WizardStep.AllInward, "All Screws Inward")]
+        [TestCase(WizardStep.ReBaseline1, "Return to Baseline")]
+        [TestCase(WizardStep.Screw1, "Move Screw 1")]
+        [TestCase(WizardStep.ReBaseline2, "Return to Baseline")]
+        [TestCase(WizardStep.Screw2, "Move Screw 2")]
+        [TestCase(WizardStep.Complete, "Calibration Complete")]
+        public void StepTitleText_IsShortPerStepHeader(WizardStep step, string expected) {
+            Assert.That(TiltAdapterWizardVM.StepTitleText(step), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void DeviceStepInstructionsText_AutoRunning_DropsClickImperatives() {
+            // Baseline: manual/connected wording tells the user to click; auto-running does not.
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.DeviceStepInstructionsText(WizardStep.Baseline, 0, autoRunning: false),
+                    Does.Contain("click Run Measurement"));
+                Assert.That(TiltAdapterWizardVM.DeviceStepInstructionsText(WizardStep.Baseline, 0, autoRunning: true),
+                    Does.Contain("Running automatically").And.Not.Contain("click"));
+
+                // A move step: not auto-running tells the user to click; auto-running is pure status.
+                Assert.That(TiltAdapterWizardVM.DeviceStepInstructionsText(WizardStep.Screw1, 150, autoRunning: false),
+                    Does.Contain("Click Run Measurement"));
+                Assert.That(TiltAdapterWizardVM.DeviceStepInstructionsText(WizardStep.Screw1, 150, autoRunning: true),
+                    Does.StartWith("Running automatically").And.Not.Contain("Click"));
+            });
+        }
+
+        [Test]
+        public void StepProgressDisplay_ReflectsActiveStepCount_4vs6() {
+            // Default (curvature off) is a 4-step run; the counter reads "Step 1 of 4" at Baseline.
+            var (vm4, _, _, _) = Build();
+            Assert.That(vm4.StepProgressDisplay, Is.EqualTo("Step 1 of 4"));
+            Assert.That(vm4.StepTitle, Is.EqualTo("Baseline Measurement"));
+
+            // Enabling curvature measurement makes it a 6-step run once started.
+            var (vm6, _, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true));
+            vm6.StartCommand.Execute(null);
+            Assert.That(vm6.StepProgressDisplay, Is.EqualTo("Step 1 of 6"));
+        }
+
         [Test]
         public void BuildSweepSummary_CountsSweepsAndImages() {
             // 4 steps × 2 averaged measurements = 8 sweeps; profile: 4 offset steps, 1 frame, amp 2 => 17 images/run.

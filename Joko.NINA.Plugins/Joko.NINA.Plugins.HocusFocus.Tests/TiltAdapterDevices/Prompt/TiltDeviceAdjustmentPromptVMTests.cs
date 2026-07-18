@@ -405,4 +405,67 @@ public class TiltDeviceAdjustmentPromptVMTests {
     public void FormatResidualMicrons_IsSignedOneDecimal(double microns, string expected) {
         Assert.That(TiltDeviceAdjustmentPromptVM.FormatResidualMicrons(microns), Is.EqualTo(expected));
     }
+
+    [TestCase(TiltMoveAxis.DiagonalA, "Corner")]
+    [TestCase(TiltMoveAxis.DiagonalB, "Corner")]
+    [TestCase(TiltMoveAxis.EdgeVertical, "Side")]
+    [TestCase(TiltMoveAxis.EdgeHorizontal, "Side")]
+    [TestCase(TiltMoveAxis.Backfocus, "Backfocus")]
+    public void BuildMoveKindLabel_MapsAxisToKind(TiltMoveAxis axis, string expected) {
+        Assert.That(TiltDeviceAdjustmentPromptVM.BuildMoveKindLabel(axis), Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void BuildSemanticText_CornerMove_ListsBothDiagonalScrewsWithSigns() {
+        var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 142, TiltMoveGroup.Tilt, "x");
+        Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
+            Is.EqualTo("Corner move — Screw 1 +142, Screw 3 -142 steps"));
+    }
+
+    [Test]
+    public void BuildSemanticText_CornerMove_NegativeSteps_FlipsWhichScrewGoesPositive() {
+        // DiagonalA,-142 => PerCornerSteps (-142,0,+142,0): screw 3 positive, screw 1 negative.
+        var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, -142, TiltMoveGroup.Tilt, "x");
+        Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
+            Is.EqualTo("Corner move — Screw 3 +142, Screw 1 -142 steps"));
+    }
+
+    [Test]
+    public void BuildSemanticText_SideMove_GroupsTheTwoScrewsMovingTheSameDirection() {
+        // EdgeVertical,+20 => (+1,+1,-1,-1): screws 1 & 2 together, 3 & 4 together the other way.
+        var move = new TiltAdapterMove(TiltMoveAxis.EdgeVertical, 20, TiltMoveGroup.Tilt, "x");
+        Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
+            Is.EqualTo("Side move — Screws 1 & 2 +20, Screws 3 & 4 -20 steps"));
+    }
+
+    [Test]
+    public void BuildSemanticText_EdgeHorizontal_GroupsScrews1And4() {
+        // EdgeHorizontal,+20 => (+1,-1,-1,+1): screws 1 & 4 together, 2 & 3 the other way.
+        var move = new TiltAdapterMove(TiltMoveAxis.EdgeHorizontal, 20, TiltMoveGroup.Tilt, "x");
+        Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
+            Is.EqualTo("Side move — Screws 1 & 4 +20, Screws 2 & 3 -20 steps"));
+    }
+
+    [Test]
+    public void BuildSemanticText_Backfocus_SaysAllFourTogether() {
+        var move = new TiltAdapterMove(TiltMoveAxis.Backfocus, 150, TiltMoveGroup.Backfocus, "x");
+        Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
+            Is.EqualTo("All four screws +150 steps together — changes backfocus (sensor spacing), not tilt."));
+    }
+
+    [Test]
+    public void Moves_ExposeSemanticTextAndKind_ForBinding() {
+        var replanner = new RecordingReplanner {
+            Produce = (_, _) => new TiltDevicePlanPreview(
+                MakePlan(moves: new[] { Move(TiltMoveAxis.DiagonalB, 30, TiltMoveGroup.Tilt) }), false, null),
+        };
+        var vm = BuildVM(replanner);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.Moves[0].MoveKindLabel, Is.EqualTo("Corner"));
+            Assert.That(vm.Moves[0].SemanticText, Is.EqualTo("Corner move — Screw 2 +30, Screw 4 -30 steps"));
+            // The exact wire command is still available (demoted to an auditability chip in the UI).
+            Assert.That(vm.Moves[0].WireCommand, Is.EqualTo("tl,30"));
+        });
+    }
 }

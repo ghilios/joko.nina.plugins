@@ -13,6 +13,79 @@
     </ResourceDictionary.MergedDictionaries>
 
     <!--
+        Live per-corner motor positions + Δ-since-run-start, shared by Panel A (connection pane), Panel B
+        (running steps) and Panel C (complete) so the display is visible DURING a device-driven run — Panel A
+        collapses while running, exactly when the positions update per move and the deltas matter most. The
+        self-gate (Visibility on IsTiltDeviceConnected) keeps it inert when no device is connected, so every
+        host can drop it in unconditionally. 2×2 layout matches the physical adapter corners; device motor
+        numbering per the vendor: TR=1, TL=2, BR=3, BL=4; wizard screw numbering per the device-connected
+        calibration convention: screw 1 ≡ TR, 2 ≡ TL, 3 ≡ BL, 4 ≡ BR. Counters read "unknown" until a
+        position query succeeds.
+    -->
+    <DataTemplate x:Key="HF_TiltDevicePositionsGrid">
+        <StackPanel
+            ToolTip="Current per-motor position counters, polled from the device (Δ is the change since this calibration run started). Corners use the device's own motor numbering (TR=1, TL=2, BR=3, BL=4); wizard screw numbers follow the device-connected calibration convention (screw 1 = TR, 2 = TL, 3 = BL, 4 = BR). Zero the counters in the vendor app if needed — the plugin never zeroes them.">
+            <StackPanel.Style>
+                <Style TargetType="StackPanel">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsTiltDeviceConnected}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </StackPanel.Style>
+            <TextBlock Margin="0,0,0,2" FontWeight="Bold" Text="Motor positions (steps)" />
+            <Grid HorizontalAlignment="Left" MinWidth="280">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <!--  Top-left corner: device motor 2, wizard screw 2  -->
+                <Border Grid.Row="0" Grid.Column="0" Margin="0,0,2,2" Padding="6,4"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                    <StackPanel>
+                        <TextBlock FontWeight="Bold" Text="TL · Motor 2" />
+                        <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 2" />
+                        <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopLeftDisplay}" />
+                    </StackPanel>
+                </Border>
+                <!--  Top-right corner: device motor 1, wizard screw 1  -->
+                <Border Grid.Row="0" Grid.Column="1" Margin="2,0,0,2" Padding="6,4"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                    <StackPanel>
+                        <TextBlock FontWeight="Bold" Text="TR · Motor 1" />
+                        <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 1" />
+                        <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopRightDisplay}" />
+                    </StackPanel>
+                </Border>
+                <!--  Bottom-left corner: device motor 4, wizard screw 3  -->
+                <Border Grid.Row="1" Grid.Column="0" Margin="0,2,2,0" Padding="6,4"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                    <StackPanel>
+                        <TextBlock FontWeight="Bold" Text="BL · Motor 4" />
+                        <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 3" />
+                        <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomLeftDisplay}" />
+                    </StackPanel>
+                </Border>
+                <!--  Bottom-right corner: device motor 3, wizard screw 4  -->
+                <Border Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Padding="6,4"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                    <StackPanel>
+                        <TextBlock FontWeight="Bold" Text="BR · Motor 3" />
+                        <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 4" />
+                        <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomRightDisplay}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </StackPanel>
+    </DataTemplate>
+
+    <!--
         Sensor frame outline (10px thick border, EvenOdd) plus three diamond-shaped screw
         indicators at the 0° / 120° / 240° positions of a standard 3-screw tilt adapter.
     -->
@@ -334,72 +407,12 @@
                                     Text="{Binding TiltDeviceStatusText}" />
                             </StackPanel>
 
-                            <!--  Live per-corner motor positions (shown while connected; refreshed by the
-                                  connection service's position polling). 2×2 layout matches the physical
-                                  adapter corners. Device motor numbering per the vendor: TR=1, TL=2, BR=3,
-                                  BL=4. Wizard screw numbering per the device-connected calibration
-                                  convention: screw 1 ≡ TR, 2 ≡ TL, 3 ≡ BL, 4 ≡ BR. Counters read "unknown"
-                                  until a position query succeeds.  -->
-                            <StackPanel Margin="0,8,0,0"
-                                ToolTip="Current per-motor position counters, polled from the device. Corners use the device's own motor numbering (TR=1, TL=2, BR=3, BL=4); wizard screw numbers follow the device-connected calibration convention (screw 1 = TR, 2 = TL, 3 = BL, 4 = BR). Zero the counters in the vendor app if needed — the plugin never zeroes them.">
-                                <StackPanel.Style>
-                                    <Style TargetType="StackPanel">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsTiltDeviceConnected}" Value="True">
-                                                <Setter Property="Visibility" Value="Visible" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </StackPanel.Style>
-                                <TextBlock Margin="0,0,0,2" FontWeight="Bold" Text="Motor positions (steps)" />
-                                <Grid HorizontalAlignment="Left" MinWidth="280">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <!--  Top-left corner: device motor 2, wizard screw 2  -->
-                                    <Border Grid.Row="0" Grid.Column="0" Margin="0,0,2,2" Padding="6,4"
-                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
-                                        <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="TL · Motor 2" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 2" />
-                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopLeftDisplay}" />
-                                        </StackPanel>
-                                    </Border>
-                                    <!--  Top-right corner: device motor 1, wizard screw 1  -->
-                                    <Border Grid.Row="0" Grid.Column="1" Margin="2,0,0,2" Padding="6,4"
-                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
-                                        <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="TR · Motor 1" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 1" />
-                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopRightDisplay}" />
-                                        </StackPanel>
-                                    </Border>
-                                    <!--  Bottom-left corner: device motor 4, wizard screw 3  -->
-                                    <Border Grid.Row="1" Grid.Column="0" Margin="0,2,2,0" Padding="6,4"
-                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
-                                        <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="BL · Motor 4" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 3" />
-                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomLeftDisplay}" />
-                                        </StackPanel>
-                                    </Border>
-                                    <!--  Bottom-right corner: device motor 3, wizard screw 4  -->
-                                    <Border Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Padding="6,4"
-                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
-                                        <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="BR · Motor 3" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 4" />
-                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomRightDisplay}" />
-                                        </StackPanel>
-                                    </Border>
-                                </Grid>
-                            </StackPanel>
+                            <!--  Live per-corner motor positions + Δ (shared template; also rendered in the
+                                  running and complete panels). Self-gates on IsTiltDeviceConnected.  -->
+                            <ContentControl
+                                Margin="0,8,0,0"
+                                Content="{Binding}"
+                                ContentTemplate="{StaticResource HF_TiltDevicePositionsGrid}" />
 
                             <!--  Persisted per-profile device safety limits (project invariant: every
                                   persisted option gets a UI control — these three were deferred here
@@ -942,6 +955,17 @@
                         </Style>
                     </StackPanel.Style>
 
+                    <!--  Step progress + short title above the instruction paragraph (a: "Step N of M",
+                          b: a scannable header). Both are always populated on an active measurement step.  -->
+                    <TextBlock
+                        FontSize="11"
+                        Opacity="0.7"
+                        Text="{Binding StepProgressDisplay}" />
+                    <TextBlock
+                        Margin="0,1,0,6"
+                        FontWeight="Bold"
+                        Text="{Binding StepTitle}" />
+
                     <TextBlock
                         Margin="0,0,0,10"
                         Text="{Binding StepInstructions}"
@@ -1006,6 +1030,13 @@
                                 Text="Auto Run All" />
                         </Button>
                     </StackPanel>
+
+                    <!--  Live motor positions + Δ during the run (d). Panel A's copy is collapsed while
+                          running, so the display is repeated here where it updates per move.  -->
+                    <ContentControl
+                        Margin="0,4,0,4"
+                        Content="{Binding}"
+                        ContentTemplate="{StaticResource HF_TiltDevicePositionsGrid}" />
 
                     <!--  Device connection warning: shown when Run Measurement is visible but devices are not connected  -->
                     <TextBlock
@@ -1306,6 +1337,13 @@
                         Margin="0,0,0,5"
                         Text="{Binding StepInstructions}"
                         TextWrapping="Wrap" />
+
+                    <!--  Final motor positions + Δ: the most valuable moment for this display — confirm the
+                          restore-to-baseline move brought every Δ back to 0.  -->
+                    <ContentControl
+                        Margin="0,4,0,4"
+                        Content="{Binding}"
+                        ContentTemplate="{StaticResource HF_TiltDevicePositionsGrid}" />
 
                     <Border
                         Margin="0,5"

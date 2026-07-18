@@ -46,13 +46,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
     }
 
     /// <summary>
-    /// One row of the approval dialog's move list. <see cref="WireCommand"/> is the exact signed string
-    /// sent to the device (e.g. <c>tr,150</c>) — the safety-critical element the dialog displays verbatim.
+    /// One row of the approval dialog's move list. <see cref="SemanticText"/> is the human-meaningful
+    /// primary line (which numbered screws move, and by how many signed steps); <see cref="MoveKindLabel"/>
+    /// tags the move as Corner / Side / Backfocus. <see cref="WireCommand"/> is the exact string sent to the
+    /// device (e.g. <c>tr,150</c>), demoted to a small auditability chip rather than the row's anchor.
     /// </summary>
     public sealed class TiltDeviceAdjustmentMoveRow {
 
-        public TiltDeviceAdjustmentMoveRow(string wireCommand, string description, TiltMoveGroup group) {
+        public TiltDeviceAdjustmentMoveRow(string wireCommand, string semanticText, string moveKindLabel, string description, TiltMoveGroup group) {
             WireCommand = wireCommand ?? string.Empty;
+            SemanticText = semanticText ?? string.Empty;
+            MoveKindLabel = moveKindLabel ?? string.Empty;
             Description = description ?? string.Empty;
             Group = group;
         }
@@ -60,7 +64,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
         /// <summary>The exact wire command string, e.g. <c>tr,150</c> or <c>bf,-20</c>.</summary>
         public string WireCommand { get; }
 
-        /// <summary>Human-readable description of the move.</summary>
+        /// <summary>
+        /// Human-readable, screw-oriented description of the move (e.g. "Corner move — Screw 1 +142, Screw 3
+        /// −142 steps"). The primary text shown for each row.
+        /// </summary>
+        public string SemanticText { get; }
+
+        /// <summary>Short kind tag for the row badge: "Corner", "Side", or "Backfocus".</summary>
+        public string MoveKindLabel { get; }
+
+        /// <summary>The planner's internal axis description (kept for status text / diagnostics).</summary>
         public string Description { get; }
 
         public TiltMoveGroup Group { get; }
@@ -229,7 +242,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
                 ?? throw new InvalidOperationException("The tilt-device replanner returned a null preview.");
             Preview = preview;
             Moves = preview.Plan.Moves
-                .Select(m => new TiltDeviceAdjustmentMoveRow(EatCommands.Format(m), m.Description, m.Group))
+                .Select(m => new TiltDeviceAdjustmentMoveRow(
+                    EatCommands.Format(m), BuildSemanticText(m), BuildMoveKindLabel(m.Axis), m.Description, m.Group))
                 .ToArray();
             CornerResiduals = BuildCornerResiduals(preview.Plan.ResidualMicronsPerCorner);
 
@@ -263,6 +277,82 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
         private void Cancel() {
             tcs.TrySetResult(TiltDeviceAdjustmentChoice.Cancelled);
             RequestClose?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>Short kind tag for the row badge, derived from the move's axis.</summary>
+        internal static string BuildMoveKindLabel(TiltMoveAxis axis) {
+            switch (axis) {
+                case TiltMoveAxis.DiagonalA:
+                case TiltMoveAxis.DiagonalB:
+                    return "Corner";
+
+                case TiltMoveAxis.EdgeVertical:
+                case TiltMoveAxis.EdgeHorizontal:
+                    return "Side";
+
+                case TiltMoveAxis.Backfocus:
+                    return "Backfocus";
+
+                default:
+                    return "Move";
+            }
+        }
+
+        /// <summary>
+        /// Builds the human-readable, screw-oriented description of a move from its per-corner step effect
+        /// (wizard screw indices 1..4). Deliberately uses SIGNED STEPS (+ = the wizard's positive/clockwise
+        /// step direction, − = the opposite) rather than a physical "up/down": whether a positive step raises
+        /// or lowers a corner is rig-dependent (the ScrewInwardCurvatureSign the assumed-direction warning is
+        /// about), so asserting up/down here could be wrong. The one-line legend in the dialog explains the sign.
+        /// </summary>
+        internal static string BuildSemanticText(TiltAdapterMove move) {
+            if (move == null) {
+                return string.Empty;
+            }
+
+            if (move.Axis == TiltMoveAxis.Backfocus) {
+                string signed = move.Steps.ToString("+0;-0;0", CultureInfo.InvariantCulture);
+                return string.Format(CultureInfo.InvariantCulture,
+                    "All four screws {0} steps together — changes backfocus (sensor spacing), not tilt.", signed);
+            }
+
+            var perCorner = move.PerCornerSteps;
+            var positives = new List<int>();
+            var negatives = new List<int>();
+            int magnitude = 0;
+            for (int i = 0; i < perCorner.Count; ++i) {
+                int s = (int)Math.Round(perCorner[i], MidpointRounding.AwayFromZero);
+                if (s > 0) {
+                    positives.Add(i + 1);
+                    magnitude = Math.Abs(s);
+                } else if (s < 0) {
+                    negatives.Add(i + 1);
+                    magnitude = Math.Abs(s);
+                }
+            }
+
+            string kind = (move.Axis == TiltMoveAxis.DiagonalA || move.Axis == TiltMoveAxis.DiagonalB)
+                ? "Corner move" : "Side move";
+            var parts = new List<string>(2);
+            if (positives.Count > 0) {
+                parts.Add(string.Format(CultureInfo.InvariantCulture, "{0} +{1}", FormatScrews(positives), magnitude));
+            }
+            if (negatives.Count > 0) {
+                parts.Add(string.Format(CultureInfo.InvariantCulture, "{0} -{1}", FormatScrews(negatives), magnitude));
+            }
+            return string.Format(CultureInfo.InvariantCulture, "{0} — {1} steps", kind, string.Join(", ", parts));
+        }
+
+        /// <summary>"Screw 1" / "Screws 1 &amp; 2" / "Screws 1, 2 &amp; 3" for a list of wizard screw numbers.</summary>
+        private static string FormatScrews(IReadOnlyList<int> screws) {
+            if (screws.Count == 0) {
+                return string.Empty;
+            }
+            if (screws.Count == 1) {
+                return string.Format(CultureInfo.InvariantCulture, "Screw {0}", screws[0]);
+            }
+            var head = string.Join(", ", screws.Take(screws.Count - 1));
+            return string.Format(CultureInfo.InvariantCulture, "Screws {0} & {1}", head, screws[screws.Count - 1]);
         }
 
         private static IReadOnlyList<TiltDeviceCornerResidualRow> BuildCornerResiduals(IReadOnlyList<double> residualMicrons) {

@@ -116,10 +116,13 @@
             Margin="0,4,0,0"
             Foreground="{StaticResource FgDim}"
             TextWrapping="Wrap"
-            Text="The commands below physically move the tilt adapter's motors, and the device stores every move in EEPROM. There is no automatic undo — verify each signed command before proceeding." />
+            Text="The moves below physically turn the tilt adapter's motor screws, and the device stores every move in EEPROM. There is no automatic undo — check which screws move, and how far, before proceeding." />
 
         <!--  Group toggles. Toggling either recomputes the plan below, so what is displayed is always
-              exactly what will be sent.  -->
+              exactly what will be sent. The captions are SIBLING TextBlocks, not CheckBox.Content: NINA's
+              themed CheckBox template does not render Content, so a caption placed inside the CheckBox is
+              invisible (the toggles then look unlabeled). Keeping the text as a sibling renders it in every
+              theme; AutomationProperties.Name carries the label to screen readers.  -->
         <StackPanel Grid.Row="2" Margin="0,12,0,0" Orientation="Horizontal">
             <TextBlock
                 Margin="0,0,10,0"
@@ -129,30 +132,38 @@
             <CheckBox
                 VerticalAlignment="Center"
                 VerticalContentAlignment="Center"
-                IsChecked="{Binding ApplyTilt}">
-                <TextBlock Foreground="{StaticResource Fg}" Text="Tilt correction" />
-            </CheckBox>
+                AutomationProperties.Name="Tilt correction"
+                IsChecked="{Binding ApplyTilt}" />
+            <TextBlock
+                Margin="6,0,0,0"
+                VerticalAlignment="Center"
+                Foreground="{StaticResource Fg}"
+                Text="Tilt correction" />
             <CheckBox
                 Margin="18,0,0,0"
                 VerticalAlignment="Center"
                 VerticalContentAlignment="Center"
-                IsChecked="{Binding ApplyBackfocus}">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Foreground="{StaticResource Fg}" Text="Backfocus correction" />
-                    <!--  Anchors the assumed-direction caveat to the group it applies to; the full
-                          explanation is in the warnings below.  -->
-                    <TextBlock
-                        Margin="6,0,0,0"
-                        Foreground="{StaticResource WarnFg}"
-                        Text="⚠ (assumed direction)"
-                        Visibility="{Binding AssumedDirectionWarningVisible, Converter={StaticResource BoolToVis}}" />
-                </StackPanel>
-            </CheckBox>
+                AutomationProperties.Name="Backfocus correction"
+                IsChecked="{Binding ApplyBackfocus}" />
+            <TextBlock
+                Margin="6,0,0,0"
+                VerticalAlignment="Center"
+                Foreground="{StaticResource Fg}"
+                Text="Backfocus correction" />
+            <!--  Anchors the assumed-direction caveat to the group it applies to; the full
+                  explanation is in the warnings below.  -->
+            <TextBlock
+                Margin="6,0,0,0"
+                VerticalAlignment="Center"
+                Foreground="{StaticResource WarnFg}"
+                Text="⚠ (assumed direction)"
+                Visibility="{Binding AssumedDirectionWarningVisible, Converter={StaticResource BoolToVis}}" />
         </StackPanel>
 
-        <!--  Move list: the signed wire command is the most prominent element of each row.  -->
+        <!--  Move list: each row reads semantically (which screws move, by how many signed steps). The raw
+              wire command is demoted to a small dim chip on the right for auditability, not the row anchor.  -->
         <StackPanel Grid.Row="3">
-            <TextBlock Style="{StaticResource SectionHeader}" Text="COMMANDS TO SEND" />
+            <TextBlock Style="{StaticResource SectionHeader}" Text="MOVES TO SEND" />
             <Border
                 Background="{StaticResource PanelBg}"
                 BorderBrush="{StaticResource PanelBorder}"
@@ -163,54 +174,62 @@
                     <ItemsControl ItemsSource="{Binding Moves}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="0,3">
+                                <Grid Margin="0,4">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="82" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
+                                    <!--  Move-kind badge: Corner / Side / Backfocus.  -->
                                     <Border
                                         Grid.Column="0"
+                                        VerticalAlignment="Center"
                                         Background="{StaticResource CommandBg}"
                                         BorderBrush="{StaticResource PanelBorder}"
                                         BorderThickness="1"
                                         CornerRadius="3"
-                                        Padding="8,3">
+                                        Padding="6,3">
                                         <TextBlock
                                             HorizontalAlignment="Center"
-                                            FontFamily="Consolas"
-                                            FontSize="16"
-                                            FontWeight="Bold"
-                                            Foreground="{StaticResource CommandFg}"
-                                            Text="{Binding WireCommand}" />
+                                            FontSize="12"
+                                            FontWeight="SemiBold"
+                                            Foreground="{StaticResource Fg}"
+                                            Text="{Binding MoveKindLabel}" />
                                     </Border>
+                                    <!--  Primary line: which screws move, and by how many signed steps.  -->
                                     <TextBlock
                                         Grid.Column="1"
                                         Margin="10,0"
                                         VerticalAlignment="Center"
+                                        FontSize="13"
                                         Foreground="{StaticResource Fg}"
-                                        Text="{Binding Description}"
+                                        Text="{Binding SemanticText}"
                                         TextWrapping="Wrap" />
-                                    <Border
+                                    <!--  Demoted raw wire command (auditability), tooltip explains it.  -->
+                                    <TextBlock
                                         Grid.Column="2"
                                         VerticalAlignment="Center"
-                                        BorderBrush="{StaticResource PanelBorder}"
-                                        BorderThickness="1"
-                                        CornerRadius="8"
-                                        Padding="8,1">
-                                        <TextBlock
-                                            FontSize="11"
-                                            Foreground="{StaticResource FgDim}"
-                                            Text="{Binding GroupLabel}" />
-                                    </Border>
+                                        FontFamily="Consolas"
+                                        FontSize="11"
+                                        Foreground="{StaticResource FgDim}"
+                                        Text="{Binding WireCommand}"
+                                        ToolTip="The exact command string sent to the device." />
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <TextBlock
                         Foreground="{StaticResource FgDim}"
-                        Text="No commands will be sent."
+                        Text="No moves will be sent."
                         Visibility="{Binding HasNoMoves, Converter={StaticResource BoolToVis}}" />
+                    <!--  Legend: explains the signed-step direction without asserting a rig-dependent up/down.  -->
+                    <TextBlock
+                        Margin="0,8,0,0"
+                        FontSize="11"
+                        Foreground="{StaticResource FgDim}"
+                        TextWrapping="Wrap"
+                        Text="+ = the wizard's positive step direction (clockwise / tighten); − = the opposite. Screw numbers match the Tilt Adapter Wizard."
+                        Visibility="{Binding HasMoves, Converter={StaticResource BoolToVis}}" />
                 </StackPanel>
             </Border>
         </StackPanel>

@@ -525,6 +525,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(IsComplete));
                 RaisePropertyChanged(nameof(IsOnMeasurementStep));
                 RaisePropertyChanged(nameof(StepInstructions));
+                RaisePropertyChanged(nameof(StepProgressDisplay));
+                RaisePropertyChanged(nameof(StepTitle));
                 RaisePropertyChanged(nameof(IsCurrentStepAtBaseline));
                 RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
                 NotifyCommandsCanExecuteChanged();
@@ -535,6 +537,52 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Steps that end with running the aberration inspector (measurement auto-advances)
         public bool IsOnMeasurementStep => activeMeasurementSteps.Contains(currentStep);
+
+        // "Step N of M" over the active measurement-step set (4- or 6-step, captured at run start). Empty on
+        // the terminal Complete panel, which shows its own "Calibration Complete!" header instead.
+        public string StepProgressDisplay {
+            get {
+                if (currentStep == WizardStep.Complete) {
+                    return string.Empty;
+                }
+                int idx = Array.IndexOf(activeMeasurementSteps, currentStep);
+                if (idx < 0) {
+                    return string.Empty;
+                }
+                return string.Format(CultureInfo.InvariantCulture, "Step {0} of {1}", idx + 1, activeMeasurementSteps.Length);
+            }
+        }
+
+        // Short, scannable title shown above the longer StepInstructions paragraph so the user can tell where
+        // they are without re-reading the instructions.
+        public string StepTitle => StepTitleText(currentStep);
+
+        internal static string StepTitleText(WizardStep step) {
+            switch (step) {
+                case WizardStep.Baseline: return "Baseline Measurement";
+                case WizardStep.AllInward: return "All Screws Inward";
+                case WizardStep.ReBaseline1: return "Return to Baseline";
+                case WizardStep.Screw1: return "Move Screw 1";
+                case WizardStep.ReBaseline2: return "Return to Baseline";
+                case WizardStep.Screw2: return "Move Screw 2";
+                case WizardStep.Complete: return "Calibration Complete";
+                default: return string.Empty;
+            }
+        }
+
+        // T11: true while Auto Run All is driving the calibration hands-off. Exposed (INPC) so the step copy
+        // can drop its "click Run Measurement" imperatives — those buttons are hidden during an automated run.
+        public bool IsAutoRunningAll {
+            get => isAutoRunningAll;
+            private set {
+                if (isAutoRunningAll != value) {
+                    isAutoRunningAll = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(StepInstructions));
+                    RaisePropertyChanged(nameof(StepTitle));
+                }
+            }
+        }
 
         public bool IsCalibrationValid =>
             tiltAdapterOptions.IsCalibrated &&
@@ -783,19 +831,29 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // IsTiltDeviceConnected is false whenever the service is null or not connected).
         public string StepInstructions =>
             (IsTiltDeviceConnected && IsMotorizedDevice)
-                ? DeviceStepInstructionsText(currentStep, (int)Math.Round(CalibrationAppliedAmount))
+                ? DeviceStepInstructionsText(currentStep, (int)Math.Round(CalibrationAppliedAmount), IsAutoRunningAll)
                 : StepInstructionsText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, CalibrationAppliedAmount);
 
         // Automated-status wording for a connected, device-driven run: describes what the wizard will send
         // (Move.Description) rather than what the user must do by hand. Baseline has no move (measurement
-        // only); every other step maps 1:1 via EatWizardMapping.MoveForStep.
-        internal static string DeviceStepInstructionsText(WizardStep step, int appliedSteps) {
+        // only); every other step maps 1:1 via EatWizardMapping.MoveForStep. When <paramref name="autoRunning"/>
+        // (Auto Run All is active) the "click Run Measurement" imperatives are dropped — those buttons are
+        // hidden during an automated run, so telling the user to click them reads as a stalled manual run.
+        internal static string DeviceStepInstructionsText(WizardStep step, int appliedSteps, bool autoRunning) {
             if (step == WizardStep.Baseline) {
-                return "Connected: the wizard will drive the tilt adapter through each calibration step automatically. " +
-                    "Ensure the device is at its starting position (as zeroed in the vendor app), then click Run Measurement " +
-                    "or Auto Run All to begin.";
+                return autoRunning
+                    ? "Running automatically — the wizard is driving the tilt adapter through the calibration. " +
+                        "No action needed; it will apply each move, measure, and advance on its own."
+                    : "Connected: the wizard will drive the tilt adapter through each calibration step automatically. " +
+                        "Ensure the device is at its starting position (as zeroed in the vendor app), then click Run Measurement " +
+                        "or Auto Run All to begin.";
             }
             var move = EatWizardMapping.MoveForStep(step, appliedSteps);
+            if (autoRunning) {
+                return move == null
+                    ? "Running automatically — measuring…"
+                    : $"Running automatically — {move.Description}. The wizard applies this move, measures, and advances without further input.";
+            }
             return move == null
                 ? "Click Run Measurement to continue."
                 : $"Automated: {move.Description}. Click Run Measurement (or Auto Run All) to apply this move and measure.";
@@ -1762,7 +1820,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 return;
             }
 
-            isAutoRunningAll = true;
+            IsAutoRunningAll = true;
             NotifyCommandsCanExecuteChanged();
 
             measureCts?.Dispose();
@@ -1799,7 +1857,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 StatusText = "Auto Run All cancelled; device returned to its original position.";
             } finally {
                 IsMeasuring = false;
-                isAutoRunningAll = false;
+                IsAutoRunningAll = false;
                 NotifyCommandsCanExecuteChanged();
             }
         }
@@ -2354,7 +2412,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             IsWizardRunning = false;
             IsMeasuring = false;
             isReplaying = false;
-            isAutoRunningAll = false;
+            IsAutoRunningAll = false;
             // Abandoning a device-driven run releases the exclusive lease so other automation (a future run,
             // the inspector's Automatic Adjustment) isn't blocked. Deliberately does NOT attempt to drive the
             // device back to baseline — an abandoned run's physical recovery is left to the user (mirrors the
@@ -2763,6 +2821,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             bool replayHasCurvatureSteps = byStep.ContainsKey(WizardStep.AllInward.ToString());
             var replaySteps = GetMeasurementSteps(replayHasCurvatureSteps);
             activeMeasurementSteps = replaySteps;
+            RaisePropertyChanged(nameof(StepProgressDisplay)); // step count (4 vs 6) may differ from the prior run
             foreach (var step in replaySteps) {
                 if (!byStep.ContainsKey(step.ToString())) {
                     Notification.ShowError($"metadata.json has no saved folder for step '{step}'. Cannot replay.");
