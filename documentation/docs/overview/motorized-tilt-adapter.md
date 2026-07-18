@@ -41,8 +41,11 @@ first successful position query, and during a calibration run each one also show
 since the run started.
 
 The counters are **absolute** and stored in the adapter's EEPROM: they survive power cycles and do
-not reset to zero between sessions (an EAT as shipped rests near 600 on every motor). The plugin
-never zeroes them; if you want the counters re-zeroed, do it in the vendor's app.
+not reset between sessions, so they carry whatever position your earlier adjustments left them at.
+The plugin never zeroes them; if you want the counters re-zeroed, do it in the vendor's app.
+
+Automation keeps every motor inside a travel window of **0 to Max excursion**. Travel below 0 is
+never sent, so the useful working room is whatever sits between your current counters and the cap.
 
 ## Hands-off calibration
 
@@ -94,8 +97,9 @@ The dialog shows:
   most about one step (1.8 µm) of error per corner.
 - Warnings when something needs attention: the adapter direction is still assumed rather than
   measured, the saved step size disagrees with the wizard's last measured value, the measured tilt
-  contains a twist component that no rigid adapter can remove, or a move would violate a travel
-  limit (which disables sending).
+  contains a twist component that no rigid adapter can remove, a [backfocus bias](#why-corrections-near-zero-add-a-backfocus-move)
+  had to be added to keep the motors at or above 0, or a move would violate a travel limit (which
+  disables sending).
 - The move count and an estimated duration. Each move takes roughly five to ten seconds.
 
 **Cancel** sends nothing. The confirm button, labeled **Send 2 moves** (or however many are
@@ -119,15 +123,31 @@ bound what automation may send:
 | Setting | Default | What it does |
 |---|---|---|
 | **Max steps per command** | 200 | Cap on the magnitude of a single commanded move. Larger planned moves are split or refused. |
-| **Max excursion (steps)** | 2000 | Cap on the absolute position counter any motor may reach. A move that would carry a motor past it is refused before anything is sent. |
+| **Max excursion (steps)** | 2000 | Upper bound of the travel window. Every motor is kept between 0 and this value; a move that would carry one outside it is refused before anything is sent. |
 | **Settle time (s)** | 3 | Seconds to wait after each commanded move before polling positions or sending the next command. |
 
 The excursion limit is compared against the adapter's absolute, EEPROM-persisted counters, not
-against how far the current session has moved. Since those counters rest a few hundred steps from
-zero (near 600 per motor as shipped), the cap must exceed the resting value plus your working
-travel; that is why the default is 2000 rather than something small, and why lowering it near or
-below the resting counter value would refuse the very first move. A refused move names the motor
-and the position it would have reached, and nothing is sent.
+against how far the current session has moved. It is the **upper** bound of a travel window whose
+lower bound is fixed at 0: with the default of 2000, every motor is kept between 0 and 2000.
+Because the counters carry over between sessions, the cap has to exceed wherever your motors
+currently sit plus the travel you intend to use — a limit set tighter than a motor's current
+position refuses the very first move, however small that move is. A refused move names the motor and
+the position it would have reached, and nothing is sent.
+
+### Why corrections near zero add a backfocus move
+
+A tilt correction is **differential**: it drives one corner up and the opposite corner down by the
+same amount. With the motors at or near 0 there is nothing below to give, so the correction cannot
+be applied as-is.
+
+Rather than refuse it, the plugin lifts the whole adapter first: it prepends a **backfocus bias**, a
+move that raises all four motors by the smallest amount that keeps the correction inside the window.
+The approval dialog shows the bias as its own move and warns that it is present.
+
+The bias is not free. Moving all four screws together *is* a backfocus change, so it shifts your
+backfocus by the bias amount, and that shift is included in the residuals the dialog reports. To
+avoid it, give the motors room to work before adjusting — raise them away from zero in the vendor's
+app, or apply a positive backfocus move of your own — so corrections have travel underneath them.
 
 ## The Simulator port
 
@@ -171,9 +191,15 @@ completes.
 
 **A move was refused by a limit.** The error says which limit. For **Max steps per command**, either
 reduce the amount being sent (for calibration, **Steps applied per screw**) or raise the limit. For
-**Max excursion (steps)**, remember the check is against the absolute counters: an adapter whose
-counters already rest near the cap has no headroom, so either raise the cap or re-zero the counters
-in the vendor's app.
+**Max excursion (steps)**, remember the check is against the absolute counters: a motor already
+sitting near the cap has no headroom left, so either raise the cap or re-zero the counters in the
+vendor's app.
+
+**A move was refused for going below 0.** Travel below zero is never sent. During a calibration run
+(which sends its moves directly rather than through the planner) this means the motors are sitting
+too close to zero for a differential move of that size — raise them first, in the vendor's app or
+with a positive backfocus move, then re-run. If a motor is *already* at a negative counter from
+earlier work outside the plugin, no move will be accepted until you re-zero it in the vendor's app.
 
 **The Simulator port refuses to connect.** Connect the **Hocus Focus Simulator** camera first, and
 answer Yes when asked to change the simulator's tilt configuration to match the preset (or align the

@@ -146,14 +146,22 @@ public class SimulatedEatTransportTests {
         Assert.That(controller.AbsolutePositionsKnown, Is.True, "the simulated cp reply always parses, so positions are known");
 
         var tiltBefore = simOptions.TiltAmountMicrons;
+
+        // The simulated actuator starts every motor at 0, and travel below 0 is refused, so a differential
+        // tilt move needs headroom underneath first -- exactly the lift the planner adds automatically on the
+        // real device. Doing it explicitly here keeps this test about the transport/actuator round trip.
+        await controller.ExecuteMoveAsync(
+            new TiltAdapterMove(TiltMoveAxis.Backfocus, 50, TiltMoveGroup.Backfocus, "bf,50"), null, CancellationToken.None);
+
         var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 50, TiltMoveGroup.Tilt, "tr,50");
         await controller.ExecuteMoveAsync(move, null, CancellationToken.None);
 
         var positions = await controller.QueryPositionsAsync(CancellationToken.None);
 
         Assert.Multiple(() => {
-            // DiagonalA +50 -> device order [50, 0, 0, -50] (TR, TL, BR, BL).
-            Assert.That(positions.PerMotorSteps, Is.EqualTo(new[] { 50, 0, 0, -50 }));
+            // Backfocus +50 -> [50, 50, 50, 50]; DiagonalA +50 then adds [+50, 0, 0, -50] in device order
+            // (TR, TL, BR, BL), landing on [100, 50, 50, 0] with nothing below zero.
+            Assert.That(positions.PerMotorSteps, Is.EqualTo(new[] { 100, 50, 50, 0 }));
             Assert.That(simOptions.TiltAmountMicrons, Is.Not.EqualTo(tiltBefore), "the move must fold into the simulator's injected tilt");
         });
     }

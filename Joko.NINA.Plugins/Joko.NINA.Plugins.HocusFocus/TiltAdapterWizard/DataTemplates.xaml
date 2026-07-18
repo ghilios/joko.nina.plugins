@@ -456,7 +456,7 @@
                             </UniformGrid>
                             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
                                 <TextBlock VerticalAlignment="Center" Text="Max excursion (steps)"
-                                    ToolTip="Safety cap on the total cumulative travel (in device steps) a motor may move from its tracked home position before automation refuses to move it further." />
+                                    ToolTip="Upper bound of the travel window, in device steps. Automation keeps every motor within [0, this value] and refuses any move that would leave it — travel below 0 is never allowed. The counters are stored in the adapter and carry over between sessions, so the cap must exceed wherever the motors already sit plus the travel you intend to use. Because a tilt correction drives one corner down, a correction near 0 is automatically preceded by a backfocus move that lifts all four motors enough to fit." />
                                 <TextBox MinWidth="60">
                                     <TextBox.Text>
                                         <Binding Path="TiltAdapterOptions.TiltDeviceMaxExcursionSteps" UpdateSourceTrigger="LostFocus">

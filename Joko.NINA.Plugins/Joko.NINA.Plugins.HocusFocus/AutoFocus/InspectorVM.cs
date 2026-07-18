@@ -2415,7 +2415,34 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var plan = TiltMovePlanner.Plan(sPerScrew, includeTilt, includeBackfocus, unitMicrons, maxStepsPerCommand);
             try {
                 var ordered = controller.OrderForMinimalPeakExcursion(plan.Moves);
-                var orderedPlan = new TiltAdapterMovePlan(ordered, plan.ResidualMicronsPerCorner, plan.TwistResidualSteps, plan.EstimatedSeconds);
+                // The controller may PREPEND a backfocus bias so a differential tilt correction never drives a
+                // motor below 0. That bias is a genuine piston -- it shifts backfocus -- so the residual has to
+                // be recomputed from what will actually be sent. Carrying the unbiased plan's residual here
+                // would silently under-report the very backfocus error the bias introduces.
+                var applied = new double[4];
+                foreach (var move in ordered) {
+                    for (int i = 0; i < 4; ++i) {
+                        applied[i] += move.PerCornerSteps[i];
+                    }
+                }
+                var residual = new double[4];
+                for (int i = 0; i < 4; ++i) {
+                    residual[i] = (applied[i] - sPerScrew[i]) * unitMicrons;
+                }
+
+                // The bias is the uniform surplus the controller added on top of what was planned; it lands
+                // equally on all four corners (it is a piston), so the smallest per-corner surplus is it.
+                var planned = new double[4];
+                foreach (var move in plan.Moves) {
+                    for (int i = 0; i < 4; ++i) {
+                        planned[i] += move.PerCornerSteps[i];
+                    }
+                }
+                int biasSteps = (int)Math.Round(Enumerable.Range(0, 4).Min(i => applied[i] - planned[i]));
+                // A prepended bias also adds real execution time; scale the estimate by the per-move rate the
+                // planner used rather than carrying a move count that no longer matches.
+                double perMoveSeconds = plan.Moves.Count > 0 ? plan.EstimatedSeconds / plan.Moves.Count : 0.0;
+                var orderedPlan = new TiltAdapterMovePlan(ordered, residual, plan.TwistResidualSteps, ordered.Count * perMoveSeconds, Math.Max(0, biasSteps));
                 return new TiltDevicePlanPreview(orderedPlan, hardLimitViolated: false, limitWarning: string.Empty);
             } catch (TiltDeviceLimitException ex) {
                 return new TiltDevicePlanPreview(plan, hardLimitViolated: true, limitWarning: ex.Message);
